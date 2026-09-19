@@ -402,6 +402,20 @@ allowlist:
   the manifest entry (`DESKTOP_IPC_CHANNELS.<group>.<key>`) — the manifest
   stays the one literal owner. `settleIpcResult({ category, code }, run)`
   converts a throw-style operation into the envelope (logged in main).
+- **Universal types do not own desktop capabilities (BST-996).**
+  `@brainstrike/types` exports neutral database, assistant-selection, and
+  file-system wire data only. It has no `electron-api` module, no
+  `window.electronAPI` augmentation, and no `Electron*API` bridge interfaces.
+  The database package owns `DesktopDatabaseBridge` and its capability reader;
+  the desktop app composes distinct visible UI, chunking host, and embedding
+  host API roles from that owner type, the shared host protocols, the UI layout
+  capability, and desktop-local file-system, live-query, and storage shapes.
+  Each preload uses its exact role type and checks its runtime key set before
+  exposing it; the embedding role also owns the scoped vector-preferences
+  capability. Other packages read the narrow owning capability they use, while
+  web keeps the capability absent. The recursive TypeScript AST boundary and
+  its negative-control fixture are pinned by
+  `scripts/__tests__/desktop-ipc-type-boundary-contract.test.mjs`.
 - Migrated so far: `changes`, `clipboard`, `commandSessions`, `contextFiles`,
   `database`, `forge`, `git`, `notesVault`, `skills`, `terminal`, `userCommands`,
   `userPersonas`, `worktrees`, MCP, visible-UI `storage` / layout / settings,

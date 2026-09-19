@@ -1,4 +1,7 @@
-import type { ChunkResult } from '@brainstrike/chunking-worker';
+import type {
+  McpContentApplicationRequest,
+  McpContentApplicationResult,
+} from '@brainstrike/assistant-service/mcp-content-application-port';
 import type {
   WorkspaceIndexingIdleState,
   WorkspaceIndexingPowerSource,
@@ -9,50 +12,20 @@ import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
-  ElectronFileSystemAPI,
 } from '@brainstrike/types';
-import type {
-  ChunkingHostChunkBatchRequest,
-  ChunkingHostChunkFileByIdRequest,
-  ChunkingHostChunkFileRequest,
-  ChunkingHostProgressEvent,
-  ChunkingHostRequest,
-  ChunkingHostResponseReport,
-  ChunkingHostStatus,
-} from '../chunking-host-shared';
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
-import type {
-  EmbeddingHostBackfillInfo,
-  EmbeddingHostBackfillProgress,
-  EmbeddingHostBackfillRequest,
-  EmbeddingHostCommand,
-  EmbeddingHostQueryEmbeddingPayload,
-  EmbeddingHostQueryEmbeddingRequest,
-  EmbeddingHostQueryEmbeddingResponseReport,
-  EmbeddingHostStatus,
-} from '../embedding-host-shared';
 import type { changesContract } from '../ipc-domains/changes.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
-import type {
-  DatabaseBridge,
-  DatabaseLiveBridge,
-  DatabasePathBridge,
-} from '../ipc-domains/database.contract';
 import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import type { skillsContract } from '../ipc-domains/skills.contract';
-import type {
-  layoutContract,
-  settingsContract,
-  storageContract,
-  vectorPreferencesContract,
-} from '../ipc-domains/storage-preferences.contract';
+import type { settingsContract } from '../ipc-domains/storage-preferences.contract';
 import type { terminalContract } from '../ipc-domains/terminal.contract';
 import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
@@ -60,6 +33,24 @@ import type { worktreesContract } from '../ipc-domains/worktrees.contract';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import type { Bridge } from '../platform/ipc-contract';
+import type {
+  ChunkingHostRuntimeBridge,
+  DesktopElectronApi,
+  EmbeddingHostRuntimeBridge,
+  VisibleChunkingHostBridge,
+  VisibleEmbeddingHostBridge,
+} from './desktop-electron-api';
+
+// `mcp:content:*` (BST-1585): the renderer sends the verb payload plus
+// authority; main forces the operation type per channel.
+type McpContentBridgeRequest<Type extends McpContentApplicationRequest['type']> = Omit<
+  Extract<McpContentApplicationRequest, { type: Type }>,
+  'type'
+>;
+type McpContentBridgeResult<Type extends McpContentApplicationResult['type']> = Extract<
+  McpContentApplicationResult,
+  { type: Type }
+>;
 
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
@@ -117,21 +108,7 @@ declare global {
     };
     /** Desktop-only Changes bridge, derived from its pure IPC contract. */
     changes?: Bridge<typeof changesContract>;
-    chunkingHost: {
-      ensureStarted: () => Promise<ChunkingHostStatus>;
-      stop: () => Promise<ChunkingHostStatus>;
-      reset: () => Promise<ChunkingHostStatus>;
-      getStatus: () => Promise<ChunkingHostStatus>;
-      chunkFile: (
-        request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest
-      ) => Promise<ChunkResult>;
-      chunkBatch: (request: ChunkingHostChunkBatchRequest) => Promise<readonly ChunkResult[]>;
-      reportStatus: (status: ChunkingHostStatus) => void;
-      reportResponse: (response: ChunkingHostResponseReport) => void;
-      onStatus: (callback: (status: ChunkingHostStatus) => void) => () => void;
-      onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => () => void;
-      onRequest: (callback: (request: ChunkingHostRequest) => void) => () => void;
-    };
+    chunkingHost?: ChunkingHostRuntimeBridge | VisibleChunkingHostBridge;
     /** Desktop-only clipboard write bridge, derived from its contract (BST-1648). */
     clipboard?: Bridge<typeof clipboardContract>;
     commandPalette?: {
@@ -154,44 +131,8 @@ declare global {
       isTestMode: boolean;
       noteReloadIntent: (reason: string) => Promise<void>;
     };
-    electronAPI: Bridge<typeof layoutContract> & {
-      storage: Bridge<typeof storageContract>;
-      /** Scoped embedding-host-only persisted preference capability. */
-      vectorPreferences?: Bridge<typeof vectorPreferencesContract>;
-      fileSystem: ElectronFileSystemAPI;
-      /** Database operations derived from the pure database contract. */
-      db: DatabaseBridge;
-      /** Live-query operations derived from the pure live-query contract. */
-      dbLive: DatabaseLiveBridge;
-      // Database path method (legacy)
-      getUserDataPath: DatabasePathBridge['getUserDataPath'];
-    };
-    embeddingHost: {
-      ensureStarted: () => Promise<EmbeddingHostStatus>;
-      // Resolves { canceled: true } for a deliberate backfill cancellation — the
-      // main-process handler swallows the cancellation sentinel rather than
-      // rejecting (a rejection makes Electron log "Error occurred in handler").
-      enqueueBackfill: (
-        request: EmbeddingHostBackfillRequest
-      ) => Promise<{ requestId: string } | { canceled: true }>;
-      cancelBackfill: (embeddingSetId: string) => Promise<void>;
-      cancelAllBackfills: () => Promise<void>;
-      getBackfillsInFlight: () => Promise<EmbeddingHostBackfillInfo[]>;
-      queryEmbedding: (payload: EmbeddingHostQueryEmbeddingPayload) => Promise<number[]>;
-      stop: () => Promise<EmbeddingHostStatus>;
-      reset: () => Promise<EmbeddingHostStatus>;
-      getStatus: () => Promise<EmbeddingHostStatus>;
-      reportStatus: (status: EmbeddingHostStatus) => void;
-      onBackfillProgress: (
-        callback: (progress: EmbeddingHostBackfillProgress) => void
-      ) => () => void;
-      onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
-      onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
-      onQueryEmbeddingRequest: (
-        callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
-      ) => () => void;
-      reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
-    };
+    electronAPI?: DesktopElectronApi;
+    embeddingHost?: EmbeddingHostRuntimeBridge | VisibleEmbeddingHostBridge;
     /**
      * Env bootstrap visibility bridge (BST-1363). Shape defined ONCE in
      * `@brainstrike/assistant-contract/env-bootstrap-bridge`

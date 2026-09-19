@@ -1,3 +1,4 @@
+import type { WatcherHealthEvent } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetFsWatchDispatcherForTest,
@@ -324,7 +325,7 @@ describe('watcher health capability (BST-568 slice 3)', () => {
   }
 
   let adapter: ElectronRendererFileSystemAdapter;
-  let pushHealth: ((event: ReturnType<typeof makeHealthEvent>) => void) | null;
+  let pushHealth: ((event: WatcherHealthEvent) => void) | null;
 
   beforeEach(() => {
     __resetFsWatchDispatcherForTest();
@@ -332,7 +333,7 @@ describe('watcher health capability (BST-568 slice 3)', () => {
     vi.clearAllMocks();
     pushHealth = null;
     vi.mocked(mockElectronAPI.fileSystem.onWatchHealth).mockImplementation(
-      (callback: (event: unknown) => void) => {
+      (callback: (event: WatcherHealthEvent) => void) => {
         pushHealth = callback;
         return () => {
           pushHealth = null;

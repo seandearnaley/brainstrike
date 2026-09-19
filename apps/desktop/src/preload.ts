@@ -10,7 +10,6 @@ import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
 import {
-  type DatabaseBridge,
   type DatabaseLiveBridge,
   type DatabaseLiveQueryUpdate,
   type DatabasePathBridge,
@@ -44,8 +43,6 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
 import { createBridgeExposer, createIpcBridge } from './platform/ipc-bridge';
 
-type EmbeddingTelemetrySnapshot =
-  import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
 type McpContentIpcResponse = import('./ipc-domains/mcp.contract').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
 type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
@@ -67,16 +64,35 @@ import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
+import type {
+  ChunkingHostChunkBatchRequest,
+  ChunkingHostChunkFileByIdRequest,
+  ChunkingHostChunkFileRequest,
+  ChunkingHostProgressEvent,
+  ChunkingHostRequest,
+  ChunkingHostResponseReport,
+  ChunkingHostStatus,
+} from './chunking-host-shared';
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import type {
+  EmbeddingHostBackfillInfo,
+  EmbeddingHostBackfillProgress,
   EmbeddingHostBackfillRequest,
+  EmbeddingHostCommand,
   EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
+  EmbeddingHostStatus,
 } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
+import {
+  assertDesktopElectronApiKeyParity,
+  type VisibleChunkingHostBridge,
+  type VisibleDesktopElectronApi,
+  type VisibleEmbeddingHostBridge,
+} from './types/desktop-electron-api';
 
 // BST-338 preload duplicate contract: sandboxed preloads cannot import the
 // canonical runtime module. This code and the file-read payload declarations
@@ -178,7 +194,10 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
   };
 }
 
-const databaseBridge: DatabaseBridge = createIpcBridge(ipcRenderer, databaseContract);
+const databaseBridge = createIpcBridge(
+  ipcRenderer,
+  databaseContract
+) as unknown as VisibleDesktopElectronApi['db'];
 const databasePathBridge: DatabasePathBridge = createIpcBridge(ipcRenderer, databasePathContract);
 const databaseLiveBridge: DatabaseLiveBridge = {
   ...createIpcBridge(ipcRenderer, databaseLiveContract),
@@ -262,124 +281,7 @@ function createDisabledLocalRuntimeCatalog(runtimeId: string) {
   };
 }
 
-type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
-type ChunkingHostLifecycleState = EmbeddingHostLifecycleState;
-type LlmHostLifecycleState = EmbeddingHostLifecycleState;
-
-interface EmbeddingHostStatus {
-  readonly active: boolean;
-  readonly embeddingRuntime?: {
-    readonly actualWorkerMetadata: {
-      readonly device: 'webgpu' | 'wasm';
-      readonly dtype: string;
-      readonly fallbackApplied: boolean;
-    } | null;
-    readonly backendMismatch: boolean;
-    readonly selectedDevicePreference: 'webgpu' | 'wasm';
-    readonly telemetry: EmbeddingTelemetrySnapshot;
-  };
-  readonly lastError: string | null;
-  readonly runtimeId: string;
-  readonly runtimeKind: 'embedding-host';
-  readonly state: EmbeddingHostLifecycleState;
-}
-
-interface EmbeddingHostCommand {
-  readonly channel: 'control';
-  readonly payload: {
-    readonly action: 'reset' | 'stop';
-  };
-  readonly requestId: string;
-  readonly runtimeId: string;
-  readonly type: 'request';
-}
-
-interface EmbeddingHostBackfillProgress {
-  readonly current: number;
-  readonly embeddingSetId: string;
-  readonly message?: string;
-  readonly requestId: string;
-  readonly stage: string;
-  readonly total: number;
-}
-
-interface EmbeddingHostBackfillInfo {
-  readonly embeddingSetId: string;
-  readonly progress: { current: number; total: number } | null;
-  readonly requestId: string;
-}
-
-interface ChunkingHostStatus {
-  readonly active: boolean;
-  readonly lastError: string | null;
-  readonly runtimeId: string;
-  readonly runtimeKind: 'chunking-host';
-  readonly state: ChunkingHostLifecycleState;
-}
-
-interface ChunkingHostFilePayload {
-  readonly content: string;
-  readonly fileName: string;
-  readonly filePath: string;
-  readonly fileRecordId: string;
-}
-
-interface ChunkingHostChunkFileRequest extends ChunkingHostFilePayload {
-  readonly kind: 'chunk-file';
-  readonly options: unknown;
-  readonly requestId: string;
-}
-
-interface ChunkingHostChunkBatchRequest {
-  readonly files: readonly ChunkingHostFilePayload[];
-  readonly kind: 'chunk-batch';
-  readonly options: unknown;
-  readonly requestId: string;
-}
-
-interface ChunkingHostRequest {
-  readonly channel: 'chunk';
-  readonly payload: ChunkingHostChunkBatchRequest | ChunkingHostChunkFileRequest;
-  readonly requestId: string;
-  readonly runtimeId: string;
-  readonly type: 'request';
-}
-
-interface ChunkingHostProgressEvent {
-  readonly channel: 'chunk' | 'chunk-file-complete' | 'chunk-file-error';
-  readonly payload:
-    | {
-        readonly chunksCreated: number;
-        readonly currentIndex?: number;
-        readonly fileRecordId: string;
-        readonly totalFiles?: number;
-      }
-    | {
-        readonly fileRecordId: string;
-        readonly result: unknown;
-      }
-    | {
-        readonly errorMessage: string;
-        readonly fileRecordId: string;
-      };
-  readonly requestId: string;
-  readonly runtimeId: string;
-  readonly type: 'progress';
-}
-
-interface ChunkingHostResponseReport {
-  readonly channel:
-    | 'chunk'
-    | 'chunk-batch-complete'
-    | 'chunk-error'
-    | 'chunk-file-complete'
-    | 'chunk-file-error'
-    | 'chunk-result';
-  readonly payload: Record<string, unknown>;
-  readonly requestId: string;
-  readonly runtimeId: string;
-  readonly type: 'error' | 'progress' | 'result';
-}
+type LlmHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 
 interface LlmHostStatus {
   readonly active: boolean;
@@ -452,7 +354,7 @@ function unwrapFileReadResult(result: unknown): string {
 if (shouldExposeBridge('electronAPI')) {
   const layoutBridge = createIpcBridge(ipcRenderer, layoutContract);
   const storageBridge = createIpcBridge(ipcRenderer, storageContract);
-  contextBridge.exposeInMainWorld('electronAPI', {
+  const electronAPI = {
     // Database invokes are contract-derived. Live updates keep the intentional
     // single IPC listener fan-out below while their channel/type comes from the
     // same contract as main registration.
@@ -502,7 +404,9 @@ if (shouldExposeBridge('electronAPI')) {
           ? ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e, key, value)
           : storageBridge.setItem(key, value),
     },
-  });
+  } satisfies VisibleDesktopElectronApi;
+  assertDesktopElectronApiKeyParity('visible-ui', electronAPI);
+  contextBridge.exposeInMainWorld('electronAPI', electronAPI);
 }
 
 // Secure Secrets API
@@ -844,7 +748,7 @@ if (shouldExposeBridge('workspace')) {
   });
 }
 
-contextBridge.exposeInMainWorld('embeddingHost', {
+const embeddingHost = {
   cancelAllBackfills: (): Promise<void> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelAllBackfills),
   cancelBackfill: (embeddingSetId: string): Promise<void> =>
@@ -905,12 +809,13 @@ contextBridge.exposeInMainWorld('embeddingHost', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.reset),
   stop: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.stop),
-});
+} satisfies VisibleEmbeddingHostBridge;
+contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);
 
-contextBridge.exposeInMainWorld('chunkingHost', {
+const chunkingHost = {
   chunkBatch: (request: ChunkingHostChunkBatchRequest) =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.chunkBatch, request),
-  chunkFile: (request: ChunkingHostChunkFileRequest) =>
+  chunkFile: (request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest) =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.chunkFile, request),
   ensureStarted: (): Promise<ChunkingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.ensureStarted),
@@ -947,7 +852,8 @@ contextBridge.exposeInMainWorld('chunkingHost', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.reset),
   stop: (): Promise<ChunkingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.stop),
-});
+} satisfies VisibleChunkingHostBridge;
+contextBridge.exposeInMainWorld('chunkingHost', chunkingHost);
 
 contextBridge.exposeInMainWorld('llmHost', {
   cancel: (requestId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.llmHost.cancel, requestId),

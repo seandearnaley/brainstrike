@@ -2,14 +2,14 @@
 import type {
   ApplyManagedCacheBatchArgs,
   ApplyManagedCacheInvalidationsArgs,
+  DatabaseWorkOptions,
+  DatabaseWorkSchedulerSnapshot,
   ManagedCacheInvalidationResult,
 } from '@brainstrike/db';
 import type {
+  DatabaseChunkInsert,
   DatabaseDiagnosticsSnapshot,
-  DatabaseWorkOptions,
-  DatabaseWorkSchedulerSnapshot,
-  ElectronChunkInsert,
-  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+  InsertChunksAndEnqueueEmbeddingJobsOptions,
 } from '@brainstrike/types';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { type Bridge, type Contract, pushEvent, rawChannel } from '../platform/ipc-contract';
@@ -143,9 +143,9 @@ export const databaseContract = {
   }),
   insertChunksAndEnqueueEmbeddingJobs: rawChannel<
     [
-      chunks: readonly ElectronChunkInsert[],
+      chunks: readonly DatabaseChunkInsert[],
       fileRecordId: string,
-      options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+      options: InsertChunksAndEnqueueEmbeddingJobsOptions,
       workOptions?: DatabaseWorkOptions,
     ],
     void
@@ -163,9 +163,9 @@ export const databaseContract = {
       }
       parseRecord(raw[2], 'database insertChunksAndEnqueueEmbeddingJobs options');
       const args = [
-        raw[0] as ElectronChunkInsert[],
+        raw[0] as DatabaseChunkInsert[],
         raw[1],
-        raw[2] as ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+        raw[2] as InsertChunksAndEnqueueEmbeddingJobsOptions,
       ] as const;
       return raw.length === 3 ? [...args] : [...args, raw[3] as DatabaseWorkOptions];
     },

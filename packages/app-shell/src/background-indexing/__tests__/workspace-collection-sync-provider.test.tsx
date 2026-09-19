@@ -363,6 +363,10 @@ vi.mock('@brainstrike/db', () => ({
     run: vi.fn(),
     subscribe: vi.fn(() => () => {}),
   })),
+  getDesktopDatabaseBridge: () =>
+    typeof window === 'undefined'
+      ? undefined
+      : (window as unknown as { electronAPI?: { db?: unknown } }).electronAPI?.db,
   invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityLocalMock,
   JobQueue: vi.fn(function MockJobQueue() {
     return {

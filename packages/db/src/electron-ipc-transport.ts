@@ -10,13 +10,14 @@
  * never an `isElectron()` check (AGENTS.md).
  */
 import { createLogger } from '@brainstrike/logging';
-import type { DatabaseDiagnosticsSnapshot, ElectronDatabaseAPI } from '@brainstrike/types';
+import type { DatabaseDiagnosticsSnapshot } from '@brainstrike/types';
 import type {
   ClearAllDataResult,
   DatabaseTransport,
   DbConnectionSnapshot,
 } from './database-runtime.js';
 import { createDbHandle, type QueryExecutor } from './db-handle.js';
+import { type DesktopDatabaseBridge, getDesktopDatabaseBridge } from './desktop-database-bridge.js';
 import { PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
@@ -123,7 +124,7 @@ function normalizeFailureMessage(message: unknown, depth = 0): string | null {
 }
 
 async function getElectronDiagnostics(
-  electronDB: ElectronDatabaseAPI
+  electronDB: DesktopDatabaseBridge
 ): Promise<DatabaseDiagnosticsSnapshot | null> {
   if (!electronDB.diagnostics) {
     return null;
@@ -136,7 +137,7 @@ async function getElectronDiagnostics(
   }
 }
 
-async function testElectronConnection(electronDB: ElectronDatabaseAPI): Promise<void> {
+async function testElectronConnection(electronDB: DesktopDatabaseBridge): Promise<void> {
   if (!electronDB.test) {
     return;
   }
@@ -164,23 +165,16 @@ export interface ElectronIpcTransportOptions {
   readonly isEnabled: () => boolean;
 }
 
-function readBridge(): ElectronDatabaseAPI | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  return window.electronAPI?.db ?? null;
-}
-
 export function createElectronIpcTransport(
   options: ElectronIpcTransportOptions
 ): DatabaseTransport {
   /** The bridge this transport published; the main process owns the database. */
-  let bridge: ElectronDatabaseAPI | null = null;
+  let bridge: DesktopDatabaseBridge | null = null;
 
-  const isAvailable = (): boolean => Boolean(options.isEnabled() && readBridge());
+  const isAvailable = (): boolean => Boolean(options.isEnabled() && getDesktopDatabaseBridge());
 
   const open = async (): Promise<DbConnectionSnapshot | null> => {
-    const electronDB = readBridge();
+    const electronDB = getDesktopDatabaseBridge();
     if (!electronDB) {
       // Selection already probed this. A bridge that vanished in between is a
       // broken capability, not a reason to quietly open a second database.
@@ -253,7 +247,7 @@ export function createElectronIpcTransport(
   };
 
   const clearAllData = async (): Promise<ClearAllDataResult> => {
-    const electronDB = readBridge();
+    const electronDB = getDesktopDatabaseBridge();
     if (!electronDB?.clearAll) {
       throw new Error('Electron IPC clearAll method not available');
     }
@@ -269,7 +263,7 @@ export function createElectronIpcTransport(
   };
 
   const clearQueuesAndEmbeddingSets = async (): Promise<void> => {
-    const electronDb = readBridge();
+    const electronDb = getDesktopDatabaseBridge();
     if (!electronDb?.query) {
       return;
     }
@@ -308,7 +302,7 @@ export function createElectronIpcTransport(
           'main-process-owned database.'
       );
     }
-    const electronDb = readBridge();
+    const electronDb = getDesktopDatabaseBridge();
     if (typeof electronDb?.resetLocal !== 'function') {
       throw new Error('Electron database reset bridge is unavailable.');
     }

@@ -15,6 +15,7 @@ import {
   type DatabaseWorkSchedulerSnapshot,
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
+  getDesktopDatabaseBridge,
   invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
 } from '@brainstrike/db';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
@@ -610,8 +611,7 @@ function createWaitForBackgroundPermit(
     );
   }
 
-  const schedulerSnapshot =
-    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  const schedulerSnapshot = getDesktopDatabaseBridge()?.schedulerSnapshot;
   if (!schedulerSnapshot) {
     throw new Error('Background indexing requires database QoS scheduler snapshots.');
   }
@@ -646,8 +646,7 @@ function createReadDatabasePressure(
     return async () => toWorkspaceIndexingDatabasePressure(scheduler.getSnapshot());
   }
 
-  const schedulerSnapshot =
-    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  const schedulerSnapshot = getDesktopDatabaseBridge()?.schedulerSnapshot;
   if (!schedulerSnapshot) {
     throw new Error('Workspace Index QoS requires database scheduler snapshots.');
   }
@@ -1195,7 +1194,7 @@ export function WorkspaceCollectionSyncProvider({
     }) as typeof backgroundRepositories.embeddingSetsRepository;
     return new WorkspaceCollectionSyncService({
       applyManagedCacheBatch: async (args) => {
-        const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
+        const electronApplyManagedCacheBatch = getDesktopDatabaseBridge()?.applyManagedCacheBatch;
         if (electronApplyManagedCacheBatch) {
           await electronApplyManagedCacheBatch(args, BACKGROUND_DATABASE_WORK_OPTIONS);
           return;
@@ -1241,7 +1240,7 @@ export function WorkspaceCollectionSyncProvider({
       },
       invalidateManagedCacheEntriesByIdentity: async (args) => {
         const electronInvalidateManagedCacheEntries =
-          window.electronAPI?.db?.invalidateManagedCacheEntriesByIdentity;
+          getDesktopDatabaseBridge()?.invalidateManagedCacheEntriesByIdentity;
         if (electronInvalidateManagedCacheEntries) {
           return await electronInvalidateManagedCacheEntries(
             args,
@@ -1694,8 +1693,7 @@ export function WorkspaceCollectionSyncProvider({
         return scheduler.getSnapshot();
       }
     }
-    const schedulerSnapshot =
-      typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+    const schedulerSnapshot = getDesktopDatabaseBridge()?.schedulerSnapshot;
     return schedulerSnapshot ? await schedulerSnapshot() : null;
   }, [backgroundDb]);
 
@@ -1749,7 +1747,7 @@ export function WorkspaceCollectionSyncProvider({
 
   const readDebugSnapshot = useCallback(async (): Promise<WorkspaceIndexDebugSnapshot> => {
     const accessIssues: Array<{ reason: string; source: string }> = [];
-    const electronQuery = typeof window === 'undefined' ? undefined : window.electronAPI?.db?.query;
+    const electronQuery = getDesktopDatabaseBridge()?.query;
     const query =
       typeof electronQuery === 'function'
         ? (((sql: string, params?: unknown[]) =>
@@ -1994,7 +1992,7 @@ export function WorkspaceCollectionSyncProvider({
 
   const readDebugSummary = useCallback(async (): Promise<WorkspaceIndexDebugSummary> => {
     const accessIssues: Array<{ reason: string; source: string }> = [];
-    const electronQuery = typeof window === 'undefined' ? undefined : window.electronAPI?.db?.query;
+    const electronQuery = getDesktopDatabaseBridge()?.query;
     const query =
       typeof electronQuery === 'function'
         ? (((sql: string, params?: unknown[]) =>
@@ -2131,20 +2129,7 @@ export function WorkspaceCollectionSyncProvider({
 
   const benchmarkDebugStage: WorkspaceIndexDebugApi['benchmarkStage'] = useCallback(
     async (request) => {
-      const electronRunTransaction =
-        typeof window === 'undefined'
-          ? undefined
-          : (
-              window.electronAPI?.db as
-                | {
-                    runTransaction?: (
-                      statements: Array<{ params?: unknown[]; sql: string }>,
-                      resultIndex: number,
-                      options?: unknown
-                    ) => Promise<{ rows?: unknown[] }>;
-                  }
-                | undefined
-            )?.runTransaction;
+      const electronRunTransaction = getDesktopDatabaseBridge()?.runTransaction;
       const chunkingHost =
         typeof window === 'undefined'
           ? undefined
@@ -2192,7 +2177,7 @@ export function WorkspaceCollectionSyncProvider({
       const applyManagedCacheBatch = async (
         args: Parameters<typeof applyManagedCacheBatchLocally>[1]
       ) => {
-        const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
+        const electronApplyManagedCacheBatch = getDesktopDatabaseBridge()?.applyManagedCacheBatch;
         if (electronApplyManagedCacheBatch) {
           await electronApplyManagedCacheBatch(args, BACKGROUND_DATABASE_WORK_OPTIONS);
           return;
