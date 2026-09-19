@@ -36,10 +36,13 @@ const shaPattern = /^[a-f0-9]{40}$/;
 // control character from the diff produces exactly that; see reportReview().
 const ghCommand = (args, { input } = {}) =>
   execFileSync('gh', args, { encoding: 'utf8', input, maxBuffer: 32 * 1024 * 1024 });
-// Stable, greppable prefix for a publication failure in the job log. The step
-// summary carries the same text, but the summary is not in the log stream and
-// on BST-1743 the log showed only a bare exit code.
+// Stable, greppable prefixes for failures in the job log. The step summary
+// carries the same text, but the summary is not in the log stream.
 export const PUBLICATION_FAILURE_PREFIX = 'CLAUDE_REVIEW_PUBLICATION_FAILED:';
+export const CLAUDE_CLI_FAILURE_PREFIX = 'CLAUDE_REVIEW_CLI_FAILED:';
+const CLI_DIAGNOSTIC_LIMIT = 500;
+const CLI_FAILURE_REASON_LIMIT = 4096;
+const CLI_JSON_DIAGNOSTIC_INPUT_LIMIT = 64 * 1024;
 const gitHeadCommand = () =>
   execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const statePath = (env) => path.join(env.RUNNER_TEMP, 'claude-review-request.json');
@@ -50,6 +53,79 @@ const statePath = (env) => path.join(env.RUNNER_TEMP, 'claude-review-request.jso
 const captureDir = (env) => path.join(env.RUNNER_TEMP, 'claude-review-capture');
 const promptPath = (env) => path.join(captureDir(env), 'prompt.txt');
 const resultPath = (env) => path.join(env.RUNNER_TEMP, 'claude-review-result.json');
+
+function sanitizeCliDiagnostic(value, limit = CLI_DIAGNOSTIC_LIMIT) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const printable = Array.from(value.slice(0, limit), (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159) ? ' ' : character;
+  }).join('');
+  return printable.replace(/\s+/gu, ' ').trim();
+}
+
+function describeCliStdout(stdout) {
+  const raw = String(stdout ?? '');
+  if (!raw) {
+    return [];
+  }
+  if (raw.length > CLI_JSON_DIAGNOSTIC_INPUT_LIMIT) {
+    return ['stdout=omitted_over_limit'];
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return [];
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    const diagnostic = sanitizeCliDiagnostic(trimmed);
+    return diagnostic ? [`stdout=${diagnostic}`] : [];
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    return [`stdout_json_type=${Array.isArray(parsed) ? 'array' : typeof parsed}`];
+  }
+  const diagnostics = [];
+  for (const key of ['subtype', 'is_error', 'api_error_status', 'terminal_reason', 'error']) {
+    const value = parsed[key];
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      const diagnostic = sanitizeCliDiagnostic(String(value));
+      if (diagnostic) {
+        diagnostics.push(`${key}=${diagnostic}`);
+      }
+    }
+  }
+  if (Array.isArray(parsed.errors)) {
+    const errors = sanitizeCliDiagnostic(
+      parsed.errors.filter((value) => typeof value === 'string').join(' | ')
+    );
+    if (errors) {
+      diagnostics.push(`errors=${errors}`);
+    }
+  }
+  if (parsed.is_error === true) {
+    const result = sanitizeCliDiagnostic(parsed.result);
+    if (result) {
+      diagnostics.push(`result=${result}`);
+    }
+  }
+  return diagnostics;
+}
+
+function describeCliFailure(child) {
+  const exit = child.signal
+    ? `terminated by signal ${sanitizeCliDiagnostic(String(child.signal))}`
+    : `exited ${child.status ?? 'unknown'}`;
+  const diagnostics = [];
+  const stderr = sanitizeCliDiagnostic(String(child.stderr ?? ''));
+  if (stderr) {
+    diagnostics.push(`stderr=${stderr}`);
+  }
+  diagnostics.push(...describeCliStdout(child.stdout));
+  return [`Claude CLI ${exit}`, ...diagnostics].join('; ');
+}
 
 function output(env, key, value) {
   const delimiter = `claude_${randomUUID()}`;
@@ -306,7 +382,12 @@ ${fenced}END ${fence}
  * is the reason the 128 KiB MAX_ARG_STRLEN ceiling is gone rather than worked
  * around.
  */
-export function runReview({ env = process.env, spawn = spawnSync, claude = 'claude' } = {}) {
+export function runReview({
+  env = process.env,
+  spawn = spawnSync,
+  claude = 'claude',
+  stderr = process.stderr,
+} = {}) {
   const request = JSON.parse(readFileSync(statePath(env), 'utf8'));
   const args = [
     '-p',
@@ -332,9 +413,7 @@ export function runReview({ env = process.env, spawn = spawnSync, claude = 'clau
       throw child.error;
     }
     if (child.status !== 0) {
-      throw new Error(
-        `The Claude CLI exited ${child.status}. This includes the 80-turn cap and cancellation. ${String(child.stderr ?? '').slice(0, 500)}`
-      );
+      throw new Error(describeCliFailure(child));
     }
     const parsed = JSON.parse(child.stdout);
     if (!parsed.structured_output) {
@@ -343,7 +422,11 @@ export function runReview({ env = process.env, spawn = spawnSync, claude = 'clau
     result.conclusion = 'success';
     result.structuredOutput = JSON.stringify(parsed.structured_output);
   } catch (error) {
-    result.reason = error.message;
+    result.reason = sanitizeCliDiagnostic(
+      error instanceof Error ? error.message : String(error),
+      CLI_FAILURE_REASON_LIMIT
+    );
+    stderr.write(`${CLAUDE_CLI_FAILURE_PREFIX} ${result.reason}\n`);
   } finally {
     closeSync(promptFd);
   }
