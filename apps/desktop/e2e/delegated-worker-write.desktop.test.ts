@@ -292,6 +292,7 @@ async function assertWorkerWrite(
         await expect(
           root.getByText('PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723', { exact: true })
         ).toBeVisible();
+        await expect(root.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
         const afterStop = provider.requestCount();
         await window.reload();
         await ensureAssistantShellVisible(window);
