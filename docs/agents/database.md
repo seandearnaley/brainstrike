@@ -711,56 +711,63 @@ window; `engine IS NULL` marks them. The lens excludes degraded calls from
 (`packages/db/__tests__/search-lens-self-improvement-signal.test.ts` pins
 this).
 
-**Retention (BST-1198, closes the BST-1190 deferral):** rows older than 60 days are
-pruned by the existing scheduled-database-maintenance mechanism —
+**Retention (BST-1198, closes the BST-1190 deferral):** rows older than 60
+days are pruned by the existing scheduled-database-maintenance mechanism —
 `runScheduledDatabaseMaintenance` in
-`packages/db/src/services/scheduled-database-maintenance.ts`, the same idle-triggered
-pass that runs the #1716 plain `ANALYZE` sweep for `file_records`/`embedding_cache`, the
-`VACUUM (ANALYZE)` sweep that includes `file_chunks`, and the terminal-job prune. No new
-scheduler or timer was added, but retention did require one small migration: -
-`DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS` (60 days) is   the
-default; callers may override it via
-`ScheduledDatabaseMaintenanceOptions.toolCallTelemetryRetentionMs`, resolved   and
-validated (non-negative) on every pass, like the sibling job-queue   options. -
-Migration 083's `brainstrike_tool_call_telemetry_tool_time_idx` is   `(tool_id,
-occurred_at DESC)` — `tool_id`-leading, so it cannot serve a bare   `occurred_at` range
-predicate as an index scan; both retention deletes   filter on `occurred_at` alone.
-**Migration 085** (version 84 is skipped —   claimed by the still-open BST-1192 PR
-#2333) adds a dedicated   `brainstrike_tool_call_telemetry_occurred_at_idx` on
-`occurred_at` so the   guard probe and both deletes below are real index scans, not
-sequential   scans of the whole table. Registered in `migrations/index.ts` with a
-`ledgerKey`; the Drizzle ledger is derived. Migrations alone create the index; the
-renderer probes the table as described for migration 083. - Idle passes (`status:
-'completed'`) run a full, unbounded-by-count   age-DELETE — the same shape as
-`pruneTerminalJobs`. - Passes while the job queue is active (`status: 'partial'`) first
-run a   cheap `SELECT EXISTS (...)` guard probe on `occurred_at` (an index scan that
-stops at the first match); only when it finds an expired row does an
-`activePruneLimit`-bounded age-DELETE run, `ORDER BY occurred_at ASC` so an   over-limit
-backlog evicts oldest-first — the same oldest-first shape as
-`DiagnosticEventsRepository.purge()`. The guard exists because the common   case on a
-~10-minute tick is that nothing is expired yet, and without it   every tick would still
-pay for planning/running the bounded DELETE for zero   deletions. This still bounds
-telemetry growth while a long-running backfill   keeps the job queue busy, for the same
-reason job rows once needed it. - `brainstrike_tool_call_telemetry` is in
-`DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES` alongside `job_queue`, so the   idle path's
-`VACUUM (ANALYZE)` actually reclaims the dead tuples the idle   DELETE creates (PGlite
-has no autovacuum launcher — without this the table's   heap/index disk usage would keep
-growing at the same rate, just as dead   pages instead of live rows) and gives the
-`token-spend-by-tool` lens planner   fresh column statistics it previously never got.
-Only the active-queue path   defers `VACUUM` until idle; the idle path now genuinely
-runs it for both   tables. - The result's `prunedToolCallTelemetryRows` field reports
-the count for both   branches; the desktop scheduler logs it alongside
-`prunedTerminalJobs`. Paired tests:
-`packages/db/__tests__/scheduled-database-maintenance.test.ts` (`tool_call_telemetry
-retention (BST-1198)` describe block) proves old rows are pruned and newer rows survive
-on both the idle and active-queue paths, that the active-queue guard probe skips the
-DELETE when nothing is expired, that an over-limit active-queue backlog evicts
-oldest-first, that `brainstrike_tool_call_telemetry` is VACUUMed on the idle path, and
-that the `token-spend-by-tool` lens output for an in-window query is unaffected by
+`packages/db/src/services/scheduled-database-maintenance.ts`, the same
+idle-triggered pass that runs the #1716 plain `ANALYZE` sweep for
+`file_records`/`embedding_cache`, the `VACUUM (ANALYZE)` sweep that includes
+`file_chunks`, and the terminal-job prune. No
+new scheduler or timer was added, but retention did require one small
+migration:
+- `DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS` (60 days) is
+  the default; callers may override it via
+  `ScheduledDatabaseMaintenanceOptions.toolCallTelemetryRetentionMs`, resolved
+  and validated (non-negative) on every pass, like the sibling job-queue
+  options.
+- Migration 083's `brainstrike_tool_call_telemetry_tool_time_idx` is
+  `(tool_id, occurred_at DESC)` — `tool_id`-leading, so it cannot serve a bare
+  `occurred_at` range predicate as an index scan; both retention deletes
+  filter on `occurred_at` alone. **Migration 085** (version 84 is skipped —
+  claimed by the still-open BST-1192 PR #2333) adds a dedicated
+  `brainstrike_tool_call_telemetry_occurred_at_idx` on `occurred_at` so the
+  guard probe and both deletes below are real index scans, not sequential
+  scans of the whole table. Registered in `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. Migrations alone create the index;
+  the renderer probes the table as described for migration 083.
+- Idle passes (`status: 'completed'`) run a full, unbounded-by-count
+  age-DELETE — the same shape as `pruneTerminalJobs`.
+- Passes while the job queue is active (`status: 'partial'`) first run a
+  cheap `SELECT EXISTS (...)` guard probe on `occurred_at` (an index scan that
+  stops at the first match); only when it finds an expired row does an
+  `activePruneLimit`-bounded age-DELETE run, `ORDER BY occurred_at ASC` so an
+  over-limit backlog evicts oldest-first — the same oldest-first shape as
+  `DiagnosticEventsRepository.purge()`. The guard exists because the common
+  case on a ~10-minute tick is that nothing is expired yet, and without it
+  every tick would still pay for planning/running the bounded DELETE for zero
+  deletions. This still bounds telemetry growth while a long-running backfill
+  keeps the job queue busy, for the same reason job rows once needed it.
+- `brainstrike_tool_call_telemetry` is in
+  `DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES` alongside `job_queue`, so the
+  idle path's `VACUUM (ANALYZE)` actually reclaims the dead tuples the idle
+  DELETE creates (PGlite has no autovacuum launcher — without this the table's
+  heap/index disk usage would keep growing at the same rate, just as dead
+  pages instead of live rows) and gives the `token-spend-by-tool` lens planner
+  fresh column statistics it previously never got. Only the active-queue path
+  defers `VACUUM` until idle; the idle path now genuinely runs it for both
+  tables.
+- The result's `prunedToolCallTelemetryRows` field reports the count for both
+  branches; the desktop scheduler logs it alongside `prunedTerminalJobs`.
+Paired tests: `packages/db/__tests__/scheduled-database-maintenance.test.ts`
+(`tool_call_telemetry retention (BST-1198)` describe block) proves old rows
+are pruned and newer rows survive on both the idle and active-queue paths,
+that the active-queue guard probe skips the DELETE when nothing is expired,
+that an over-limit active-queue backlog evicts oldest-first, that
+`brainstrike_tool_call_telemetry` is VACUUMed on the idle path, and that the
+`token-spend-by-tool` lens output for an in-window query is unaffected by
 pruning outside that window. Migration coverage:
 `packages/db/__tests__/migration-085-tool-call-telemetry-occurred-at-index.test.ts`
-(index created on both runners; a forced-seqscan-off `EXPLAIN` probe proves the bare
-`occurred_at` predicate resolves to an index scan on it).
+(index created on both runners; a forced-seqscan-off `EXPLAIN` probe proves
+the bare `occurred_at` predicate resolves to an index scan on it).
 
 Migration 086 owns the FK-less `brainstrike_token_estimate_calibration` ledger. Each row
 stores a durable, model/provider-attributed run-end pair of `estimated_prompt_tokens`

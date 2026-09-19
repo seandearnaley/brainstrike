@@ -51,6 +51,24 @@ describe('runAtomicStatements', () => {
     expect(calls).toEqual(STATEMENTS);
   });
 
+  it('returns only rows from the designated callback statement', async () => {
+    const transaction = async <T>(
+      operation: (tx: {
+        query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+      }) => Promise<T>
+    ): Promise<T> =>
+      await operation({
+        query: async () => ({
+          affectedRows: 7,
+          rows: [{ id: 'message-1' }],
+        }),
+      });
+
+    await expect(
+      runAtomicStatements({ transaction }, STATEMENTS, 1, 'missing capability')
+    ).resolves.toEqual({ rows: [{ id: 'message-1' }] });
+  });
+
   it('propagates callback transaction statement failures', async () => {
     const failure = new Error('vector SELECT failed');
     const transaction = vi.fn(

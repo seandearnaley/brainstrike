@@ -32,12 +32,15 @@ export function normalizeChunkSearchScope(scope: ChunkSearchScopeInput): {
   filePaths: string[] | undefined;
   selectionSnapshotId: string | undefined;
 } {
-  const trimmedPaths = scope.filePaths
-    ?.map((path) => path.trim())
-    .filter((path) => path.length > 0);
+  const normalizedPaths = new Set<string>();
+  for (const path of scope.filePaths ?? []) {
+    const trimmedPath = path.trim();
+    if (trimmedPath.length > 0) {
+      normalizedPaths.add(trimmedPath);
+    }
+  }
   return {
-    filePaths:
-      trimmedPaths && trimmedPaths.length > 0 ? Array.from(new Set(trimmedPaths)) : undefined,
+    filePaths: normalizedPaths.size > 0 ? Array.from(normalizedPaths) : undefined,
     selectionSnapshotId: scope.selectionSnapshotId?.trim() || undefined,
   };
 }
@@ -64,12 +67,13 @@ export function buildChunkDistanceExpressions(
   precision: ChunkVectorPrecision = 'halfvec',
   maximumDimension?: number
 ): { orderExpr: string; similarityExpr: string } {
-  if (
-    !Number.isInteger(dimension) ||
-    dimension <= 0 ||
-    (maximumDimension !== undefined && dimension > maximumDimension)
-  ) {
+  if (!Number.isInteger(dimension) || dimension <= 0) {
     throw new Error('buildChunkDistanceExpressions dimension must be a positive integer');
+  }
+  if (maximumDimension !== undefined && dimension > maximumDimension) {
+    throw new Error(
+      `buildChunkDistanceExpressions dimension ${dimension} exceeds maximum ${maximumDimension}`
+    );
   }
   const embeddingCast = precision === 'exact' ? 'embedding' : `(embedding::halfvec(${dimension}))`;
   const paramCast =
@@ -193,14 +197,21 @@ export function mapVectorSearchRows<
   threshold: number,
   limit: number
 ): ChunkSearchResult[] {
-  return rows
-    .map((row) => ({
+  const eligibleRows: T[] = [];
+  for (const row of rows) {
+    const similarity = Number(row.similarity);
+    if (Number.isFinite(similarity) && similarity >= threshold) {
+      eligibleRows.push(row);
+    }
+  }
+  return eligibleRows.slice(0, limit).map((row) => {
+    const similarity = Number(row.similarity);
+    return {
       chunk: mapChunk(row),
       rank: Number(row.rank),
-      similarity: Number(row.similarity),
-    }))
-    .filter((result) => Number.isFinite(result.similarity) && result.similarity >= threshold)
-    .slice(0, limit);
+      similarity,
+    };
+  });
 }
 
 export function mapFullTextSearchRows<

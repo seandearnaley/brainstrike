@@ -1,3 +1,4 @@
+import type { IFileChunkRepository } from '../interfaces.js';
 /**
  * Drizzle-based FileChunk Repository
  *
@@ -139,7 +140,7 @@ function toPgvectorLiteral(embedding: number[]): string {
   return `[${embedding.join(',')}]`;
 }
 
-export class DrizzleFileChunkRepository {
+export class DrizzleFileChunkRepository implements IFileChunkRepository {
   constructor(private readonly db: DrizzleDb) {}
 
   async findById(id: string): Promise<FileChunk | null> {

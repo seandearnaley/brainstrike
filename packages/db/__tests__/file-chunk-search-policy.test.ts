@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import type { FileChunk } from '../src/models/file-chunk.js';
 import {
   buildChunkDistanceExpressions,
   buildRawFullTextScopePlan,
   buildRawVectorScopePlan,
+  mapVectorSearchRows,
   normalizeChunkSearchScope,
   tsqueryFunctionForMode,
 } from '../src/repositories/file-chunk-search-policy.js';
@@ -37,20 +39,61 @@ describe('file chunk search policy', () => {
     ['cosine', '<=>', '(1 - (', ' / 2.0))'],
     ['l2', '<->', '(1.0 / (1.0 + (', ')))'],
     ['ip', '<#>', '(1.0 / (1.0 + exp(+(', '))))'],
-  ] as const)('plans %s distance expressions for ANN and exact search', (distance, operator) => {
-    const ann = buildChunkDistanceExpressions(distance, 768, 'halfvec');
-    const exact = buildChunkDistanceExpressions(distance, 768, 'exact');
+  ] as const)(
+    'plans %s distance expressions for ANN and exact search',
+    (distance, operator, similarityPrefix, similaritySuffix) => {
+      const ann = buildChunkDistanceExpressions(distance, 768, 'halfvec');
+      const exact = buildChunkDistanceExpressions(distance, 768, 'exact');
 
-    expect(ann.orderExpr).toBe(`(embedding::halfvec(768)) ${operator} $1::halfvec(768)`);
-    expect(ann.similarityExpr).toContain(operator);
-    expect(exact.orderExpr).toBe(`embedding ${operator} $1::vector(768)`);
-    expect(exact.similarityExpr).toContain(operator);
-  });
+      expect(ann.orderExpr).toBe(`(embedding::halfvec(768)) ${operator} $1::halfvec(768)`);
+      expect(ann.similarityExpr.startsWith(similarityPrefix)).toBe(true);
+      expect(ann.similarityExpr).toContain(operator);
+      expect(ann.similarityExpr.endsWith(similaritySuffix)).toBe(true);
+      expect(exact.orderExpr).toBe(`embedding ${operator} $1::vector(768)`);
+      expect(exact.similarityExpr.startsWith(similarityPrefix)).toBe(true);
+      expect(exact.similarityExpr).toContain(operator);
+      expect(exact.similarityExpr.endsWith(similaritySuffix)).toBe(true);
+    }
+  );
 
   it('rejects unsafe dimensions before they can be interpolated into SQL', () => {
     expect(() => buildChunkDistanceExpressions('cosine', 768.5)).toThrow(
       'buildChunkDistanceExpressions dimension must be a positive integer'
     );
+    expect(() => buildChunkDistanceExpressions('cosine', 4, 'halfvec', 3)).toThrow(
+      'buildChunkDistanceExpressions dimension 4 exceeds maximum 3'
+    );
+    expect(() => buildChunkDistanceExpressions('cosine', 4)).not.toThrow();
+  });
+
+  it('maps chunks only after similarity filtering and limiting', () => {
+    const rows = [
+      { id: 'below', rank: '1', similarity: '0.4' },
+      { id: 'first', rank: '2', similarity: '0.9' },
+      { id: 'second', rank: '3', similarity: '0.8' },
+      { id: 'not-finite', rank: '4', similarity: 'NaN' },
+    ];
+    const mapChunk = vi.fn(
+      (row: (typeof rows)[number]): FileChunk => ({
+        chunkIndex: 0,
+        chunkSize: 1,
+        chunkType: 'text',
+        content: row.id,
+        contentHash: `hash-${row.id}`,
+        createdAt: '2026-09-18T00:00:00.000Z',
+        fileRecordId: 'file-1',
+        id: row.id,
+        tokenCount: 1,
+        updatedAt: '2026-09-18T00:00:00.000Z',
+      })
+    );
+
+    const results = mapVectorSearchRows(rows, mapChunk, 0.5, 1);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ chunk: { id: 'first' }, rank: 2, similarity: 0.9 });
+    expect(mapChunk).toHaveBeenCalledTimes(1);
+    expect(mapChunk).toHaveBeenCalledWith(rows[1]);
   });
 
   it('builds one parameterized vector scope plan for search and bounded counts', () => {

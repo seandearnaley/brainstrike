@@ -61,7 +61,7 @@ async function runStatementList(
         ? await query(statement.sql, statement.params)
         : await query(statement.sql);
     if (index === resultIndex) {
-      designated = current;
+      designated = { rows: current.rows };
     }
   }
   return designated;

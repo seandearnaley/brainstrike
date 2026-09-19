@@ -42,6 +42,7 @@ import {
   tsqueryFunctionForMode,
 } from './file-chunk-search-policy.js';
 import { runFindGrepCandidatesQuery, runInsertManyWithTx } from './file-chunk-shared-queries.js';
+import type { IFileChunkRepository } from './interfaces.js';
 
 export interface FileChunkQueryTx {
   query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
@@ -108,7 +109,7 @@ interface FileChunkStatsRow {
   type_count: string;
 }
 
-export class FileChunkRepository {
+export class FileChunkRepository implements IFileChunkRepository {
   constructor(private readonly db: FileChunkDatabase) {}
 
   async findById(id: string): Promise<FileChunk | null> {

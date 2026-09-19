@@ -42,6 +42,7 @@ import {
   tsqueryFunctionForMode,
 } from './file-chunk-search-policy.js';
 import { runFindGrepCandidatesQuery, runInsertManyWithTx } from './file-chunk-shared-queries.js';
+import type { IFileChunkRepository } from './interfaces.js';
 
 // Type definition for database row returned by Electron IPC
 interface FileChunkRow {
@@ -106,7 +107,7 @@ interface FileChunkStatsRow {
   type_count: string;
 }
 
-export class ElectronFileChunkRepository {
+export class ElectronFileChunkRepository implements IFileChunkRepository {
   constructor(private readonly db: ElectronDbAPI) {}
 
   async findById(id: string): Promise<FileChunk | null> {

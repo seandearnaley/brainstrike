@@ -47,6 +47,9 @@ export interface IEmbeddingSetsRepository {
 /**
  * Shared file-chunk repository contract implemented by the direct PGlite,
  * Drizzle, and Electron IPC transports.
+ * Drizzle rejects vector limits above 2,000; raw/IPC callers use bounded overfetch.
+ * Raw/IPC snapshot scopes enforce expiry; Drizzle retains membership-only scopes.
+ * Callers must not rely on these adapters having identical snapshot lifetimes.
  */
 export interface IFileChunkRepository {
   clearAll: () => Promise<number>;
