@@ -1,6 +1,11 @@
 /** Pure contracts for desktop persisted storage and layout preferences. */
 import type { StorageAdapter } from '@brainstrike/storage';
-import type { LayoutElectronAPI, PanelPersistenceState } from '@brainstrike/ui';
+import type {
+  LayoutElectronAPI,
+  LayoutLoadResult,
+  LayoutPersistenceResult,
+  PanelPersistenceState,
+} from '@brainstrike/ui';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import {
   type AssertTrue,
@@ -77,15 +82,12 @@ export const storageContract = {
 } as const satisfies Contract;
 
 export const layoutContract = {
-  loadLayout: rawChannel<[], Awaited<ReturnType<LayoutElectronAPI['loadLayout']>>>({
+  loadLayout: rawChannel<[], LayoutLoadResult>({
     channel: DESKTOP_IPC_CHANNELS.preferences.layoutLoad,
     parseArgs: parseExactNoArgs('layout load'),
     roles: ['visible-ui'],
   }),
-  saveLayout: rawChannel<
-    Parameters<LayoutElectronAPI['saveLayout']>,
-    Awaited<ReturnType<LayoutElectronAPI['saveLayout']>>
-  >({
+  saveLayout: rawChannel<[state: PanelPersistenceState], LayoutPersistenceResult>({
     channel: DESKTOP_IPC_CHANNELS.preferences.layoutSave,
     parseArgs: parsePanelLayout,
     roles: ['visible-ui'],
