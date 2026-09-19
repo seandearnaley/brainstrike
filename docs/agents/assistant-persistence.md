@@ -3510,7 +3510,12 @@ from the current loaded thread after every `useAssistantThreadStore` transition:
 Message default for absent icon metadata, and the canonical color surfaces.
 The Threads panel rows, customization pickers, group icon choices, and tabs
 consume those shared contracts rather than declaring local glyph maps or
-palettes. A successful metadata write updates the one loaded thread object, so
+palettes. Each projected tree cell mounts one `ThreadRow`; that row owns its
+transient edit/customize/delete/details state, while `ThreadsPanel` retains the
+database-backed list, grouping, search, and bulk-operation wiring. This keeps a
+parent rerender from discarding an in-progress rename draft without storing
+ephemeral row state in the persisted thread store. A successful metadata write
+updates the one loaded thread object, so
 an open tab reflects customization without a PGlite re-read, timer, global
 invalidation, or assistant-panel remount; a failed write performs no store
 transition and remains visibly failed in the panel. `listThreads` returns the
