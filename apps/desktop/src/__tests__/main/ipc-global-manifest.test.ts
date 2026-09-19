@@ -347,12 +347,15 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
   it('registers every contract invoke channel exactly once, as an invoke, and never a push event', () => {
     const contracts = discoverContracts();
     expect(contracts.map(({ file }) => file)).toEqual([
+      'changes.contract.ts',
       'clipboard.contract.ts',
       'context-files.contract.ts',
+      'forge.contract.ts',
       'git.contract.ts',
       'skills.contract.ts',
       'user-commands.contract.ts',
       'user-personas.contract.ts',
+      'worktrees.contract.ts',
     ]);
     const registeredInvokes = new Map(
       union.filter((entry) => entry.kind === 'invoke').map((entry) => [entry.channel, entry])

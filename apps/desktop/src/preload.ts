@@ -5,21 +5,21 @@
 // graph, and build-main.mjs refuses a bundle that requires anything else.
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+import { changesContract } from './ipc-domains/changes.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
+import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
 import { userCommandsContract } from './ipc-domains/user-commands.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
+import { worktreesContract } from './ipc-domains/worktrees.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
 import { createBridgeExposer } from './platform/ipc-bridge';
 
 type EmbeddingTelemetrySnapshot =
   import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
-type Changeset = import('@brainstrike/types').Changeset;
-type WorktreeAdoptParams = import('@brainstrike/types').WorktreeAdoptParams;
-type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
 type McpConfigStatus = import('./ipc-mcp').McpConfigStatus;
 type McpContentIpcResponse = import('./mcp/content-ipc').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
@@ -1319,50 +1319,7 @@ if (shouldExposeBridge('git')) {
 // `isElectron()`. Backed by ChangesetDiffService via the `changes` IPC
 // domain (changes-ipc-handlers.ts).
 if (shouldExposeBridge('changes')) {
-  contextBridge.exposeInMainWorld('changes', {
-    // Conversation Rewind (BST-1115 W5 T4). `mode` is required on apply —
-    // there is no default that silently reverts files (Amendment 1).
-    applyRewind: (payload: {
-      acknowledgeConflicts?: boolean;
-      messageId: string;
-      mode: AssistantRewindMode;
-      threadId: string;
-    }) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.applyRewind, payload),
-    fileDiff: (rootId: string, changeset: Changeset, path: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.fileDiff, rootId, changeset, path),
-    // Ends the redo window (BST-1115 W5 T4b). Fired by the renderer when a
-    // USER-authored message starts a new run; a thread with no outstanding
-    // rewind answers `finalized: false` and writes nothing.
-    finalizeRewinds: (payload: { threadId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.finalizeRewinds, payload),
-    // Repository/worktree topology for the Changes surface (BST-1114 T0).
-    // `{ maxAgeMs: 0 }` forces a rebuild that started after the call — the
-    // seam a renderer that just registered a root uses to get its repository
-    // discovered and watched (BST-1397).
-    inventory: (options?: { maxAgeMs?: number }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.inventory, options),
-    // One-way main→renderer live-refresh pushes (changes:invalidated,
-    // BST-1161 spec §6): external git activity on a repository. Returns the
-    // unsubscribe function (terminal onData precedent).
-    onInvalidated: (
-      callback: (event: import('@brainstrike/types').ChangesInvalidationEvent) => void
-    ) => {
-      const listener = (
-        _event: unknown,
-        payload: import('@brainstrike/types').ChangesInvalidationEvent
-      ) => callback(payload);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.changes.invalidated, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.changes.invalidated, listener);
-      };
-    },
-    redoRewind: (payload: { acknowledgeConflicts?: boolean; rewindId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.redoRewind, payload),
-    resolveView: (rootId: string, changeset: Changeset) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.resolveView, rootId, changeset),
-    rewindPreview: (payload: { threadId: string } & ({ messageId: string } | { runId: string })) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.rewindPreview, payload),
-  });
+  exposeBridge('changes', changesContract);
 }
 
 // Managed-worktree bridge (desktop-only, BST-1390): create / list / archive /
@@ -1370,34 +1327,7 @@ if (shouldExposeBridge('changes')) {
 // constructs this bridge, so `window.worktrees` is simply absent there;
 // consumers capability-check it rather than `isElectron()`.
 if (shouldExposeBridge('worktrees')) {
-  contextBridge.exposeInMainWorld('worktrees', {
-    adopt: (params: WorktreeAdoptParams) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.adopt, params),
-    archive: (params: {
-      confirmIgnoredEntries?: string;
-      force?: boolean;
-      runId?: string;
-      worktreeId: string;
-    }) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.archive, params),
-    checkoutStatus: (params: { path: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.checkoutStatus, params),
-    create: (params: unknown) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.create, params),
-    createBranchHere: (params: { branch: string; worktreeId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.createBranchHere, params),
-    createContext: (params: { rootId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.createContext, params),
-    getSettings: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.getSettings),
-    inspectArchive: (params: { worktreeId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.inspectArchive, params),
-    list: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.list),
-    listManagedPaths: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.managedPaths),
-    restore: (params: { worktreeId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.restore, params),
-    setSettings: (params: {
-      managedDirectory: string | null;
-      setupCommand: readonly string[] | null | 'disabled';
-    }) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.setSettings, params),
-  });
+  exposeBridge('worktrees', worktreesContract);
 }
 
 // Forge (pull request) bridge (desktop-only, BST-1391): PR identity + status
@@ -1406,27 +1336,7 @@ if (shouldExposeBridge('worktrees')) {
 // `window.forge` is simply absent there; consumers must capability-check
 // `window.forge` rather than `isElectron()`.
 if (shouldExposeBridge('forge')) {
-  contextBridge.exposeInMainWorld('forge', {
-    identity: (rootId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.forge.identity, rootId),
-    // One-way main→renderer pushes (forge:prUpdated): a forge observation
-    // changed. Returns the unsubscribe function (changes.onInvalidated
-    // precedent).
-    onPrUpdated: (callback: (event: import('@brainstrike/types').ForgePrUpdatedEvent) => void) => {
-      const listener = (
-        _event: unknown,
-        payload: import('@brainstrike/types').ForgePrUpdatedEvent
-      ) => callback(payload);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.forge.prUpdated, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.forge.prUpdated, listener);
-      };
-    },
-    prStatus: (rootId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.forge.prStatus, rootId),
-    refresh: (
-      rootId: string,
-      params: { readonly reason: import('@brainstrike/types').ForgeRendererRefreshReason }
-    ) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.forge.refresh, rootId, params),
-  });
+  exposeBridge('forge', forgeContract);
 }
 
 // Embedded browser pane bridge (BST-1174). Every invoke returns the main-side

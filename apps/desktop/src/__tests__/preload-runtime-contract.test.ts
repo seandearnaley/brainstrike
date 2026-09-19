@@ -1,15 +1,12 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { BROWSER_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/browser-pane/availability';
-import { CHANGES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/changes/availability';
-import { FORGE_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/forge/availability';
 import { PLATFORM_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/platform-bridge';
 import {
   COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
   TERMINAL_BRIDGE_REQUIRED_METHODS,
 } from '@brainstrike/app-shell/terminal-panel/availability';
 import { WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge';
-import { WORKTREES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/worktrees/availability';
 import { ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/provider-auth';
 import { SECRETS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/secrets-bridge';
@@ -239,17 +236,14 @@ describe('preload runtime contract', () => {
     // instead of this source walk.
     const expectedBridgeMethods: Record<string, readonly string[]> = {
       browser: BROWSER_BRIDGE_REQUIRED_METHODS,
-      changes: CHANGES_BRIDGE_REQUIRED_METHODS,
       commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
       envBootstrap: ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS,
-      forge: FORGE_BRIDGE_REQUIRED_METHODS,
       notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
       providerAuth: PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS,
       secrets: SECRETS_BRIDGE_REQUIRED_METHODS,
       terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
       workspace: WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS,
-      worktrees: WORKTREES_BRIDGE_REQUIRED_METHODS,
     };
 
     for (const [bridgeName, requiredMethods] of Object.entries(expectedBridgeMethods)) {

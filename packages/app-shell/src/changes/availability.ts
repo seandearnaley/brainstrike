@@ -10,6 +10,14 @@
  *
  * Mirrors `git-panel/availability.ts` exactly; see that file for the rationale.
  */
+
+export type {
+  ChangesBridge,
+  RewindApplyPayload,
+  RewindFinalizePayload,
+  RewindPreviewPayload,
+  RewindRedoPayload,
+} from './changes-bridge';
 export {
   CHANGES_BRIDGE_REQUIRED_METHODS,
   isChangesBridgeAvailable,

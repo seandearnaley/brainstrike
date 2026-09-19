@@ -3,15 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserIpcHandlers } from '../../browser-ipc-handlers';
 import type { ChangesIpcHandlers } from '../../changes-ipc-handlers';
 import type { CommandSessionIpcHandlers } from '../../command-session-ipc-handlers';
+import type { ForgeIpcHandlers } from '../../forge-ipc-handlers';
 import type { GitIpcHandlers } from '../../git-ipc-handlers';
 import { registerBrowserIpcHandlers } from '../../ipc-browser';
 import { registerChangesIpcHandlers } from '../../ipc-changes';
+import { registerForgeIpcHandlers } from '../../ipc-forge';
 import { registerGitIpcHandlers } from '../../ipc-git';
 import { registerShellIpcHandlers } from '../../ipc-shell';
 import type { ShellIpcHandlers } from '../../ipc-shell-handlers';
 import { registerTerminalIpc } from '../../ipc-terminal';
+import { registerWorktreesIpcHandlers } from '../../ipc-worktrees';
 import { registerTerminalIpcHandlers, type TerminalIpcHandlers } from '../../terminal-ipc-handlers';
 import { clearWindowRoleByWebContentsId } from '../../window-role';
+import type { WorktreesIpcHandlers } from '../../worktrees-ipc-handlers';
 import {
   createAllowlistedSenderFrame,
   createTrustedInvokeEvent,
@@ -85,6 +89,64 @@ function gitInvokeArgs(channel: string): readonly unknown[] {
   }
 }
 
+function contractDomainInvokeArgs(channel: string): readonly unknown[] {
+  switch (channel) {
+    case 'changes:resolveView':
+      return ['root-1', { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' }];
+    case 'changes:fileDiff':
+      return [
+        'root-1',
+        { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' },
+        'src/index.ts',
+      ];
+    case 'changes:inventory':
+      return [];
+    case 'changes:rewindPreview':
+      return [{ messageId: 'message-1', threadId: 'thread-1' }];
+    case 'changes:applyRewind':
+      return [{ messageId: 'message-1', mode: 'conversation-only', threadId: 'thread-1' }];
+    case 'changes:redoRewind':
+      return [{ rewindId: 'rewind-1' }];
+    case 'changes:finalizeRewinds':
+      return [{ threadId: 'thread-1' }];
+    case 'forge:identity':
+    case 'forge:prStatus':
+      return ['root-1'];
+    case 'forge:refresh':
+      return ['root-1', { reason: 'user' }];
+    case 'worktrees:adopt':
+      return [{ createdBy: 'user', path: '/repo/worktree' }];
+    case 'worktrees:archive':
+    case 'worktrees:inspectArchive':
+    case 'worktrees:restore':
+      return [{ worktreeId: 'worktree-1' }];
+    case 'worktrees:checkoutStatus':
+      return [{ path: '/repo/worktree' }];
+    case 'worktrees:create':
+      return [
+        {
+          baseRef: 'HEAD',
+          branch: { name: 'feature' },
+          createdBy: 'user',
+          name: 'feature',
+          rootId: 'root-1',
+        },
+      ];
+    case 'worktrees:createBranchHere':
+      return [{ branch: 'feature', worktreeId: 'worktree-1' }];
+    case 'worktrees:createContext':
+      return [{ rootId: 'root-1' }];
+    case 'worktrees:getSettings':
+    case 'worktrees:list':
+    case 'worktrees:managedPaths':
+      return [];
+    case 'worktrees:setSettings':
+      return [{ managedDirectory: '/worktrees', setupCommand: null }];
+    default:
+      return [{ rootId: 'r1' }];
+  }
+}
+
 const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
   {
     channels: ['terminal:create', 'terminal:write', 'terminal:resize', 'terminal:destroy'],
@@ -144,6 +206,29 @@ const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
     register: (stub) => registerChangesIpcHandlers(stub() as ChangesIpcHandlers),
   },
   {
+    channels: ['forge:identity', 'forge:prStatus', 'forge:refresh'],
+    domain: 'forge',
+    register: (stub) => registerForgeIpcHandlers(stub() as ForgeIpcHandlers),
+  },
+  {
+    channels: [
+      'worktrees:adopt',
+      'worktrees:archive',
+      'worktrees:checkoutStatus',
+      'worktrees:create',
+      'worktrees:createBranchHere',
+      'worktrees:createContext',
+      'worktrees:getSettings',
+      'worktrees:inspectArchive',
+      'worktrees:list',
+      'worktrees:managedPaths',
+      'worktrees:restore',
+      'worktrees:setSettings',
+    ],
+    domain: 'worktrees',
+    register: (stub) => registerWorktreesIpcHandlers(stub() as WorktreesIpcHandlers),
+  },
+  {
     channels: [
       'browser:createTab',
       'browser:closeTab',
@@ -199,7 +284,9 @@ describe('privileged desktop IPC domains are visible-UI-only (BST-1641)', () => 
       const dispose = register(() => stub);
       const event = createTrustedInvokeEvent('visible-ui', VISIBLE_SENDER_ID);
 
-      const args = channel.startsWith('git:') ? gitInvokeArgs(channel) : [{ rootId: 'r1' }];
+      const args = channel.startsWith('git:')
+        ? gitInvokeArgs(channel)
+        : contractDomainInvokeArgs(channel);
       await expect(registeredHandler(channel)(event, ...args)).resolves.toEqual({
         ok: true,
       });

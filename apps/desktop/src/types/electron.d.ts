@@ -1,9 +1,4 @@
 import type {
-  AssistantRewindFinalization,
-  AssistantRewindMode,
-  AssistantRewindPreviewResult,
-  AssistantRewindRedoResult,
-  AssistantRewindResult,
   McpAppBridge,
   McpElicitationPresentationWire,
   McpElicitationRetiredWire,
@@ -32,25 +27,10 @@ import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
-  Changeset,
-  ChangesetView,
   DatabaseWorkOptions,
   ElectronChunkInsert,
   ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
-  GitInventory,
-  GitResult,
   IFileNode,
-  ManagedWorktreePathEntry,
-  ManagedWorktreeRow,
-  StructuredFileDiff,
-  WorktreeAdoptParams,
-  WorktreeArchiveResult,
-  WorktreeCheckoutStatus,
-  WorktreeCreateContext,
-  WorktreeCreateParams,
-  WorktreeCreateResult,
-  WorktreeListEntry,
-  WorktreeSettings,
 } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
@@ -86,12 +66,15 @@ import type {
   EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
+import type { changesContract } from '../ipc-domains/changes.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
+import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
 import type { skillsContract } from '../ipc-domains/skills.contract';
 import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
+import type { worktreesContract } from '../ipc-domains/worktrees.contract';
 import type { McpConfigStatus } from '../ipc-mcp';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
@@ -186,61 +169,8 @@ declare global {
         ) => void
       ) => () => void;
     };
-    /**
-     * Desktop-only changeset diff bridge (BST-1113/BST-1114). Resolves any
-     * `Changeset` (agent-run / run-range / git-scope) to an eager
-     * `ChangesetView` and loads per-file `StructuredFileDiff`s lazily.
-     * Absent on web (no preload) — consumers MUST capability-check
-     * `window.changes` rather than `isElectron()`.
-     *
-     * ⚠️ MUST stay in sync with `ChangesBridge` in
-     * `packages/app-shell/src/changes/changes-bridge.ts` (the ambient module
-     * shims in `app-shell-shims.d.ts` keep this file from importing the type
-     * directly). `resolveChangesBridge()` rejects a bridge missing any
-     * method, so a method declared here but absent from the preload — or vice
-     * versa — disables the Changes surface at runtime.
-     */
-    changes?: {
-      /** Conversation Rewind: apply (BST-1115 W5 T4). */
-      applyRewind: (payload: {
-        acknowledgeConflicts?: boolean;
-        messageId: string;
-        mode: AssistantRewindMode;
-        threadId: string;
-      }) => Promise<GitResult<AssistantRewindResult>>;
-      fileDiff: (
-        rootId: string,
-        changeset: Changeset,
-        path: string
-      ) => Promise<GitResult<StructuredFileDiff>>;
-      /**
-       * Conversation Rewind: end the redo window for a thread (W5 T4b). Fired
-       * when a USER-authored message starts a new run. `value.finalized ===
-       * false` means the thread had no outstanding rewind — the ordinary case,
-       * not a failure.
-       */
-      finalizeRewinds: (payload: {
-        threadId: string;
-      }) => Promise<GitResult<AssistantRewindFinalization>>;
-      inventory: () => Promise<GitResult<GitInventory>>;
-      /**
-       * Live-refresh push subscription (BST-1161, spec §6): external git
-       * activity on a repository. Returns the unsubscribe function.
-       */
-      onInvalidated: (
-        callback: (event: import('@brainstrike/types').ChangesInvalidationEvent) => void
-      ) => () => void;
-      /** Conversation Rewind: undo the newest rewind, one level, until finalization. */
-      redoRewind: (payload: {
-        acknowledgeConflicts?: boolean;
-        rewindId: string;
-      }) => Promise<GitResult<AssistantRewindRedoResult>>;
-      resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
-      /** Conversation Rewind: pre-apply preview (range, tombstones, conflicts, view). */
-      rewindPreview: (
-        payload: { threadId: string } & ({ messageId: string } | { runId: string })
-      ) => Promise<GitResult<AssistantRewindPreviewResult>>;
-    };
+    /** Desktop-only Changes bridge, derived from its pure IPC contract. */
+    changes?: Bridge<typeof changesContract>;
     chunkingHost: {
       ensureStarted: () => Promise<ChunkingHostStatus>;
       stop: () => Promise<ChunkingHostStatus>;
@@ -406,6 +336,8 @@ declare global {
         path?: string;
       }>;
     };
+    /** Desktop-only forge bridge, derived from its pure IPC contract. */
+    forge?: Bridge<typeof forgeContract>;
     /**
      * Desktop-only git bridge. Absent on web (no preload) — consumers MUST
      * capability-check `window.git` rather than `isElectron()`. Every call takes
@@ -678,41 +610,7 @@ declare global {
      * preload-runtime contract test.
      */
     workspace?: import('@brainstrike/app-shell/workspace-connect/workspace-connect-bridge').WorkspaceConnectBridge;
-    /**
-     * Desktop-only managed-worktree bridge (BST-1390).
-     *
-     * ⚠️ MUST stay in sync with `WorktreesBridge` in
-     * `packages/app-shell/src/worktrees/worktrees-bridge.ts`.
-     * `resolveWorktreesBridge()` rejects a bridge missing any method, so a
-     * method declared here but absent from the preload — or vice versa —
-     * disables worktree mode at runtime.
-     */
-    worktrees?: {
-      adopt: (params: WorktreeAdoptParams) => Promise<GitResult<ManagedWorktreeRow>>;
-      archive: (params: {
-        confirmIgnoredEntries?: string;
-        force?: boolean;
-        runId?: string;
-        worktreeId: string;
-      }) => Promise<GitResult<WorktreeArchiveResult>>;
-      checkoutStatus: (params: { path: string }) => Promise<GitResult<WorktreeCheckoutStatus>>;
-      create: (params: WorktreeCreateParams) => Promise<GitResult<WorktreeCreateResult>>;
-      createBranchHere: (params: {
-        branch: string;
-        worktreeId: string;
-      }) => Promise<GitResult<ManagedWorktreeRow>>;
-      createContext: (params: { rootId: string }) => Promise<GitResult<WorktreeCreateContext>>;
-      getSettings: () => Promise<GitResult<WorktreeSettings>>;
-      inspectArchive: (params: {
-        worktreeId: string;
-      }) => Promise<GitResult<import('@brainstrike/types').WorktreeArchivePreview>>;
-      list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
-      listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;
-      restore: (params: { worktreeId: string }) => Promise<GitResult<WorktreeCreateResult>>;
-      setSettings: (params: {
-        managedDirectory: string | null;
-        setupCommand: readonly string[] | null | 'disabled';
-      }) => Promise<GitResult<WorktreeSettings>>;
-    };
+    /** Desktop-only managed-worktree bridge, derived from its pure IPC contract. */
+    worktrees?: Bridge<typeof worktreesContract>;
   }
 }

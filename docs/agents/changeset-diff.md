@@ -375,19 +375,21 @@ outside-root containment and unvalidated trust; locking does not grant trust.
 
 ## THE `changes` IPC DOMAIN
 
-Main-process registration: `apps/desktop/src/ipc-changes.ts` registers
-three channels (`apps/desktop/src/platform/desktop-ipc-channels.ts`:
-`changes.resolveView` → `'changes:resolveView'`, `changes.fileDiff` →
-`'changes:fileDiff'`, `changes.inventory` → `'changes:inventory'`) against
-handlers in `apps/desktop/src/changes-ipc-handlers.ts`. Handlers accept
-`unknown` renderer-supplied arguments and structurally validate
+`apps/desktop/src/ipc-domains/changes.contract.ts` is the source of truth for
+seven visible-UI-only invokes (`resolveView`, `fileDiff`, `inventory`, and the
+four rewind operations) plus the `changes:invalidated` push. Main registration,
+the preload bridge, and desktop `Window` typing derive from that contract;
+`BridgeMatches` pins the result to app-shell's `ChangesBridge`. Invokes retain
+the raw `GitResult` envelope. Contract parsers reject structurally malformed
+direct IPC before handler entry, while handlers in
+`apps/desktop/src/changes-ipc-handlers.ts` retain semantic validation
 (`validateChangeset`/`validatePath`/`validateGitScope`) before anything
 typed reaches `ChangesetDiffService` — unknown `Changeset.kind`s and
 unsupported/extra keys are rejected explicitly, mirroring
 `git-structured-diff.ts`'s own params validation.
 
-Preload exposes `window.changes` (`fileDiff`, `inventory`, `resolveView`)
-gated by `shouldExposeBridge('changes')`. Renderer capability resolution:
+Preload exposes `window.changes` through `exposeBridge('changes',
+changesContract)`, gated by `shouldExposeBridge('changes')`. Renderer capability resolution:
 `packages/app-shell/src/changes/changes-bridge.ts`'s `resolveChangesBridge()`
 — returns `null` on web (no bridge), and `null` **plus a logged error** for
 a present-but-malformed bridge (missing any of `REQUIRED_METHODS`). No
@@ -406,9 +408,13 @@ end-to-end in BST-1161 (bridge, preload, IPC channel, handler,
 
 ## THE `worktrees` IPC DOMAIN
 
-`apps/desktop/src/ipc-worktrees.ts` registers the twelve-method `worktrees`
-domain against the narrowing boundary in `worktrees-ipc-handlers.ts`; preload
-exposes the same exact method set as `window.worktrees`, and
+`apps/desktop/src/ipc-domains/worktrees.contract.ts` defines the twelve-method
+visible-UI-only domain. `registerDomain`, `exposeBridge`, and
+`Bridge<typeof worktreesContract>` derive main registration, preload exposure,
+and the desktop ambient type; `BridgeMatches` pins the result to app-shell's
+`WorktreesBridge`. Structural parser failures reject malformed direct IPC
+before handler entry, while absolute-path and service semantics stay in
+`worktrees-ipc-handlers.ts` and retain raw `GitResult` failures. The
 `packages/app-shell/src/worktrees/worktrees-bridge.ts` rejects a
 present-but-incomplete bridge wholesale. All twelve methods — `adopt`,
 `archive`, `checkoutStatus`, `create`, `createBranchHere`, `createContext`,

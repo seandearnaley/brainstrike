@@ -1,11 +1,14 @@
 import Module from 'node:module';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { changesContract } from '../ipc-domains/changes.contract';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
+import { forgeContract } from '../ipc-domains/forge.contract';
 import { gitContract } from '../ipc-domains/git.contract';
 import { skillsContract } from '../ipc-domains/skills.contract';
 import { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
+import { worktreesContract } from '../ipc-domains/worktrees.contract';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 
 /**
@@ -30,11 +33,14 @@ const originalLoad = moduleWithLoader._load;
 
 const CONTRACT_BRIDGES = {
   assistantPersonas: userPersonasContract,
+  changes: changesContract,
   clipboard: clipboardContract,
   contextFiles: contextFilesContract,
+  forge: forgeContract,
   git: gitContract,
   skills: skillsContract,
   userCommands: userCommandsContract,
+  worktrees: worktreesContract,
 } as const;
 
 function exposedApi(name: string): Record<string, (...args: unknown[]) => unknown> {
@@ -88,6 +94,40 @@ describe('preload contract-derived bridges', () => {
 
     await expect(exposedApi('git')['status']?.('root-1')).resolves.toBe(result);
     expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.git.status, 'root-1');
+  });
+
+  it.each([
+    ['changes', 'inventory', DESKTOP_IPC_CHANNELS.changes.inventory, []],
+    ['forge', 'refresh', DESKTOP_IPC_CHANNELS.forge.refresh, ['root-1', { reason: 'user' }]],
+    ['worktrees', 'listManagedPaths', DESKTOP_IPC_CHANNELS.worktrees.managedPaths, []],
+  ] as const)(
+    '%s.%s routes to its manifest channel and preserves its raw result',
+    async (name, method, channel, args) => {
+      const result = { error: `${name} failed`, ok: false } as const;
+      mockInvoke.mockResolvedValueOnce(result);
+
+      await expect(exposedApi(name)[method]?.(...args)).resolves.toBe(result);
+      expect(mockInvoke).toHaveBeenLastCalledWith(channel, ...args);
+    }
+  );
+
+  it.each([
+    ['changes', 'onInvalidated', DESKTOP_IPC_CHANNELS.changes.invalidated],
+    ['forge', 'onPrUpdated', DESKTOP_IPC_CHANNELS.forge.prUpdated],
+  ] as const)('%s.%s subscribes and removes the same push listener', (name, method, channel) => {
+    const callback = vi.fn();
+    const unsubscribe = exposedApi(name)[method]?.(callback) as () => void;
+    const listener = vi
+      .mocked(mockElectron.ipcRenderer.on)
+      .mock.calls.find(([registered]) => registered === channel)?.[1] as (
+      event: unknown,
+      payload: unknown
+    ) => void;
+
+    listener({}, { marker: name });
+    expect(callback).toHaveBeenCalledWith({ marker: name });
+    unsubscribe();
+    expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(channel, listener);
   });
 
   it.each([
