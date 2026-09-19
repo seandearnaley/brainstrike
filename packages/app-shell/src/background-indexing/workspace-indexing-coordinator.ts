@@ -35,7 +35,6 @@ export interface WorkspaceIndexingCoordinatorInputs {
   managedCollectionId: string | null;
   onBootstrap: () => boolean;
   onError: (operation: string, error: unknown) => void;
-  pauseReasons: readonly string[];
   publishPaused: (args: {
     activeRootPath: string | null;
     managedCollectionId: string | null;
@@ -47,10 +46,12 @@ export interface WorkspaceIndexingCoordinatorInputs {
     managedCollectionId: string | null;
   }) => void;
   publishWaiting: (args: { activeRootPath: string; managedCollectionId: string }) => void;
+  readPauseReasons: () => readonly string[];
+  readRootDirectoryHandle: () => RootDirectoryHandle;
   resolveTargets: (
-    scope: WorkspaceIndexingTriggerScope
+    scope: WorkspaceIndexingTriggerScope,
+    context: { isCurrent: () => boolean }
   ) => Promise<readonly WorkspaceCollectionSyncRequest[]>;
-  rootDirectoryHandle: RootDirectoryHandle;
   service: WorkspaceIndexingCoordinatorService | null;
 }
 
@@ -111,7 +112,8 @@ export class WorkspaceIndexingCoordinator {
       return;
     }
 
-    const activeRootPath = inputs.rootDirectoryHandle?.path ?? null;
+    const rootDirectoryHandle = inputs.readRootDirectoryHandle();
+    const activeRootPath = rootDirectoryHandle?.path ?? null;
     if (!inputs.service) {
       inputs.publishRuntimeUnavailable({
         activeRootPath,
@@ -125,25 +127,26 @@ export class WorkspaceIndexingCoordinator {
       return;
     }
 
-    if (inputs.pauseReasons.length > 0) {
+    const pauseReasons = inputs.readPauseReasons();
+    if (pauseReasons.length > 0) {
       this.invalidate();
       void inputs.service.cancel().catch((error) => inputs.onError('cancel', error));
       inputs.publishPaused({
         activeRootPath,
         managedCollectionId: inputs.managedCollectionId,
-        pauseReasons: inputs.pauseReasons,
+        pauseReasons,
       });
       return;
     }
 
-    if (!(inputs.enabled && inputs.managedCollectionId && inputs.rootDirectoryHandle)) {
+    if (!(inputs.enabled && inputs.managedCollectionId && rootDirectoryHandle)) {
       this.invalidateActive(inputs.service, inputs.onError);
       void inputs.service
         .sync({
           enabled: inputs.enabled,
           indexingPolicyPreset: inputs.indexingPolicyPreset,
           managedCollectionId: inputs.managedCollectionId,
-          rootDirectoryHandle: inputs.rootDirectoryHandle,
+          rootDirectoryHandle,
           scope: { mode: 'full' },
         })
         .catch((error) => inputs.onError('sync', error));
@@ -154,7 +157,7 @@ export class WorkspaceIndexingCoordinator {
       this.invalidate();
       void inputs.service.cancel().catch((error) => inputs.onError('cancel', error));
       inputs.publishWaiting({
-        activeRootPath: inputs.rootDirectoryHandle.path,
+        activeRootPath: rootDirectoryHandle.path,
         managedCollectionId: inputs.managedCollectionId,
       });
       return;
@@ -162,18 +165,17 @@ export class WorkspaceIndexingCoordinator {
 
     if (this.active) {
       if (options.restartActive === true) {
-        this.invalidate();
-        void inputs.service.cancel().catch((error) => inputs.onError('cancel', error));
-      } else {
-        this.pendingScope = mergeScopes(this.pendingScope, scope);
-        this.debugState = {
-          ...this.debugState,
-          pendingScope: this.pendingScope.mode,
-          state: 'queued-while-active',
-          updatedAt: new Date().toISOString(),
-        };
+        this.restartAfterCancellation(scope, inputs, inputs.service);
         return;
       }
+      this.pendingScope = mergeScopes(this.pendingScope, scope);
+      this.debugState = {
+        ...this.debugState,
+        pendingScope: this.pendingScope.mode,
+        state: 'queued-while-active',
+        updatedAt: new Date().toISOString(),
+      };
+      return;
     }
 
     this.start(scope, inputs, inputs.service);
@@ -197,9 +199,18 @@ export class WorkspaceIndexingCoordinator {
   }
 
   private invalidate(): void {
+    const cancelledGeneration = this.generation;
+    const cancelledState = this.debugState['state'];
     this.generation += 1;
     this.active = false;
     this.pendingScope = null;
+    this.debugState = {
+      ...this.debugState,
+      cancelledGeneration,
+      cancelledState,
+      state: 'cancelled',
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   private invalidateActive(
@@ -222,63 +233,19 @@ export class WorkspaceIndexingCoordinator {
     const generation = this.generation;
     this.active = true;
     this.debugState = {
+      ...this.debugState,
       generation,
       scope: scope.mode,
       state: 'resolving-targets',
       updatedAt: new Date().toISOString(),
     };
 
-    void inputs
-      .resolveTargets(scope)
-      .then(async (targets) => {
-        if (this.generation !== generation) {
+    const isCurrent = (): boolean => this.generation === generation;
+    void this.runPass(scope, inputs, service, generation, isCurrent)
+      .catch((error) => {
+        if (!isCurrent()) {
           return;
         }
-        this.debugState = {
-          ...this.debugState,
-          generation,
-          state: targets.length > 0 ? 'syncing' : 'no-syncable-targets',
-          syncableTargetCount: targets.length,
-          syncableTargetPaths: targets.map((target) => target.rootDirectoryHandle?.path ?? null),
-          updatedAt: new Date().toISOString(),
-        };
-        for (const request of targets) {
-          const targetPath = request.rootDirectoryHandle?.path ?? null;
-          if (this.generation !== generation) {
-            return;
-          }
-          this.debugState = {
-            ...this.debugState,
-            activeTargetPath: targetPath,
-            generation,
-            state: 'service-sync-started',
-            updatedAt: new Date().toISOString(),
-          };
-          try {
-            // eslint-disable-next-line react-doctor/async-await-in-loop -- Serial root sync prevents cancellation from overlapping root mutations.
-            await service.sync(request);
-          } catch (error) {
-            this.debugState = {
-              ...this.debugState,
-              activeTargetPath: targetPath,
-              error: error instanceof Error ? error.message : String(error),
-              generation,
-              state: 'service-sync-error',
-              updatedAt: new Date().toISOString(),
-            };
-            inputs.onError('sync', error);
-          }
-          this.debugState = {
-            ...this.debugState,
-            activeTargetPath: targetPath,
-            completedTargetPath: targetPath,
-            generation,
-            state: 'service-sync-completed',
-            updatedAt: new Date().toISOString(),
-          };
-        }
-      })
-      .catch((error) => {
         this.debugState = {
           ...this.debugState,
           error: error instanceof Error ? error.message : String(error),
@@ -289,7 +256,7 @@ export class WorkspaceIndexingCoordinator {
         inputs.onError('sync loop', error);
       })
       .finally(() => {
-        if (this.generation !== generation) {
+        if (!isCurrent()) {
           return;
         }
         this.active = false;
@@ -298,6 +265,111 @@ export class WorkspaceIndexingCoordinator {
         if (pendingScope) {
           this.trigger(pendingScope);
         }
+      });
+  }
+
+  private async runPass(
+    scope: WorkspaceIndexingTriggerScope,
+    inputs: WorkspaceIndexingCoordinatorInputs,
+    service: WorkspaceIndexingCoordinatorService,
+    generation: number,
+    isCurrent: () => boolean
+  ): Promise<void> {
+    const targets = await inputs.resolveTargets(scope, { isCurrent });
+    if (!isCurrent()) {
+      return;
+    }
+    this.debugState = {
+      ...this.debugState,
+      generation,
+      state: targets.length > 0 ? 'syncing' : 'no-syncable-targets',
+      syncableTargetCount: targets.length,
+      syncableTargetPaths: targets.map((target) => target.rootDirectoryHandle?.path ?? null),
+      updatedAt: new Date().toISOString(),
+    };
+    for (const request of targets) {
+      const targetPath = request.rootDirectoryHandle?.path ?? null;
+      if (!isCurrent()) {
+        return;
+      }
+      this.debugState = {
+        ...this.debugState,
+        activeTargetPath: targetPath,
+        generation,
+        state: 'service-sync-started',
+        updatedAt: new Date().toISOString(),
+      };
+      try {
+        // eslint-disable-next-line react-doctor/async-await-in-loop -- Serial root sync prevents cancellation from overlapping root mutations.
+        await service.sync(request);
+      } catch (error) {
+        if (!isCurrent()) {
+          return;
+        }
+        this.debugState = {
+          ...this.debugState,
+          activeTargetPath: targetPath,
+          error: error instanceof Error ? error.message : String(error),
+          generation,
+          state: 'service-sync-error',
+          updatedAt: new Date().toISOString(),
+        };
+        inputs.onError('sync', error);
+      }
+      if (!isCurrent()) {
+        return;
+      }
+      this.debugState = {
+        ...this.debugState,
+        activeTargetPath: targetPath,
+        completedTargetPath: targetPath,
+        generation,
+        state: 'service-sync-completed',
+        updatedAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  private restartAfterCancellation(
+    scope: WorkspaceIndexingTriggerScope,
+    inputs: WorkspaceIndexingCoordinatorInputs,
+    service: WorkspaceIndexingCoordinatorService
+  ): void {
+    this.invalidate();
+    const generation = this.generation;
+    this.active = true;
+    this.debugState = {
+      ...this.debugState,
+      generation,
+      scope: scope.mode,
+      state: 'restart-cancelling',
+      updatedAt: new Date().toISOString(),
+    };
+    void service
+      .cancel()
+      .then(() => {
+        if (this.generation !== generation) {
+          return;
+        }
+        const replacementScope = this.pendingScope ? mergeScopes(scope, this.pendingScope) : scope;
+        this.active = false;
+        this.pendingScope = null;
+        this.start(replacementScope, inputs, service);
+      })
+      .catch((error) => {
+        if (this.generation !== generation) {
+          return;
+        }
+        this.active = false;
+        this.pendingScope = null;
+        this.debugState = {
+          ...this.debugState,
+          error: error instanceof Error ? error.message : String(error),
+          generation,
+          state: 'restart-cancel-error',
+          updatedAt: new Date().toISOString(),
+        };
+        inputs.onError('cancel', error);
       });
   }
 }

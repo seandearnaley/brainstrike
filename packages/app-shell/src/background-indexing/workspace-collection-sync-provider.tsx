@@ -29,9 +29,10 @@ import {
   assertValidWorkspaceIndexingPowerSnapshot,
   type WorkspaceIndexingPowerSnapshot,
 } from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
-import type {
-  WorkspaceIndexingDatabasePressure,
-  WorkspaceIndexingPipelineInputs,
+import {
+  createWorkspaceIndexingQosTransitionLogger,
+  type WorkspaceIndexingDatabasePressure,
+  type WorkspaceIndexingPipelineInputs,
 } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
 import {
@@ -1006,11 +1007,6 @@ export function WorkspaceCollectionSyncProvider({
   const workspaceIndexBootstrapInFlightRef = useRef(false);
   const syncLoopDebugRef = useRef<Record<string, unknown>>({ state: 'not-started' });
   const [indexingCoordinator] = useState(() => new WorkspaceIndexingCoordinator());
-  const backgroundWorkSnapshot = useSyncExternalStore(
-    subscribeToBackgroundWorkArbiter,
-    getBackgroundWorkArbiterSnapshot,
-    getBackgroundWorkArbiterSnapshot
-  );
   const reportAsyncError = useCallback(
     (_operation: string, error: unknown): void => {
       // No direct logger call: the status store's subscription durably logs
@@ -1088,9 +1084,15 @@ export function WorkspaceCollectionSyncProvider({
     }
   }, [runtimeController]);
 
+  // One transition tracker per provider instance: resolver reconstruction must
+  // not turn an unchanged QoS state into a fresh transition log.
+  const [observeQosTransition] = useState(() =>
+    createWorkspaceIndexingQosTransitionLogger('app-shell-sync')
+  );
   const resolveQosPolicy = useMemo(
     () =>
       createWorkspaceIndexingQosResolver({
+        observeTransition: observeQosTransition,
         readBackgroundIndexingPaused: () =>
           getBackgroundWorkArbiterSnapshot().backgroundIndexingPaused,
         readDatabasePressure,
@@ -1100,7 +1102,13 @@ export function WorkspaceCollectionSyncProvider({
         readRecentUserInputMs,
         readWindowVisible: () => windowVisibleRef.current,
       }),
-    [readDatabasePressure, readPipelineInputs, readPowerSnapshot, readRecentUserInputMs]
+    [
+      observeQosTransition,
+      readDatabasePressure,
+      readPipelineInputs,
+      readPowerSnapshot,
+      readRecentUserInputMs,
+    ]
   );
 
   const missingRuntimeDependencies = useMemo(() => {
@@ -1333,7 +1341,7 @@ export function WorkspaceCollectionSyncProvider({
   ]);
 
   const resolveSyncTargets = useCallback(
-    async (scope: TriggerSyncScope) => {
+    async (scope: TriggerSyncScope, context: { isCurrent: () => boolean }) => {
       if (!(service && managedCollectionId)) {
         return [];
       }
@@ -1384,6 +1392,9 @@ export function WorkspaceCollectionSyncProvider({
           };
         })
       );
+      if (!context.isCurrent()) {
+        return [];
+      }
       const mountedDbRootIdByIdentity = new Map(
         resolvedMountedRoots.map((root) => [root.identityKey, root.dbRootId])
       );
@@ -1411,6 +1422,9 @@ export function WorkspaceCollectionSyncProvider({
         managedCollectionId,
         syncableTargets,
       });
+      if (!context.isCurrent()) {
+        return [];
+      }
       publishNoSyncableTargetStatus({
         collectionId: managedCollectionId,
         deferredRootPaths: workspaceSelection.deferredRootPaths,
@@ -1453,12 +1467,6 @@ export function WorkspaceCollectionSyncProvider({
   );
 
   useEffect(() => {
-    const pauseReasons = backgroundWorkSnapshot.backgroundIndexingPaused
-      ? [
-          ...(backgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
-          ...getBackgroundWorkPauseReasonLabels(backgroundWorkSnapshot.automaticPauseReasons),
-        ]
-      : [];
     indexingCoordinator.updateInputs({
       enabled,
       hasHydrated,
@@ -1467,7 +1475,6 @@ export function WorkspaceCollectionSyncProvider({
       managedCollectionId,
       onBootstrap: triggerWorkspaceIndexBootstrap,
       onError: reportAsyncError,
-      pauseReasons,
       publishPaused: ({
         activeRootPath,
         managedCollectionId: collectionId,
@@ -1515,12 +1522,22 @@ export function WorkspaceCollectionSyncProvider({
           state: 'waiting',
         });
       },
+      readPauseReasons: () => {
+        const snapshot = getBackgroundWorkArbiterSnapshot();
+        if (!snapshot.backgroundIndexingPaused) {
+          return [];
+        }
+        return [
+          ...(snapshot.manualPause ? ['Paused manually'] : []),
+          ...getBackgroundWorkPauseReasonLabels(snapshot.automaticPauseReasons),
+        ];
+      },
+      readRootDirectoryHandle: () => rootDirectoryHandleRef.current,
       resolveTargets: resolveSyncTargets,
-      rootDirectoryHandle: rootDirectoryHandleRef.current,
       service,
     });
+    indexingCoordinator.trigger({ mode: 'full' }, { restartActive: true });
   }, [
-    backgroundWorkSnapshot,
     enabled,
     hasHydrated,
     indexingCoordinator,
@@ -1971,6 +1988,7 @@ export function WorkspaceCollectionSyncProvider({
     rootIdByPath,
     selectedDevicePreference,
     service,
+    indexingCoordinator,
   ]);
 
   const readDebugSummary = useCallback(async (): Promise<WorkspaceIndexDebugSummary> => {
@@ -2253,25 +2271,9 @@ export function WorkspaceCollectionSyncProvider({
       return;
     }
     return registerBackgroundWorkPauseHandler('background-indexing', {
-      pause: async () => await indexingCoordinator.cancel(),
+      pause: () => indexingCoordinator.cancel(),
     });
   }, [indexingCoordinator, service]);
-
-  useEffect(() => {
-    triggerSync({ mode: 'full' }, { restartActive: true });
-  }, [
-    backgroundWorkSnapshot,
-    enabled,
-    hasHydrated,
-    indexingPolicyPreset,
-    isAccessLoading,
-    managedCollectionId,
-    resolveSyncTargets,
-    rootSetKey,
-    service,
-    triggerSync,
-    triggerWorkspaceIndexBootstrap,
-  ]);
 
   // Teardown detaches, it does not cancel (BST-1654). This cleanup runs on
   // unmount AND on every `service` identity change, so cancelling here tied the

@@ -12,12 +12,18 @@ const ROOT = {
   platform: 'electron' as const,
 };
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
+function deferred(): {
+  promise: Promise<void>;
+  reject: (error: Error) => void;
+  resolve: () => void;
+} {
   let resolve = (): void => undefined;
-  const promise = new Promise<void>((done) => {
+  let reject = (_error: Error): void => undefined;
+  const promise = new Promise<void>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, reject, resolve };
 }
 
 function createService(): WorkspaceIndexingCoordinatorService {
@@ -40,10 +46,11 @@ function createInputs(
     managedCollectionId: 'collection-1',
     onBootstrap: () => false,
     onError: vi.fn(),
-    pauseReasons: [],
     publishPaused: vi.fn(),
     publishRuntimeUnavailable: vi.fn(),
     publishWaiting: vi.fn(),
+    readPauseReasons: () => [],
+    readRootDirectoryHandle: () => ROOT,
     resolveTargets: async () => [
       {
         adapterRootId: 'adapter-root-1',
@@ -56,7 +63,6 @@ function createInputs(
         scope: { mode: 'full' },
       },
     ],
-    rootDirectoryHandle: ROOT,
     service,
     ...overrides,
   };
@@ -69,9 +75,10 @@ describe('WorkspaceIndexingCoordinator', () => {
     vi.mocked(service.sync)
       .mockImplementationOnce(async () => firstPass.promise)
       .mockResolvedValue(undefined);
-    const resolveTargets = vi.fn(createInputs(service).resolveTargets);
+    const inputs = createInputs(service);
+    const resolveTargets = vi.fn(inputs.resolveTargets);
     const coordinator = new WorkspaceIndexingCoordinator();
-    coordinator.updateInputs(createInputs(service, { resolveTargets }));
+    coordinator.updateInputs({ ...inputs, resolveTargets });
 
     coordinator.trigger({ mode: 'full' });
     await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(1));
@@ -93,15 +100,12 @@ describe('WorkspaceIndexingCoordinator', () => {
     const service = createService();
     vi.mocked(service.sync).mockImplementation(async () => activePass.promise);
     const coordinator = new WorkspaceIndexingCoordinator();
-    coordinator.updateInputs(createInputs(service));
+    let focusedRoot = ROOT;
+    coordinator.updateInputs(createInputs(service, { readRootDirectoryHandle: () => focusedRoot }));
     coordinator.trigger();
     await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(1));
 
-    coordinator.updateInputs(
-      createInputs(service, {
-        rootDirectoryHandle: { ...ROOT, path: '/workspace/focused-root' },
-      })
-    );
+    focusedRoot = { ...ROOT, path: '/workspace/focused-root' };
 
     expect(service.cancel).not.toHaveBeenCalled();
     expect(service.detach).not.toHaveBeenCalled();
@@ -171,6 +175,98 @@ describe('WorkspaceIndexingCoordinator', () => {
     await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(3));
   });
 
+  it('waits for restart cancellation and prevents the stale pass from reaching its next root', async () => {
+    const firstRoot = deferred();
+    const cancellation = deferred();
+    const service = createService();
+    vi.mocked(service.cancel).mockImplementation(async () => cancellation.promise);
+    vi.mocked(service.sync)
+      .mockImplementationOnce(async () => firstRoot.promise)
+      .mockResolvedValue(undefined);
+    const replacementRoot = { ...ROOT, path: '/workspace/replacement' };
+    const resolveTargets = vi
+      .fn<WorkspaceIndexingCoordinatorInputs['resolveTargets']>()
+      .mockResolvedValueOnce([
+        {
+          enabled: true,
+          indexingPolicyPreset: 'balanced',
+          managedCollectionId: 'collection-1',
+          rootDirectoryHandle: ROOT,
+          scope: { mode: 'full' },
+        },
+        {
+          enabled: true,
+          indexingPolicyPreset: 'balanced',
+          managedCollectionId: 'collection-1',
+          rootDirectoryHandle: { ...ROOT, path: '/workspace/stale-root-2' },
+          scope: { mode: 'full' },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          enabled: true,
+          indexingPolicyPreset: 'balanced',
+          managedCollectionId: 'collection-1',
+          rootDirectoryHandle: replacementRoot,
+          scope: { mode: 'full' },
+        },
+      ]);
+    const coordinator = new WorkspaceIndexingCoordinator();
+    coordinator.updateInputs(createInputs(service, { resolveTargets }));
+    coordinator.trigger();
+    await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(1));
+
+    coordinator.trigger({ mode: 'full' }, { restartActive: true });
+    await vi.waitFor(() => expect(service.cancel).toHaveBeenCalledTimes(1));
+    expect(service.sync).toHaveBeenCalledTimes(1);
+
+    cancellation.resolve();
+    await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(2));
+    firstRoot.resolve();
+    await Promise.resolve();
+
+    expect(
+      vi.mocked(service.sync).mock.calls.map(([request]) => request.rootDirectoryHandle?.path)
+    ).toEqual([ROOT.path, replacementRoot.path]);
+  });
+
+  it('does not report stale service failures after cancellation', async () => {
+    const activePass = deferred();
+    const onError = vi.fn();
+    const service = createService();
+    vi.mocked(service.sync).mockImplementation(async () => activePass.promise);
+    const coordinator = new WorkspaceIndexingCoordinator();
+    coordinator.updateInputs(createInputs(service, { onError }));
+    coordinator.trigger();
+    await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(1));
+
+    await coordinator.cancel();
+    activePass.reject(new Error('stale failure'));
+    await Promise.resolve();
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('does not report stale target-resolution failures after cancellation', async () => {
+    const targetResolution = deferred();
+    const onError = vi.fn();
+    const service = createService();
+    const resolveTargets = vi.fn(async () => {
+      await targetResolution.promise;
+      return [];
+    });
+    const coordinator = new WorkspaceIndexingCoordinator();
+    coordinator.updateInputs(createInputs(service, { onError, resolveTargets }));
+    coordinator.trigger();
+    await vi.waitFor(() => expect(resolveTargets).toHaveBeenCalledTimes(1));
+
+    await coordinator.cancel();
+    targetResolution.reject(new Error('stale resolution failure'));
+    await Promise.resolve();
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it('detaches local tracking without cancelling the durable service run', async () => {
     const service = createService();
     const coordinator = new WorkspaceIndexingCoordinator();
@@ -188,8 +284,8 @@ describe('WorkspaceIndexingCoordinator', () => {
     const coordinator = new WorkspaceIndexingCoordinator();
     coordinator.updateInputs(
       createInputs(service, {
-        pauseReasons: ['Paused manually'],
         publishPaused,
+        readPauseReasons: () => ['Paused manually'],
       })
     );
 
@@ -204,18 +300,22 @@ describe('WorkspaceIndexingCoordinator', () => {
 
   it('publishes runtime availability from current inputs', () => {
     const publishRuntimeUnavailable = vi.fn();
+    let focusedRoot = ROOT;
     const coordinator = new WorkspaceIndexingCoordinator();
     coordinator.updateInputs(
       createInputs(createService(), {
         publishRuntimeUnavailable,
+        readRootDirectoryHandle: () => focusedRoot,
         service: null,
       })
     );
 
+    focusedRoot = { ...ROOT, path: '/workspace/focused-root' };
+
     coordinator.trigger();
 
     expect(publishRuntimeUnavailable).toHaveBeenCalledWith({
-      activeRootPath: ROOT.path,
+      activeRootPath: '/workspace/focused-root',
       enabled: true,
       managedCollectionId: 'collection-1',
     });

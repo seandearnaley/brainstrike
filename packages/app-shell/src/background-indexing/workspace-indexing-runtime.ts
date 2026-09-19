@@ -7,7 +7,6 @@ import {
 import type { DbHandle } from '@brainstrike/db/react';
 import type { WorkspaceIndexingPowerSnapshot } from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
 import {
-  createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
   type WorkspaceIndexingPipelineInputs,
@@ -27,7 +26,7 @@ export function createWorkspaceIndexingRepositories(db: DbHandle): {
     exec: async (sql: string): Promise<void> => {
       await db.exec?.(sql);
     },
-    query: db.query,
+    query: db.query.bind(db),
     ...(db.insertChunksAndEnqueueEmbeddingJobs
       ? {
           insertChunksAndEnqueueEmbeddingJobs: db.insertChunksAndEnqueueEmbeddingJobs.bind(db),
@@ -43,6 +42,7 @@ export function createWorkspaceIndexingRepositories(db: DbHandle): {
 }
 
 export function createWorkspaceIndexingQosResolver(args: {
+  observeTransition: (policy: WorkspaceIndexingQosPolicy) => void;
   readBackgroundIndexingPaused: () => boolean;
   readDatabasePressure: (() => Promise<WorkspaceIndexingDatabasePressure>) | null;
   readForegroundQueryActive: () => boolean;
@@ -53,7 +53,6 @@ export function createWorkspaceIndexingQosResolver(args: {
 }): (options?: {
   foregroundDbPressureStarvationBypass?: boolean;
 }) => Promise<WorkspaceIndexingQosPolicy> {
-  const observeTransition = createWorkspaceIndexingQosTransitionLogger('app-shell-sync');
   return async (options) => {
     if (!(args.readDatabasePressure && args.readPipelineInputs)) {
       throw new Error('Workspace Index QoS requires database scheduler snapshots.');
@@ -62,18 +61,21 @@ export function createWorkspaceIndexingQosResolver(args: {
     const policy = resolveWorkspaceIndexingQosPolicy({
       dbPressure: await args.readDatabasePressure(),
       foregroundDbPressureStarvationBypass: options?.foregroundDbPressureStarvationBypass ?? false,
+      // This is the coarse app-shell signal. The hidden renderer host's
+      // ForegroundEmbeddingGate remains the embedding-scoped GPU coordinator.
       foregroundQueryActive: args.readForegroundQueryActive(),
       idleState: powerSnapshot?.idleState ?? 'unknown',
       idleTimeMs: powerSnapshot?.idleTimeMs ?? null,
       manualPaused: args.readBackgroundIndexingPaused(),
       pipeline: await args.readPipelineInputs(),
       powerSource: powerSnapshot?.powerSource ?? 'unknown',
+      // TODO(workspace-index-qos): wire hosted provider rate-limit telemetry.
       providerRateLimited: false,
       recentUserInputMs: args.readRecentUserInputMs(),
       thermalState: powerSnapshot?.thermalState ?? 'unknown',
       windowVisible: args.readWindowVisible(),
     });
-    observeTransition(policy);
+    args.observeTransition(policy);
     return policy;
   };
 }

@@ -144,7 +144,10 @@ Vector device preference is ONE canonical record (BST-1380):
      and requester detach. A focus-only input update MUST NOT invalidate active
      work. A deliberate restart or stop increments the generation before the
      previous promise settles, and a stale generation's finalizer must not clear
-     pending work owned by the replacement. Direct coordinator tests own those
+     pending work owned by the replacement. Target resolution must check that
+     generation after each await before reconciling roots or publishing status,
+     and a restart waits for the cancellation sweep before starting replacement
+     work. Direct coordinator tests own those
      lifecycle rules; the mounted provider suite proves preference, arbiter,
      refresh-event, reset, and teardown wiring.
    - The renderer loop and the backfill therefore need SEPARATE abort
