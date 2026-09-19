@@ -44,12 +44,39 @@ test('guard rejects imports, dynamic imports and filesystem reads of excluded ty
     const cases = {
       'packages/consumer/src/aliased-chain.ts':
         "import fs from 'node:fs'; const read = fs.readFileSync; const next = read; next('../../types/src/private.test.ts');\n",
+      'packages/consumer/src/await-import.ts':
+        "const { readFile: inspect } = await import('node:fs/promises'); inspect('../../types/src/private.test.ts');\n",
+      'packages/consumer/src/bracket-alias.ts':
+        "import fs from 'node:fs'; const read = fs['readFileSync']; read('../../types/src/private.test.ts');\n",
+      'packages/consumer/src/capped-alternatives.ts': [
+        "let root = 'packages/types';",
+        ...Array.from({ length: 70 }, (_, index) => `root = 'packages/other-${index}';`),
+        "readFile(makePath(root, '__tests__', name));\n",
+      ].join(' '),
+      'packages/consumer/src/capped-direct.ts': [
+        "let target = 'packages/other/base.ts';",
+        ...Array.from({ length: 70 }, (_, index) => `target = 'packages/other/file-${index}.ts';`),
+        "target = 'packages/types/src/private.test.ts';",
+        'readFile(target);\n',
+      ].join(' '),
+      'packages/consumer/src/conditional.ts':
+        "readFile(flag ? '../../types/__tests__/a.test.ts' : other);\n",
+      'packages/consumer/src/copy-async.ts':
+        "import { copyFile } from 'node:fs/promises'; copyFile('../../types/src/private.test.ts', './copy.ts');\n",
+      'packages/consumer/src/copy.ts':
+        "import { copyFileSync } from 'node:fs'; copyFileSync('../../types/src/private.test.ts', './copy.ts');\n",
+      'packages/consumer/src/cp-alias.ts':
+        "import { cp as clone } from 'node:fs/promises'; clone('../../types/__tests__', './copy', { recursive: true });\n",
+      'packages/consumer/src/cp-sync.ts':
+        "import fs from 'node:fs'; fs.cpSync('../../types/__tests__', './copy', { recursive: true });\n",
       'packages/consumer/src/destructured.ts':
         "import * as fs from 'node:fs'; const { readFileSync: read } = fs; read('../../types/src/private.test.ts');\n",
       'packages/consumer/src/directory.ts':
         "import { readdirSync } from 'node:fs'; readdirSync('../../types/__tests__');\n",
       'packages/consumer/src/distributed.ts':
         "let directory = '../../types'; directory = '../other'; readFileSync(path.join(directory, '__tests__', 'contract.test.ts'));\n",
+      'packages/consumer/src/dynamic-package.ts':
+        "const packageDir = getPackage(); readFileSync(path.join(repoRoot, packageDir, '__tests__', 'x.test.ts'));\n",
       'packages/consumer/src/dynamic-partial.ts':
         "void import(root + '/packages/types/__tests__/contract.test.js');\n",
       'packages/consumer/src/dynamic-template.ts': [
@@ -58,6 +85,8 @@ test('guard rejects imports, dynamic imports and filesystem reads of excluded ty
         '{name}',
         '.test.ts`);\n',
       ].join(''),
+      'packages/consumer/src/dynamic-workspace-package.ts':
+        "const packageDir = getPackage(); readFileSync(path.join('packages', packageDir, '__tests__', 'x.test.ts'));\n",
       'packages/consumer/src/dynamic.ts':
         "void import('../../types/__tests__/contract.test.js');\n",
       'packages/consumer/src/extensionless.ts':
@@ -66,8 +95,16 @@ test('guard rejects imports, dynamic imports and filesystem reads of excluded ty
         "import { readFileSync as read } from 'node:fs'; read('../../types/__tests__/contract.test.ts');\n",
       'packages/consumer/src/glob.ts':
         "import { globSync as scan } from 'node:fs'; scan('../../types/__tests__/**/*.ts');\n",
+      'packages/consumer/src/helper-array.ts':
+        "const root = 'packages/types'; readFile(makePath([root, '__tests__', name]));\n",
+      'packages/consumer/src/helper-path-alternatives.ts':
+        "let root = 'packages/types'; root = 'packages/other'; readFile(makePath(root, '__tests__', name));\n",
+      'packages/consumer/src/helper-path.ts':
+        "const root = 'packages/types'; readFile(makePath(root, '__tests__', name));\n",
       'packages/consumer/src/indirect-url.ts':
         "const fixture = new URL('../../types/__tests__/contract.test.ts', import.meta.url); readFile(fixture);\n",
+      'packages/consumer/src/nested-destructure.ts':
+        "import fs from 'node:fs'; const { promises: { readFile: inspect } } = fs; inspect('../../types/src/private.test.ts');\n",
       'packages/consumer/src/package.ts':
         "export * from '@brainstrike/types/__tests__/contract.test.js';\n",
       'packages/consumer/src/path-unknown.ts':
@@ -116,9 +153,18 @@ test('guard rejects imports, dynamic imports and filesystem reads of excluded ty
 test('guard conservatively keeps the types __tests__ namespace private', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'brainstrike-private-helper-'));
   try {
-    const files = ['packages/consumer/src/use-helper.ts', 'packages/types/__tests__/helper.ts'];
+    const files = [
+      'packages/consumer/src/use-helper.ts',
+      'packages/consumer/src/other-package.ts',
+      'packages/types/__tests__/helper.ts',
+    ];
     write(root, files[0], "export * from '../../types/__tests__/helper.js';\n");
-    write(root, files[1], 'export const helper = true;\n');
+    write(
+      root,
+      files[1],
+      "readFileSync(path.join(repoRoot, 'packages/other', '__tests__', 'x.test.ts'));\n"
+    );
+    write(root, files[2], 'export const helper = true;\n');
     assert.deepEqual(
       findPrivateTestReaders({ files, root }).map(({ file }) => file),
       [files[0]]

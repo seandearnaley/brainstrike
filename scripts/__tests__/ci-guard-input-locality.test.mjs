@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  globSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -15,6 +15,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const readRepo = (file) => readFileSync(path.join(repoRoot, file), 'utf8');
@@ -27,6 +28,20 @@ const readConfig = (file) => {
   assert.equal(parsed.error, undefined);
   return parsed.config;
 };
+
+function workspaceManifestPaths(root) {
+  const workspace = parseYaml(readFileSync(path.join(root, 'pnpm-workspace.yaml'), 'utf8'));
+  assert.ok(Array.isArray(workspace?.packages), 'pnpm-workspace.yaml must declare package globs');
+  const positives = workspace.packages.filter((pattern) => !pattern.startsWith('!'));
+  const ignore = workspace.packages
+    .filter((pattern) => pattern.startsWith('!'))
+    .map((pattern) => `${pattern.slice(1)}/package.json`);
+  const manifests = globSync(
+    positives.map((pattern) => `${pattern}/package.json`),
+    { cwd: root, ignore, nodir: true }
+  ).sort();
+  return ['package.json', ...manifests];
+}
 
 test('guard edits select and hash only tasks that execute the guard', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'brainstrike-guard-locality-'));
@@ -144,15 +159,24 @@ test('guard edits select and hash only tasks that execute the guard', () => {
           .filter(([id, hash]) => before.get(id) !== hash)
           .map(([id]) => id)
           .sort(),
-        expected
+        expected,
+        'guard hash carriers must match the exact consumer set'
       );
-      assert.deepEqual(selected, expected);
+      assert.deepEqual(selected, expected, 'affected selection must match the exact consumer set');
     };
     assertLocal(after, ids(plan('--affected')));
     const missingHash = new Map(after);
     missingHash.set(expected[0], before.get(expected[0]));
-    assert.throws(() => assertLocal(missingHash, expected), 'missing hash carrier must fail');
-    assert.throws(() => assertLocal(after, expected.slice(1)), 'missing selection must fail');
+    assert.throws(
+      () => assertLocal(missingHash, expected),
+      /guard hash carriers must match the exact consumer set/u,
+      'missing hash carrier must fail with the carrier assertion'
+    );
+    assert.throws(
+      () => assertLocal(after, expected.slice(1)),
+      /affected selection must match the exact consumer set/u,
+      'missing selection must fail with the selection assertion'
+    );
     write(coverageGuard, '// changed coverage enforcement\n');
     commit();
     assert.deepEqual(
@@ -173,14 +197,36 @@ test('coverage enforcement remains an uncached direct command after artifact col
   assert.match(readRepo('scripts/check.mjs'), /command: 'pnpm -s run coverage:enforce'/u);
 });
 
-function assertGuardInputs(manifest, config) {
+function commandsForTask(manifest, task) {
+  const command = manifest.scripts?.[task] ?? '';
+  const commands = [command];
+  for (const match of command.matchAll(/\bpnpm\s+(?:-s\s+)?(?:run\s+)?(?!exec\b)([\w:-]+)/gu)) {
+    const referenced = manifest.scripts?.[match[1]];
+    if (referenced) {
+      commands.push(referenced);
+    }
+  }
+  return commands;
+}
+
+function assertGuardInputs(manifest, config, rootConfig, { isRoot = false } = {}) {
   for (const [task, command] of Object.entries(manifest.scripts ?? {})) {
+    if (isRoot && task === 'coverage:enforce' && command === 'node scripts/enforce-coverage.mjs') {
+      // This named root command is deliberately invoked after cached coverage
+      // artifact collection. It is not itself a Turbo task.
+      continue;
+    }
+    const effectiveTask = config.tasks?.[task] ?? rootConfig.tasks?.[task];
+    if (!effectiveTask || effectiveTask.cache === false) {
+      continue;
+    }
+    const commands = commandsForTask(manifest, task);
     assert.doesNotMatch(
-      command,
+      commands.join('\n'),
       /enforce-coverage\.mjs|coverage:enforce/u,
       `${manifest.name}#${task}: coverage enforcement must remain outside cached package tasks`
     );
-    if (command.includes('verify-no-cross-chunk-cycles.mjs')) {
+    if (commands.some((candidate) => candidate.includes('verify-no-cross-chunk-cycles.mjs'))) {
       assert.ok(
         config.tasks?.[task]?.inputs?.includes(`$TURBO_ROOT$/${chunkGuard}`),
         `${manifest.name}#${task} must hash its chunk guard to prevent stale build success`
@@ -203,27 +249,23 @@ test('every workspace guard consumer carries its task input and coverage stays u
     'coverage cache hits must restore artifacts before uncached enforcement'
   );
   let consumers = 0;
-  for (const directory of ['apps', 'packages']) {
-    for (const entry of readdirSync(path.join(repoRoot, directory), { withFileTypes: true })) {
-      const relative = `${directory}/${entry.name}`;
-      if (!(entry.isDirectory() && existsSync(path.join(repoRoot, relative, 'package.json')))) {
-        continue;
-      }
-      const manifest = JSON.parse(readRepo(`${relative}/package.json`));
-      const local = existsSync(path.join(repoRoot, relative, 'turbo.json'))
-        ? readConfig(`${relative}/turbo.json`)
-        : {};
-      assertGuardInputs(manifest, local);
-      consumers += Object.values(manifest.scripts ?? {}).filter((command) =>
+  for (const manifestPath of workspaceManifestPaths(repoRoot)) {
+    const relative = path.dirname(manifestPath);
+    const manifest = JSON.parse(readRepo(manifestPath));
+    const turboPath = relative === '.' ? 'turbo.jsonc' : `${relative}/turbo.json`;
+    const local = existsSync(path.join(repoRoot, turboPath)) ? readConfig(turboPath) : {};
+    assertGuardInputs(manifest, local, config, { isRoot: manifestPath === 'package.json' });
+    consumers += Object.keys(manifest.scripts ?? {}).filter((task) =>
+      commandsForTask(manifest, task).some((command) =>
         command.includes('verify-no-cross-chunk-cycles.mjs')
-      ).length;
-      const coverage = local.tasks?.['test:coverage'];
-      if (manifest.scripts?.['test:coverage'] && coverage?.cache !== false && coverage?.outputs) {
-        assert.ok(
-          coverage.outputs.includes('coverage/**'),
-          `${manifest.name}: coverage outputs must survive cache hits`
-        );
-      }
+      )
+    ).length;
+    const coverage = local.tasks?.['test:coverage'];
+    if (manifest.scripts?.['test:coverage'] && coverage?.cache !== false && coverage?.outputs) {
+      assert.ok(
+        coverage.outputs.includes('coverage/**'),
+        `${manifest.name}: coverage outputs must survive cache hits`
+      );
     }
   }
   assert.ok(consumers >= 2, 'guard consumer discovery must not pass vacuously');
@@ -234,13 +276,72 @@ test('every workspace guard consumer carries its task input and coverage stays u
           name: 'fourth-app',
           scripts: { build: 'node ../../scripts/verify-no-cross-chunk-cycles.mjs dist' },
         },
-        {}
+        {},
+        config
       ),
-    /must hash/u
+    /fourth-app#build must hash its chunk guard/u
   );
   assert.throws(
     () =>
-      assertGuardInputs({ name: 'fourth-app', scripts: { build: 'pnpm coverage:enforce' } }, {}),
-    /outside cached/u
+      assertGuardInputs(
+        { name: 'fourth-app', scripts: { build: 'pnpm coverage:enforce' } },
+        {},
+        config
+      ),
+    /fourth-app#build: coverage enforcement must remain outside cached package tasks/u
   );
+  assert.throws(
+    () =>
+      assertGuardInputs(
+        {
+          name: 'indirect-chunks',
+          scripts: {
+            build: 'pnpm run verify:chunks',
+            'verify:chunks': 'node ../../scripts/verify-no-cross-chunk-cycles.mjs dist',
+          },
+        },
+        {},
+        config
+      ),
+    /indirect-chunks#build must hash its chunk guard/u
+  );
+  assert.throws(
+    () =>
+      assertGuardInputs(
+        {
+          name: 'indirect-coverage',
+          scripts: {
+            enforce: 'node ../../scripts/enforce-coverage.mjs',
+            'test:coverage': 'pnpm run enforce',
+          },
+        },
+        { tasks: { 'test:coverage': { cache: true } } },
+        config
+      ),
+    /indirect-coverage#test:coverage: coverage enforcement must remain outside cached package tasks/u
+  );
+});
+
+test('workspace manifest discovery follows pnpm workspace globs and includes the root', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'brainstrike-workspace-discovery-'));
+  const write = (file, value) => {
+    mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    writeFileSync(path.join(root, file), value);
+  };
+  try {
+    write('package.json', JSON.stringify({ name: 'root' }));
+    write('pnpm-workspace.yaml', 'packages:\n  - apps/*\n  - packages/config/*\n  - tooling/*\n');
+    write('apps/web/package.json', JSON.stringify({ name: 'web' }));
+    write('packages/config/nested/package.json', JSON.stringify({ name: 'nested' }));
+    write('packages/not-in-workspace/package.json', JSON.stringify({ name: 'excluded' }));
+    write('tooling/new-workspace/package.json', JSON.stringify({ name: 'new-workspace' }));
+    assert.deepEqual(workspaceManifestPaths(root), [
+      'package.json',
+      'apps/web/package.json',
+      'packages/config/nested/package.json',
+      'tooling/new-workspace/package.json',
+    ]);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
 });

@@ -15,7 +15,19 @@ export const PILOTS = [
 
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]sx?)$/u;
 const READ_CALL =
-  /^(?:readFile|readFileSync|createReadStream|open|openSync|access|accessSync|stat|statSync|readdir|readdirSync|glob|globSync|existsSync|opendir|opendirSync)$/u;
+  /^(?:readFile|readFileSync|createReadStream|open|openSync|access|accessSync|stat|statSync|readdir|readdirSync|glob|globSync|existsSync|opendir|opendirSync|copyFile|copyFileSync|cp|cpSync)$/u;
+const MAX_PATH_ALTERNATIVES = 64;
+
+function boundedAlternatives(values) {
+  if (values.length <= MAX_PATH_ALTERNATIVES) {
+    return values;
+  }
+  const discardedPrivateShape = values.some(
+    (value) =>
+      value.includes('/__tests__') || /(^|\/)[^/]*\.(?:test|spec)(?:\.[^/]*)?$/u.test(value)
+  );
+  return discardedPrivateShape ? ['*/*/__tests__/*.test.*'] : ['*/*'];
+}
 
 function trackedSourceFiles(root) {
   return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
@@ -37,26 +49,32 @@ function literalAlternatives(node, bindings = new Map(), seen = new Set()) {
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
     const left = literalAlternatives(node.left, bindings, seen);
     const right = literalAlternatives(node.right, bindings, seen);
-    return (left.length ? left : ['*']).flatMap((prefix) =>
-      (right.length ? right : ['*']).map((suffix) => prefix + suffix)
+    return boundedAlternatives(
+      (left.length ? left : ['*']).flatMap((prefix) =>
+        (right.length ? right : ['*']).map((suffix) => prefix + suffix)
+      )
     );
   }
   if (ts.isTemplateExpression(node)) {
     return node.templateSpans.reduce(
       (prefixes, span) =>
-        prefixes.flatMap((prefix) =>
-          (literalAlternatives(span.expression, bindings, seen).length
-            ? literalAlternatives(span.expression, bindings, seen)
-            : ['*']
-          ).map((value) => `${prefix}${value}${span.literal.text}`)
+        boundedAlternatives(
+          prefixes.flatMap((prefix) =>
+            (literalAlternatives(span.expression, bindings, seen).length
+              ? literalAlternatives(span.expression, bindings, seen)
+              : ['*']
+            ).map((value) => `${prefix}${value}${span.literal.text}`)
+          )
         ),
       [node.head.text]
     );
   }
   if (ts.isIdentifier(node) && bindings.has(node.text) && !seen.has(node.text)) {
-    return bindings
-      .get(node.text)
-      .flatMap((binding) => literalAlternatives(binding, bindings, new Set([...seen, node.text])));
+    return boundedAlternatives(
+      bindings
+        .get(node.text)
+        .flatMap((binding) => literalAlternatives(binding, bindings, new Set([...seen, node.text])))
+    );
   }
   if (
     ts.isCallExpression(node) &&
@@ -66,8 +84,10 @@ function literalAlternatives(node, bindings = new Map(), seen = new Set()) {
     return node.arguments.reduce(
       (prefixes, argument) => {
         const values = literalAlternatives(argument, bindings, seen);
-        return prefixes.flatMap((prefix) =>
-          (values.length ? values : ['*']).map((value) => path.join(prefix, value))
+        return boundedAlternatives(
+          prefixes.flatMap((prefix) =>
+            (values.length ? values : ['*']).map((value) => path.join(prefix, value))
+          )
         );
       },
       ['']
@@ -117,20 +137,32 @@ function fsReadArgument(node, readAliases) {
 }
 
 function partialLiteralText(node, bindings) {
-  const exact = literalText(node, bindings);
-  if (exact !== undefined) {
-    return exact;
-  }
-  const literals = [];
-  const visit = (child) => {
-    if (ts.isStringLiteralLike(child)) {
-      literals.push(child.text);
-    } else {
-      ts.forEachChild(child, visit);
+  const visit = (expression) => {
+    const exact = literalAlternatives(expression, bindings);
+    if (exact.length) {
+      return exact;
     }
+    if (ts.isConditionalExpression(expression)) {
+      return [...visit(expression.whenTrue), ...visit(expression.whenFalse)];
+    }
+    const children = [];
+    if (ts.isCallExpression(expression) || ts.isNewExpression(expression)) {
+      children.push(...(expression.arguments ?? []));
+    } else {
+      ts.forEachChild(expression, (child) => {
+        children.push(child);
+      });
+    }
+    if (children.length === 0) {
+      return ['*'];
+    }
+    return children.reduce(
+      (prefixes, child) =>
+        prefixes.flatMap((prefix) => visit(child).map((value) => path.join(prefix, value))),
+      ['']
+    );
   };
-  visit(node);
-  return literals.join('/');
+  return visit(node).join('|');
 }
 
 function packageRelativeTarget(specifier, importer, pilot) {
@@ -158,6 +190,14 @@ function isExcludedFile(specifier, importer, pilot) {
 
 function isUnsafeTarget(specifier, importer, pilot) {
   return specifier.split('|').some((candidateSpecifier) => {
+    if (
+      (/^(?:\*\/){2,}/u.test(candidateSpecifier) ||
+        /(?:^|\/)packages\/\*\//u.test(candidateSpecifier)) &&
+      (candidateSpecifier.includes('/__tests__') ||
+        /(^|\/)[^/]*\.(?:test|spec)(?:\.[^/]*)?$/u.test(candidateSpecifier))
+    ) {
+      return true;
+    }
     const candidate = packageRelativeTarget(candidateSpecifier, importer, pilot);
     if (candidate === undefined) {
       return false;
@@ -192,13 +232,62 @@ export function findPrivateTestReaders({ root = repoRoot, files = trackedSourceF
       node.arguments.length === 1 &&
       ts.isStringLiteralLike(node.arguments[0]) &&
       isFsModule(node.arguments[0].text);
+    const isImportFs = (node) =>
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteralLike(node.arguments[0]) &&
+      isFsModule(node.arguments[0].text);
+    const memberName = (node) => {
+      if (ts.isPropertyAccessExpression(node)) {
+        return node.name.text;
+      }
+      if (ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression)) {
+        return node.argumentExpression.text;
+      }
+    };
+    const isFsObject = (node) => {
+      if (ts.isIdentifier(node)) {
+        return fsObjects.has(node.text);
+      }
+      if (ts.isAwaitExpression(node)) {
+        return isFsObject(node.expression);
+      }
+      if (isRequireFs(node) || isImportFs(node)) {
+        return true;
+      }
+      return (
+        (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+        memberName(node) === 'promises' &&
+        isFsObject(node.expression)
+      );
+    };
+    const addDestructuredAliases = (pattern, expression) => {
+      for (const element of pattern.elements) {
+        if (element.dotDotDotToken) {
+          continue;
+        }
+        const property = element.propertyName ?? element.name;
+        const member = ts.isIdentifier(property)
+          ? ts.factory.createPropertyAccessExpression(expression, property)
+          : ts.factory.createElementAccessExpression(expression, property);
+        if (ts.isIdentifier(element.name)) {
+          aliasDefinitions.push({ expression: member, name: element.name.text });
+          if (READ_CALL.test(property.text) && isFsObject(expression)) {
+            readAliases.add(element.name.text);
+          }
+        } else if (ts.isObjectBindingPattern(element.name)) {
+          addDestructuredAliases(element.name, member);
+        }
+      }
+    };
     const collectBindings = (node) => {
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
         const candidates = bindings.get(node.name.text) ?? [];
         candidates.push(node.initializer);
         bindings.set(node.name.text, candidates);
         aliasDefinitions.push({ expression: node.initializer, name: node.name.text });
-        if (isRequireFs(node.initializer)) {
+        if (isFsObject(node.initializer)) {
           fsObjects.add(node.name.text);
         }
       }
@@ -239,15 +328,7 @@ export function findPrivateTestReaders({ root = repoRoot, files = trackedSourceF
         ts.isObjectBindingPattern(node.name) &&
         node.initializer
       ) {
-        aliasDefinitions.push(
-          ...node.name.elements.map((element) => ({
-            expression: ts.factory.createPropertyAccessExpression(
-              node.initializer,
-              element.propertyName ?? element.name
-            ),
-            name: element.name.text,
-          }))
-        );
+        addDestructuredAliases(node.name, node.initializer);
       }
       ts.forEachChild(node, collectBindings);
     };
@@ -258,11 +339,10 @@ export function findPrivateTestReaders({ root = repoRoot, files = trackedSourceF
       for (const { expression, name } of aliasDefinitions) {
         const isAlias =
           (ts.isIdentifier(expression) && readAliases.has(expression.text)) ||
-          (ts.isPropertyAccessExpression(expression) &&
-            READ_CALL.test(expression.name.text) &&
-            ((ts.isIdentifier(expression.expression) &&
-              fsObjects.has(expression.expression.text)) ||
-              isRequireFs(expression.expression)));
+          ((ts.isPropertyAccessExpression(expression) ||
+            ts.isElementAccessExpression(expression)) &&
+            READ_CALL.test(memberName(expression) ?? '') &&
+            isFsObject(expression.expression));
         if (isAlias && !readAliases.has(name)) {
           readAliases.add(name);
           changed = true;
