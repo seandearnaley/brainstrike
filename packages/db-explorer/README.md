@@ -311,7 +311,6 @@ import type {
 - `@brainstrike/db` - Database operations
 - `@brainstrike/embeddings` - Embedding generation
 - `@brainstrike/file-system` - File operations
-- `@brainstrike/platform-utils` - Platform detection
 - `@brainstrike/app-state` - Import settings
 - `@brainstrike/ui` - UI components
 - `@brainstrike/utils` - Common utilities

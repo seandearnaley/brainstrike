@@ -1,9 +1,8 @@
 name: React Doctor
 
-# React Doctor replaces standalone knip in CI: it runs the dead-code pass (deslop)
-# AND ~250 React/JS lint rules (Security, Bugs, Performance, Accessibility,
-# Maintainability). knip itself is retained for local dependency auditing (`pnpm knip`)
-# because deslop cannot express per-dependency ignores — see doctor.config.ts.
+# React Doctor owns React/JS lint. Its changed-scope scan does not run graph rules.
+# Knip is the authoritative file/dependency auditor, with curated entrypoints and
+# dependency exceptions in knip.jsonc. See the scheduled/manual knip.yml workflow.
 #
 # Gate policy (per team decision):
 #   - scope: changed   -> only NEWLY introduced issues are reported/blocking on a PR;

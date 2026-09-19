@@ -3516,11 +3516,9 @@ Apply the same shape to any new file-size guard rather than reintroducing a cap.
 ## REACT DOCTOR (LINT)
 
 `.github/workflows/react-doctor.yml` runs **React Doctor** (`millionco/react-doctor@v2`,
-pinned `0.9.13`) on every PR and on push to `main`. It was adopted to supersede standalone knip
-in CI by pairing knip-style dead-code analysis (the `deslop` engine, a separate `deslop-js`
-dependency through 0.9.12) with its React/JS lint rules (Security / Bugs / Performance /
-Accessibility / Maintainability). At 0.9.13 dead-code analysis is not active in this
-repository — see the knip bullet below.
+pinned `0.9.13`) on every PR and on push to `main`. It owns React/JS lint
+(Security / Bugs / Performance / Accessibility / Maintainability). Knip owns
+file/dependency graph analysis in the weekly/manual audit described below.
 It uses `ubicloud-standard-2`; provider allocation has no GitHub fallback.
 Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`
 (historical: it predates `deslop`'s removal, and this section wins where they differ).
@@ -3615,28 +3613,24 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   10 at 0.9.13 — a proxy, not a severity signal, and `dist/`-only: the rule itself ships in
   `oxlint-plugin-react-doctor`. Enabling `no-multi-comp`, or raising either id
   to `error`, is the change that needs a fresh multi-component scan first.
-- **knip is retained (NOT replaced), but CI never runs it.** Before 0.9.13, `deslop` was not
-  knip: it read knip's `entry`/`ignore` (only from strict-JSON `knip.json` or
-  `package.json#knip`, never `knip.jsonc`) but ignored knip's `ignoreDependencies` and had no
-  per-dependency allowlist, so `deslop/unused-dependency` + `deslop/unused-dev-dependency` were
-  disabled in `doctor.config.ts`. 0.9.13 removed `deslop`
-  ([#1624](https://github.com/millionco/react-doctor/pull/1624)): whole-project analysis is now
-  `react-doctor/unused-{file,export,type,dependency,dev-dependency}` +
-  `react-doctor/circular-dependency`, all opt-in (`defaultEnabled: false`) and, per #1624, kept
-  out of changed and staged scans. The config's `deslop/*` keys still resolve through upstream's
-  `LEGACY_RULE_KEY_TO_NATIVE_RULE_KEY` alias table, but they only switch off rules that are
-  already off, and nothing opts a graph rule in. So at 0.9.13 **neither CI (`scope: changed`)
-  nor the root full scan runs dead-code analysis**, and the "Left active: … unused-file +
-  circular-dependency" comment in `doctor.config.ts` is stale. That comment and the inert
-  `deslop/*` disables are deliberately left in place by the docs-only 0.9.13 re-measurement
-  (BST-1759 records them as out of scope). Opting `unused-file` + `circular-dependency` in
-  (2026-09-15) produced 0 graph findings and an unchanged 608-issue report; that alone does not
-  prove the rules are live. `pnpm knip` (driven by `knip.jsonc`, with the curated false-positive
-  allowlist) stays the dependency auditor, but CI never reaches it: no file under
-  `.github/workflows/` invokes knip, and neither the turbo config nor any root or `scripts/`
-  command those workflows run (`check`, `lint:ci`, `boundaries`, `type-check`, `test`, `build`,
-  `test:scripts`) references it (2026-09-15). So at 0.9.13 CI runs no dead-code or
-  unused-dependency analysis at all. BST-1761 tracks that gap.
+- **Knip is the authoritative file/dependency auditor.** `.github/workflows/knip.yml`
+  runs `pnpm knip` weekly (Monday 06:37 UTC) and via `workflow_dispatch`, followed by
+  `node scripts/check-knip-liveness.mjs`. Owner: Sean Dearnaley (`@seandearnaley`),
+  BST-1761. Findings, prerequisite build failures and tool failures remain nonzero;
+  no `continue-on-error`, tolerated baseline, or issue-count threshold is allowed.
+  The owner inspects failed Actions runs and dispositions findings in BST-1761.
+  Dispatch with `gh workflow run knip.yml --ref main` once the workflow is merged;
+  schedules use the default branch. The 15-minute job timeout bounds setup plus
+  both scans; each liveness subprocess is additionally bounded to two minutes.
+  The audit is separate from required PR checks: local initial cost was 14.62s,
+  but runner install cost and sustained signal are not yet measured. Promote to
+  a PR gate only with that evidence, not by adding a second whole-graph scan.
+  See `docs/knip-audit-2026-09-18.md` for the initial inventory and measurements.
+  React Doctor 0.9.13 removed deslop; its native graph rules are opt-in and excluded
+  from changed/staged scans. `doctor.config.ts` explicitly disables that analysis
+  and its six native graph rules so dependency exceptions have one owner.
+  Knip's existing export/type/duplicate exclusions remain; a clean audit is not
+  proof that every exported compatibility helper has a production caller.
 - **No broad `ignore.files` exclusions.** The old 0.5.5/0.7.1 implementation silently dropped
   roughly half the monorepo when that key was present. Upstream fixed enumeration by listing
   all supported sources before filtering (0.9.3, per `doctor.config.ts`; the 0.9.13 full scan
@@ -3863,7 +3857,7 @@ functions that Babel bailed on are still not memoized.
   1.0.0 rejects both identically, so neither was a migration risk; every function failing on
   them failed before the migration too.
 
-Local dependency audit: run `pnpm knip` from the repository root after installing
+Local and scheduled dependency audit: run `pnpm knip` from the repository root after installing
 dependencies. The command builds `@brainstrike/platform-utils` and
 `@brainstrike/build-utils` through the bounded Turbo wrapper before Knip loads
 the Vite/Playwright configs, so absent
