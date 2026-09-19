@@ -352,6 +352,18 @@ describe('file-system watch IPC domain', () => {
     });
   });
 
+  it.each([DESKTOP_IPC_CHANNELS.files.watchRetry, DESKTOP_IPC_CHANNELS.files.unwatch])(
+    'rejects malformed %s payloads from an authorized renderer',
+    async (channel) => {
+      const handler = registeredHandlers.get(channel);
+      const owner = new FakeWebContents(1);
+
+      await expect(handler?.(invokeEventFor(owner), { malformed: true })).rejects.toThrow(
+        /requires a string/
+      );
+    }
+  );
+
   it('shares one native watcher across logical registrations for the same root', async () => {
     const owner = new FakeWebContents(1);
     const dir = await makeDir();

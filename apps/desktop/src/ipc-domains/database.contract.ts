@@ -4,6 +4,7 @@ import type {
   ApplyManagedCacheInvalidationsArgs,
   DatabaseWorkOptions,
   DatabaseWorkSchedulerSnapshot,
+  DesktopDatabaseBridge,
   ManagedCacheInvalidationResult,
 } from '@brainstrike/db';
 import type {
@@ -12,7 +13,13 @@ import type {
   InsertChunksAndEnqueueEmbeddingJobsOptions,
 } from '@brainstrike/types';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { type Bridge, type Contract, pushEvent, rawChannel } from '../platform/ipc-contract';
+import {
+  type AssertTrue,
+  type Bridge,
+  type Contract,
+  pushEvent,
+  rawChannel,
+} from '../platform/ipc-contract';
 import { assertArgCount, parseRecord } from './contract-args';
 
 export interface DatabaseQueryResult {
@@ -304,3 +311,27 @@ export type DatabaseChunkingBridge = Bridge<typeof databaseChunkingContract>;
 export type DatabaseEmbeddingBridge = Bridge<typeof databaseEmbeddingContract>;
 export type DatabaseLiveBridge = Bridge<typeof databaseLiveContract>;
 export type DatabasePathBridge = Bridge<typeof databasePathContract>;
+
+type RequiredDesktopDatabaseBridge<Keys extends keyof DesktopDatabaseBridge> = {
+  [Key in Keys]-?: NonNullable<DesktopDatabaseBridge[Key]>;
+};
+type AdaptedMethod = 'exec' | 'ping' | 'query' | 'test';
+type AdaptedDatabaseBridge<Generated extends object> = Omit<Generated, AdaptedMethod> &
+  RequiredDesktopDatabaseBridge<Extract<keyof Generated, AdaptedMethod>>;
+type ExactBridge<Generated extends object, Expected extends object> = [
+  AdaptedDatabaseBridge<Generated>,
+] extends [Expected]
+  ? [Expected] extends [AdaptedDatabaseBridge<Generated>]
+    ? true
+    : false
+  : false;
+
+export type VisibleDatabaseBridgeDerivationProof = AssertTrue<
+  ExactBridge<DatabaseBridge, RequiredDesktopDatabaseBridge<keyof DatabaseBridge>>
+>;
+export type ChunkingDatabaseBridgeDerivationProof = AssertTrue<
+  ExactBridge<DatabaseChunkingBridge, RequiredDesktopDatabaseBridge<keyof DatabaseChunkingBridge>>
+>;
+export type EmbeddingDatabaseBridgeDerivationProof = AssertTrue<
+  ExactBridge<DatabaseEmbeddingBridge, RequiredDesktopDatabaseBridge<keyof DatabaseEmbeddingBridge>>
+>;

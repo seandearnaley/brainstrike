@@ -172,6 +172,14 @@ describe('@brainstrike/types desktop IPC type boundary', () => {
     const findings = inspectProgram(sourceFiles).flatMap((inspection) => inspection.findings);
 
     assert.ok(
+      findings.includes('forbidden electron-api module'),
+      `missing electron-api module finding: ${findings.join(', ')}`
+    );
+    assert.ok(
+      findings.includes('forbidden electron-api module reference: ./electron-api.js'),
+      `missing electron-api module-reference finding: ${findings.join(', ')}`
+    );
+    assert.ok(
       findings.includes('forbidden Electron bridge declaration: DesktopElectronAPI'),
       `missing DesktopElectronAPI finding: ${findings.join(', ')}`
     );

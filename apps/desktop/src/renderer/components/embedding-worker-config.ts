@@ -3,9 +3,9 @@ import {
   createDatabasePressureController,
   type DatabasePressureSnapshotSource,
   type DatabaseWorkSchedulerSnapshot,
-  type DesktopDatabaseBridge,
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
+  getDesktopDatabaseBridge,
   type IDatabase,
 } from '@brainstrike/db';
 import type {
@@ -115,15 +115,7 @@ function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSo
     return scheduler;
   }
 
-  const databaseBridge = typeof window === 'undefined' ? undefined : window.electronAPI?.db;
-  const schedulerSnapshot =
-    databaseBridge &&
-    'schedulerSnapshot' in databaseBridge &&
-    typeof databaseBridge.schedulerSnapshot === 'function'
-      ? (databaseBridge.schedulerSnapshot as NonNullable<
-          DesktopDatabaseBridge['schedulerSnapshot']
-        >)
-      : undefined;
+  const schedulerSnapshot = getDesktopDatabaseBridge()?.schedulerSnapshot;
   if (!schedulerSnapshot) {
     throw new Error('Desktop embedding worker requires database QoS scheduler snapshots.');
   }
