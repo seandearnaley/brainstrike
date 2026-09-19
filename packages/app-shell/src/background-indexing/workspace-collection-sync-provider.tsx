@@ -1089,8 +1089,8 @@ export function WorkspaceCollectionSyncProvider({
   const [observeQosTransition] = useState(() =>
     createWorkspaceIndexingQosTransitionLogger('app-shell-sync')
   );
-  const resolveQosPolicy = useMemo(
-    () =>
+  const resolveQosPolicy = useCallback(
+    (options?: { foregroundDbPressureStarvationBypass?: boolean }) =>
       createWorkspaceIndexingQosResolver({
         observeTransition: observeQosTransition,
         readBackgroundIndexingPaused: () =>
@@ -1101,7 +1101,7 @@ export function WorkspaceCollectionSyncProvider({
         readPowerSnapshot,
         readRecentUserInputMs,
         readWindowVisible: () => windowVisibleRef.current,
-      }),
+      })(options),
     [
       observeQosTransition,
       readDatabasePressure,
