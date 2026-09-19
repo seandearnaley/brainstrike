@@ -13,11 +13,6 @@ import type {
   IFileNode,
 } from '@brainstrike/types';
 import type {
-  LayoutLoadResult,
-  LayoutPersistenceResult,
-  PanelPersistenceState,
-} from '@brainstrike/ui';
-import type {
   ChunkingHostChunkBatchRequest,
   ChunkingHostChunkFileByIdRequest,
   ChunkingHostChunkFileRequest,
@@ -53,6 +48,12 @@ import type { gitContract } from '../ipc-domains/git.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import type { skillsContract } from '../ipc-domains/skills.contract';
+import type {
+  layoutContract,
+  settingsContract,
+  storageContract,
+  vectorPreferencesContract,
+} from '../ipc-domains/storage-preferences.contract';
 import type { terminalContract } from '../ipc-domains/terminal.contract';
 import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
@@ -154,14 +155,10 @@ declare global {
       isTestMode: boolean;
       noteReloadIntent: (reason: string) => Promise<void>;
     };
-    electronAPI: {
-      storage: {
-        getItem: (key: string) => Promise<string | null>;
-        setItem: (key: string, value: string) => Promise<void>;
-        removeItem: (key: string) => Promise<void>;
-        clear: () => Promise<void>;
-        getAllKeys: () => Promise<string[]>;
-      };
+    electronAPI: Bridge<typeof layoutContract> & {
+      storage: Bridge<typeof storageContract>;
+      /** Scoped embedding-host-only persisted preference capability. */
+      vectorPreferences?: Bridge<typeof vectorPreferencesContract>;
       fileSystem: {
         requestDirectoryAccess: () => Promise<DirectoryHandle>;
         readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
@@ -174,9 +171,6 @@ declare global {
       db: DatabaseBridge;
       /** Live-query operations derived from the pure live-query contract. */
       dbLive: DatabaseLiveBridge;
-      // Layout persistence methods
-      saveLayout: (state: PanelPersistenceState) => Promise<LayoutPersistenceResult>;
-      loadLayout: () => Promise<LayoutLoadResult>;
       // Database path method (legacy)
       getUserDataPath: DatabasePathBridge['getUserDataPath'];
     };
@@ -333,6 +327,8 @@ declare global {
      * key set to `SECRETS_BRIDGE_REQUIRED_METHODS`.
      */
     secrets: import('@brainstrike/assistant-contract/secrets-bridge').SecretsBridge;
+    /** Desktop settings reset capability, derived from its pure contract. */
+    settings?: Bridge<typeof settingsContract>;
     /**
      * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
      * consumers MUST capability-check `window.skills`. The Settings → Skills

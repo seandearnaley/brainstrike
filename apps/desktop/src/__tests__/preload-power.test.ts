@@ -102,7 +102,10 @@ describe('preload power bridge', () => {
           dbLive: {
             onUpdate: (cb: (payload: { id: number; results: unknown }) => void) => () => void;
           };
-          storage: { clear: () => Promise<unknown> };
+          storage: {
+            clear: () => Promise<unknown>;
+            setItem: (key: string, value: string) => Promise<unknown>;
+          };
         }
       | undefined;
   }
@@ -203,6 +206,20 @@ describe('preload power bridge', () => {
     await getElectronApi()?.storage.clear();
 
     expect(mockInvoke).toHaveBeenCalledWith('storage:clearAllForE2e');
+  });
+
+  it('routes only main-owned E2E seed keys through the bounded helper', async () => {
+    mockInvoke.mockClear();
+    await getElectronApi()?.storage.setItem('rootsList', '[]');
+    await getElectronApi()?.storage.setItem('assistant-preferences.v1', '{}');
+
+    expect(mockInvoke).toHaveBeenNthCalledWith(1, 'storage:seedMainOwnedForE2e', 'rootsList', '[]');
+    expect(mockInvoke).toHaveBeenNthCalledWith(
+      2,
+      'storage:setItem',
+      'assistant-preferences.v1',
+      '{}'
+    );
   });
 
   it('subscribes to app:power-state IPC channel', () => {

@@ -59,6 +59,8 @@ describe('hidden renderer preload contract', () => {
     const source = readHiddenPreloadSource();
     expect(source).toContain("from './platform/desktop-ipc-channels'");
     expect(source).toContain("from './ipc-domains/database.contract'");
+    expect(source).toContain("from './ipc-domains/storage-preferences.contract'");
+    expect(source).toContain('createIpcBridge(ipcRenderer, vectorPreferencesContract)');
     const manifestChannels = Object.values(DESKTOP_IPC_CHANNELS).flatMap((group) =>
       Object.values(group)
     );
@@ -77,15 +79,11 @@ describe('hidden renderer preload contract', () => {
       'llmHost',
       'logging',
       'runtime',
-      'vectorPreferences',
     ]);
     for (const member of [
       'DESKTOP_IPC_CHANNELS.files.parserHostParse',
       'DESKTOP_IPC_CHANNELS.runtime.powerSnapshot',
       'DESKTOP_IPC_CHANNELS.runtime.powerState',
-      'DESKTOP_IPC_CHANNELS.vectorPreferences.read',
-      'DESKTOP_IPC_CHANNELS.vectorPreferences.write',
-      'DESKTOP_IPC_CHANNELS.vectorPreferences.clear',
       'DESKTOP_IPC_CHANNELS.logging.getPreferences',
       'DESKTOP_IPC_CHANNELS.logging.ingestBufferedRecord',
       'DESKTOP_IPC_CHANNELS.logging.preferencesUpdated',

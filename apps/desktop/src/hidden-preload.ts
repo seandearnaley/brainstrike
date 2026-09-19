@@ -9,6 +9,7 @@ import {
   databaseChunkingContract,
   databaseEmbeddingContract,
 } from './ipc-domains/database.contract';
+import { vectorPreferencesContract } from './ipc-domains/storage-preferences.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createIpcBridge } from './platform/ipc-bridge';
 
@@ -95,14 +96,10 @@ function exposeChunkingHostBridge(): void {
  */
 function exposeEmbeddingElectronApiBridge(): void {
   const db: DatabaseEmbeddingBridge = createIpcBridge(ipcRenderer, databaseEmbeddingContract);
+  const vectorPreferences = createIpcBridge(ipcRenderer, vectorPreferencesContract);
   contextBridge.exposeInMainWorld('electronAPI', {
     db,
-    vectorPreferences: {
-      clear: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.clear),
-      read: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.read),
-      write: (value: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.write, value),
-    },
+    vectorPreferences,
   });
 }
 

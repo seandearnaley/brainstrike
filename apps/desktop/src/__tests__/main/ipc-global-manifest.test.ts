@@ -357,6 +357,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'mcp.contract.ts',
       'notes-vault.contract.ts',
       'skills.contract.ts',
+      'storage-preferences.contract.ts',
       'terminal.contract.ts',
       'user-commands.contract.ts',
       'user-personas.contract.ts',
@@ -364,6 +365,9 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     ]);
     expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(5);
     expect(contracts.filter(({ file }) => file === 'mcp.contract.ts')).toHaveLength(6);
+    expect(contracts.filter(({ file }) => file === 'storage-preferences.contract.ts')).toHaveLength(
+      4
+    );
     const registeredInvokes = new Map(
       union.filter((entry) => entry.kind === 'invoke').map((entry) => [entry.channel, entry])
     );
