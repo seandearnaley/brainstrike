@@ -1,6 +1,7 @@
 import { mcpToolRegistry } from '@brainstrike/agent';
 import { ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { adaptMcpHandlerForVisibleUi } from '../helpers/mcp-authorized-handler-test-adapter';
 import {
   createMcpElicitationPresenterStub,
   createMcpExtensionPreferencesStub,
@@ -54,7 +55,10 @@ describe('terminal MCP shutdown cleanup', () => {
   it('isolates terminal closure while directly proving watcher and active host cleanup', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
-      handlers.set(channel, handler as (...args: unknown[]) => unknown);
+      handlers.set(
+        channel,
+        adaptMcpHandlerForVisibleUi(handler as (...args: unknown[]) => unknown)
+      );
     });
     const hostClose = vi.fn(async () => cleanCloseReport);
     const runtime = {

@@ -1,20 +1,3 @@
-import type {
-  McpAppBridge,
-  McpElicitationPresentationWire,
-  McpElicitationRetiredWire,
-  McpElicitationSettlement,
-  McpExtensionEnablement,
-  McpHostControlRequest,
-  McpHostServerSnapshot,
-  McpHostSnapshot,
-  McpHostWatchEvent,
-  McpTaskBridge,
-  McpToolPreferencesFault,
-} from '@brainstrike/assistant-contract';
-import type {
-  McpContentApplicationRequest,
-  McpContentApplicationResult,
-} from '@brainstrike/assistant-service/mcp-content-application-port';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
@@ -65,13 +48,13 @@ import type { commandSessionsContract } from '../ipc-domains/command-sessions.co
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
 import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
+import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import type { skillsContract } from '../ipc-domains/skills.contract';
 import type { terminalContract } from '../ipc-domains/terminal.contract';
 import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import type { worktreesContract } from '../ipc-domains/worktrees.contract';
-import type { McpConfigStatus } from '../ipc-mcp';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import type { Bridge } from '../platform/ipc-contract';
@@ -87,17 +70,6 @@ interface ElectronLiveQueryResults {
   rows: unknown[];
   totalCount?: number;
 }
-
-// `mcp:content:*` (BST-1585): the renderer sends the verb payload plus
-// authority; main forces the operation type per channel.
-type McpContentBridgeRequest<Type extends McpContentApplicationRequest['type']> = Omit<
-  Extract<McpContentApplicationRequest, { type: Type }>,
-  'type'
->;
-type McpContentBridgeResult<Type extends McpContentApplicationResult['type']> = Extract<
-  McpContentApplicationResult,
-  { type: Type }
->;
 
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
@@ -348,92 +320,7 @@ declare global {
         callback: (preferences: LoggingPreferences) => void
       ) => (() => void) | undefined;
     };
-    mcp: {
-      /** MCP Apps admission and resource bridge; visible-UI preload only. */
-      apps?: McpAppBridge;
-      complete: (
-        request: McpContentBridgeRequest<'completion/complete'>
-      ) => Promise<McpContentBridgeResult<'completion/complete'>>;
-      controlServer: (request: McpHostControlRequest) => Promise<McpHostServerSnapshot>;
-      getConfig: () => Promise<McpConfigStatus>;
-      getPrompt: (
-        request: McpContentBridgeRequest<'prompts/get'>
-      ) => Promise<McpContentBridgeResult<'prompts/get'>>;
-      readResource: (
-        request: McpContentBridgeRequest<'resources/read'>
-      ) => Promise<McpContentBridgeResult<'resources/read'>>;
-      watch: () => Promise<{ watching: boolean }>;
-      unwatch: () => Promise<{ watching: false }>;
-      getPath: () => Promise<string>;
-      /** Global registered-extension dials (BST-1604). */
-      getExtensionPreferences: () => Promise<McpExtensionEnablement>;
-      setExtensionPreferences: (
-        preferences: McpExtensionEnablement
-      ) => Promise<McpExtensionEnablement>;
-      onExtensionPreferencesUpdated: (
-        callback: (preferences: McpExtensionEnablement) => void
-      ) => () => void;
-      getServerStatusSnapshot: () => Promise<McpHostSnapshot>;
-      setPath: (configPath: string | null) => Promise<{ success: boolean; path: string }>;
-      readConfigText: () => Promise<{
-        path: string;
-        exists: boolean;
-        created: boolean;
-        content: string;
-      }>;
-      writeConfigText: (
-        content: string
-      ) => Promise<
-        { success: true; path: string } | { success: false; path: string; error: string }
-      >;
-      selectPath: () => Promise<string | null>;
-      createSampleConfig: () => Promise<{ success: boolean; path: string; error?: string }>;
-      onConfigUpdated: (callback: (config: McpConfigStatus) => void) => () => void;
-      onServerStatusUpdated: (callback: (event: McpHostWatchEvent) => void) => () => void;
-      onElicitationRequested: (
-        callback: (presentation: McpElicitationPresentationWire) => void
-      ) => () => void;
-      onElicitationRetired: (callback: (retired: McpElicitationRetiredWire) => void) => () => void;
-      settleElicitation: (settlement: McpElicitationSettlement) => Promise<void>;
-      /** Durable MCP Tasks bridge (BST-1566); present on the visible-UI preload only. */
-      tasks?: McpTaskBridge;
-      // Tool management
-      listTools: () => Promise<{
-        [serverName: string]: Array<{
-          id: string;
-          serverName: string;
-          description?: string;
-          inputSchema?: unknown;
-          enabled: boolean;
-          discoveredAt: number;
-        }>;
-      }>;
-      enableTools: (toolIds: string[]) => Promise<void>;
-      disableTools: (toolIds: string[]) => Promise<void>;
-      enableServerTools: (serverName: string) => Promise<void>;
-      disableServerTools: (serverName: string) => Promise<void>;
-      resetTools: () => Promise<void>;
-      getToolStats: () => Promise<{
-        total: number;
-        enabled: number;
-        disabled: number;
-        /** Set when the tool-preferences file exists but could not be read (BST-1615). */
-        preferencesFault?: McpToolPreferencesFault;
-        servers: number;
-      }>;
-      onToolsUpdated: (
-        callback: (tools: {
-          [serverName: string]: Array<{
-            id: string;
-            serverName: string;
-            description?: string;
-            inputSchema?: unknown;
-            enabled: boolean;
-            discoveredAt: number;
-          }>;
-        }) => void
-      ) => () => void;
-    };
+    mcp: McpBridge;
     /**
      * Desktop-only notes vault bridge (see
      * packages/notes-vault/src/desktop/bridge-contract.ts). Absent on web (no

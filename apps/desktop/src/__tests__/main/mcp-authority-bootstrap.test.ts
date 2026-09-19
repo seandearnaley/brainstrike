@@ -20,6 +20,7 @@ import {
   type RecordedRendererEvent,
   type RecordingWindow,
 } from '../helpers/electron-main-test-harness';
+import { adaptMcpHandlerForVisibleUi } from '../helpers/mcp-authorized-handler-test-adapter';
 import { readMainSourceSections } from './main-source-test-helpers';
 import {
   createMcpElicitationPresenterStub,
@@ -154,7 +155,7 @@ describe('MCP desktop authority bootstrap', () => {
     sentEvents = rendererWindow.events;
     vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow] as never);
     vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
-      handlers.set(channel, handler as RegisteredHandler);
+      handlers.set(channel, adaptMcpHandlerForVisibleUi(handler as RegisteredHandler));
     });
     mocks.loadMcpConfig.mockResolvedValue({ exists: false, path: '/tmp/mcp.config.json' });
     vi.mocked(loadToolPreferences).mockResolvedValue({

@@ -6,6 +6,13 @@ import { commandSessionsContract } from '../ipc-domains/command-sessions.contrac
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { forgeContract } from '../ipc-domains/forge.contract';
 import { gitContract } from '../ipc-domains/git.contract';
+import {
+  mcpAppsContract,
+  mcpContract,
+  mcpElicitationContract,
+  mcpPathSelectionContract,
+  mcpTasksContract,
+} from '../ipc-domains/mcp.contract';
 import { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import { skillsContract } from '../ipc-domains/skills.contract';
 import { terminalContract } from '../ipc-domains/terminal.contract';
@@ -79,6 +86,58 @@ describe('preload contract-derived bridges', () => {
       expect(Object.keys(exposedApi(name)).sort()).toEqual(Object.keys(contract).sort());
     }
   );
+
+  it('exposes the composed MCP bridge with contract-derived root, Apps and Tasks keys', () => {
+    const mcp = exposedApi('mcp');
+    const expectedRootKeys = new Set([
+      ...Object.keys(mcpContract),
+      ...Object.keys(mcpPathSelectionContract),
+      ...Object.keys(mcpElicitationContract),
+      'apps',
+      'complete',
+      'getPrompt',
+      'readResource',
+      'tasks',
+    ]);
+    expect(new Set(Object.keys(mcp))).toEqual(expectedRootKeys);
+    expect(Object.keys(mcp['apps'] as object).sort()).toEqual(
+      [...Object.keys(mcpAppsContract), 'readResource'].sort()
+    );
+    expect(Object.keys(mcp['tasks'] as object).sort()).toEqual(
+      Object.keys(mcpTasksContract).sort()
+    );
+  });
+
+  it('routes MCP contract methods and subscriptions through their manifest channels', async () => {
+    const mcp = exposedApi('mcp');
+    mockInvoke.mockResolvedValueOnce({ apps: true, tasks: true });
+    await expect(mcp['getExtensionPreferences']?.()).resolves.toEqual({ apps: true, tasks: true });
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.extensionsGet);
+
+    const apps = mcp['apps'] as unknown as Record<string, (...args: unknown[]) => unknown>;
+    mockInvoke.mockResolvedValueOnce({ preparationId: 'prep-1' });
+    await apps['prepare']?.({ preparationId: 'prep-1' });
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.appsPrepare, {
+      preparationId: 'prep-1',
+    });
+
+    const tasks = mcp['tasks'] as unknown as Record<string, (...args: unknown[]) => unknown>;
+    mockInvoke.mockResolvedValueOnce({ tasks: [] });
+    await tasks['list']?.();
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.taskList);
+
+    const listener = vi.fn();
+    const unsubscribe = mcp['onServerStatusUpdated']?.(listener) as () => void;
+    expect(mockElectron.ipcRenderer.on).toHaveBeenCalledWith(
+      DESKTOP_IPC_CHANNELS.mcp.statusUpdated,
+      expect.any(Function)
+    );
+    unsubscribe();
+    expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(
+      DESKTOP_IPC_CHANNELS.mcp.statusUpdated,
+      expect.any(Function)
+    );
+  });
 
   it('routes clipboard.writeText to the manifest channel and unwraps the result envelope', async () => {
     mockInvoke.mockResolvedValueOnce({ ok: true, value: undefined });

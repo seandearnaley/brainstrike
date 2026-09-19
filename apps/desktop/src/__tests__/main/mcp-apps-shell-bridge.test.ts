@@ -8,7 +8,7 @@ const SHELL = Object.freeze({
   permissionsPolicy: 'camera=()',
 });
 
-type InvokeHandler = (event: { sender: FakeSender }, value: unknown) => Promise<unknown>;
+type InvokeHandler = (event: { sender: FakeSender }, ...args: unknown[]) => Promise<unknown>;
 
 class FakeSender {
   #destroyed = false;
@@ -45,12 +45,12 @@ function attach() {
   attachMcpAppShellBridge(registry, {
     registerAuthorizedInvoke: registerAuthorizedInvoke as never,
   });
-  const invoke = (channel: string, sender: FakeSender, value: unknown): Promise<unknown> => {
+  const invoke = (channel: string, sender: FakeSender, ...args: unknown[]): Promise<unknown> => {
     const handler = handlers.get(channel);
     if (handler === undefined) {
       throw new Error(`no handler for ${channel}`);
     }
-    return handler({ sender }, value);
+    return handler({ sender }, ...args);
   };
   return { invoke, registerAuthorizedInvoke, registry };
 }
@@ -96,6 +96,12 @@ describe('attachMcpAppShellBridge', () => {
       invoke('mcp:apps:prepareShell', sender, { ...SHELL, document: '' })
     ).rejects.toThrow();
     await expect(invoke('mcp:apps:releaseShell', sender, { token: 'nope' })).rejects.toThrow();
+    await expect(invoke('mcp:apps:prepareShell', sender, SHELL, 'extra')).rejects.toThrow(
+      /exactly 1 argument/
+    );
+    await expect(
+      invoke('mcp:apps:releaseShell', sender, { token: '0'.repeat(32) }, 'extra')
+    ).rejects.toThrow(/exactly 1 argument/);
     expect(registry.size).toBe(0);
   });
 

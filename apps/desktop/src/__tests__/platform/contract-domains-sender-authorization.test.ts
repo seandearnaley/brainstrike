@@ -2,9 +2,17 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerClipboardIpcHandlers } from '../../ipc-clipboard';
 import { registerContextFilesIpcHandlers } from '../../ipc-context-files';
+import {
+  mcpContentContract,
+  mcpContract,
+  mcpElicitationContract,
+  mcpTasksContract,
+} from '../../ipc-domains/mcp.contract';
 import { registerSkillsIpcHandlers } from '../../ipc-skills';
 import { registerUserCommandsIpcHandlers } from '../../ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from '../../ipc-user-personas';
+import { createDesktopIpcRegistry, registerDomain } from '../../platform/desktop-ipc-registry';
+import type { Contract, Handlers } from '../../platform/ipc-contract';
 import { clearWindowRoleByWebContentsId } from '../../window-role';
 import {
   createAllowlistedSenderFrame,
@@ -147,5 +155,40 @@ describe('contract-registered leaf domains are visible-UI-only by construction (
         dispose();
       }
     );
+  });
+});
+
+describe('contract-registered MCP invokes are visible-UI-only by construction (BST-996)', () => {
+  const contracts = [mcpContract, mcpContentContract, mcpElicitationContract, mcpTasksContract];
+
+  beforeEach(() => {
+    resetElectronMainTestHarness();
+    trackTestWindowRole(HIDDEN_SENDER_ID, 'embedding-host');
+  });
+
+  afterEach(() => {
+    clearWindowRoleByWebContentsId(HIDDEN_SENDER_ID);
+  });
+
+  it.each(contracts)('rejects hidden senders before parsing every invoke', async (contract) => {
+    const registry = createDesktopIpcRegistry({ ipcMain: mockIpcMain as never });
+    const handlers = Object.fromEntries(
+      Object.entries(contract)
+        .filter(([, spec]) => spec.kind === 'invoke')
+        .map(([key]) => [key, vi.fn(() => SENTINEL)])
+    ) as Handlers<Contract>;
+    registerDomain(registry, 'mcp', contract, handlers);
+    const event = {
+      sender: { id: HIDDEN_SENDER_ID },
+      senderFrame: createAllowlistedSenderFrame('embedding-host'),
+    } as unknown as IpcMainInvokeEvent;
+
+    for (const spec of Object.values(contract)) {
+      if (spec.kind === 'invoke') {
+        await expect(registeredHandler(spec.channel)(event, 'malformed')).rejects.toThrow(
+          `Desktop IPC ${spec.channel} requires sender role visible-ui.`
+        );
+      }
+    }
   });
 });

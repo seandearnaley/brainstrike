@@ -11,6 +11,14 @@ import { commandSessionsContract } from './ipc-domains/command-sessions.contract
 import { contextFilesContract } from './ipc-domains/context-files.contract';
 import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
+import {
+  mcpAppsContract,
+  mcpContentContract,
+  mcpContract,
+  mcpElicitationContract,
+  mcpPathSelectionContract,
+  mcpTasksContract,
+} from './ipc-domains/mcp.contract';
 import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
 import { terminalContract } from './ipc-domains/terminal.contract';
@@ -19,36 +27,15 @@ import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { worktreesContract } from './ipc-domains/worktrees.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
-import { createBridgeExposer } from './platform/ipc-bridge';
+import { createBridgeExposer, createIpcBridge } from './platform/ipc-bridge';
 
 type EmbeddingTelemetrySnapshot =
   import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
-type McpConfigStatus = import('./ipc-mcp').McpConfigStatus;
-type McpContentIpcResponse = import('./mcp/content-ipc').McpContentIpcResponse;
+type McpContentIpcResponse = import('./ipc-domains/mcp.contract').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
-type McpExtensionEnablement = import('@brainstrike/assistant-contract').McpExtensionEnablement;
 type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
 type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
-type McpAppShellPrepareRequest =
-  import('@brainstrike/assistant-contract').McpAppShellPrepareRequest;
-type McpAppShellReleaseRequest =
-  import('@brainstrike/assistant-contract').McpAppShellReleaseRequest;
-type McpAppPrepareRequest = import('@brainstrike/assistant-contract').McpAppPrepareRequest;
-type McpAppExecuteRequest = import('@brainstrike/assistant-contract').McpAppExecuteRequest;
-type McpAppReleaseRequest = import('@brainstrike/assistant-contract').McpAppReleaseRequest;
-type McpHostControlRequest = import('@brainstrike/assistant-contract').McpHostControlRequest;
-type McpElicitationPresentationWire =
-  import('@brainstrike/assistant-contract').McpElicitationPresentationWire;
-type McpElicitationRetiredWire =
-  import('@brainstrike/assistant-contract').McpElicitationRetiredWire;
-type McpElicitationSettlement = import('@brainstrike/assistant-contract').McpElicitationSettlement;
-type McpHostWatchEvent = import('@brainstrike/assistant-contract').McpHostWatchEvent;
-type McpTaskActionRequest = import('@brainstrike/assistant-contract').McpTaskActionRequest;
-type McpTaskActionResult = import('@brainstrike/assistant-contract').McpTaskActionResult;
 type McpTaskBridge = import('@brainstrike/assistant-contract').McpTaskBridge;
-type McpTaskListResult = import('@brainstrike/assistant-contract').McpTaskListResult;
-type McpTaskStatusChangedEvent =
-  import('@brainstrike/assistant-contract').McpTaskStatusChangedEvent;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 // Contract-derived bridges (BST-1648): `exposeBridge(name, contract)` exposes
 // exactly `Object.keys(contract)`, each routed to its manifest channel with
@@ -113,9 +100,7 @@ const unwrapMcpContent = async (
 };
 
 const readMcpAppResource = async (origin: McpAppOrigin): Promise<string> => {
-  const snapshot = (await ipcRenderer.invoke(
-    DESKTOP_IPC_CHANNELS.mcp.statusGet
-  )) as McpHostSnapshot;
+  const snapshot = (await mcpRootBridge.getServerStatusSnapshot()) as McpHostSnapshot;
   const server = snapshot.servers.find(
     ({ configuredServerId }) => configuredServerId === origin.serverId
   );
@@ -123,7 +108,7 @@ const readMcpAppResource = async (origin: McpAppOrigin): Promise<string> => {
     throw new Error(`MCP Apps server "${origin.serverId}" has no live content authority`);
   }
   const response = await unwrapMcpContent(
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentReadResource, {
+    mcpContentBridge.readResource({
       authority: { configuredServerId: origin.serverId, generation: server.generation },
       uri: origin.resourceUri,
     })
@@ -703,144 +688,28 @@ contextBridge.exposeInMainWorld('agent', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.chat, messages, runtime),
 });
 
-// MCP Config API (desktop-only)
+// MCP Config API (desktop-only). The channel methods and subscriptions are
+// derived from pure contracts. `apps.readResource` stays a composed preload
+// operation: it resolves the live server generation before using the content
+// contract, so there is intentionally no dedicated IPC channel for it.
+const mcpRootBridge = createIpcBridge(ipcRenderer, mcpContract);
+const mcpPathSelectionBridge = createIpcBridge(ipcRenderer, mcpPathSelectionContract);
+const mcpContentBridge = createIpcBridge(ipcRenderer, mcpContentContract);
+const mcpElicitationBridge = createIpcBridge(ipcRenderer, mcpElicitationContract);
+const mcpAppsBridge = createIpcBridge(ipcRenderer, mcpAppsContract);
+const mcpTasksBridge = createIpcBridge(ipcRenderer, mcpTasksContract);
 contextBridge.exposeInMainWorld('mcp', {
+  ...mcpRootBridge,
+  ...mcpPathSelectionBridge,
   apps: {
-    execute: (request: McpAppExecuteRequest) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsExecute, request),
-    prepare: (request: McpAppPrepareRequest) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsPrepare, request),
-    prepareShell: (request: McpAppShellPrepareRequest) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsPrepareShell, request),
+    ...mcpAppsBridge,
     readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
-    release: (request: McpAppReleaseRequest) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsRelease, request),
-    releaseShell: (request: McpAppShellReleaseRequest) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsReleaseShell, request),
   } satisfies McpAppBridge,
-  complete: (request: unknown) =>
-    unwrapMcpContent(ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentComplete, request)),
-  controlServer: (request: McpHostControlRequest) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.lifecycleControl, request),
-  createSampleConfig: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configCreateSample),
-  disableServerTools: (serverName: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsDisableServer, serverName),
-  disableTools: (toolIds: string[]) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsDisable, toolIds),
-  enableServerTools: (serverName: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsEnableServer, serverName),
-  enableTools: (toolIds: string[]) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsEnable, toolIds),
-  getConfig: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configGet),
-  getExtensionPreferences: (): Promise<McpExtensionEnablement> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.extensionsGet),
-  getPath: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configGetPath),
-  getPrompt: (request: unknown) =>
-    unwrapMcpContent(ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentGetPrompt, request)),
-  getServerStatusSnapshot: (): Promise<McpHostSnapshot> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.statusGet),
-  getToolStats: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsGetStats),
-  // Tool management
-  listTools: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsList),
-  onConfigUpdated: (callback: (config: McpConfigStatus) => void) => {
-    const listener = (_event: unknown, config: McpConfigStatus) => callback(config);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.configUpdated, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.configUpdated, listener);
-    };
-  },
-  onElicitationRequested: (callback: (presentation: McpElicitationPresentationWire) => void) => {
-    const listener = (_event: unknown, presentation: McpElicitationPresentationWire) =>
-      callback(presentation);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.elicitationRequested, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.elicitationRequested, listener);
-    };
-  },
-  onElicitationRetired: (callback: (retired: McpElicitationRetiredWire) => void) => {
-    const listener = (_event: unknown, retired: McpElicitationRetiredWire) => callback(retired);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.elicitationRetired, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.elicitationRetired, listener);
-    };
-  },
-  onExtensionPreferencesUpdated: (callback: (preferences: McpExtensionEnablement) => void) => {
-    const listener = (_event: unknown, preferences: McpExtensionEnablement) =>
-      callback(preferences);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.extensionsUpdated, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.extensionsUpdated, listener);
-    };
-  },
-  onServerStatusUpdated: (callback: (event: McpHostWatchEvent) => void) => {
-    const listener = (_event: unknown, event: McpHostWatchEvent) => callback(event);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.statusUpdated, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.statusUpdated, listener);
-    };
-  },
-  onToolsUpdated: (
-    callback: (
-      tools: Record<
-        string,
-        Array<{
-          id: string;
-          serverName: string;
-          description?: string;
-          inputSchema?: unknown;
-          enabled: boolean;
-          discoveredAt: number;
-        }>
-      >
-    ) => void
-  ) => {
-    const listener = (
-      _event: unknown,
-      tools: Record<
-        string,
-        Array<{
-          id: string;
-          serverName: string;
-          description?: string;
-          inputSchema?: unknown;
-          enabled: boolean;
-          discoveredAt: number;
-        }>
-      >
-    ) => callback(tools);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.toolsUpdated, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.toolsUpdated, listener);
-    };
-  },
-  readConfigText: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configReadText),
-  readResource: (request: unknown) =>
-    unwrapMcpContent(ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentReadResource, request)),
-  resetTools: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsReset),
-  selectPath: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configSelectPath),
-  setExtensionPreferences: (preferences: McpExtensionEnablement): Promise<McpExtensionEnablement> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.extensionsSet, preferences),
-  setPath: (configPath: string | null) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configSetPath, configPath),
-  settleElicitation: (settlement: McpElicitationSettlement) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.elicitationSettle, settlement),
-  // Durable MCP Tasks (BST-1566): visible UI only; hidden hosts never receive it.
-  tasks: {
-    act: (request: McpTaskActionRequest): Promise<McpTaskActionResult> =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.taskAct, request),
-    list: (): Promise<McpTaskListResult> => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.taskList),
-    onStatusChanged: (callback: (event: McpTaskStatusChangedEvent) => void) => {
-      const listener = (_event: unknown, event: McpTaskStatusChangedEvent) => callback(event);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.taskStatusChanged, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.taskStatusChanged, listener);
-      };
-    },
-  } satisfies McpTaskBridge,
-  unwatch: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configUnwatch),
-  watch: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configWatch),
-  writeConfigText: (content: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configWriteText, content),
+  complete: (request: unknown) => unwrapMcpContent(mcpContentBridge.complete(request)),
+  getPrompt: (request: unknown) => unwrapMcpContent(mcpContentBridge.getPrompt(request)),
+  readResource: (request: unknown) => unwrapMcpContent(mcpContentBridge.readResource(request)),
+  ...mcpElicitationBridge,
+  tasks: mcpTasksBridge satisfies McpTaskBridge,
 });
 
 // Assistant selection events. Tool execution deliberately stays behind the

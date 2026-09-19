@@ -18,8 +18,10 @@ import {
   parseMcpTaskActionRequest,
   parseMcpTaskListResult,
 } from '@brainstrike/assistant-contract';
+import { mcpTasksContract } from '../ipc-domains/mcp.contract';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import { type DesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
+import type { Handlers } from '../platform/ipc-contract';
 import { getTrackedWindowsByRole } from '../window-role';
 import type { McpDesktopTaskHostPort } from './task-host';
 
@@ -33,8 +35,6 @@ export class McpTaskBridgeError extends Error {
 export interface McpTaskBridgeRuntime {
   readonly taskHost: Pick<McpDesktopTaskHostPort, 'act' | 'list' | 'subscribe'>;
 }
-
-const MCP_TASK_SENDER_POLICY = { roles: ['visible-ui'] } as const;
 
 function broadcast(channel: string, payload: unknown): void {
   const cloned = structuredClone(payload);
@@ -54,11 +54,8 @@ export function attachMcpTaskBridge(
     const event: McpTaskStatusChangedEvent = { task };
     broadcast(DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskStatusChanged, event);
   });
-  registry.registerAuthorizedInvoke(
-    'mcp',
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskAct,
-    MCP_TASK_SENDER_POLICY,
-    (_event, request: unknown): Promise<McpTaskActionResult> => {
+  const handlers: Handlers<typeof mcpTasksContract> = {
+    act: (request): Promise<McpTaskActionResult> => {
       let parsed: ReturnType<typeof parseMcpTaskActionRequest>;
       try {
         parsed = parseMcpTaskActionRequest(request);
@@ -66,17 +63,13 @@ export function attachMcpTaskBridge(
         throw new McpTaskBridgeError('mcp-task-action-malformed');
       }
       return taskHost.act(parsed);
-    }
-  );
-  registry.registerAuthorizedInvoke(
-    'mcp',
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskList,
-    MCP_TASK_SENDER_POLICY,
-    (): McpTaskListResult => {
+    },
+    list: (): McpTaskListResult => {
       const { tasks } = taskHost.list();
       // The wire schema caps the list; the host keeps at most that many.
       return parseMcpTaskListResult({ tasks: tasks.slice(-MCP_TASK_LIST_LIMIT) });
-    }
-  );
+    },
+  };
+  registerDomain(registry, 'mcp', mcpTasksContract, handlers);
   return unsubscribe;
 }

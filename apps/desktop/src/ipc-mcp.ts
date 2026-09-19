@@ -12,6 +12,11 @@ import {
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import {
+  type McpConfigStatus,
+  mcpContract,
+  mcpPathSelectionContract,
+} from './ipc-domains/mcp.contract';
 import { attachMcpBridges, type McpBridgesRuntime } from './mcp/bridges';
 import { registerMcpContentIpc } from './mcp/content-ipc';
 import {
@@ -37,22 +42,14 @@ import {
   getMcpConfigPath,
   type LoadedMcpConfig,
   loadMcpConfig,
-  type ResolvedMcpServer,
   readMcpConfigText,
   setCustomMcpConfigPath,
   watchMcpConfig,
   writeMcpConfigText,
 } from './mcp-loader';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import {
-  createDesktopIpcRegistry,
-  type DesktopIpcInvokeHandler,
-} from './platform/desktop-ipc-registry';
-
-const UNAUTHENTICATED_SENDER_POLICY = {
-  reason:
-    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
-} as const;
+import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
+import type { Handlers } from './platform/ipc-contract';
 
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
@@ -123,19 +120,6 @@ type McpAuthorityRuntime = Pick<
   'host' | 'mcpExtensionPreferences' | 'replaceResolvedConfig' | 'setMcpExtensionPreferences'
 >;
 type McpIpcRuntime = McpAuthorityRuntime & McpBridgesRuntime;
-
-export interface McpConfigStatus {
-  error?: string;
-  exists: boolean;
-  loadedAt?: number;
-  migrations?: LoadedMcpConfig['migrations'];
-  path: string;
-  servers?: Array<{
-    name: string;
-    protocol: ResolvedMcpServer['protocol'];
-    transport: ResolvedMcpServer['transport'];
-  }>;
-}
 
 function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
   const status: McpConfigStatus = {
@@ -675,13 +659,16 @@ export function registerMcpIpcHandlers({
   logger.debug('Registering MCP IPC handlers');
   settingsStoreAccess = settingsStore ?? (() => null);
   const registry = createDesktopIpcRegistry({ ipcMain });
-  // Every `mcp` channel shares one sender policy (see the reason above); the
-  // wrapper keeps that opt-out in exactly one place.
-  const registerMcpInvoke = <Args extends readonly unknown[], Result>(
-    channel: string,
-    handler: DesktopIpcInvokeHandler<Args, Result>
-  ): void =>
-    registry.registerUnauthenticatedInvoke('mcp', channel, UNAUTHENTICATED_SENDER_POLICY, handler);
+  // Handlers close over the registration-lifetime runtime and are accumulated
+  // before the pure contract registers them atomically. `registerDomain`
+  // validates completeness before touching Electron's registry.
+  const mcpHandlers: Partial<Handlers<typeof mcpContract>> = {};
+  const defineMcpHandler = <K extends keyof Handlers<typeof mcpContract>>(
+    key: K,
+    handler: Handlers<typeof mcpContract>[K]
+  ): void => {
+    Object.assign(mcpHandlers, { [key]: handler });
+  };
   const detachBridges = attachMcpBridges(runtime, registry);
   const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
   const updateToolPreferences = async (
@@ -721,8 +708,8 @@ export function registerMcpIpcHandlers({
     });
   };
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGet,
+  defineMcpHandler(
+    'getConfig',
     async (): Promise<McpConfigStatus> =>
       await trackConfigOperation(async () => {
         last = await loadMcpConfig();
@@ -730,21 +717,21 @@ export function registerMcpIpcHandlers({
       })
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusGet,
+  defineMcpHandler(
+    'getServerStatusSnapshot',
     (): Promise<McpHostSnapshot> =>
       mcpLifecycleBarrier.then(() => structuredClone(runtime.host.snapshot()))
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.extensionsGet,
+  defineMcpHandler(
+    'getExtensionPreferences',
     (): Promise<McpExtensionEnablement> =>
       mcpLifecycleBarrier.then(() => ({ ...runtime.mcpExtensionPreferences }))
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.extensionsSet,
-    async (_event, request: unknown): Promise<McpExtensionEnablement> =>
+  defineMcpHandler(
+    'setExtensionPreferences',
+    async (request): Promise<McpExtensionEnablement> =>
       await trackConfigOperation(async () => {
         // Persist FIRST: a rejected write must not leave the live host
         // advertising a state the next launch would not reproduce.
@@ -755,64 +742,55 @@ export function registerMcpIpcHandlers({
       })
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.lifecycleControl,
-    async (_event, request: unknown) => {
-      const parsed = parseMcpHostControlRequest(request);
-      if (parsed.action === 'cancel') {
-        return structuredClone(await runtime.host.control(parsed));
-      }
-      return await trackConfigOperation(async (lifecycleEpoch) => {
-        if (parsed.action === 'disconnect' || parsed.action === 'reauthorize') {
-          return structuredClone(
-            await controlDestructiveMcpLifecycle(
-              runtime.host,
-              { action: parsed.action, configuredServerId: parsed.configuredServerId },
-              async () => {
-                await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
-              }
-            )
-          );
-        }
-        const result = await runtime.host.control(parsed);
-        if (result.state === 'connected') {
-          await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
-        }
-        return structuredClone(result);
-      });
+  defineMcpHandler('controlServer', async (request) => {
+    const parsed = parseMcpHostControlRequest(request);
+    if (parsed.action === 'cancel') {
+      return structuredClone(await runtime.host.control(parsed));
     }
-  );
-
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGetPath,
-    async (): Promise<string> => await getMcpConfigPath()
-  );
-
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSetPath,
-    (_e, configPath: string | null): Promise<{ success: boolean; path: string }> => {
-      let resolvedConfigPath: string | null;
-      try {
-        resolvedConfigPath = resolveAllowedMcpConfigPath(configPath);
-      } catch (error) {
-        return Promise.reject(error);
+    return await trackConfigOperation(async (lifecycleEpoch) => {
+      if (parsed.action === 'disconnect' || parsed.action === 'reauthorize') {
+        return structuredClone(
+          await controlDestructiveMcpLifecycle(
+            runtime.host,
+            { action: parsed.action, configuredServerId: parsed.configuredServerId },
+            async () => {
+              await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
+            }
+          )
+        );
       }
-      latestConfigPathIntentEpoch += 1;
-      return trackConfigOperation(async (lifecycleEpoch) => {
-        await setCustomMcpConfigPath(resolvedConfigPath);
-        const newPath = await getMcpConfigPath();
-
-        logger.info('Loading config from new path', { path: newPath });
+      const result = await runtime.host.control(parsed);
+      if (result.state === 'connected') {
         await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
-        await restartConfigWatcherForLifecycle(runtime, lifecycleEpoch);
+      }
+      return structuredClone(result);
+    });
+  });
 
-        return { path: newPath, success: true };
-      });
+  defineMcpHandler('getPath', async (): Promise<string> => await getMcpConfigPath());
+
+  defineMcpHandler('setPath', (configPath): Promise<{ success: boolean; path: string }> => {
+    let resolvedConfigPath: string | null;
+    try {
+      resolvedConfigPath = resolveAllowedMcpConfigPath(configPath);
+    } catch (error) {
+      return Promise.reject(error);
     }
-  );
+    latestConfigPathIntentEpoch += 1;
+    return trackConfigOperation(async (lifecycleEpoch) => {
+      await setCustomMcpConfigPath(resolvedConfigPath);
+      const newPath = await getMcpConfigPath();
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configReadText,
+      logger.info('Loading config from new path', { path: newPath });
+      await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
+      await restartConfigWatcherForLifecycle(runtime, lifecycleEpoch);
+
+      return { path: newPath, success: true };
+    });
+  });
+
+  defineMcpHandler(
+    'readConfigText',
     async (): Promise<{
       path: string;
       exists: boolean;
@@ -821,11 +799,10 @@ export function registerMcpIpcHandlers({
     }> => await trackConfigOperation(async () => await readMcpConfigText(true))
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configWriteText,
+  defineMcpHandler(
+    'writeConfigText',
     async (
-      _e,
-      content: unknown
+      content
     ): Promise<{ success: true; path: string } | { success: false; path: string; error: string }> =>
       await trackConfigOperation(async (lifecycleEpoch) => {
         const configPath = await getMcpConfigPath();
@@ -868,80 +845,77 @@ export function registerMcpIpcHandlers({
       })
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSelectPath,
-    (event): Promise<string | null> => selectMcpConfigPath(event.sender.id)
+  registry.registerAuthorizedInvoke(
+    'mcp',
+    mcpPathSelectionContract.selectPath.channel,
+    { roles: mcpPathSelectionContract.selectPath.roles },
+    (event, ...raw): Promise<string | null> => {
+      mcpPathSelectionContract.selectPath.parseArgs(raw);
+      return selectMcpConfigPath(event.sender.id);
+    }
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configWatch,
-    async (_e): Promise<{ watching: boolean }> => {
-      if (unwatch) {
-        return { watching: true };
-      }
-      await restartConfigWatcher(runtime);
+  defineMcpHandler('watch', async (): Promise<{ watching: boolean }> => {
+    if (unwatch) {
       return { watching: true };
     }
-  );
+    await restartConfigWatcher(runtime);
+    return { watching: true };
+  });
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUnwatch,
-    async (): Promise<{ watching: false }> => {
-      // Teardown remains meaningful after admission closes. Wait for every
-      // operation and the serialized tail as they stood when unwatch was
-      // invoked, then stop idempotently without entering the queue itself.
-      const operationTail = mcpConfigOperationTail;
-      const lifecycleBarrier = mcpLifecycleBarrier;
-      await Promise.all([operationTail, lifecycleBarrier]);
-      stopConfigWatcher();
-      return { watching: false as const };
-    }
-  );
+  defineMcpHandler('unwatch', async (): Promise<{ watching: false }> => {
+    // Teardown remains meaningful after admission closes. Wait for every
+    // operation and the serialized tail as they stood when unwatch was
+    // invoked, then stop idempotently without entering the queue itself.
+    const operationTail = mcpConfigOperationTail;
+    const lifecycleBarrier = mcpLifecycleBarrier;
+    await Promise.all([operationTail, lifecycleBarrier]);
+    stopConfigWatcher();
+    return { watching: false as const };
+  });
 
   // Tool management IPC handlers
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsList,
+  defineMcpHandler(
+    'listTools',
     async (): Promise<ReturnType<typeof mcpToolRegistry.getAllTools>> => getSerializableTools()
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsEnable,
-    async (_e, toolIds: string[]): Promise<void> =>
+  defineMcpHandler(
+    'enableTools',
+    async (toolIds): Promise<void> =>
       await updateToolPreferences(() => mcpToolRegistry.enableTools(toolIds))
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisable,
-    async (_e, toolIds: string[]): Promise<void> =>
+  defineMcpHandler(
+    'disableTools',
+    async (toolIds): Promise<void> =>
       await updateToolPreferences(() => mcpToolRegistry.disableTools(toolIds))
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsEnableServer,
-    async (_e, serverName: string): Promise<void> =>
+  defineMcpHandler(
+    'enableServerTools',
+    async (serverName): Promise<void> =>
       await updateToolPreferences(() => mcpToolRegistry.enableServerTools(serverName))
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisableServer,
-    async (_e, serverName: string): Promise<void> =>
+  defineMcpHandler(
+    'disableServerTools',
+    async (serverName): Promise<void> =>
       await updateToolPreferences(() => mcpToolRegistry.disableServerTools(serverName))
   );
 
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsReset,
+  defineMcpHandler(
+    'resetTools',
     async (): Promise<void> => await updateToolPreferences(() => mcpToolRegistry.reset(), 'replace')
   );
 
-  registerMcpInvoke(DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsGetStats, async () => ({
+  defineMcpHandler('getToolStats', async () => ({
     ...mcpToolRegistry.getStats(),
     ...(toolPreferencesFault ? { preferencesFault: toolPreferencesFault } : {}),
   }));
 
-  registerMcpContentIpc(registry, runtime, mcpContentLifecycle);
-
-  registerMcpInvoke(
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configCreateSample,
+  defineMcpHandler(
+    'createSampleConfig',
     async (): Promise<{ success: boolean; path: string; error?: string }> =>
       await trackConfigOperation(async (lifecycleEpoch) => {
         let configPath = '';
@@ -979,6 +953,9 @@ export function registerMcpIpcHandlers({
         }
       })
   );
+
+  registerDomain(registry, 'mcp', mcpContract, mcpHandlers as Handlers<typeof mcpContract>);
+  registerMcpContentIpc(registry, runtime, mcpContentLifecycle);
 
   // Discover tools when config changes; saved preferences are applied after discovery completes
   const startup = trackConfigOperation(async (lifecycleEpoch) => {
