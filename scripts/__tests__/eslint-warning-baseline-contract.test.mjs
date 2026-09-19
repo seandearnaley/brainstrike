@@ -25,7 +25,7 @@ import { parseCliArgs } from '../verify-eslint-warning-baselines.mjs';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const read = (relative) => readFileSync(path.join(repoRoot, relative), 'utf8');
-const FULL_TREE_ESLINT_INVOCATION = /\bpnpm run lint:eslint(?![\w:-])/u;
+const FULL_TREE_ESLINT_INVOCATION = /\bpnpm run lint:eslint(?=\s*(?:&&|$))/u;
 
 test('lint:eslint invokes the per-rule verifier, not a bare --max-warnings', () => {
   const { scripts } = JSON.parse(read('package.json'));
@@ -34,11 +34,17 @@ test('lint:eslint invokes the per-rule verifier, not a bare --max-warnings', () 
     FULL_TREE_ESLINT_INVOCATION,
     'the required Static lint command must retain the full-repository ESLint verdict'
   );
-  assert.doesNotMatch(
+  for (const narrowedInvocation of [
     'pnpm run lint:eslint:bounded',
-    FULL_TREE_ESLINT_INVOCATION,
-    'the owner-chain assertion must reject a cheaper similarly prefixed script'
-  );
+    'pnpm run lint:eslint.bounded',
+    'pnpm run lint:eslint --repo-root fixture',
+  ]) {
+    assert.doesNotMatch(
+      narrowedInvocation,
+      FULL_TREE_ESLINT_INVOCATION,
+      'the owner-chain assertion must reject a renamed or argument-narrowed script'
+    );
+  }
   assert.equal(
     scripts['lint:eslint'],
     'node scripts/verify-eslint-warning-baselines.mjs',
