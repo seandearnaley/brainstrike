@@ -158,8 +158,8 @@ test('R1/R4/R7: no Mastra server adapter, browser provider, or MCP package is de
 test('R1/R4/R7: no forbidden Mastra package is resolved in the lockfile', () => {
   // Manifest checks miss a package pulled in transitively; the lockfile is the
   // resolved truth. Match on the "<name>@" version delimiter so that
-  // "@mastra/mcp" does not also match the unrelated "@mastra/mcp-docs-server"
-  // dev tool referenced from mcp.config.json.
+  // "@mastra/mcp" does not also match a longer sibling name such as
+  // "@mastra/mcp-docs-server".
   const lockfile = readFileSync(path.join(repoRoot, 'pnpm-lock.yaml'), 'utf8');
   for (const forbidden of FORBIDDEN_MASTRA_PACKAGES) {
     assert.ok(
