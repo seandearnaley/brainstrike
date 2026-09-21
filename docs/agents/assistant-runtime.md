@@ -118,6 +118,48 @@ below are LIVE.
    Trusted `ToolInputError` validation failures instead retain their bounded,
    model-correctable message as `tool_input_invalid`; only application-owned
    validation code may construct that error.
+
+   **The budget is PER CALL, not one flat ceiling (BST-1777).** A native tool
+   declares its own budget via `executionBudget: { defaultMs, maxMs }` on its
+   `defineNativeTool()` definition (`packages/assistant-contract/src/native-tools/define.ts`,
+   validated at definition time: both positive integers, `defaultMs <= maxMs`).
+   `packages/agent/src/tools/resolve-tool-guard-budget.ts`
+   (`resolveToolGuardBudgetMs`) resolves the guard's window for one call as
+   `min(input.timeoutMs ?? budget.defaultMs, budget.maxMs) + TOOL_GUARD_MARGIN_MS`
+   (5000ms) — the margin is sized for the slowest self-teardown
+   (`executeCommand`'s SIGTERM→SIGKILL grace plus pipe close) and exists so the
+   TOOL's own deadline wins the race: a tool that enforces `timeoutMs` itself
+   (see below) answers with a richer result — `timedOut: true` plus the
+   captured output tail — than the guard's generic `tool_timeout` ever can, and
+   letting the guard fire first would throw that result away. A tool that
+   declares no budget keeps the flat `BRAINSTRIKE_TOOL_TIMEOUT_MS` default (see
+   the config list below). Only LOCAL tools can be granted a declared budget —
+   `tool-pipeline.ts`'s `budgetFor` matches on the SANITIZED local tool id, not
+   on name equality, because an MCP server chooses its own tool names and a
+   third-party tool that happened to be named like a native one must not
+   inherit its 600s budget. Every MCP tool therefore keeps the flat default
+   until BST-1779 extends declared budgets to MCP. The model-facing timeout
+   message (`formatToolTimeoutMessage`) now states the budget that actually
+   applied and, only when the tool declares a `maxMs` larger than what was
+   granted, how to ask for more (`Pass a larger timeoutMs (max <maxMs>)…`);
+   previously the message named neither number, so the model could not tell a
+   flat 60s ceiling from a wedged tool.
+
+   **`resolveGuardedToolSignal` is mandatory for any tool that owns a process
+   or a network request (`packages/agent/src/tools/tool-guard-deadline.ts`).**
+   The guard resolving `tool_timeout` only stops the WAIT — it does not stop
+   the work — so any tool that can keep running after the guard gives up must
+   fold the guard's deadline signal into its own via `resolveGuardedToolSignal`
+   (execution signal and guard deadline combined with `AbortSignal.any`,
+   returned BY IDENTITY when there is no deadline, since
+   `retainRawMcpCallToolResult` keys on that identity). Before BST-1777 only the
+   MCP runtime client read this deadline; a native command kept running after
+   the model was told it failed, and the model's retry then raced the orphan.
+   `apps/desktop/src/assistant-server/native-tool-executors-execution.ts` and
+   `packages/agent/src/tools/run-python-tool.ts` now observe it too.
+   `manageCommandSession` (long-lived interactive command sessions) DELIBERATELY
+   does not — a session spans many guarded calls and must outlive any one of
+   them.
    **The guard also CANCELS the work it gave up on (BST-1594).** Winning the
    race only stops the wait, so the guard publishes a deadline `AbortSignal`
    through `packages/agent/src/tools/tool-guard-deadline.ts` and aborts it
@@ -143,18 +185,54 @@ below are LIVE.
 3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
    `StreamStalledError`). `streamAttemptChunks` wraps the raw Mastra iterator.
-   The window is PHASE-AWARE across THREE phases (BST-1408, extended for
-   reasoning): `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` governs the wait for the
+   The window is PHASE-AWARE across FOUR phases (BST-1408, extended for
+   reasoning, extended again for tool execution by BST-1777):
+   `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` governs the wait for the
    provider to produce its first OUTPUT **in each step**,
    `BRAINSTRIKE_STREAM_REASONING_GAP_MS` every gap while it is emitting
-   REASONING, and `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is
-   demonstrably ANSWERING — see the config list below for why they must not be
+   REASONING, `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is
+   demonstrably ANSWERING, and the derived `toolExecutingMs` while at least one
+   tool call is EXECUTING — see the config list below for why they must not be
    re-merged, why the phase boundary is provider output rather than "the first
    part", and why a reasoning delta is not an answer. Since
    BST-1409 a stall ends the ATTEMPT, not the turn; see ATTEMPTS VS TURNS below.
    Only an unrecoverable stall emits a visible assistant message, a terminal
    `run.failed` event, and an error finish so the renderer does not remain
    in-flight forever.
+
+   **The `tool-executing` phase (BST-1777).** A running tool's own silence is
+   not the PROVIDER's — the provider already answered with a `tool-call` — so
+   measuring it against the tight `streaming` window is what forced the guard
+   itself to stay a flat 60s under every tool's own declared budget. The phase
+   is tracked by REFERENCE COUNT (`toolCallId`) so parallel calls hold it open
+   until the last one settles, and it OVERRIDES whichever provider phase is
+   current: `readMastraToolExecutionPartKind` (`agent-streaming.ts`) classifies
+   `tool-call` as `started`, and `tool-result` / `tool-error` /
+   `tool-output-denied` / `tool-call-approval` / `tool-call-suspended` as
+   `settled`. Approval and suspension SETTLE deliberately — the call is
+   waiting on a HUMAN, not executing, and a human approval wait must never
+   inherit the wide tool-executing backstop. `tool-output-denied` is the
+   declined outcome and also settles. Scaffolding (`start`, `step-start`)
+   CLEARS the in-flight set: a fresh step's tools are over, so a lost
+   `settled` part can only ever tighten the next window, never hold the wide
+   one open. `providerPhase` is kept as separate state from the reported
+   `phase` specifically so a `reasoning-end` marker arriving mid-tool cannot
+   "preserve" `tool-executing` into the provider state machine.
+   **Pinned chunk boundary — do not relitigate.** Verified against the
+   compiled `@mastra/core` 1.64.0 loop: Mastra's `tool-execution-start` /
+   `tool-execution-end` chunks look like the obvious boundary but are emitted
+   only `from: "NETWORK"` (agent networks) and never reach this stream; the
+   agent loop's real boundary is `tool-call` -> `tool-result` | `tool-error`.
+   Because the guard always fires before this backstop can, reaching a
+   `tool-executing` stall means the guard itself failed to answer — it is
+   TERMINAL, not retried: `isRecoverableStall` (`turn-attempts.ts`) refuses
+   recovery with `tool-still-executing`, since a continuation would re-send the
+   step and risk launching a SECOND execution of a tool whose first call might
+   still be alive. The visible message
+   (`resolveStalledVisibleMessage`, `stream-termination.ts`) says so plainly:
+   "A tool was still running after `<ms>`ms and its execution guard never
+   answered. This is a Brainstrike bug, not a model stall — please report it
+   with a debug bundle."
    An EMPTY MODEL RESPONSE rides the same attempt rails: a terminal `finish`
    whose reason would complete the run, on a turn the model contributed
    NOTHING to (no text/reasoning delta carrying a non-whitespace character —
@@ -1099,7 +1177,12 @@ runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
 
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
 defined in `packages/agent/src/config/resilience-config.ts`:
-- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
+- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) is the FALLBACK per-tool guard
+  budget: it applies only to a tool with no declared `executionBudget` (every
+  MCP tool, and any native tool that does not declare one). A native tool that
+  declares one (currently `executeCommand`, `runPython`, `runSkillScript`) is
+  granted `resolveToolGuardBudgetMs`'s per-call window instead — see the
+  per-tool guard section above (BST-1777).
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000) — the tolerated gap
   between parts, once the provider is demonstrably ANSWERING. Scoped to that
   phase only since BST-1408, and narrowed again to exclude reasoning (see the
@@ -1207,12 +1290,35 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   not include bearer tokens or silently restart/unload the external server. The
   timeout aborts the exact active provider request; it never lengthens the
   window or leaves generation running after the visible terminal failure.
-- Invariant: tool timeout < stream inactivity <= tool-call input budget, and
-  stream inactivity <= stream first-output window, and stream inactivity <=
-  stream reasoning-gap window (all `<=` comparisons are enforced only against an
-  explicitly configured value; see above). The
-  FOUNDATIONAL tool-timeout ordering is checked before any derived window, so a
-  config breaking several invariants names the first thing to fix.
+- `toolExecutingMs` (default 635000) — the `tool-executing` phase backstop.
+  DERIVED, never configured (no env var): it is
+  `max(MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS, toolTimeoutMs)
+  + TOOL_EXECUTING_BACKSTOP_MARGIN_MS` (30000) —
+  `resolveToolExecutingMs`, `resilience-config.ts`. `MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS`
+  (600000 at time of writing: the largest `maxMs` any native tool declares) is
+  itself derived from the native tool catalog, never restated by hand — a
+  second hand-maintained number next to the catalog is how BST-1777 happened.
+  A knob here would be a second number that must be kept in step with every
+  tool's own declared ceiling; deriving it instead means raising a tool's
+  `maxMs` automatically widens the backstop that must outlast it.
+- Invariant: stream inactivity <= tool-call input budget, and stream
+  inactivity <= stream first-output window, and stream inactivity <= stream
+  reasoning-gap window (all `<=` comparisons are enforced only against an
+  explicitly configured value; see above). BY CONSTRUCTION, every per-tool
+  guard budget is strictly less than `toolExecutingMs` — the guard's largest
+  possible grant is `MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS`,
+  which `resolveToolExecutingMs` adds its own margin on top of — so the
+  backstop can never fire ahead of the guard it exists to catch.
+
+  **SETTLED 2026-09 (BST-1777): a running tool is never measured against a
+  provider-silence window — do not relitigate.** The retired invariant read
+  `tool timeout < stream inactivity <= tool-call input budget`, which forced
+  the per-tool guard to stay under the 120s inactivity window regardless of
+  what any individual tool actually needed. A tool's own execution time is not
+  provider silence — the provider already answered with a `tool-call` — so the
+  ordering that mattered was never "guard ceiling < inactivity window"; it was
+  "guard budget < tool-executing backstop", and that is now enforced by
+  construction (above) rather than by a shared flat ceiling.
 - The stall diagnostic and the durable `run.failed` metadata carry `phase`
   (`awaiting-output` | `reasoning` | `streaming`), `partsSeen` (scaffolding included — it is
   transport activity, and `partsSeen: 2` beside `awaiting-output` is precisely
@@ -3703,12 +3809,18 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
 enforced `pre + tool + post` sum ceiling. What IS enforced:
 - **Per-hook:** `config.ts` rejects any hook whose `timeout >=
   resolveToolTimeoutMs()`; every hook is SIGKILLed at its own timeout (default
-  10_000ms). Chain: `per-hook (<60s) < BRAINSTRIKE_TOOL_TIMEOUT_MS (60_000) <
-  BRAINSTRIKE_STREAM_INACTIVITY_MS (120_000)`.
-- **Watchdog-covered in-stream phases** (`PreToolUse`/`PostToolUse`): bounded by
-  the per-hook SIGKILL + the stream inactivity watchdog (120s) as the backstop —
-  NOT by an aggregate cap. These run WHILE an `iterator.next()` is pending, so the
-  watchdog timer is armed and covers them.
+  10_000ms). Chain: `per-hook < BRAINSTRIKE_TOOL_TIMEOUT_MS (60_000)`. This rule
+  is UNCHANGED by BST-1777 — `resolveToolTimeoutMs()` is still the flat fallback
+  guard budget (see the config list above), and a per-tool declared
+  `executionBudget` does not widen the per-hook ceiling.
+- **Watchdog-covered in-stream phases** (`PreToolUse`/`PostToolUse`): since
+  BST-1777 these run INSIDE the `tool-executing` phase, not against the 120s
+  inter-output window — the watchdog's `tool-call` boundary starts that phase
+  before `applyToolHooks` ever runs PreToolUse, and it does not settle until
+  `tool-result`/`tool-error` after PostToolUse. They are therefore bounded by
+  the per-hook SIGKILL + the derived `toolExecutingMs` backstop (default
+  635000ms), not by an aggregate cap. These run WHILE an `iterator.next()` is
+  pending, so the watchdog timer is armed and covers them.
 - **Boundary phases the watchdog CANNOT reach** (`UserPromptSubmit` + `Stop`):
   both gate a user-visible boundary with the watchdog disarmed, so each carries
   its OWN aggregate bound (`resolveToolTimeoutMs()`, 60s), applied at runtime by

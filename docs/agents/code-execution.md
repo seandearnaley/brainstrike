@@ -35,11 +35,29 @@ policy exceeds an executor's capabilities) becomes drift between `fence` and
 | --- | --- |
 | `code` | bounded by `MAX_EXEC_CODE_LENGTH` |
 | `language` | one of `python` / `javascript` / `bash` |
-| `timeoutMs` | positive finite integer, ≤ `MAX_EXEC_TIMEOUT_MS` |
+| `timeoutMs` | positive finite integer, ≤ `MAX_EXEC_TIMEOUT_MS` (600000; mirrors `run_python`'s declared `executionBudget.maxMs`, BST-1777) |
 | `maxOutputBytes` | positive finite integer, ≤ `MAX_EXEC_OUTPUT_BYTES` |
 | `scratchDir` | absolute path, AND covered by `policy.allowWrite` |
 | `signal` | a real `AbortSignal` — **required** |
 | `policy` | `execPolicySchema` (below) |
+
+**`timeoutMs`'s default and ceiling are not this module's own numbers
+(BST-1777).** `run_python`'s `defineNativeTool()` definition declares
+`executionBudget: { defaultMs: 30_000, maxMs: 600_000 }`
+(`packages/assistant-contract/src/native-tools/definitions/run-python.ts`) —
+the ONE source both the approval card and the executor read.
+`RUN_PYTHON_DEFAULT_TIMEOUT_MS` (`run-python-approval-context.ts`) reads
+`NATIVE_TOOL_EXECUTION_BUDGETS.get(NATIVE_TOOL_ID.runPython).defaultMs` rather
+than hardcoding it, and `MAX_EXEC_TIMEOUT_MS` (this seam's own re-exported
+ceiling) is declared to match the same tool's `maxMs`, so the card, the input
+schema's ceiling, and the per-tool execution guard's declared budget cannot
+drift apart. The per-tool execution guard
+(`packages/agent/src/tools/guard-tool-execution.ts`, see
+`docs/agents/assistant-runtime.md`) grants this call
+`min(timeoutMs, executionBudget.maxMs) + TOOL_GUARD_MARGIN_MS` (5000ms) — a
+head start over the seam's own `timeoutMs` so a self-terminating tool's richer
+`timed_out` result (below) wins the race against the guard's generic
+`tool_timeout`.
 
 Two of these are deliberate, load-bearing choices:
 
@@ -50,7 +68,12 @@ Two of these are deliberate, load-bearing choices:
   process running and producing side effects until `timeoutMs` expires.
   Backends MUST terminate the process tree when it fires. An `AbortSignal` is
   trivially constructible, so requiring it costs a caller nothing and
-  guarantees the propagation path exists.
+  guarantees the propagation path exists. Since BST-1777 the signal
+  `run-python-tool.ts` passes is `resolveGuardedToolSignal(context)`
+  (`packages/agent/src/tools/tool-guard-deadline.ts`) — the caller's own signal
+  folded with the per-tool execution guard's deadline — so a guard timeout now
+  aborts the process tree through this same seam rather than leaving it
+  running until its own `timeoutMs` elapses.
 - **`maxOutputBytes` is required**, so the capture bound is a property of the
   request rather than a per-backend constant. Otherwise the same script could
   return truncated output under one backend and complete output under another,
