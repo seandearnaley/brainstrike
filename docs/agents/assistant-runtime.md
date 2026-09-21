@@ -248,6 +248,27 @@ below are LIVE.
    wedge. `settled` parts are unaffected regardless of tool name (already a
    no-op for an id that was never added).
 
+   **A DELEGATED child's calls are classified through the envelope (BST-1777
+   PR review).** Mastra carries a foreground child's parts on the PARENT
+   stream inside the delegation's `tool-output` envelope
+   (`payload.output` = the child's own part; see `resolveChildDelegation` in
+   `delegated-stream-projection.ts`), the child has no watchdog of its own,
+   and the parent's `agent-<personaId>` call is deliberately unguarded — so
+   classifying only the outer part left a child's guarded execution measured
+   against the parent's `streaming` window. Harmless while the guard was a
+   flat 60s; a regression once a child command may legitimately run to its own
+   600s budget. The classifier therefore UNWRAPS a `tool-output` whose
+   `toolName` is not in the guarded set (a delegation tool never is, while
+   `executeCommand`/`runSkillScript` emit their own `tool-output` parts whose
+   `output` is arbitrary tool data) and applies the SAME allow-list to the
+   nested part, recursing for a grandchild under a fixed unwrap bound. Two
+   deliberate consequences: a child/parent tool-call-id collision makes a
+   nested `settled` release the parent's entry early, which only TIGHTENS; and
+   a child's nested `step-start` does NOT reach the scaffolding clear (the
+   outer `tool-output` counts as provider output), so a lost nested `settled`
+   is cleared at the PARENT's next `step-start` — the same bound every other
+   in-flight id has. BACKGROUND delegation is out of scope.
+
    **A resumed, approval-approved call is SEEDED into the phase (BST-1777
    final review, I1).** Mastra never replays a suspended step's `tool-call`
    part on the resume leg — only the human's answer resumes it — so the call

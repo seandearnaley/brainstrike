@@ -87,3 +87,97 @@ describe('readMastraToolExecutionPartKind', () => {
     ).toEqual({ kind: 'started', toolCallId: 'c1' });
   });
 });
+
+/**
+ * The real envelope shape a foreground delegation puts on the PARENT stream:
+ * `{ type: 'tool-output', runId: <parent run>, payload: { output: <child
+ * part>, toolCallId, toolName: 'agent-<personaId>' } }`. Taken from the
+ * production reader `resolveChildDelegation`
+ * (`../delegated-stream-projection.ts`, which reads `payload.output` and the
+ * nested `runId`) and from the recorded fixture in
+ * `../../__tests__/delegated-stream-projection.spec.ts`.
+ */
+const delegationEnvelope = (child: unknown, personaId = 'researcher') => ({
+  payload: { output: child, toolCallId: `delegation-${personaId}`, toolName: `agent-${personaId}` },
+  runId: 'parent-run',
+  type: 'tool-output',
+});
+
+describe('readMastraToolExecutionPartKind — delegated child calls', () => {
+  it("starts the CHILD's execution when a delegation envelope carries a guarded tool-call", () => {
+    expect(
+      readMastraToolExecutionPartKind(
+        delegationEnvelope(part('tool-call', 'child-1', { toolName: 'executeCommand' }))
+      )
+    ).toEqual({ kind: 'started', toolCallId: 'child-1' });
+  });
+
+  it.each([
+    'tool-result',
+    'tool-error',
+    'tool-output-denied',
+    'tool-call-approval',
+    'tool-call-suspended',
+  ])("settles the CHILD's execution on a nested %s", (type) => {
+    expect(readMastraToolExecutionPartKind(delegationEnvelope(part(type, 'child-1')))).toEqual({
+      kind: 'settled',
+      toolCallId: 'child-1',
+    });
+  });
+
+  it('applies the SAME allow-list to a nested call (unguarded name, provider-executed, no id)', () => {
+    expect(
+      readMastraToolExecutionPartKind(
+        delegationEnvelope(part('tool-call', 'child-1', { toolName: 'somethingUnknown' }))
+      )
+    ).toBeUndefined();
+    expect(
+      readMastraToolExecutionPartKind(
+        delegationEnvelope(
+          part('tool-call', 'child-1', { providerExecuted: true, toolName: 'webSearch' })
+        )
+      )
+    ).toBeUndefined();
+    expect(
+      readMastraToolExecutionPartKind(
+        delegationEnvelope(part('tool-call', undefined, { toolName: 'executeCommand' }))
+      )
+    ).toBeUndefined();
+  });
+
+  it('reaches a grandchild through two nested delegation envelopes', () => {
+    expect(
+      readMastraToolExecutionPartKind(
+        delegationEnvelope(
+          delegationEnvelope(
+            part('tool-call', 'grandchild-1', { toolName: 'executeCommand' }),
+            'leaf'
+          )
+        )
+      )
+    ).toEqual({ kind: 'started', toolCallId: 'grandchild-1' });
+  });
+
+  it("does NOT unwrap a guarded tool's own tool-output stream (executeCommand's live output)", () => {
+    expect(
+      readMastraToolExecutionPartKind({
+        payload: {
+          output: part('tool-call', 'forged', { toolName: 'executeCommand' }),
+          toolCallId: 'c1',
+          toolName: 'executeCommand',
+        },
+        type: 'tool-output',
+      })
+    ).toBeUndefined();
+  });
+
+  it('is not a boundary when the envelope carries no nested part or an unknown shape', () => {
+    expect(readMastraToolExecutionPartKind(delegationEnvelope(undefined))).toBeUndefined();
+    expect(
+      readMastraToolExecutionPartKind(delegationEnvelope('[Delegation Rejected]'))
+    ).toBeUndefined();
+    expect(
+      readMastraToolExecutionPartKind(delegationEnvelope(part('text-delta', 'child-1')))
+    ).toBeUndefined();
+  });
+});

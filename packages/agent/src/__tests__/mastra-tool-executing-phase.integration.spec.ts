@@ -16,6 +16,7 @@ import type {
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
+import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -140,13 +141,114 @@ function silentExecuteCommandTool() {
   });
 }
 
-async function runTurn(model: LanguageModelV2): Promise<StreamChunk[]> {
+const DELEGATION_TOOL = 'agent-explore';
+
+// A READ-risk tool: a read-only persona may not be given an execute-risk one
+// (`assertPersonaToolScope`). It is silent and GUARDED (a key of
+// `toolNameMap`) — which is all this case needs — and keeps the flat default
+// budget rather than a declared one.
+const CHILD_TOOL_ID = 'brainstrike.grepSearch';
+const SANITIZED_CHILD_TOOL_NAME = 'brainstrike_grepSearch';
+
+function silentGrepTool() {
+  return createTool({
+    description: 'Fake grep tool that searches silently.',
+    execute: () =>
+      new Promise<{ matches: string[] }>((resolve) => {
+        setTimeout(() => resolve({ matches: [] }), SILENT_TOOL_SLEEP_MS);
+      }),
+    id: CHILD_TOOL_ID,
+    inputSchema: z.object({ pattern: z.string() }),
+    outputSchema: z.object({ matches: z.array(z.string()) }),
+  });
+}
+
+const explorePersona: AssistantPersonaDefinition = {
+  allowedToolIds: [CHILD_TOOL_ID],
+  description: 'Explore the workspace and report findings.',
+  id: 'explore',
+  instructions: 'You are the Explorer subagent.',
+  label: 'Explorer',
+  maxSteps: 8,
+};
+
+function toolNamesOf(options: LanguageModelV2CallOptions): string[] {
+  const tools = (options as { tools?: unknown }).tools;
+  if (!Array.isArray(tools)) {
+    return [];
+  }
+  return tools
+    .map((tool) =>
+      tool && typeof tool === 'object' ? (tool as { name?: unknown }).name : undefined
+    )
+    .filter((name): name is string => typeof name === 'string');
+}
+
+/**
+ * One scripted model serving BOTH levels, discriminated by `options.tools`
+ * (the same shape `mastra-subagent-execution.integration.spec.ts` uses):
+ * the PARENT sees `agent-explore` and delegates, the CHILD calls the silent
+ * guarded tool.
+ */
+function delegatedSilentToolModel(): LanguageModelV2 {
+  const answer = (text: string): LanguageModelV2StreamPart[] => [
+    { type: 'stream-start', warnings: [] },
+    { id: 'f', type: 'text-start' },
+    { delta: text, id: 'f', type: 'text-delta' },
+    { id: 'f', type: 'text-end' },
+    { finishReason: 'stop', type: 'finish', usage: USAGE },
+  ];
+  const call = (toolName: string, toolCallId: string, input: string) => [
+    { type: 'stream-start', warnings: [] } as LanguageModelV2StreamPart,
+    { input, toolCallId, toolName, type: 'tool-call' } as LanguageModelV2StreamPart,
+    { finishReason: 'tool-calls', type: 'finish', usage: USAGE } as LanguageModelV2StreamPart,
+  ];
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: (options: LanguageModelV2CallOptions) => {
+      const isParent = toolNamesOf(options).includes(DELEGATION_TOOL);
+      const hasResult = promptHasToolResult(options);
+      if (isParent) {
+        return Promise.resolve({
+          stream: enqueue(
+            hasResult
+              ? answer('PARENT_ANSWER')
+              : call(
+                  DELEGATION_TOOL,
+                  'delegation-call-1',
+                  JSON.stringify({ prompt: 'run the silent tool' })
+                )
+          ),
+        });
+      }
+      return Promise.resolve({
+        stream: enqueue(
+          hasResult
+            ? answer('CHILD_ANSWER')
+            : call(SANITIZED_CHILD_TOOL_NAME, 'child-call-1', JSON.stringify({ pattern: 'flag' }))
+        ),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
+async function runTurn(
+  model: LanguageModelV2,
+  personas?: readonly AssistantPersonaDefinition[]
+): Promise<StreamChunk[]> {
   modelHolder.current = model;
   const iterator = await streamMastraAgent(
     [{ id: 'u1', parts: [{ text: 'run the silent tool', type: 'text' }], role: 'user' }],
     {
+      ...(personas ? { personas: [...personas] } : {}),
       runtime: { apiKey: 'test-key', provider: 'openai' },
-      tools: { [TOOL_ID]: silentExecuteCommandTool() },
+      tools: personas
+        ? { [CHILD_TOOL_ID]: silentGrepTool(), [TOOL_ID]: silentExecuteCommandTool() }
+        : { [TOOL_ID]: silentExecuteCommandTool() },
     }
   );
   const chunks: StreamChunk[] = [];
@@ -214,6 +316,25 @@ describe('stream watchdog tool-executing phase (real Mastra loop)', () => {
     expect(kinds).toContain('run.finished');
     expect(kinds).not.toContain('run.failed');
     expect(textOf(chunks)).toContain('done');
+    for (const chunk of chunks) {
+      expect(JSON.stringify(chunk)).not.toContain('stream_inactivity_timeout');
+    }
+  }, 30_000);
+
+  it("a DELEGATED child's silent tool outlives the parent's inactivity window (PR review, Codex P1)", async () => {
+    // Mastra carries a foreground child's parts on the PARENT stream inside
+    // the delegation's `tool-output` envelope, and the child has no watchdog
+    // of its own; the parent's `agent-explore` call is deliberately unguarded.
+    // With only the OUTER part classified, the child's guarded execution never
+    // entered `tool-executing` and the 400ms window above killed the parent
+    // turn — a regression this ticket opened by letting a child's command run
+    // far past the old flat 60s guard.
+    const chunks = await runTurn(delegatedSilentToolModel(), [explorePersona]);
+    const kinds = runEventKinds(chunks);
+
+    expect(kinds).toContain('run.finished');
+    expect(kinds).not.toContain('run.failed');
+    expect(textOf(chunks)).toContain('PARENT_ANSWER');
     for (const chunk of chunks) {
       expect(JSON.stringify(chunk)).not.toContain('stream_inactivity_timeout');
     }

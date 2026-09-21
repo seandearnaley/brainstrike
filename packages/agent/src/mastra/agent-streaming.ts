@@ -1277,19 +1277,85 @@ function hasExecutionGuardBehindToolCall(
 }
 
 /**
+ * The part type a FOREGROUND delegation wraps every child chunk in on the
+ * PARENT stream, and the deepest nesting the classifier will unwrap.
+ *
+ * Shape (see `resolveChildDelegation` in `delegated-stream-projection.ts`,
+ * which is the production reader of exactly this envelope):
+ *
+ *     { type: 'tool-output',
+ *       runId: <parent run id>,
+ *       payload: { output: <the child's own Mastra part>,
+ *                  toolCallId, toolName: 'agent-<personaId>' } }
+ *
+ * A grandchild arrives as an envelope inside an envelope, so the unwrap
+ * recurses — bounded, because `output` is ultimately provider/tool data and an
+ * unbounded walk over it is not something a watchdog may do. The bound is one
+ * past `DELEGATION_LIMITS.maxDepth`'s reach in practice; a structure deeper
+ * than this yields `undefined`, which TIGHTENS (the call rides the ordinary
+ * provider windows) rather than widening.
+ */
+const MASTRA_DELEGATED_CHILD_ENVELOPE_TYPE = 'tool-output';
+const MAX_DELEGATED_ENVELOPE_UNWRAPS = 8;
+
+/**
  * Builds the `toolExecutionPartKind` classifier for one leg, closed over that
  * leg's guarded-name allow-list (`runtime.toolNameMap`'s keys). A factory
  * rather than a bare function because the classifier is already constructed
  * per leg (see `resolveMastraInactivityOptions`) and the guarded set is
  * per-runtime, not global.
  *
+ * DELEGATED CHILD CALLS (BST-1777 PR review, Codex P1). Mastra carries a
+ * foreground child's parts INSIDE the parent delegation's `tool-output`
+ * envelope; the child has no watchdog of its own, and the parent's delegation
+ * `tool-call` is deliberately NOT guarded (the allow-list excludes
+ * `agent-<personaId>`), so classifying only the outer part left a child's
+ * guarded execution measured against the parent's `streaming` window. Before
+ * this ticket the flat 60s guard kept that under the window; now a child
+ * command may legitimately run to its own 600s budget, so the envelope must be
+ * unwrapped. Children select their tools from the parent's ALREADY-GUARDED map
+ * by sanitized id (`build-persona-subagents.ts`, `selectCandidateTools` over
+ * `params.guardedTools`), so a child's tool name is a key of the same
+ * `toolNameMap` and the allow-list applies unchanged.
+ *
+ * Only a NON-guarded envelope tool name is unwrapped: a delegation tool is
+ * never in the guarded set, while `executeCommand`/`runSkillScript` emit their
+ * own `tool-output` parts whose `output` is arbitrary tool data that must
+ * never be read as a boundary.
+ *
+ * Two consequences, both deliberate:
+ * - The in-flight set is keyed by tool-call id alone, so a child id colliding
+ *   with a parent id makes a nested `settled` release the parent's entry
+ *   early. That TIGHTENS the window (back to the provider phases), which is
+ *   the safe direction, and is the same "a lost settle can only tighten"
+ *   guarantee the scaffolding clear already relies on.
+ * - A child's nested `step-start` does NOT reach the generic
+ *   scaffolding-clear: the OUTER part is `tool-output`, which counts as
+ *   provider output (`MASTRA_SCAFFOLDING_PART_TYPES` is the closed set
+ *   `{start, step-start}`). So a lost nested `settled` is not cleared by the
+ *   child's own step boundary — it is cleared at the PARENT's next
+ *   `step-start`, which is the same bound every other in-flight id has.
+ *
  * @internal exported for tests
  */
 export function createMastraToolExecutionPartKindReader(
   guardedToolNames: ReadonlySet<string>
 ): (part: unknown) => { kind: 'started' | 'settled'; toolCallId: string } | undefined {
-  return (part: unknown) => {
-    const type = describeMastraStreamPartType(part);
+  return (rawPart: unknown) => {
+    let part = rawPart;
+    let type = describeMastraStreamPartType(part);
+    for (let depth = 0; type === MASTRA_DELEGATED_CHILD_ENVELOPE_TYPE; depth += 1) {
+      const envelopeToolName = readMastraStreamPartString(part, 'toolName');
+      if (
+        depth >= MAX_DELEGATED_ENVELOPE_UNWRAPS ||
+        envelopeToolName === undefined ||
+        guardedToolNames.has(envelopeToolName)
+      ) {
+        return;
+      }
+      part = readMastraStreamPartValue(part, 'output');
+      type = describeMastraStreamPartType(part);
+    }
     if (type === undefined || !Object.hasOwn(MASTRA_TOOL_EXECUTION_PART_KINDS, type)) {
       return;
     }
