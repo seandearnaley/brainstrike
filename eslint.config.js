@@ -116,10 +116,10 @@ export default [
       // and @jacobwolf/biome-unnecessary-effect are the compensating controls.
       'react-hooks/exhaustive-deps': 'off',
       'react-hooks/rules-of-hooks': 'error',
-      // Fast Refresh module-boundary contract (BST-1220, #2372). This is the REAL
-      // enforcer: react-doctor's `only-export-components` id exists only in its
-      // oxlint→react-doctor alias table with no rule behind it, so the many
-      // source comments citing it were describing an unenforced convention.
+      // Fast Refresh module-boundary contract (BST-1220, #2372). This ESLint rule
+      // is the enforcer. react-doctor's own `only-export-components` is live (in
+      // the separate oxlint-plugin-react-doctor package) but warn-only and gates
+      // nothing, so the many source comments citing it described no real gate.
       // See the REACT DOCTOR section in docs/agents/ci-quality.md.
       //
       // Semantics deliberately match @vitejs/plugin-react's runtime check

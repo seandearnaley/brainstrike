@@ -1973,7 +1973,7 @@ Filename + save live in `packages/assistant-ui/src/debug-bundle-download.ts`
 component module, which is component-only by the Fast Refresh module-boundary
 contract (`react-refresh/only-export-components` in `eslint.config.js`; the
 split predates that gate and was originally attributed to react-doctor, whose
-rule id turned out to be alias-only — see the REACT DOCTOR section in
+rule is live but warn-only and gates nothing — see the REACT DOCTOR section in
 `docs/agents/ci-quality.md`). The filename is
 `brainstrike-debug-bundle-<UTC ISO, colons→hyphens, no millis>[-run-<first 8
 chars>].md` — timestamp first so a Downloads folder sorts chronologically,
