@@ -222,6 +222,20 @@ below are LIVE.
    `reasoning-end` marker arriving mid-tool cannot "preserve" `tool-executing`
    into the provider state machine.
 
+   **Only a GUARDED call may enter the phase (BST-1777 final review, I2).**
+   The wide window and the terminal "execution guard never answered" wording
+   are only honest because a per-call guard always fires first — and two
+   `tool-call` kinds never pass through `applyToolGuards` at all:
+   provider-executed tools (native web search, injected AFTER
+   `sanitizeTools`/`applyToolGuards`, marked `payload.providerExecuted ===
+   true`) and subagent delegation tools (`agent-<personaId>`, registered
+   directly by the parent, never run through the guard pipeline).
+   `hasExecutionGuardBehindToolCall` (`agent-streaming.ts`) excludes both from
+   `readMastraToolExecutionPartKind`'s `started` classification, so they keep
+   riding the ordinary provider-silence windows — recoverable, honestly
+   diagnosed — instead of silently inheriting a terminal, mislabeled 635s
+   wedge. `settled` parts for these ids are unaffected (already a no-op for an
+   id that was never added).
 
    **A resumed, approval-approved call is SEEDED into the phase (BST-1777
    final review, I1).** Mastra never replays a suspended step's `tool-call`
@@ -1342,12 +1356,17 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   provider silence — the provider already answered with a `tool-call` — so the
   ordering that mattered was never "guard ceiling < inactivity window"; it was
   "guard budget < tool-executing backstop", and that is now enforced by
-  construction (above) rather than by a shared flat ceiling. Refinement from
-  the final review: a resumed, approval-approved call is SEEDED into the phase
-  from the first wait of its leg, because Mastra never replays the `tool-call`
-  part that would otherwise classify it — without seeding it silently fell
-  back to being measured against `firstOutputMs` instead, which is exactly the
-  provider-silence window this invariant says a running tool must never ride.
+  construction (above) rather than by a shared flat ceiling. Two refinements
+  from the final review, both load-bearing: (1) this only holds for a call
+  that actually HAS a guard behind it — a provider-executed or delegation
+  `tool-call` deliberately keeps riding the ordinary provider-silence windows
+  and stays recoverable, since there is no guard for the wide window to be
+  standing in for (see `hasExecutionGuardBehindToolCall` above); (2) a resumed,
+  approval-approved call is SEEDED into the phase from the first wait of its
+  leg, because Mastra never replays the `tool-call` part that would otherwise
+  classify it — without seeding it silently fell back to being measured
+  against `firstOutputMs` instead, which is exactly the provider-silence
+  window this invariant says a running tool must never ride.
 - The stall diagnostic and the durable `run.failed` metadata carry `phase`
   (`awaiting-output` | `reasoning` | `streaming`), `partsSeen` (scaffolding included — it is
   transport activity, and `partsSeen: 2` beside `awaiting-output` is precisely

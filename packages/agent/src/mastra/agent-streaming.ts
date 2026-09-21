@@ -1269,6 +1269,13 @@ export function readMastraToolExecutionPartKind(
   }
   const kind =
     MASTRA_TOOL_EXECUTION_PART_KINDS[type as keyof typeof MASTRA_TOOL_EXECUTION_PART_KINDS];
+  if (kind === 'started') {
+    const toolName = readMastraStreamPartString(part, 'toolName');
+    const providerExecuted = readMastraStreamPartValue(part, 'providerExecuted');
+    if (!hasExecutionGuardBehindToolCall(toolName, providerExecuted)) {
+      return;
+    }
+  }
   return { kind, toolCallId };
 }
 

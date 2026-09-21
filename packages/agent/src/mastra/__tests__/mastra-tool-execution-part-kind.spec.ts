@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { readMastraToolExecutionPartKind } from '../agent-streaming';
 
-const part = (type: string, toolCallId?: unknown) => ({ payload: { toolCallId }, type });
+const part = (type: string, toolCallId?: unknown, extra?: Record<string, unknown>) => ({
+  payload: { toolCallId, ...extra },
+  type,
+});
 
 describe('readMastraToolExecutionPartKind', () => {
   it('tool-call starts an execution', () => {
@@ -34,5 +37,27 @@ describe('readMastraToolExecutionPartKind', () => {
   it('a boundary part without a string toolCallId is not a boundary (never invent an id)', () => {
     expect(readMastraToolExecutionPartKind(part('tool-call', undefined))).toBeUndefined();
     expect(readMastraToolExecutionPartKind(part('tool-call', 7))).toBeUndefined();
+  });
+
+  it('a provider-executed tool-call has no guard behind it and is not a boundary', () => {
+    expect(
+      readMastraToolExecutionPartKind(
+        part('tool-call', 'c1', { providerExecuted: true, toolName: 'webSearch' })
+      )
+    ).toBeUndefined();
+  });
+
+  it('a delegation-prefixed tool-call has no guard behind it and is not a boundary', () => {
+    expect(
+      readMastraToolExecutionPartKind(part('tool-call', 'c1', { toolName: 'agent-researcher' }))
+    ).toBeUndefined();
+  });
+
+  it('an ordinary (non-provider-executed) tool-call still starts an execution', () => {
+    expect(
+      readMastraToolExecutionPartKind(
+        part('tool-call', 'c1', { providerExecuted: false, toolName: 'executeCommand' })
+      )
+    ).toEqual({ kind: 'started', toolCallId: 'c1' });
   });
 });
