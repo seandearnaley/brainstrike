@@ -123,11 +123,10 @@ test('an expanded row owns the indent and the rail: the embedded card adds neith
   // instead, that wrapper would become a second flex item and `gap-1.5` would
   // shove the warning icon 6px inward in every embedded approval — a
   // production consequence this lane cannot measure, since `gap-1.5` never
-  // resolves here, so pin the structure it depends on instead. Identity as
-  // well as count: `aria-hidden` is not unique forever, and a decorative node
-  // added earlier with exactly one child would retarget this anchor and pass
-  // both structural assertions vacuously.
-  const iconRow = mustFind(cardEl, '[aria-hidden="true"]');
+  // resolves here, so pin the structure it depends on instead. The anchor is
+  // the icon row's own test id (BST-1765), not document order, so a decorative
+  // node added earlier elsewhere cannot retarget it.
+  const iconRow = mustFind(cardEl, '[data-testid="approval-icon-row"]');
   expect(iconRow.querySelector('.bs-approval-rails')).toBeNull();
   expect(iconRow.childElementCount).toBe(1);
   expect(iconRow.firstElementChild?.tagName).toBe('svg');
