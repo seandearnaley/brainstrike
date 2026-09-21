@@ -29,7 +29,7 @@ const CONTRACT_LINE_BUDGETS = {
   'assistant-runtime.md': 4944,
   'assistant-subagents.md': 3080,
   'changeset-diff.md': 1168,
-  'ci-quality.md': 3957,
+  'ci-quality.md': 882,
   'code-execution.md': 841,
   'database.md': 1670,
   'domain.md': 37,
