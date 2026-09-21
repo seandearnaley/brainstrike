@@ -160,7 +160,9 @@ function createCachedSnapshotReader<TSnapshot>(
     cachedSnapshot = null;
     cachedAt = 0;
     pendingSnapshot = Promise.resolve()
-      .then(readSnapshot)
+      // Not `.then(readSnapshot)`: that forwards `undefined` as an argument, and
+      // IPC-backed readers reject any arity their contract does not declare.
+      .then(() => readSnapshot())
       .then((snapshot) => {
         cachedSnapshot = snapshot;
         cachedAt = now();

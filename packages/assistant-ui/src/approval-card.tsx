@@ -254,7 +254,11 @@ export function ApprovalCard({ approval, presentation, state }: ApprovalCardProp
       style={nesting.style}
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
-        <div aria-hidden="true" className="flex items-start gap-1.5 pt-0.5">
+        <div
+          aria-hidden="true"
+          className="flex items-start gap-1.5 pt-0.5"
+          data-testid="approval-icon-row"
+        >
           <ApprovalRails path={nesting.railPath} />
           <AlertTriangle className="size-4 text-amber-700 dark:text-amber-400" />
         </div>
