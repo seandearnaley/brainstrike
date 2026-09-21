@@ -679,10 +679,10 @@ jobs:
       # rare — key misses happen on every Node patch bump and on LRU eviction,
       # and run 34353973428 was exactly a `Cache not found for input keys` run.
       #
-      # Restore is prefix-only because the save step keys on the version
-      # setup-node resolves inside the composite below, which this step runs
-      # ahead of. `.nvmrc` pins an exact version (`26.8.2`), so every Node bump
-      # changes its hash and writes a NEW entry instead of hitting a stale key.
+      # Restore is prefix-only: the save key is this `.nvmrc`-hash prefix plus
+      # the version setup-node resolves inside the composite below, which is
+      # not known yet here. `.nvmrc` pins an exact version, not a major, so a
+      # Node bump changes the prefix itself and can never hit a stale entry.
       - name: Restore node-gyp headers
         uses: actions/cache/restore@v5
         with:
@@ -1369,7 +1369,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # NO `2>/dev/null || true` HERE, same as the four sibling notifiers.
+          # No notifier (this one or its four siblings) uses `2>/dev/null || true`.
           # That idiom swallows the expected "label already exists" AND a real
           # failure (token not elevated, API 5xx, org label restrictions)
           # indistinguishably. The label does not exist until the first red
