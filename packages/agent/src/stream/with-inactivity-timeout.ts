@@ -94,9 +94,17 @@ export interface StreamInactivityOptions<T> {
    * {@link toolExecutionPartKind} to observe. Without seeding, the watchdog
    * measures that execution against `firstOutputMs` (the provider's own
    * silence budget) instead of `toolExecutingMs`, which is not just the wrong
-   * number — a stall in `awaiting-output` is treated as RECOVERABLE and
-   * re-sends the step, launching a second execution of a command whose first
-   * run may still be alive.
+   * number: `firstOutputMs` (600000ms) is SHORTER than the largest budget the
+   * per-tool guard can grant (605000ms), so an execution that is still
+   * healthy under its own guard would be killed here first, reported with the
+   * wrong phase (`awaiting-output` instead of `tool-executing`) and the wrong
+   * user-facing diagnosis (provider silence, not a broken execution guard).
+   * The approval-resume leg this seed exists for runs at `maxAttempts: 1`
+   * (see `attempt-legs.ts`, `createToolApprovalIteratorFromRuntime` — an
+   * approval is consumed by `approveToolCall`/`declineToolCall` and cannot be
+   * re-issued), so this is not about a stall being wrongly retried on THIS
+   * leg — it cannot be, here — only about the misclassified phase and
+   * message.
    *
    * Absent means no seed, which reproduces the pre-existing behaviour
    * exactly: `toolCallsInFlight` starts empty and the first phase is

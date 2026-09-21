@@ -928,6 +928,42 @@ describe('withInactivityTimeout — seeded in-flight ids (resume leg, BST-1777 I
     expect(seen).toEqual(['start', 'step-start', 'tool-result']);
   });
 
+  it('clears a seeded id at the next step once the leg has produced real provider output', async () => {
+    // The other half of the closed-list guarantee: a seed SURVIVES leading
+    // scaffolding (proven above), but once this leg has seen real provider
+    // output it must be RELEASED at the next step boundary even if it never
+    // settles — otherwise a wedge in a lost sibling call could ride the wide
+    // tool-executing window forever, one step removed from where it started.
+    const source = createControllableSource<ToolPart>();
+    let captured: StreamStalledError | undefined;
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        countsAsProviderOutput: (part) => part.type !== 'start' && part.type !== 'step-start',
+        describePart: (part) => part.type,
+        initialToolCallIds: ['seeded-a'],
+        toolExecutionPartKind,
+      })) {
+        // Drain until the tight window fires after the second step-start.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ type: 'step-start' }); // leading scaffolding: seed survives
+    source.push({ id: 'other', type: 'text-delta' }); // real output: the gate opens
+    source.push({ type: 'step-start' }); // new step: seeded-a must be cleared
+    await vi.advanceTimersByTimeAsync(0);
+    // Would survive to toolExecutingMs (5000) if the seed were still held;
+    // must instead trip firstOutputMs (1000) on the tight window.
+    await vi.advanceTimersByTimeAsync(1001);
+    await settled;
+
+    expect(captured?.phase).toBe('awaiting-output');
+    expect(captured?.inactivityMs).toBe(TOOL_WINDOWS.firstOutputMs);
+  });
+
   it('absent initialToolCallIds reproduces unseeded behaviour', async () => {
     const source = createControllableSource<ToolPart>();
     let captured: StreamStalledError | undefined;
