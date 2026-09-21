@@ -30,27 +30,6 @@ export interface ChainActivityDerivations {
  *   record identity unless a shell slice actually arrived — keyed by message
  *   id so a thread/message switch resets it.
  */
-/**
- * Current-group tool-call ids in a single pass. The previous
- * `filter(isToolCallPart).map(...)` chain allocated two intermediate arrays on
- * every streamed chunk along this hot path; one loop keeps the memoized
- * derivation allocation-flat. Only string ids are collected — the elapsed
- * lookup below probes string ids only, so membership is unchanged.
- */
-export function collectGroupToolCallIds(groupParts: readonly unknown[]): Set<string> {
-  const ids = new Set<string>();
-  for (const part of groupParts) {
-    if (!isToolCallPart(part)) {
-      continue;
-    }
-    const toolCallId = part['toolCallId'];
-    if (typeof toolCallId === 'string') {
-      ids.add(toolCallId);
-    }
-  }
-  return ids;
-}
-
 export function useChainActivityDerivations(
   messageParts: readonly unknown[],
   messageId: string,
@@ -77,4 +56,26 @@ export function useChainActivityDerivations(
   const taskList = useMemo(() => deriveTaskListFromParts(messageParts), [messageParts]);
 
   return { activityFallbackMs, shellOutputs, taskList, toolDurations };
+}
+
+/**
+ * Current-group tool-call ids in a single pass, replacing the previous
+ * `filter(isToolCallPart).map(...)` chain (two intermediate arrays per
+ * streamed chunk). Only string ids are collected: `useChainActivityDerivations`
+ * probes the set with string ids only (guarded by `typeof id === 'string'`),
+ * and `Set` membership uses SameValueZero with no coercion, so a non-string
+ * entry could never have matched — dropping such entries changes no lookup.
+ */
+export function collectGroupToolCallIds(groupParts: readonly unknown[]): Set<string> {
+  const ids = new Set<string>();
+  for (const part of groupParts) {
+    if (!isToolCallPart(part)) {
+      continue;
+    }
+    const toolCallId = part['toolCallId'];
+    if (typeof toolCallId === 'string') {
+      ids.add(toolCallId);
+    }
+  }
+  return ids;
 }

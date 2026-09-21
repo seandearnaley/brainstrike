@@ -48,6 +48,25 @@ describe('runEventsSpanMs', () => {
     expect(result.current.toolDurations).toEqual({ a: 2000, b: 5000 });
   });
 
+  it('ignores a non-string toolCallId in the current group when deriving the fallback', () => {
+    const first = toolPart({ status: { type: 'complete' }, toolCallId: 'a' });
+    const stray = toolPart({ status: { type: 'complete' }, toolCallId: 42 });
+    const event = (timestamp: string, toolCallId: string, kind: string) => {
+      const part = runEventPart(timestamp);
+      return { ...part, data: { ...part.data, kind, metadata: { toolCallId } } };
+    };
+    const parts = [
+      first,
+      stray,
+      event('2026-09-05T10:00:00.000Z', 'a', 'tool.started'),
+      event('2026-09-05T10:00:02.000Z', 'a', 'tool.completed'),
+    ];
+    const { result } = renderHook(() =>
+      useChainActivityDerivations(parts, 'message-2', [first, stray])
+    );
+    expect(result.current.activityFallbackMs).toBe(2000);
+  });
+
   it('returns the min→max timestamp span across run events', () => {
     const span = runEventsSpanMs([
       runEventPart('2026-06-16T10:00:00.000Z'),
@@ -82,6 +101,13 @@ describe('collectGroupToolCallIds', () => {
       toolPart({ status: { type: 'complete' }, toolCallId: 'ok' }),
     ]);
     expect([...ids]).toEqual(['ok']);
+  });
+
+  it('returns an empty set for an empty group and for a null toolCallId', () => {
+    expect([...collectGroupToolCallIds([])]).toEqual([]);
+    expect([
+      ...collectGroupToolCallIds([toolPart({ status: { type: 'complete' }, toolCallId: null })]),
+    ]).toEqual([]);
   });
 });
 
