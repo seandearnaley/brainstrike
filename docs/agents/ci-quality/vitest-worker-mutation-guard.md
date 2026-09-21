@@ -38,4 +38,3 @@ assignment/`vi.stubGlobal` of `__vitest_worker__` in any test file under
 `packages/` or `apps/`. To exercise "not running under a test framework"
 branches, mock a detection seam instead — see
 `packages/file-explorer/src/persistence/test-environment.ts`.
-

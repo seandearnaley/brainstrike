@@ -6,8 +6,11 @@ Supports `docs/agents/ci-quality.md` § "Guard-script entrypoint contract"
 that exited 0 while checking nothing and why the empty-directory money test is
 the load-bearing half.
 
-Every `scripts/verify-*.mjs` MUST run its check when executed directly and MUST
-export `main({ repoRoot })`. Four of them (`verify-catalog-references`,
+Every repo-scoped `scripts/verify-*.mjs` MUST run its check when executed
+directly and MUST export `main({ repoRoot })`. Guards that check a built
+artifact instead take a bundle directory — `verify-tokenizer-asset-bundle` and
+`verify-no-cross-chunk-cycles` both read `options.directory`, and that is a
+valid API, not a deviation to "fix". Four of them (`verify-catalog-references`,
 `verify-config-load-hash-coverage`, `verify-no-vitest-worker-mutation`,
 `verify-workspace-src-aliases`) previously shipped as pure libraries with no
 `main()` invocation, so `node scripts/verify-catalog-references.mjs` exited 0

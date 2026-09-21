@@ -81,8 +81,10 @@ have no adopted call site (`affectedUsingTaskInputs` was adopted later, with
 `ci-input-locality.test.mjs` as its proof); `longerSignatureKey` needs the real remote-cache
 signing setup to validate; and the diagnostic-only flag has no CI benefit.
 
-Package-config composition was evaluated and deliberately not adopted. The ten
-package `turbo.json` files now represent seven behavior classes; five are
+Package-config composition was evaluated and deliberately not adopted. The
+classification below is HISTORICAL: it counted ten package `turbo.json` files,
+and fourteen are tracked today (see this file's header). The ruling stands; the
+class tally has not been recomputed. Those ten represented seven behavior classes; five are
 unique cache-safety or cross-input contracts. Only app-shell/db-explorer/
 vector-management and secure-fs-native/windows-job-native repeat behavior.
 Introducing a config micro-package for groups of three and two would add graph

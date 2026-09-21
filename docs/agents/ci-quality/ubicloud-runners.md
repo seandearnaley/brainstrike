@@ -21,7 +21,7 @@ Doctor, Claude Auto Review, and `@claude` handling use
 - Static remains on the measured GitHub ARM lane
 - all nine physical Unit rows use one fixed Ubicloud runner class (two DB
   shards, two Agent shards, three desktop shards, and the heavy and rest rows)
-- Native Windows remains on GitHub Windows behind its affected gate
+- Native Windows remains on GitHub Windows for every admitted head
 - scheduled regression/coverage jobs remain GitHub-hosted until their existing
   baselines are green enough to support a runner comparison
 - main-failure/recovery and scheduled-failure notifiers remain GitHub-hosted
