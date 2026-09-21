@@ -148,6 +148,19 @@ test('every evidence pointer in a contract resolves to a file', () => {
   assert.deepEqual(failures, []);
 });
 
+test('every evidence file is referenced by its contract', () => {
+  const failures = [];
+  for (const area of EVIDENCE_DIRS) {
+    const contract = readFileSync(path.join(repoRoot, CONTRACT_DIR, `${area}.md`), 'utf8');
+    for (const name of readdirSync(path.join(repoRoot, CONTRACT_DIR, area)).sort()) {
+      if (!contract.includes(`${area}/${name}`)) {
+        failures.push(`${area}/${name} is not reachable: ${area}.md never points at it`);
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+});
+
 test('the budget can fail in both directions', () => {
   assert.equal(checkShrinkOnlyBudget('doc', 100, 100), null);
   assert.match(checkShrinkOnlyBudget('doc', 101, 100), /grew to 101 lines/);
