@@ -461,6 +461,11 @@ describe('createEmbeddingWorkerConfig', () => {
     } as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+
+    // Asserted directly so the contract holds even if read failures are ever
+    // swallowed rather than propagated.
+    expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
+    expect(schedulerSnapshot.mock.calls[0]).toHaveLength(0);
   });
 
   it('does not reuse an expired Electron scheduler snapshot after a read failure', async () => {
