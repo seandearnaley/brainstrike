@@ -178,11 +178,11 @@ describe('tool pipeline guard budgets (BST-1777)', () => {
     const readWorkspaceFileResult = readWorkspaceFile.execute({}, {});
 
     let executeCommandSettled: unknown;
-    executeCommandResult.then((value) => {
+    void Promise.resolve(executeCommandResult).then((value) => {
       executeCommandSettled = value;
     });
     let readWorkspaceFileSettled: unknown;
-    readWorkspaceFileResult.then((value) => {
+    void Promise.resolve(readWorkspaceFileResult).then((value) => {
       readWorkspaceFileSettled = value;
     });
 
@@ -196,8 +196,33 @@ describe('tool pipeline guard budgets (BST-1777)', () => {
     expect(executeCommandSettled).toMatchObject({
       error: {
         code: 'tool_timeout',
-        message: expect.stringContaining('max 600000'),
+        // The GRANTED 120s, not the 125s guard window the margin adds.
+        message: expect.stringContaining('its 120s execution budget'),
       },
+    });
+    expect(executeCommandSettled).toMatchObject({
+      error: { message: expect.stringContaining('up to 600000 ms') },
+    });
+  });
+
+  it('never advises a larger timeoutMs when the call already asked for the declared max', async () => {
+    const { executeCommand } = await composeGuardedTools();
+
+    const result = executeCommand.execute({ timeoutMs: 600_000 }, {});
+    let settled: unknown;
+    void Promise.resolve(result).then((value) => {
+      settled = value;
+    });
+
+    await vi.advanceTimersByTimeAsync(605_000);
+    expect(settled).toMatchObject({
+      error: {
+        code: 'tool_timeout',
+        message: expect.stringContaining('its 600s execution budget'),
+      },
+    });
+    expect(settled).not.toMatchObject({
+      error: { message: expect.stringContaining('larger timeoutMs') },
     });
   });
 
@@ -206,7 +231,7 @@ describe('tool pipeline guard budgets (BST-1777)', () => {
 
     const result = executeCommand.execute({ timeoutMs: 300_000 }, {});
     let settled: unknown;
-    result.then((value) => {
+    void Promise.resolve(result).then((value) => {
       settled = value;
     });
 
@@ -225,7 +250,7 @@ describe('tool pipeline guard budgets (BST-1777)', () => {
 
     const mcpResult = mcpTool.execute({}, {});
     let mcpSettled: unknown;
-    mcpResult.then((value) => {
+    void Promise.resolve(mcpResult).then((value) => {
       mcpSettled = value;
     });
 
@@ -234,7 +259,7 @@ describe('tool pipeline guard budgets (BST-1777)', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(mcpSettled).toMatchObject({ error: { code: 'tool_timeout' } });
     expect(mcpSettled).not.toMatchObject({
-      error: { message: expect.stringContaining('max 600000') },
+      error: { message: expect.stringContaining('timeoutMs') },
     });
   });
 });

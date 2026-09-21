@@ -42,7 +42,7 @@ import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { applyToolGuards } from '../../tools/guard-tool-execution';
 import type { AgentHookRunner } from '../../tools/hook-runner';
 import { applyToolHooks } from '../../tools/hook-tool-wrap';
-import { resolveToolGuardBudgetMs } from '../../tools/resolve-tool-guard-budget';
+import { resolveToolGuardBudget } from '../../tools/resolve-tool-guard-budget';
 import {
   createToolExecutionDurations,
   type ToolExecutionDurations,
@@ -613,7 +613,7 @@ export async function composeRuntimeToolMap(
     durations: toolExecutionDurations,
     logger,
     timeoutMs: (toolId) => (args) =>
-      resolveToolGuardBudgetMs({
+      resolveToolGuardBudget({
         budget: budgetFor(toolId),
         defaultGuardMs: resilienceConfig.toolTimeoutMs,
         input: args[0],

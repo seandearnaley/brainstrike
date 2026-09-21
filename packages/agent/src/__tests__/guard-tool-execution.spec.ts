@@ -211,13 +211,14 @@ describe('guardToolExecution', () => {
     vi.useRealTimers();
   });
 
-  it('names the budget and the remedy when the tool could have asked for longer', async () => {
+  it('reports the GRANTED budget (margin invisible) and the remedy when a longer one could be asked for', async () => {
     vi.useFakeTimers();
     const tool = guardToolExecution(
       makeTool(() => new Promise(() => {})),
       {
         declaredMaxMs: 600_000,
-        timeoutMs: 125_000,
+        // executeCommand's default call: 120s granted, 125s guard window.
+        timeoutMs: () => ({ grantedMs: 120_000, guardMs: 125_000 }),
         toolName: 'demo',
       }
     );
@@ -225,8 +226,47 @@ describe('guardToolExecution', () => {
     await vi.advanceTimersByTimeAsync(125_000);
     const { error } = (await promise) as GuardedToolError;
     expect(error.message).toBe(
-      'The tool did not finish within its 125s execution budget and was cancelled. Pass a larger timeoutMs (max 600000) if the work legitimately needs longer, or split it into smaller steps.'
+      'The tool did not finish within its 120s execution budget and was cancelled. Pass a larger timeoutMs (up to 600000 ms) if the work legitimately needs longer, or split it into smaller steps.'
     );
+    vi.useRealTimers();
+  });
+
+  it('reports an explicitly requested budget below the max and still offers the remedy', async () => {
+    vi.useFakeTimers();
+    const tool = guardToolExecution(
+      makeTool(() => new Promise(() => {})),
+      {
+        declaredMaxMs: 600_000,
+        timeoutMs: () => ({ grantedMs: 300_000, guardMs: 305_000 }),
+        toolName: 'demo',
+      }
+    );
+    const promise = tool.execute({});
+    await vi.advanceTimersByTimeAsync(305_000);
+    const { error } = (await promise) as GuardedToolError;
+    expect(error.message).toBe(
+      'The tool did not finish within its 300s execution budget and was cancelled. Pass a larger timeoutMs (up to 600000 ms) if the work legitimately needs longer, or split it into smaller steps.'
+    );
+    vi.useRealTimers();
+  });
+
+  it('never advises a larger timeoutMs when the call already had the declared max', async () => {
+    vi.useFakeTimers();
+    const tool = guardToolExecution(
+      makeTool(() => new Promise(() => {})),
+      {
+        declaredMaxMs: 600_000,
+        timeoutMs: () => ({ grantedMs: 600_000, guardMs: 605_000 }),
+        toolName: 'demo',
+      }
+    );
+    const promise = tool.execute({});
+    await vi.advanceTimersByTimeAsync(605_000);
+    const { error } = (await promise) as GuardedToolError;
+    expect(error.message).toBe(
+      'The tool did not finish within its 600s execution budget and was cancelled. That is the largest budget this tool allows, so split the work into smaller steps.'
+    );
+    expect(error.message).not.toContain('larger timeoutMs');
     vi.useRealTimers();
   });
 

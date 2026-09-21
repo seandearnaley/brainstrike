@@ -1,5 +1,6 @@
 import { type GuardedToolError, ToolInputError } from '@brainstrike/assistant-contract';
 import { readToolCallId, readToolExecutionThreadId } from './read-tool-call-id';
+import type { ToolGuardBudget } from './resolve-tool-guard-budget';
 import type { ToolExecutionDurations } from './tool-execution-durations';
 import { registerToolGuardDeadlineSignal } from './tool-guard-deadline';
 import type { ToolLogger } from './types';
@@ -12,21 +13,35 @@ const MAX_TOOL_INPUT_ERROR_MESSAGE_CHARS = 1000;
 
 /**
  * The model-facing timeout text (BST-1777). It states the budget that actually
- * applied and, only when the tool's contract allows a longer one, how to ask
- * for it — the previous wording named neither, so the model could not tell a
- * 60s ceiling from a wedged tool and usually just retried.
+ * applied and, only when the tool's contract allows a LONGER one than this
+ * call was granted, how to ask for it — the previous wording named neither, so
+ * the model could not tell a 60s ceiling from a wedged tool and usually just
+ * retried.
+ *
+ * `grantedMs` is the budget the call was GRANTED, never the guard window: the
+ * guard's {@link TOOL_GUARD_MARGIN_MS} head start exists so the tool's own
+ * deadline wins the race, and surfacing it made `executeCommand`'s documented
+ * 120000ms default read as "its 125s execution budget" (PR review).
+ *
+ * A call already at the declared max is told so instead of being advised to
+ * pass a larger `timeoutMs` it cannot have — advice a model acts on. Units are
+ * seconds in prose throughout; the one place a parameter VALUE appears it is
+ * labelled `ms` explicitly, so the sentence never mixes bare numbers.
  */
 export function formatToolTimeoutMessage(
-  timeoutMs: number,
+  grantedMs: number,
   declaredMaxMs: number | undefined
 ): string {
   const head = `The tool did not finish within its ${Math.round(
-    timeoutMs / 1000
+    grantedMs / 1000
   )}s execution budget and was cancelled.`;
   if (declaredMaxMs === undefined) {
     return `${head} Try a smaller request or another approach.`;
   }
-  return `${head} Pass a larger timeoutMs (max ${declaredMaxMs}) if the work legitimately needs longer, or split it into smaller steps.`;
+  if (grantedMs >= declaredMaxMs) {
+    return `${head} That is the largest budget this tool allows, so split the work into smaller steps.`;
+  }
+  return `${head} Pass a larger timeoutMs (up to ${declaredMaxMs} ms) if the work legitimately needs longer, or split it into smaller steps.`;
 }
 const TOOL_INPUT_ERROR_TRUNCATION_SUFFIX = '… [input error truncated]';
 
@@ -48,8 +63,15 @@ function hasExecute(tool: unknown): tool is ExecutableLike {
   return typeof (tool as { execute?: unknown }).execute === 'function';
 }
 
-/** A fixed budget, or one resolved from the call's args (input first). */
-export type ToolGuardTimeout = number | ((args: readonly unknown[]) => number);
+/**
+ * A fixed budget, or one resolved from the call's args (input first).
+ *
+ * A bare number is a window with no margin, so the granted budget IS the guard
+ * window. A resolver may instead return the {@link ToolGuardBudget} pair, which
+ * is how a declared per-call budget keeps its margin out of the model-facing
+ * message without duplicating `resolveToolGuardBudget`'s arithmetic here.
+ */
+export type ToolGuardTimeout = number | ((args: readonly unknown[]) => number | ToolGuardBudget);
 
 export interface GuardOptions {
   /** `maxMs` of the tool's declared execution budget; shapes the timeout remedy. */
@@ -71,12 +93,14 @@ export interface GuardOptions {
   toolName: string;
 }
 
-function resolveCallTimeoutMs(timeout: ToolGuardTimeout, args: readonly unknown[]): number {
+function resolveCallBudget(timeout: ToolGuardTimeout, args: readonly unknown[]): ToolGuardBudget {
   const resolved = typeof timeout === 'function' ? timeout(args) : timeout;
-  if (!(Number.isSafeInteger(resolved) && resolved > 0)) {
-    throw new Error(`Tool guard resolved a non-positive budget: ${String(resolved)}`);
+  const budget =
+    typeof resolved === 'number' ? { grantedMs: resolved, guardMs: resolved } : resolved;
+  if (!(Number.isSafeInteger(budget.guardMs) && budget.guardMs > 0)) {
+    throw new Error(`Tool guard resolved a non-positive budget: ${String(budget.guardMs)}`);
   }
-  return resolved;
+  return budget;
 }
 
 /**
@@ -118,24 +142,22 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     // tool.started → terminal delta even without an approval.
     const startedAt = performance.now();
     try {
-      const timeoutMs = resolveCallTimeoutMs(options.timeoutMs, args);
+      const { grantedMs, guardMs } = resolveCallBudget(options.timeoutMs, args);
       const timeout = new Promise<GuardedToolError>((resolve) => {
         timer = setTimeout(() => {
           // Abort BEFORE resolving so cancellation is ordered ahead of the
           // model-facing answer rather than racing it.
-          deadline.abort(
-            new Error(`Tool "${toolName}" exceeded its ${timeoutMs}ms execution guard`)
-          );
-          logger?.error('Tool execution timed out', { timeoutMs, toolName });
+          deadline.abort(new Error(`Tool "${toolName}" exceeded its ${guardMs}ms execution guard`));
+          logger?.error('Tool execution timed out', { grantedMs, timeoutMs: guardMs, toolName });
           resolve({
             error: {
               code: 'tool_timeout',
-              message: formatToolTimeoutMessage(timeoutMs, options.declaredMaxMs),
+              message: formatToolTimeoutMessage(grantedMs, options.declaredMaxMs),
               toolName,
             },
             ok: false,
           });
-        }, timeoutMs);
+        }, guardMs);
         (timer as { unref?: () => void }).unref?.();
       });
 

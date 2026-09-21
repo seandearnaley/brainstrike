@@ -124,8 +124,10 @@ below are LIVE.
    `defineNativeTool()` definition (`packages/assistant-contract/src/native-tools/define.ts`,
    validated at definition time: both positive integers, `defaultMs <= maxMs`).
    `packages/agent/src/tools/resolve-tool-guard-budget.ts`
-   (`resolveToolGuardBudgetMs`) resolves the guard's window for one call as
-   `min(input.timeoutMs ?? budget.defaultMs, budget.maxMs) + TOOL_GUARD_MARGIN_MS`
+   (`resolveToolGuardBudget`, the SINGLE place this arithmetic lives) resolves
+   one call's `{ grantedMs, guardMs }` pair — `grantedMs` is
+   `min(input.timeoutMs ?? budget.defaultMs, budget.maxMs)` and `guardMs` adds
+   `TOOL_GUARD_MARGIN_MS`
    (5000ms) — the margin is sized for the slowest self-teardown
    (`executeCommand`'s SIGTERM→SIGKILL grace plus pipe close) and exists so the
    TOOL's own deadline wins the race: a tool that enforces `timeoutMs` itself
@@ -139,11 +141,16 @@ below are LIVE.
    third-party tool that happened to be named like a native one must not
    inherit its 600s budget. Every MCP tool therefore keeps the flat default
    until BST-1779 extends declared budgets to MCP. The model-facing timeout
-   message (`formatToolTimeoutMessage`) now states the budget that actually
-   applied and, only when the tool declares a `maxMs` larger than what was
-   granted, how to ask for more (`Pass a larger timeoutMs (max <maxMs>)…`);
-   previously the message named neither number, so the model could not tell a
-   flat 60s ceiling from a wedged tool.
+   message (`formatToolTimeoutMessage`) states the GRANTED budget — never the
+   guard window, so the margin stays invisible and `executeCommand`'s
+   documented 120000ms default reads as "its 120s execution budget" rather
+   than 125s — and offers the larger-timeout remedy ONLY when `grantedMs <
+   declaredMaxMs` (`Pass a larger timeoutMs (up to <maxMs> ms)…`). A call
+   already at the declared max is told so instead ("That is the largest budget
+   this tool allows, so split the work into smaller steps"), because advising
+   a `timeoutMs` the tool cannot grant is advice the model acts on. An
+   undeclared tool keeps the no-remedy text with its real budget. Units: seconds
+   in prose, and the one parameter VALUE is labelled `ms` explicitly.
 
    **`resolveGuardedToolSignal` is mandatory for any tool that owns a process
    or a network request (`packages/agent/src/tools/tool-guard-deadline.ts`).**
