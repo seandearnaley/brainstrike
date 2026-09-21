@@ -3,7 +3,11 @@ import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { runEventsSpanMs } from '../tool-activity';
 import { formatActivityDuration } from '../tool-durations';
-import { useChainActivityDerivations } from '../use-chain-activity-derivations';
+import {
+  // @ts-expect-error RED (BST-1657): collectGroupToolCallIds lands with the fix
+  collectGroupToolCallIds,
+  useChainActivityDerivations,
+} from '../use-chain-activity-derivations';
 
 /**
  * The pure elapsed/duration helpers behind the activity trace's meta line.
@@ -57,6 +61,28 @@ describe('runEventsSpanMs', () => {
   it('returns undefined with fewer than two timestamped events', () => {
     expect(runEventsSpanMs([runEventPart('2026-06-16T10:00:00.000Z')])).toBeUndefined();
     expect(runEventsSpanMs([toolPart({ status: { type: 'complete' } })])).toBeUndefined();
+  });
+});
+
+describe('collectGroupToolCallIds', () => {
+  it('collects string toolCallIds from tool-call parts in a single pass', () => {
+    const ids = collectGroupToolCallIds([
+      toolPart({ status: { type: 'complete' }, toolCallId: 'a' }),
+      { type: 'reasoning' },
+      toolPart({ status: { type: 'complete' }, toolCallId: 'b' }),
+      toolPart({ status: { type: 'complete' }, toolCallId: 'a' }),
+    ]);
+    expect([...ids]).toEqual(['a', 'b']);
+  });
+
+  it('ignores non-tool-call parts and non-string or missing toolCallIds', () => {
+    const ids = collectGroupToolCallIds([
+      { text: 'hello', type: 'text' },
+      toolPart({ status: { type: 'complete' } }),
+      toolPart({ status: { type: 'complete' }, toolCallId: 42 }),
+      toolPart({ status: { type: 'complete' }, toolCallId: 'ok' }),
+    ]);
+    expect([...ids]).toEqual(['ok']);
   });
 });
 
