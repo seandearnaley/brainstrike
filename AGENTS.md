@@ -6,8 +6,8 @@ Nearest `AGENTS.md` files add package-local rules; they supplement rather than
 replace this root policy. Treat `docs/agents/*.md` as living contracts,
 `docs/adr/` as settled decisions, and `docs/agents/<area>/` evidence files plus
 dated plans/research under `docs/superpowers/`, `docs/archive/`, or other
-date-stamped paths as historical evidence—not current behavior. Prefer code, tests, and live contracts when they
-disagree with a historical document.
+date-stamped paths as historical evidence—not current behavior. Prefer code,
+tests, and live contracts when they disagree with a historical document.
 
 | Touching… | Read first |
 | --- | --- |

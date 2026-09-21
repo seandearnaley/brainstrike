@@ -35,8 +35,8 @@ The two bullets below are extracted verbatim from that section.
   file, never Vitest config. The base stays the library's own 1000ms, so an
   unscaled lane behaves exactly as before and a genuinely hung `waitFor` still
   fails fast; `getAsyncUtilTimeout()` in `@brainstrike/test-utils` applies the
-  multiplier on top. **Every lane whose tests call `waitFor`/`findBy*` must load
-  one of the two timeout setups** — there is no lane that legitimately opts out
+  multiplier on top. **Every lane whose tests call `waitFor`/`findBy*` must get
+  the multiplier** — there is no lane that legitimately opts out
   and still uses the async utilities. Node lanes on the shared `vitest.setup`
   get it for free (it side-effect-imports `vitest.timeouts.setup`); lanes that
   deliberately run without the shared setup load

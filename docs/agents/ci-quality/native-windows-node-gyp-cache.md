@@ -28,9 +28,9 @@ Windows long-path settings are irrelevant; and node-gyp 13.0.1 extracts into
 `npm_config_devdir` cannot move the path that failed. There is no prebuilt
 path to pin — both addons are C++ sources built from this repo.
 
-The wiring has four load-bearing parts, each of which silently un-does the fix
+The wiring has five load-bearing parts, each of which silently un-does the fix
 on its own, and `scripts/__tests__/native-windows-node-gyp-cache-contract.test.mjs`
-pins all four (with a mutation CONTROL per assertion):
+pins them (with a mutation CONTROL per assertion):
 
 1. the job pins `npm_config_devdir` — node-gyp's default lives under
    `%LOCALAPPDATA%` and no cache step can name it portably;

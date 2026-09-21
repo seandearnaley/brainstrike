@@ -158,8 +158,8 @@ addon arrives through turbo's own `#build` edge either way). A preflight
 build command instead of `bindings`' generic "Could not locate the bindings file".
 It deliberately CHECKS rather than builds: auto-building on a miss would silently
 reuse a stale addon after a C++ edit, and it would reintroduce a second build
-declaration. The apps needed NO build edges in the original B4 clean-state proof run
-exposed gaps in their hand-maintained vitest alias maps (specifiers falling
+declaration. The apps needed NO build edges. The original B4 clean-state proof
+run exposed gaps in their hand-maintained vitest alias maps (specifiers falling
 through `exports` to dist — invisible while `^build` guaranteed dist existed),
 closed by aliasing instead: apps/web gained the missing root aliases
 (assistant-contract, chunking-worker, context-actions, file-system,
