@@ -44,7 +44,11 @@ pins them (with a mutation CONTROL per assertion):
    shape is unchanged and the contract test still pins it);
 4. the save is guarded on that output being non-empty. An entry written under
    the bare prefix EXACT-matches later restores and shadows the good
-   version-keyed entry that `restore-keys` would have found.
+   version-keyed entry that `restore-keys` would have found;
+5. the save is ALSO guarded on `steps.setup.outcome == 'success'` (BST-1712).
+   A test or build failure leaves the setup outcome `success`, so the
+   keep-the-cache-warm intent of `always()` survives, but a run whose setup
+   itself failed never writes an entry.
 
 A warm dev dir makes node-gyp's `--ensure` stat the dir, read `installVersion`,
 re-check `<arch>/node.lib` on Windows, and report `version is good` with no HTTP
@@ -53,8 +57,8 @@ window to roughly one run per Node patch bump, it does not make the fetch
 robust. (Corrected: the cold path no longer keeps the original exposure —
 BST-1712 made `native-windows` call `setup-workspace` with
 `install-attempts: '3'`, guarded by
-`scripts/__tests__/setup-workspace-install-retry-contract.test.mjs`. It also
-added a fifth pinned part, the `steps.setup.outcome == 'success'` save guard.) Serializing the two installs would also work,
+`scripts/__tests__/setup-workspace-install-retry-contract.test.mjs`, and added
+part 5 above.) Serializing the two installs would also work,
 but pnpm honours `--child-concurrency` only as a CLI flag (the
 `npm_config_child_concurrency` env form is ignored — measured), and that would
 mean parameterizing the shared composite's install command, which
