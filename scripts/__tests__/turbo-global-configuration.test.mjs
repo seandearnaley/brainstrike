@@ -57,7 +57,11 @@ test('native desktop restart lanes schedule every public fixture dependency buil
   ]) {
     const task = graph.tasks.find((entry) => entry.taskId === taskId);
     assert.ok(task, `${taskId} must exist in the actual Turbo graph`);
-    for (const dependency of ['@brainstrike/agent#build', '@brainstrike/assistant-data#build']) {
+    for (const dependency of [
+      '@brainstrike/agent#build',
+      '@brainstrike/assistant-data#build',
+      '@brainstrike/assistant-service#build',
+    ]) {
       assert.ok(
         task.dependencies.includes(dependency),
         `${taskId} must build ${dependency} for the native fixture's public exports`
