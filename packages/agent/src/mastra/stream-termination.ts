@@ -253,10 +253,15 @@ function resolveStalledVisibleMessage(
   model: string | undefined
 ): string {
   if (error.phase === 'tool-executing') {
-    // The per-tool execution guard always fires before this backstop, so
-    // reaching it means the guard itself failed. Blaming the model or the
-    // runner here would send the user to fix the wrong thing.
-    return `A tool was still running after ${error.inactivityMs}ms and its execution guard never answered. This is a Brainstrike bug, not a model stall — please report it with a debug bundle.`;
+    // Blaming the model or the runner here would send the user to fix the
+    // wrong thing — the provider already answered with a `tool-call`. But the
+    // message must not assert the opposite either: every GUARD window is below
+    // `toolExecutingMs` by construction, while tool-lifecycle hooks compose
+    // OUTSIDE the guard (`tool-pipeline.ts`) and are deliberately not capped in
+    // aggregate, so this silence is `preHooks + guard + postHooks` and a slow
+    // hook chain can reach the backstop with a perfectly working guard. State
+    // what is known, and why this is terminal rather than retried.
+    return `A tool call was still running after ${error.inactivityMs}ms, including its lifecycle hooks. The turn was ended rather than retried, because re-running the step could start a second execution of a command that may still be alive. If no PreToolUse/PostToolUse hook is slow, please report it with a debug bundle.`;
   }
   if (localRuntimeName && model) {
     return `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`;

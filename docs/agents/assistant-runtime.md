@@ -230,9 +230,9 @@ below are LIVE.
    into the provider state machine.
 
    **Only a GUARDED call may enter the phase — an ALLOW-list, not a
-   deny-list (BST-1777 final review, I2-C).** The wide window and the
-   terminal "execution guard never answered" wording are only honest because
-   a per-call guard always fires first, so `hasExecutionGuardBehindToolCall`
+   deny-list (BST-1777 final review, I2-C).** The wide window is only safe to
+   enter because a per-call guard always fires first, so
+   `hasExecutionGuardBehindToolCall`
    (`agent-streaming.ts`) checks a tool name against `runtime.toolNameMap`'s
    KEYS — exactly the set that went through `applyToolGuards` in
    `tool-pipeline.ts`, since that map is populated before the guard runs and
@@ -300,16 +300,26 @@ below are LIVE.
    `tool-execution-end` chunks look like the obvious boundary but are emitted
    only `from: "NETWORK"` (agent networks) and never reach this stream; the
    agent loop's real boundary is `tool-call` -> `tool-result` | `tool-error`.
-   Because the guard always fires before this backstop can, reaching a
-   `tool-executing` stall means the guard itself failed to answer — it is
-   TERMINAL, not retried: `isRecoverableStall` (`turn-attempts.ts`) refuses
-   recovery with `tool-still-executing`, since a continuation would re-send the
-   step and risk launching a SECOND execution of a tool whose first call might
-   still be alive. The visible message
-   (`resolveStalledVisibleMessage`, `stream-termination.ts`) says so plainly:
-   "A tool was still running after `<ms>`ms and its execution guard never
-   answered. This is a Brainstrike bug, not a model stall — please report it
-   with a debug bundle."
+   A `tool-executing` stall is TERMINAL, not retried: `isRecoverableStall`
+   (`turn-attempts.ts`) refuses recovery with `tool-still-executing`, since a
+   continuation would re-send the step and risk launching a SECOND execution of
+   a tool whose first call might still be alive.
+   **What the backstop actually guarantees (PR review, honest wording).** Every
+   GUARD window is below `toolExecutingMs` by construction, so a guard that
+   answers is never pre-empted. Tool-lifecycle HOOKS are not covered: they
+   compose OUTSIDE the guard (`tool-pipeline.ts`), the phase opens at the
+   `tool-call` part before `PreToolUse` runs, and `hooks/config.ts`
+   deliberately caps each hook individually with NO aggregate pre+tool+post
+   ceiling — so the silence is `preHooks + guardWindow + postHooks` while
+   `TOOL_EXECUTING_BACKSTOP_MARGIN_MS` is only 30s of slack. A long enough hook
+   chain can therefore reach the backstop with a perfectly working guard. The
+   visible message (`resolveStalledVisibleMessage`, `stream-termination.ts`)
+   asserts only what is known: "A tool call was still running after `<ms>`ms,
+   including its lifecycle hooks. The turn was ended rather than retried,
+   because re-running the step could start a second execution of a command
+   that may still be alive. If no PreToolUse/PostToolUse hook is slow, please
+   report it with a debug bundle." No aggregate hook cap and no new env knob
+   were added — do not add one without a measured case.
    An EMPTY MODEL RESPONSE rides the same attempt rails: a terminal `finish`
    whose reason would complete the run, on a turn the model contributed
    NOTHING to (no text/reasoning delta carrying a non-whitespace character —
@@ -1382,10 +1392,14 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   inactivity <= stream first-output window, and stream inactivity <= stream
   reasoning-gap window (all `<=` comparisons are enforced only against an
   explicitly configured value; see above). BY CONSTRUCTION, every per-tool
-  guard budget is strictly less than `toolExecutingMs` — the guard's largest
+  GUARD WINDOW is strictly less than `toolExecutingMs` — the guard's largest
   possible grant is `MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS`,
   which `resolveToolExecutingMs` adds its own margin on top of — so the
-  backstop can never fire ahead of the guard it exists to catch.
+  backstop can never fire ahead of a guard that answers. The guarantee stops
+  there: tool-lifecycle HOOKS compose outside the guard and are capped only
+  individually, so hook time rides the 30s
+  `TOOL_EXECUTING_BACKSTOP_MARGIN_MS` slack and is NOT bounded in aggregate
+  (see the `tool-executing` phase section above).
 
   **SETTLED 2026-09 (BST-1777): a running tool is never measured against a
   provider-silence window — do not relitigate.** The retired invariant read
@@ -1394,8 +1408,9 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   what any individual tool actually needed. A tool's own execution time is not
   provider silence — the provider already answered with a `tool-call` — so the
   ordering that mattered was never "guard ceiling < inactivity window"; it was
-  "guard budget < tool-executing backstop", and that is now enforced by
-  construction (above) rather than by a shared flat ceiling. Two refinements
+  "guard window < tool-executing backstop", and that is now enforced by
+  construction (above) rather than by a shared flat ceiling — for the guard
+  window itself; hook time is not part of that guarantee. Two refinements
   from the final review, both load-bearing: (1) this only holds for a call
   that actually HAS a guard behind it — a provider-executed or delegation
   `tool-call` deliberately keeps riding the ordinary provider-silence windows
@@ -1407,7 +1422,7 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   against `firstOutputMs` instead, which is exactly the provider-silence
   window this invariant says a running tool must never ride.
 - The stall diagnostic and the durable `run.failed` metadata carry `phase`
-  (`awaiting-output` | `reasoning` | `streaming`), `partsSeen` (scaffolding included — it is
+  (`awaiting-output` | `reasoning` | `streaming` | `tool-executing`), `partsSeen` (scaffolding included — it is
   transport activity, and `partsSeen: 2` beside `awaiting-output` is precisely
   the "prologue arrived, provider never did" story), and `lastPartType`
   (BST-1408). `lastPartType` is the last part the caller could NAME: an

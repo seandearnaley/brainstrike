@@ -95,8 +95,18 @@ export const DEFAULT_APPROVAL_STALE_MS = 86_400_000;
 
 /**
  * Slack between the largest execution-guard budget and the stream watchdog's
- * `tool-executing` backstop (BST-1777). The guard always fires first; this
- * only has to outlast the guard's own settle + Mastra emitting `tool-result`.
+ * `tool-executing` backstop (BST-1777).
+ *
+ * The guarantee this buys is narrow and worth stating honestly (PR review):
+ * every GUARD window is below `toolExecutingMs` by construction, so a guard
+ * that answers is never pre-empted by the backstop. Tool-lifecycle hooks are
+ * NOT covered — they compose OUTSIDE the guard (`tool-pipeline.ts`), the
+ * `tool-executing` phase opens at the `tool-call` part before `PreToolUse`
+ * runs, and `hooks/config.ts` deliberately caps each hook individually with no
+ * aggregate pre+tool+post ceiling. Hook time rides this 30s slack and is not
+ * bounded, so a long enough hook chain can reach the backstop with a working
+ * guard — which is why the backstop's visible message does not claim the
+ * guard failed (`stream-termination.ts`).
  */
 export const TOOL_EXECUTING_BACKSTOP_MARGIN_MS = 30_000;
 

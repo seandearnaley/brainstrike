@@ -66,11 +66,16 @@ describe('makeStreamWatchdogTermination — reasoning stall', () => {
     expect(visibleText('awaiting-output')).toContain('produced no output within');
   });
 
-  it('names a tool-executing stall as a Brainstrike bug, not a model stall', () => {
+  it('reports a tool-executing stall without asserting a cause it cannot know', () => {
     const text = visibleText('tool-executing');
     expect(text).toContain(
-      'A tool was still running after 635000ms and its execution guard never answered. This is a Brainstrike bug, not a model stall — please report it with a debug bundle.'
+      'A tool call was still running after 635000ms, including its lifecycle hooks. The turn was ended rather than retried, because re-running the step could start a second execution of a command that may still be alive. If no PreToolUse/PostToolUse hook is slow, please report it with a debug bundle.'
     );
+    // The guard is not the only thing inside this silence: lifecycle hooks
+    // compose OUTSIDE it and are not capped in aggregate, so the message must
+    // not claim the guard failed.
+    expect(text).not.toContain('never answered');
+    expect(text).not.toContain('Brainstrike bug');
   });
 
   it('gives the same tool-executing text on a local runtime, not the Ollama remedy', () => {
@@ -79,7 +84,7 @@ describe('makeStreamWatchdogTermination — reasoning stall', () => {
     // and the FAILURE is in our own execution guard, not the runner.
     const text = visibleText('tool-executing', { model: 'x', provider: 'ollama' });
     expect(text).toContain(
-      'A tool was still running after 635000ms and its execution guard never answered. This is a Brainstrike bug, not a model stall — please report it with a debug bundle.'
+      'A tool call was still running after 635000ms, including its lifecycle hooks. The turn was ended rather than retried, because re-running the step could start a second execution of a command that may still be alive. If no PreToolUse/PostToolUse hook is slow, please report it with a debug bundle.'
     );
     expect(text).not.toContain('Verify the Ollama server');
   });
