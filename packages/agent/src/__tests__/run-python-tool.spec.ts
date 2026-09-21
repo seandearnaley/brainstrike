@@ -150,21 +150,33 @@ describe('createRunPythonTool', () => {
     let observedSignal: AbortSignal | undefined;
     const stub = stubFence((input) => {
       observedSignal = input.signal;
-      return new Promise(() => {
-        // never resolves; the test asserts on the signal before settling.
+      // Settles only when the signal it was handed aborts, so the case can
+      // await the run in its `finally` instead of leaving it pending forever.
+      return new Promise((_resolve, reject) => {
+        input.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        });
       });
     });
     const runPromise = runTool(hostWith(stub), { code: 'pass' }, context);
-    // Let the executor start (scratch-dir creation is real fs I/O).
-    for (let i = 0; i < 50 && observedSignal === undefined; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+    try {
+      // `vi.waitFor` rather than a fixed tick count: scratch-dir creation is
+      // real fs I/O, and a loaded box that outran 50 macrotasks failed on
+      // `undefined !== false` instead of saying the executor never started.
+      await vi.waitFor(() => {
+        expect(observedSignal).toBeDefined();
+      });
+      expect(observedSignal?.aborted).toBe(false);
+      guard.abort(new Error('guard'));
+      expect(observedSignal?.aborted).toBe(true);
+      expect(controller.signal.aborted).toBe(false);
+    } finally {
+      // Never leave a pending run (and its scratch dir) behind: the guard
+      // abort above settles the stub, and the run is awaited before the case
+      // ends. In a `finally` so a failed expectation cleans up too.
+      release();
+      await runPromise.catch(() => undefined);
     }
-    expect(observedSignal?.aborted).toBe(false);
-    guard.abort(new Error('guard'));
-    expect(observedSignal?.aborted).toBe(true);
-    expect(controller.signal.aborted).toBe(false);
-    release();
-    void runPromise;
   });
 
   it('spends ONE budget across host resolution and execution', async () => {

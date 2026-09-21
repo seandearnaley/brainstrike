@@ -47,9 +47,18 @@ const { streamMastraAgent, streamMastraToolApprovalAction } = await import(
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
+// The CANONICAL native id, deliberately dotted: `sanitizeTools` rewrites the
+// dot, so the registered (sanitized) name and the canonical id are DIFFERENT
+// strings here. Registering under a name whose two forms are byte-identical
+// (`shell_tool`) could not tell the two name spaces apart, and the seed filter
+// (`collectResumedGuardedToolCallIds`, keyed on `runtime.toolNameMap`'s
+// SANITIZED keys) would stay green through a name-space regression that
+// silently emptied the seed (PR review).
+const TOOL_ID = 'brainstrike.executeCommand';
+const SANITIZED_TOOL_NAME = 'brainstrike_executeCommand';
 const ASK_POLICY = {
   policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
-  riskByTool: { shell_tool: 'execute' },
+  riskByTool: { [TOOL_ID]: 'execute' },
   yolo: false,
 } as const;
 
@@ -78,7 +87,7 @@ function createTurnCountedToolCallModel(): LanguageModelV2 {
             {
               input: JSON.stringify({ command: 'echo approved' }),
               toolCallId: 'call-resume-seed-1',
-              toolName: 'shell_tool',
+              toolName: SANITIZED_TOOL_NAME,
               type: 'tool-call',
             },
             { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
@@ -109,7 +118,7 @@ function makeSleepyAskTool(sleepMs: number) {
       new Promise<{ ran: string }>((resolve) => {
         setTimeout(() => resolve({ ran: 'echo approved' }), sleepMs);
       }),
-    id: 'shell_tool',
+    id: TOOL_ID,
     inputSchema: z.object({ command: z.string() }),
     outputSchema: z.object({ ran: z.string() }),
   });
@@ -148,6 +157,8 @@ async function drainYielding(iterator: AsyncIterable<StreamChunk>): Promise<Stre
   return chunks;
 }
 
+const SLEEP_MS = 400;
+
 const ENV_KEYS = [
   'BRAINSTRIKE_STREAM_INACTIVITY_MS',
   'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS',
@@ -168,64 +179,72 @@ describe('a resumed approved tool call seeds the tool-executing phase (real Mast
     }
   });
 
-  const SLEEP_MS = 400;
-
   it('the approved tool executing past firstOutputMs does not stall the resume leg', async () => {
     const database = new PGlite();
-    const { memory, storage } = await makeMemory(database);
-    const askTool = makeSleepyAskTool(SLEEP_MS);
-    const thread = { resourceId: 'resource-seed-1', threadId: 'thread-seed-1' } as const;
-
-    modelHolder.current = createTurnCountedToolCallModel();
-
-    const suspendIterator = await streamMastraAgent(
-      [{ id: 'u-seed-1', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
-      {
-        memory,
-        runtime: {
-          apiKey: 'test-key',
-          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
-          permissionPolicy: ASK_POLICY,
-          provider: 'openai',
-        },
-        storage,
-        tools: { shell_tool: askTool },
-      }
-    );
-    const suspendChunks = await drainYielding(suspendIterator);
-    const approval = findApprovalChunk(suspendChunks);
-    expect(approval).toBeDefined();
-
-    const resumeIterator = await streamMastraToolApprovalAction(
-      {
-        action: 'approve',
-        runId: approval?.runId ?? '',
-        toolCallId: approval?.toolCallId ?? '',
-        toolName: 'shell_tool',
-      },
-      {
-        memory,
-        requireToolApproval: true,
-        runtime: {
-          apiKey: 'test-key',
-          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
-          permissionPolicy: ASK_POLICY,
-          provider: 'openai',
-        },
-        storage,
-        tools: { shell_tool: askTool },
-      }
-    );
-    const resumeChunks = await drainYielding(resumeIterator);
-
-    // The point of this test: with the call seeded into `tool-executing`, a
-    // silence that dwarfs `firstOutputMs` (100ms, vs. this tool's 400ms sleep)
-    // must NOT be reported as a stall at all.
-    const failure = findRunFailed(resumeChunks);
-    expect(failure).toBeUndefined();
-    const finish = resumeChunks.find((chunk) => chunk.type === 'message-finish');
-    expect(finish).toBeDefined();
-
-    await database.close();
+    try {
+      await runResumeLeg(database);
+    } finally {
+      // In a `finally`: a failed expectation must not leak the PGlite instance
+      // into the rest of the lane (PR review).
+      await database.close();
+    }
   }, 15_000);
 });
+
+async function runResumeLeg(database: PGlite): Promise<void> {
+  const { memory, storage } = await makeMemory(database);
+  const askTool = makeSleepyAskTool(SLEEP_MS);
+  const thread = { resourceId: 'resource-seed-1', threadId: 'thread-seed-1' } as const;
+  modelHolder.current = createTurnCountedToolCallModel();
+
+  const suspendIterator = await streamMastraAgent(
+    [{ id: 'u-seed-1', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
+    {
+      memory,
+      runtime: {
+        apiKey: 'test-key',
+        memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+        permissionPolicy: ASK_POLICY,
+        provider: 'openai',
+      },
+      storage,
+      tools: { [TOOL_ID]: askTool },
+    }
+  );
+  const suspendChunks = await drainYielding(suspendIterator);
+  const approval = findApprovalChunk(suspendChunks);
+  expect(approval).toBeDefined();
+
+  const resumeIterator = await streamMastraToolApprovalAction(
+    {
+      action: 'approve',
+      runId: approval?.runId ?? '',
+      toolCallId: approval?.toolCallId ?? '',
+      toolName: SANITIZED_TOOL_NAME,
+    },
+    {
+      memory,
+      requireToolApproval: true,
+      runtime: {
+        apiKey: 'test-key',
+        memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+        permissionPolicy: ASK_POLICY,
+        provider: 'openai',
+      },
+      storage,
+      tools: { [TOOL_ID]: askTool },
+    }
+  );
+  const resumeChunks = await drainYielding(resumeIterator);
+
+  // The point of this test: with the call seeded into `tool-executing`, a
+  // silence that dwarfs `firstOutputMs` (100ms, vs. this tool's 400ms sleep)
+  // must NOT be reported as a stall at all.
+  const failure = findRunFailed(resumeChunks);
+  expect(failure).toBeUndefined();
+  const finish = resumeChunks.find((chunk) => chunk.type === 'message-finish');
+  expect(finish).toBeDefined();
+  // The tool really ran on the resume leg (an empty seed with an early
+  // finish would otherwise be indistinguishable from a healthy pass).
+  expect(JSON.stringify(resumeChunks)).toContain('echo approved');
+}

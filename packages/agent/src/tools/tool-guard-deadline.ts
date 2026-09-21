@@ -106,7 +106,17 @@ export function resolveGuardedToolSignal(executionContext: unknown): AbortSignal
     typeof executionContext === 'object' && executionContext !== null
       ? (executionContext as { abortSignal?: unknown }).abortSignal
       : undefined;
-  const execution = executionSignal instanceof AbortSignal ? executionSignal : undefined;
+  // A PRESENT but non-`AbortSignal` `abortSignal` fails LOUD (PR review). The
+  // old `mergeCallToolSignals` path had no narrowing, so silently dropping a
+  // duck-typed or cross-realm signal here would be a new silent degradation —
+  // the tool would quietly stop honouring user Stop. Absent is fine; wrong is
+  // not.
+  if (executionSignal !== undefined && !(executionSignal instanceof AbortSignal)) {
+    throw new TypeError(
+      `Execution context carries a non-AbortSignal abortSignal (${typeof executionSignal}); the guarded tool cannot honour cancellation.`
+    );
+  }
+  const execution = executionSignal;
   const guardDeadline = readToolGuardDeadlineSignal(executionContext);
   if (!guardDeadline) {
     return execution;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
   defineNativeTool,
   InvalidNativeToolDefinitionError,
@@ -43,6 +44,41 @@ describe('native tool execution budgets', () => {
         !result.success && result.error.issues.some((issue) => issue.path[0] === 'timeoutMs');
       expect(timeoutIssue(atMax)).toBe(false);
       expect(timeoutIssue(overMax)).toBe(true);
+    }
+  );
+
+  /**
+   * The schema description and `display` strings are the numbers the MODEL and
+   * the inspector actually read. Pinning the schema's `.max()` (above) does not
+   * stop that PROSE drifting from the budget — the same drift class BST-1777
+   * exists to remove — so both numbers must appear verbatim in every string
+   * that states them (PR review).
+   */
+  it.each([...NATIVE_TOOL_EXECUTION_BUDGETS])(
+    '%s: every model-facing string that states the numbers carries BOTH defaultMs and maxMs',
+    (toolId, budget) => {
+      const definition = NATIVE_TOOLS.find((tool) => tool.id === toolId);
+      if (!definition) {
+        throw new Error(`No native tool definition for ${toolId}`);
+      }
+      const json = z.toJSONSchema(definition.inputSchema as z.ZodType, {
+        io: 'input',
+        unrepresentable: 'any',
+      }) as { properties?: Record<string, { description?: unknown }> };
+      const described = json.properties?.['timeoutMs']?.description;
+      const displayed = (definition as { display?: Record<string, unknown> }).display?.[
+        'timeoutMs'
+      ];
+      const strings = [described, displayed].filter(
+        (value): value is string => typeof value === 'string'
+      );
+      // The schema description is mandatory: a tool that grants a budget must
+      // tell the model what it is.
+      expect(typeof described).toBe('string');
+      for (const value of strings) {
+        expect(value).toContain(String(budget.defaultMs));
+        expect(value).toContain(String(budget.maxMs));
+      }
     }
   );
 

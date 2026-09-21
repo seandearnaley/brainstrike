@@ -77,24 +77,29 @@ describe('native execution executors honour the guard deadline', () => {
     const context = { abortSignal: runController.signal, toolCallId: 'call-x' };
     const release = registerToolGuardDeadlineSignal([{}, context], guardController.signal);
 
-    const entry = EXECUTION_TOOL_EXECUTORS[NATIVE_TOOL_ID.executeCommand](buildContext()) as
-      | { execute: (input: unknown, options: unknown) => Promise<unknown> }
-      | undefined;
-    if (!entry) {
-      throw new Error('executeCommand executor did not build');
-    }
-    await entry.execute({ command: 'echo hi' }, context);
+    try {
+      const entry = EXECUTION_TOOL_EXECUTORS[NATIVE_TOOL_ID.executeCommand](buildContext()) as
+        | { execute: (input: unknown, options: unknown) => Promise<unknown> }
+        | undefined;
+      if (!entry) {
+        throw new Error('executeCommand executor did not build');
+      }
+      await entry.execute({ command: 'echo hi' }, context);
 
-    const [, , options] = runExecuteCommandWithShellCorrelation.mock.calls.at(-1) as [
-      unknown,
-      unknown,
-      { signal?: AbortSignal },
-    ];
-    expect(options.signal?.aborted).toBe(false);
-    guardController.abort(new Error('guard'));
-    expect(options.signal?.aborted).toBe(true);
-    expect(runController.signal.aborted).toBe(false);
-    release();
+      const [, , options] = runExecuteCommandWithShellCorrelation.mock.calls.at(-1) as [
+        unknown,
+        unknown,
+        { signal?: AbortSignal },
+      ];
+      expect(options.signal?.aborted).toBe(false);
+      guardController.abort(new Error('guard'));
+      expect(options.signal?.aborted).toBe(true);
+      expect(runController.signal.aborted).toBe(false);
+    } finally {
+      // The deadline registry is module-global and keyed by tool-call id:
+      // a failed expectation must not leak this id into later cases.
+      release();
+    }
   });
 
   it('runSkillScript aborts on the guard deadline even though the run signal never fires', async () => {
@@ -103,27 +108,38 @@ describe('native execution executors honour the guard deadline', () => {
     const context = { abortSignal: runController.signal, toolCallId: 'call-y' };
     const release = registerToolGuardDeadlineSignal([{}, context], guardController.signal);
 
-    const entry = EXECUTION_TOOL_EXECUTORS[NATIVE_TOOL_ID.runSkillScript](buildContext()) as
-      | { execute: (input: unknown, options: unknown) => Promise<unknown> }
-      | undefined;
-    if (!entry) {
-      throw new Error('runSkillScript executor did not build');
-    }
-    await entry.execute(
-      { cwd: '.', root: '.', runtime: 'python3', scriptPath: 'scripts/demo.py', skillName: 'demo' },
-      context
-    );
+    try {
+      const entry = EXECUTION_TOOL_EXECUTORS[NATIVE_TOOL_ID.runSkillScript](buildContext()) as
+        | { execute: (input: unknown, options: unknown) => Promise<unknown> }
+        | undefined;
+      if (!entry) {
+        throw new Error('runSkillScript executor did not build');
+      }
+      await entry.execute(
+        {
+          cwd: '.',
+          root: '.',
+          runtime: 'python3',
+          scriptPath: 'scripts/demo.py',
+          skillName: 'demo',
+        },
+        context
+      );
 
-    const [, , , options] = runSkillScript.mock.calls.at(-1) as [
-      unknown,
-      unknown,
-      unknown,
-      { signal?: AbortSignal },
-    ];
-    expect(options.signal?.aborted).toBe(false);
-    guardController.abort(new Error('guard'));
-    expect(options.signal?.aborted).toBe(true);
-    expect(runController.signal.aborted).toBe(false);
-    release();
+      const [, , , options] = runSkillScript.mock.calls.at(-1) as [
+        unknown,
+        unknown,
+        unknown,
+        { signal?: AbortSignal },
+      ];
+      expect(options.signal?.aborted).toBe(false);
+      guardController.abort(new Error('guard'));
+      expect(options.signal?.aborted).toBe(true);
+      expect(runController.signal.aborted).toBe(false);
+    } finally {
+      // The deadline registry is module-global and keyed by tool-call id:
+      // a failed expectation must not leak this id into later cases.
+      release();
+    }
   });
 });

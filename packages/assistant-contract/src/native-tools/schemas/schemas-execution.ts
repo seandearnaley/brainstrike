@@ -121,7 +121,13 @@ export const RunSkillScriptInputSchema = z
       .string()
       .regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/)
       .describe('Enabled skill name'),
-    timeoutMs: z.number().int().positive().max(600_000).optional(),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(600_000)
+      .optional()
+      .describe('Process-tree timeout ms (default 120000, max 600000)'),
   })
   .strict()
   .superRefine((input, context) => {

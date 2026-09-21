@@ -327,8 +327,17 @@ export async function* withInactivityTimeout<T>(
         // cannot "preserve" `tool-executing` into the provider state machine.
         trackToolExecution(result.value, toolCallsInFlight, options);
         if (providerPhase === 'awaiting-output' && hasSeenProviderOutput) {
-          // Scaffolding opens a new step, so the previous step's tools are
-          // over. Clearing here means a lost `settled` part can only ever
+          // THIS IS THE SCAFFOLDING RULE, stated in the only terms this
+          // generic watchdog has: a part that does not count as provider
+          // output is, by {@link StreamInactivityOptions.countsAsProviderOutput}'s
+          // contract, FRAMEWORK STEP SCAFFOLDING — and scaffolding opens a new
+          // step, so the previous step's tools are over. The caller owes that
+          // contract a CLOSED, typed list of scaffolding types (Mastra's is
+          // `{start, step-start}`, see `MASTRA_SCAFFOLDING_PART_TYPES`)
+          // precisely because anything it wrongly excludes from "output" —
+          // `tool-output`, a progress chunk — would wipe the in-flight set
+          // MID-EXECUTION and drop a running tool back onto the provider's own
+          // window. Clearing here means a lost `settled` part can only ever
           // TIGHTEN the next window, never hold the wide one open — gated on
           // `hasSeenProviderOutput` so a resume leg's OPENING scaffolding
           // cannot wipe a seeded id before its own settle ever arrives.

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createMastraToolExecutionPartKindReader } from '../agent-streaming';
+import {
+  createMastraToolExecutionPartKindReader,
+  isMastraProviderOutputPart,
+} from '../agent-streaming';
 
 const part = (type: string, toolCallId?: unknown, extra?: Record<string, unknown>) => ({
   payload: { toolCallId, ...extra },
@@ -179,5 +182,32 @@ describe('readMastraToolExecutionPartKind — delegated child calls', () => {
     expect(
       readMastraToolExecutionPartKind(delegationEnvelope(part('text-delta', 'child-1')))
     ).toBeUndefined();
+  });
+});
+
+/**
+ * The classifier's safety depends on the OTHER Mastra option too: anything
+ * `isMastraProviderOutputPart` calls NOT provider output wipes the watchdog's
+ * in-flight set (that is the scaffolding rule — see the clear site in
+ * `../../stream/with-inactivity-timeout.ts`). So every part that can arrive
+ * BETWEEN a `tool-call` and its `tool-result` must count as output, or a
+ * running tool silently drops back onto the provider's own window.
+ */
+describe('isMastraProviderOutputPart', () => {
+  it.each(['tool-output', 'tool-call-delta', 'tool-result', 'text-delta', 'reasoning-delta'])(
+    '%s counts as provider output, so it never clears an in-flight call',
+    (type) => {
+      expect(isMastraProviderOutputPart({ payload: {}, type })).toBe(true);
+    }
+  );
+
+  it.each(['start', 'step-start'])('%s is framework scaffolding (the CLOSED list)', (type) => {
+    expect(isMastraProviderOutputPart({ type })).toBe(false);
+  });
+
+  it('an unnameable or future part type defaults to output (tighten, never widen)', () => {
+    expect(isMastraProviderOutputPart({ type: 'some-future-mastra-part' })).toBe(true);
+    expect(isMastraProviderOutputPart({})).toBe(true);
+    expect(isMastraProviderOutputPart(undefined)).toBe(true);
   });
 });

@@ -161,9 +161,11 @@ async function runBudgetCase(
       await root.getByRole('button', { exact: true, name: 'Send' }).click();
 
       const activityGroup = root.getByTestId('assistant-activity-group').first();
-      // sleep 8 plus real app overhead; well under the shrunk 5s stall window
-      // and the effective ~7-8s tool-guard budget once the fix is in place —
-      // pre-fix this both stalls (5s inactivity) and guard-times-out (3s).
+      // sleep 8 plus real app overhead. The shrunk 5s inactivity window does
+      // NOT apply here — that is the whole point: the call sits in the
+      // `tool-executing` phase, measured against the tool's own ~7-8s guard
+      // budget instead. Pre-fix it both stalled (5s inactivity) and
+      // guard-timed-out (3s).
       await expect(activityGroup).toHaveAttribute('data-state', 'done', { timeout: 30_000 });
       await root.getByTestId('assistant-activity-summary').first().click();
       const toolCard = root.getByTestId('tool-fallback').first();

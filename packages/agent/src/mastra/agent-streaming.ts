@@ -1160,7 +1160,8 @@ function describeMastraStreamPartType(part: unknown): string | undefined {
  */
 const MASTRA_SCAFFOLDING_PART_TYPES: ReadonlySet<string> = new Set(['start', 'step-start']);
 
-function isMastraProviderOutputPart(part: unknown): boolean {
+/** @internal exported for tests */
+export function isMastraProviderOutputPart(part: unknown): boolean {
   const type = describeMastraStreamPartType(part);
   return type === undefined || !MASTRA_SCAFFOLDING_PART_TYPES.has(type);
 }
