@@ -21,20 +21,14 @@
  */
 import { createHash } from 'node:crypto';
 import os from 'node:os';
-import { NATIVE_TOOL_EXECUTION_BUDGETS, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, requireNativeToolExecutionBudget } from '@brainstrike/assistant-contract';
 import type { CodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
 import { RunPythonInputSchema } from './schemas';
 
-function requireRunPythonDefaultTimeoutMs(): number {
-  const budget = NATIVE_TOOL_EXECUTION_BUDGETS.get(NATIVE_TOOL_ID.runPython);
-  if (!budget) {
-    throw new Error(`Native tool ${NATIVE_TOOL_ID.runPython} declares no executionBudget.`);
-  }
-  return budget.defaultMs;
-}
-
 /** Matches the display schema's documented default; the seam caps at MAX_EXEC_TIMEOUT_MS. */
-export const RUN_PYTHON_DEFAULT_TIMEOUT_MS = requireRunPythonDefaultTimeoutMs();
+export const RUN_PYTHON_DEFAULT_TIMEOUT_MS = requireNativeToolExecutionBudget(
+  NATIVE_TOOL_ID.runPython
+).defaultMs;
 
 /**
  * Stable hash over every non-fingerprint field, sorted-key canonical JSON.

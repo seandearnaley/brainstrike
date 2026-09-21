@@ -42,6 +42,7 @@ export {
   type NativeToolNameResolver,
   type NativeToolRegistries,
   type NativeToolSurface,
+  requireNativeToolExecutionBudget,
   SKILL_NATIVE_TOOLS,
   type SkillNativeTool,
   type SkillNativeToolDefinition,

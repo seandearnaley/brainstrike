@@ -6,6 +6,7 @@ import {
   NATIVE_TOOL_EXECUTION_BUDGETS,
   NATIVE_TOOL_ID,
   NATIVE_TOOLS,
+  requireNativeToolExecutionBudget,
 } from '../index.js';
 import { executeCommand } from '../native-tools/definitions/execute-command.js';
 
@@ -55,5 +56,20 @@ describe('native tool execution budgets', () => {
     expect(() =>
       defineNativeTool({ ...executeCommand, executionBudget: { defaultMs: bad, maxMs: 600_000 } })
     ).toThrow(InvalidNativeToolDefinitionError);
+  });
+
+  describe('requireNativeToolExecutionBudget', () => {
+    it('returns the budget for a known id', () => {
+      expect(requireNativeToolExecutionBudget(NATIVE_TOOL_ID.executeCommand)).toEqual({
+        defaultMs: 120_000,
+        maxMs: 600_000,
+      });
+    });
+
+    it('throws for an id with no declared executionBudget', () => {
+      expect(() => requireNativeToolExecutionBudget('not-a-real-tool')).toThrow(
+        'Native tool not-a-real-tool declares no executionBudget.'
+      );
+    });
   });
 });

@@ -7,8 +7,8 @@ import {
   type RuntimeData,
 } from '@brainstrike/agent';
 import {
-  NATIVE_TOOL_EXECUTION_BUDGETS,
   NATIVE_TOOL_ID,
+  requireNativeToolExecutionBudget,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
@@ -29,20 +29,12 @@ const logger = createLogger('ExecuteCommandTool');
 const REDACTED_COMMAND_LOG_VALUE = { redacted: true } as const;
 const REDACTED_CWD_LOG_VALUE = { redacted: true } as const;
 
-/** Looks up a native tool's declared execution budget, or throws (BST-1777: never restate it). */
-export function requireExecutionBudget(toolId: string): { defaultMs: number; maxMs: number } {
-  const budget = NATIVE_TOOL_EXECUTION_BUDGETS.get(toolId);
-  if (!budget) {
-    throw new Error(`Native tool ${toolId} declares no executionBudget.`);
-  }
-  return budget;
-}
 /**
  * `defaultMs`: per-command timeout when the model does not specify one.
  * `maxMs`: hard ceiling on the per-call timeout so a bad value cannot wedge the host.
  */
 const { defaultMs: DEFAULT_TIMEOUT_MS, maxMs: MAX_TIMEOUT_MS } =
-  requireExecutionBudget(EXECUTE_COMMAND_TOOL_ID);
+  requireNativeToolExecutionBudget(EXECUTE_COMMAND_TOOL_ID);
 /** Maximum command-input characters repeated in the model-facing result. */
 const MAX_ECHOED_COMMAND_CHARS = 200;
 /**
