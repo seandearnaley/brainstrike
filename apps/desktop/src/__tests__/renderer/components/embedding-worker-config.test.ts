@@ -437,6 +437,32 @@ describe('createEmbeddingWorkerConfig', () => {
     expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
   });
 
+  it('reads the Electron scheduler snapshot with zero IPC arguments', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const snapshot = getDatabaseWorkScheduler(scheduledDb)?.getSnapshot();
+    if (!snapshot) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    // Mirrors the preload bridge + `db:scheduler:snapshot` contract: every
+    // argument is forwarded over IPC, and the contract rejects any arity but 0.
+    const schedulerSnapshot = vi.fn(async (...args: unknown[]) => {
+      if (args.length !== 0) {
+        throw new Error('database schedulerSnapshot requires exactly 0 arguments');
+      }
+      return snapshot;
+    });
+    (window.electronAPI as unknown as { db: { schedulerSnapshot: typeof schedulerSnapshot } }).db =
+      {
+        schedulerSnapshot,
+      };
+
+    const config = createEmbeddingWorkerConfig({
+      query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
+    } as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+  });
+
   it('does not reuse an expired Electron scheduler snapshot after a read failure', async () => {
     vi.useFakeTimers();
     try {
