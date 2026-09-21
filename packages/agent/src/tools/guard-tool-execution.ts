@@ -8,9 +8,26 @@ export type { GuardedToolError } from '@brainstrike/assistant-contract';
 export { isGuardedToolError } from '@brainstrike/assistant-contract';
 
 const GUARDED_TOOL_ERROR_MESSAGE = 'The tool did not complete successfully. Try another approach.';
-const GUARDED_TOOL_TIMEOUT_MESSAGE =
-  'The tool timed out before returning a result. Try a smaller request or another approach.';
 const MAX_TOOL_INPUT_ERROR_MESSAGE_CHARS = 1000;
+
+/**
+ * The model-facing timeout text (BST-1777). It states the budget that actually
+ * applied and, only when the tool's contract allows a longer one, how to ask
+ * for it — the previous wording named neither, so the model could not tell a
+ * 60s ceiling from a wedged tool and usually just retried.
+ */
+export function formatToolTimeoutMessage(
+  timeoutMs: number,
+  declaredMaxMs: number | undefined
+): string {
+  const head = `The tool did not finish within its ${Math.round(
+    timeoutMs / 1000
+  )}s execution budget and was cancelled.`;
+  if (declaredMaxMs === undefined) {
+    return `${head} Try a smaller request or another approach.`;
+  }
+  return `${head} Pass a larger timeoutMs (max ${declaredMaxMs}) if the work legitimately needs longer, or split it into smaller steps.`;
+}
 const TOOL_INPUT_ERROR_TRUNCATION_SUFFIX = '… [input error truncated]';
 
 function boundToolInputErrorMessage(message: string): string {
@@ -31,7 +48,12 @@ function hasExecute(tool: unknown): tool is ExecutableLike {
   return typeof (tool as { execute?: unknown }).execute === 'function';
 }
 
+/** A fixed budget, or one resolved from the call's args (input first). */
+export type ToolGuardTimeout = number | ((args: readonly unknown[]) => number);
+
 export interface GuardOptions {
+  /** `maxMs` of the tool's declared execution budget; shapes the timeout remedy. */
+  declaredMaxMs?: number;
   /**
    * Records how long `execute` actually ran, keyed by tool-call id.
    *
@@ -45,8 +67,16 @@ export interface GuardOptions {
    */
   durations?: ToolExecutionDurations;
   logger?: ToolLogger;
-  timeoutMs: number;
+  timeoutMs: ToolGuardTimeout;
   toolName: string;
+}
+
+function resolveCallTimeoutMs(timeout: ToolGuardTimeout, args: readonly unknown[]): number {
+  const resolved = typeof timeout === 'function' ? timeout(args) : timeout;
+  if (!(Number.isSafeInteger(resolved) && resolved > 0)) {
+    throw new Error(`Tool guard resolved a non-positive budget: ${String(resolved)}`);
+  }
+  return resolved;
 }
 
 /**
@@ -59,7 +89,7 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     return tool;
   }
   const original = tool.execute;
-  const { toolName, timeoutMs, logger, durations } = options;
+  const { toolName, logger, durations } = options;
 
   const cloned = Object.create(Object.getPrototypeOf(tool)) as ExecutableLike;
   Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
@@ -72,27 +102,10 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     // holding a request the run has already abandoned (BST-1594).
     const deadline = new AbortController();
     const releaseDeadline = registerToolGuardDeadlineSignal(args, deadline.signal, logger);
-    const timeout = new Promise<GuardedToolError>((resolve) => {
-      timer = setTimeout(() => {
-        // Abort BEFORE resolving so cancellation is ordered ahead of the
-        // model-facing answer rather than racing it.
-        deadline.abort(new Error(`Tool "${toolName}" exceeded its ${timeoutMs}ms execution guard`));
-        logger?.error('Tool execution timed out', { timeoutMs, toolName });
-        resolve({
-          error: {
-            code: 'tool_timeout',
-            message: GUARDED_TOOL_TIMEOUT_MESSAGE,
-            toolName,
-          },
-          ok: false,
-        });
-      }, timeoutMs);
-      (timer as { unref?: () => void }).unref?.();
-    });
-
     // Measured around the REAL execution, so a suspended-then-approved call is
-    // billed for the work rather than the wait. Started here, after the timeout
-    // timer is armed but before the call, so the two describe the same window.
+    // billed for the work rather than the wait. Started here, before budget
+    // resolution or the call, so the duration is honest even when resolving
+    // the budget itself throws.
     //
     // MONOTONIC, not wall-clock: a clock adjustment mid-execution would
     // otherwise produce a negative duration, or — worse, because nothing
@@ -104,13 +117,37 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     // "how long did the tool run" but does mean it disagrees slightly with the
     // tool.started → terminal delta even without an approval.
     const startedAt = performance.now();
-    const run = (async () => Reflect.apply(original, cloned, args))();
-    // If the timeout already won the race, the original may still reject later.
-    // Log it instead of letting it become an unhandled rejection (no silent swallow).
-    run.catch((error) => {
-      logger?.error('Tool execution rejected (possibly after guard timeout)', { error, toolName });
-    });
     try {
+      const timeoutMs = resolveCallTimeoutMs(options.timeoutMs, args);
+      const timeout = new Promise<GuardedToolError>((resolve) => {
+        timer = setTimeout(() => {
+          // Abort BEFORE resolving so cancellation is ordered ahead of the
+          // model-facing answer rather than racing it.
+          deadline.abort(
+            new Error(`Tool "${toolName}" exceeded its ${timeoutMs}ms execution guard`)
+          );
+          logger?.error('Tool execution timed out', { timeoutMs, toolName });
+          resolve({
+            error: {
+              code: 'tool_timeout',
+              message: formatToolTimeoutMessage(timeoutMs, options.declaredMaxMs),
+              toolName,
+            },
+            ok: false,
+          });
+        }, timeoutMs);
+        (timer as { unref?: () => void }).unref?.();
+      });
+
+      const run = (async () => Reflect.apply(original, cloned, args))();
+      // If the timeout already won the race, the original may still reject later.
+      // Log it instead of letting it become an unhandled rejection (no silent swallow).
+      run.catch((error) => {
+        logger?.error('Tool execution rejected (possibly after guard timeout)', {
+          error,
+          toolName,
+        });
+      });
       return await Promise.race([run, timeout]);
     } catch (error) {
       logger?.error('Tool execution failed', { error, toolName });
@@ -151,9 +188,11 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
 }
 
 export interface ApplyToolGuardsOptions {
+  /** `maxMs` of a tool's declared budget, by tool id; absent for undeclared tools. */
+  declaredMaxMs?: (toolId: string) => number | undefined;
   durations?: ToolExecutionDurations;
   logger?: ToolLogger;
-  timeoutMs: number;
+  timeoutMs: number | ((toolId: string) => ToolGuardTimeout);
 }
 
 /** Guard every executable tool in a Mastra tools map (native + MCP). */
@@ -163,9 +202,12 @@ export function applyToolGuards<TMap extends Record<string, unknown>>(
 ): TMap {
   const guarded: Record<string, unknown> = {};
   for (const [toolId, tool] of Object.entries(tools)) {
+    const declaredMaxMs = options.declaredMaxMs?.(toolId);
     guarded[toolId] = guardToolExecution(tool, {
-      timeoutMs: options.timeoutMs,
+      timeoutMs:
+        typeof options.timeoutMs === 'function' ? options.timeoutMs(toolId) : options.timeoutMs,
       toolName: toolId,
+      ...(declaredMaxMs === undefined ? {} : { declaredMaxMs }),
       ...(options.durations ? { durations: options.durations } : {}),
       ...(options.logger ? { logger: options.logger } : {}),
     });
