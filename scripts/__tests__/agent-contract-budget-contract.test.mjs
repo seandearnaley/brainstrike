@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -103,6 +103,15 @@ test('agent contracts stay inside their shrink-only line budgets', () => {
 /** Citations are prose-wrapped across lines; compare on collapsed whitespace. */
 const flatten = (text) => text.replace(/\s+/gu, ' ').trim();
 
+/**
+ * Anchored, not a substring test: a citation must name the WHOLE heading, or
+ * the whole heading minus a trailing parenthetical (a ticket id, a filename, a
+ * settled-on date). A substring test would let § "Coverage" satisfy
+ * "Coverage is a separate workflow", which is the mis-citation worth catching.
+ */
+const citesHeading = (heading, wanted) =>
+  heading === wanted || (heading.startsWith(`${wanted} (`) && heading.endsWith(')'));
+
 test('every evidence file names a section its contract actually has', () => {
   const failures = [];
   for (const area of EVIDENCE_DIRS) {
@@ -119,9 +128,8 @@ test('every evidence file names a section its contract actually has', () => {
         failures.push(`${file} does not cite the contract section it supports (§ "<heading>")`);
         continue;
       }
-      // Substring, not equality: a heading may carry a trailing ticket suffix.
       const wanted = flatten(cited[1]);
-      if (!headings.some((heading) => heading.includes(wanted))) {
+      if (!headings.some((heading) => citesHeading(heading, wanted))) {
         failures.push(`${file} cites § "${wanted}", which is not a heading in ${area}.md`);
       }
     }
@@ -140,8 +148,13 @@ test('every evidence pointer in a contract resolves to a file', () => {
       'gu'
     );
     for (const [, pointer] of source.matchAll(pointers)) {
-      if (!existsSync(path.join(repoRoot, CONTRACT_DIR, pointer))) {
-        failures.push(`${name} points at ${pointer}, which does not exist`);
+      // isFile, not exists: a directory named `<topic>.md` is not a readable
+      // evidence file. throwIfNoEntry keeps a missing target a failure, not a throw.
+      const target = statSync(path.join(repoRoot, CONTRACT_DIR, pointer), {
+        throwIfNoEntry: false,
+      });
+      if (!target?.isFile()) {
+        failures.push(`${name} points at ${pointer}, which is not a readable file`);
       }
     }
   }
