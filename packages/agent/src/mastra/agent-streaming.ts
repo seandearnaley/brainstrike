@@ -1075,17 +1075,23 @@ function* makeResumedStartChunks(
  * the whole execution against the provider's own silence budget instead of
  * the tool-executing backstop.
  *
- * Filtered through the SAME guardedness rule as
- * {@link readMastraToolExecutionPartKind} (a call this excludes rides the
- * ordinary provider windows and stays recoverable, which is correct for it):
- * a resumed call can never be provider-executed (a provider-executed tool has
- * no local `execute` and therefore no suspend point to resume from), so only
- * the delegation-prefix half of the rule applies here.
+ * Filtered through the SAME allow-list rule as
+ * {@link createMastraToolExecutionPartKindReader} (a call this excludes rides
+ * the ordinary provider windows and stays recoverable, which is correct for
+ * it): a resumed call can never be provider-executed (a provider-executed
+ * tool has no local `execute` and therefore no suspend point to resume
+ * from), so this is really just the guarded-name membership check —
+ * `registeredToolName` must be a key of `guardedToolNames`.
  */
-function collectResumedGuardedToolCallIds(resumed: ResumedApprovalToolCall): readonly string[] {
+function collectResumedGuardedToolCallIds(
+  resumed: ResumedApprovalToolCall,
+  guardedToolNames: ReadonlySet<string>
+): readonly string[] {
   const calls: readonly ResumedToolCallStart[] = [resumed, ...resumed.siblings];
   return calls
-    .filter((call) => hasExecutionGuardBehindToolCall(call.registeredToolName, false))
+    .filter((call) =>
+      hasExecutionGuardBehindToolCall(call.registeredToolName, false, guardedToolNames)
+    )
     .map((call) => call.toolCallId);
 }
 
@@ -1099,17 +1105,23 @@ function collectResumedGuardedToolCallIds(resumed: ResumedApprovalToolCall): rea
  */
 function resolveMastraInactivityOptions(
   resumedApprovalToolCall: ResumedApprovalToolCall | undefined,
+  guardedToolNames: ReadonlySet<string>,
   onTimeout: (error: StreamStalledError) => void
 ): StreamInactivityOptions<unknown> {
   return {
     countsAsProviderOutput: isMastraProviderOutputPart,
     describePart: describeMastraStreamPartType,
     ...(resumedApprovalToolCall
-      ? { initialToolCallIds: collectResumedGuardedToolCallIds(resumedApprovalToolCall) }
+      ? {
+          initialToolCallIds: collectResumedGuardedToolCallIds(
+            resumedApprovalToolCall,
+            guardedToolNames
+          ),
+        }
       : {}),
     onTimeout,
     reasoningPartKind: readMastraReasoningPartKind,
-    toolExecutionPartKind: readMastraToolExecutionPartKind,
+    toolExecutionPartKind: createMastraToolExecutionPartKindReader(guardedToolNames),
   };
 }
 
@@ -1219,19 +1231,37 @@ const MASTRA_TOOL_EXECUTION_PART_KINDS = {
 
 /**
  * Whether a tool call has a per-call execution guard behind it (BST-1777
- * final review, I2). `tool-executing`'s wide window is only safe to enter
- * because a guard ALWAYS fires first and turns a wedge into a bounded,
+ * final re-review, I2-C). `tool-executing`'s wide window is only safe to
+ * enter because a guard ALWAYS fires first and turns a wedge into a bounded,
  * recoverable failure — the terminal "this is a Brainstrike bug" message
  * `isRecoverableStall` attaches to this phase is only honest under that
- * premise. Two kinds of `tool-call` never pass through `applyToolGuards` and
- * therefore have no guard at all:
+ * premise.
+ *
+ * This is deliberately an ALLOW-list, not a deny-list: `guardedToolNames` is
+ * exactly the key set of `runtime.toolNameMap`, which is populated (in
+ * `tool-pipeline.ts`, `sanitizeTools` + `collectCombinedTools`) BEFORE
+ * `applyToolGuards` runs over `combinedTools`, and nothing is added to it
+ * afterwards for a tool that skipped the guard. So membership in this set IS
+ * "went through `applyToolGuards`" — an unknown or future-unguarded tool name
+ * defaults to `false` and stays on the tight window, per the file's own
+ * closed-list rule (unknown -> tighten), rather than requiring every new
+ * unguarded kind to be named here as it is discovered. Three kinds are
+ * deliberately never in the set and therefore always ride the ordinary
+ * provider-silence windows instead of `tool-executing`:
  *
  * - Provider-executed tools (native web search): injected AFTER
  *   `sanitizeTools`/`applyToolGuards` (see `../providers/native-web-search.ts`),
- *   so Mastra marks the part `payload.providerExecuted === true`.
- * - Subagent delegation tools (`agent-<personaId>`): the parent registers
- *   them directly (`agent-runtime.ts`) and only `combinedTools` goes through
- *   `applyToolGuards`, never the delegation tool itself.
+ *   so Mastra marks the part `payload.providerExecuted === true` — kept as an
+ *   explicit check because that entry REPLACES a sanitized local name that IS
+ *   still a key in `toolNameMap`, so a name match alone is not enough.
+ * - Subagent delegation tools (`agent-<personaId>`): the parent registers them
+ *   directly on `new Agent({ agents: subAgents })` (`agent-runtime.ts`), never
+ *   through `combinedTools`/`sanitizeTools`, so they are never a key in
+ *   `toolNameMap` and the allow-list already excludes them.
+ * - Mastra-injected memory tools (`updateWorkingMemory`, `setWorkingMemory`,
+ *   `recall` — see `internal-approval-exempt-tools.ts`): Mastra merges these
+ *   into the run's tool map itself, after this pipeline runs, so they too are
+ *   never a key in `toolNameMap`.
  *
  * A call this returns `false` for must NOT enter `tool-executing`: it keeps
  * riding the ordinary provider-silence windows it always has, so a wedge
@@ -1240,43 +1270,48 @@ const MASTRA_TOOL_EXECUTION_PART_KINDS = {
  */
 function hasExecutionGuardBehindToolCall(
   toolName: string | undefined,
-  providerExecuted: unknown
+  providerExecuted: unknown,
+  guardedToolNames: ReadonlySet<string>
 ): boolean {
-  if (providerExecuted === true) {
-    return false;
-  }
-  if (toolName?.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX)) {
-    return false;
-  }
-  return true;
+  return providerExecuted !== true && toolName !== undefined && guardedToolNames.has(toolName);
 }
 
-/** @internal exported for tests */
-export function readMastraToolExecutionPartKind(
-  part: unknown
-): { kind: 'started' | 'settled'; toolCallId: string } | undefined {
-  const type = describeMastraStreamPartType(part);
-  if (type === undefined || !Object.hasOwn(MASTRA_TOOL_EXECUTION_PART_KINDS, type)) {
-    return;
-  }
-  const payload = (part as { payload?: unknown }).payload;
-  const toolCallId =
-    typeof payload === 'object' && payload !== null
-      ? (payload as { toolCallId?: unknown }).toolCallId
-      : undefined;
-  if (typeof toolCallId !== 'string' || toolCallId.length === 0) {
-    return;
-  }
-  const kind =
-    MASTRA_TOOL_EXECUTION_PART_KINDS[type as keyof typeof MASTRA_TOOL_EXECUTION_PART_KINDS];
-  if (kind === 'started') {
-    const toolName = readMastraStreamPartString(part, 'toolName');
-    const providerExecuted = readMastraStreamPartValue(part, 'providerExecuted');
-    if (!hasExecutionGuardBehindToolCall(toolName, providerExecuted)) {
+/**
+ * Builds the `toolExecutionPartKind` classifier for one leg, closed over that
+ * leg's guarded-name allow-list (`runtime.toolNameMap`'s keys). A factory
+ * rather than a bare function because the classifier is already constructed
+ * per leg (see `resolveMastraInactivityOptions`) and the guarded set is
+ * per-runtime, not global.
+ *
+ * @internal exported for tests
+ */
+export function createMastraToolExecutionPartKindReader(
+  guardedToolNames: ReadonlySet<string>
+): (part: unknown) => { kind: 'started' | 'settled'; toolCallId: string } | undefined {
+  return (part: unknown) => {
+    const type = describeMastraStreamPartType(part);
+    if (type === undefined || !Object.hasOwn(MASTRA_TOOL_EXECUTION_PART_KINDS, type)) {
       return;
     }
-  }
-  return { kind, toolCallId };
+    const payload = (part as { payload?: unknown }).payload;
+    const toolCallId =
+      typeof payload === 'object' && payload !== null
+        ? (payload as { toolCallId?: unknown }).toolCallId
+        : undefined;
+    if (typeof toolCallId !== 'string' || toolCallId.length === 0) {
+      return;
+    }
+    const kind =
+      MASTRA_TOOL_EXECUTION_PART_KINDS[type as keyof typeof MASTRA_TOOL_EXECUTION_PART_KINDS];
+    if (kind === 'started') {
+      const toolName = readMastraStreamPartString(part, 'toolName');
+      const providerExecuted = readMastraStreamPartValue(part, 'providerExecuted');
+      if (!hasExecutionGuardBehindToolCall(toolName, providerExecuted, guardedToolNames)) {
+        return;
+      }
+    }
+    return { kind, toolCallId };
+  };
 }
 
 export function createAttemptDelegatedProjection({
@@ -1764,8 +1799,10 @@ export async function* streamAttemptChunks({
         reasoningGapMs: runtime.resilienceConfig.streamReasoningGapMs,
         toolExecutingMs: runtime.resilienceConfig.toolExecutingMs,
       },
-      resolveMastraInactivityOptions(resumedApprovalToolCall, (error) =>
-        streamAbortContext.abort(error)
+      resolveMastraInactivityOptions(
+        resumedApprovalToolCall,
+        new Set(runtime.toolNameMap.keys()),
+        (error) => streamAbortContext.abort(error)
       )
     );
     const projectedSource = projectBackgroundStream(

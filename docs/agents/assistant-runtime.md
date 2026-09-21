@@ -206,7 +206,7 @@ below are LIVE.
    itself to stay a flat 60s under every tool's own declared budget. The phase
    is tracked by REFERENCE COUNT (`toolCallId`) so parallel calls hold it open
    until the last one settles, and it OVERRIDES whichever provider phase is
-   current: `readMastraToolExecutionPartKind` (`agent-streaming.ts`) classifies
+   current: the classifier `createMastraToolExecutionPartKindReader` returns (`agent-streaming.ts`) classifies
    `tool-call` as `started`, and `tool-result` / `tool-error` /
    `tool-output-denied` / `tool-call-approval` / `tool-call-suspended` as
    `settled`. Approval and suspension SETTLE deliberately — the call is
@@ -222,26 +222,37 @@ below are LIVE.
    `reasoning-end` marker arriving mid-tool cannot "preserve" `tool-executing`
    into the provider state machine.
 
-   **Only a GUARDED call may enter the phase (BST-1777 final review, I2).**
-   The wide window and the terminal "execution guard never answered" wording
-   are only honest because a per-call guard always fires first — and two
-   `tool-call` kinds never pass through `applyToolGuards` at all:
+   **Only a GUARDED call may enter the phase — an ALLOW-list, not a
+   deny-list (BST-1777 final review, I2-C).** The wide window and the
+   terminal "execution guard never answered" wording are only honest because
+   a per-call guard always fires first, so `hasExecutionGuardBehindToolCall`
+   (`agent-streaming.ts`) checks a tool name against `runtime.toolNameMap`'s
+   KEYS — exactly the set that went through `applyToolGuards` in
+   `tool-pipeline.ts`, since that map is populated before the guard runs and
+   nothing is added to it afterwards for a tool that skipped the guard.
+   Membership is the allow-list; anything not in it defaults to `false` and
+   stays on the tight window, per the file's closed-list rule (unknown ->
+   tighten) — no growing enumeration required as new unguarded kinds appear.
+   Three kinds are deliberately never in the set:
    provider-executed tools (native web search, injected AFTER
    `sanitizeTools`/`applyToolGuards`, marked `payload.providerExecuted ===
-   true`) and subagent delegation tools (`agent-<personaId>`, registered
-   directly by the parent, never run through the guard pipeline).
-   `hasExecutionGuardBehindToolCall` (`agent-streaming.ts`) excludes both from
-   `readMastraToolExecutionPartKind`'s `started` classification, so they keep
+   true` — kept as an explicit check because that entry REPLACES a sanitized
+   local name that IS still a key), subagent delegation tools
+   (`agent-<personaId>`, registered directly on `new Agent({ agents:
+   subAgents })`, never run through `combinedTools`/`sanitizeTools`), and
+   Mastra-injected memory tools (`updateWorkingMemory`, `setWorkingMemory`,
+   `recall` — see `internal-approval-exempt-tools.ts` — merged into the run's
+   tool map by Mastra itself, after this pipeline runs). All three keep
    riding the ordinary provider-silence windows — recoverable, honestly
    diagnosed — instead of silently inheriting a terminal, mislabeled 635s
-   wedge. `settled` parts for these ids are unaffected (already a no-op for an
-   id that was never added).
+   wedge. `settled` parts are unaffected regardless of tool name (already a
+   no-op for an id that was never added).
 
    **A resumed, approval-approved call is SEEDED into the phase (BST-1777
    final review, I1).** Mastra never replays a suspended step's `tool-call`
    part on the resume leg — only the human's answer resumes it — so the call
    that starts executing there has no `started` boundary for
-   `readMastraToolExecutionPartKind` to observe. Left unseeded, that execution
+   the classifier to observe. Left unseeded, that execution
    is measured against `firstOutputMs` (the provider's own silence budget)
    instead of `toolExecutingMs`, misclassifying the phase and its recovery
    semantics. `collectResumedGuardedToolCallIds` (`agent-streaming.ts`) passes
