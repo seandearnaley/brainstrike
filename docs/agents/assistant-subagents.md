@@ -463,19 +463,23 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   guarded tool execution is only visible to `withInactivityTimeout` inside the
   `tool-output` envelope (`payload.output`, the child's own Mastra part).
   `createMastraToolExecutionPartKindReader` (agent-streaming.ts) therefore
-  unwraps a `tool-output` whose `toolName` is NOT in the guarded set — a
-  delegation tool never is, while `executeCommand`/`runSkillScript` emit their
-  own `tool-output` parts whose `output` is arbitrary tool data and must never
-  be read as a boundary — and classifies the nested part under the SAME
-  allow-list, recursing for a grandchild (bounded). Children select their tools
-  from the parent's already-guarded map by sanitized id
+  unwraps a `tool-output` whose `toolName` starts with
+  `SUBAGENT_DELEGATION_TOOL_PREFIX` and is not itself `providerExecuted` —
+  POSITIVE identification, not "not in the guarded set" (round 2, CodeRabbit
+  MAJOR): the latter also matches provider-executed tool outputs and
+  Mastra-injected memory-tool outputs, whose `output` could then be misread as
+  a nested guarded `tool-call`. `executeCommand`/`runSkillScript` emit their
+  own `tool-output` parts, never delegation-prefixed, so their `output`
+  (arbitrary tool data) is never unwrapped — and the nested part is classified
+  under the SAME allow-list, recursing for a grandchild (bounded). Children
+  select their tools from the parent's already-guarded map by sanitized id
   (`build-persona-subagents.ts`), so a child tool name is a key of the same
   `toolNameMap`. Without this, a silent child command longer than the parent's
   `streamInactivityMs` stalled the PARENT turn. Paired tests:
   `mastra-tool-execution-part-kind.spec.ts` (delegated-child cases) and
-  `mastra-subagent-execution.integration.spec.ts` ("outlives the PARENT's
-  inactivity window"). BACKGROUND delegation is out of scope — its child does
-  not stream on the parent's leg.
+  `mastra-tool-executing-phase.integration.spec.ts` ("a DELEGATED child's
+  silent tool outlives the parent's inactivity window"). BACKGROUND delegation
+  is out of scope — its child does not stream on the parent's leg.
 
   Subagent tool calls ALSO feed the SAME per-tool token telemetry table as
   primary tool calls, attributed to the parent run (BST-1196), via a

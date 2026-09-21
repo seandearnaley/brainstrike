@@ -21,10 +21,11 @@
  *
  * `tool-executing` — the provider finished a tool call and OUR tool is
  * running. The silence is not the provider's at all, so it is bounded by the
- * per-tool execution guard (which always fires first) and this phase carries
- * only a backstop against a broken guard (BST-1777). Measuring a running tool
- * against the tight `streaming` window is why the guard had to be a flat 60s —
- * under every tool's own declared budget.
+ * per-tool execution guard (which always fires first); this phase's own
+ * window is a backstop for what the guard does NOT bound — hook time around
+ * the guarded `execute`, which runs inside this phase with no aggregate cap
+ * (BST-1777). Measuring a running tool against the tight `streaming` window is
+ * why the guard had to be a flat 60s — under every tool's own declared budget.
  */
 export type StreamStallPhase = 'awaiting-output' | 'reasoning' | 'streaming' | 'tool-executing';
 
@@ -97,8 +98,9 @@ export interface StreamInactivityOptions<T> {
    * number: `firstOutputMs` (600000ms) is SHORTER than the largest budget the
    * per-tool guard can grant (605000ms), so an execution that is still
    * healthy under its own guard would be killed here first, reported with the
-   * wrong phase (`awaiting-output` instead of `tool-executing`) and the wrong
-   * user-facing diagnosis (provider silence, not a broken execution guard).
+   * wrong phase (`awaiting-output` instead of `tool-executing`) and a
+   * misleading diagnosis: provider silence, when the actual cause is a tool
+   * call still executing under a guard this leg never observed starting.
    * The approval-resume leg this seed exists for runs at `maxAttempts: 1`
    * (see `attempt-legs.ts`, `createToolApprovalIteratorFromRuntime` — an
    * approval is consumed by `approveToolCall`/`declineToolCall` and cannot be

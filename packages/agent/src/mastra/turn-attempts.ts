@@ -816,14 +816,17 @@ async function* withoutDuplicateRunStarted(
  * budget or what the attempt produced.
  *
  * A `tool-executing` stall means a tool call started and the stream never saw
- * its settling part (`tool-result` / `tool-error` / …) — the per-tool
- * execution guard, which always fires first, itself failed to answer. The
- * process behind that call may still be running. Recovery re-sends the same
- * step to a continuation, which would launch a SECOND execution of that same
- * tool while the first might still be alive — corrupting whatever the tool
- * does on a second call (writes, side effects, non-idempotent APIs). Every
- * other phase means the MODEL went quiet before or while producing text or
- * reasoning, which a continuation safely restarts from scratch.
+ * its settling part (`tool-result` / `tool-error` / …). That is terminal
+ * regardless of whether the per-tool execution guard answered fine: hook time
+ * (lifecycle hooks around the guarded `execute`) runs inside this phase but
+ * OUTSIDE the guard's own window, with no aggregate cap, so the guard can have
+ * fired and the call — or its hooks — can still be running. Either way, the
+ * process behind that call may still be alive. Recovery re-sends the same step
+ * to a continuation, which would launch a SECOND execution of that same tool
+ * while the first might still be alive — corrupting whatever the tool does on
+ * a second call (writes, side effects, non-idempotent APIs). Every other phase
+ * means the MODEL went quiet before or while producing text or reasoning,
+ * which a continuation safely restarts from scratch.
  */
 function isRecoverableStall(error: EmptyModelResponseError | StreamStalledError): boolean {
   return !(error instanceof StreamStalledError && error.phase === 'tool-executing');

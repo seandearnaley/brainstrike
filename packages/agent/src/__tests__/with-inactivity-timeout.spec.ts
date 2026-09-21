@@ -611,7 +611,7 @@ describe('withInactivityTimeout — tool-executing phase', () => {
     expect(seen).toEqual(['tool-call', 'tool-result']);
   });
 
-  it('is a finite backstop against a broken execution guard', async () => {
+  it('is a finite backstop for tool-executing time the guard does not bound', async () => {
     const source = createControllableSource<ToolPart>();
     let captured: StreamStalledError | undefined;
     const drain = (async () => {

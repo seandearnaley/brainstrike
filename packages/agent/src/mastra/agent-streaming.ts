@@ -1234,9 +1234,12 @@ const MASTRA_TOOL_EXECUTION_PART_KINDS = {
  * Whether a tool call has a per-call execution guard behind it (BST-1777
  * final re-review, I2-C). `tool-executing`'s wide window is only safe to
  * enter because a guard ALWAYS fires first and turns a wedge into a bounded,
- * recoverable failure — the terminal "this is a Brainstrike bug" message
- * `isRecoverableStall` attaches to this phase is only honest under that
- * premise.
+ * recoverable failure — `isRecoverableStall` treating this phase as terminal
+ * (never resumed) is only honest under that premise, since the guard's own
+ * window is what makes a `tool-executing` stall attributable to a still-live
+ * tool call rather than a broken guard. `isRecoverableStall` itself attaches
+ * no user-facing message; the backstop text that reports the stall lives in
+ * `stream-termination.ts`.
  *
  * This is deliberately an ALLOW-list, not a deny-list: `guardedToolNames` is
  * exactly the key set of `runtime.toolNameMap`, which is populated (in
@@ -1332,9 +1335,16 @@ const MAX_DELEGATED_ENVELOPE_UNWRAPS = 8;
  * Two consequences, both deliberate:
  * - The in-flight set is keyed by tool-call id alone, so a child id colliding
  *   with a parent id makes a nested `settled` release the parent's entry
- *   early. That TIGHTENS the window (back to the provider phases), which is
- *   the safe direction, and is the same "a lost settle can only tighten"
- *   guarantee the scaffolding clear already relies on.
+ *   early. That tightens into a RECOVERABLE phase, not a consequence-free one
+ *   (round 2, Claude F): the still-running parent call drops back onto the
+ *   provider windows, where a stall is classified `streaming`, and a
+ *   `streaming` stall IS recoverable — so `runTurnAttempts` can re-send the
+ *   step while the parent tool may still be alive, exactly the second-execution
+ *   hazard `isRecoverableStall` refuses `tool-executing` for. Collision
+ *   probability across parent and child runs is negligible with
+ *   provider-generated ids, so the keying is unchanged — but if it ever needs
+ *   to be, the envelope already carries the child `runId` that
+ *   `resolveChildDelegation` reads, so a `runId:toolCallId` key is available.
  * - A child's nested `step-start` does NOT reach the generic
  *   scaffolding-clear: the OUTER part is `tool-output`, which counts as
  *   provider output (`MASTRA_SCAFFOLDING_PART_TYPES` is the closed set

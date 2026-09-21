@@ -265,16 +265,31 @@ below are LIVE.
    against the parent's `streaming` window. Harmless while the guard was a
    flat 60s; a regression once a child command may legitimately run to its own
    600s budget. The classifier therefore UNWRAPS a `tool-output` whose
-   `toolName` is not in the guarded set (a delegation tool never is, while
-   `executeCommand`/`runSkillScript` emit their own `tool-output` parts whose
-   `output` is arbitrary tool data) and applies the SAME allow-list to the
-   nested part, recursing for a grandchild under a fixed unwrap bound. Two
-   deliberate consequences: a child/parent tool-call-id collision makes a
-   nested `settled` release the parent's entry early, which only TIGHTENS; and
-   a child's nested `step-start` does NOT reach the scaffolding clear (the
-   outer `tool-output` counts as provider output), so a lost nested `settled`
-   is cleared at the PARENT's next `step-start` — the same bound every other
-   in-flight id has. BACKGROUND delegation is out of scope.
+   `toolName` starts with `SUBAGENT_DELEGATION_TOOL_PREFIX` and is not itself
+   `providerExecuted` — POSITIVE identification, not "not in the guarded set"
+   (round 2, CodeRabbit MAJOR): the latter is deny-shaped and also matches
+   provider-executed tool outputs and Mastra-injected memory-tool outputs
+   (`updateWorkingMemory`, `recall`, …), whose `output` could then be misread
+   as a nested guarded `tool-call`. `executeCommand`/`runSkillScript`'s own
+   `tool-output` parts are never delegation-prefixed, so their `output`
+   (arbitrary tool data) is never unwrapped. The same allow-list applies to
+   the nested part, recursing for a grandchild (also `agent-<personaId>`)
+   under a fixed unwrap bound. Two deliberate consequences: a child/parent
+   tool-call-id collision makes a nested `settled` release the parent's entry
+   early, which tightens into a RECOVERABLE phase, not a consequence-free one
+   — the still-running parent call drops back onto the provider windows,
+   where a stall is classified `streaming`, and a `streaming` stall IS
+   recoverable, so `runTurnAttempts` can re-send the step while the parent
+   tool may still be alive (the second-execution hazard `isRecoverableStall`
+   refuses `tool-executing` for). Collision probability across parent and
+   child runs is negligible with provider-generated ids, so the keying is
+   unchanged, but the envelope already carries the child `runId` that
+   `resolveChildDelegation` reads, so a `runId:toolCallId` key is available if
+   it ever needs to be; and a child's nested `step-start` does NOT reach the
+   scaffolding clear (the outer `tool-output` counts as provider output), so a
+   lost nested `settled` is cleared at the PARENT's next `step-start` — the
+   same bound every other in-flight id has. BACKGROUND delegation is out of
+   scope.
 
    **A resumed, approval-approved call is SEEDED into the phase (BST-1777
    final review, I1).** Mastra never replays a suspended step's `tool-call`
@@ -1268,7 +1283,7 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   budget: it applies only to a tool with no declared `executionBudget` (every
   MCP tool, and any native tool that does not declare one). A native tool that
   declares one (currently `executeCommand`, `runPython`, `runSkillScript`) is
-  granted `resolveToolGuardBudgetMs`'s per-call window instead — see the
+  granted `resolveToolGuardBudget`'s per-call window instead — see the
   per-tool guard section above (BST-1777).
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000) — the tolerated gap
   between parts, once the provider is demonstrably ANSWERING. Scoped to that
