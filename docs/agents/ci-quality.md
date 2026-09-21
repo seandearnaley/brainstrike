@@ -45,6 +45,10 @@ Guard: `scripts/__tests__/engineering-skills-contract.test.mjs`.
   `browser.trace: { mode, tracesDir }`: off locally, `retain-on-failure` in CI.
   Why: Vitest ignores `test.outputDir` for traces and would leave them outside
   the uploaded `test-results/`. Failure screenshots use their own attachment path.
+- Browser artifact uploads set `include-hidden-files: true` and name the resolved
+  attachment directories for all six browser packages. Why: captures land under
+  `.vitest/`, a dot-directory `actions/upload-artifact` skips silently — the step
+  goes green and the artifact is empty.
 
 Guard: `packages/config/__tests__/vitest-browser.test.ts`.
 
@@ -83,13 +87,19 @@ Guard: `scripts/__tests__/unit-shard-partition.test.mjs`,
   `workflow_dispatch` only; its `push` trigger serves the official jobs:
   `pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json`.
 - `scripts/run-mcp-verification.mjs` is an identity guard, not a planner. Proof
-  uploads only after a complete run on a clean checkout at `GITHUB_SHA`.
+  uploads only after a complete run on a clean checkout at `GITHUB_SHA`. It takes
+  exactly one `--profile` from a closed set and one `--output` JSON path below
+  `artifacts/`; unknown, duplicate, or shell-sensitive input fails before any
+  platform-specific spawn.
 - Both profiles emit evidence-schema `1.1.0` with desktop applicability
   `protocol-lab-only`; desktop-required proof is `mcp-conformance.md`'s gate.
 - The three official conformance jobs below run on `main` pushes (docs-only
   ignored), nightly, and on dispatch, serialized and never cancelled. They are
   required post-merge gates: no `continue-on-error`, `--expected-failures`, or
-  `--output-dir`. Only sanitized evidence uploads, on green and red.
+  `--output-dir`. Only sanitized evidence uploads, on green and red: ANSI
+  stripped, URL queries, OAuth parameters and structured secret assignments
+  redacted, and captured child output never written into the evidence file. That
+  redaction is why these artifacts can be published at all.
 - When one goes red, fix forward or revert before the next MCP-touching merge
   and attach the run URL to that merge's ticket. `notify-main-failure` does not
   cover this workflow: whoever merges checks the run on their own commit.
@@ -107,8 +117,13 @@ Guard: `scripts/__tests__/mcp-verification-ci-contract.test.mjs`,
 
 #### MCP 2026 fleet working agreements (BST-1590)
 
-The WIP limit, ladder freeze, and daily status update lapsed when BST-1472
-closed. Standing for MCP work: dedupe against open and last-24-hour merged PRs
+This heading keeps its identifier because
+`scripts/__tests__/mcp-verification-ci-contract.test.mjs` pins it verbatim; every
+other heading drops the suffix.
+
+The WIP limit, ladder freeze, and daily status update lapsed when
+[BST-1472](https://linear.app/brainstrike/issue/BST-1472) closed (Done,
+2026-09-02). Standing for MCP work: dedupe against open and last-24-hour merged PRs
 before branching; evidence is an exact-head CI artifact URL in the PR body and
 on the ticket; a host-only deliverable says "host-only, product surface
 pending" and does not close as Done; PRs only; conformance prose lives in
@@ -136,13 +151,19 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
   `test:e2e:lane:packaged-mcp-apps`, the packaged native checks, then
   `test:e2e:lane:packaged-mcp-core`. Lanes never build or package. Their specs
   carry `@packaged @destructive`, full-regression grep-inverts `@packaged`, and
-  the launcher forwards an explicit env allowlist, never ambient CI env.
+  the launcher forwards an explicit env allowlist, never ambient CI env. The
+  harness injects into the REAL main window (production preload, default session,
+  production header CSP) — never a harness window on a private partition, which
+  escapes the header stamp and once hid a `frame-src` regression.
 - A proof's diagnostic branch reads text and never clicks; both racers of its
   `Promise.race` are `.catch`-handled. Do not widen the core lane to hide
   skip-on-failure MCP discovery.
-- Memory specs launch with `--enable-precise-memory-info` and read working set
-  from `app.getAppMetrics()`; a missing PID metric fails. Changing a fixture,
-  window, ceiling, or memory source needs three same-head samples in evidence.
+- Memory specs launch with `--enable-precise-memory-info` **and**
+  `--js-flags=--expose-gc`, and read working set from `app.getAppMetrics()`; a
+  missing PID metric fails. Changing a fixture, window, ceiling, or memory source
+  needs three same-head samples in evidence; collect them with `desktop-e2e.yml`'s
+  `memory-baseline` dispatch suite. That suite is evidence collection only — it
+  never replaces or routes a required PR check.
 - AI Tools settings specs stay in both required PR smoke lanes and in nightly.
 
 Evidence: `ci-quality/desktop-electron-provisioning.md`,
@@ -191,6 +212,9 @@ Guard: `scripts/__tests__/turbo-boundaries-gate.test.mjs`.
   imply the test program passes on the same `src` file.
 - Desktop `type-check:test` runs `scripts/verify-test-tsconfig-program.mjs` with a
   400-test-root floor; keep it in `apps/desktop/turbo.json` inputs.
+- Desktop sets `declaration: false`/`declarationMap: false` and excludes
+  `src/types/pglite*.d.ts`; web sets `noEmit: true` and inherits `declaration`
+  from the base config. They are not symmetrical — do not "align" them.
 
 Evidence: `ci-quality/test-tsconfig-programs.md`.
 Guard: `scripts/__tests__/verify-test-tsconfig-program.test.mjs`.
@@ -339,6 +363,16 @@ Guard: `apps/web/e2e/utils/__tests__/performance-benchmark-contract.vitest.ts`.
   tool removed except `StructuredOutput`. Prompt, diff, and published body all
   travel on stdin. After changing the tool arguments, update and run
   `node scripts/probe-claude-review-tools.mjs /absolute/path/to/claude`.
+- Under `pull_request` this workflow and `scripts/claude-review.mjs` execute from
+  the PR's merge commit — PR-author code — with `CLAUDE_CODE_OAUTH_TOKEN` and a
+  `pull-requests: write` token in scope. That exposure is accepted because every
+  PR is the owner's or their agents'; read workflow diffs before merging. If it
+  stops holding, rotate the token or put the step behind a protected
+  `environment:`. The `--ref main` dispatch is the trusted path for a PR that
+  touches the reviewer itself.
+- The CLI runs under an 80-turn ceiling, and failure diagnostics are bounded:
+  500 characters per field, 4 KiB per assembled reason, and raw JSON above
+  64 KiB is not parsed.
 - On failure, grep the job log for `CLAUDE_REVIEW_CLI_FAILED:` or
   `CLAUDE_REVIEW_PUBLICATION_FAILED:`.
 
@@ -363,8 +397,13 @@ Guard: `scripts/__tests__/claude-review.test.mjs`,
   entries. Every node-gyp package sets `cache: false` on its build and test
   tasks (`native-addon-build-uncached-contract`).
 - `native-windows` caches node-gyp's header dir (an input, not an output) and
-  retries a cold install. `TAR_ENTRY_ERROR ENOENT` there is noise from an
-  aborted header download (`native-windows-node-gyp-cache-contract`,
+  retries a cold install (`install-attempts: '3'`). Each part below silently
+  un-does the fix on its own: the job pins `npm_config_devdir` (node-gyp's
+  default lives under `%LOCALAPPDATA%` and no cache step can name it portably);
+  the restore runs **before** `Setup workspace`, because the download happens
+  inside that composite's `pnpm install`; and the save is guarded on
+  `steps.setup.outcome == 'success'`. `TAR_ENTRY_ERROR ENOENT` there is noise
+  from an aborted header download (`native-windows-node-gyp-cache-contract`,
   `setup-workspace-install-retry-contract`).
 
 Evidence: `ci-quality/ubicloud-runners.md`,
@@ -380,6 +419,9 @@ parenthesised `scripts/__tests__/<name>.test.mjs` contracts above.
 - Keep it out of `test.yml` (a `labeled` subscription there repaints the five
   required checks as `skipping`) and keep `cancel-in-progress: false` (any
   label's no-op run would cancel a live one).
+- DB blob output, cleanup, counting and upload/download paths all use
+  `packages/db/.vitest/blob`; keep the two-blob assertion and
+  `include-hidden-files: true` on those uploads.
 - DB coverage runs alone as the same native `1/2` + `2/2` shard set as Unit and
   nightly, merged with `--merge-reports=.vitest/blob`; other packages stay
   concurrent with DB excluded. Isolate only DB.
@@ -541,6 +583,15 @@ Settled: reachability is per title, with exact Playwright grep semantics.
 Evidence: `ci-quality/e2e-lane-coverage.md`.
 Guard: `scripts/__tests__/e2e-lane-coverage.test.mjs`,
 `scripts/__tests__/run-e2e-lane-sequence.test.mjs`.
+
+### Delegated workspace smoke coverage
+
+- The required desktop lane `test:e2e:lane:smoke-delegated` includes
+  `delegated-workspace-reload.desktop.test.ts` (`@smoke`): reload restores child
+  histories without running inference or offering edit/regenerate. The lane's
+  deadline and zero-retry policy stand.
+
+Evidence: `ci-quality/delegated-workspace-smoke.md`.
 
 ### Vitest 5 migration
 
@@ -870,12 +921,3 @@ Guard: `scripts/__tests__/react-doctor-version-contract.test.mjs`,
 
 Evidence: `ci-quality/react-compiler-inventory.md`.
 Guard: `scripts/__tests__/react-compiler-inventory.test.mjs`.
-
-### Delegated workspace smoke coverage
-
-- The required desktop lane `test:e2e:lane:smoke-delegated` includes
-  `delegated-workspace-reload.desktop.test.ts` (`@smoke`): reload restores child
-  histories without running inference or offering edit/regenerate. The lane's
-  deadline and zero-retry policy stand.
-
-Evidence: `ci-quality/delegated-workspace-smoke.md`.
