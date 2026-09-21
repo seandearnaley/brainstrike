@@ -2251,7 +2251,12 @@ live session. Seam: `live-decision-channel.ts` (one channel per runtime,
 `runtime.liveDecisions`; the background phase driving the stream — the idle
 loop or the resume stream's terminal wait — owns it and hands out
 RESERVATIONS that keep the phase from settling until the reserved tasks are
-resumed or released); `live-decisions.ts` `armLiveDecisions` (every leg arms
+resumed or released — COUNTED per reservation, because two deliveries can name
+the same suspended row (one as a user's own answer, one as a granted sibling of
+another's) and each must be able to give its own hold back: when only the first
+holder could, a failed decision releasing after another had resumed that row
+dropped a RUNNING task from the wait and the leg ended with its terminal
+missing from the map the pause branch reads); `live-decisions.ts` `armLiveDecisions` (every leg arms
 it: validates against the live native snapshot exactly as a click would,
 validates the parked siblings the request's FRESH snapshot allows via
 `allowedBySnapshot` the same way, records the answer and theirs with the host
@@ -2452,7 +2457,14 @@ context Mastra runs is never replaced, the task is never resumed twice while it
 runs, and it is never deregistered — not by a refusal already in flight, and
 not when the leg releases its executors. Its terminal retires both the
 registration and the acceptance (acceptance is per resume), so a child that
-parks again is registered and resumed afresh with its own join. Removing that
+parks again is registered and resumed afresh with its own join. Retirement is
+by GENERATION, not by forgetting the registration: one whose tools are still
+resolving cannot be retired by dropping the map entry, because the next caller
+then registers afresh and the retired registration still commits when it lands
+— registering a second context over the one Mastra is about to look up and
+replacing the executor whose join that caller already pushed. Every terminal
+raises the task's generation, and a registration that lands on a generation no
+longer the task's commits nothing. Removing that
 context would strand the running task on the "No executor registered" failure
 this contract exists to prevent. A terminal settles the task's ONE live
 registration; a later one is settled by its own terminal. A register or resume
@@ -2463,7 +2475,8 @@ its own only when no concurrent resume is still in flight, and a registration
 that lands after the release is refused as not live without ever touching the
 shared manager (resolving the tools is async, so the registration itself is a
 thunk the leg calls once the tools have resolved AND it still may — the drain
-is re-checked both before the cache lookup and after that await; the `accepted`
+is re-checked both before the cache lookup and after that await, and the
+registration's own generation is re-checked after that await too; the `accepted`
 check runs after the registration and only decides whether the task joins the
 drain set). The full state table —
 registered, in flight, accepted, drained against every event, with the pin for
@@ -2484,7 +2497,8 @@ a running
 executor parks, so the executor that parked is still joined after its host
 join. Before, a refused resume, a cancel before the executor ran and a cancel
 while it ran each hung the leg forever. Paired: `background-resume.spec.ts`
-("executor registration").
+("executor registration"; its harness is
+`__tests__/fixtures/background-resume-harness.ts`).
 KNOWN LIMITS: the root's OWN foreground pause (e.g. a canvas write) while
 children still run is not live-deliverable — it queues behind the leg (404);
 a queued decision whose pause was cancelled by a root Stop dispatches and
@@ -2496,8 +2510,8 @@ is `'no-live-run'` and queues. That holds even while the leg still joins its
 final ledger row, because `createTerminalWait` closes before it resolves and
 `reserve` refuses a closed wait. Before, a decision reserved during that ledger
 read joined the ended wait and failed the leg ("Background resume ended before
-every terminal task state."). Paired: `background-resume.spec.ts` ("terminal
-wait").
+every terminal task state."). Paired:
+`background-resume-terminal-wait.spec.ts`.
 
 OPEN (foreground children only, i.e. web): a sibling that has not
 yet paused when the parent run suspends on the first child's approval is not
