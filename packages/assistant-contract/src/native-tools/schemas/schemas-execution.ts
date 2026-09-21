@@ -121,13 +121,11 @@ export const RunSkillScriptInputSchema = z
       .string()
       .regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/)
       .describe('Enabled skill name'),
-    timeoutMs: z
-      .number()
-      .int()
-      .positive()
-      .max(600_000)
-      .optional()
-      .describe('Process-tree timeout ms (default 120000, max 600000)'),
+    // No wire `.describe()` on purpose: this tool's numbers are stated in the
+    // definition's inspector-only `display.timeoutMs`, because every described
+    // field is billed against the native-tool prompt budget
+    // (native-tool-prompt-budget.test.ts).
+    timeoutMs: z.number().int().positive().max(600_000).optional(),
   })
   .strict()
   .superRefine((input, context) => {

@@ -72,9 +72,11 @@ describe('native tool execution budgets', () => {
       const strings = [described, displayed].filter(
         (value): value is string => typeof value === 'string'
       );
-      // The schema description is mandatory: a tool that grants a budget must
-      // tell the model what it is.
-      expect(typeof described).toBe('string');
+      // At least ONE of them must state the numbers, but the wire description is
+      // not mandatory: it is billed against the native-tool prompt budget, so a
+      // tool may keep its numbers in the inspector-only `display` string alone
+      // (runSkillScript does). Whichever strings exist must not drift.
+      expect(strings.length).toBeGreaterThan(0);
       for (const value of strings) {
         expect(value).toContain(String(budget.defaultMs));
         expect(value).toContain(String(budget.maxMs));
