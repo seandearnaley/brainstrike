@@ -183,6 +183,53 @@ describe('readMastraToolExecutionPartKind — delegated child calls', () => {
       readMastraToolExecutionPartKind(delegationEnvelope(part('text-delta', 'child-1')))
     ).toBeUndefined();
   });
+
+  it('does NOT unwrap a non-delegation unguarded tool-output, even when its output looks like a guarded tool-call (CodeRabbit MAJOR)', () => {
+    // `updateWorkingMemory` is a Mastra-injected memory tool: never a key of
+    // `guardedToolNames`, but also never delegation-prefixed. Unwrapping it
+    // would let arbitrary tool output be misread as a guarded boundary.
+    expect(
+      readMastraToolExecutionPartKind({
+        payload: {
+          output: part('tool-call', 'forged-memory', { toolName: 'executeCommand' }),
+          toolCallId: 'memory-1',
+          toolName: 'updateWorkingMemory',
+        },
+        type: 'tool-output',
+      })
+    ).toBeUndefined();
+  });
+
+  it('does NOT unwrap a delegation envelope marked provider-executed', () => {
+    expect(
+      readMastraToolExecutionPartKind({
+        payload: {
+          output: part('tool-call', 'child-1', { toolName: 'executeCommand' }),
+          providerExecuted: true,
+          toolCallId: 'delegation-researcher',
+          toolName: 'agent-researcher',
+        },
+        type: 'tool-output',
+      })
+    ).toBeUndefined();
+  });
+
+  it('classifies a chain exactly at MAX_DELEGATED_ENVELOPE_UNWRAPS deep, but not one deeper', () => {
+    const buildChain = (depth: number): unknown => {
+      let inner: unknown = part('tool-call', 'deep-child', { toolName: 'executeCommand' });
+      for (let i = 0; i < depth; i += 1) {
+        inner = delegationEnvelope(inner, `persona-${i}`);
+      }
+      return inner;
+    };
+    // 8 nested envelopes (the bound) still resolves the guarded call inside.
+    expect(readMastraToolExecutionPartKind(buildChain(8))).toEqual({
+      kind: 'started',
+      toolCallId: 'deep-child',
+    });
+    // One envelope past the bound tightens to undefined instead of widening.
+    expect(readMastraToolExecutionPartKind(buildChain(9))).toBeUndefined();
+  });
 });
 
 /**

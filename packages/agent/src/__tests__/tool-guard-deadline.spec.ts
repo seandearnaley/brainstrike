@@ -69,4 +69,23 @@ describe('resolveGuardedToolSignal', () => {
     // Absent stays fine: the guard deadline alone, or nothing at all.
     expect(resolveGuardedToolSignal({ toolCallId: 'call-absent' })).toBeUndefined();
   });
+
+  it('treats a null abortSignal as absent, never throwing (round 2, Claude C)', () => {
+    // Both prior code paths tolerated `null`: `mergeCallToolSignals` forwarded
+    // it, and `run-python-tool.ts`'s `context?.abortSignal ?? new
+    // AbortController().signal` fell back on it. `null` is not "wrong", it is
+    // "nothing there".
+    expect(
+      resolveGuardedToolSignal({ abortSignal: null, toolCallId: 'call-null' })
+    ).toBeUndefined();
+
+    const guard = new AbortController();
+    const context = { abortSignal: null, toolCallId: 'call-null-with-guard' };
+    const release = registerToolGuardDeadlineSignal([{}, context], guard.signal);
+    try {
+      expect(resolveGuardedToolSignal(context)).toBe(guard.signal);
+    } finally {
+      release();
+    }
+  });
 });

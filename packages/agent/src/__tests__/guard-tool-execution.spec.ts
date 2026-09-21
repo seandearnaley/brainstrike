@@ -2,6 +2,7 @@ import { ToolInputError } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyToolGuards,
+  formatToolTimeoutMessage,
   type GuardedToolError,
   guardToolExecution,
   isGuardedToolError,
@@ -292,6 +293,20 @@ describe('guardToolExecution', () => {
     );
     const result = (await tool.execute({})) as GuardedToolError;
     expect(result.error.code).toBe('tool_failed');
+  });
+});
+
+describe('formatToolTimeoutMessage', () => {
+  it('never reports a 0s budget for a sub-1000ms grant (round 2, Claude D)', () => {
+    expect(formatToolTimeoutMessage(300, 600_000)).toBe(
+      'The tool did not finish within its 300 ms execution budget and was cancelled. Pass a larger timeoutMs (up to 600000 ms) if the work legitimately needs longer, or split it into smaller steps.'
+    );
+  });
+
+  it('still reports whole seconds at or above 1000ms', () => {
+    expect(formatToolTimeoutMessage(1000, undefined)).toBe(
+      'The tool did not finish within its 1s execution budget and was cancelled. Try a smaller request or another approach.'
+    );
   });
 });
 

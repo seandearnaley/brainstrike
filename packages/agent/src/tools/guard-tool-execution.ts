@@ -25,16 +25,19 @@ const MAX_TOOL_INPUT_ERROR_MESSAGE_CHARS = 1000;
  *
  * A call already at the declared max is told so instead of being advised to
  * pass a larger `timeoutMs` it cannot have — advice a model acts on. Units are
- * seconds in prose throughout; the one place a parameter VALUE appears it is
- * labelled `ms` explicitly, so the sentence never mixes bare numbers.
+ * seconds in prose throughout, except a sub-1000ms grant: `Math.round(grantedMs
+ * / 1000)` would render "0s" there, telling the model its budget was zero
+ * (round 2, Claude D) — reachable only via a sub-500ms `BRAINSTRIKE_TOOL_TIMEOUT_MS`
+ * override, but never worth a message that lies about the budget. Below 1000ms
+ * the budget is reported in milliseconds, labelled `ms` explicitly so the
+ * sentence never mixes bare numbers.
  */
 export function formatToolTimeoutMessage(
   grantedMs: number,
   declaredMaxMs: number | undefined
 ): string {
-  const head = `The tool did not finish within its ${Math.round(
-    grantedMs / 1000
-  )}s execution budget and was cancelled.`;
+  const budget = grantedMs < 1000 ? `${grantedMs} ms` : `${Math.round(grantedMs / 1000)}s`;
+  const head = `The tool did not finish within its ${budget} execution budget and was cancelled.`;
   if (declaredMaxMs === undefined) {
     return `${head} Try a smaller request or another approach.`;
   }

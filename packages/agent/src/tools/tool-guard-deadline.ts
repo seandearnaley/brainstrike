@@ -110,13 +110,20 @@ export function resolveGuardedToolSignal(executionContext: unknown): AbortSignal
   // old `mergeCallToolSignals` path had no narrowing, so silently dropping a
   // duck-typed or cross-realm signal here would be a new silent degradation —
   // the tool would quietly stop honouring user Stop. Absent is fine; wrong is
-  // not.
-  if (executionSignal !== undefined && !(executionSignal instanceof AbortSignal)) {
+  // not. `null` reads as absent too (round 2, Claude C): both prior code
+  // paths (`mergeCallToolSignals`'s forward, `run-python-tool.ts`'s `??`
+  // fallback) tolerated a `null` `abortSignal`, so only a present non-`null`,
+  // non-`AbortSignal` value is the "wrong" this guards against.
+  if (
+    executionSignal !== undefined &&
+    executionSignal !== null &&
+    !(executionSignal instanceof AbortSignal)
+  ) {
     throw new TypeError(
       `Execution context carries a non-AbortSignal abortSignal (${typeof executionSignal}); the guarded tool cannot honour cancellation.`
     );
   }
-  const execution = executionSignal;
+  const execution = executionSignal ?? undefined;
   const guardDeadline = readToolGuardDeadlineSignal(executionContext);
   if (!guardDeadline) {
     return execution;

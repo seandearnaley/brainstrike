@@ -1319,10 +1319,15 @@ const MAX_DELEGATED_ENVELOPE_UNWRAPS = 8;
  * `params.guardedTools`), so a child's tool name is a key of the same
  * `toolNameMap` and the allow-list applies unchanged.
  *
- * Only a NON-guarded envelope tool name is unwrapped: a delegation tool is
- * never in the guarded set, while `executeCommand`/`runSkillScript` emit their
- * own `tool-output` parts whose `output` is arbitrary tool data that must
- * never be read as a boundary.
+ * POSITIVE IDENTIFICATION, not "not guarded" (CodeRabbit MAJOR, round 2): the
+ * envelope is unwrapped ONLY when its `toolName` starts with
+ * `SUBAGENT_DELEGATION_TOOL_PREFIX` ('agent-') AND it is not itself
+ * `providerExecuted`. "Not in the guarded set" is a deny-list in disguise — it
+ * also matches provider-executed tool outputs and Mastra-injected memory-tool
+ * outputs (`updateWorkingMemory`, `recall`, …), neither of which is a
+ * delegation envelope, and either one's `output` could then be misread as a
+ * nested guarded `tool-call`. Grandchildren are also `agent-<personaId>`
+ * envelopes, so the bounded recursion below still reaches them.
  *
  * Two consequences, both deliberate:
  * - The in-flight set is keyed by tool-call id alone, so a child id colliding
@@ -1347,10 +1352,12 @@ export function createMastraToolExecutionPartKindReader(
     let type = describeMastraStreamPartType(part);
     for (let depth = 0; type === MASTRA_DELEGATED_CHILD_ENVELOPE_TYPE; depth += 1) {
       const envelopeToolName = readMastraStreamPartString(part, 'toolName');
+      const envelopeProviderExecuted = readMastraStreamPartValue(part, 'providerExecuted');
       if (
         depth >= MAX_DELEGATED_ENVELOPE_UNWRAPS ||
         envelopeToolName === undefined ||
-        guardedToolNames.has(envelopeToolName)
+        !envelopeToolName.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX) ||
+        envelopeProviderExecuted === true
       ) {
         return;
       }
