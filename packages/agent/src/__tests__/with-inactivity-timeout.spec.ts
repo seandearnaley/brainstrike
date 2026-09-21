@@ -54,7 +54,12 @@ async function* immediate(values: number[]): AsyncIterableIterator<number> {
   }
 }
 
-const WINDOWS = { firstOutputMs: 5000, interOutputMs: 1000, reasoningGapMs: 5000 } as const;
+const WINDOWS = {
+  firstOutputMs: 5000,
+  interOutputMs: 1000,
+  reasoningGapMs: 5000,
+  toolExecutingMs: 60_000,
+} as const;
 
 describe('withInactivityTimeout', () => {
   beforeEach(() => {
@@ -84,6 +89,7 @@ describe('withInactivityTimeout', () => {
         firstOutputMs: 60_000,
         interOutputMs: 1000,
         reasoningGapMs: 60_000,
+        toolExecutingMs: 60_000,
       })) {
         seen.push(part);
       }
@@ -189,7 +195,12 @@ describe('withInactivityTimeout', () => {
     const drain = (async () => {
       for await (const part of withInactivityTimeout(
         source.iterate(),
-        { firstOutputMs: 10_000, interOutputMs: 500, reasoningGapMs: 10_000 },
+        {
+          firstOutputMs: 10_000,
+          interOutputMs: 500,
+          reasoningGapMs: 10_000,
+          toolExecutingMs: 60_000,
+        },
         {
           countsAsProviderOutput: (part) => part.type !== 'start' && part.type !== 'step-start',
           describePart: (part) => part.type,
@@ -225,7 +236,12 @@ describe('withInactivityTimeout', () => {
     const drain = (async () => {
       for await (const _part of withInactivityTimeout(
         source.iterate(),
-        { firstOutputMs: 10_000, interOutputMs: 500, reasoningGapMs: 10_000 },
+        {
+          firstOutputMs: 10_000,
+          interOutputMs: 500,
+          reasoningGapMs: 10_000,
+          toolExecutingMs: 60_000,
+        },
         { countsAsProviderOutput: (part) => part.type !== 'step-start' }
       )) {
         // Drain until the gap after real output.
@@ -325,6 +341,7 @@ describe('withInactivityTimeout — reasoning phase', () => {
     firstOutputMs: 10_000,
     interOutputMs: 1000,
     reasoningGapMs: 10_000,
+    toolExecutingMs: 60_000,
   } as const;
 
   it('survives a think-pause longer than the inter-output window', async () => {
@@ -536,5 +553,245 @@ describe('withInactivityTimeout — reasoning phase', () => {
 
     expect(captured?.phase).toBe('streaming');
     expect(captured?.inactivityMs).toBe(REASONING_WINDOWS.interOutputMs);
+  });
+});
+
+describe('withInactivityTimeout — tool-executing phase', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  interface ToolPart {
+    readonly id?: string;
+    readonly type: string;
+  }
+
+  /** Mirrors a minimal tool-call/tool-result boundary classifier. */
+  const toolExecutionPartKind = (part: ToolPart) => {
+    if (part.type === 'tool-call') {
+      return { kind: 'started' as const, toolCallId: part.id as string };
+    }
+    if (part.type === 'tool-result') {
+      return { kind: 'settled' as const, toolCallId: part.id as string };
+    }
+    return;
+  };
+
+  const TOOL_WINDOWS = {
+    firstOutputMs: 1000,
+    interOutputMs: 100,
+    reasoningGapMs: 1000,
+    toolExecutingMs: 5000,
+  } as const;
+
+  it('does not treat a running tool as a stalled provider', async () => {
+    const source = createControllableSource<ToolPart>();
+    const seen: string[] = [];
+    const drain = (async () => {
+      for await (const part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+        toolExecutionPartKind,
+      })) {
+        seen.push(part.type);
+      }
+    })();
+
+    source.push({ id: 'a', type: 'tool-call' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(4000);
+    source.push({ id: 'a', type: 'tool-result' });
+    await vi.advanceTimersByTimeAsync(0);
+    source.finish();
+    await drain;
+
+    expect(seen).toEqual(['tool-call', 'tool-result']);
+  });
+
+  it('is a finite backstop against a broken execution guard', async () => {
+    const source = createControllableSource<ToolPart>();
+    let captured: StreamStalledError | undefined;
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+        toolExecutionPartKind,
+      })) {
+        // Drain until the backstop fires.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ id: 'a', type: 'tool-call' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5001);
+    await settled;
+
+    expect(captured?.phase).toBe('tool-executing');
+    expect(captured?.inactivityMs).toBe(TOOL_WINDOWS.toolExecutingMs);
+  });
+
+  it('reference-counts parallel calls, holding the phase until the last settles', async () => {
+    const source = createControllableSource<ToolPart>();
+    let captured: StreamStalledError | undefined;
+    let timeoutsFired = 0;
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+        onTimeout: () => {
+          timeoutsFired += 1;
+        },
+        toolExecutionPartKind,
+      })) {
+        // Drain until b's settle re-tightens the window.
+      }
+    })();
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ id: 'a', type: 'tool-call' });
+    source.push({ id: 'b', type: 'tool-call' });
+    source.push({ id: 'a', type: 'tool-result' });
+    await vi.advanceTimersByTimeAsync(0);
+    // b is still running, so the backstop window applies, not the tight one:
+    // this silence must NOT trip the watchdog even though it dwarfs 100ms.
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(timeoutsFired).toBe(0);
+
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    source.push({ id: 'b', type: 'tool-result' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(101);
+    await settled;
+
+    expect(captured?.phase).toBe('streaming');
+  });
+
+  it('still kills a genuinely stalled provider on the tight window', async () => {
+    const source = createControllableSource<ToolPart>();
+    let captured: StreamStalledError | undefined;
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+        toolExecutionPartKind,
+      })) {
+        // Drain until the tight window fires.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ type: 'text-delta' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(101);
+    await settled;
+
+    expect(captured?.phase).toBe('streaming');
+    expect(captured?.inactivityMs).toBe(100);
+  });
+
+  it('does not go negative when settling an unknown id, and does not enter the phase', async () => {
+    const source = createControllableSource<ToolPart>();
+    let captured: StreamStalledError | undefined;
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+        toolExecutionPartKind,
+      })) {
+        // Drain until the tight window fires.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ id: 'zzz', type: 'tool-result' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(101);
+    await settled;
+
+    expect(captured?.phase).toBe('streaming');
+  });
+
+  it('clears in-flight calls when scaffolding opens a new step', async () => {
+    // A new step means the previous step's tools are over: never inherit the
+    // wide window into a fresh step just because a call was left dangling.
+    const source = createControllableSource<ToolPart>();
+    let captured: StreamStalledError | undefined;
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        countsAsProviderOutput: (part) => part.type !== 'step-start',
+        describePart: (part) => part.type,
+        toolExecutionPartKind,
+      })) {
+        // Drain until the awaiting-output window fires.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ id: 'a', type: 'tool-call' });
+    source.push({ type: 'step-start' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1001);
+    await settled;
+
+    expect(captured?.phase).toBe('awaiting-output');
+  });
+
+  it('keeps the tool-executing phase while output arrives during the call', async () => {
+    const source = createControllableSource<ToolPart>();
+    const seen: string[] = [];
+    const drain = (async () => {
+      for await (const part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+        toolExecutionPartKind,
+      })) {
+        seen.push(part.type);
+      }
+    })();
+
+    source.push({ id: 'a', type: 'tool-call' });
+    source.push({ type: 'tool-output' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(4000);
+    source.finish();
+    await drain;
+
+    expect(seen).toEqual(['tool-call', 'tool-output']);
+  });
+
+  it('reproduces three-phase behaviour when no classifier is supplied', async () => {
+    const source = createControllableSource<ToolPart>();
+    let captured: StreamStalledError | undefined;
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+      })) {
+        // Drain until the tight window fires despite the "tool-call" name.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ id: 'a', type: 'tool-call' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(101);
+    await settled;
+
+    expect(captured?.phase).toBe('streaming');
   });
 });

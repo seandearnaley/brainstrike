@@ -18,8 +18,15 @@
  * tight inter-output window against exactly the pauses high reasoning effort is
  * made of. That killed `google/gemini-3.7-flash` at `effort: 'high'` on both
  * attempts of a turn, each time with `lastPartType: 'reasoning-delta'`.
+ *
+ * `tool-executing` — the provider finished a tool call and OUR tool is
+ * running. The silence is not the provider's at all, so it is bounded by the
+ * per-tool execution guard (which always fires first) and this phase carries
+ * only a backstop against a broken guard (BST-1777). Measuring a running tool
+ * against the tight `streaming` window is why the guard had to be a flat 60s —
+ * under every tool's own declared budget.
  */
-export type StreamStallPhase = 'awaiting-output' | 'reasoning' | 'streaming';
+export type StreamStallPhase = 'awaiting-output' | 'reasoning' | 'streaming' | 'tool-executing';
 
 /**
  * The three DELIBERATELY decoupled silence budgets. Resolved together (and
@@ -40,6 +47,12 @@ export interface StreamInactivityWindows {
    * already exists to cover precisely that.
    */
   readonly reasoningGapMs: number;
+  /**
+   * Backstop while at least one tool call is executing. Derived to sit above
+   * the largest budget the execution guard can grant; never user-visible
+   * unless the guard itself is broken.
+   */
+  readonly toolExecutingMs: number;
 }
 
 export interface StreamInactivityOptions<T> {
@@ -92,6 +105,19 @@ export interface StreamInactivityOptions<T> {
    * than silently widening any window.
    */
   readonly reasoningPartKind?: (part: T) => 'content' | 'marker' | undefined;
+  /**
+   * Classify a part that STARTS or SETTLES one tool execution, or `undefined`.
+   *
+   * Reference-counted by `toolCallId` so parallel calls hold the phase until
+   * the last one settles. A part meaning "waiting on a human" (approval,
+   * suspension) must be reported as `settled`: the tool is not executing.
+   *
+   * Absent means no part is a tool boundary, which reproduces the three-phase
+   * behaviour rather than widening any window.
+   */
+  readonly toolExecutionPartKind?: (
+    part: T
+  ) => { readonly kind: 'started' | 'settled'; readonly toolCallId: string } | undefined;
 }
 
 export interface StreamStalledErrorContext {
@@ -130,6 +156,9 @@ export class StreamStalledError extends Error {
 }
 
 function resolveWindowMs(phase: StreamStallPhase, windows: StreamInactivityWindows): number {
+  if (phase === 'tool-executing') {
+    return windows.toolExecutingMs;
+  }
   if (phase === 'awaiting-output') {
     return windows.firstOutputMs;
   }
@@ -149,9 +178,9 @@ function resolveWindowMs(phase: StreamStallPhase, windows: StreamInactivityWindo
  */
 function resolveNextPhase<T>(
   part: T,
-  currentPhase: StreamStallPhase,
+  currentPhase: Exclude<StreamStallPhase, 'tool-executing'>,
   options: StreamInactivityOptions<T> | undefined
-): StreamStallPhase {
+): Exclude<StreamStallPhase, 'tool-executing'> {
   const isOutput = options?.countsAsProviderOutput?.(part) ?? true;
   if (!isOutput) {
     return 'awaiting-output';
@@ -164,6 +193,28 @@ function resolveNextPhase<T>(
     return currentPhase;
   }
   return 'streaming';
+}
+
+/**
+ * Track tool-execution boundaries by reference count. A part that STARTS a
+ * call adds its id; a part that SETTLES one removes it. Settling an id that
+ * was never added (a lost or out-of-order `started` part) is a no-op rather
+ * than going negative — `Set.delete` on a missing key is already exactly that.
+ */
+function trackToolExecution<T>(
+  part: T,
+  inFlight: Set<string>,
+  options: StreamInactivityOptions<T> | undefined
+): void {
+  const boundary = options?.toolExecutionPartKind?.(part);
+  if (!boundary) {
+    return;
+  }
+  if (boundary.kind === 'started') {
+    inFlight.add(boundary.toolCallId);
+    return;
+  }
+  inFlight.delete(boundary.toolCallId);
 }
 
 /**
@@ -198,6 +249,8 @@ export async function* withInactivityTimeout<T>(
   let partsSeen = 0;
   let lastPartType: string | undefined;
   let phase: StreamStallPhase = 'awaiting-output';
+  let providerPhase: Exclude<StreamStallPhase, 'tool-executing'> = 'awaiting-output';
+  const toolCallsInFlight = new Set<string>();
   try {
     while (true) {
       const windowMs = resolveWindowMs(phase, windows);
@@ -222,7 +275,20 @@ export async function* withInactivityTimeout<T>(
         // Scaffolding both KEEPS and RE-ARMS the wide window: a fresh step has
         // its own time-to-first-output, so a step opened after a tool result
         // must not inherit the previous step's `streaming` phase.
-        phase = resolveNextPhase(result.value, phase, options);
+        providerPhase = resolveNextPhase(result.value, providerPhase, options);
+        // Tool execution OVERRIDES the provider phases rather than joining
+        // their state machine: while any call is in flight the silence belongs
+        // to our tool, whatever part happened to arrive last. `providerPhase`
+        // is tracked separately so a `reasoning-end` marker arriving mid-tool
+        // cannot "preserve" `tool-executing` into the provider state machine.
+        trackToolExecution(result.value, toolCallsInFlight, options);
+        if (providerPhase === 'awaiting-output') {
+          // Scaffolding opens a new step, so the previous step's tools are
+          // over. Clearing here means a lost `settled` part can only ever
+          // TIGHTEN the next window, never hold the wide one open.
+          toolCallsInFlight.clear();
+        }
+        phase = toolCallsInFlight.size > 0 ? 'tool-executing' : providerPhase;
         yield result.value;
       } finally {
         if (timer) {
