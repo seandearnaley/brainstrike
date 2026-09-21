@@ -308,6 +308,19 @@ describe('formatToolTimeoutMessage', () => {
       'The tool did not finish within its 1s execution budget and was cancelled. Try a smaller request or another approach.'
     );
   });
+
+  // Rounding MISSTATES the grant: 1500ms read "2s" and 1499ms read "1s", and a
+  // model sizes its next `timeoutMs` from this number (PR review).
+  it.each([
+    [1499, '1499 ms'],
+    [1500, '1500 ms'],
+    [90_500, '90500 ms'],
+    [120_000, '120s'],
+  ])('reports a %dms grant exactly, as "%s"', (grantedMs, rendered) => {
+    expect(formatToolTimeoutMessage(grantedMs, undefined)).toBe(
+      `The tool did not finish within its ${rendered} execution budget and was cancelled. Try a smaller request or another approach.`
+    );
+  });
 });
 
 describe('applyToolGuards', () => {
