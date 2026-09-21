@@ -46,6 +46,10 @@ import { updateWorkspaceTapestrySelections } from './definitions/update-workspac
 import { webExtract } from './definitions/web-extract.js';
 import { webSearch } from './definitions/web-search.js';
 import { writeWorkspaceFile } from './definitions/write-workspace-file.js';
+import {
+  deriveMaxNativeToolExecutionBudgetMs,
+  deriveNativeToolExecutionBudgets,
+} from './execution-budgets.js';
 import { deriveNativeToolRegistries } from './registries.js';
 
 export const NATIVE_TOOLS = [
@@ -97,6 +101,11 @@ export type SkillNativeTool = Extract<NativeTool, { readonly kind: 'skill' }>;
 /** Every registry, derived once from {@link NATIVE_TOOLS} at module load. */
 export const NATIVE_TOOL_REGISTRIES = deriveNativeToolRegistries(NATIVE_TOOLS);
 
+export const NATIVE_TOOL_EXECUTION_BUDGETS = deriveNativeToolExecutionBudgets(NATIVE_TOOLS);
+export const MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS = deriveMaxNativeToolExecutionBudgetMs(
+  NATIVE_TOOL_EXECUTION_BUDGETS
+);
+
 /** The desktop (`brainstrike.*`) definitions in catalog order. */
 export const DESKTOP_NATIVE_TOOLS: readonly DesktopNativeTool[] = Object.freeze(
   NATIVE_TOOLS.filter((tool): tool is DesktopNativeTool => tool.kind === 'desktop')
@@ -119,6 +128,7 @@ export {
   InvalidNativeToolDefinitionError,
   type NativeToolDefinition,
   type NativeToolDiscoveryNamespace,
+  type NativeToolExecutionBudget,
   type NativeToolHistoryPosture,
   type NativeToolNameResolver,
   type NativeToolSurface,

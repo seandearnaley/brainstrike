@@ -17,6 +17,7 @@ export const runSkillScript = defineNativeTool({
   display: {
     timeoutMs: 'Process-tree timeout ms (default 120000, max 600000)',
   },
+  executionBudget: { defaultMs: 120_000, maxMs: 600_000 },
   id: 'brainstrike.runSkillScript',
   inputSchema: providerCompatibleInputSchema(RunSkillScriptInputSchema),
   kind: 'desktop',
