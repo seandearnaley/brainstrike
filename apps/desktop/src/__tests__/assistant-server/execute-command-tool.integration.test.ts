@@ -11,7 +11,12 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { NATIVE_TOOL_RESULT_CHAR_BUDGET, type RuntimeData } from '@brainstrike/agent';
+import {
+  NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  type RuntimeData,
+  registerToolGuardDeadlineSignal,
+  resolveGuardedToolSignal,
+} from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -413,6 +418,71 @@ describe('runExecuteCommand — abort kills the tree', () => {
     expect(result.timedOut).toBe(false);
     const shellPid = Number.parseInt((await fsPromises.readFile(pidFile, 'utf8')).trim(), 10);
     expect(await waitForPidDead(shellPid)).toBe(true);
+  });
+});
+
+describe('runExecuteCommand — a guard timeout leaves no orphan (BST-1777 Task 9)', () => {
+  // The per-tool execution guard (packages/agent/src/tools/guard-tool-execution.ts)
+  // resolves a call's WAIT when the tool overruns its budget, but only a
+  // cancellable tool that reads `resolveGuardedToolSignal` actually stops the
+  // WORK. `brainstrike.executeCommand` is exactly such a tool: it forwards the
+  // resolved signal to `runExecuteCommand`'s own `signal` option, the same
+  // seam `resolveShellInvocation`'s abort listener kills the process tree
+  // through. This proves that seam end to end with a REAL child process: the
+  // GUARD's controller (not a run-level abort) is what fires, and no `sleep`
+  // survives it.
+  it('killing the guard deadline signal kills the real child, leaving no orphan', async () => {
+    const root = await makeWorkspace();
+    const pidFile = path.join(root, 'guard-orphan.pid');
+    const guardController = new AbortController();
+    // The execution-context shape `readToolCallId` reads: input first,
+    // execution context second (see packages/agent/src/tools/read-tool-call-id.ts).
+    const context = { toolCallId: 'orphan-check' };
+    const release = registerToolGuardDeadlineSignal([{}, context], guardController.signal);
+
+    let childPid: number | undefined;
+    try {
+      const run = runExecuteCommand(
+        { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 600_000 },
+        singleRoot(root),
+        { signal: resolveGuardedToolSignal(context) }
+      );
+
+      childPid = await readPidWhenWritten(pidFile);
+
+      // Abort the GUARD's own deadline signal — not a run signal — exactly
+      // the seam the per-tool execution guard uses when it gives up on a
+      // running tool (packages/agent/src/tools/guard-tool-execution.ts).
+      guardController.abort();
+
+      // `run` must settle promptly once the guard deadline fires. Racing a
+      // fixed deadline against the call (rather than only awaiting it) is
+      // what proves this — an unresolved `run` would otherwise hang the test
+      // instead of failing it with a clear message.
+      const settleDeadlineMs = 5000;
+      const raced = await Promise.race([
+        run.then(() => 'settled' as const),
+        new Promise<'timed-out'>((resolve) =>
+          setTimeout(() => resolve('timed-out'), settleDeadlineMs)
+        ),
+      ]);
+      expect(raced).toBe('settled');
+      await run;
+
+      const dead = await waitForPidDead(childPid, 3000);
+      expect(dead).toBe(true);
+    } finally {
+      release();
+      if (childPid !== undefined) {
+        // Belt-and-braces: a failed assertion above must never leak a real
+        // `sleep 30` past this test.
+        try {
+          process.kill(childPid, 'SIGKILL');
+        } catch {
+          // Already dead — the expected outcome.
+        }
+      }
+    }
   });
 });
 
