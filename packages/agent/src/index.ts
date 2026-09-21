@@ -781,6 +781,10 @@ export {
 } from './tools/string-replace';
 export { createSubmitPlanTool, SUBMIT_PLAN_TOOL_ID } from './tools/submit-plan-tool';
 export {
+  registerToolGuardDeadlineSignal,
+  resolveGuardedToolSignal,
+} from './tools/tool-guard-deadline';
+export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,
   normalizeOptionalText,

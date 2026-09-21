@@ -24,6 +24,7 @@ import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
 // constant, or the approval card would state terms the run does not honour.
 import { RUN_PYTHON_DEFAULT_TIMEOUT_MS } from './run-python-approval-context';
 import { RunPythonInputSchema } from './schemas';
+import { resolveGuardedToolSignal } from './tool-guard-deadline';
 
 const logger = createLogger('RunPythonTool');
 
@@ -656,7 +657,7 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
       const timeoutMs = parsed.timeoutMs ?? RUN_PYTHON_DEFAULT_TIMEOUT_MS;
       // The seam REQUIRES a real AbortSignal so user Stop kills the process
       // tree. A run without one would leave Python executing until timeoutMs.
-      const callerSignal = context?.abortSignal ?? new AbortController().signal;
+      const callerSignal = resolveGuardedToolSignal(context) ?? new AbortController().signal;
       // ONE budget spans resolve + execute. Resolving is slow on a cold first
       // run (hashing and unpacking the bundled CPython), and bounding only the
       // execute half would let a call the model capped at 30s spend far longer

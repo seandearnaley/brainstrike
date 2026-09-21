@@ -17,6 +17,7 @@ import {
   sliceTailCodePoints,
   toRunPythonResult,
 } from '../tools/run-python-tool';
+import { registerToolGuardDeadlineSignal } from '../tools/tool-guard-deadline';
 
 const FENCE_CAPABILITIES: ExecutorCapabilities = {
   languages: ['python'],
@@ -139,6 +140,31 @@ describe('createRunPythonTool', () => {
     const stub = stubFence(async () => execResult());
     await runTool(hostWith(stub), { code: 'pass' }, { abortSignal: controller.signal });
     expect(stub.inputs[0]?.signal).toBe(controller.signal);
+  });
+
+  it('also aborts on the tool guard deadline, even though the run signal never fires (BST-1777)', async () => {
+    const controller = new AbortController();
+    const guard = new AbortController();
+    const context = { abortSignal: controller.signal, toolCallId: 'run-python-call' };
+    const release = registerToolGuardDeadlineSignal([{}, context], guard.signal);
+    let observedSignal: AbortSignal | undefined;
+    const stub = stubFence((input) => {
+      observedSignal = input.signal;
+      return new Promise(() => {
+        // never resolves; the test asserts on the signal before settling.
+      });
+    });
+    const runPromise = runTool(hostWith(stub), { code: 'pass' }, context);
+    // Let the executor start (scratch-dir creation is real fs I/O).
+    for (let i = 0; i < 50 && observedSignal === undefined; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(observedSignal?.aborted).toBe(false);
+    guard.abort(new Error('guard'));
+    expect(observedSignal?.aborted).toBe(true);
+    expect(controller.signal.aborted).toBe(false);
+    release();
+    void runPromise;
   });
 
   it('spends ONE budget across host resolution and execution', async () => {
