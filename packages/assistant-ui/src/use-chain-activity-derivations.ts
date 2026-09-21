@@ -30,13 +30,34 @@ export interface ChainActivityDerivations {
  *   record identity unless a shell slice actually arrived — keyed by message
  *   id so a thread/message switch resets it.
  */
+/**
+ * Current-group tool-call ids in a single pass. The previous
+ * `filter(isToolCallPart).map(...)` chain allocated two intermediate arrays on
+ * every streamed chunk along this hot path; one loop keeps the memoized
+ * derivation allocation-flat. Only string ids are collected — the elapsed
+ * lookup below probes string ids only, so membership is unchanged.
+ */
+export function collectGroupToolCallIds(groupParts: readonly unknown[]): Set<string> {
+  const ids = new Set<string>();
+  for (const part of groupParts) {
+    if (!isToolCallPart(part)) {
+      continue;
+    }
+    const toolCallId = part['toolCallId'];
+    if (typeof toolCallId === 'string') {
+      ids.add(toolCallId);
+    }
+  }
+  return ids;
+}
+
 export function useChainActivityDerivations(
   messageParts: readonly unknown[],
   messageId: string,
   groupParts: readonly unknown[]
 ): ChainActivityDerivations {
   const activityFallbackMs = useMemo(() => {
-    const ids = new Set(groupParts.filter(isToolCallPart).map((part) => part['toolCallId']));
+    const ids = collectGroupToolCallIds(groupParts);
     return runEventsSpanMs(
       messageParts.filter((part) => {
         const event = readAssistantRunEventDataPart(part);

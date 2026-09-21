@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { runEventsSpanMs } from '../tool-activity';
 import { formatActivityDuration } from '../tool-durations';
 import {
-  // @ts-expect-error RED (BST-1657): collectGroupToolCallIds lands with the fix
   collectGroupToolCallIds,
   useChainActivityDerivations,
 } from '../use-chain-activity-derivations';
