@@ -137,6 +137,14 @@ test('every evidence file names a section its contract actually has', () => {
   assert.deepEqual(failures, []);
 });
 
+/**
+ * isFile, not exists: `existsSync` accepts a directory, so a directory named
+ * `<topic>.md` would count as resolved while pointing at nothing readable.
+ * `throwIfNoEntry: false` keeps a missing target a reported failure rather than
+ * a throw, while a permission error stays loud.
+ */
+const pointerResolves = (target) => statSync(target, { throwIfNoEntry: false })?.isFile() === true;
+
 test('every evidence pointer in a contract resolves to a file', () => {
   const failures = [];
   for (const name of contractFiles) {
@@ -148,17 +156,27 @@ test('every evidence pointer in a contract resolves to a file', () => {
       'gu'
     );
     for (const [, pointer] of source.matchAll(pointers)) {
-      // isFile, not exists: a directory named `<topic>.md` is not a readable
-      // evidence file. throwIfNoEntry keeps a missing target a failure, not a throw.
-      const target = statSync(path.join(repoRoot, CONTRACT_DIR, pointer), {
-        throwIfNoEntry: false,
-      });
-      if (!target?.isFile()) {
+      if (!pointerResolves(path.join(repoRoot, CONTRACT_DIR, pointer))) {
         failures.push(`${name} points at ${pointer}, which is not a readable file`);
       }
     }
   }
   assert.deepEqual(failures, []);
+});
+
+test('a pointer resolves only to a readable regular file', () => {
+  const area = path.join(repoRoot, CONTRACT_DIR, EVIDENCE_DIRS[0]);
+  assert.equal(pointerResolves(path.join(area, 'claude-review.md')), true);
+  assert.equal(pointerResolves(path.join(area, 'does-not-exist.md')), false);
+  // The directory itself: what a revert to existsSync would wrongly accept.
+  assert.equal(pointerResolves(area), false);
+});
+
+test('a citation must name the whole heading, not a fragment', () => {
+  assert.equal(citesHeading('Workload boundaries', 'Workload boundaries'), true);
+  assert.equal(citesHeading('Workload boundaries (BST-1)', 'Workload boundaries'), true);
+  assert.equal(citesHeading('Coverage is a separate workflow', 'Coverage'), false);
+  assert.equal(citesHeading('Workload boundaries extended', 'Workload boundaries'), false);
 });
 
 test('the budget can fail in both directions', () => {
