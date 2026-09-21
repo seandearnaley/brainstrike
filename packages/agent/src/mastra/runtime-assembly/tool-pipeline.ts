@@ -597,8 +597,16 @@ export async function composeRuntimeToolMap(
   // Per-runtime, which is per request. The guard is the only layer that sees
   // real execution time; an approval-gated call's stream timestamps span the
   // human wait instead (see tool-execution-durations.ts).
-  const budgetFor = (toolId: string): NativeToolExecutionBudget | undefined =>
-    NATIVE_TOOL_EXECUTION_BUDGETS.get(toolNameMap.get(toolId) ?? toolId);
+  const budgetFor = (toolId: string): NativeToolExecutionBudget | undefined => {
+    // Declared budgets belong to LOCAL tools only. An MCP tool's original name
+    // is whatever its server chose, so matching it against the native catalog
+    // would let a third-party tool named like a native one inherit a 600s budget.
+    if (!sanitizedLocalToolIds.has(toolId)) {
+      return;
+    }
+    const canonicalId = toolNameMap.get(toolId);
+    return canonicalId === undefined ? undefined : NATIVE_TOOL_EXECUTION_BUDGETS.get(canonicalId);
+  };
   const toolExecutionDurations = createToolExecutionDurations();
   const guardedTools = applyToolGuards(combinedTools, {
     declaredMaxMs: (toolId) => budgetFor(toolId)?.maxMs,
