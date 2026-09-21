@@ -1,5 +1,8 @@
 // packages/agent/src/config/__tests__/resilience-config.spec.ts
+
+import { MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS } from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it } from 'vitest';
+import { TOOL_GUARD_MARGIN_MS } from '../../tools/resolve-tool-guard-budget';
 import {
   DEFAULT_APPROVAL_STALE_MS,
   DEFAULT_STREAM_FIRST_OUTPUT_MS,
@@ -66,6 +69,7 @@ describe('resilience-config', () => {
       streamReasoningGapMs: DEFAULT_STREAM_REASONING_GAP_MS,
       streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: DEFAULT_TOOL_CALL_INPUT_MS,
+      toolExecutingMs: MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS + 30_000,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
     });
   });
@@ -80,6 +84,7 @@ describe('resilience-config', () => {
       streamReasoningGapMs: DEFAULT_STREAM_REASONING_GAP_MS,
       streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 75,
+      toolExecutingMs: MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS + 30_000,
       toolTimeoutMs: 25,
     });
   });
@@ -121,6 +126,7 @@ describe('resilience-config', () => {
       streamReasoningGapMs: 900_000,
       streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 900_000,
+      toolExecutingMs: MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS + 30_000,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
     });
   });
@@ -248,19 +254,31 @@ describe('resilience-config', () => {
       streamReasoningGapMs: 95,
       streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 75,
+      toolExecutingMs: MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS + 30_000,
       toolTimeoutMs: 25,
     });
   });
 
-  it('reports the FOUNDATIONAL ordering first when several invariants break', () => {
-    // A config that breaks both orderings must name the tool-timeout rule, not
-    // the derived first-output one that only fails as a consequence.
-    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '200000';
-    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
-    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '100000';
-    expect(() => resolveAssistantResilienceConfig()).toThrow(
-      /BRAINSTRIKE_TOOL_TIMEOUT_MS must be less than BRAINSTRIKE_STREAM_INACTIVITY_MS/
+  it('derives the tool-executing backstop above the largest guard budget', () => {
+    const config = resolveAssistantResilienceConfig();
+    expect(config.toolExecutingMs).toBe(600_000 + 5000 + 30_000);
+    expect(config.toolExecutingMs).toBeGreaterThan(
+      MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS
     );
+  });
+
+  it('keeps the backstop above a global tool timeout larger than every declared budget', () => {
+    const config = resolveAssistantResilienceConfig({
+      streamInactivityMs: 120_000,
+      toolTimeoutMs: 900_000,
+    });
+    expect(config.toolExecutingMs).toBe(900_000 + 30_000);
+  });
+
+  it('no longer requires the tool timeout to sit under stream inactivity', () => {
+    expect(() =>
+      resolveAssistantResilienceConfig({ streamInactivityMs: 120_000, toolTimeoutMs: 180_000 })
+    ).not.toThrow();
   });
 
   it('defaults to a small stall-attempt budget, and 1 opts out of recovery', () => {
@@ -286,13 +304,5 @@ describe('resilience-config', () => {
   it('throws on a zero stall-attempt budget (a turn always gets one attempt)', () => {
     process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '0';
     expect(() => resolveStreamStallAttempts()).toThrow(/BRAINSTRIKE_STREAM_STALL_ATTEMPTS/);
-  });
-
-  it('throws when the tool timeout is not shorter than stream inactivity', () => {
-    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '100';
-    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '100';
-    expect(() => resolveAssistantResilienceConfig()).toThrow(
-      /BRAINSTRIKE_TOOL_TIMEOUT_MS must be less than BRAINSTRIKE_STREAM_INACTIVITY_MS/
-    );
   });
 });

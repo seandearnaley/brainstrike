@@ -9,7 +9,11 @@ import {
   serializationOverhead,
   sliceTailCodePoints,
 } from '@brainstrike/agent';
-import { ToolInputError } from '@brainstrike/assistant-contract';
+import {
+  NATIVE_TOOL_ID,
+  requireNativeToolExecutionBudget,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import { runDetachedProcess, type ShellOutputStreamer } from './execute-command-tool';
@@ -18,7 +22,9 @@ import { isWithinRoot } from './workspace-path';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('RunSkillScriptTool');
-const DEFAULT_TIMEOUT_MS = 120_000;
+const { defaultMs: DEFAULT_TIMEOUT_MS } = requireNativeToolExecutionBudget(
+  NATIVE_TOOL_ID.runSkillScript
+);
 const OUTPUT_ENVELOPE_CHARS = 1200;
 
 export interface RunSkillScriptToolResult {

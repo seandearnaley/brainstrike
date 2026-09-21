@@ -13,8 +13,12 @@
  * runs after the caller has resolved the language model.
  */
 
-import type { McpHostPort } from '@brainstrike/assistant-contract';
-import { NATIVE_TOOL_ID, resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
+import type { McpHostPort, NativeToolExecutionBudget } from '@brainstrike/assistant-contract';
+import {
+  NATIVE_TOOL_EXECUTION_BUDGETS,
+  NATIVE_TOOL_ID,
+  resolveToolDiscoveryAdapter,
+} from '@brainstrike/assistant-contract';
 import {
   findProviderDefinition,
   resolveTokenMeasurementCapability,
@@ -38,6 +42,7 @@ import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { applyToolGuards } from '../../tools/guard-tool-execution';
 import type { AgentHookRunner } from '../../tools/hook-runner';
 import { applyToolHooks } from '../../tools/hook-tool-wrap';
+import { resolveToolGuardBudget } from '../../tools/resolve-tool-guard-budget';
 import {
   createToolExecutionDurations,
   type ToolExecutionDurations,
@@ -584,16 +589,35 @@ export async function composeRuntimeToolMap(
         return original;
       })
   );
-  // Intentional global guard: every native and MCP tool execution shares this
-  // ceiling so a single slow tool cannot freeze the assistant stream.
+  // Intentional guard on every native and MCP tool execution, so a single slow
+  // tool cannot freeze the assistant stream. The budget is PER CALL (BST-1777):
+  // a tool that declares an execution budget is granted what its own contract
+  // promises the model, resolved from that call's input; every other tool —
+  // including every MCP tool — keeps the global default.
   // Per-runtime, which is per request. The guard is the only layer that sees
   // real execution time; an approval-gated call's stream timestamps span the
   // human wait instead (see tool-execution-durations.ts).
+  const budgetFor = (toolId: string): NativeToolExecutionBudget | undefined => {
+    // Declared budgets belong to LOCAL tools only. An MCP tool's original name
+    // is whatever its server chose, so matching it against the native catalog
+    // would let a third-party tool named like a native one inherit a 600s budget.
+    if (!sanitizedLocalToolIds.has(toolId)) {
+      return;
+    }
+    const canonicalId = toolNameMap.get(toolId);
+    return canonicalId === undefined ? undefined : NATIVE_TOOL_EXECUTION_BUDGETS.get(canonicalId);
+  };
   const toolExecutionDurations = createToolExecutionDurations();
   const guardedTools = applyToolGuards(combinedTools, {
+    declaredMaxMs: (toolId) => budgetFor(toolId)?.maxMs,
     durations: toolExecutionDurations,
     logger,
-    timeoutMs: resilienceConfig.toolTimeoutMs,
+    timeoutMs: (toolId) => (args) =>
+      resolveToolGuardBudget({
+        budget: budgetFor(toolId),
+        defaultGuardMs: resilienceConfig.toolTimeoutMs,
+        input: args[0],
+      }),
   });
 
   // Tool-lifecycle hooks (desktop): compose OUTSIDE the guard, BEFORE the

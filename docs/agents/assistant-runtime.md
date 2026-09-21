@@ -118,6 +118,55 @@ below are LIVE.
    Trusted `ToolInputError` validation failures instead retain their bounded,
    model-correctable message as `tool_input_invalid`; only application-owned
    validation code may construct that error.
+
+   **The budget is PER CALL, not one flat ceiling (BST-1777).** A native tool
+   declares its own budget via `executionBudget: { defaultMs, maxMs }` on its
+   `defineNativeTool()` definition (`packages/assistant-contract/src/native-tools/define.ts`,
+   validated at definition time: both positive integers, `defaultMs <= maxMs`).
+   `packages/agent/src/tools/resolve-tool-guard-budget.ts`
+   (`resolveToolGuardBudget`, the SINGLE place this arithmetic lives) resolves
+   one call's `{ grantedMs, guardMs }` pair — `grantedMs` is
+   `min(input.timeoutMs ?? budget.defaultMs, budget.maxMs)` and `guardMs` adds
+   `TOOL_GUARD_MARGIN_MS`
+   (5000ms) — the margin is sized for the slowest self-teardown
+   (`executeCommand`'s SIGTERM→SIGKILL grace plus pipe close) and exists so the
+   TOOL's own deadline wins the race: a tool that enforces `timeoutMs` itself
+   (see below) answers with a richer result — `timedOut: true` plus the
+   captured output tail — than the guard's generic `tool_timeout` ever can, and
+   letting the guard fire first would throw that result away. A tool that
+   declares no budget keeps the flat `BRAINSTRIKE_TOOL_TIMEOUT_MS` default (see
+   the config list below). Only LOCAL tools can be granted a declared budget —
+   `tool-pipeline.ts`'s `budgetFor` matches on the SANITIZED local tool id, not
+   on name equality, because an MCP server chooses its own tool names and a
+   third-party tool that happened to be named like a native one must not
+   inherit its 600s budget. Every MCP tool therefore keeps the flat default
+   until BST-1779 extends declared budgets to MCP. The model-facing timeout
+   message (`formatToolTimeoutMessage`) states the GRANTED budget — never the
+   guard window, so the margin stays invisible and `executeCommand`'s
+   documented 120000ms default reads as "its 120s execution budget" rather
+   than 125s — and offers the larger-timeout remedy ONLY when `grantedMs <
+   declaredMaxMs` (`Pass a larger timeoutMs (up to <maxMs> ms)…`). A call
+   already at the declared max is told so instead ("That is the largest budget
+   this tool allows, so split the work into smaller steps"), because advising
+   a `timeoutMs` the tool cannot grant is advice the model acts on. An
+   undeclared tool keeps the no-remedy text with its real budget. Units: seconds
+   in prose, and the one parameter VALUE is labelled `ms` explicitly.
+
+   **`resolveGuardedToolSignal` is mandatory for any tool that owns a process
+   or a network request (`packages/agent/src/tools/tool-guard-deadline.ts`).**
+   The guard resolving `tool_timeout` only stops the WAIT — it does not stop
+   the work — so any tool that can keep running after the guard gives up must
+   fold the guard's deadline signal into its own via `resolveGuardedToolSignal`
+   (execution signal and guard deadline combined with `AbortSignal.any`,
+   returned BY IDENTITY when there is no deadline, since
+   `retainRawMcpCallToolResult` keys on that identity). Before BST-1777 only the
+   MCP runtime client read this deadline; a native command kept running after
+   the model was told it failed, and the model's retry then raced the orphan.
+   `apps/desktop/src/assistant-server/native-tool-executors-execution.ts` and
+   `packages/agent/src/tools/run-python-tool.ts` now observe it too.
+   `manageCommandSession` (long-lived interactive command sessions) DELIBERATELY
+   does not — a session spans many guarded calls and must outlive any one of
+   them.
    **The guard also CANCELS the work it gave up on (BST-1594).** Winning the
    race only stops the wait, so the guard publishes a deadline `AbortSignal`
    through `packages/agent/src/tools/tool-guard-deadline.ts` and aborts it
@@ -143,18 +192,149 @@ below are LIVE.
 3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
    `StreamStalledError`). `streamAttemptChunks` wraps the raw Mastra iterator.
-   The window is PHASE-AWARE across THREE phases (BST-1408, extended for
-   reasoning): `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` governs the wait for the
+   The window is PHASE-AWARE across FOUR phases (BST-1408, extended for
+   reasoning, extended again for tool execution by BST-1777):
+   `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` governs the wait for the
    provider to produce its first OUTPUT **in each step**,
    `BRAINSTRIKE_STREAM_REASONING_GAP_MS` every gap while it is emitting
-   REASONING, and `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is
-   demonstrably ANSWERING — see the config list below for why they must not be
+   REASONING, `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is
+   demonstrably ANSWERING, and the derived `toolExecutingMs` while at least one
+   tool call is EXECUTING — see the config list below for why they must not be
    re-merged, why the phase boundary is provider output rather than "the first
    part", and why a reasoning delta is not an answer. Since
    BST-1409 a stall ends the ATTEMPT, not the turn; see ATTEMPTS VS TURNS below.
    Only an unrecoverable stall emits a visible assistant message, a terminal
    `run.failed` event, and an error finish so the renderer does not remain
    in-flight forever.
+
+   **The `tool-executing` phase (BST-1777).** A running tool's own silence is
+   not the PROVIDER's — the provider already answered with a `tool-call` — so
+   measuring it against the tight `streaming` window is what forced the guard
+   itself to stay a flat 60s under every tool's own declared budget. The phase
+   is tracked by REFERENCE COUNT (`toolCallId`) so parallel calls hold it open
+   until the last one settles, and it OVERRIDES whichever provider phase is
+   current: the classifier `createMastraToolExecutionPartKindReader` returns (`agent-streaming.ts`) classifies
+   `tool-call` as `started`, and `tool-result` / `tool-error` /
+   `tool-output-denied` / `tool-call-approval` / `tool-call-suspended` as
+   `settled`. Approval and suspension SETTLE deliberately — the call is
+   waiting on a HUMAN, not executing, and a human approval wait must never
+   inherit the wide tool-executing backstop. `tool-output-denied` is the
+   declined outcome and also settles. Scaffolding (`start`, `step-start`)
+   CLEARS the in-flight set: a fresh step's tools are over, so a lost
+   `settled` part can only ever tighten the next window, never hold the wide
+   one open — except before this leg has seen ANY real provider output yet
+   (see the resume-leg seeding paragraph below), which only delays when the
+   clear can fire and never widens a later step's window. `providerPhase` is
+   kept as separate state from the reported `phase` specifically so a
+   `reasoning-end` marker arriving mid-tool cannot "preserve" `tool-executing`
+   into the provider state machine.
+
+   **Only a GUARDED call may enter the phase — an ALLOW-list, not a
+   deny-list (BST-1777 final review, I2-C).** The wide window is only safe to
+   enter because a per-call guard always fires first, so
+   `hasExecutionGuardBehindToolCall`
+   (`agent-streaming.ts`) checks a tool name against `runtime.toolNameMap`'s
+   KEYS — exactly the set that went through `applyToolGuards` in
+   `tool-pipeline.ts`, since that map is populated before the guard runs and
+   nothing is added to it afterwards for a tool that skipped the guard.
+   Membership is the allow-list; anything not in it defaults to `false` and
+   stays on the tight window, per the file's closed-list rule (unknown ->
+   tighten) — no growing enumeration required as new unguarded kinds appear.
+   Three kinds are deliberately never in the set:
+   provider-executed tools (native web search, injected AFTER
+   `sanitizeTools`/`applyToolGuards`, marked `payload.providerExecuted ===
+   true` — kept as an explicit check because that entry REPLACES a sanitized
+   local name that IS still a key), subagent delegation tools
+   (`agent-<personaId>`, registered directly on `new Agent({ agents:
+   subAgents })`, never run through `combinedTools`/`sanitizeTools`), and
+   Mastra-injected memory tools (`updateWorkingMemory`, `setWorkingMemory`,
+   `recall` — see `internal-approval-exempt-tools.ts` — merged into the run's
+   tool map by Mastra itself, after this pipeline runs). All three keep
+   riding the ordinary provider-silence windows — recoverable, honestly
+   diagnosed — instead of silently inheriting a terminal, mislabeled 635s
+   wedge. `settled` parts are unaffected regardless of tool name (already a
+   no-op for an id that was never added).
+
+   **A DELEGATED child's calls are classified through the envelope (BST-1777
+   PR review).** Mastra carries a foreground child's parts on the PARENT
+   stream inside the delegation's `tool-output` envelope
+   (`payload.output` = the child's own part; see `resolveChildDelegation` in
+   `delegated-stream-projection.ts`), the child has no watchdog of its own,
+   and the parent's `agent-<personaId>` call is deliberately unguarded — so
+   classifying only the outer part left a child's guarded execution measured
+   against the parent's `streaming` window. Harmless while the guard was a
+   flat 60s; a regression once a child command may legitimately run to its own
+   600s budget. The classifier therefore UNWRAPS a `tool-output` whose
+   `toolName` starts with `SUBAGENT_DELEGATION_TOOL_PREFIX` and is not itself
+   `providerExecuted` — POSITIVE identification, not "not in the guarded set"
+   (round 2, CodeRabbit MAJOR): the latter is deny-shaped and also matches
+   provider-executed tool outputs and Mastra-injected memory-tool outputs
+   (`updateWorkingMemory`, `recall`, …), whose `output` could then be misread
+   as a nested guarded `tool-call`. `executeCommand`/`runSkillScript`'s own
+   `tool-output` parts are never delegation-prefixed, so their `output`
+   (arbitrary tool data) is never unwrapped. The same allow-list applies to
+   the nested part, recursing for a grandchild (also `agent-<personaId>`)
+   under a fixed unwrap bound. Two deliberate consequences: a child/parent
+   tool-call-id collision makes a nested `settled` release the parent's entry
+   early, which tightens into a RECOVERABLE phase, not a consequence-free one
+   — the still-running parent call drops back onto the provider windows,
+   where a stall is classified `streaming`, and a `streaming` stall IS
+   recoverable, so `runTurnAttempts` can re-send the step while the parent
+   tool may still be alive (the second-execution hazard `isRecoverableStall`
+   refuses `tool-executing` for). Collision probability across parent and
+   child runs is negligible with provider-generated ids, so the keying is
+   unchanged, but the envelope already carries the child `runId` that
+   `resolveChildDelegation` reads, so a `runId:toolCallId` key is available if
+   it ever needs to be; and a child's nested `step-start` does NOT reach the
+   scaffolding clear (the outer `tool-output` counts as provider output), so a
+   lost nested `settled` is cleared at the PARENT's next `step-start` — the
+   same bound every other in-flight id has. BACKGROUND delegation is out of
+   scope.
+
+   **A resumed, approval-approved call is SEEDED into the phase (BST-1777
+   final review, I1).** Mastra never replays a suspended step's `tool-call`
+   part on the resume leg — only the human's answer resumes it — so the call
+   that starts executing there has no `started` boundary for
+   the classifier to observe. Left unseeded, that execution
+   is measured against `firstOutputMs` (the provider's own silence budget)
+   instead of `toolExecutingMs`, misclassifying the phase and its recovery
+   semantics. `collectResumedGuardedToolCallIds` (`agent-streaming.ts`) passes
+   `resumedApprovalToolCall` plus its siblings — filtered through the same
+   `hasExecutionGuardBehindToolCall` predicate, so an unguarded resumed call is
+   never seeded either — as `withInactivityTimeout`'s `initialToolCallIds`,
+   which both seeds `toolCallsInFlight` and sets the very FIRST wait's phase to
+   `tool-executing` before any part of the leg is even read. Because a resume
+   leg can open with framework scaffolding (`start`/`step-start`) BEFORE the
+   resumed call's own `tool-result`, the ordinary scaffolding-clear is gated on
+   `hasSeenProviderOutput` (`with-inactivity-timeout.ts`) — a seeded id survives
+   any leading scaffolding and is cleared only once this leg has actually
+   produced real provider output, which still leaves the closed-list guarantee
+   intact (a lost `settled` can only tighten a LATER step's window).
+   **Pinned chunk boundary — do not relitigate.** Verified against the
+   compiled `@mastra/core` 1.64.0 loop: Mastra's `tool-execution-start` /
+   `tool-execution-end` chunks look like the obvious boundary but are emitted
+   only `from: "NETWORK"` (agent networks) and never reach this stream; the
+   agent loop's real boundary is `tool-call` -> `tool-result` | `tool-error`.
+   A `tool-executing` stall is TERMINAL, not retried: `isRecoverableStall`
+   (`turn-attempts.ts`) refuses recovery with `tool-still-executing`, since a
+   continuation would re-send the step and risk launching a SECOND execution of
+   a tool whose first call might still be alive.
+   **What the backstop actually guarantees (PR review, honest wording).** Every
+   GUARD window is below `toolExecutingMs` by construction, so a guard that
+   answers is never pre-empted. Tool-lifecycle HOOKS are not covered: they
+   compose OUTSIDE the guard (`tool-pipeline.ts`), the phase opens at the
+   `tool-call` part before `PreToolUse` runs, and `hooks/config.ts`
+   deliberately caps each hook individually with NO aggregate pre+tool+post
+   ceiling — so the silence is `preHooks + guardWindow + postHooks` while
+   `TOOL_EXECUTING_BACKSTOP_MARGIN_MS` is only 30s of slack. A long enough hook
+   chain can therefore reach the backstop with a perfectly working guard. The
+   visible message (`resolveStalledVisibleMessage`, `stream-termination.ts`)
+   asserts only what is known: "A tool call was still running after `<ms>`ms,
+   including its lifecycle hooks. The turn was ended rather than retried,
+   because re-running the step could start a second execution of a command
+   that may still be alive. If no PreToolUse/PostToolUse hook is slow, please
+   report it with a debug bundle." No aggregate hook cap and no new env knob
+   were added — do not add one without a measured case.
    An EMPTY MODEL RESPONSE rides the same attempt rails: a terminal `finish`
    whose reason would complete the run, on a turn the model contributed
    NOTHING to (no text/reasoning delta carrying a non-whitespace character —
@@ -1099,7 +1279,12 @@ runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
 
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
 defined in `packages/agent/src/config/resilience-config.ts`:
-- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
+- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) is the FALLBACK per-tool guard
+  budget: it applies only to a tool with no declared `executionBudget` (every
+  MCP tool, and any native tool that does not declare one). A native tool that
+  declares one (currently `executeCommand`, `runPython`, `runSkillScript`) is
+  granted `resolveToolGuardBudget`'s per-call window instead — see the
+  per-tool guard section above (BST-1777).
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000) — the tolerated gap
   between parts, once the provider is demonstrably ANSWERING. Scoped to that
   phase only since BST-1408, and narrowed again to exclude reasoning (see the
@@ -1207,14 +1392,52 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   not include bearer tokens or silently restart/unload the external server. The
   timeout aborts the exact active provider request; it never lengthens the
   window or leaves generation running after the visible terminal failure.
-- Invariant: tool timeout < stream inactivity <= tool-call input budget, and
-  stream inactivity <= stream first-output window, and stream inactivity <=
-  stream reasoning-gap window (all `<=` comparisons are enforced only against an
-  explicitly configured value; see above). The
-  FOUNDATIONAL tool-timeout ordering is checked before any derived window, so a
-  config breaking several invariants names the first thing to fix.
+- `toolExecutingMs` (default 635000) — the `tool-executing` phase backstop.
+  DERIVED, never configured (no env var): it is
+  `max(MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS, toolTimeoutMs)
+  + TOOL_EXECUTING_BACKSTOP_MARGIN_MS` (30000) —
+  `resolveToolExecutingMs`, `resilience-config.ts`. `MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS`
+  (600000 at time of writing: the largest `maxMs` any native tool declares) is
+  itself derived from the native tool catalog, never restated by hand — a
+  second hand-maintained number next to the catalog is how BST-1777 happened.
+  A knob here would be a second number that must be kept in step with every
+  tool's own declared ceiling; deriving it instead means raising a tool's
+  `maxMs` automatically widens the backstop that must outlast it.
+- Invariant: stream inactivity <= tool-call input budget, and stream
+  inactivity <= stream first-output window, and stream inactivity <= stream
+  reasoning-gap window (all `<=` comparisons are enforced only against an
+  explicitly configured value; see above). BY CONSTRUCTION, every per-tool
+  GUARD WINDOW is strictly less than `toolExecutingMs` — the guard's largest
+  possible grant is `MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS`,
+  which `resolveToolExecutingMs` adds its own margin on top of — so the
+  backstop can never fire ahead of a guard that answers. The guarantee stops
+  there: tool-lifecycle HOOKS compose outside the guard and are capped only
+  individually, so hook time rides the 30s
+  `TOOL_EXECUTING_BACKSTOP_MARGIN_MS` slack and is NOT bounded in aggregate
+  (see the `tool-executing` phase section above).
+
+  **SETTLED 2026-09 (BST-1777): a running tool is never measured against a
+  provider-silence window — do not relitigate.** The retired invariant read
+  `tool timeout < stream inactivity <= tool-call input budget`, which forced
+  the per-tool guard to stay under the 120s inactivity window regardless of
+  what any individual tool actually needed. A tool's own execution time is not
+  provider silence — the provider already answered with a `tool-call` — so the
+  ordering that mattered was never "guard ceiling < inactivity window"; it was
+  "guard window < tool-executing backstop", and that is now enforced by
+  construction (above) rather than by a shared flat ceiling — for the guard
+  window itself; hook time is not part of that guarantee. Two refinements
+  from the final review, both load-bearing: (1) this only holds for a call
+  that actually HAS a guard behind it — a provider-executed or delegation
+  `tool-call` deliberately keeps riding the ordinary provider-silence windows
+  and stays recoverable, since there is no guard for the wide window to be
+  standing in for (see `hasExecutionGuardBehindToolCall` above); (2) a resumed,
+  approval-approved call is SEEDED into the phase from the first wait of its
+  leg, because Mastra never replays the `tool-call` part that would otherwise
+  classify it — without seeding it silently fell back to being measured
+  against `firstOutputMs` instead, which is exactly the provider-silence
+  window this invariant says a running tool must never ride.
 - The stall diagnostic and the durable `run.failed` metadata carry `phase`
-  (`awaiting-output` | `reasoning` | `streaming`), `partsSeen` (scaffolding included — it is
+  (`awaiting-output` | `reasoning` | `streaming` | `tool-executing`), `partsSeen` (scaffolding included — it is
   transport activity, and `partsSeen: 2` beside `awaiting-output` is precisely
   the "prologue arrived, provider never did" story), and `lastPartType`
   (BST-1408). `lastPartType` is the last part the caller could NAME: an
@@ -3703,12 +3926,18 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
 enforced `pre + tool + post` sum ceiling. What IS enforced:
 - **Per-hook:** `config.ts` rejects any hook whose `timeout >=
   resolveToolTimeoutMs()`; every hook is SIGKILLed at its own timeout (default
-  10_000ms). Chain: `per-hook (<60s) < BRAINSTRIKE_TOOL_TIMEOUT_MS (60_000) <
-  BRAINSTRIKE_STREAM_INACTIVITY_MS (120_000)`.
-- **Watchdog-covered in-stream phases** (`PreToolUse`/`PostToolUse`): bounded by
-  the per-hook SIGKILL + the stream inactivity watchdog (120s) as the backstop —
-  NOT by an aggregate cap. These run WHILE an `iterator.next()` is pending, so the
-  watchdog timer is armed and covers them.
+  10_000ms). Chain: `per-hook < BRAINSTRIKE_TOOL_TIMEOUT_MS (60_000)`. This rule
+  is UNCHANGED by BST-1777 — `resolveToolTimeoutMs()` is still the flat fallback
+  guard budget (see the config list above), and a per-tool declared
+  `executionBudget` does not widen the per-hook ceiling.
+- **Watchdog-covered in-stream phases** (`PreToolUse`/`PostToolUse`): since
+  BST-1777 these run INSIDE the `tool-executing` phase, not against the 120s
+  inter-output window — the watchdog's `tool-call` boundary starts that phase
+  before `applyToolHooks` ever runs PreToolUse, and it does not settle until
+  `tool-result`/`tool-error` after PostToolUse. They are therefore bounded by
+  the per-hook SIGKILL + the derived `toolExecutingMs` backstop (default
+  635000ms), not by an aggregate cap. These run WHILE an `iterator.next()` is
+  pending, so the watchdog timer is armed and covers them.
 - **Boundary phases the watchdog CANNOT reach** (`UserPromptSubmit` + `Stop`):
   both gate a user-visible boundary with the watchdog disarmed, so each carries
   its OWN aggregate bound (`resolveToolTimeoutMs()`, 60s), applied at runtime by

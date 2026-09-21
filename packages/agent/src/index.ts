@@ -781,6 +781,18 @@ export {
 } from './tools/string-replace';
 export { createSubmitPlanTool, SUBMIT_PLAN_TOOL_ID } from './tools/submit-plan-tool';
 export {
+  /**
+   * The guard's REGISTRATION primitive — a mutation on a module-global
+   * registry, exported only so cross-package tests (desktop's native tool
+   * executors) can publish a deadline without reconstructing the guard.
+   * Production callers never register: `guardToolExecution` owns registration
+   * and its paired release. Tools READ the deadline via
+   * {@link resolveGuardedToolSignal}.
+   */
+  registerToolGuardDeadlineSignal,
+  resolveGuardedToolSignal,
+} from './tools/tool-guard-deadline';
+export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,
   normalizeOptionalText,
