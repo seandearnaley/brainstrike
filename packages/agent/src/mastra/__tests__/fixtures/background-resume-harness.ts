@@ -16,7 +16,7 @@ import type { DelegatedWakeupRecord } from '../../delegated-conversation-binding
 import type { LiveDecisionChannel } from '../../live-decision-channel';
 import type { BrainstrikeAgentStreamOptions } from '../../runtime-assembly/stream-options';
 
-export const SCOPE = { resourceId: 'resource-1', threadId: 'thread-1' } as const;
+const SCOPE = { resourceId: 'resource-1', threadId: 'thread-1' } as const;
 export const TOOL = 'agent-explore';
 
 export type ToolExecute = (

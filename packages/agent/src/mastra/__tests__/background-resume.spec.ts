@@ -473,6 +473,9 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
       await expect(ended).resolves.toEqual({ error: undefined });
       expect(leg.status).toBe('suspended');
       expect(native.calls.filter((call) => call === 'register:t1')).toHaveLength(2);
+      // `indexOf` is -1 for a missing marker, so the order check below needs
+      // the marker's presence asserted locally to mean anything.
+      expect(native.calls).toContain('second-read:t1');
       expect(native.calls.indexOf('second-read:t1')).toBeLessThan(native.calls.indexOf('shutdown'));
     } finally {
       secondRead.resolve();

@@ -87,10 +87,11 @@ export interface BackgroundResume {
  * must leave the others' claim standing, or the leg stops observing a task
  * that is running and ends with its terminal missing. Every holder that counts
  * a task can also give it back, or a task nobody resumed is awaited for good.
- * Pinned in `background-resume.spec.ts` by "keeps awaiting a task a second
- * reservation resumed when the first gives it back" (mutation: an unconditional
- * remove drops a running task) and "gives a task back once for every
- * reservation that named it" (mutation: only the first holder may give back).
+ * Pinned in `background-resume-terminal-wait.spec.ts` by "keeps awaiting a task
+ * a second reservation resumed when the first gives it back" (mutation: an
+ * unconditional remove drops a running task) and "gives a task back once for
+ * every reservation that named it" (mutation: only the first holder may give
+ * back).
  */
 function createTerminalWait(
   initial: Iterable<string>,
@@ -166,6 +167,13 @@ function createTerminalWait(
         awaited.set(taskId, holders);
         return;
       }
+      // Dropping a terminal already recorded loses nothing HERE: only a
+      // reservation ever gives a claim back (the leg never removes a task it
+      // seeded), and a reservation gives back only when its decision failed
+      // BEFORE any resume or when `manager.resume` threw — a caller whose
+      // resume Mastra accepted keeps its claim for the life of the leg. So a
+      // task reaching zero holders is one nobody resumed, and its terminal is
+      // not this leg's returned work. Re-check on a new give-back path.
       awaited.delete(taskId);
       terminals.delete(taskId);
       check();
@@ -250,7 +258,8 @@ interface ResumedExecutors {
  * |                  | commits nothing — forgetting alone let it replace the    |
  * |                  | newer context and the executor whose join was pushed     |
  *
- * Pins, all in `background-resume.spec.ts`, by cell:
+ * Pins for the cells below, all in `background-resume.spec.ts` (the terminal
+ * wait's own pins live in `background-resume-terminal-wait.spec.ts`), by cell:
  * - register before resume: "registers every resumed executor before Mastra is
  *   asked to resume any task", "owns the live decision seam before it registers
  *   its executors", "fails the leg before any resume when a resumed executor is
@@ -360,7 +369,7 @@ function createResumedExecutors(params: {
       // its tools resolved, so the task is either ended or registered afresh
       // by another caller. Either way this one is no longer the task's.
       if ((generations.get(task.id) ?? 0) !== generation) {
-        throw new LiveDecisionUnavailableError('The resumed task ended before it was registered.');
+        throw new LiveDecisionUnavailableError('This registration was retired before it landed.');
       }
       const executor = commit();
       executors.set(task.id, executor);
