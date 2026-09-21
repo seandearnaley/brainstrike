@@ -21,8 +21,12 @@ describe('ApprovalRails', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('renders one rail per edge for a non-empty path', () => {
+  it('renders one rail per edge inside the rails wrapper', () => {
     const { container } = render(<ApprovalRails path={[edge('a'), edge('b')]} />);
-    expect(container.querySelectorAll('.bs-approval-rail')).toHaveLength(2);
+    const wrapper = container.querySelector('.bs-approval-rails');
+    expect(wrapper?.childElementCount).toBe(2);
+    expect(
+      [...(wrapper?.children ?? [])].every((child) => child.classList.contains('bs-approval-rail'))
+    ).toBe(true);
   });
 });
