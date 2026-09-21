@@ -252,6 +252,12 @@ function resolveStalledVisibleMessage(
   localRuntimeName: string | null,
   model: string | undefined
 ): string {
+  if (error.phase === 'tool-executing') {
+    // The per-tool execution guard always fires before this backstop, so
+    // reaching it means the guard itself failed. Blaming the model or the
+    // runner here would send the user to fix the wrong thing.
+    return `A tool was still running after ${error.inactivityMs}ms and its execution guard never answered. This is a Brainstrike bug, not a model stall — please report it with a debug bundle.`;
+  }
   if (localRuntimeName && model) {
     return `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`;
   }

@@ -36,15 +36,18 @@ describe('makeStreamWatchdogTermination — reasoning stall', () => {
       warnedUnknownChunkTypes: new Set(),
     }) satisfies ToolLifecycleState;
 
-  const visibleText = (phase: 'awaiting-output' | 'reasoning' | 'streaming'): string => {
+  const visibleText = (
+    phase: 'awaiting-output' | 'reasoning' | 'streaming' | 'tool-executing',
+    runtimeData?: { model?: string; provider?: string }
+  ): string => {
     const chunks = makeStreamWatchdogTermination(
-      new StreamStalledError(600_000, {
-        lastPartType: 'reasoning-delta',
-        partsSeen: 58,
+      new StreamStalledError(phase === 'tool-executing' ? 635_000 : 600_000, {
+        lastPartType: phase === 'tool-executing' ? 'tool-call' : 'reasoning-delta',
+        partsSeen: phase === 'tool-executing' ? 4 : 58,
         phase,
       }),
       lifecycleState(),
-      undefined
+      runtimeData
     );
     return JSON.stringify(chunks);
   };
@@ -61,5 +64,23 @@ describe('makeStreamWatchdogTermination — reasoning stall', () => {
   it('leaves the other two phases unchanged', () => {
     expect(visibleText('streaming')).toContain('without output');
     expect(visibleText('awaiting-output')).toContain('produced no output within');
+  });
+
+  it('names a tool-executing stall as a Brainstrike bug, not a model stall', () => {
+    const text = visibleText('tool-executing');
+    expect(text).toContain(
+      'A tool was still running after 635000ms and its execution guard never answered. This is a Brainstrike bug, not a model stall — please report it with a debug bundle.'
+    );
+  });
+
+  it('gives the same tool-executing text on a local runtime, not the Ollama remedy', () => {
+    // A local-runtime stall normally gets the "verify the Ollama server"
+    // remedy, but that is wrong advice here: the provider already answered
+    // and the FAILURE is in our own execution guard, not the runner.
+    const text = visibleText('tool-executing', { model: 'x', provider: 'ollama' });
+    expect(text).toContain(
+      'A tool was still running after 635000ms and its execution guard never answered. This is a Brainstrike bug, not a model stall — please report it with a debug bundle.'
+    );
+    expect(text).not.toContain('Verify the Ollama server');
   });
 });

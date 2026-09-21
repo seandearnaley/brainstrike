@@ -1141,6 +1141,53 @@ function readMastraReasoningPartKind(part: unknown): 'content' | 'marker' | unde
   return MASTRA_REASONING_PART_KINDS[type as keyof typeof MASTRA_REASONING_PART_KINDS];
 }
 
+/**
+ * Mastra part types that START or SETTLE one tool execution (BST-1777).
+ *
+ * Pinned against the compiled @mastra/core 1.64.0 loop: `tool-execution-start`
+ * / `tool-execution-end` look like the obvious boundary but are emitted only
+ * `from: "NETWORK"` (agent networks) and never reach this stream. The agent
+ * loop's boundary is `tool-call` -> `tool-result` | `tool-error`.
+ *
+ * `tool-call-approval` and `tool-call-suspended` SETTLE: the call is waiting
+ * on a human, not executing, and a human wait must never inherit the wide
+ * tool-executing backstop. `tool-output-denied` is the declined outcome.
+ *
+ * Typed against `StaticMastraChunkType` for the same reason the reasoning map
+ * is: a Mastra rename fails to compile here instead of silently dropping a
+ * boundary and leaving a running tool on the tight window.
+ */
+const MASTRA_TOOL_EXECUTION_PART_KINDS = {
+  'tool-call': 'started',
+  'tool-call-approval': 'settled',
+  'tool-call-suspended': 'settled',
+  'tool-error': 'settled',
+  'tool-output-denied': 'settled',
+  'tool-result': 'settled',
+} as const satisfies Partial<Record<StaticMastraChunkType, 'started' | 'settled'>>;
+
+/** @internal exported for tests */
+export function readMastraToolExecutionPartKind(
+  part: unknown
+): { kind: 'started' | 'settled'; toolCallId: string } | undefined {
+  const type = describeMastraStreamPartType(part);
+  if (type === undefined || !Object.hasOwn(MASTRA_TOOL_EXECUTION_PART_KINDS, type)) {
+    return;
+  }
+  const payload = (part as { payload?: unknown }).payload;
+  const toolCallId =
+    typeof payload === 'object' && payload !== null
+      ? (payload as { toolCallId?: unknown }).toolCallId
+      : undefined;
+  if (typeof toolCallId !== 'string' || toolCallId.length === 0) {
+    return;
+  }
+  return {
+    kind: MASTRA_TOOL_EXECUTION_PART_KINDS[type as keyof typeof MASTRA_TOOL_EXECUTION_PART_KINDS],
+    toolCallId,
+  };
+}
+
 export function createAttemptDelegatedProjection({
   delegationUsage,
   runtime,
@@ -1624,12 +1671,14 @@ export async function* streamAttemptChunks({
         firstOutputMs: runtime.resilienceConfig.streamFirstOutputMs,
         interOutputMs: runtime.resilienceConfig.streamInactivityMs,
         reasoningGapMs: runtime.resilienceConfig.streamReasoningGapMs,
+        toolExecutingMs: runtime.resilienceConfig.toolExecutingMs,
       },
       {
         countsAsProviderOutput: isMastraProviderOutputPart,
         describePart: describeMastraStreamPartType,
         onTimeout: (error) => streamAbortContext.abort(error),
         reasoningPartKind: readMastraReasoningPartKind,
+        toolExecutionPartKind: readMastraToolExecutionPartKind,
       }
     );
     const projectedSource = projectBackgroundStream(

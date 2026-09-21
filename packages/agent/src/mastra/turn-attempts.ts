@@ -32,7 +32,7 @@ import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, AgentSignal, MastraDBMessage } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
-import type { StreamStalledError } from '../stream/with-inactivity-timeout';
+import { StreamStalledError } from '../stream/with-inactivity-timeout';
 import { ToolCallInputStreamingTimeoutError } from '../stream/with-tool-call-input-timeout';
 import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 import type { AgentMessage, RuntimeData, StreamChunk } from '../types';
@@ -733,6 +733,7 @@ export async function* runTurnAttempts(params: {
         maxAttempts,
         produced,
         runtimeData,
+        stall,
       });
       yield makeStallRunEventChunk(stall, attempt, maxAttempts, reason);
       if (reason) {
@@ -810,6 +811,24 @@ async function* withoutDuplicateRunStarted(
   }
 }
 
+/**
+ * Whether resuming after this stall is safe to attempt at all, independent of
+ * budget or what the attempt produced.
+ *
+ * A `tool-executing` stall means a tool call started and the stream never saw
+ * its settling part (`tool-result` / `tool-error` / …) — the per-tool
+ * execution guard, which always fires first, itself failed to answer. The
+ * process behind that call may still be running. Recovery re-sends the same
+ * step to a continuation, which would launch a SECOND execution of that same
+ * tool while the first might still be alive — corrupting whatever the tool
+ * does on a second call (writes, side effects, non-idempotent APIs). Every
+ * other phase means the MODEL went quiet before or while producing text or
+ * reasoning, which a continuation safely restarts from scratch.
+ */
+function isRecoverableStall(error: EmptyModelResponseError | StreamStalledError): boolean {
+  return !(error instanceof StreamStalledError && error.phase === 'tool-executing');
+}
+
 /** Why this stall may NOT be recovered, or `undefined` when it may. */
 function resolveStallRecoveryRefusal(input: {
   attempt: number;
@@ -817,7 +836,11 @@ function resolveStallRecoveryRefusal(input: {
   maxAttempts: number;
   produced: readonly MastraDBMessage[] | undefined;
   runtimeData: RuntimeData | undefined;
+  stall: EmptyModelResponseError | StreamStalledError;
 }): string | undefined {
+  if (!isRecoverableStall(input.stall)) {
+    return 'tool-still-executing';
+  }
   if (input.runtimeData?.signal?.aborted) {
     // A user Stop is a decision, not a transport fault.
     return 'cancelled';
