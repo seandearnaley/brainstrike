@@ -795,3 +795,158 @@ describe('withInactivityTimeout — tool-executing phase', () => {
     expect(captured?.phase).toBe('streaming');
   });
 });
+
+describe('withInactivityTimeout — seeded in-flight ids (resume leg, BST-1777 I1)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  interface ToolPart {
+    readonly id?: string;
+    readonly type: string;
+  }
+
+  const toolExecutionPartKind = (part: ToolPart) => {
+    if (part.type === 'tool-call') {
+      return { kind: 'started' as const, toolCallId: part.id as string };
+    }
+    if (part.type === 'tool-result') {
+      return { kind: 'settled' as const, toolCallId: part.id as string };
+    }
+    return;
+  };
+
+  const TOOL_WINDOWS = {
+    firstOutputMs: 1000,
+    interOutputMs: 100,
+    reasoningGapMs: 1000,
+    toolExecutingMs: 5000,
+  } as const;
+
+  it('a seeded id does not stall under a silence that would break the provider window', async () => {
+    const source = createControllableSource<ToolPart>();
+    const seen: string[] = [];
+    const drain = (async () => {
+      for await (const part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+        initialToolCallIds: ['seeded-a'],
+        toolExecutionPartKind,
+      })) {
+        seen.push(part.type);
+      }
+    })();
+
+    // 4000ms of total silence dwarfs interOutputMs (100) and firstOutputMs
+    // (1000) alike — only the seeded tool-executing window (5000) survives it.
+    await vi.advanceTimersByTimeAsync(4000);
+    source.push({ id: 'seeded-a', type: 'tool-result' });
+    await vi.advanceTimersByTimeAsync(0);
+    source.finish();
+    await drain;
+
+    expect(seen).toEqual(['tool-result']);
+  });
+
+  it('the backstop still fires for a seeded id whose guard never answers, as tool-executing', async () => {
+    const source = createControllableSource<ToolPart>();
+    let captured: StreamStalledError | undefined;
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+        initialToolCallIds: ['seeded-a'],
+        toolExecutionPartKind,
+      })) {
+        // Drain until the backstop fires.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    await vi.advanceTimersByTimeAsync(5001);
+    await settled;
+
+    expect(captured?.phase).toBe('tool-executing');
+    expect(captured?.inactivityMs).toBe(TOOL_WINDOWS.toolExecutingMs);
+  });
+
+  it('returns to the provider phase once the seeded id settles', async () => {
+    const source = createControllableSource<ToolPart>();
+    let captured: StreamStalledError | undefined;
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+        initialToolCallIds: ['seeded-a'],
+        toolExecutionPartKind,
+      })) {
+        // Drain until the tight window fires after the seeded id settles.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ id: 'seeded-a', type: 'tool-result' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(101);
+    await settled;
+
+    expect(captured?.phase).toBe('streaming');
+  });
+
+  it('a seeded id survives leading framework scaffolding before its own settle', async () => {
+    const source = createControllableSource<ToolPart>();
+    const seen: string[] = [];
+    const drain = (async () => {
+      for await (const part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        countsAsProviderOutput: (part) => part.type !== 'start' && part.type !== 'step-start',
+        describePart: (part) => part.type,
+        initialToolCallIds: ['seeded-a'],
+        toolExecutionPartKind,
+      })) {
+        seen.push(part.type);
+      }
+    })();
+
+    source.push({ type: 'start' });
+    source.push({ type: 'step-start' });
+    await vi.advanceTimersByTimeAsync(0);
+    // Would already have tripped firstOutputMs (1000) if scaffolding had wiped
+    // the seed; must survive on the seeded tool-executing window instead.
+    await vi.advanceTimersByTimeAsync(4000);
+    source.push({ id: 'seeded-a', type: 'tool-result' });
+    await vi.advanceTimersByTimeAsync(0);
+    source.finish();
+    await drain;
+
+    expect(seen).toEqual(['start', 'step-start', 'tool-result']);
+  });
+
+  it('absent initialToolCallIds reproduces unseeded behaviour', async () => {
+    const source = createControllableSource<ToolPart>();
+    let captured: StreamStalledError | undefined;
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(source.iterate(), TOOL_WINDOWS, {
+        describePart: (part) => part.type,
+        toolExecutionPartKind,
+      })) {
+        // Drain until the awaiting-output window fires.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    await vi.advanceTimersByTimeAsync(1001);
+    await settled;
+
+    expect(captured?.phase).toBe('awaiting-output');
+  });
+});

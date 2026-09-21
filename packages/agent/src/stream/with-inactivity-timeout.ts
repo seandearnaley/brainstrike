@@ -84,6 +84,25 @@ export interface StreamInactivityOptions<T> {
    * the caller rather than assumed here.
    */
   readonly describePart?: (part: T) => string | undefined;
+  /**
+   * Tool calls already known to be EXECUTING before the first part of this
+   * stream is even read (BST-1777 final review, I1).
+   *
+   * A Mastra resume leg never replays the suspended step's `tool-call` part —
+   * only the human's approval answer resumes it — so a call approved on a
+   * PRIOR leg starts running on THIS leg with no `started` boundary for
+   * {@link toolExecutionPartKind} to observe. Without seeding, the watchdog
+   * measures that execution against `firstOutputMs` (the provider's own
+   * silence budget) instead of `toolExecutingMs`, which is not just the wrong
+   * number — a stall in `awaiting-output` is treated as RECOVERABLE and
+   * re-sends the step, launching a second execution of a command whose first
+   * run may still be alive.
+   *
+   * Absent means no seed, which reproduces the pre-existing behaviour
+   * exactly: `toolCallsInFlight` starts empty and the first phase is
+   * `awaiting-output`, as it always was.
+   */
+  readonly initialToolCallIds?: readonly string[];
   readonly onTimeout?: (error: StreamStalledError) => void;
   /**
    * Classify a REASONING part, or `undefined` for anything that is not one.
@@ -248,9 +267,23 @@ export async function* withInactivityTimeout<T>(
   const iterator = source[Symbol.asyncIterator]();
   let partsSeen = 0;
   let lastPartType: string | undefined;
-  let phase: StreamStallPhase = 'awaiting-output';
+  const toolCallsInFlight = new Set<string>(options?.initialToolCallIds ?? []);
+  // Seeding starts the FIRST wait already in `tool-executing` — otherwise a
+  // resume leg's opening silence (before any part has been read at all) would
+  // be measured against the provider window for the instant between "seeded"
+  // and "first part observed".
+  let phase: StreamStallPhase = toolCallsInFlight.size > 0 ? 'tool-executing' : 'awaiting-output';
   let providerPhase: Exclude<StreamStallPhase, 'tool-executing'> = 'awaiting-output';
-  const toolCallsInFlight = new Set<string>();
+  // A resume leg opens with framework scaffolding (`start`/`step-start`)
+  // BEFORE the resumed call's `tool-result` — real output from Mastra's own
+  // integration traces. The ordinary scaffolding-clear below would wipe a
+  // SEEDED id on that very first `step-start`, before the call it was seeded
+  // for ever gets to settle. Gating the clear on "has this leg produced any
+  // real provider output yet" is the smallest fix: it only ever DELAYS when
+  // the clear can fire, so the existing guarantee (a lost `settled` can only
+  // tighten a LATER step's window) still holds once the leg is actually
+  // underway.
+  let hasSeenProviderOutput = false;
   try {
     while (true) {
       const windowMs = resolveWindowMs(phase, windows);
@@ -276,16 +309,21 @@ export async function* withInactivityTimeout<T>(
         // its own time-to-first-output, so a step opened after a tool result
         // must not inherit the previous step's `streaming` phase.
         providerPhase = resolveNextPhase(result.value, providerPhase, options);
+        if (providerPhase !== 'awaiting-output') {
+          hasSeenProviderOutput = true;
+        }
         // Tool execution OVERRIDES the provider phases rather than joining
         // their state machine: while any call is in flight the silence belongs
         // to our tool, whatever part happened to arrive last. `providerPhase`
         // is tracked separately so a `reasoning-end` marker arriving mid-tool
         // cannot "preserve" `tool-executing` into the provider state machine.
         trackToolExecution(result.value, toolCallsInFlight, options);
-        if (providerPhase === 'awaiting-output') {
+        if (providerPhase === 'awaiting-output' && hasSeenProviderOutput) {
           // Scaffolding opens a new step, so the previous step's tools are
           // over. Clearing here means a lost `settled` part can only ever
-          // TIGHTEN the next window, never hold the wide one open.
+          // TIGHTEN the next window, never hold the wide one open — gated on
+          // `hasSeenProviderOutput` so a resume leg's OPENING scaffolding
+          // cannot wipe a seeded id before its own settle ever arrives.
           toolCallsInFlight.clear();
         }
         phase = toolCallsInFlight.size > 0 ? 'tool-executing' : providerPhase;

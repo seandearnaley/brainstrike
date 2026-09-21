@@ -56,7 +56,11 @@ import {
 import { getDefaultModel } from '../providers/provider-factory';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
-import { withInactivityTimeout } from '../stream/with-inactivity-timeout';
+import {
+  type StreamInactivityOptions,
+  type StreamStalledError,
+  withInactivityTimeout,
+} from '../stream/with-inactivity-timeout';
 import { withToolCallInputTimeout } from '../stream/with-tool-call-input-timeout';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
@@ -1063,6 +1067,53 @@ function* makeResumedStartChunks(
 }
 
 /**
+ * The ids of every call that will EXECUTE on a resume leg (BST-1777 final
+ * review, I1) — the approved call itself, plus its siblings (the suspended
+ * step's other pending, non-gated work; see {@link ResumedApprovalToolCall}).
+ * Mastra never replays the step's `tool-call` part on a resume leg, so
+ * without this the watchdog has no `started` boundary to observe and measures
+ * the whole execution against the provider's own silence budget instead of
+ * the tool-executing backstop.
+ *
+ * Filtered through the SAME guardedness rule as
+ * {@link readMastraToolExecutionPartKind} (a call this excludes rides the
+ * ordinary provider windows and stays recoverable, which is correct for it):
+ * a resumed call can never be provider-executed (a provider-executed tool has
+ * no local `execute` and therefore no suspend point to resume from), so only
+ * the delegation-prefix half of the rule applies here.
+ */
+function collectResumedGuardedToolCallIds(resumed: ResumedApprovalToolCall): readonly string[] {
+  const calls: readonly ResumedToolCallStart[] = [resumed, ...resumed.siblings];
+  return calls
+    .filter((call) => hasExecutionGuardBehindToolCall(call.registeredToolName, false))
+    .map((call) => call.toolCallId);
+}
+
+/**
+ * The Mastra-specific `withInactivityTimeout` options for one leg, including
+ * this leg's seed (absent on a fresh turn) — split out so
+ * `streamAttemptChunks` calls this once rather than carrying the branch
+ * itself (`exactOptionalPropertyTypes` forbids an explicit `undefined` on
+ * `initialToolCallIds`, so the branch has to live in a function that can omit
+ * the key entirely).
+ */
+function resolveMastraInactivityOptions(
+  resumedApprovalToolCall: ResumedApprovalToolCall | undefined,
+  onTimeout: (error: StreamStalledError) => void
+): StreamInactivityOptions<unknown> {
+  return {
+    countsAsProviderOutput: isMastraProviderOutputPart,
+    describePart: describeMastraStreamPartType,
+    ...(resumedApprovalToolCall
+      ? { initialToolCallIds: collectResumedGuardedToolCallIds(resumedApprovalToolCall) }
+      : {}),
+    onTimeout,
+    reasoningPartKind: readMastraReasoningPartKind,
+    toolExecutionPartKind: readMastraToolExecutionPartKind,
+  };
+}
+
+/**
  * Name a raw Mastra part for the stall diagnostic. Knowing WHAT the provider
  * last sent before going quiet (`reasoning-delta` vs `tool-call-delta` vs
  * `step-start`) is the difference between diagnosing a stall from a debug
@@ -1166,6 +1217,40 @@ const MASTRA_TOOL_EXECUTION_PART_KINDS = {
   'tool-result': 'settled',
 } as const satisfies Partial<Record<StaticMastraChunkType, 'started' | 'settled'>>;
 
+/**
+ * Whether a tool call has a per-call execution guard behind it (BST-1777
+ * final review, I2). `tool-executing`'s wide window is only safe to enter
+ * because a guard ALWAYS fires first and turns a wedge into a bounded,
+ * recoverable failure — the terminal "this is a Brainstrike bug" message
+ * `isRecoverableStall` attaches to this phase is only honest under that
+ * premise. Two kinds of `tool-call` never pass through `applyToolGuards` and
+ * therefore have no guard at all:
+ *
+ * - Provider-executed tools (native web search): injected AFTER
+ *   `sanitizeTools`/`applyToolGuards` (see `../providers/native-web-search.ts`),
+ *   so Mastra marks the part `payload.providerExecuted === true`.
+ * - Subagent delegation tools (`agent-<personaId>`): the parent registers
+ *   them directly (`agent-runtime.ts`) and only `combinedTools` goes through
+ *   `applyToolGuards`, never the delegation tool itself.
+ *
+ * A call this returns `false` for must NOT enter `tool-executing`: it keeps
+ * riding the ordinary provider-silence windows it always has, so a wedge
+ * there is diagnosed (and, where recoverable, retried) honestly instead of
+ * being reported as a broken guard that was never there.
+ */
+function hasExecutionGuardBehindToolCall(
+  toolName: string | undefined,
+  providerExecuted: unknown
+): boolean {
+  if (providerExecuted === true) {
+    return false;
+  }
+  if (toolName?.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX)) {
+    return false;
+  }
+  return true;
+}
+
 /** @internal exported for tests */
 export function readMastraToolExecutionPartKind(
   part: unknown
@@ -1182,10 +1267,9 @@ export function readMastraToolExecutionPartKind(
   if (typeof toolCallId !== 'string' || toolCallId.length === 0) {
     return;
   }
-  return {
-    kind: MASTRA_TOOL_EXECUTION_PART_KINDS[type as keyof typeof MASTRA_TOOL_EXECUTION_PART_KINDS],
-    toolCallId,
-  };
+  const kind =
+    MASTRA_TOOL_EXECUTION_PART_KINDS[type as keyof typeof MASTRA_TOOL_EXECUTION_PART_KINDS];
+  return { kind, toolCallId };
 }
 
 export function createAttemptDelegatedProjection({
@@ -1673,13 +1757,9 @@ export async function* streamAttemptChunks({
         reasoningGapMs: runtime.resilienceConfig.streamReasoningGapMs,
         toolExecutingMs: runtime.resilienceConfig.toolExecutingMs,
       },
-      {
-        countsAsProviderOutput: isMastraProviderOutputPart,
-        describePart: describeMastraStreamPartType,
-        onTimeout: (error) => streamAbortContext.abort(error),
-        reasoningPartKind: readMastraReasoningPartKind,
-        toolExecutionPartKind: readMastraToolExecutionPartKind,
-      }
+      resolveMastraInactivityOptions(resumedApprovalToolCall, (error) =>
+        streamAbortContext.abort(error)
+      )
     );
     const projectedSource = projectBackgroundStream(
       source,

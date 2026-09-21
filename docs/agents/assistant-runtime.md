@@ -215,9 +215,33 @@ below are LIVE.
    declined outcome and also settles. Scaffolding (`start`, `step-start`)
    CLEARS the in-flight set: a fresh step's tools are over, so a lost
    `settled` part can only ever tighten the next window, never hold the wide
-   one open. `providerPhase` is kept as separate state from the reported
-   `phase` specifically so a `reasoning-end` marker arriving mid-tool cannot
-   "preserve" `tool-executing` into the provider state machine.
+   one open — except before this leg has seen ANY real provider output yet
+   (see the resume-leg seeding paragraph below), which only delays when the
+   clear can fire and never widens a later step's window. `providerPhase` is
+   kept as separate state from the reported `phase` specifically so a
+   `reasoning-end` marker arriving mid-tool cannot "preserve" `tool-executing`
+   into the provider state machine.
+
+
+   **A resumed, approval-approved call is SEEDED into the phase (BST-1777
+   final review, I1).** Mastra never replays a suspended step's `tool-call`
+   part on the resume leg — only the human's answer resumes it — so the call
+   that starts executing there has no `started` boundary for
+   `readMastraToolExecutionPartKind` to observe. Left unseeded, that execution
+   is measured against `firstOutputMs` (the provider's own silence budget)
+   instead of `toolExecutingMs`, misclassifying the phase and its recovery
+   semantics. `collectResumedGuardedToolCallIds` (`agent-streaming.ts`) passes
+   `resumedApprovalToolCall` plus its siblings — filtered through the same
+   `hasExecutionGuardBehindToolCall` predicate, so an unguarded resumed call is
+   never seeded either — as `withInactivityTimeout`'s `initialToolCallIds`,
+   which both seeds `toolCallsInFlight` and sets the very FIRST wait's phase to
+   `tool-executing` before any part of the leg is even read. Because a resume
+   leg can open with framework scaffolding (`start`/`step-start`) BEFORE the
+   resumed call's own `tool-result`, the ordinary scaffolding-clear is gated on
+   `hasSeenProviderOutput` (`with-inactivity-timeout.ts`) — a seeded id survives
+   any leading scaffolding and is cleared only once this leg has actually
+   produced real provider output, which still leaves the closed-list guarantee
+   intact (a lost `settled` can only tighten a LATER step's window).
    **Pinned chunk boundary — do not relitigate.** Verified against the
    compiled `@mastra/core` 1.64.0 loop: Mastra's `tool-execution-start` /
    `tool-execution-end` chunks look like the obvious boundary but are emitted
@@ -1318,7 +1342,12 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   provider silence — the provider already answered with a `tool-call` — so the
   ordering that mattered was never "guard ceiling < inactivity window"; it was
   "guard budget < tool-executing backstop", and that is now enforced by
-  construction (above) rather than by a shared flat ceiling.
+  construction (above) rather than by a shared flat ceiling. Refinement from
+  the final review: a resumed, approval-approved call is SEEDED into the phase
+  from the first wait of its leg, because Mastra never replays the `tool-call`
+  part that would otherwise classify it — without seeding it silently fell
+  back to being measured against `firstOutputMs` instead, which is exactly the
+  provider-silence window this invariant says a running tool must never ride.
 - The stall diagnostic and the durable `run.failed` metadata carry `phase`
   (`awaiting-output` | `reasoning` | `streaming`), `partsSeen` (scaffolding included — it is
   transport activity, and `partsSeen: 2` beside `awaiting-output` is precisely
