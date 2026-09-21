@@ -1,12 +1,12 @@
 # AGENT GUIDELINES
 
-Detailed subsystem contracts live in `docs/agents/`. **Before changing one of these areas, read its doc first** — they record hard-won invariants and settled rulings (many marked "do not relitigate"). They are living documents: update the doc and its paired tests in the same change. Some local Claude Code setups may mirror these contracts through ignored `.claude/skills/`; that integration is optional and untracked, so the table below is the canonical agent-agnostic map.
+Detailed subsystem contracts live in `docs/agents/`. **Before changing one of these areas, read its doc first** — they record hard-won invariants and settled rulings (many marked "do not relitigate"). They are living documents: update the doc and its paired tests in the same change, written per `docs/agents/README.md` — rules in the contract, their history in `docs/agents/<area>/` evidence files. Some local Claude Code setups may mirror these contracts through ignored `.claude/skills/`; that integration is optional and untracked, so the table below is the canonical agent-agnostic map.
 
 Nearest `AGENTS.md` files add package-local rules; they supplement rather than
 replace this root policy. Treat `docs/agents/*.md` as living contracts,
-`docs/adr/` as settled decisions, and dated plans/research under
-`docs/superpowers/`, `docs/archive/`, or other date-stamped paths as historical
-evidence—not current behavior. Prefer code, tests, and live contracts when they
+`docs/adr/` as settled decisions, and `docs/agents/<area>/` evidence files plus
+dated plans/research under `docs/superpowers/`, `docs/archive/`, or other
+date-stamped paths as historical evidence—not current behavior. Prefer code, tests, and live contracts when they
 disagree with a historical document.
 
 | Touching… | Read first |
