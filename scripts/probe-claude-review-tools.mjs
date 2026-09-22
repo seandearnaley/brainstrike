@@ -42,7 +42,7 @@ export async function main({ claudeBinary: binary }) {
     const message = {
       content: [],
       id: `msg_${requests.length}`,
-      model: 'claude-opus-5',
+      model: 'claude-opus-5-5',
       role: 'assistant',
       stop_reason: null,
       stop_sequence: null,
@@ -88,7 +88,7 @@ export async function main({ claudeBinary: binary }) {
       [
         '-p',
         '--model',
-        'claude-opus-5',
+        'claude-opus-5-5',
         '--max-turns',
         '3',
         ...claudeReviewToolArgs,

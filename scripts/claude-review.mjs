@@ -392,7 +392,7 @@ export function runReview({
   const args = [
     '-p',
     '--model',
-    'claude-opus-5',
+    'claude-opus-5-5',
     '--max-turns',
     '80',
     ...claudeReviewToolArgs,
