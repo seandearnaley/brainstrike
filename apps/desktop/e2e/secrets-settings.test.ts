@@ -63,19 +63,11 @@ test.describe('Provider Hub Settings', { tag: '@smoke' }, () => {
     const modelPicker = window.getByTestId('composer-model-menu-trigger');
     await expect(modelPicker).toBeEnabled();
     await modelPicker.click();
-    const moreModels = window.getByTestId('composer-more-models-trigger');
-    await expect(moreModels).toBeEnabled();
-    await moreModels.focus();
-    await window.keyboard.press('ArrowRight');
 
-    const openAiProvider = window.getByRole('menuitem', { name: /OpenAI/ }).last();
-    await expect(openAiProvider).toBeVisible();
-    await openAiProvider.focus();
-    await window.keyboard.press('ArrowRight');
-
-    const openAiModel = window.getByRole('menuitemradio').filter({ hasText: /GPT/i }).first();
+    const modelDialog = window.getByRole('dialog', { name: 'Choose a model' });
+    await modelDialog.getByRole('combobox').fill('GPT');
+    const openAiModel = modelDialog.getByRole('option', { name: /GPT/i }).first();
     await expect(openAiModel).toBeVisible();
-    await expect(openAiModel).toBeEnabled();
     await openAiModel.click();
     await expect(modelPicker).toHaveAccessibleName(/Selected model:.*GPT/i);
   });
