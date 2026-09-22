@@ -28,7 +28,6 @@ import type {
   ProviderKeySource,
 } from '@brainstrike/assistant-contract';
 import {
-  getProviderDefinition,
   isSupportedProvider,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -55,14 +54,12 @@ import {
   useFileSystem,
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui/shell';
-import { useModelToggle } from '@brainstrike/settings-ui/settings/models/use-model-toggle';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
-import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssistantDecisionProviders } from './assistant-decision-providers';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
@@ -124,6 +121,7 @@ import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { useEnableModel } from './hooks/use-enable-model';
 import { useForgeBranchLookupActivation, useForgeRunEvents } from './hooks/use-forge-run-events';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
@@ -224,7 +222,6 @@ export function AssistantUiPanelWrapper({
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
-  const { toast } = useToast();
 
   useProviderModelDefaults(
     configuredProviders,
@@ -1041,26 +1038,7 @@ export function AssistantUiPanelWrapper({
     setThreadDraftRuntime,
   });
 
-  const { toggle: toggleModelEnabled } = useModelToggle();
-  const handleEnableModel = useCallback(
-    async (providerId: string, modelId: string): Promise<boolean> => {
-      const runtime = isSupportedProvider(providerId)
-        ? getProviderDefinition(providerId).runtime
-        : undefined;
-      // Same predicate the picker uses to offer the row: only hosted and gateway
-      // providers keep enablement in the model registry.
-      if (runtime !== 'hosted' && runtime !== 'gateway') {
-        toast({
-          description: `${providerId} models are enabled by their runtime, not the model registry.`,
-          title: 'Could not enable this model',
-          variant: 'destructive',
-        });
-        return false;
-      }
-      return toggleModelEnabled(modelId, true);
-    },
-    [toast, toggleModelEnabled]
-  );
+  const handleEnableModel = useEnableModel();
 
   const handleProviderSettingsChange = useCallback(
     (providerId: string, updates: AssistantProviderSettingsUpdate) => {
