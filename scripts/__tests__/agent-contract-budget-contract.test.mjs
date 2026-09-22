@@ -49,26 +49,26 @@ const isContractDoc = (name) => name.endsWith('.md') && !name.startsWith('_');
  * change add them back while still passing.
  */
 const CONTRACT_LINE_BUDGETS = {
-  'agent-self-query.md': 644,
+  'agent-self-query.md': 305,
   'assistant-persistence.md': 2016,
   'assistant-providers.md': 2312,
   'assistant-runtime.md': 4944,
-  'assistant-subagents.md': 3080,
-  'changeset-diff.md': 1168,
+  'assistant-subagents.md': 1626,
+  'changeset-diff.md': 495,
   'ci-quality.md': 924,
-  'code-execution.md': 841,
-  'database.md': 1670,
+  'code-execution.md': 364,
+  'database.md': 852,
   'domain.md': 37,
-  'explorer-search-tapestry.md': 1474,
+  'explorer-search-tapestry.md': 638,
   'issue-tracker.md': 56,
-  'local-inference.md': 809,
+  'local-inference.md': 403,
   'mastra-boundary.md': 403,
-  'mcp-conformance.md': 393,
+  'mcp-conformance.md': 199,
   'platform-contracts.md': 955,
   'README.md': 70,
   'triage-labels.md': 35,
-  'ui-conventions.md': 898,
-  'workspace-context.md': 1845,
+  'ui-conventions.md': 608,
+  'workspace-context.md': 1071,
 };
 
 /**
