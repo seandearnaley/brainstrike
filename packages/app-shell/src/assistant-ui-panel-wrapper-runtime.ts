@@ -1634,6 +1634,10 @@ function resolveAnthropicThinkingShape(input: {
   showReasoning: boolean;
 }): AnthropicProviderOptions['thinking'] | undefined {
   if (input.mandatory) {
+    // Deliberate: with no effort there is nothing to send, so the user's
+    // show-reasoning preference has no effect until an effort is picked —
+    // adaptive REQUIRES the effort parameter vendor-side, and inventing one
+    // would misstate the request. Same as before this change.
     return input.effort === undefined
       ? undefined
       : {
@@ -1675,7 +1679,8 @@ function buildAnthropicOptions(
   // emitted alongside a chosen effort.
   //
   // Thinking-shape rules (mandatory short-circuit, explicit disable on
-  // clear) live on resolveAnthropicThinkingShape above.
+  // clear) live on resolveAnthropicThinkingShape above. `hasLadder` is
+  // exactly "the row declares an `anthropicReasoning` catalog block".
   const thinking = resolveAnthropicThinkingShape({
     budgetTokens: settings.anthropicThinkingBudgetTokens,
     effort,
