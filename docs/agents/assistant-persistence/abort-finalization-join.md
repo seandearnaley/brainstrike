@@ -131,3 +131,21 @@ successful-continuation policy, and before runtime disposal. Their content is
 frozen through the same JSON representation as the memory store, so a value
 accepted by normal storage is not rejected merely by `structuredClone`.
 
+## Streams abandoned before their first chunk (BST-1749, PR #3274)
+
+A step that fails after `agent.stream` has built the native output but before
+any chunk is read owns that output: `wakeNativeConversation`,
+`bindStartedNativeBranch`, `recordRootNativeRun` (the migration-140 native-run
+mapping) and an idle-loop continuation whose mapping the host refuses. Each
+aborts and joins `consumeStream()` before its failure propagates;
+`recordRootNativeRun` and the idle loop go through `settleNativeStream`, so
+their join carries the settlement deadline and records rather than throws, and
+the caller always sees the original refusal. Without the join, Mastra's cancel
+persistence and snapshot DELETEs floated past the end of the turn (BST-1221).
+
+Cancelling is not disposal. In `@mastra/core` 1.64 `MastraModelOutput.fullStream`
+builds a fresh evented `ReadableStream` on every access, and its `cancel` only
+detaches that view's emitter listeners; the base stream's pump, started by
+`pipeThrough` at construction, keeps running. A first draft of the PR #3274 fix
+cancelled a fresh view and passed its test while leaving the pump alive.
+

@@ -290,7 +290,7 @@ async function createInitialTurnAttempt(
       streamAbortContext.signal,
       delegationOutcomes
     );
-    await recordRootNativeRun(runtime, streamResult, streamAbortContext.abort);
+    await recordRootNativeRun(runtime, streamResult, streamAbortContext);
     await bindStartedNativeBranch(streamResult, onNativeStart, streamAbortContext.abort);
     await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
     logger.info(

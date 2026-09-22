@@ -737,6 +737,8 @@ describe('withBackgroundIdleLoop', () => {
 
     await expect(drain(output.fullStream.getReader())).rejects.toBe(refusal);
     // MUTATION: without the discard the refused continuation is never settled.
-    expect(settled).toBe(1);
+    // The consumer's rejection lands BEFORE the settlement reaches
+    // `consumeStream`, so wait for it rather than racing the microtasks.
+    await vi.waitFor(() => expect(settled).toBe(1));
   });
 });

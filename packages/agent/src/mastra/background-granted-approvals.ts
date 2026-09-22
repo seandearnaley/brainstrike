@@ -30,6 +30,7 @@ import {
 import type { buildStreamOptions } from './runtime-assembly/stream-options';
 import type { DelegationOutcomeCapture } from './subagent-delegation';
 import { resolveDiscoveredApprovalToolName } from './suspended-run-discovery';
+import { settleNativeStream } from './turn-attempts';
 
 const logger = createLogger('BackgroundGrantedApprovals');
 
@@ -387,17 +388,17 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
  * without the port is an unrunnable configuration, never a degraded one.
  *
  * This runs with the native stream ALREADY constructed, so a refusal here
- * abandons it: abort it and read it to its close, exactly as the neighbouring
- * binding steps do (`wakeNativeConversation`, `bindStartedNativeBranch`).
- * Mastra runs its cancel persistence and snapshot DELETEs on that close; a
- * stream left unread floats them past the end of the turn and races the
- * storage close (BST-1221). A settlement that fails too keeps both causes —
- * the mapping refusal is why the turn failed.
+ * abandons it: it is settled through `settleNativeStream` with the leg's own
+ * abort context — aborted, read to its close, bounded by the settlement
+ * deadline — before the refusal propagates. Mastra runs its cancel
+ * persistence and snapshot DELETEs on that close; a stream left unread floats
+ * them past the end of the turn and races the storage close (BST-1221). The
+ * settlement records its own failures, so the caller always sees the refusal.
  */
 export async function recordRootNativeRun(
   runtime: MastraAgentRuntime,
-  output: { readonly runId?: unknown; consumeStream(): Promise<unknown> },
-  abort: (reason: Error) => void
+  output: { readonly runId?: unknown } & Parameters<typeof settleNativeStream>[0],
+  streamAbortContext: Parameters<typeof settleNativeStream>[1]
 ): Promise<void> {
   if (!runtime.backgroundTaskManager || runtime.childExecution) {
     return;
@@ -409,15 +410,7 @@ export async function recordRootNativeRun(
     }
     await requireNativeRootRunRecorder(runtime.conversationBinding)(runId);
   } catch (error) {
-    abort(new Error('Native root run mapping failed.', { cause: error }));
-    try {
-      await output.consumeStream();
-    } catch (settleError) {
-      throw new AggregateError(
-        [error, settleError],
-        'Native root run mapping and settlement failed.'
-      );
-    }
+    await settleNativeStream(output, streamAbortContext);
     throw error;
   }
 }
