@@ -1,3 +1,4 @@
+import type { ProviderModelDefaultPolicy } from '@brainstrike/assistant-contract';
 import { hasDownloadedBuiltInLocalLlmModel } from '@brainstrike/assistant-contract/local-llm-artifacts';
 import type { IDatabase } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
@@ -55,7 +56,7 @@ interface ModelRegistryState {
   initializeProviderModelDefaults: (
     db: DbHandle,
     providerId: string,
-    modelIds: readonly string[]
+    policy: ProviderModelDefaultPolicy
   ) => Promise<'initialized' | 'preserved'>;
   isDownloading: Record<string, boolean>; // modelId -> boolean
   isLoading: boolean;
@@ -100,6 +101,7 @@ interface RawModel {
 }
 
 interface RawProviderModelChoice {
+  capabilities: string | object;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   created_at: Date | string;
   id: string;
@@ -125,6 +127,29 @@ function hasExplicitProviderModelChoice(rows: readonly RawProviderModelChoice[])
     hasExplicitChoice ||= Boolean(row.is_enabled) || updatedAt > createdAt;
   }
   return hasExplicitChoice;
+}
+
+function isLlmChoiceRow(row: RawProviderModelChoice): boolean {
+  const capabilities =
+    typeof row.capabilities === 'string'
+      ? (JSON.parse(row.capabilities) as { type?: unknown })
+      : (row.capabilities as { type?: unknown });
+  return capabilities.type === 'llm';
+}
+
+/**
+ * A row no user has ever acted on. Requires BOTH conjuncts: `updated_at ===
+ * created_at` alone would be enough on paper, but demanding `!is_enabled` as
+ * well means this predicate can only ever select a row to turn ON. No path
+ * through the availability policy can revoke a model the user is using.
+ */
+function isUntouchedChoiceRow(row: RawProviderModelChoice): boolean {
+  if (row.is_enabled) {
+    return false;
+  }
+  return (
+    timestampMillis(row.updated_at, 'updated_at') === timestampMillis(row.created_at, 'created_at')
+  );
 }
 
 interface FileSystemAccess {
@@ -332,28 +357,42 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         }
       },
 
-      initializeProviderModelDefaults: async (db, providerId, modelIds) => {
-        const uniqueModelIds = Array.from(new Set(modelIds));
-        if (uniqueModelIds.length === 0) {
-          throw new Error(`No recommended model defaults were provided for ${providerId}.`);
-        }
-
+      initializeProviderModelDefaults: async (db, providerId, policy) => {
         const choiceResult = await db.query<RawProviderModelChoice>(
-          `SELECT id, is_enabled, created_at, updated_at
+          `SELECT id, is_enabled, capabilities, created_at, updated_at
            FROM models WHERE provider_id = $1`,
           [providerId]
         );
 
-        if (hasExplicitProviderModelChoice(choiceResult.rows)) {
-          return 'preserved';
+        let uniqueModelIds: string[];
+        if (policy.kind === 'all') {
+          // Availability policy: every LLM row nobody has acted on. Ids come
+          // from the DB itself, so catalog/DB drift cannot arise here and
+          // there is nothing to validate against.
+          uniqueModelIds = choiceResult.rows
+            .filter((row) => isLlmChoiceRow(row) && isUntouchedChoiceRow(row))
+            .map((row) => row.id);
+        } else {
+          // Starter kit: unchanged behaviour. One enabled or edited row in the
+          // provider means the user has curated it; do not impose a set.
+          if (hasExplicitProviderModelChoice(choiceResult.rows)) {
+            return 'preserved';
+          }
+          uniqueModelIds = Array.from(new Set(policy.modelIds));
+          if (uniqueModelIds.length === 0) {
+            throw new Error(`No recommended model defaults were provided for ${providerId}.`);
+          }
+          const choicesById = new Map(choiceResult.rows.map((row) => [row.id, row]));
+          const missingModelIds = uniqueModelIds.filter((modelId) => !choicesById.has(modelId));
+          if (missingModelIds.length > 0) {
+            throw new Error(
+              `Recommended ${providerId} models are missing from the catalog: ${missingModelIds.join(', ')}`
+            );
+          }
         }
 
-        const choicesById = new Map(choiceResult.rows.map((row) => [row.id, row]));
-        const missingModelIds = uniqueModelIds.filter((modelId) => !choicesById.has(modelId));
-        if (missingModelIds.length > 0) {
-          throw new Error(
-            `Recommended ${providerId} models are missing from the catalog: ${missingModelIds.join(', ')}`
-          );
+        if (uniqueModelIds.length === 0) {
+          return 'preserved';
         }
 
         const placeholders = uniqueModelIds.map((_, index) => `$${index + 2}`).join(', ');

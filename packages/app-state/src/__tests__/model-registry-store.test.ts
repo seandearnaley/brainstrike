@@ -531,14 +531,17 @@ describe('model-registry-store', () => {
   });
 
   describe('initializeProviderModelDefaults', () => {
+    const llmCapabilities = { streaming: true, type: 'llm' } as const;
     const untouchedRows = [
       {
+        capabilities: llmCapabilities,
         created_at: '2026-07-22T12:00:00.000Z',
         id: 'model-a',
         is_enabled: false,
         updated_at: '2026-07-22T12:00:00.000Z',
       },
       {
+        capabilities: llmCapabilities,
         created_at: '2026-07-22T12:00:00.000Z',
         id: 'model-b',
         is_enabled: false,
@@ -569,7 +572,10 @@ describe('model-registry-store', () => {
 
       const result = await useModelRegistryStore
         .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b']);
+        .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
+          kind: 'seed',
+          modelIds: ['model-a', 'model-b'],
+        });
 
       expect(result).toBe('initialized');
       expect(events).toEqual(['update', 'sync']);
@@ -599,7 +605,10 @@ describe('model-registry-store', () => {
 
       const result = await useModelRegistryStore
         .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b']);
+        .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
+          kind: 'seed',
+          modelIds: ['model-a', 'model-b'],
+        });
 
       expect(result).toBe('preserved');
       expect(mockDb.query).toHaveBeenCalledTimes(1);
@@ -616,7 +625,10 @@ describe('model-registry-store', () => {
 
       const result = await useModelRegistryStore
         .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b']);
+        .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
+          kind: 'seed',
+          modelIds: ['model-a', 'model-b'],
+        });
 
       expect(result).toBe('preserved');
       expect(mockDb.query).toHaveBeenCalledTimes(1);
@@ -636,7 +648,10 @@ describe('model-registry-store', () => {
       await expect(
         useModelRegistryStore
           .getState()
-          .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b'])
+          .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
+            kind: 'seed',
+            modelIds: ['model-a', 'model-b'],
+          })
       ).rejects.toThrow('invalid updated_at timestamp');
     });
 
@@ -656,7 +671,10 @@ describe('model-registry-store', () => {
 
       const result = await useModelRegistryStore
         .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b']);
+        .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
+          kind: 'seed',
+          modelIds: ['model-a', 'model-b'],
+        });
 
       expect(result).toBe('preserved');
       expect(mockDb.query).toHaveBeenCalledTimes(1);
@@ -671,7 +689,10 @@ describe('model-registry-store', () => {
       await expect(
         useModelRegistryStore
           .getState()
-          .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a', 'model-b'])
+          .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
+            kind: 'seed',
+            modelIds: ['model-a', 'model-b'],
+          })
       ).rejects.toThrow('model-b');
       expect(mockDb.query).toHaveBeenCalledTimes(1);
     });
@@ -690,9 +711,155 @@ describe('model-registry-store', () => {
       await expect(
         useModelRegistryStore
           .getState()
-          .initializeProviderModelDefaults(mockDb as never, 'openrouter', ['model-a'])
+          .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
+            kind: 'seed',
+            modelIds: ['model-a'],
+          })
       ).rejects.toThrow('disk write failed');
       expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(false);
+    });
+
+    it('enables an untouched row the catalog shipped disabled (BST-1794)', async () => {
+      // The bug, stated: an anthropic profile holding its migration-057 rows
+      // enabled and `claude-opus-5` shipped false. The provider-wide predicate
+      // saw one enabled row and preserved everything, so the new model was
+      // unreachable forever.
+      useModelRegistryStore.setState({
+        models: [
+          createMockModel({ id: 'claude-sonnet-5', isEnabled: true, providerId: 'anthropic' }),
+          createMockModel({ id: 'claude-opus-5', isEnabled: false, providerId: 'anthropic' }),
+        ],
+      });
+      const mockDb = {
+        query: vi
+          .fn()
+          .mockResolvedValueOnce({
+            rows: [
+              {
+                capabilities: llmCapabilities,
+                created_at: '2026-07-22T12:00:00.000Z',
+                id: 'claude-sonnet-5',
+                is_enabled: true,
+                updated_at: '2026-07-22T12:00:00.000Z',
+              },
+              {
+                capabilities: llmCapabilities,
+                created_at: '2026-09-04T12:00:00.000Z',
+                id: 'claude-opus-5',
+                is_enabled: false,
+                updated_at: '2026-09-04T12:00:00.000Z',
+              },
+            ],
+          })
+          .mockResolvedValueOnce({ rows: [{ id: 'claude-opus-5' }] }),
+        syncToFs: vi.fn(async () => undefined),
+      };
+
+      const result = await useModelRegistryStore
+        .getState()
+        .initializeProviderModelDefaults(mockDb as never, 'anthropic', { kind: 'all' });
+
+      expect(result).toBe('initialized');
+      expect(mockDb.query).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('UPDATE models SET is_enabled = true, updated_at = NOW()'),
+        ['anthropic', 'claude-opus-5']
+      );
+      expect(
+        useModelRegistryStore.getState().models.find((model) => model.id === 'claude-opus-5')
+          ?.isEnabled
+      ).toBe(true);
+    });
+
+    it('leaves a row the user deliberately disabled switched off', async () => {
+      useModelRegistryStore.setState({
+        models: [createMockModel({ id: 'gpt-5.4', isEnabled: false, providerId: 'openai' })],
+      });
+      const mockDb = {
+        query: vi.fn().mockResolvedValueOnce({
+          rows: [
+            {
+              capabilities: llmCapabilities,
+              created_at: '2026-07-22T12:00:00.000Z',
+              id: 'gpt-5.4',
+              is_enabled: false,
+              // A later updated_at is the durable record of a user toggle;
+              // catalog upserts never write this column.
+              updated_at: '2026-08-01T09:30:00.000Z',
+            },
+          ],
+        }),
+        syncToFs: vi.fn(async () => undefined),
+      };
+
+      const result = await useModelRegistryStore
+        .getState()
+        .initializeProviderModelDefaults(mockDb as never, 'openai', { kind: 'all' });
+
+      expect(result).toBe('preserved');
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
+      expect(mockDb.syncToFs).not.toHaveBeenCalled();
+    });
+
+    it('never touches embedding rows under an availability policy', async () => {
+      useModelRegistryStore.setState({
+        models: [
+          createMockModel({ id: 'text-embedding-3-large', isEnabled: false, providerId: 'openai' }),
+        ],
+      });
+      const mockDb = {
+        query: vi.fn().mockResolvedValueOnce({
+          rows: [
+            {
+              capabilities: { defaultDimension: 3072, type: 'embedding' },
+              created_at: '2026-07-22T12:00:00.000Z',
+              id: 'text-embedding-3-large',
+              is_enabled: false,
+              updated_at: '2026-07-22T12:00:00.000Z',
+            },
+          ],
+        }),
+        syncToFs: vi.fn(async () => undefined),
+      };
+
+      const result = await useModelRegistryStore
+        .getState()
+        .initializeProviderModelDefaults(mockDb as never, 'openai', { kind: 'all' });
+
+      expect(result).toBe('preserved');
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves a curated profile under a seed policy', async () => {
+      // The other half of the split: a user who picked 3 of 58 OpenRouter
+      // routes must not silently acquire the recommended set.
+      useModelRegistryStore.setState({
+        models: [createMockModel({ id: 'model-a', isEnabled: true, providerId: 'openrouter' })],
+      });
+      const mockDb = {
+        query: vi.fn().mockResolvedValueOnce({
+          rows: [
+            {
+              capabilities: llmCapabilities,
+              created_at: '2026-07-22T12:00:00.000Z',
+              id: 'model-a',
+              is_enabled: true,
+              updated_at: '2026-07-22T12:00:00.000Z',
+            },
+          ],
+        }),
+        syncToFs: vi.fn(async () => undefined),
+      };
+
+      const result = await useModelRegistryStore
+        .getState()
+        .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
+          kind: 'seed',
+          modelIds: ['model-a', 'model-b'],
+        });
+
+      expect(result).toBe('preserved');
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
     });
   });
 
