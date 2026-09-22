@@ -60,3 +60,27 @@ legs, plus early refusal, claim release, and no sibling-answer write),
 generic-error negative matrix), and
 `assistant-run-schema-upgrade-path.test.ts`, whose
 bootstrap-convergence control now expects exactly this column to differ.
+
+## NULL as absence and single-row reads (BST-1749, PR #3274)
+
+Because `readBackgroundGeneration` throws on NULL, a hand-seeded host leg in a
+test declares its generation exactly as `createThreadRun` would.
+
+A leg whose `generation_run_id` is unset maps no native run: `recordNativeRootRun`'s
+`current_run` CTE filters `generation_run_id IS NOT NULL`, so the leg refuses with
+`host-scope-invalid`. The same-generation join then compares with `=` rather than
+`IS NOT DISTINCT FROM`. That operator choice is hardening, not a guarded behaviour:
+with the CTE filter in place `current_run.generation_run_id` is never NULL, so both
+operators agree on every reachable input — reverting it leaves every
+generation-port case green. What the tests pin is the reachable half: two legs
+with no generation are never one generation, and neither maps a run
+(`delegated-generation-ports.integration.test.ts`); removing the CTE filter
+reddens it.
+
+`resolveGenerationRunId`'s three reads each match by primary key —
+`native_run_id`, a continuation's `id`, and an invocation's
+`(root_thread_id, parent_runtime_run_id, parent_tool_call_id)` (migration 127's
+`PRIMARY KEY`) — joined to the owner leg by `id`. `readSoleGenerationRunId`
+throws on a second row instead of taking `rows[0]` of an unordered result, which
+would pick a generation arbitrarily (`generation-run-id-read.test.ts`).
+

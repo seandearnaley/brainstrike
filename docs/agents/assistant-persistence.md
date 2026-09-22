@@ -124,11 +124,11 @@ cancellation only.
   when a recovery continuation fails during construction.
 - Order is load-bearing: `TurnAttempt.settleNativeStream` awaits
   `consumeStream()` — which resolves after Mastra's snapshot cleanup — BEFORE the
-  seam's save and before `runtime.dispose()`. Saving first puts the marker on the
-  completed tool-work row and lets Mastra's partial-text rows order after it.
+  seam's save and before `runtime.dispose()`.
 - Bound that join with `NATIVE_STREAM_SETTLE_DEADLINE_MS` (30 s), then record
   `mastra_native_stream_settle_timeout` at error and proceed, so a hung provider
   socket cannot hold disposal hostage.
+- A step failing before a built stream's first chunk joins `consumeStream()`, never `cancel`.
 - `resolveMemoryOption` carries the merged thread config's `readOnly` onto the
   request options and returns a branded `ResolvedAgentMemoryOption`; the seam
   accepts nothing else. Read-only memory streams skip the seam entirely.

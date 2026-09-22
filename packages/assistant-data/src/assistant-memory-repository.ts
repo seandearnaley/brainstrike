@@ -725,6 +725,29 @@ export interface RecordAssistantMessageParentInput {
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 
 /**
+ * The generation ONE generation read names, from the rows it matched.
+ *
+ * Every predicate behind those reads is a primary key —
+ * `brainstrike_assistant_native_runs.native_run_id`, a continuation's `id`, an
+ * invocation's `(root_thread_id, parent_runtime_run_id, parent_tool_call_id)` —
+ * joined to its owner leg by `id`, so one row or none is the only possible
+ * shape. A second row means that assumption is wrong; taking `rows[0]` of an
+ * unordered result would pick a generation arbitrarily and give this leg a
+ * ledger no sibling leg of its turn shares. The read says so instead.
+ */
+export function readSoleGenerationRunId(
+  rows: readonly { readonly generationRunId: string | null }[]
+): string | null {
+  if (rows.length > 1) {
+    throw new Error(
+      `A generation read matched ${rows.length} rows; its predicate is a primary key and must match one row or none.`
+    );
+  }
+  const value = rows[0]?.generationRunId;
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/**
  * The GENERATION a new leg belongs to (migration 140, BST-1749). An initial
  * send or a regeneration opens its OWN; a leg that answers a decision inherits
  * the generation of the leg whose paused run it continues — a child
@@ -743,8 +766,7 @@ async function resolveGenerationRunId(
       sql,
       values as Parameters<typeof database.query>[1]
     );
-    const value = found.rows[0]?.generationRunId;
-    return typeof value === 'string' && value.length > 0 ? value : null;
+    return readSoleGenerationRunId(found.rows);
   };
   if (input.childContinuation) {
     return await readGeneration(

@@ -824,8 +824,7 @@ Guard: `packages/db/__tests__/migration-139-swarm-diagnostics.integration.test.t
   `host_run_id`, a ROOT-OWN pause through the native run mapped here). Pre-migration rows
   are backfilled to their OWN id.
 - NULL means nothing mapped that leg's paused run, and `readBackgroundGeneration` THROWS
-  there rather than inventing an identity — so a hand-seeded host leg in a test declares
-  its generation exactly as `createThreadRun` would.
+  there rather than inventing an identity.
 - The two consumers differ in what that throw costs: `createLedgerPublisher.publish`
   catches it and logs `background_ledger_read_failed`, so the leg survives and loses only
   that status row, while the resume path calls `requireBackgroundGeneration` eagerly
@@ -838,6 +837,7 @@ Guard: `packages/db/__tests__/migration-139-swarm-diagnostics.integration.test.t
 - The mapping is FIRST-WRITER-WINS: an approval leg re-streams the very run it resumed, so
   the row keeps the leg that STARTED it, and a run already mapped under a different
   generation is rejected rather than silently re-parented.
+- NULL is an absence: an unset leg maps no native run; a second generation-read row throws.
 - Rows reference `brainstrike_assistant_thread_runs` with `ON DELETE CASCADE`, and host
   runs cascade from `mastra_threads`, so the table sits in `RESET_EXCLUDED_TABLES` with
   that reason and needs no clear-path entry.
