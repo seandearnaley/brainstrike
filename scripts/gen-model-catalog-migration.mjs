@@ -29,8 +29,9 @@
  *   registry's composer copy.
  * - `sort_order` appends, computed in SQL at apply time, so the migration is
  *   correct against whatever rows a given profile already holds. The base
- *   excludes the ids the statement itself inserts (BST-1704), so a second
- *   application recomputes identical offsets instead of sliding rows by +N.
+ *   excludes the ids the statement itself inserts for the same provider
+ *   (BST-1704), so re-applying the migration as that provider's newest
+ *   migration recomputes identical offsets instead of sliding rows by +N.
  * - The upsert preserves the user's toggle with `is_enabled = models.is_enabled`.
  *   Using `EXCLUDED.is_enabled` would clobber it (database.md rule 3).
  *
@@ -129,13 +130,14 @@ function collectCatalogRows(catalog) {
   return rows;
 }
 
-function renderValuesRow(row, sortOrderOffset, insertedIds) {
-  // BST-1704: the base excludes the ids this statement inserts, so the
-  // `ON CONFLICT` branch recomputes the same offsets when the migration
-  // re-applies instead of sliding every row by +N.
+function renderValuesRow(row, sortOrderOffset, excludedIds) {
+  // BST-1704: the base excludes the ids this statement inserts for the same
+  // provider, so the `ON CONFLICT` branch recomputes the same offsets when
+  // the migration re-applies as that provider's newest migration, instead of
+  // sliding every row by +N.
   const sortOrder =
     '(SELECT COALESCE(MAX(sort_order), 0) FROM models WHERE provider_id = ' +
-    `${quoteSqlString(row.providerId)} AND id NOT IN (${insertedIds})) + ${sortOrderOffset}`;
+    `${quoteSqlString(row.providerId)} AND id NOT IN (${excludedIds})) + ${sortOrderOffset}`;
   return [
     '      (',
     `        ${quoteSqlString(row.id)},`,
@@ -151,12 +153,31 @@ function renderValuesRow(row, sortOrderOffset, insertedIds) {
 // Exported for the idempotency tests (BST-1704), which apply the rendered
 // `up` SQL twice against a throwaway database.
 export function renderUpSql(additions) {
+  if (additions.length === 0) {
+    throw new Error('renderUpSql requires at least one addition to emit.');
+  }
   const offsets = new Map();
-  const insertedIds = additions.map((row) => quoteSqlString(row.id)).join(', ');
+  // Each row's base excludes the ids this statement inserts for the SAME
+  // provider. Other providers' rows never enter a per-provider MAX, so
+  // excluding them would only bloat the SQL — and `models.id` is the global
+  // PK, so same-provider exclusion is sufficient even if an id were reused
+  // across providers.
+  const excludedIdsByProvider = new Map();
+  for (const row of additions) {
+    const previous = excludedIdsByProvider.get(row.providerId);
+    excludedIdsByProvider.set(
+      row.providerId,
+      previous === undefined ? quoteSqlString(row.id) : `${previous}, ${quoteSqlString(row.id)}`
+    );
+  }
   const values = additions.map((row) => {
     const offset = (offsets.get(row.providerId) ?? 0) + 1;
     offsets.set(row.providerId, offset);
-    return renderValuesRow(row, offset, insertedIds);
+    const excludedIds = excludedIdsByProvider.get(row.providerId);
+    if (excludedIds === undefined) {
+      throw new Error(`renderUpSql has no exclusion list for provider ${row.providerId}.`);
+    }
+    return renderValuesRow(row, offset, excludedIds);
   });
 
   return [

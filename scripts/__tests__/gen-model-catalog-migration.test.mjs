@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { planModelCatalogMigration } from '../gen-model-catalog-migration.mjs';
+import { planModelCatalogMigration, renderUpSql } from '../gen-model-catalog-migration.mjs';
 import {
   analyzeModelCatalogMigrationContract,
   STATIC_CATALOG_STALE_ROW_ALLOWLIST,
@@ -166,7 +166,7 @@ describe('gen-model-catalog-migration', () => {
     );
   });
 
-  it('excludes every inserted id from each row base across providers (BST-1704)', () => {
+  it("excludes each provider's inserted ids from its own row base (BST-1704)", () => {
     const { migration } = planModelCatalogMigration({
       migrationFiles: [SEEDED_OPENAI_ROW],
       migrationIndexSource: MIGRATION_INDEX_SOURCE,
@@ -187,14 +187,15 @@ describe('gen-model-catalog-migration', () => {
       ],
     });
 
+    assert.match(migration.source, /WHERE provider_id = 'openai' AND id NOT IN \('gpt-a'\)\) \+ 1/);
     assert.match(
       migration.source,
-      /WHERE provider_id = 'openai' AND id NOT IN \('gpt-a', 'embed-new'\)\) \+ 1/
+      /WHERE provider_id = 'cohere' AND id NOT IN \('embed-new'\)\) \+ 1/
     );
-    assert.match(
-      migration.source,
-      /WHERE provider_id = 'cohere' AND id NOT IN \('gpt-a', 'embed-new'\)\) \+ 1/
-    );
+  });
+
+  it('refuses to render an up block with no additions', () => {
+    assert.throws(() => renderUpSql([]), /at least one addition/);
   });
 
   it('registers the migration in the numbered manifest, which derives the Drizzle ledger', () => {

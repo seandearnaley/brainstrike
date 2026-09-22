@@ -90,6 +90,7 @@ export { MigrationRunner } from './migration-runner.js';`,
     expect(migration).not.toBeNull();
 
     const up = renderUpSql(additions);
+    expect(migration.source).toContain(up);
 
     await db.exec(up);
     const afterFirst = await sortOrders(db);
