@@ -126,4 +126,123 @@ describe('models.updated_at write guard — INSERT target-column list (BST-1794 
 
     assert.deepEqual(failures, []);
   });
+
+  // Regression coverage for the closing-quote backtrack bug (re-review
+  // finding): the old `\b`-terminated pattern matched `public."models"` up to
+  // right BEFORE the closing quote, so `extractInsertColumnListSource` saw a
+  // leading `"` instead of `(` and returned null — silently bypassing the
+  // column-list guard for any quoted table target.
+  it('flags an INSERT into public."models" (unquoted schema, quoted table) that lists updated_at', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-public-quoted-table.ts',
+        'migration099FakePublicQuotedTable',
+        `INSERT INTO public."models" (id, updated_at) VALUES ('x', NOW());`
+      ),
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.file),
+      ['packages/db/src/migrations/099-fake-public-quoted-table.ts']
+    );
+  });
+
+  it('flags an INSERT into "public"."models" (fully-quoted schema and table) that lists created_at', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-fully-quoted-table.ts',
+        'migration099FakeFullyQuotedTable',
+        `INSERT INTO "public"."models" (id, created_at) VALUES ('x', NOW());`
+      ),
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.file),
+      ['packages/db/src/migrations/099-fake-fully-quoted-table.ts']
+    );
+  });
+
+  it('flags an INSERT into bare quoted "models" that lists updated_at', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-bare-quoted-table.ts',
+        'migration099FakeBareQuotedTable',
+        `INSERT INTO "models" (id, updated_at) VALUES ('x', NOW());`
+      ),
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.file),
+      ['packages/db/src/migrations/099-fake-bare-quoted-table.ts']
+    );
+  });
+
+  it('does not flag an UPDATE against the unrelated models_archive table', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-models-archive-update.ts',
+        'migration099FakeModelsArchiveUpdate',
+        'UPDATE models_archive SET updated_at = NOW();'
+      ),
+    ]);
+
+    assert.deepEqual(failures, []);
+  });
+
+  it('does not flag an INSERT into the quoted "models_archive" table that lists updated_at', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-models-archive-insert.ts',
+        'migration099FakeModelsArchiveInsert',
+        `INSERT INTO "models_archive" (id, updated_at) VALUES ('x', NOW());`
+      ),
+    ]);
+
+    assert.deepEqual(failures, []);
+  });
+
+  // Regression coverage for the quoted-identifier paren-scan bug (re-review
+  // finding): a double-quoted column name can itself contain `(`/`)`, which
+  // must not be mistaken for the column list's own nesting.
+  it('flags an INSERT whose column list has a quoted identifier containing a closing paren, followed by updated_at', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-quoted-paren-column.ts',
+        'migration099FakeQuotedParenColumn',
+        `INSERT INTO models ("legacy)", updated_at) VALUES ('x', NOW());`
+      ),
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.file),
+      ['packages/db/src/migrations/099-fake-quoted-paren-column.ts']
+    );
+  });
+
+  it('flags an INSERT whose quoted identifier contains an escaped quote and an embedded paren, followed by updated_at', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-escaped-quote-column.ts',
+        'migration099FakeEscapedQuoteColumn',
+        `INSERT INTO models ("a""(b", updated_at) VALUES ('x', NOW());`
+      ),
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.file),
+      ['packages/db/src/migrations/099-fake-escaped-quote-column.ts']
+    );
+  });
+
+  it('does not flag a quoted identifier "updated_at)" that is not the bare updated_at column', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-not-updated-at.ts',
+        'migration099FakeNotUpdatedAt',
+        `INSERT INTO models ("updated_at)") VALUES ('x');`
+      ),
+    ]);
+
+    assert.deepEqual(failures, []);
+  });
 });

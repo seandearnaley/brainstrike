@@ -403,15 +403,19 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           if (uniqueModelIds.length === 0) {
             throw new Error(`No recommended model defaults were provided for ${providerId}.`);
           }
-          if (hasExplicitProviderModelChoice(choiceResult.rows)) {
-            return 'preserved';
-          }
+          // Validate seed/catalog drift BEFORE the curated-provider gate: a
+          // seed id absent from the DB must throw even when the provider is
+          // already curated, rather than being hidden behind an early
+          // 'preserved' return.
           const choicesById = new Map(choiceResult.rows.map((row) => [row.id, row]));
           const missingModelIds = uniqueModelIds.filter((modelId) => !choicesById.has(modelId));
           if (missingModelIds.length > 0) {
             throw new Error(
               `Recommended ${providerId} models are missing from the catalog: ${missingModelIds.join(', ')}`
             );
+          }
+          if (hasExplicitProviderModelChoice(choiceResult.rows)) {
+            return 'preserved';
           }
         }
 

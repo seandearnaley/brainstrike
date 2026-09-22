@@ -39,6 +39,41 @@ export function readSqlStringLiteral(sql, startIndex) {
   return null;
 }
 
+/**
+ * Read a double-quoted SQL identifier starting at `startIndex` (where
+ * `sql[startIndex] === '"'`), returning `null` if it is unterminated. Doubled
+ * `""` inside one is the standard SQL escape for a literal quote in the
+ * identifier — mirrors `readSqlStringLiteral` but for identifiers, so a `(` or
+ * `)` inside a quoted column name (e.g. `"legacy)"`) is never mistaken for
+ * paren-nesting syntax.
+ */
+export function readSqlQuotedIdentifier(sql, startIndex) {
+  if (sql[startIndex] !== '"') {
+    return null;
+  }
+
+  let value = '';
+  let index = startIndex + 1;
+  while (index < sql.length) {
+    const char = sql[index];
+    if (char !== '"') {
+      value += char;
+      index += 1;
+      continue;
+    }
+
+    if (sql[index + 1] === '"') {
+      value += '"';
+      index += 2;
+      continue;
+    }
+
+    return { endIndex: index + 1, value };
+  }
+
+  return null;
+}
+
 // Matches the START of a whole `UPDATE models ...` or `INSERT INTO models
 // (...) ...` statement, including a schema-qualified target in any quoting
 // combination — `public.models`, `"public"."models"`, `public."models"` — by
@@ -53,7 +88,7 @@ export function readSqlStringLiteral(sql, startIndex) {
 // unrelated later statement, letting a `providers` write masquerade as a
 // `models` one).
 export const MODELS_WRITE_STATEMENT_START_PATTERN =
-  /\b(?:UPDATE|INSERT\s+INTO)\s+(?:"?public"?\s*\.\s*)?"?models"?\b/gi;
+  /\b(?:UPDATE|INSERT\s+INTO)\s+(?:(?:"public"|public)\s*\.\s*)?(?:"models"|models)(?![\w$])/gi;
 
 // Keywords that can legitimately open a new top-level SQL statement. Used by
 // `findModelsStatementEnd` to recognize "the `models` statement ended here"
@@ -143,9 +178,12 @@ export function findModelsStatementEnd(sql, searchFrom) {
  * `SELECT`, `WITH`, or `DEFAULT VALUES` — return that list's source text.
  * Returns `null` for a plain `UPDATE` (no column list follows the table name)
  * or an `INSERT ... DEFAULT VALUES` (no parenthesized column list at all).
- * The column list itself is just comma-separated, optionally double-quoted
- * identifiers — no string literals or nested parens are legal there — so a
- * plain depth-counted scan for the matching `)` is enough.
+ * The column list itself is comma-separated, optionally double-quoted
+ * identifiers. A double-quoted identifier can legally contain `(`/`)`
+ * (e.g. `"legacy)"`), so those are tracked and skipped over rather than
+ * counted as nesting; single-quoted string literals are skipped the same way
+ * via `readSqlStringLiteral` even though a bare column list should not
+ * contain one, purely for robustness against malformed input.
  */
 export function extractInsertColumnListSource(afterTableSource) {
   const openMatch = afterTableSource.match(/^\s*\(/);
@@ -155,8 +193,22 @@ export function extractInsertColumnListSource(afterTableSource) {
 
   const openIndex = openMatch[0].length - 1;
   let depth = 0;
-  for (let index = openIndex; index < afterTableSource.length; index += 1) {
+  let index = openIndex;
+  while (index < afterTableSource.length) {
     const char = afterTableSource[index];
+
+    if (char === '"') {
+      const parsed = readSqlQuotedIdentifier(afterTableSource, index);
+      index = parsed ? parsed.endIndex : afterTableSource.length;
+      continue;
+    }
+
+    if (char === "'") {
+      const parsed = readSqlStringLiteral(afterTableSource, index);
+      index = parsed ? parsed.endIndex : afterTableSource.length;
+      continue;
+    }
+
     if (char === '(') {
       depth += 1;
     } else if (char === ')') {
@@ -165,19 +217,63 @@ export function extractInsertColumnListSource(afterTableSource) {
         return afterTableSource.slice(openIndex + 1, index);
       }
     }
+
+    index += 1;
   }
 
   return null;
 }
 
 /**
+ * Split a column-list source into its individual identifier tokens. Each
+ * token is a double-quoted identifier read verbatim via
+ * `readSqlQuotedIdentifier` (case-sensitive, may contain `,`/`(`/`)`), or a
+ * bare run of identifier characters between commas otherwise. Anything else
+ * (whitespace, commas, stray characters) is skipped.
+ */
+function parseColumnListIdentifiers(columnListSource) {
+  const identifiers = [];
+  let index = 0;
+  while (index < columnListSource.length) {
+    const char = columnListSource[index];
+
+    if (char === '"') {
+      const parsed = readSqlQuotedIdentifier(columnListSource, index);
+      if (!parsed) {
+        break;
+      }
+      identifiers.push({ quoted: true, value: parsed.value });
+      index = parsed.endIndex;
+      continue;
+    }
+
+    if (/[A-Za-z0-9_$]/.test(char)) {
+      let end = index + 1;
+      while (end < columnListSource.length && /[A-Za-z0-9_$]/.test(columnListSource[end])) {
+        end += 1;
+      }
+      identifiers.push({ quoted: false, value: columnListSource.slice(index, end) });
+      index = end;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  return identifiers;
+}
+
+/**
  * Does `columnName` (e.g. `updated_at`) appear in `columnListSource` as a
- * whole target column — optionally double-quoted, bounded by `,`/`(`/`)` or
- * the list's own start/end? An `INSERT INTO models (id, name, updated_at)
- * VALUES (...)` writes `updated_at` through this column list exactly like an
- * explicit `updated_at = ...` assignment would, and a bare substring test
- * would also wrongly match `updated_at_hint` or a string literal value that
- * happens to spell the column name.
+ * whole target column? An `INSERT INTO models (id, name, updated_at) VALUES
+ * (...)` writes `updated_at` through this column list exactly like an
+ * explicit `updated_at = ...` assignment would. Column tokens are parsed via
+ * `parseColumnListIdentifiers` so a quoted identifier like `"updated_at)"` —
+ * whose unquoted content isn't the bare identifier `updated_at` — is compared
+ * as the single literal identifier it is, not matched by a substring or
+ * unbalanced-quote heuristic; a bare (unquoted) token matches case-
+ * insensitively, matching Postgres's own unquoted-identifier folding, while a
+ * quoted token `"updated_at"` matches case-sensitively.
  */
 export function insertColumnListWritesColumn(afterTableSource, columnName) {
   const columnList = extractInsertColumnListSource(afterTableSource);
@@ -185,6 +281,9 @@ export function insertColumnListWritesColumn(afterTableSource, columnName) {
     return false;
   }
 
-  const boundedColumnPattern = new RegExp(`(?:^|[,(])\\s*"?${columnName}"?\\s*(?:[,)]|$)`, 'i');
-  return boundedColumnPattern.test(columnList);
+  return parseColumnListIdentifiers(columnList).some((identifier) =>
+    identifier.quoted
+      ? identifier.value === columnName
+      : identifier.value.toLowerCase() === columnName.toLowerCase()
+  );
 }

@@ -615,7 +615,7 @@ describe('model-registry-store', () => {
       expect(mockDb.syncToFs).not.toHaveBeenCalled();
     });
 
-    it('preserves an explicit choice before requiring every recommended catalog row', async () => {
+    it('requires every recommended catalog row before an explicit choice can preserve', async () => {
       const mockDb = {
         query: vi.fn().mockResolvedValue({
           rows: [{ ...untouchedRows[0], is_enabled: 1 }],
@@ -623,14 +623,14 @@ describe('model-registry-store', () => {
         syncToFs: vi.fn(),
       };
 
-      const result = await useModelRegistryStore
-        .getState()
-        .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
-          kind: 'seed',
-          modelIds: ['model-a', 'model-b'],
-        });
-
-      expect(result).toBe('preserved');
+      await expect(
+        useModelRegistryStore
+          .getState()
+          .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
+            kind: 'seed',
+            modelIds: ['model-a', 'model-b'],
+          })
+      ).rejects.toThrow('Recommended openrouter models are missing from the catalog: model-b');
       expect(mockDb.query).toHaveBeenCalledTimes(1);
       expect(mockDb.syncToFs).not.toHaveBeenCalled();
     });
@@ -866,7 +866,7 @@ describe('model-registry-store', () => {
       ).rejects.toThrow('No recommended model defaults were provided for openrouter.');
     });
 
-    it('preserves a curated profile under a seed policy', async () => {
+    it('preserves a curated profile under a seed policy when every seed id exists', async () => {
       // The other half of the split: a user who picked 3 of 58 OpenRouter
       // routes must not silently acquire the recommended set.
       useModelRegistryStore.setState({
@@ -891,12 +891,12 @@ describe('model-registry-store', () => {
         .getState()
         .initializeProviderModelDefaults(mockDb as never, 'openrouter', {
           kind: 'seed',
-          modelIds: ['model-a', 'model-b'],
+          modelIds: ['model-a'],
         });
 
       expect(result).toBe('preserved');
       expect(mockDb.query).toHaveBeenCalledTimes(1);
-    });
+    }); // Missing-seed-id-while-curated: model-registry-store-seed-policy.test.ts
   });
 
   describe('toggleProvider', () => {
