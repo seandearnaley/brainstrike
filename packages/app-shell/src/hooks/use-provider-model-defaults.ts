@@ -1,7 +1,7 @@
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   getProviderDisplayName,
-  PROVIDER_MODEL_DEFAULT_POLICIES,
+  getProviderModelDefaultPolicy,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import type { DbHandle } from '@brainstrike/db/react';
@@ -40,7 +40,7 @@ export function useProviderModelDefaults(
   configuredProviders: readonly SupportedProvider[],
   db: DbHandle | null,
   secretsVersion: number,
-  providerDiscoveryEnabled = true,
+  providerDiscoveryEnabled: boolean,
   providerReadErrors?: Partial<Record<SupportedProvider, string>>
 ): void {
   const hasLoaded = useModelRegistryStore((state) => state.hasLoaded);
@@ -48,7 +48,7 @@ export function useProviderModelDefaults(
   const initializeProviderModelDefaults = useModelRegistryStore(
     (state) => state.initializeProviderModelDefaults
   );
-  const attempted = useRef<Map<SupportedProvider, InitializationAttempt>>(new Map());
+  const attempted = useRef<Map<SupportedProvider, InitializationAttempt> | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -56,17 +56,20 @@ export function useProviderModelDefaults(
       return;
     }
 
+    attempted.current ??= new Map<SupportedProvider, InitializationAttempt>();
+    const attemptedProviders = attempted.current;
+
     for (const provider of configuredProviders) {
-      const policy = PROVIDER_MODEL_DEFAULT_POLICIES[provider];
+      const policy = getProviderModelDefaultPolicy(provider);
       if (!policy || providerReadErrors?.[provider]) {
         continue;
       }
 
-      const previous = attempted.current.get(provider);
+      const previous = attemptedProviders.get(provider);
       if (previous?.db === db && previous.secretsVersion === secretsVersion) {
         continue;
       }
-      attempted.current.set(provider, { db, secretsVersion });
+      attemptedProviders.set(provider, { db, secretsVersion });
 
       void initializeProviderModelDefaults(db, provider, policy).catch((error: unknown) => {
         const description = errorMessage(error);

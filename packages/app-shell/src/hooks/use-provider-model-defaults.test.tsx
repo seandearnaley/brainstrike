@@ -5,9 +5,25 @@ import { useProviderModelDefaults } from './use-provider-model-defaults';
 const initializeProviderModelDefaults = vi.fn(async () => 'initialized' as const);
 const toast = vi.fn();
 
+interface MockRegistryState {
+  error: string | null;
+  hasLoaded: boolean;
+  initializeProviderModelDefaults: typeof initializeProviderModelDefaults;
+}
+
+// Mutable so guard-clause tests can flip `hasLoaded`/`error` between cases.
+// A hardcoded literal here would make `hasLoaded &&`/`|| registryError` in
+// the hook's entry guard unmutatable — deleting either clause would fail no
+// test (review finding 1).
+let registryState: MockRegistryState = {
+  error: null,
+  hasLoaded: true,
+  initializeProviderModelDefaults,
+};
+
 vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
-  useModelRegistryStore: (selector: (state: unknown) => unknown) =>
-    selector({ error: null, hasLoaded: true, initializeProviderModelDefaults }),
+  useModelRegistryStore: (selector: (state: MockRegistryState) => unknown) =>
+    selector(registryState),
 }));
 vi.mock('@brainstrike/ui', () => ({ useToast: () => ({ toast }) }));
 
@@ -17,6 +33,7 @@ describe('useProviderModelDefaults', () => {
   beforeEach(() => {
     initializeProviderModelDefaults.mockClear();
     toast.mockClear();
+    registryState = { error: null, hasLoaded: true, initializeProviderModelDefaults };
   });
 
   it('dispatches an availability policy for each first-party keyed provider', () => {
@@ -28,15 +45,19 @@ describe('useProviderModelDefaults', () => {
     }
   });
 
-  it('dispatches the seed policy for openrouter', () => {
-    renderHook(() => useProviderModelDefaults(['openrouter'], db, 1, true));
-
-    expect(initializeProviderModelDefaults).toHaveBeenCalledTimes(1);
-    expect(initializeProviderModelDefaults).toHaveBeenCalledWith(
-      db,
-      'openrouter',
-      expect.objectContaining({ kind: 'seed' })
+  it('dispatches the seed policy for openrouter, openai-codex and bedrock', () => {
+    renderHook(() =>
+      useProviderModelDefaults(['openrouter', 'openai-codex', 'bedrock'], db, 1, true)
     );
+
+    expect(initializeProviderModelDefaults).toHaveBeenCalledTimes(3);
+    for (const provider of ['openrouter', 'openai-codex', 'bedrock']) {
+      expect(initializeProviderModelDefaults).toHaveBeenCalledWith(
+        db,
+        provider,
+        expect.objectContaining({ kind: 'seed' })
+      );
+    }
   });
 
   it('dispatches nothing for a provider with no catalog defaults', () => {
@@ -90,6 +111,22 @@ describe('useProviderModelDefaults', () => {
 
   it('dispatches nothing while provider discovery is disabled', () => {
     renderHook(() => useProviderModelDefaults(['anthropic'], db, 1, false));
+
+    expect(initializeProviderModelDefaults).not.toHaveBeenCalled();
+  });
+
+  it('dispatches nothing while the model registry has not finished loading', () => {
+    registryState = { ...registryState, hasLoaded: false };
+
+    renderHook(() => useProviderModelDefaults(['anthropic'], db, 1, true));
+
+    expect(initializeProviderModelDefaults).not.toHaveBeenCalled();
+  });
+
+  it('dispatches nothing while the model registry reports an error', () => {
+    registryState = { ...registryState, error: 'registry unavailable' };
+
+    renderHook(() => useProviderModelDefaults(['anthropic'], db, 1, true));
 
     expect(initializeProviderModelDefaults).not.toHaveBeenCalled();
   });
