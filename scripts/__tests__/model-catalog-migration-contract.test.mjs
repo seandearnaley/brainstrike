@@ -323,7 +323,8 @@ const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
           'migration040PreviousCatalog',
           `
             INSERT INTO models (id, provider_id, name, capabilities) VALUES
-              ('phantom/crossed-2', 'openrouter', 'Phantom Crossed 2', '{"type":"llm","streaming":true}');
+              ('phantom/crossed-2', 'openrouter', 'Phantom Crossed 2', '{"type":"llm","streaming":true}'),
+              ('odd;id', 'openrouter', 'Odd Id', '{"type":"llm","streaming":true}');
           `
         ),
         migrationFile(
@@ -343,7 +344,20 @@ export const migrations = [
 `,
     });
 
-    assert.deepEqual(result.failures, []);
+    // The DELETE of odd;id is genuine and owes both remaps; the UPDATE's
+    // IN-list must not add phantom failures for phantom/crossed-2.
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/app-state/src/stores/assistant-model-id-migrations.ts',
+        message:
+          'Removed assistant catalog model openrouter::odd;id is missing from MODEL_ID_MIGRATIONS.',
+      },
+      {
+        file: 'packages/app-state/src/stores/assistant-memory-preferences-store.ts',
+        message:
+          'Removed assistant memory model target openrouter/odd;id is missing from MEMORY_MODEL_TARGET_MIGRATIONS.',
+      },
+    ]);
   });
 
   it('preserves the historical remap cutoff for Windows migration paths', () => {
