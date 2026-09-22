@@ -166,6 +166,19 @@ describe('gen-model-catalog-migration', () => {
     );
   });
 
+  it('excludes the inserted ids from the sort_order base so re-application is idempotent (BST-1704)', () => {
+    const { migration } = plan([llmModel({ id: 'gpt-a' }), llmModel({ id: 'gpt-b' })]);
+
+    assert.match(
+      migration.source,
+      /\(SELECT COALESCE\(MAX\(sort_order\), 0\) FROM models WHERE provider_id = 'openai' AND id NOT IN \('gpt-a', 'gpt-b'\)\) \+ 1/
+    );
+    assert.match(
+      migration.source,
+      /\(SELECT COALESCE\(MAX\(sort_order\), 0\) FROM models WHERE provider_id = 'openai' AND id NOT IN \('gpt-a', 'gpt-b'\)\) \+ 2/
+    );
+  });
+
   it('registers the migration in the numbered manifest, which derives the Drizzle ledger', () => {
     const { migration } = plan([llmModel()]);
 
