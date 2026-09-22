@@ -54,6 +54,64 @@ export const STATIC_CATALOG_STALE_ROW_ALLOWLIST = new Set([]);
 // id is simply absent would leave stale DB rows behind while persisted user
 // selections dangle.
 export const RETIRED_PROVIDER_RESIDUE_IDS = new Set(['transformers']);
+// Migrations allowed to write `models.updated_at` (docs/agents/assistant-providers.md
+// § "`is_enabled` is not evidence of user intent": "Catalog upserts must never
+// write `models.updated_at`"). Every row these three touch is a `local`-provider
+// ONNX row — 020 and 028 upsert `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`,
+// `onnx-community/Qwen3-0.6B-ONNX` and the ONNX gemma rows
+// (`onnx-community/functiongemma-270m-it-ONNX`, `onnx-community/gemma-4-E2B-it-ONNX`);
+// 024 patches the same LFM2.5/Qwen3-0.6B rows' capabilities. `local`'s
+// `PROVIDER_MODEL_DEFAULT_POLICIES` entry is `null` (keyless, no availability
+// policy), so nothing ever reads these rows' `updated_at` as "the user chose
+// this" — the invariant the rule protects is inert for them by construction.
+// CLOSED list: any OTHER migration writing `models.updated_at` risks making a
+// row permanently unreachable to the `all`/`seed` enablement policies (BST-1794).
+export const MODELS_UPDATED_AT_WRITE_ALLOWLIST = new Set([20, 24, 28]);
+// Matches a whole `UPDATE models ...;` or `INSERT INTO models (...) ... ;`
+// statement (including a trailing `ON CONFLICT ... DO UPDATE SET`), never an
+// `ALTER TABLE models ALTER COLUMN updated_at ...` schema change — that starts
+// with `ALTER`, not `UPDATE`/`INSERT INTO`, so it never matches this pattern.
+const MODELS_WRITE_STATEMENT_PATTERN = /\b(?:UPDATE|INSERT\s+INTO)\s+"?models"?\b[\s\S]*?;/gi;
+
+/**
+ * The load-bearing guard for "Catalog upserts must never write
+ * `models.updated_at`": a migration that writes it moves a row's `updated_at`
+ * past its `created_at` with no user action, which reads as "the user touched
+ * this row" everywhere `PROVIDER_MODEL_DEFAULT_POLICIES` checks that predicate
+ * — silently making the row permanently unreachable to `all`/`seed`
+ * enablement. Scoped to `models` statements only: migration 023's
+ * `UPDATE providers SET ... updated_at = NOW()` is a different table and must
+ * not trip this.
+ */
+export function findModelsUpdatedAtWriteFailures(migrationFiles) {
+  const failures = [];
+
+  for (const file of migrationFiles) {
+    const upSql = extractMigrationUpSql(file);
+    const writesUpdatedAt = [...upSql.matchAll(MODELS_WRITE_STATEMENT_PATTERN)].some((match) =>
+      /\bupdated_at\s*=/i.test(match[0])
+    );
+    if (!writesUpdatedAt) {
+      continue;
+    }
+
+    const version = migrationFileVersion(file.file);
+    if (version !== null && MODELS_UPDATED_AT_WRITE_ALLOWLIST.has(version)) {
+      continue;
+    }
+
+    failures.push({
+      file: file.file,
+      message:
+        `${file.file} writes models.updated_at, which only migrations ` +
+        `${[...MODELS_UPDATED_AT_WRITE_ALLOWLIST].sort((a, b) => a - b).join(', ')} may do ` +
+        '(docs/agents/assistant-providers.md § "`is_enabled` is not evidence of user intent": ' +
+        'catalog upserts must never write models.updated_at).',
+    });
+  }
+
+  return failures;
+}
 
 function extractMigrationExportName(source) {
   return source.match(MIGRATION_EXPORT_PATTERN)?.[1] ?? null;
@@ -887,6 +945,7 @@ export function analyzeModelCatalogMigrationContract(input) {
 
   failures.push(...findRemovedAssistantModelRemapFailures(input, migrationSummaries));
   failures.push(...findStaticProviderRegistryFailures(input, migrationSummaries));
+  failures.push(...findModelsUpdatedAtWriteFailures(input.migrationFiles));
   if (input.providerCatalog !== undefined) {
     failures.push(...findCatalogKeyOrderFailures(input.providerCatalog));
   }

@@ -12,9 +12,10 @@ interface MockRegistryState {
 }
 
 // Mutable so guard-clause tests can flip `hasLoaded`/`error` between cases.
-// A hardcoded literal here would make `hasLoaded &&`/`|| registryError` in
-// the hook's entry guard unmutatable — deleting either clause would fail no
-// test (review finding 1).
+// The hook's entry guard is `hasLoaded && ... || registryError`: each
+// conjunct must be independently mutation-tested, so a hardcoded literal
+// here — which would make one clause unmutatable — would let deleting that
+// clause pass with no test failing.
 let registryState: MockRegistryState = {
   error: null,
   hasLoaded: true,

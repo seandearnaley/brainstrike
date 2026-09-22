@@ -48,11 +48,12 @@ policy split, and the migration audit behind the `updated_at` invariant.
   runs for this provider" — it was the SHARED predicate's granularity: provider,
   not row. Adding hooks cannot fix a bug that lives one layer below every hook.
 - The fix therefore replaced the granularity, not the hook topology: the `all`
-  policy path in `initializeProviderModelDefaults` (`packages/app-state/src/
-  stores/model-registry-store.ts`) now computes its target ids by filtering the
-  provider's own rows through `isLlmChoiceRow` and the new `isUntouchedChoiceRow`
-  (per row, not per provider), and the three per-provider hooks collapse into one
-  composed `useProviderModelDefaults` driven by `PROVIDER_MODEL_DEFAULT_POLICIES`.
+  policy path in `initializeProviderModelDefaults`
+  (`packages/app-state/src/stores/model-registry-store.ts`) now computes its
+  target ids by filtering the provider's own rows through `isLlmChoiceRow` and
+  the new `isUntouchedChoiceRow` (per row, not per provider), and the three
+  per-provider hooks collapse into one composed `useProviderModelDefaults`
+  driven by `PROVIDER_MODEL_DEFAULT_POLICIES`.
 
 ## The `all` / `seed` split, and the OpenRouter opt-in consequence
 
@@ -71,10 +72,11 @@ policy split, and the migration audit behind the `updated_at` invariant.
   decision to accept every future OpenRouter catalog addition automatically —
   do not fold it into a routine catalog-addition change.
 - `null` (cohere, voyage: embedding-only; local, ollama, lmstudio: keyless) means
-  no catalog defaults at all. The `null`-iff rule — `authType === 'none' ||
-  !capabilities.llm` — is pinned against the LIVE catalog by
-  `provider-model-default-policies.test.ts` rather than hand-maintained as a
-  list, so a new provider cannot silently land with the wrong policy shape.
+  no catalog defaults at all. The `null`-iff rule —
+  `authType === 'none' || !capabilities.llm` — is pinned against the LIVE
+  catalog by `provider-model-default-policies.test.ts` rather than
+  hand-maintained as a list, so a new provider cannot silently land with the
+  wrong policy shape.
 
 ## The `updated_at > created_at` invariant, and its live hazard
 
@@ -84,9 +86,9 @@ a clean per-row record of a user toggle. Verified against every migration that
 writes `models.updated_at` or `providers.updated_at`:
 
 - Migrations 020, 024 and 028 DO write `models.updated_at`, but every row they
-  touch belongs to the `local` provider (`onnx-community/
-  functiongemma-270m-it-ONNX`, `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`,
-  `onnx-community/Qwen3-0.6B-ONNX`, `onnx-community/gemma-4-E2B-it-ONNX`).
+  touch belongs to the `local` provider (`onnx-community/functiongemma-270m-it-ONNX`,
+  `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`, `onnx-community/Qwen3-0.6B-ONNX`,
+  `onnx-community/gemma-4-E2B-it-ONNX`).
 - Migration 023 writes `providers.updated_at`, not `models`. Migrations 051 and
   067 create/touch unrelated tables (`prompt_items`, the thread search index),
   never `models`.

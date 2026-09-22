@@ -5,6 +5,7 @@ import {
   analyzeModelCatalogMigrationContract,
   CATALOG_FILE,
   findCatalogKeyOrderFailures,
+  findModelsUpdatedAtWriteFailures,
 } from '../model-catalog-migration-contract.mjs';
 
 const migrationIndexSource = `
@@ -663,6 +664,168 @@ export const migrations = [
     });
 
     assert.deepEqual(result.failures, []);
+  });
+
+  describe('models.updated_at write guard', () => {
+    it('rejects a plain UPDATE that writes models.updated_at outside the allowlist', () => {
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-touch.ts',
+          'migration099FakeTouch',
+          `
+            UPDATE models SET is_enabled = true, updated_at = CURRENT_TIMESTAMP
+            WHERE id = 'openai/gpt-next';
+          `
+        ),
+      ]);
+
+      assert.deepEqual(failures, [
+        {
+          file: 'packages/db/src/migrations/099-fake-touch.ts',
+          message:
+            'packages/db/src/migrations/099-fake-touch.ts writes models.updated_at, which only ' +
+            'migrations 20, 24, 28 may do (docs/agents/assistant-providers.md ' +
+            '§ "`is_enabled` is not evidence of user intent": catalog upserts must never write ' +
+            'models.updated_at).',
+        },
+      ]);
+    });
+
+    it('rejects an INSERT ... ON CONFLICT DO UPDATE SET that writes models.updated_at outside the allowlist', () => {
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-upsert.ts',
+          'migration099FakeUpsert',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"llm","streaming":true}')
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              updated_at = CURRENT_TIMESTAMP;
+          `
+        ),
+      ]);
+
+      assert.deepEqual(
+        failures.map((failure) => failure.file),
+        ['packages/db/src/migrations/099-fake-upsert.ts']
+      );
+    });
+
+    it('allows the three known-legitimate local-provider migrations (020, 024, 028)', () => {
+      // These are the real up-blocks from the shipped migrations: 020 and 028
+      // upsert local-provider ONNX rows with `ON CONFLICT ... DO UPDATE SET
+      // ... updated_at = CURRENT_TIMESTAMP`; 024 patches the same rows'
+      // capabilities with a plain `UPDATE ... SET updated_at = CURRENT_TIMESTAMP`.
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/020-local-llm-models.ts',
+          'migration020LocalLlmModels',
+          `
+            INSERT INTO models (id, provider_id, name, is_enabled) VALUES
+              ('LiquidAI/LFM2.5-1.2B-Instruct-ONNX', 'transformers', 'LFM2.5', false)
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              updated_at = CURRENT_TIMESTAMP;
+          `
+        ),
+        migrationFile(
+          'packages/db/src/migrations/024-fix-llm-tool-calling.ts',
+          'migration024FixLlmToolCalling',
+          `
+            UPDATE models SET capabilities = '{}', updated_at = CURRENT_TIMESTAMP
+            WHERE id = 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX';
+          `
+        ),
+        migrationFile(
+          'packages/db/src/migrations/028-gemma-local-llm.ts',
+          'migration028GemmaLocalLlm',
+          `
+            INSERT INTO models (id, provider_id, name, is_enabled) VALUES
+              ('onnx-community/gemma-4-E2B-it-ONNX', 'local', 'Gemma 4 E2B', true)
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              updated_at = CURRENT_TIMESTAMP;
+          `
+        ),
+      ]);
+
+      assert.deepEqual(failures, []);
+    });
+
+    it('does not confuse migration 021s plain UPDATE (no updated_at) with a write', () => {
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/021-rename-transformers-to-local.ts',
+          'migration021RenameTransformersToLocal',
+          `
+            UPDATE models SET provider_id = 'local' WHERE provider_id = 'transformers';
+            UPDATE models SET is_enabled = true WHERE id = 'onnx-community/functiongemma-270m-it-ONNX';
+          `
+        ),
+      ]);
+
+      assert.deepEqual(failures, []);
+    });
+
+    it('does not confuse providers.updated_at with models.updated_at', () => {
+      // Migration 023's real shape: `UPDATE providers SET ... updated_at = NOW()`.
+      // A matcher keyed on the substring "updated_at" rather than the target
+      // table would wrongly flag this.
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/023-fix-local-provider-enabled.ts',
+          'migration023FixLocalProviderEnabled',
+          `
+            UPDATE providers SET is_enabled = true, sort_order = 4, updated_at = NOW() WHERE id = 'local';
+          `
+        ),
+      ]);
+
+      assert.deepEqual(failures, []);
+    });
+
+    it('does not confuse an ALTER TABLE models ALTER COLUMN updated_at with a row write', () => {
+      // Migration 031's real shape: a schema-level DEFAULT change, not a row write.
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/031-provider-catalog-timestamps.ts',
+          'migration031ProviderCatalogTimestamps',
+          `
+            ALTER TABLE models
+              ALTER COLUMN updated_at DROP DEFAULT,
+              ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING updated_at::timestamptz,
+              ALTER COLUMN updated_at SET DEFAULT NOW();
+          `
+        ),
+      ]);
+
+      assert.deepEqual(failures, []);
+    });
+
+    it('runs the updated_at write guard through the full contract analysis, not just the helper', () => {
+      const result = analyzeModelCatalogMigrationContract({
+        migrationFiles: [
+          migrationFile(
+            'packages/db/src/migrations/099-fake-touch.ts',
+            'migration099FakeTouch',
+            `
+              UPDATE models SET updated_at = CURRENT_TIMESTAMP WHERE id = 'openai/gpt-next';
+            `
+          ),
+        ],
+        migrationIndexSource: `
+export const migrations = [
+  migration099FakeTouch,
+];
+`,
+      });
+
+      assert.ok(
+        result.failures.some((failure) => failure.message.includes('writes models.updated_at')),
+        'analyzeModelCatalogMigrationContract must surface the updated_at write guard'
+      );
+    });
   });
 
   it('fails closed when static catalog model fields are malformed', () => {

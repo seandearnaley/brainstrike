@@ -231,7 +231,8 @@ store persists each thread's own model and provider settings.
 - Static prices are estimates; exact provider-reported cost is authoritative.
   Never log or persist reasoning content.
 - Enablement: `OPENROUTER_RECOMMENDED_CODING_MODEL_IDS` is this provider's
-  `seed` entry — see § "`is_enabled` is not evidence of user intent".
+  `seed` entry, applied once — key replacement, reload and catalog refresh
+  never reapply it. See § "`is_enabled` is not evidence of user intent".
 - The model menu and the per-thread provider-options builder must use the same
   resolved live metadata snapshot.
 
@@ -490,17 +491,16 @@ an off-peak moment).
 - Rows ship `is_enabled = false`; migrations preserve the toggle with
   `is_enabled = models.is_enabled`. Only `initializeProviderModelDefaults`
   enables a row without the user, driven by `PROVIDER_MODEL_DEFAULT_POLICIES`.
-- That map is exhaustive over `SupportedProvider`: `{ kind: 'all' }` (every LLM
-  row on unless the user said otherwise), `{ kind: 'seed', modelIds }` (applied
-  once, while every row is untouched), or `null`. `null` holds exactly when
-  `authType === 'none' || !capabilities.llm` — pinned by test, not by a list.
-- "Touched" is `updated_at > created_at` PER ROW. A shipped-enabled row is NOT a
-  user choice. Catalog upserts must never write `models.updated_at`.
-- `untouched` also requires `!is_enabled`, so no policy can switch a model off.
+- That map is exhaustive over `SupportedProvider`: `all`, `seed`, or `null`,
+  defined in `provider-model-default-policies.ts`. `null` holds exactly when
+  `authType === 'none' || !capabilities.llm`, pinned by test, not a list.
+- "Touched" is `updated_at > created_at` PER ROW plus `!is_enabled` (so no policy
+  can switch a model off); catalog upserts must never write `models.updated_at`.
 
 Evidence: `assistant-providers/model-enablement-defaults.md`.
 Guard: `provider-model-default-policies.test.ts`, `model-registry-store.test.ts`,
-`use-provider-model-defaults.test.tsx`.
+`use-provider-model-defaults.test.tsx`. The `models.updated_at` rule is guarded
+by `scripts/__tests__/model-catalog-migration-contract.test.mjs`.
 
 ### Provider registry auth metadata
 

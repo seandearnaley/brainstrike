@@ -52,15 +52,25 @@ const CONTRACT_LINE_BUDGETS = {
   'agent-self-query.md': 305,
   'assistant-persistence.md': 2016,
   // BST-1794 raised this from 2312, the first upward move since the budgets
-  // were introduced. A new mechanism (catalog-default policies) needed four
-  // rules an agent must obey before adding a model migration — notably that
-  // catalog upserts must never write `models.updated_at`, which silently makes
-  // rows unreachable. Everything movable went to the evidence file (110 lines);
-  // the subsection was compressed 21 -> 15 and two provider bullets were
-  // consolidated into it, a net -23/+16 against the doc. The 12 that remain are
-  // irreducible. This is NOT a precedent for growth: the doctrine below still
-  // holds, and the gap it exposes (no path for a genuinely new mechanism) is
-  // tracked separately.
+  // were introduced — taking docs/agents/README.md's sanctioned path for a
+  // contract that "legitimately must grow (a genuinely new subsystem area)":
+  // catalog-default policies needed four rules an agent must obey before
+  // adding a model migration, notably that catalog upserts must never write
+  // `models.updated_at`, which silently makes rows unreachable.
+  //
+  // Everything movable went to the evidence file (112 lines). The
+  // `is_enabled` subsection was compressed 21 -> 17 lines in fa6867632, then
+  // 17 -> 16 in the follow-up review pass that folded two bullets and added
+  // the `models.updated_at` guard's citation; the OpenRouter and Bedrock
+  // enablement bullets were consolidated into cross-references. Net against
+  // the doc across both commits: 2312 -> 2324 (+12). 16 is the floor actually
+  // reached, not claimed irreducible — a later pass may compress it further.
+  //
+  // NOT a precedent for open-ended growth: the shrink-only doctrine below
+  // still holds. One real, unresolved tension worth recording: README
+  // sanctions re-baselining for cases like this one, while this test's own
+  // failure message says "do not raise the number" — both are true at once,
+  // and this pin does not decide which wins next time.
   'assistant-providers.md': 2324,
   'assistant-runtime.md': 2780,
   'assistant-subagents.md': 1626,
