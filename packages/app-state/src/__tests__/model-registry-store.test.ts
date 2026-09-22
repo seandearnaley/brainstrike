@@ -830,6 +830,42 @@ describe('model-registry-store', () => {
       expect(mockDb.query).toHaveBeenCalledTimes(1);
     });
 
+    const capabilitiesRow = (capabilities: unknown) => ({
+      capabilities,
+      created_at: '2026-07-22T12:00:00.000Z',
+      id: 'model-a',
+      is_enabled: false,
+      updated_at: '2026-07-22T12:00:00.000Z',
+    });
+
+    it('skips a null-capabilities row under an availability policy without enabling it or throwing', async () => {
+      const mockDb = { query: vi.fn().mockResolvedValueOnce({ rows: [capabilitiesRow(null)] }) };
+      const result = await useModelRegistryStore
+        .getState()
+        .initializeProviderModelDefaults(mockDb as never, 'openai', { kind: 'all' });
+      expect(result).toBe('preserved');
+    });
+
+    it('throws naming the row when a malformed capabilities string fails to parse', async () => {
+      const mockDb = {
+        query: vi.fn().mockResolvedValueOnce({ rows: [capabilitiesRow('{not-json')] }),
+      };
+      const store = useModelRegistryStore.getState();
+      await expect(
+        store.initializeProviderModelDefaults(mockDb as never, 'openai', { kind: 'all' })
+      ).rejects.toThrow('Model registry row model-a has unparseable capabilities.');
+    });
+
+    it('throws for an empty seed set against a provider with an enabled row', async () => {
+      const rows = [{ ...untouchedRows[0], is_enabled: 1 }];
+      const mockDb = { query: vi.fn().mockResolvedValueOnce({ rows }) };
+      const store = useModelRegistryStore.getState();
+      const policy = { kind: 'seed' as const, modelIds: [] };
+      await expect(
+        store.initializeProviderModelDefaults(mockDb as never, 'openrouter', policy)
+      ).rejects.toThrow('No recommended model defaults were provided for openrouter.');
+    });
+
     it('preserves a curated profile under a seed policy', async () => {
       // The other half of the split: a user who picked 3 of 58 OpenRouter
       // routes must not silently acquire the recommended set.

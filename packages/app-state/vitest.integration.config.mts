@@ -8,8 +8,10 @@
 // lane is never replayed from a stale cache hit.
 //
 // It reuses the base config verbatim and REPLACES only `test.include` with
-// the integration suffix glob. The pure `test` script runs the complementary
-// set (`vitest run --exclude '**/*.integration.test.*'`), so the two lanes
+// the integration suffix glob, package-wide (not scoped to `src/__tests__/`)
+// so it MIRRORS the pure lane's package-wide `--exclude` suffix exactly. The
+// pure `test` script runs the complementary set
+// (`vitest run --exclude '**/*.integration.test.*'`), so the two lanes
 // partition the base suite by construction (guarded by
 // scripts/__tests__/integration-suffix-partition.test.mjs) — no file can be
 // orphaned into neither lane.
@@ -33,6 +35,6 @@ export default defineConfig({
     // The canonical test-extension suffix (not a bare `*`) so sibling
     // artifacts (e.g. __snapshots__/x.integration.test.ts.snap) are not
     // loaded as test modules.
-    include: ['src/__tests__/**/*.integration.test.?(c|m)[jt]s?(x)'],
+    include: ['**/*.integration.test.?(c|m)[jt]s?(x)'],
   },
 });

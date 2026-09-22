@@ -57,8 +57,13 @@ export const MODELS_WRITE_STATEMENT_START_PATTERN =
 // even when the migration author forgot the trailing `;` (only ever expected
 // at the very end of an `up:` block — see `006-embedding-sets-and-columns.ts`,
 // which trails off after its last `;` with comments only, never mid-block).
+// `WITH` and `SELECT` are deliberately EXCLUDED: both appear legally INSIDE an
+// `INSERT INTO models ...` statement (`INSERT ... SELECT ...` and
+// `INSERT ... WITH cte AS (...) SELECT ...`), so treating either as a new
+// statement's start would end the scan before the `ON CONFLICT (id) DO UPDATE
+// SET updated_at = NOW()` clause that follows them, letting it go unseen.
 const NEXT_SQL_STATEMENT_KEYWORD_PATTERN =
-  /^(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM|ALTER\s+TABLE|CREATE\b|DROP\b|WITH\b|SELECT\b|BEGIN\b|COMMIT\b|GRANT\b|REVOKE\b)\b/i;
+  /^(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM|ALTER\s+TABLE|CREATE\b|DROP\b|BEGIN\b|COMMIT\b|GRANT\b|REVOKE\b)\b/i;
 
 /**
  * Is the statement-keyword match at `index` actually the `DO UPDATE SET` (or
@@ -67,6 +72,10 @@ const NEXT_SQL_STATEMENT_KEYWORD_PATTERN =
  * statement-start keyword legitimately appears mid-statement.
  */
 function isPrecededByDoKeyword(sql, index) {
+  // 40 characters is comfortably more than `DO` plus the run of whitespace
+  // (spaces/newlines/indentation) a migration author could plausibly put
+  // between `DO` and the following `UPDATE`/`NOTHING`, so the lookback never
+  // needs to grow to catch a real `DO ... UPDATE` clause.
   return /\bDO\s*$/i.test(sql.slice(Math.max(0, index - 40), index));
 }
 

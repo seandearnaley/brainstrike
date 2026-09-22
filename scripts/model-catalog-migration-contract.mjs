@@ -71,6 +71,8 @@ export const RETIRED_PROVIDER_RESIDUE_IDS = new Set(['transformers']);
 // this" — the invariant the rule protects is inert for them by construction.
 // CLOSED list: any OTHER migration writing `models.updated_at` risks making a
 // row permanently unreachable to the `all`/`seed` enablement policies (BST-1794).
+// Scope: this guard scans `up` SQL only; a `down` block writing
+// `models.updated_at` would launder rows on rollback and is not checked.
 export const MODELS_UPDATED_AT_WRITE_ALLOWLIST = new Set([20, 24, 28]);
 // `MODELS_WRITE_STATEMENT_START_PATTERN` and `findModelsStatementEnd` (imported
 // above from ./model-catalog-migration-sql-statements.mjs) locate a whole

@@ -101,7 +101,7 @@ interface RawModel {
 }
 
 interface RawProviderModelChoice {
-  capabilities: string | object;
+  capabilities: string | { type?: unknown } | null;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   created_at: Date | string;
   id: string;
@@ -130,11 +130,22 @@ function hasExplicitProviderModelChoice(rows: readonly RawProviderModelChoice[])
 }
 
 function isLlmChoiceRow(row: RawProviderModelChoice): boolean {
-  const capabilities =
-    typeof row.capabilities === 'string'
-      ? (JSON.parse(row.capabilities) as { type?: unknown })
-      : (row.capabilities as { type?: unknown });
-  return capabilities.type === 'llm';
+  // A row with no capabilities is not a catalog LLM row.
+  if (row.capabilities === null) {
+    return false;
+  }
+  if (typeof row.capabilities !== 'string') {
+    return row.capabilities.type === 'llm';
+  }
+  let parsed: { type?: unknown };
+  try {
+    parsed = JSON.parse(row.capabilities) as { type?: unknown };
+  } catch (error) {
+    throw new Error(`Model registry row ${row.id} has unparseable capabilities.`, {
+      cause: error,
+    });
+  }
+  return parsed.type === 'llm';
 }
 
 /**
@@ -385,12 +396,15 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         } else {
           // Starter kit: unchanged behaviour. One enabled or edited row in the
           // provider means the user has curated it; do not impose a set.
-          if (hasExplicitProviderModelChoice(choiceResult.rows)) {
-            return 'preserved';
-          }
+          // Dedupe + empty-throw first: this does not depend on the query, and
+          // an empty seed set against a curated provider must throw rather than
+          // silently return 'preserved' through the gate below.
           uniqueModelIds = Array.from(new Set(policy.modelIds));
           if (uniqueModelIds.length === 0) {
             throw new Error(`No recommended model defaults were provided for ${providerId}.`);
+          }
+          if (hasExplicitProviderModelChoice(choiceResult.rows)) {
+            return 'preserved';
           }
           const choicesById = new Map(choiceResult.rows.map((row) => [row.id, row]));
           const missingModelIds = uniqueModelIds.filter((modelId) => !choicesById.has(modelId));

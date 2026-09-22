@@ -712,6 +712,45 @@ export const migrations = [
       );
     });
 
+    it('flags an INSERT ... SELECT ... ON CONFLICT DO UPDATE that writes models.updated_at (SELECT inside INSERT must not end the scan early)', () => {
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-insert-select.ts',
+          'migration099FakeInsertSelect',
+          `
+            INSERT INTO models (id, name)
+            SELECT id, name FROM staging
+            ON CONFLICT (id) DO UPDATE SET updated_at = NOW();
+          `
+        ),
+      ]);
+
+      assert.deepEqual(
+        failures.map((failure) => failure.file),
+        ['packages/db/src/migrations/099-fake-insert-select.ts']
+      );
+    });
+
+    it('flags an INSERT ... WITH cte AS (...) SELECT ... ON CONFLICT DO UPDATE that writes models.updated_at (WITH inside INSERT must not end the scan early)', () => {
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-insert-with.ts',
+          'migration099FakeInsertWith',
+          `
+            INSERT INTO models (id, name)
+            WITH staged AS (SELECT id, name FROM staging)
+            SELECT id, name FROM staged
+            ON CONFLICT (id) DO UPDATE SET updated_at = NOW();
+          `
+        ),
+      ]);
+
+      assert.deepEqual(
+        failures.map((failure) => failure.file),
+        ['packages/db/src/migrations/099-fake-insert-with.ts']
+      );
+    });
+
     it('flags a models UPDATE with no trailing semicolon (re-review finding 1: a `;`-anchored pattern is a blind spot)', () => {
       // 006-embedding-sets-and-columns.ts already ends its `up` SQL without a
       // trailing semicolon (comments only after the last real statement), so

@@ -494,8 +494,8 @@ an off-peak moment).
 - That map is exhaustive over `SupportedProvider`: `all`, `seed`, or `null`,
   defined in `provider-model-default-policies.ts`. `null` holds exactly when
   `authType === 'none' || !capabilities.llm`, pinned by test, not a list.
-- "Untouched" is `!is_enabled` PER ROW plus `updated_at === created_at`; only an
-  untouched row is eligible for a policy. Catalog upserts must never write `models.updated_at`.
+- "Untouched" is `!is_enabled` PER ROW plus `updated_at === created_at`; `all` gates PER ROW
+  on it, `seed` gates PROVIDER-WIDE via `hasExplicitProviderModelChoice`. Catalog upserts must never write `models.updated_at`.
 
 Evidence: `assistant-providers/model-enablement-defaults.md`.
 Guard: `provider-model-default-policies.test.ts`, `model-registry-store.test.ts`,

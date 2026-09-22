@@ -19,7 +19,7 @@ in the composer at all:
 | anthropic | `claude-opus-5` | migration 116 |
 | anthropic | `claude-fable-5-1` | migration 122 |
 | google | `gemini-3.8-flash` | migration 124 |
-| google | `gemini-3.7-flash` | migration 124 |
+| google | `gemini-3.7-flash` | migration 104 |
 | google | `gemini-3.6-flash` | migration 124 |
 | google | `gemini-3.5-flash-lite` | migration 124 |
 

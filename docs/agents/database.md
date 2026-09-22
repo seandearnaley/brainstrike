@@ -206,7 +206,7 @@ by number; keep the numbering stable.
      clobbers the user's toggle. Force on/off only for a deliberate swap.
    - Sibling invariant: never write `models.updated_at` either — it is the per-row
      record of user intent. See `docs/agents/assistant-providers.md` § "`is_enabled`
-     is not evidence of user intent"; guarded by `scripts/model-catalog-migration-contract.mjs`.
+     is not evidence of user intent"; guarded by `scripts/__tests__/model-catalog-migration-contract.test.mjs`.
 4. Remap dropped IDs so persisted selections do not dangle: `MODEL_ID_MIGRATIONS` in
    packages/app-state/src/stores/assistant-model-id-migrations.ts (bump
    `ASSISTANT_PREFERENCES_STORE_VERSION`) and `MEMORY_MODEL_TARGET_MIGRATIONS` in

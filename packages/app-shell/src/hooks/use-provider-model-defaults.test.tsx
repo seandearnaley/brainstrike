@@ -110,6 +110,22 @@ describe('useProviderModelDefaults', () => {
     });
   });
 
+  it.each([
+    ['openai-codex', 'OpenAI (ChatGPT) model setup failed'],
+    ['bedrock', 'Amazon Bedrock model setup failed'],
+  ] as const)('raises a destructive toast naming %s that failed', async (provider, title) => {
+    initializeProviderModelDefaults.mockRejectedValueOnce(new Error('db is closed'));
+
+    renderHook(() => useProviderModelDefaults([provider], db, 1, true));
+    await vi.waitFor(() => expect(toast).toHaveBeenCalled());
+
+    expect(toast).toHaveBeenCalledWith({
+      description: 'db is closed',
+      title,
+      variant: 'destructive',
+    });
+  });
+
   it('dispatches nothing while provider discovery is disabled', () => {
     renderHook(() => useProviderModelDefaults(['anthropic'], db, 1, false));
 
