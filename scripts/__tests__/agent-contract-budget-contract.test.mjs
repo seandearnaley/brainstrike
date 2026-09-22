@@ -52,7 +52,7 @@ const CONTRACT_LINE_BUDGETS = {
   'agent-self-query.md': 305,
   'assistant-persistence.md': 2016,
   'assistant-providers.md': 2312,
-  'assistant-runtime.md': 4944,
+  'assistant-runtime.md': 2780,
   'assistant-subagents.md': 1626,
   'changeset-diff.md': 495,
   'ci-quality.md': 924,
