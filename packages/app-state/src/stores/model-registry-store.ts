@@ -531,6 +531,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         } catch (error) {
           logger.error('Failed to toggle model', error);
           void get().fetchRegistry(db);
+          throw error;
         }
       },
 
