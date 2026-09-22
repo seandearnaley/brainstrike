@@ -521,10 +521,10 @@ The credential path is TYPED end to end; the bearer-key string is a projection o
 it, not the contract. Three layers, each with one owner.
 
 - **Reader types** (`packages/assistant-service/src/ports.ts`):
-  `ResolvedProviderCredential` adds `source: 'env' | 'stored'`, and `source:
-  'env'` entries are always `api_key`. `ProviderCredentialReader` is the typed
-  reader `prepareAssistantPostRequest` consumes — `undefined` means not
-  configured, and a secret-read failure THROWS.
+  `ResolvedProviderCredential` adds `source: 'env' | 'stored'`, and
+  `source: 'env'` entries are always `api_key`. `ProviderCredentialReader` is
+  the typed reader `prepareAssistantPostRequest` consumes — `undefined` means
+  not configured, and a secret-read failure THROWS.
 - **The string reader is a migration shim**, derived only via
   `createProviderApiKeyReader(typedReader)` in
   `assistant-service/src/provider-credential-projection.ts`: `api_key` → `.key`,
