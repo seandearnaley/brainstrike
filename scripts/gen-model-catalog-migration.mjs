@@ -28,7 +28,9 @@
  *   and are left NULL for a human to author — never invented from the
  *   registry's composer copy.
  * - `sort_order` appends, computed in SQL at apply time, so the migration is
- *   correct against whatever rows a given profile already holds.
+ *   correct against whatever rows a given profile already holds. The base
+ *   excludes the ids the statement itself inserts (BST-1704), so a second
+ *   application recomputes identical offsets instead of sliding rows by +N.
  * - The upsert preserves the user's toggle with `is_enabled = models.is_enabled`.
  *   Using `EXCLUDED.is_enabled` would clobber it (database.md rule 3).
  *
@@ -127,10 +129,13 @@ function collectCatalogRows(catalog) {
   return rows;
 }
 
-function renderValuesRow(row, sortOrderOffset) {
+function renderValuesRow(row, sortOrderOffset, insertedIds) {
+  // BST-1704: the base excludes the ids this statement inserts, so the
+  // `ON CONFLICT` branch recomputes the same offsets when the migration
+  // re-applies instead of sliding every row by +N.
   const sortOrder =
     '(SELECT COALESCE(MAX(sort_order), 0) FROM models WHERE provider_id = ' +
-    `${quoteSqlString(row.providerId)}) + ${sortOrderOffset}`;
+    `${quoteSqlString(row.providerId)} AND id NOT IN (${insertedIds})) + ${sortOrderOffset}`;
   return [
     '      (',
     `        ${quoteSqlString(row.id)},`,
@@ -143,12 +148,15 @@ function renderValuesRow(row, sortOrderOffset) {
   ].join('\n');
 }
 
-function renderUpSql(additions) {
+// Exported for the idempotency tests (BST-1704), which apply the rendered
+// `up` SQL twice against a throwaway database.
+export function renderUpSql(additions) {
   const offsets = new Map();
+  const insertedIds = additions.map((row) => quoteSqlString(row.id)).join(', ');
   const values = additions.map((row) => {
     const offset = (offsets.get(row.providerId) ?? 0) + 1;
     offsets.set(row.providerId, offset);
-    return renderValuesRow(row, offset);
+    return renderValuesRow(row, offset, insertedIds);
   });
 
   return [

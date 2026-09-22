@@ -158,24 +158,42 @@ describe('gen-model-catalog-migration', () => {
 
     assert.match(
       migration.source,
-      /\(SELECT COALESCE\(MAX\(sort_order\), 0\) FROM models WHERE provider_id = 'openai'\) \+ 1/
-    );
-    assert.match(
-      migration.source,
-      /\(SELECT COALESCE\(MAX\(sort_order\), 0\) FROM models WHERE provider_id = 'openai'\) \+ 2/
-    );
-  });
-
-  it('excludes the inserted ids from the sort_order base so re-application is idempotent (BST-1704)', () => {
-    const { migration } = plan([llmModel({ id: 'gpt-a' }), llmModel({ id: 'gpt-b' })]);
-
-    assert.match(
-      migration.source,
       /\(SELECT COALESCE\(MAX\(sort_order\), 0\) FROM models WHERE provider_id = 'openai' AND id NOT IN \('gpt-a', 'gpt-b'\)\) \+ 1/
     );
     assert.match(
       migration.source,
       /\(SELECT COALESCE\(MAX\(sort_order\), 0\) FROM models WHERE provider_id = 'openai' AND id NOT IN \('gpt-a', 'gpt-b'\)\) \+ 2/
+    );
+  });
+
+  it('excludes every inserted id from each row base across providers (BST-1704)', () => {
+    const { migration } = planModelCatalogMigration({
+      migrationFiles: [SEEDED_OPENAI_ROW],
+      migrationIndexSource: MIGRATION_INDEX_SOURCE,
+      providerCatalog: [
+        { id: 'openai', models: [SEEDED_CATALOG_MODEL, llmModel({ id: 'gpt-a' })] },
+        {
+          id: 'cohere',
+          models: [
+            {
+              defaultDimension: 768,
+              id: 'embed-new',
+              label: 'Embed New',
+              supportsStandardDimension: true,
+              type: 'embedding',
+            },
+          ],
+        },
+      ],
+    });
+
+    assert.match(
+      migration.source,
+      /WHERE provider_id = 'openai' AND id NOT IN \('gpt-a', 'embed-new'\)\) \+ 1/
+    );
+    assert.match(
+      migration.source,
+      /WHERE provider_id = 'cohere' AND id NOT IN \('gpt-a', 'embed-new'\)\) \+ 1/
     );
   });
 
