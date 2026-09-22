@@ -51,13 +51,37 @@ const isContractDoc = (name) => name.endsWith('.md') && !name.startsWith('_');
 const CONTRACT_LINE_BUDGETS = {
   'agent-self-query.md': 305,
   'assistant-persistence.md': 2016,
-  'assistant-providers.md': 2312,
+  // BST-1794 raised this from 2312, the first upward move since the budgets
+  // were introduced — taking docs/agents/README.md's sanctioned path for a
+  // contract that "legitimately must grow (a genuinely new subsystem area)":
+  // catalog-default policies needed four rules an agent must obey before
+  // adding a model migration, notably that catalog upserts must never write
+  // `models.updated_at`, which silently makes rows unreachable.
+  //
+  // Everything movable went to the evidence file (112 lines). The
+  // `is_enabled` subsection was compressed 21 -> 17 lines in fa6867632, then
+  // 17 -> 16 in the follow-up review pass that folded two bullets and added
+  // the `models.updated_at` guard's citation; the OpenRouter and Bedrock
+  // enablement bullets were consolidated into cross-references. Net against
+  // the doc across both commits: 2312 -> 2324 (+12). 16 is the floor actually
+  // reached, not claimed irreducible — a later pass may compress it further.
+  //
+  // NOT a precedent for open-ended growth: the shrink-only doctrine below
+  // still holds. One real, unresolved tension worth recording: README
+  // sanctions re-baselining for cases like this one, while this test's own
+  // failure message says "do not raise the number" — both are true at once,
+  // and this pin does not decide which wins next time.
+  'assistant-providers.md': 2324,
   'assistant-runtime.md': 2780,
   'assistant-subagents.md': 1626,
   'changeset-diff.md': 495,
   'ci-quality.md': 924,
   'code-execution.md': 364,
-  'database.md': 852,
+  // BST-1794 raised this from 852: rule 3 (catalog upsert) needed a
+  // sibling-invariant cross-reference to the `models.updated_at` rule in
+  // assistant-providers.md, so a migration author meets it where they
+  // actually read rather than only in the provider contract.
+  'database.md': 855,
   'domain.md': 37,
   'explorer-search-tapestry.md': 638,
   'issue-tracker.md': 56,

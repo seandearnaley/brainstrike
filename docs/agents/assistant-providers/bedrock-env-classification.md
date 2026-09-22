@@ -51,7 +51,7 @@ the region-format cases in
 `packages/assistant-service/src/__tests__/provider-credential-projection.test.ts`
 (the injected-vs-absent chain capability pair IS the desktop/web proof)
 + the BST-1350/BST-1353 blocks in `request.test.ts`,
-`packages/app-shell/src/hooks/use-bedrock-model-defaults.test.tsx`, the aws
+`packages/app-shell/src/hooks/use-provider-model-defaults.test.tsx`, the aws
 editor cases (save semantics + region-format gate) in
 `packages/settings-ui/.../__tests__/credential-inventory.test.tsx`, and
 the BST-1350 pins in `apps/desktop/src/__tests__/main/desktop-env.test.ts`.

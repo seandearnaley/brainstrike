@@ -1,3 +1,4 @@
+import type { ProviderModelDefaultPolicy } from '@brainstrike/assistant-contract';
 import { hasDownloadedBuiltInLocalLlmModel } from '@brainstrike/assistant-contract/local-llm-artifacts';
 import type { IDatabase } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
@@ -55,7 +56,7 @@ interface ModelRegistryState {
   initializeProviderModelDefaults: (
     db: DbHandle,
     providerId: string,
-    modelIds: readonly string[]
+    policy: ProviderModelDefaultPolicy
   ) => Promise<'initialized' | 'preserved'>;
   isDownloading: Record<string, boolean>; // modelId -> boolean
   isLoading: boolean;
@@ -100,6 +101,7 @@ interface RawModel {
 }
 
 interface RawProviderModelChoice {
+  capabilities: string | { type?: unknown } | null;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   created_at: Date | string;
   id: string;
@@ -125,6 +127,57 @@ function hasExplicitProviderModelChoice(rows: readonly RawProviderModelChoice[])
     hasExplicitChoice ||= Boolean(row.is_enabled) || updatedAt > createdAt;
   }
   return hasExplicitChoice;
+}
+
+function isLlmChoiceRow(row: RawProviderModelChoice): boolean {
+  if (typeof row.capabilities === 'string') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.capabilities);
+    } catch (error) {
+      throw new Error(`Model registry row ${row.id} has unparseable capabilities.`, {
+        cause: error,
+      });
+    }
+    // A parsed value that is not a non-null object is not a catalog LLM row
+    // (e.g. the JSON text 'null' parses to null, matching SQL NULL).
+    if (typeof parsed !== 'object' || parsed === null) {
+      return false;
+    }
+    return (parsed as { type?: unknown }).type === 'llm';
+  }
+  // A missing/non-object capabilities value is not a catalog LLM row.
+  if (typeof row.capabilities !== 'object' || row.capabilities === null) {
+    return false;
+  }
+  return row.capabilities.type === 'llm';
+}
+
+/**
+ * A row no user has ever acted on. Requires BOTH conjuncts: `updated_at ===
+ * created_at` alone would be enough on paper, but demanding `!is_enabled` as
+ * well means this predicate can only ever select a row to turn ON. No path
+ * through the availability policy can revoke a model the user is using.
+ */
+function isUntouchedChoiceRow(row: RawProviderModelChoice): boolean {
+  if (row.is_enabled) {
+    return false;
+  }
+  return (
+    timestampMillis(row.updated_at, 'updated_at') === timestampMillis(row.created_at, 'created_at')
+  );
+}
+
+/** Ids the `all` policy may enable: LLM rows no user has acted on. */
+function selectUntouchedLlmModelIds(rows: readonly RawProviderModelChoice[]): string[] {
+  const modelIds: string[] = [];
+  for (const row of rows) {
+    // LLM check first: embedding rows must never reach the timestamp parse.
+    if (isLlmChoiceRow(row) && isUntouchedChoiceRow(row)) {
+      modelIds.push(row.id);
+    }
+  }
+  return modelIds;
 }
 
 interface FileSystemAccess {
@@ -332,45 +385,91 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         }
       },
 
-      initializeProviderModelDefaults: async (db, providerId, modelIds) => {
-        const uniqueModelIds = Array.from(new Set(modelIds));
-        if (uniqueModelIds.length === 0) {
-          throw new Error(`No recommended model defaults were provided for ${providerId}.`);
-        }
-
+      initializeProviderModelDefaults: async (db, providerId, policy) => {
         const choiceResult = await db.query<RawProviderModelChoice>(
-          `SELECT id, is_enabled, created_at, updated_at
+          `SELECT id, is_enabled, capabilities, created_at, updated_at
            FROM models WHERE provider_id = $1`,
           [providerId]
         );
 
-        if (hasExplicitProviderModelChoice(choiceResult.rows)) {
+        let uniqueModelIds: string[];
+        if (policy.kind === 'all') {
+          // Availability policy: every LLM row nobody has acted on. Ids come
+          // from the DB itself, so catalog/DB drift cannot arise here and
+          // there is nothing to validate against.
+          uniqueModelIds = selectUntouchedLlmModelIds(choiceResult.rows);
+        } else {
+          // Starter kit: unchanged behaviour. One enabled or edited row in the
+          // provider means the user has curated it; do not impose a set.
+          // Dedupe + empty-throw first: this does not depend on the query, and
+          // an empty seed set against a curated provider must throw rather than
+          // silently return 'preserved' through the gate below.
+          uniqueModelIds = Array.from(new Set(policy.modelIds));
+          if (uniqueModelIds.length === 0) {
+            throw new Error(`No recommended model defaults were provided for ${providerId}.`);
+          }
+          // Validate seed/catalog drift BEFORE the curated-provider gate: a
+          // seed id absent from the DB must throw even when the provider is
+          // already curated, rather than being hidden behind an early
+          // 'preserved' return.
+          const choicesById = new Map(choiceResult.rows.map((row) => [row.id, row]));
+          const missingModelIds = uniqueModelIds.filter((modelId) => !choicesById.has(modelId));
+          if (missingModelIds.length > 0) {
+            throw new Error(
+              `Recommended ${providerId} models are missing from the catalog: ${missingModelIds.join(', ')}`
+            );
+          }
+          if (hasExplicitProviderModelChoice(choiceResult.rows)) {
+            return 'preserved';
+          }
+        }
+
+        if (uniqueModelIds.length === 0) {
           return 'preserved';
         }
 
-        const choicesById = new Map(choiceResult.rows.map((row) => [row.id, row]));
-        const missingModelIds = uniqueModelIds.filter((modelId) => !choicesById.has(modelId));
-        if (missingModelIds.length > 0) {
-          throw new Error(
-            `Recommended ${providerId} models are missing from the catalog: ${missingModelIds.join(', ')}`
-          );
-        }
-
         const placeholders = uniqueModelIds.map((_, index) => `$${index + 2}`).join(', ');
+        const isAllPolicy = policy.kind === 'all';
+        // The `all` policy re-asserts the eligibility predicates the TS-side
+        // selection just used, so a row another writer touched between the
+        // SELECT and this UPDATE (e.g. the user disabling it) cannot be
+        // re-enabled out from under them — RETURNING then simply omits that
+        // row rather than the UPDATE clobbering it. The predicates are not
+        // byte-identical: TS `timestampMillis` compares at millisecond
+        // resolution while SQL `updated_at = created_at` compares at
+        // microsecond resolution, so a sub-millisecond skew between the two
+        // columns can make a row TS-eligible but SQL-ineligible. That skew
+        // only narrows the UPDATE, never widens it, so it fails safe — it
+        // never over-enables a row. The `seed` policy is unchanged: a short
+        // RETURNING set there is a real drift tripwire and must keep
+        // throwing.
+        const allPolicyClause = isAllPolicy
+          ? " AND is_enabled = false AND updated_at = created_at AND capabilities->>'type' = 'llm'"
+          : '';
         const updateResult = await db.query<{ id: string }>(
           `UPDATE models SET is_enabled = true, updated_at = NOW()
-           WHERE provider_id = $1 AND id IN (${placeholders})
+           WHERE provider_id = $1 AND id IN (${placeholders})${allPolicyClause}
            RETURNING id`,
           [providerId, ...uniqueModelIds]
         );
         const updatedModelIds = new Set(updateResult.rows.map((row) => row.id));
-        const notUpdatedModelIds = uniqueModelIds.filter(
-          (modelId) => !updatedModelIds.has(modelId)
-        );
-        if (notUpdatedModelIds.length > 0) {
-          throw new Error(
-            `Failed to initialize recommended ${providerId} models: ${notUpdatedModelIds.join(', ')}`
+
+        if (isAllPolicy) {
+          // A short RETURNING set here means another writer touched those
+          // rows concurrently (e.g. the user disabled one) — skip them
+          // rather than treat it as drift; the seed path below still throws.
+          if (updatedModelIds.size === 0) {
+            return 'preserved';
+          }
+        } else {
+          const notUpdatedModelIds = uniqueModelIds.filter(
+            (modelId) => !updatedModelIds.has(modelId)
           );
+          if (notUpdatedModelIds.length > 0) {
+            throw new Error(
+              `Failed to initialize recommended ${providerId} models: ${notUpdatedModelIds.join(', ')}`
+            );
+          }
         }
 
         await syncDurableDatabaseWrites(db);

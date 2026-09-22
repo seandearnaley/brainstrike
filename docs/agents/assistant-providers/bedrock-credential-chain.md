@@ -10,13 +10,14 @@ rewrite.
 
 - **DB catalog enablement (finding 8).** Migration 100 seeds the provider row
   and every model row `is_enabled = false` — the same shape as the
-  openrouter seed. Enablement comes from `useBedrockDefaults`
-  (packages/app-shell), which mirrors `useOpenRouterDefaults`: on the first
-  readable bedrock configuration it enables `BEDROCK_RECOMMENDED_MODEL_IDS`
-  (assistant-contract) through the idempotent, user-choice-preserving
-  `initializeProviderModelDefaults`. Keep the two hooks parallel; the panel
-  wrapper consumes them through the ONE composed seam
-  `useProviderModelDefaults` (wrapper composition budget).
+  openrouter seed. Enablement comes from bedrock's own entry in
+  `PROVIDER_MODEL_DEFAULT_POLICIES` (assistant-contract) —
+  `{ kind: 'seed', modelIds: BEDROCK_RECOMMENDED_MODEL_IDS }` — applied by the
+  ONE `useProviderModelDefaults` hook (packages/app-shell), shared by every
+  provider: on the first readable bedrock configuration it enables those
+  model ids through the idempotent, user-choice-preserving
+  `initializeProviderModelDefaults`. There is no per-provider hook to keep
+  parallel; a new provider adds a policy-table entry, not a new hook.
 - **Credential projection** (`providerAuthInputFromCredential`): on an
   aws-auth provider an `api_key` credential (env bearer) and an aws/bearer
   credential both project to `{ kind: 'aws', region, apiKey }`; an aws
