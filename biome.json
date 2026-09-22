@@ -343,7 +343,6 @@
         }
       }
     },
-
     {
       "includes": ["**/vitest.setup.ts", "**/vitest.setup.tsx"],
       "linter": {

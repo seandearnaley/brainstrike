@@ -22,8 +22,7 @@
   },
   "files": [
     "biome/biome.json",
-    "tsconfig",
-    "tailwind"
+    "tsconfig"
   ],
   "license": "ISC",
   "main": "index.js",
