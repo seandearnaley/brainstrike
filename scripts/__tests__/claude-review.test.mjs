@@ -391,9 +391,6 @@ test('the CLI receives the prompt on stdin, with no tools and nothing in argv', 
   const [call] = calls;
   assert.ok(call.stdinIsDescriptor, 'stdin must be the prompt file descriptor');
   assert.equal(call.stdin, f.prompt());
-  const model = call.args.indexOf('--model');
-  assert.notEqual(model, -1, 'runReview must pass --model');
-  assert.equal(call.args[model + 1], 'claude-opus-5-5');
   // Nothing in argv carries prompt or diff content, at any size.
   for (const arg of call.args) {
     assert.ok(!arg.includes('diff --git'), `argv carried diff content: ${arg.slice(0, 60)}`);
@@ -405,6 +402,22 @@ test('the CLI receives the prompt on stdin, with no tools and nothing in argv', 
   assert.ok(!call.args.includes('--add-dir'));
   assert.ok(!call.args.includes('Read'));
   assert.equal(claudeReviewToolArgs[0], '--tools=');
+});
+
+test('runReview pins the review model', (t) => {
+  // An independent literal, not claudeReviewModel: editing the constant must
+  // fail here, because an unknown id degrades silently instead of erroring.
+  const f = fixture(t, {});
+  assert.equal(prepareReview(f), 0);
+  let args = [];
+  const spawn = (_command, argv) => {
+    args = argv;
+    return { status: 0, stdout: JSON.stringify({ structured_output: f.defaultReview }) };
+  };
+  assert.equal(runReview({ ...f, spawn }), 0);
+  const model = args.indexOf('--model');
+  assert.notEqual(model, -1, 'runReview must pass --model');
+  assert.equal(args[model + 1], 'claude-opus-5-5');
 });
 
 test('a CLI failure is recorded and cannot become completed coverage', (t) => {

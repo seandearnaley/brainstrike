@@ -363,6 +363,12 @@ Guard: `apps/web/e2e/utils/__tests__/performance-benchmark-contract.vitest.ts`.
   tool removed except `StructuredOutput`. Prompt, diff, and published body all
   travel on stdin. After changing the tool arguments, update and run
   `node scripts/probe-claude-review-tools.mjs /absolute/path/to/claude`.
+- The model id lives once in `claudeReviewModel` (`scripts/claude-review.mjs`);
+  `claude.yml` repeats it under a contract test. A CLI whose catalog lacks the
+  id does not fail: it assumes a 200k window and auto-compacts. So a model bump
+  must also move the review CLI pin to a build that lists the id (check the
+  binary, e.g. `grep -ac <id>`), then rerun the probe. `@claude` runs the CLI
+  bundled with `claude-code-action@v1` and may lag; that lag is accepted.
 - Under `pull_request` this workflow and `scripts/claude-review.mjs` execute from
   the PR's merge commit — PR-author code — with `CLAUDE_CODE_OAUTH_TOKEN` and a
   `pull-requests: write` token in scope. That exposure is accepted because every

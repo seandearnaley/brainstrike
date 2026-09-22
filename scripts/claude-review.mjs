@@ -13,8 +13,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { summarizeLockfileDiff } from './lockfile-diff-summary.mjs';
 
-// The pinned CLI (claude-code-review.yml) must list this id in its model
-// catalog; an unknown id silently caps the context window at 200k.
+// Every CLI that receives this id must list it in its model catalog; an unknown
+// id silently caps the context window at 200k. claude-code-review.yml pins one
+// that does. claude.yml (@claude) repeats the id but runs the CLI bundled with
+// claude-code-action@v1, which may lag — see docs/agents/ci-quality.md.
 export const claudeReviewModel = 'claude-opus-5-5';
 
 // The model has no tools at all. --tools= empties the built-in set and ignores
