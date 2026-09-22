@@ -37,7 +37,7 @@ const CONTRACT_LINE_BUDGETS = {
   'assistant-runtime.md': 4944,
   'assistant-subagents.md': 3080,
   'changeset-diff.md': 1168,
-  'ci-quality.md': 3957,
+  'ci-quality.md': 924,
   'code-execution.md': 841,
   'database.md': 1670,
   'domain.md': 37,
@@ -158,6 +158,19 @@ test('every evidence pointer in a contract resolves to a file', () => {
     for (const [, pointer] of source.matchAll(pointers)) {
       if (!pointerResolves(path.join(repoRoot, CONTRACT_DIR, pointer))) {
         failures.push(`${name} points at ${pointer}, which is not a readable file`);
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+});
+
+test('every evidence file is referenced by its contract', () => {
+  const failures = [];
+  for (const area of EVIDENCE_DIRS) {
+    const contract = readFileSync(path.join(repoRoot, CONTRACT_DIR, `${area}.md`), 'utf8');
+    for (const name of readdirSync(path.join(repoRoot, CONTRACT_DIR, area)).sort()) {
+      if (!contract.includes(`${area}/${name}`)) {
+        failures.push(`${area}/${name} is not reachable: ${area}.md never points at it`);
       }
     }
   }
