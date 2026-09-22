@@ -352,7 +352,7 @@ credentials:
 node scripts/probe-claude-review-tools.mjs /absolute/path/to/claude
 ```
 
-Use CLI 2.1.261, the version the workflow installs with `npm install --global`. The fixture injects
+Use CLI 2.1.280, the version the workflow installs with `npm install --global`. The fixture injects
 an unsolicited Bash file-read tool call: it must be rejected, the private
 fixture content must remain unread, and structured output must still succeed.
 This validates model tool isolation, not live OIDC or semantic review quality.

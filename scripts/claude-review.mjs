@@ -13,6 +13,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { summarizeLockfileDiff } from './lockfile-diff-summary.mjs';
 
+// The pinned CLI (claude-code-review.yml) must list this id in its model
+// catalog; an unknown id silently caps the context window at 200k.
+export const claudeReviewModel = 'claude-opus-5-5';
+
 // The model has no tools at all. --tools= empties the built-in set and ignores
 // user, project, and local settings, so it is the hard cap and no permission
 // rule can widen it. Nothing needs to be granted: the diff arrives in the prompt
@@ -392,7 +396,7 @@ export function runReview({
   const args = [
     '-p',
     '--model',
-    'claude-opus-5-5',
+    claudeReviewModel,
     '--max-turns',
     '80',
     ...claudeReviewToolArgs,

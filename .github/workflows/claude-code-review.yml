@@ -65,7 +65,7 @@ jobs:
       # entirely (claude-code-action#713), instead of routing around them.
       - name: Install the pinned Claude Code CLI
         if: ${{ steps.request.outputs.eligible == 'true' }}
-        run: npm install --global @anthropic-ai/claude-code@2.1.261
+        run: npm install --global @anthropic-ai/claude-code@2.1.280
 
       # The OAuth token is the only secret in scope, and it reaches the CLI as its
       # own credential. The prompt is not here: it is a file, streamed to stdin by

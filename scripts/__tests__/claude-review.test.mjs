@@ -391,7 +391,9 @@ test('the CLI receives the prompt on stdin, with no tools and nothing in argv', 
   const [call] = calls;
   assert.ok(call.stdinIsDescriptor, 'stdin must be the prompt file descriptor');
   assert.equal(call.stdin, f.prompt());
-  assert.equal(call.args[call.args.indexOf('--model') + 1], 'claude-opus-5-5');
+  const model = call.args.indexOf('--model');
+  assert.notEqual(model, -1, 'runReview must pass --model');
+  assert.equal(call.args[model + 1], 'claude-opus-5-5');
   // Nothing in argv carries prompt or diff content, at any size.
   for (const arg of call.args) {
     assert.ok(!arg.includes('diff --git'), `argv carried diff content: ${arg.slice(0, 60)}`);
