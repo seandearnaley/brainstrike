@@ -60,11 +60,11 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     // 2026-09-09). The free routes remap to PAID replacements, so each of
     // these lands a user-visible notice when it is the selected model.
     //
-    // Ling 3.0 Flash was free and text-only; the paid `inclusionai/ling-3.0-flash`
-    // is not in our catalog, so Nemotron 3.5 Lightning is the closest row we
-    // actually ship (same 262,144 context, text-only). BST-1702 tracks adding
-    // the cheaper paid Ling route.
-    'inclusionai/ling-3.0-flash:free': 'nvidia/nemotron-3.5-lightning',
+    // Ling 3.0 Flash was free and text-only; BST-1702 added the like-for-like
+    // paid `inclusionai/ling-3.0-flash` (same 262,144 context, text-only, a
+    // quarter of Nemotron's price), so the retired `:free` route remaps
+    // there, not to the Nemotron stopgap.
+    'inclusionai/ling-3.0-flash:free': 'inclusionai/ling-3.0-flash',
     // Same family, identical 256,000 / 80,000 / text-only shape.
     'kwaipilot/kat-coder-air-v2.5': 'kwaipilot/kat-coder-pro-v2.5',
     'openai/gpt-3.5-turbo': 'openai/gpt-5.4-mini',

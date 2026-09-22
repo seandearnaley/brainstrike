@@ -110,7 +110,7 @@ describe('assistant-memory-preferences-store', () => {
   it.each([
     ['openrouter/stealth/ox-alpha', 'openrouter/qwen/qwen3.8-flash'],
     ['openrouter/qwen/qwen3.8-max', 'openrouter/qwen/qwen3.8-max-0902'],
-    ['openrouter/inclusionai/ling-3.0-flash:free', 'openrouter/nvidia/nemotron-3.5-lightning'],
+    ['openrouter/inclusionai/ling-3.0-flash:free', 'openrouter/inclusionai/ling-3.0-flash'],
     ['openrouter/kwaipilot/kat-coder-air-v2.5', 'openrouter/kwaipilot/kat-coder-pro-v2.5'],
   ])('remaps the delisted OpenRouter memory target %s', async (from, to) => {
     const persistApi = (useAssistantMemoryPreferencesStore as MemoryPersistApi).persist;
