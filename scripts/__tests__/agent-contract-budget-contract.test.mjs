@@ -6,7 +6,25 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONTRACT_DIR = 'docs/agents';
-const EVIDENCE_DIRS = ['ci-quality'];
+
+/**
+ * Derived, never registered: an evidence area is any `docs/agents/<area>/`
+ * directory whose `<area>.md` contract exists. A hand-maintained list would be
+ * a second source of truth, would conflict on every PR that converts another
+ * contract, and would silently leave a new area unguarded until someone
+ * remembered to add it.
+ */
+const evidenceDirs = () =>
+  readdirSync(path.join(repoRoot, CONTRACT_DIR), { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        statSync(path.join(repoRoot, CONTRACT_DIR, `${entry.name}.md`), {
+          throwIfNoEntry: false,
+        })?.isFile() === true
+    )
+    .map((entry) => entry.name)
+    .sort();
 
 /**
  * `_`-prefixed docs are generated or periodically regenerated audit artifacts
@@ -32,8 +50,8 @@ const isContractDoc = (name) => name.endsWith('.md') && !name.startsWith('_');
  */
 const CONTRACT_LINE_BUDGETS = {
   'agent-self-query.md': 644,
-  'assistant-persistence.md': 4035,
-  'assistant-providers.md': 5609,
+  'assistant-persistence.md': 2016,
+  'assistant-providers.md': 2312,
   'assistant-runtime.md': 4944,
   'assistant-subagents.md': 3080,
   'changeset-diff.md': 1168,
@@ -44,9 +62,9 @@ const CONTRACT_LINE_BUDGETS = {
   'explorer-search-tapestry.md': 1474,
   'issue-tracker.md': 56,
   'local-inference.md': 809,
-  'mastra-boundary.md': 991,
+  'mastra-boundary.md': 403,
   'mcp-conformance.md': 393,
-  'platform-contracts.md': 2632,
+  'platform-contracts.md': 955,
   'README.md': 70,
   'triage-labels.md': 35,
   'ui-conventions.md': 898,
@@ -114,7 +132,7 @@ const citesHeading = (heading, wanted) =>
 
 test('every evidence file names a section its contract actually has', () => {
   const failures = [];
-  for (const area of EVIDENCE_DIRS) {
+  for (const area of evidenceDirs()) {
     const contract = readFileSync(path.join(repoRoot, CONTRACT_DIR, `${area}.md`), 'utf8');
     const headings = contract
       .split('\n')
@@ -123,7 +141,9 @@ test('every evidence file names a section its contract actually has', () => {
     for (const name of readdirSync(path.join(repoRoot, CONTRACT_DIR, area)).sort()) {
       const file = `${area}/${name}`;
       const source = readFileSync(path.join(repoRoot, CONTRACT_DIR, file), 'utf8');
-      const cited = source.match(/§ "([^"]+)"/u);
+      // \s*, not a literal space: a citation may wrap between § and the quoted
+      // heading. Where markdown breaks the line is not a contract change.
+      const cited = source.match(/§\s*"([^"]+)"/u);
       if (!cited) {
         failures.push(`${file} does not cite the contract section it supports (§ "<heading>")`);
         continue;
@@ -152,7 +172,7 @@ test('every evidence pointer in a contract resolves to a file', () => {
     // Only `<area>/<topic>.md` pointers, so repo-root paths like `docs/x.md`
     // elsewhere in a contract are not mistaken for evidence references.
     const pointers = new RegExp(
-      String.raw`\x60((?:${EVIDENCE_DIRS.join('|')})/[a-z0-9-]+\.md)\x60`,
+      String.raw`\x60((?:${evidenceDirs().join('|')})/[a-z0-9-]+\.md)\x60`,
       'gu'
     );
     for (const [, pointer] of source.matchAll(pointers)) {
@@ -166,7 +186,7 @@ test('every evidence pointer in a contract resolves to a file', () => {
 
 test('every evidence file is referenced by its contract', () => {
   const failures = [];
-  for (const area of EVIDENCE_DIRS) {
+  for (const area of evidenceDirs()) {
     const contract = readFileSync(path.join(repoRoot, CONTRACT_DIR, `${area}.md`), 'utf8');
     for (const name of readdirSync(path.join(repoRoot, CONTRACT_DIR, area)).sort()) {
       if (!contract.includes(`${area}/${name}`)) {
@@ -178,8 +198,12 @@ test('every evidence file is referenced by its contract', () => {
 });
 
 test('a pointer resolves only to a readable regular file', () => {
-  const area = path.join(repoRoot, CONTRACT_DIR, EVIDENCE_DIRS[0]);
-  assert.equal(pointerResolves(path.join(area, 'claude-review.md')), true);
+  // Discovered, not hard-coded: areas are derived and sorted, so naming a
+  // specific area's specific file makes this test fail the next time a
+  // contract is converted ahead of it alphabetically.
+  const area = path.join(repoRoot, CONTRACT_DIR, evidenceDirs()[0]);
+  const present = readdirSync(area).sort()[0];
+  assert.equal(pointerResolves(path.join(area, present)), true);
   assert.equal(pointerResolves(path.join(area, 'does-not-exist.md')), false);
   // The directory itself: what a revert to existsSync would wrongly accept.
   assert.equal(pointerResolves(area), false);
