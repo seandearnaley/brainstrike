@@ -36,10 +36,21 @@ import {
   type SelectionUpdateHandler,
   setMcpApi,
   testEnabledModels,
-  toastSpy,
-  toggleModelEnabledMock,
   useChangesetMock,
 } from './assistant-ui-panel-wrapper-test-support';
+
+const { useEnableModelSentinelMock } = vi.hoisted(() => ({
+  useEnableModelSentinelMock: vi.fn(async () => true),
+}));
+
+// The enable RULE (hosted providers toggle, local-runtime providers refuse
+// with a toast) is `useEnableModel`'s own contract — covered exhaustively by
+// `hooks/use-enable-model.test.tsx`. This file only needs to prove the
+// wrapper WIRES that hook's callback straight through as `onEnableModel`,
+// so `useEnableModel` is mocked to a sentinel identity here.
+vi.mock('../hooks/use-enable-model', () => ({
+  useEnableModel: () => useEnableModelSentinelMock,
+}));
 
 describe('AssistantUiPanelWrapper', () => {
   test('re-reads the checkpoint journal when a run finishes (no thread switch)', async () => {
@@ -686,45 +697,18 @@ describe('AssistantUiPanelWrapper', () => {
     });
   });
 
-  test('onEnableModel toggles a hosted-runtime model through useModelToggle', async () => {
+  test('wires useEnableModel() straight through as onEnableModel', async () => {
     await renderAssistantPanel(['openai', 'anthropic'], () =>
       waitFor(() => {
         expect((screen.getByTestId('provider-select') as HTMLSelectElement).value).toBe('openai');
       })
     );
 
-    const onEnableModel = delegatedPanelCallbacks.onEnableModel;
-    if (!onEnableModel) {
-      throw new Error('expected onEnableModel to be wired to AssistantUiPanel');
-    }
-
-    // anthropic is a hosted-runtime provider (getProviderDefinition('anthropic').runtime
-    // === 'hosted'), so the wrapper resolves whatever useModelToggle().toggle resolves.
-    await expect(onEnableModel('anthropic', 'claude-opus-5')).resolves.toBe(true);
-    expect(toggleModelEnabledMock).toHaveBeenCalledWith('claude-opus-5', true);
-    expect(toastSpy).not.toHaveBeenCalled();
-  });
-
-  test('onEnableModel refuses a local-runtime provider without calling toggle', async () => {
-    await renderAssistantPanel(['openai', 'ollama'], () =>
-      waitFor(() => {
-        expect((screen.getByTestId('provider-select') as HTMLSelectElement).value).toBe('openai');
-      })
-    );
-
-    const onEnableModel = delegatedPanelCallbacks.onEnableModel;
-    if (!onEnableModel) {
-      throw new Error('expected onEnableModel to be wired to AssistantUiPanel');
-    }
-
-    // ollama is a local-runtime provider (getProviderDefinition('ollama').runtime
-    // === 'local'), so the wrapper refuses the registry write and surfaces a
-    // destructive toast instead of silently doing nothing (BST-1795).
-    await expect(onEnableModel('ollama', 'llama3')).resolves.toBe(false);
-    expect(toggleModelEnabledMock).not.toHaveBeenCalled();
-    expect(toastSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Could not enable this model', variant: 'destructive' })
-    );
+    // The enable rule itself (hosted toggles, local-runtime refuses with a
+    // toast) is `useEnableModel`'s own contract, covered by
+    // `hooks/use-enable-model.test.tsx`. This only proves the wrapper wires
+    // that hook's callback through unchanged.
+    expect(delegatedPanelCallbacks.onEnableModel).toBe(useEnableModelSentinelMock);
   });
 
   test('loads MCP tools on mount', async () => {
