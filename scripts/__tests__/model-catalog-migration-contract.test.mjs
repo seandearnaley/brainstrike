@@ -268,6 +268,98 @@ export const migrations = [
     ]);
   });
 
+  it('does not let DELETE patterns match into a later, unrelated statement (BST-1703)', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      assistantPreferencesSource: `
+const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
+  openrouter: {},
+};
+`,
+      memoryPreferencesSource: `
+const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/040-previous-catalog.ts',
+          'migration040PreviousCatalog',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('phantom/crossed-1', 'openrouter', 'Phantom Crossed 1', '{"type":"llm","streaming":true}');
+          `
+        ),
+        migrationFile(
+          'packages/db/src/migrations/041-update-provider-models.ts',
+          'migration041UpdateProviderModels',
+          `
+            DELETE FROM models WHERE provider_id = 'retired-provider';
+            UPDATE models SET is_enabled = false WHERE id IN ('phantom/crossed-1');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration040PreviousCatalog,
+  migration041UpdateProviderModels,
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, []);
+  });
+
+  it('keeps statement splitting out of string literals when scoping DELETEs (BST-1703)', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      assistantPreferencesSource: `
+const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
+  openrouter: {},
+};
+`,
+      memoryPreferencesSource: `
+const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/040-previous-catalog.ts',
+          'migration040PreviousCatalog',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('phantom/crossed-2', 'openrouter', 'Phantom Crossed 2', '{"type":"llm","streaming":true}'),
+              ('odd;id', 'openrouter', 'Odd Id', '{"type":"llm","streaming":true}');
+          `
+        ),
+        migrationFile(
+          'packages/db/src/migrations/041-update-provider-models.ts',
+          'migration041UpdateProviderModels',
+          `
+            DELETE FROM models WHERE id = 'odd;id';
+            UPDATE models SET is_enabled = false WHERE id IN ('phantom/crossed-2');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration040PreviousCatalog,
+  migration041UpdateProviderModels,
+];
+`,
+    });
+
+    // The DELETE of odd;id is genuine and owes both remaps; the UPDATE's
+    // IN-list must not add phantom failures for phantom/crossed-2.
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/app-state/src/stores/assistant-model-id-migrations.ts',
+        message:
+          'Removed assistant catalog model openrouter::odd;id is missing from MODEL_ID_MIGRATIONS.',
+      },
+      {
+        file: 'packages/app-state/src/stores/assistant-memory-preferences-store.ts',
+        message:
+          'Removed assistant memory model target openrouter/odd;id is missing from MEMORY_MODEL_TARGET_MIGRATIONS.',
+      },
+    ]);
+  });
+
   it('preserves the historical remap cutoff for Windows migration paths', () => {
     const result = analyzeModelCatalogMigrationContract({
       assistantPreferencesSource: `
