@@ -244,4 +244,40 @@ describe('background generation ports (migration 140)', () => {
       ).rows
     ).toEqual([]);
   });
+
+  it('never reads two legs with no generation as one generation', async () => {
+    // NULL is the ABSENCE of a generation, never an identity two legs share
+    // (final review item 2): unset and unset are not "the same generation",
+    // so neither unmapped leg may map a run — nor claim the other's.
+    const first = await newLeg('unmapped-a', {
+      delegated: false,
+      runId: 'never-mapped-run',
+      toolCallId: 'root-write-a',
+    });
+    const second = await newLeg('unmapped-b', {
+      delegated: false,
+      runId: 'never-mapped-run',
+      toolCallId: 'root-write-b',
+    });
+    expect(
+      (
+        await database.query<{ generationRunId: string | null }>(
+          `SELECT generation_run_id AS "generationRunId" FROM brainstrike_assistant_thread_runs
+            WHERE id IN ('unmapped-a', 'unmapped-b') ORDER BY id`,
+          []
+        )
+      ).rows
+    ).toEqual([{ generationRunId: null }, { generationRunId: null }]);
+
+    await expect(first.recordNativeRootRun('native-shared')).rejects.toThrow();
+    await expect(second.recordNativeRootRun('native-shared')).rejects.toThrow();
+    expect(
+      (
+        await database.query(
+          'SELECT native_run_id FROM brainstrike_assistant_native_runs WHERE native_run_id = $1',
+          ['native-shared']
+        )
+      ).rows
+    ).toEqual([]);
+  });
 });

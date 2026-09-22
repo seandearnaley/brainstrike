@@ -20,7 +20,11 @@ import {
 } from './live-decision-channel';
 import type { BrainstrikeAgentStreamOptions } from './runtime-assembly/stream-options';
 import type { DelegationOutcomeCapture } from './subagent-delegation';
-import { type AgentStreamOptions, readNativeStreamStatus } from './turn-attempts';
+import {
+  type AgentStreamOptions,
+  readNativeStreamStatus,
+  settleNativeStream,
+} from './turn-attempts';
 
 const logger = createLogger('BackgroundIdleLoop');
 
@@ -270,6 +274,15 @@ interface NativeOutput {
 }
 
 /**
+ * A continuation THIS loop starts. Unlike the leg's first turn — which the
+ * loop only wraps — the loop owns this one, so it must also be able to settle
+ * it when it abandons it (`discardTurn`).
+ */
+type ParentContinuation = NativeOutput & {
+  consumeStream(options?: { onError?: (error: unknown) => void }): Promise<void>;
+};
+
+/**
  * Wrap a leg's first-turn output so `fullStream` spans the first turn plus
  * every host-driven continuation. Aggregate properties (`status`,
  * `messageList`, `getFullOutput()`) keep resolving against the first turn,
@@ -502,9 +515,36 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       parked = true;
     }
   };
+  /**
+   * A continuation this leg built but never read to its end: its mapping was
+   * refused, or its pipe failed part-way. Mastra runs its cancel persistence
+   * and snapshot DELETEs when that stream closes, so an abandoned one floats
+   * them past the end of the turn and races the storage close (BST-1221).
+   *
+   * Settling it — not cancelling it — is the disposal that works:
+   * `MastraModelOutput.fullStream` is a fresh evented VIEW on every access and
+   * its `cancel` only detaches that view's listeners, while `consumeStream`
+   * memoises the one pump of the base stream and resolves when it has closed.
+   *
+   * The leg fails FIRST, and that is also what bounds this join: `fail` errors
+   * the stream its consumer is reading, the consumer disposes the abort context
+   * this continuation was started with, and the continuation ends. The
+   * settlement deadline is the backstop for a stream that ignores that abort.
+   */
+  const discardTurn = async (turn: ParentContinuation | undefined) => {
+    if (!turn) {
+      return;
+    }
+    await settleNativeStream(turn, {
+      abort: (reason) => loopAbort.abort(reason),
+      signal: loopAbort.signal,
+    });
+  };
   const runContinuation = async () => {
     processing = true;
     const batch = pending.splice(0, pending.length);
+    /** Set while this leg owns a continuation stream it has not finished reading. */
+    let abandoned: ParentContinuation | undefined;
     try {
       // The wakeup is the whole ledger from the DURABLE rows (WAKEUP LEDGER,
       // settled 2026-09-15), never the batch alone: a read failure fails the
@@ -528,14 +568,17 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
         _skipBgTaskWait: true,
         context: [...priorContext, { content: directive, role: 'user' }],
       } as AgentStreamOptions);
+      abandoned = continuation;
       // A continuation is a NEW native run of the SAME generation (Mastra mints
       // its own ids). Map it before its chunks flow: a pause raised here opens
       // its approval leg from the user's click, and that leg derives its
       // generation from this mapping.
       await params.recordNativeRootRun(continuation.runId);
       await pipeTurn(continuation);
+      abandoned = undefined;
     } catch (error) {
       fail(error);
+      await discardTurn(abandoned);
       return;
     } finally {
       processing = false;

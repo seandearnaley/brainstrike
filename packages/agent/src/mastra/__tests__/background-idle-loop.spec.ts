@@ -687,4 +687,56 @@ describe('withBackgroundIdleLoop', () => {
     );
     expect(stream).toHaveBeenCalledTimes(8);
   });
+
+  it('settles a continuation whose native run it cannot map, instead of abandoning it open', async () => {
+    // The continuation stream exists BEFORE its run is mapped (a pause raised
+    // in it derives its generation from that mapping). A refused mapping
+    // therefore fails the leg with a stream nobody reads: the loop cancels it
+    // so Mastra's own close runs, rather than leaving it open past the turn.
+    const { ledger, manager, push, setTask } = fakeManager([], () => {});
+    setTask('t1', 'completed');
+    let settled = 0;
+    const continuation = {
+      // `MastraModelOutput.consumeStream` is how an abandoned native stream is
+      // disposed: it pumps the base stream to its close (its cancel
+      // persistence and snapshot DELETEs) and memoises that one pump.
+      consumeStream: async () => {
+        settled += 1;
+      },
+      fullStream: new ReadableStream<unknown>({
+        start(controller) {
+          // Never closes on its own: only its settlement ends it.
+          controller.enqueue(lifecycle('background-task-started', 't2'));
+        },
+      }),
+      runId: 'native-continuation',
+      status: 'running' as const,
+    };
+    const firstTurn = new ReadableStream<unknown>({
+      start(controller) {
+        push(lifecycle('background-task-completed', 't1'));
+        controller.close();
+      },
+    });
+    const refusal = new Error('native-run-generation-mismatch');
+    const output = withBackgroundIdleLoop(
+      { fullStream: firstTurn, status: 'failed' },
+      {
+        agent: { id: 'root', stream: async () => continuation } as unknown as Agent,
+        ledger,
+        manager,
+        maxIdleMs: 60_000,
+        options: {} as never,
+        recordNativeRootRun: async () => {
+          throw refusal;
+        },
+        rejectedDelegations: undefined,
+        scope: { resourceId: 'r', threadId: 't' },
+      }
+    );
+
+    await expect(drain(output.fullStream.getReader())).rejects.toBe(refusal);
+    // MUTATION: without the discard the refused continuation is never settled.
+    expect(settled).toBe(1);
+  });
 });

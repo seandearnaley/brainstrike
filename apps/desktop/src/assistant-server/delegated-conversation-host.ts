@@ -788,6 +788,12 @@ export function createDesktopDelegatedConversationHost(
      * approval leg re-streams the very run it resumed, and that run belongs to
      * the leg that started it. A run already mapped under a DIFFERENT
      * generation is an invariant break, never a silent re-parent.
+     *
+     * NULL is an ABSENCE, never an identity (final review item 2): a leg with
+     * no generation maps nothing — `current_run` drops it, so the leg refuses
+     * with `host-scope-invalid` — and the generation comparison is `=`, which
+     * is never true of two unset generations, rather than
+     * `IS NOT DISTINCT FROM`, which would read them as one.
      */
     async recordNativeRootRun(nativeRunId: string) {
       const result = await database.query(
@@ -809,7 +815,7 @@ export function createDesktopDelegatedConversationHost(
              JOIN brainstrike_assistant_thread_runs owner ON owner.id = mapped.host_run_id
              JOIN current_run ON owner.thread_id = current_run.thread_id
                AND owner.resource_id = current_run.resource_id
-               AND owner.generation_run_id IS NOT DISTINCT FROM current_run.generation_run_id
+               AND owner.generation_run_id = current_run.generation_run_id
              WHERE mapped.native_run_id = $1
            ) AS "sameGeneration"`,
         [nativeRunId, hostRunId]

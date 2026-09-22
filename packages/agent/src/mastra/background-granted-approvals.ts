@@ -385,19 +385,41 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
  * mapping. A runtime without background work scopes no ledger and maps
  * nothing; a CHILD leg's native run is not a root run. A background runtime
  * without the port is an unrunnable configuration, never a degraded one.
+ *
+ * This runs with the native stream ALREADY constructed, so a refusal here
+ * abandons it: abort it and read it to its close, exactly as the neighbouring
+ * binding steps do (`wakeNativeConversation`, `bindStartedNativeBranch`).
+ * Mastra runs its cancel persistence and snapshot DELETEs on that close; a
+ * stream left unread floats them past the end of the turn and races the
+ * storage close (BST-1221). A settlement that fails too keeps both causes —
+ * the mapping refusal is why the turn failed.
  */
 export async function recordRootNativeRun(
   runtime: MastraAgentRuntime,
-  output: { readonly runId?: unknown }
+  output: { readonly runId?: unknown; consumeStream(): Promise<unknown> },
+  abort: (reason: Error) => void
 ): Promise<void> {
   if (!runtime.backgroundTaskManager || runtime.childExecution) {
     return;
   }
-  const runId = typeof output.runId === 'string' ? output.runId : undefined;
-  if (!runId) {
-    throw new Error('Background work requires the native run id of its own turn.');
+  try {
+    const runId = typeof output.runId === 'string' ? output.runId : undefined;
+    if (!runId) {
+      throw new Error('Background work requires the native run id of its own turn.');
+    }
+    await requireNativeRootRunRecorder(runtime.conversationBinding)(runId);
+  } catch (error) {
+    abort(new Error('Native root run mapping failed.', { cause: error }));
+    try {
+      await output.consumeStream();
+    } catch (settleError) {
+      throw new AggregateError(
+        [error, settleError],
+        'Native root run mapping and settlement failed.'
+      );
+    }
+    throw error;
   }
-  await requireNativeRootRunRecorder(runtime.conversationBinding)(runId);
 }
 
 /**

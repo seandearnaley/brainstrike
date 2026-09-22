@@ -129,6 +129,13 @@ cancellation only.
 - Bound that join with `NATIVE_STREAM_SETTLE_DEADLINE_MS` (30 s), then record
   `mastra_native_stream_settle_timeout` at error and proceed, so a hung provider
   socket cannot hold disposal hostage.
+- A step that fails BETWEEN stream construction and the first chunk owns that
+  stream and settles it: `wakeNativeConversation`, `bindStartedNativeBranch`,
+  `recordRootNativeRun` (the migration-140 mapping) and an idle-loop
+  continuation whose mapping is refused all abort and then join
+  `consumeStream()` before the failure propagates. Cancelling is not disposal —
+  `MastraModelOutput.fullStream` hands out a fresh evented view per access whose
+  `cancel` only detaches that view.
 - `resolveMemoryOption` carries the merged thread config's `readOnly` onto the
   request options and returns a branded `ResolvedAgentMemoryOption`; the seam
   accepts nothing else. Read-only memory streams skip the seam entirely.
