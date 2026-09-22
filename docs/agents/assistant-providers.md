@@ -494,8 +494,8 @@ an off-peak moment).
 - That map is exhaustive over `SupportedProvider`: `all`, `seed`, or `null`,
   defined in `provider-model-default-policies.ts`. `null` holds exactly when
   `authType === 'none' || !capabilities.llm`, pinned by test, not a list.
-- "Touched" is `updated_at > created_at` PER ROW plus `!is_enabled` (so no policy
-  can switch a model off); catalog upserts must never write `models.updated_at`.
+- "Untouched" is `!is_enabled` PER ROW plus `updated_at === created_at`; only an
+  untouched row is eligible for a policy. Catalog upserts must never write `models.updated_at`.
 
 Evidence: `assistant-providers/model-enablement-defaults.md`.
 Guard: `provider-model-default-policies.test.ts`, `model-registry-store.test.ts`,
@@ -743,7 +743,7 @@ branches plus the EMPIRICAL real-SDK block),
 `prompt-caching-selection.spec.ts`, `bedrock-reasoning-dialect-contract.spec.ts`,
 `packages/assistant-contract/src/__tests__/{provider-credential,bedrock-defaults}.test.ts`,
 `packages/assistant-service/src/__tests__/provider-credential-projection.test.ts`,
-`packages/app-shell/src/hooks/use-bedrock-model-defaults.test.tsx`,
+`packages/app-shell/src/hooks/use-provider-model-defaults.test.tsx`,
 `apps/desktop/src/__tests__/main/desktop-env.test.ts`.
 
 ### OpenAI Codex — ChatGPT subscription provider

@@ -77,7 +77,11 @@ const CONTRACT_LINE_BUDGETS = {
   'changeset-diff.md': 495,
   'ci-quality.md': 924,
   'code-execution.md': 364,
-  'database.md': 852,
+  // BST-1794 raised this from 852: rule 3 (catalog upsert) needed a
+  // sibling-invariant cross-reference to the `models.updated_at` rule in
+  // assistant-providers.md, so a migration author meets it where they
+  // actually read rather than only in the provider contract.
+  'database.md': 855,
   'domain.md': 37,
   'explorer-search-tapestry.md': 638,
   'issue-tracker.md': 56,

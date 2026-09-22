@@ -92,6 +92,12 @@ writes `models.updated_at` or `providers.updated_at`:
 - Migration 023 writes `providers.updated_at`, not `models`. Migrations 051 and
   067 create/touch unrelated tables (`prompt_items`, the thread search index),
   never `models`.
+- Migration 031 (`031-provider-catalog-timestamps`) DOES write `models.updated_at`
+  — it retypes the column (`ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING
+  updated_at::timestamptz`) — but it applies the identical `USING` cast to
+  `created_at` in the same statement, so a row where the two columns were equal
+  before the migration stays equal after it. Row-level equality, the signal
+  `isUntouchedChoiceRow` reads, survives the type change.
 - `local` carries a `null` policy today, so no provider with an `all` policy is
   affected by any of the above.
 - The hazard is LIVE for the future, not closed by this fix: giving `local` an
@@ -101,6 +107,19 @@ writes `models.updated_at` or `providers.updated_at`:
   by the availability policy — reproducing this exact bug class through a
   different provider. The next person adding a migration that upserts `models`
   needs to know this before reaching for `updated_at = NOW()` out of habit.
+- A second, DIFFERENT hazard resets `created_at` instead of bumping
+  `updated_at`: `isUntouchedChoiceRow` reads equality, not either timestamp in
+  isolation, so moving `created_at` UP to meet a stale `updated_at` launders a
+  row exactly like bumping `updated_at` would. The shape to watch for is a
+  migration that `DELETE`s a `models` row and re-`INSERT`s the same id — the
+  fresh row gets a new `created_at`, which can equal or exceed an old
+  `updated_at` carried over by a naive re-insert, resurrecting a row the user
+  deliberately disabled as though it were untouched; the `all` policy would then
+  silently re-enable it on the next launch. Checked against every migration's
+  up-block for this fix: none does a delete-then-reinsert of a `models` row
+  today, so this is forward-looking only, not a live defect — but it is the
+  same class of laundering as the `updated_at` hazard above and deserves the
+  same suspicion from the next migration author.
 - Design note: the mechanism is self-marking. The enabling `UPDATE` in
   `model-registry-store.ts` sets `updated_at = NOW()` on the row it turns on, so
   a row this code enables becomes a permanent "user touch" record — a later user
