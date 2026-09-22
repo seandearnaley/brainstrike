@@ -62,7 +62,7 @@ import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { ComposerEffortControl } from './composer-effort-control';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
-import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
+import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-picker';
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
 import { RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
@@ -1392,6 +1392,7 @@ const AssistantMessage = () => {
 
 interface ProviderModelHeaderProps {
   groups: ProviderGroupConfig[];
+  onEnableModel?: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -1406,6 +1407,7 @@ interface ProviderModelHeaderProps {
 
 const ProviderModelHeader = ({
   groups,
+  onEnableModel,
   pickerModels,
   providerSettings,
   onProviderSettingsChange,
@@ -1423,7 +1425,8 @@ const ProviderModelHeader = ({
     <div className="bs-composer-control-dock" data-testid="assistant-composer-controls">
       <div className="bs-composer-primary-controls">
         <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
-          <ComposerModelMenu
+          <ComposerModelPicker
+            onEnableModel={onEnableModel}
             onModelChange={onModelChange}
             pickerModels={pickerModels}
             providerGroups={groups}
