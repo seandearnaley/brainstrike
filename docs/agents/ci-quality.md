@@ -359,9 +359,9 @@ Guard: `apps/web/e2e/utils/__tests__/performance-benchmark-contract.vitest.ts`.
 - A diff over 512 KiB is refused as Incomplete. Split the PR; no narrower diff
   or partial review is ever substituted. `pnpm-lock.yaml` hunks are replaced by
   a derived summary, and the published disposition says so.
-- The job installs the pinned Claude Code CLI and runs it directly with every
-  tool removed except `StructuredOutput`. Prompt, diff, and published body all
-  travel on stdin. After changing the tool arguments, update and run
+- The job runs the pinned CLI, whose catalog must list the model id, with every
+  tool removed except `StructuredOutput`; prompt, diff, and body go on stdin.
+  After changing tool args, model, or CLI pin, update and run
   `node scripts/probe-claude-review-tools.mjs /absolute/path/to/claude`.
 - Under `pull_request` this workflow and `scripts/claude-review.mjs` execute from
   the PR's merge commit — PR-author code — with `CLAUDE_CODE_OAUTH_TOKEN` and a

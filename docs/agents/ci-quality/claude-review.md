@@ -352,10 +352,20 @@ credentials:
 node scripts/probe-claude-review-tools.mjs /absolute/path/to/claude
 ```
 
-Use CLI 2.1.261, the version the workflow installs with `npm install --global`. The fixture injects
+Use CLI 2.1.280, the version the workflow installs with `npm install --global`. The fixture injects
 an unsolicited Bash file-read tool call: it must be rejected, the private
 fixture content must remain unread, and structured output must still succeed.
 This validates model tool isolation, not live OIDC or semantic review quality.
+
+**Model id and CLI catalog (#3279).** The model id lives once in
+`claudeReviewModel` (`scripts/claude-review.mjs`); `claude.yml` repeats it under
+a contract test, and `runReview pins the review model` pins the literal. A CLI
+whose model catalog lacks the id does not fail: it assumes a 200k context window
+and auto-compacts. CLI 2.1.261 lacked `claude-opus-5-5`; 2.1.280 lists it
+(checked with `grep -ac claude-opus-5-5` on the platform binary). The probe
+stubs the API, so it cannot catch this. `@claude` runs the CLI bundled with
+`claude-code-action@v1` (2.1.278 at the time, also lacking the id) and so runs
+capped until the action updates; that lag was accepted.
 
 Primary trust evidence: [Anthropic action security guidance](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/docs/security.md),
 [manual dispatch example](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/examples/manual-code-analysis.yml),

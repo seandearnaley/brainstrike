@@ -85,3 +85,12 @@ test('the probe checks the exact CLI version the workflow installs', () => {
   assert.ok(asserted, 'the probe must assert an exact CLI version');
   assert.equal(asserted[1], installed[1]);
 });
+
+test('@claude uses the same model id as the review runner', async () => {
+  // YAML cannot import the constant, so pin the workflow's copy to it.
+  const { claudeReviewModel } = await import('../claude-review.mjs');
+  const mention = readFileSync('.github/workflows/claude.yml', 'utf8');
+  const model = /^\s*--model (\S+)$/m.exec(mention);
+  assert.ok(model, 'claude.yml must pass an explicit --model');
+  assert.equal(model[1], claudeReviewModel);
+});
