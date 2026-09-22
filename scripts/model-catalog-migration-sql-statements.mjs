@@ -135,3 +135,56 @@ export function findModelsStatementEnd(sql, searchFrom) {
 
   return sql.length;
 }
+
+/**
+ * If `afterTableSource` (the SQL immediately following the matched
+ * `INSERT INTO models` / `UPDATE models` table reference) opens with an
+ * `INSERT` target-column list — `(col1, col2, ...)` before `VALUES`,
+ * `SELECT`, `WITH`, or `DEFAULT VALUES` — return that list's source text.
+ * Returns `null` for a plain `UPDATE` (no column list follows the table name)
+ * or an `INSERT ... DEFAULT VALUES` (no parenthesized column list at all).
+ * The column list itself is just comma-separated, optionally double-quoted
+ * identifiers — no string literals or nested parens are legal there — so a
+ * plain depth-counted scan for the matching `)` is enough.
+ */
+export function extractInsertColumnListSource(afterTableSource) {
+  const openMatch = afterTableSource.match(/^\s*\(/);
+  if (!openMatch) {
+    return null;
+  }
+
+  const openIndex = openMatch[0].length - 1;
+  let depth = 0;
+  for (let index = openIndex; index < afterTableSource.length; index += 1) {
+    const char = afterTableSource[index];
+    if (char === '(') {
+      depth += 1;
+    } else if (char === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        return afterTableSource.slice(openIndex + 1, index);
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Does `columnName` (e.g. `updated_at`) appear in `columnListSource` as a
+ * whole target column — optionally double-quoted, bounded by `,`/`(`/`)` or
+ * the list's own start/end? An `INSERT INTO models (id, name, updated_at)
+ * VALUES (...)` writes `updated_at` through this column list exactly like an
+ * explicit `updated_at = ...` assignment would, and a bare substring test
+ * would also wrongly match `updated_at_hint` or a string literal value that
+ * happens to spell the column name.
+ */
+export function insertColumnListWritesColumn(afterTableSource, columnName) {
+  const columnList = extractInsertColumnListSource(afterTableSource);
+  if (columnList === null) {
+    return false;
+  }
+
+  const boundedColumnPattern = new RegExp(`(?:^|[,(])\\s*"?${columnName}"?\\s*(?:[,)]|$)`, 'i');
+  return boundedColumnPattern.test(columnList);
+}
