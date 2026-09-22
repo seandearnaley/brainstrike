@@ -343,16 +343,7 @@
         }
       }
     },
-    {
-      "includes": ["**/tailwind.config.js", "**/tailwind.config.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "useNamingConvention": "off"
-          }
-        }
-      }
-    },
+
     {
       "includes": ["**/vitest.setup.ts", "**/vitest.setup.tsx"],
       "linter": {

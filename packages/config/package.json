@@ -17,7 +17,6 @@
     "./biome": "./biome/biome.json",
     "./biome/base": "./biome/biome.json",
     "./tsconfig/*": "./tsconfig/*.json",
-    "./tailwind": "./tailwind/tailwind.config.js",
     "./playwright-environment": "./src/playwright-environment.ts",
     "./vitest-browser": "./src/vitest-browser.ts"
   },
