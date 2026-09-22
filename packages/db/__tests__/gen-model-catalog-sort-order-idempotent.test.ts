@@ -1,5 +1,8 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+// @boundaries-ignore this test deliberately executes the catalog generator's
+// exact emitted SQL against a throwaway database; the crossing is the point
+// of the test (BST-1704). The db `test` task is cache:false, so no stale replay.
 import {
   planModelCatalogMigration,
   renderUpSql,
