@@ -51,7 +51,17 @@ const isContractDoc = (name) => name.endsWith('.md') && !name.startsWith('_');
 const CONTRACT_LINE_BUDGETS = {
   'agent-self-query.md': 305,
   'assistant-persistence.md': 2016,
-  'assistant-providers.md': 2312,
+  // BST-1794 raised this from 2312, the first upward move since the budgets
+  // were introduced. A new mechanism (catalog-default policies) needed four
+  // rules an agent must obey before adding a model migration — notably that
+  // catalog upserts must never write `models.updated_at`, which silently makes
+  // rows unreachable. Everything movable went to the evidence file (110 lines);
+  // the subsection was compressed 21 -> 15 and two provider bullets were
+  // consolidated into it, a net -23/+16 against the doc. The 12 that remain are
+  // irreducible. This is NOT a precedent for growth: the doctrine below still
+  // holds, and the gap it exposes (no path for a genuinely new mechanism) is
+  // tracked separately.
+  'assistant-providers.md': 2324,
   'assistant-runtime.md': 2780,
   'assistant-subagents.md': 1626,
   'changeset-diff.md': 495,
