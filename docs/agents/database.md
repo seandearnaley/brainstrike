@@ -189,10 +189,7 @@ by number; keep the numbering stable.
    derived array in ARRAY order, so appending silently inverts apply order.
    - For pure ADDITIONS generate it: `node scripts/gen-model-catalog-migration.mjs`
      prints the plan, `--write` emits the file and registers it. It leaves `tagline`
-     and `best_for` NULL for a human to author per rule 7. The `sort_order` base
-     excludes the ids the statement inserts for the same provider, so re-applying a
-     generated migration as that provider's newest migration recomputes identical
-     offsets (BST-1704; historical migrations keep their emitted shape).
+     and `best_for` NULL for a human to author per rule 7.
    - It is ADD-ONLY: it refuses a disappeared catalog row (that needs the rule-4
      remaps and a user-visible notice first — a whole provider leaving is that same
      removal, not residue), an id the DB catalog already holds under another provider
