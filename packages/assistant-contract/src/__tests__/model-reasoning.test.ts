@@ -213,17 +213,19 @@ describe('resolveReasoningControlsAvailability', () => {
   });
 
   it.each([
-    ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max']],
-    ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max']],
-    ['claude-opus-4-8', ['low', 'medium', 'high', 'xhigh', 'max']],
-    ['claude-sonnet-5', ['low', 'medium', 'high', 'xhigh', 'max']],
-    ['claude-sonnet-4-6', ['low', 'medium', 'high', 'max']],
-  ] as const)('offers the documented Anthropic ladder for %s', (modelId, efforts) => {
+    ['claude-fable-5-1', ['low', 'medium', 'high', 'xhigh', 'max'], true],
+    ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max'], true],
+    ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max'], false],
+    ['claude-opus-4-8', ['low', 'medium', 'high', 'xhigh', 'max'], false],
+    ['claude-sonnet-5', ['low', 'medium', 'high', 'xhigh', 'max'], false],
+    ['claude-sonnet-4-6', ['low', 'medium', 'high', 'max'], false],
+  ] as const)('offers the documented Anthropic ladder for %s', (modelId, efforts, mandatory) => {
     expect(resolveReasoningControlsAvailability('anthropic', modelId)).toEqual({
       available: true,
       defaultEffort: 'high',
       efforts,
       family: 'anthropic',
+      ...(mandatory ? { mandatory: true } : {}),
     });
   });
 

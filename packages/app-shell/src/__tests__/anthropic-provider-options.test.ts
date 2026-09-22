@@ -63,8 +63,31 @@ describe('direct Anthropic provider options', () => {
     ).toEqual({ anthropic: { effort: 'high', thinking: { budgetTokens: 4096, type: 'enabled' } } });
   });
 
+  it.each(['claude-fable-5-1', 'claude-fable-5'] as const)(
+    'never serialises budget or disabled thinking for always-on %s',
+    (modelId) => {
+      // Always-on thinking rejects `disabled`, and the legacy budget `enabled`
+      // form is not its wire shape: with no effort there is nothing to send,
+      // and a persisted budget from another model is dropped, not forwarded.
+      expect(buildProviderOptions('anthropic', modelId, {})).toBeUndefined();
+      expect(
+        buildProviderOptions('anthropic', modelId, { anthropicThinkingBudgetTokens: 4096 })
+      ).toBeUndefined();
+    }
+  );
+
+  it('explicitly disables a toggleable ladder model cleared of effort and budget', () => {
+    // BST-1706: `mandatory: false` proves `disabled` is acceptable, so the old
+    // Opus-5-only id check generalises — e.g. Sonnet 5 also thinks when
+    // options are omitted, and omitting would leave it thinking while the
+    // cleared toggle reads off.
+    expect(buildProviderOptions('anthropic', 'claude-sonnet-5', {})).toEqual({
+      anthropic: { thinking: { type: 'disabled' } },
+    });
+  });
+
   it('sends no options for Auto and honors visibility only with valid adaptive thinking', () => {
-    expect(buildProviderOptions('anthropic', 'claude-sonnet-5', {})).toBeUndefined();
+    expect(buildProviderOptions('anthropic', 'claude-haiku-4-5', {})).toBeUndefined();
     expect(
       buildProviderOptions('anthropic', 'claude-sonnet-5', {
         anthropicEffort: 'high',
