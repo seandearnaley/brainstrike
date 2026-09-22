@@ -21,6 +21,7 @@ import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import {
   changesetRefreshMock,
+  delegatedPanelCallbacks,
   fileExplorerMocks,
   hasDesktopLlmHostMock,
   loadTestLocalLlmBackend,
@@ -35,6 +36,8 @@ import {
   type SelectionUpdateHandler,
   setMcpApi,
   testEnabledModels,
+  toastSpy,
+  toggleModelEnabledMock,
   useChangesetMock,
 } from './assistant-ui-panel-wrapper-test-support';
 
@@ -683,36 +686,45 @@ describe('AssistantUiPanelWrapper', () => {
     });
   });
 
-  test('disabling the active model calls toggleModel with correct args', async () => {
-    const user = userEvent.setup();
-    await renderAssistantPanel(['openai'], () =>
+  test('onEnableModel toggles a hosted-runtime model through useModelToggle', async () => {
+    await renderAssistantPanel(['openai', 'anthropic'], () =>
       waitFor(() => {
         expect((screen.getByTestId('provider-select') as HTMLSelectElement).value).toBe('openai');
       })
     );
 
-    const initialCompositeModel = useAssistantPreferencesStore.getState().getSelectedModel();
-    if (!initialCompositeModel) {
-      throw new Error('expected initial model');
+    const onEnableModel = delegatedPanelCallbacks.onEnableModel;
+    if (!onEnableModel) {
+      throw new Error('expected onEnableModel to be wired to AssistantUiPanel');
     }
 
-    // Extract just the model name from composite key (format: "provider::model")
-    const initialModelName = initialCompositeModel.split('::')[1];
-    if (!initialModelName) {
-      throw new Error('expected model name in composite key');
+    // anthropic is a hosted-runtime provider (getProviderDefinition('anthropic').runtime
+    // === 'hosted'), so the wrapper resolves whatever useModelToggle().toggle resolves.
+    await expect(onEnableModel('anthropic', 'claude-opus-5')).resolves.toBe(true);
+    expect(toggleModelEnabledMock).toHaveBeenCalledWith('claude-opus-5', true);
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  test('onEnableModel refuses a local-runtime provider without calling toggle', async () => {
+    await renderAssistantPanel(['openai', 'ollama'], () =>
+      waitFor(() => {
+        expect((screen.getByTestId('provider-select') as HTMLSelectElement).value).toBe('openai');
+      })
+    );
+
+    const onEnableModel = delegatedPanelCallbacks.onEnableModel;
+    if (!onEnableModel) {
+      throw new Error('expected onEnableModel to be wired to AssistantUiPanel');
     }
 
-    const toggle = screen.getByTestId(
-      `model-toggle-openai-${initialModelName}`
-    ) as HTMLInputElement;
-
-    // Verify toggle is checked before clicking
-    expect(toggle.checked).toBe(true);
-
-    await user.click(toggle);
-
-    // Verify the model was removed from the test enabled set (DB mock)
-    expect(testEnabledModels.has(initialModelName)).toBe(false);
+    // ollama is a local-runtime provider (getProviderDefinition('ollama').runtime
+    // === 'local'), so the wrapper refuses the registry write and surfaces a
+    // destructive toast instead of silently doing nothing (BST-1795).
+    await expect(onEnableModel('ollama', 'llama3')).resolves.toBe(false);
+    expect(toggleModelEnabledMock).not.toHaveBeenCalled();
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Could not enable this model', variant: 'destructive' })
+    );
   });
 
   test('loads MCP tools on mount', async () => {

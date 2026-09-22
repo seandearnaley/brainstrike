@@ -28,6 +28,7 @@ import type {
   ProviderKeySource,
 } from '@brainstrike/assistant-contract';
 import {
+  getProviderDefinition,
   isSupportedProvider,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -54,12 +55,14 @@ import {
   useFileSystem,
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui/shell';
+import { useModelToggle } from '@brainstrike/settings-ui/settings/models/use-model-toggle';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
+import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssistantDecisionProviders } from './assistant-decision-providers';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
@@ -92,7 +95,6 @@ import {
   getEnabledBuiltInLocalRegistryModelIds,
   getRuntimeProviderLlmModels,
   getToolDescription,
-  isLocalRuntimeProvider,
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
   resolveAdvertisedNativeToolIds,
@@ -218,11 +220,11 @@ export function AssistantUiPanelWrapper({
   const registryHasLoaded = useModelRegistryStore((state) => state.hasLoaded);
   const downloadedModels = useModelRegistryStore((state) => state.downloadedModels);
   const registryError = useModelRegistryStore((state) => state.error);
-  const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
+  const { toast } = useToast();
 
   useProviderModelDefaults(
     configuredProviders,
@@ -1039,22 +1041,25 @@ export function AssistantUiPanelWrapper({
     setThreadDraftRuntime,
   });
 
-  const handleModelToggle = useCallback(
-    (providerId: string, modelId: string, enabled: boolean) => {
-      if (!isSupportedProvider(providerId)) {
-        return;
+  const { toggle: toggleModelEnabled } = useModelToggle();
+  const handleEnableModel = useCallback(
+    async (providerId: string, modelId: string): Promise<boolean> => {
+      const runtime = isSupportedProvider(providerId)
+        ? getProviderDefinition(providerId).runtime
+        : undefined;
+      // Same predicate the picker uses to offer the row: only hosted and gateway
+      // providers keep enablement in the model registry.
+      if (runtime !== 'hosted' && runtime !== 'gateway') {
+        toast({
+          description: `${providerId} models are enabled by their runtime, not the model registry.`,
+          title: 'Could not enable this model',
+          variant: 'destructive',
+        });
+        return false;
       }
-
-      if (isLocalRuntimeProvider(providerId)) {
-        return;
-      }
-
-      // Always use database as the source of truth for model enabled state
-      if (db) {
-        void toggleModelInDb(db, modelId, enabled);
-      }
+      return toggleModelEnabled(modelId, true);
     },
-    [db, toggleModelInDb]
+    [toast, toggleModelEnabled]
   );
 
   const handleProviderSettingsChange = useCallback(
@@ -1442,8 +1447,8 @@ export function AssistantUiPanelWrapper({
                   {...(selectedProvider ? { selectedProvider } : {})}
                   {...(currentModel ? { selectedModel: currentModel } : {})}
                   disabled={!isProviderReady || Boolean(disabledReason)}
+                  onEnableModel={handleEnableModel}
                   onModelChange={handleModelChange}
-                  onModelToggle={handleModelToggle}
                   {...(panelNotice ? { disabledReason: panelNotice } : {})}
                   {...(planModeAvailable
                     ? {
