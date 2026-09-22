@@ -152,6 +152,18 @@ function isUntouchedChoiceRow(row: RawProviderModelChoice): boolean {
   );
 }
 
+/** Ids the `all` policy may enable: LLM rows no user has acted on. */
+function selectUntouchedLlmModelIds(rows: readonly RawProviderModelChoice[]): string[] {
+  const modelIds: string[] = [];
+  for (const row of rows) {
+    // LLM check first: embedding rows must never reach the timestamp parse.
+    if (isLlmChoiceRow(row) && isUntouchedChoiceRow(row)) {
+      modelIds.push(row.id);
+    }
+  }
+  return modelIds;
+}
+
 interface FileSystemAccess {
   exists: (path: string) => Promise<boolean>;
 }
@@ -369,9 +381,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           // Availability policy: every LLM row nobody has acted on. Ids come
           // from the DB itself, so catalog/DB drift cannot arise here and
           // there is nothing to validate against.
-          uniqueModelIds = choiceResult.rows
-            .filter((row) => isLlmChoiceRow(row) && isUntouchedChoiceRow(row))
-            .map((row) => row.id);
+          uniqueModelIds = selectUntouchedLlmModelIds(choiceResult.rows);
         } else {
           // Starter kit: unchanged behaviour. One enabled or edited row in the
           // provider means the user has curated it; do not impose a set.
