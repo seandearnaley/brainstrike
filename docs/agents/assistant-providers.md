@@ -488,9 +488,9 @@ an off-peak moment).
 
 #### `is_enabled` is not evidence of user intent
 
-- Rows ship `is_enabled = false`; migrations preserve the toggle with
-  `is_enabled = models.is_enabled`. Only `initializeProviderModelDefaults`
-  enables a row without the user, driven by `PROVIDER_MODEL_DEFAULT_POLICIES`.
+- New catalog rows ship `is_enabled = false` (legacy rows from migrations 033/057 may
+  ship enabled); migrations preserve the toggle with `is_enabled = models.is_enabled`.
+  Only `initializeProviderModelDefaults` enables a row without the user, driven by `PROVIDER_MODEL_DEFAULT_POLICIES`.
 - That map is exhaustive over `SupportedProvider`: `all`, `seed`, or `null`,
   defined in `provider-model-default-policies.ts`. `null` holds exactly when
   `authType === 'none' || !capabilities.llm`, pinned by test, not a list.

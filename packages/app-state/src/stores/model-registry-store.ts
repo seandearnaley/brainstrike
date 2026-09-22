@@ -420,20 +420,44 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         }
 
         const placeholders = uniqueModelIds.map((_, index) => `$${index + 2}`).join(', ');
+        const isAllPolicy = policy.kind === 'all';
+        // The `all` policy re-asserts the exact eligibility predicates the
+        // TS-side selection just used, so a row another writer touched
+        // between the SELECT and this UPDATE (e.g. the user disabling it)
+        // cannot be re-enabled out from under them — RETURNING then simply
+        // omits that row rather than the UPDATE clobbering it. The `seed`
+        // policy is unchanged: a short RETURNING set there is a real drift
+        // tripwire and must keep throwing.
         const updateResult = await db.query<{ id: string }>(
           `UPDATE models SET is_enabled = true, updated_at = NOW()
-           WHERE provider_id = $1 AND id IN (${placeholders})
+           WHERE provider_id = $1 AND id IN (${placeholders})${
+             isAllPolicy
+               ? `
+           AND is_enabled = false AND updated_at = created_at
+           AND capabilities->>'type' = 'llm'`
+               : ''
+}
            RETURNING id`,
           [providerId, ...uniqueModelIds]
         );
         const updatedModelIds = new Set(updateResult.rows.map((row) => row.id));
-        const notUpdatedModelIds = uniqueModelIds.filter(
-          (modelId) => !updatedModelIds.has(modelId)
-        );
-        if (notUpdatedModelIds.length > 0) {
-          throw new Error(
-            `Failed to initialize recommended ${providerId} models: ${notUpdatedModelIds.join(', ')}`
+
+        if (isAllPolicy) {
+          // A short RETURNING set here means another writer touched those
+          // rows concurrently (e.g. the user disabled one) — skip them
+          // rather than treat it as drift; the seed path below still throws.
+          if (updatedModelIds.size === 0) {
+            return 'preserved';
+          }
+        } else {
+          const notUpdatedModelIds = uniqueModelIds.filter(
+            (modelId) => !updatedModelIds.has(modelId)
           );
+          if (notUpdatedModelIds.length > 0) {
+            throw new Error(
+              `Failed to initialize recommended ${providerId} models: ${notUpdatedModelIds.join(', ')}`
+            );
+          }
         }
 
         await syncDurableDatabaseWrites(db);

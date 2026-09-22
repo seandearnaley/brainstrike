@@ -824,6 +824,54 @@ export const migrations = [
       );
     });
 
+    it('flags a fully-quoted "public"."models" UPDATE (BST-1794 follow-up: a quoted schema is not one blob)', () => {
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-quoted-public-schema.ts',
+          'migration099FakeQuotedPublicSchema',
+          `
+            UPDATE "public"."models" SET updated_at = NOW();
+          `
+        ),
+      ]);
+
+      assert.deepEqual(
+        failures.map((failure) => failure.file),
+        ['packages/db/src/migrations/099-fake-quoted-public-schema.ts']
+      );
+    });
+
+    it('flags an unquoted-schema, quoted-table INSERT (BST-1794 follow-up: public."models")', () => {
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-mixed-quoting.ts',
+          'migration099FakeMixedQuoting',
+          `
+            INSERT INTO public."models" (id) VALUES ('x') ON CONFLICT (id) DO UPDATE SET updated_at = NOW();
+          `
+        ),
+      ]);
+
+      assert.deepEqual(
+        failures.map((failure) => failure.file),
+        ['packages/db/src/migrations/099-fake-mixed-quoting.ts']
+      );
+    });
+
+    it('does not flag a models_archive UPDATE (BST-1794 follow-up: the schema-qualified pattern must not widen past the table boundary)', () => {
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-models-archive.ts',
+          'migration099FakeModelsArchive',
+          `
+            UPDATE models_archive SET updated_at = NOW();
+          `
+        ),
+      ]);
+
+      assert.deepEqual(failures, []);
+    });
+
     it('allows the three known-legitimate local-provider migrations (020, 024, 028)', () => {
       // These are shaped after the real up-blocks from the shipped migrations
       // (abbreviated, not verbatim — e.g. the 020 fixture below carries only

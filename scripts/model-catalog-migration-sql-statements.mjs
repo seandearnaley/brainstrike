@@ -40,7 +40,10 @@ export function readSqlStringLiteral(sql, startIndex) {
 }
 
 // Matches the START of a whole `UPDATE models ...` or `INSERT INTO models
-// (...) ...` statement (including a `public.models` target), never an
+// (...) ...` statement, including a schema-qualified target in any quoting
+// combination — `public.models`, `"public"."models"`, `public."models"` — by
+// treating the schema and table as independently optional-quoted identifiers
+// rather than one quoted `"public.models"` blob. Never an
 // `ALTER TABLE models ALTER COLUMN updated_at ...` schema change — that starts
 // with `ALTER`, not `UPDATE`/`INSERT INTO`, so it never matches this pattern.
 // The statement's END is found separately by `findModelsStatementEnd`, which
@@ -50,7 +53,7 @@ export function readSqlStringLiteral(sql, startIndex) {
 // unrelated later statement, letting a `providers` write masquerade as a
 // `models` one).
 export const MODELS_WRITE_STATEMENT_START_PATTERN =
-  /\b(?:UPDATE|INSERT\s+INTO)\s+"?(?:public\.)?models"?\b/gi;
+  /\b(?:UPDATE|INSERT\s+INTO)\s+(?:"?public"?\s*\.\s*)?"?models"?\b/gi;
 
 // Keywords that can legitimately open a new top-level SQL statement. Used by
 // `findModelsStatementEnd` to recognize "the `models` statement ended here"
