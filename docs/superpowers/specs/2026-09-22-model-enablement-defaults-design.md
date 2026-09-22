@@ -189,28 +189,30 @@ const PROVIDER_MODEL_DEFAULT_POLICIES = {
   openai: { kind: 'all' },
   'openai-codex': { kind: 'seed', modelIds: OPENAI_CODEX_RECOMMENDED_MODEL_IDS },
   openrouter: { kind: 'seed', modelIds: OPENROUTER_RECOMMENDED_CODING_MODEL_IDS },
-} as const satisfies Record<CatalogDefaultProvider, ProviderModelDefaultPolicy>;
+} as const satisfies Record<SupportedProvider, ProviderModelDefaultPolicy | null>;
 ```
 
-`CatalogDefaultProvider` is **derived, not listed** — the providers for which
-catalog defaults are a meaningful concept are exactly those with
-`authType !== 'none'` and `capabilities.llm === true`. Today that resolves to
-these six and nothing else: `cohere` and `voyage` are keyed but embedding-only
-(`llm: false`), and `local` / `ollama` / `lmstudio` are keyless. Deriving the
-domain rather than hand-listing it keeps the feature-gating rule ("capability-based,
-never a hardcoded provider list") intact, and means a new provider joins or skips
-the map by what it declares.
+The map is keyed over the **full** `SupportedProvider` union, with `null` for a
+provider that has no catalog defaults (`cohere`, `voyage` — keyed but
+embedding-only; `local`, `ollama`, `lmstudio` — keyless, enablement comes from
+runtime discovery and the downloaded-model set). TypeScript cannot derive a
+union from a runtime filter, so exhaustiveness over the real union plus an
+explicit `null` is what actually forces the decision; a derived-looking type
+would have to be hand-listed and would drift.
 
-The `satisfies` is the durable half of the fix: a provider that enters that
-derived domain cannot compile without stating its policy, which is precisely the
-omission that produced this bug. The per-provider error copy ("OpenAI (ChatGPT) model setup failed")
+The derivation is then pinned as a **test** rather than a type: an entry is
+`null` if and only if `authType === 'none' || !capabilities.llm`, read from
+`listProviders()`. That keeps the capability-based gating rule honest and fails
+loudly if a new provider is given the wrong kind of entry.
+
+The `satisfies` is the durable half of the fix: a new provider cannot compile
+without stating a policy or an explicit `null`, which is precisely the omission
+that produced this bug.
+
+The per-provider error copy ("OpenAI (ChatGPT) model setup failed")
 becomes a per-policy lookup keyed by provider display name; the once-per
 `{db, secretsVersion}` attempt guard, the `providerReadErrors` gate and the
 `configuredProviders.includes(...)` connection gate are preserved per provider.
-
-`local`, `ollama` and `lmstudio` are outside the map: they are keyless and their
-enablement comes from runtime discovery and the downloaded-model set, not from
-catalog defaults.
 
 **What makes `all` "standing".** The attempt guard is a `useRef` keyed on
 `{db, secretsVersion}`, so the effect dispatches at most once per app session
@@ -257,7 +259,7 @@ they fail when the corresponding conjunct is removed.
 | File | Change |
 | --- | --- |
 | `packages/app-state/src/stores/model-registry-store.ts` | `ProviderModelDefaultPolicy`; per-row `untouched`; `capabilities` in the choice query; `hasExplicitProviderModelChoice` retained for `seed`. |
-| `packages/assistant-contract/src/provider-model-default-policies.ts` | New. The policy map and its `satisfies`. |
+| `packages/assistant-contract/src/provider-model-default-policies.ts` | New. `ProviderModelDefaultPolicy`, the exhaustive policy map and its `satisfies`. |
 | `packages/app-shell/src/hooks/use-provider-model-defaults.ts` | Becomes the single hook. |
 | `packages/app-shell/src/hooks/use-{openrouter,bedrock,openai-codex}-model-defaults.ts` | Deleted. |
 | `docs/agents/assistant-providers.md` | New subsection under "Provider catalog data ownership" recording the `all`/`seed` split and why `is_enabled` alone is not evidence of user intent. |
