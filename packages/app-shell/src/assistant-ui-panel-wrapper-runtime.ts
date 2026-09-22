@@ -1614,7 +1614,48 @@ function buildOpenRouterOptions(
  * an unsupported effort is ABSENT, never coerced to a neighbour, and cannot
  * manufacture adaptive thinking. No declared ladder means no effort; an
  * explicit legacy thinking budget remains independently configured.
+ *
+ * BST-1706: `mandatory` (always-on thinking, e.g. Fable) short-circuits both
+ * legacy shapes — a persisted budget from another model is dropped, never
+ * forwarded, and `disabled` is never sent because the vendor rejects it. For
+ * toggleable ladder rows, cleared settings explicitly disable:
+ * `mandatory: false` is the derived license for `disabled`, retiring the old
+ * Opus-5-only id check. It is load-bearing for the rows that think when
+ * options are omitted (Opus 5, Sonnet 5) — omitting would leave them thinking
+ * while the cleared toggle reads off — and equivalent to omitting for the
+ * default-off rows. Rows without a ladder (Haiku, uncatalogued) keep the
+ * legacy omit, whose shape no flag derives.
  */
+function resolveAnthropicThinkingShape(input: {
+  budgetTokens: number | undefined;
+  effort: AssistantProviderSettings['anthropicEffort'];
+  hasLadder: boolean;
+  mandatory: boolean;
+  showReasoning: boolean;
+}): AnthropicProviderOptions['thinking'] | undefined {
+  if (input.mandatory) {
+    return input.effort === undefined
+      ? undefined
+      : {
+          display: input.showReasoning ? 'summarized' : 'omitted',
+          type: 'adaptive',
+        };
+  }
+  if (typeof input.budgetTokens === 'number') {
+    return {
+      budgetTokens: Math.floor(input.budgetTokens),
+      type: 'enabled',
+    };
+  }
+  if (input.effort !== undefined) {
+    return {
+      display: input.showReasoning ? 'summarized' : 'omitted',
+      type: 'adaptive',
+    };
+  }
+  return input.hasLadder ? { type: 'disabled' } : undefined;
+}
+
 function buildAnthropicOptions(
   modelName: string | undefined,
   settings: AssistantProviderSettings
@@ -1631,22 +1672,17 @@ function buildAnthropicOptions(
   // carries no `display`, so it is left exactly as configured. Otherwise the
   // modern adaptive form carries `display`, which defaults to `omitted`
   // provider-side — the reason Claude runs showed no thinking at all. Only
-  // emitted alongside a chosen effort. Opus 5 thinks when options are omitted,
-  // so cleared UI settings explicitly disable it after clearing effort.
-  const thinking: AnthropicProviderOptions['thinking'] | undefined =
-    typeof settings.anthropicThinkingBudgetTokens === 'number'
-      ? {
-          budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
-          type: 'enabled',
-        }
-      : effort
-        ? {
-            display: resolveReasoningVisible(settings) ? 'summarized' : 'omitted',
-            type: 'adaptive',
-          }
-        : modelName === 'claude-opus-5'
-          ? { type: 'disabled' }
-          : undefined;
+  // emitted alongside a chosen effort.
+  //
+  // Thinking-shape rules (mandatory short-circuit, explicit disable on
+  // clear) live on resolveAnthropicThinkingShape above.
+  const thinking = resolveAnthropicThinkingShape({
+    budgetTokens: settings.anthropicThinkingBudgetTokens,
+    effort,
+    hasLadder: reasoning !== undefined,
+    mandatory: reasoning?.mandatory ?? false,
+    showReasoning: resolveReasoningVisible(settings),
+  });
   return buildOptionalOptions<AnthropicProviderOptions>([
     ['effort', effort],
     ['thinking', thinking],

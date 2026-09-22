@@ -28,8 +28,10 @@ describe('direct Anthropic provider options', () => {
     });
   });
 
+  // ['claude-sonnet-4-6', 'xhigh'] is NOT here: a ladder row whose effort is
+  // dropped reads toggle-off, so it serialises `disabled` (covered by the
+  // explicit-disabled cases above) rather than omitting.
   it.each([
-    ['claude-sonnet-4-6', 'xhigh'],
     ['claude-haiku-4-5', 'low'],
     ['claude-haiku-4-5', 'medium'],
     ['claude-haiku-4-5', 'high'],
@@ -76,15 +78,23 @@ describe('direct Anthropic provider options', () => {
     }
   );
 
-  it('explicitly disables a toggleable ladder model cleared of effort and budget', () => {
-    // BST-1706: `mandatory: false` proves `disabled` is acceptable, so the old
-    // Opus-5-only id check generalises — e.g. Sonnet 5 also thinks when
-    // options are omitted, and omitting would leave it thinking while the
-    // cleared toggle reads off.
-    expect(buildProviderOptions('anthropic', 'claude-sonnet-5', {})).toEqual({
-      anthropic: { thinking: { type: 'disabled' } },
-    });
-  });
+  it.each([
+    ['claude-sonnet-5', {}],
+    // A dropped (unsupported) effort is equivalent to cleared: the toggle
+    // reads off, so the wire says off explicitly rather than omitting.
+    ['claude-sonnet-4-6', { anthropicEffort: 'xhigh' }],
+  ] as const)(
+    'explicitly disables a toggleable ladder model cleared of effort and budget: %s',
+    (modelId, settings) => {
+      // BST-1706: `mandatory: false` proves `disabled` is acceptable, so the old
+      // Opus-5-only id check generalises — e.g. Sonnet 5 also thinks when
+      // options are omitted, and omitting would leave it thinking while the
+      // cleared toggle reads off.
+      expect(buildProviderOptions('anthropic', modelId, settings)).toEqual({
+        anthropic: { thinking: { type: 'disabled' } },
+      });
+    }
+  );
 
   it('sends no options for Auto and honors visibility only with valid adaptive thinking', () => {
     expect(buildProviderOptions('anthropic', 'claude-haiku-4-5', {})).toBeUndefined();
