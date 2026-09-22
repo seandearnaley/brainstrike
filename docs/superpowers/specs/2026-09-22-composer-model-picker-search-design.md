@@ -53,6 +53,8 @@ The Not enabled section covers **registry-backed** providers only: configured pr
 - `ollama` and `lmstudio`, whose enablement comes from runtime discovery;
 - `local`, which is gated on a download.
 
+On Hosted Web, `resolveFixedProviderModels` pins each provider to its server-configured models, so the Not enabled section only appears where enablement is backed by the local model registry — desktop only; Hosted Web has no local registry to enable against.
+
 ### Matching
 
 `matchesModelQuery(entry, query)`:
@@ -66,7 +68,7 @@ Results keep catalog order rather than a relevance score, so the output is deter
 
 ### Rows
 
-- **Recent rows:** label, tagline, context badge, vision/reasoning icons.
+- **Recent rows:** label, tagline, the provider's display name and vision/reasoning icons. No context badge — that stays a List-row affordance.
 - **List rows:** one dense line with the label, the provider label (when the list is flattened), the context badge and the vision/reasoning icons.
 - **Not enabled rows:** label, provider label and a ＋, with an accessible name "Enable and select …". No context badge and no capability icons. Only enabled models get that metadata: `useAssistantModelPickerConfig` resolves it into `pickerModels` for enabled models only, and changing what `pickerModels` means for its other consumers is out of scope. For the same reason, disabled rows are matched on label, model id and provider only, not tagline.
 - **No price column.** Prices are per-route estimates with long-context tiers and surge bands, so a bare number is misleading at a glance.
@@ -81,7 +83,7 @@ From `cmdk`: arrow keys move, Enter picks, Escape closes. The query clears when 
 | --- | --- | --- |
 | `matchesModelQuery` | `packages/ui/src/model-picker/utils/match-model-query.ts` | The pure word matcher. `filterModels` in the embedding picker is rewritten on top of it (`name`→label, `description`→tagline, `id`→model id, `providerId`). Results can only **widen**, never narrow: a query now also matches the model id and the provider display name, and multi-word queries are AND-of-words rather than one contiguous substring. That's acceptable for the embedding picker, and its existing tests pin that nothing it already matched is lost |
 | `buildComposerPickerSections` | `packages/assistant-ui/src/composer-picker-sections.ts` | Pure: `(providerGroups, pickerModels, recentModels, selectedModel, query)` → `{ recent, groups, matches, notEnabled }`. All the selection logic lives here, and it is unit-tested without React |
-| `ComposerModelPicker` | `packages/assistant-ui/src/composer-model-picker.tsx` | Popover + `Command` + `ModelPickerSearch`. Reuses `ProviderIcon`, `getProviderColor` and `formatContextWindow` from `@brainstrike/ui`. `shouldFilter={false}`, and each item's `value` is the composite key |
+| `ComposerModelPicker` | `packages/assistant-ui/src/composer-model-picker.tsx` | Popover + `Command` + `ModelPickerSearch`. Renders a small provider colour dot from `getProviderColor` — like the old menu — rather than `ProviderIcon`, and reuses `formatContextWindow` from `@brainstrike/ui`. `shouldFilter={false}`, and each item's `value` is the composite key |
 | `ComposerModelMenu` | deleted | Replaced by `ComposerModelPicker`. `composerModelCompositeKey` and `modelIdFromCompositeKey` move with the replacement and stay exported |
 | `onEnableModel` | `AssistantUiPanel` prop | `(providerId, modelId) => Promise<boolean>`. Replaces the dead `onModelToggle` |
 | `useModelToggle` | `packages/settings-ui/src/settings/models/use-model-toggle.ts` | `toggle` returns `Promise<boolean>`: `true` once the write commits, `false` after it has shown the toast. The two current callers ignore the return value and keep working. A `./settings/models/use-model-toggle` subpath export is added |

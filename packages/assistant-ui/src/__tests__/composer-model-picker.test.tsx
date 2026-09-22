@@ -428,7 +428,7 @@ describe('ComposerModelPicker', () => {
     expect(within(row).queryByLabelText('Reasoning')).not.toBeInTheDocument();
   });
 
-  it('disables the row while its enable is pending and ignores a second click', async () => {
+  it('disables every Not-enabled row while an enable is pending, and re-enables them after it settles', async () => {
     const user = setup();
     const pending = deferred<boolean>();
     const onEnableModel = vi.fn(() => pending.promise);
@@ -448,10 +448,27 @@ describe('ComposerModelPicker', () => {
     await user.click(row);
     expect(onEnableModel).toHaveBeenCalledTimes(1);
 
+    // A different Not-enabled row also shows as busy — clicking it while
+    // another enable is in flight must be a no-op, not silently ignored
+    // with no visible feedback.
+    const otherRow = within(picker).getByRole('option', { name: ENABLE_PRO });
+    expect(otherRow).toHaveAttribute('aria-disabled', 'true');
+    await user.click(otherRow);
+    expect(onEnableModel).toHaveBeenCalledTimes(1);
+
     await act(async () => {
       pending.resolve(false);
       await pending.promise;
     });
+
+    expect(within(picker).getByRole('option', { name: ENABLE_FLASH })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    expect(within(picker).getByRole('option', { name: ENABLE_PRO })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
   });
 
   it('clears the pending state when the host enable rejects, and lets the rejection propagate', async () => {

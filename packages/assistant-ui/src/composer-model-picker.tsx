@@ -339,7 +339,7 @@ export function ComposerModelPicker({
                     onEnable={(target) => {
                       void handleEnable(target);
                     }}
-                    pending={pendingKey === entry.compositeKey}
+                    pending={pendingKey !== null}
                   />
                 ))}
               </Command.Group>
