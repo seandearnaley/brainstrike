@@ -230,12 +230,10 @@ store persists each thread's own model and provider settings.
   same resolved value, never the full ceiling.
 - Static prices are estimates; exact provider-reported cost is authoritative.
   Never log or persist reasoning content.
-- On a newly readable configuration app-shell enables
-  `OPENROUTER_RECOMMENDED_CODING_MODEL_IDS` in one durable write. The DB model
-  registry stays the picker's source of truth: any enabled model, or any row
-  whose `updated_at` is later than `created_at`, is an explicit prior choice and
-  is preserved exactly. Key replacement, reload and catalog refresh never reapply
-  defaults.
+- Enablement is OpenRouter's `seed` entry in `PROVIDER_MODEL_DEFAULT_POLICIES`
+  (§ "`is_enabled` is not evidence of user intent"): on a newly readable
+  configuration, app-shell enables `OPENROUTER_RECOMMENDED_CODING_MODEL_IDS`
+  once, in one durable write, while every row is untouched.
 - The model menu and the per-thread provider-options builder must use the same
   resolved live metadata snapshot.
 
@@ -489,6 +487,27 @@ Guard: `scripts/__tests__/openrouter-pricing-audit.test.mjs` (offline derivation
 against real payload shapes, including one surge payload captured at a peak and
 an off-peak moment).
 
+#### `is_enabled` is not evidence of user intent
+
+- Catalog rows ship `is_enabled = false` and migrations preserve the toggle with
+  `is_enabled = models.is_enabled`. Enablement without the user comes only from
+  `initializeProviderModelDefaults`, driven by `PROVIDER_MODEL_DEFAULT_POLICIES`.
+- That map is exhaustive over `SupportedProvider`: `{ kind: 'all' }` (every LLM
+  row is on unless the user said otherwise), `{ kind: 'seed', modelIds }` (a
+  curated set applied once while the provider is untouched), or `null` (no
+  catalog defaults — keyless, or no LLM rows). `null` holds exactly when
+  `authType === 'none' || !capabilities.llm`, pinned by test, not by a list.
+- "The user touched this row" is `updated_at > created_at` PER ROW. A shipped
+  enabled row is NOT a user choice — reading `is_enabled` as intent is what made
+  seven catalog models permanently unreachable (BST-1794).
+- The `untouched` predicate requires `!is_enabled` as well, so no default policy
+  can ever switch a model off.
+
+Evidence: `assistant-providers/model-enablement-defaults.md`.
+Guard: `packages/assistant-contract/src/__tests__/provider-model-default-policies.test.ts`,
+`packages/app-state/src/__tests__/model-registry-store.test.ts`,
+`packages/app-shell/src/hooks/use-provider-model-defaults.test.tsx`.
+
 ### Provider registry auth metadata
 
 - `ProviderDefinition` types the per-provider auth metadata and
@@ -675,10 +694,10 @@ per request.
   empty text and reasoning parts, keeps signed/redacted reasoning, drops emptied
   messages, and rewrites tool-call ids outside `[a-zA-Z0-9_-]` to `_`
   deterministically so pairs stay matched.
-- Enablement mirrors OpenRouter: migration 100 seeds every row disabled and
-  `useBedrockDefaults` enables `BEDROCK_RECOMMENDED_MODEL_IDS` through the
-  idempotent `initializeProviderModelDefaults`. Keep the two hooks parallel
-  behind the ONE composed `useProviderModelDefaults` seam.
+- Enablement is Bedrock's `seed` entry in `PROVIDER_MODEL_DEFAULT_POLICIES` (§
+  "`is_enabled` is not evidence of user intent"): migration 100 seeds every row
+  disabled, and `BEDROCK_RECOMMENDED_MODEL_IDS` is applied once through the
+  idempotent `initializeProviderModelDefaults`.
 - **The injected chain capability IS the structural proof that Hosted Web never
   resolves a chain** (do not relitigate): desktop main passes
   `createAwsCredentialChain` in BOTH places, web passes nothing, so the same
