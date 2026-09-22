@@ -113,8 +113,7 @@ apps/desktop/
 ├── package.json             # Dependencies & scripts
 ├── vite.config.mts          # Vite configuration
 ├── tsconfig.json            # TypeScript configuration (renderer)
-├── tsconfig.main.json       # TypeScript configuration (main process)
-└── tailwind.config.js       # TailwindCSS configuration
+└── tsconfig.main.json       # TypeScript configuration (main process)
 ```
 
 ## Adapters & Platform Integration
