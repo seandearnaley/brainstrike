@@ -62,6 +62,7 @@ import { createDelegationOutcomeCapture } from './subagent-delegation';
 import { resolveDiscoveredApprovalToolName } from './suspended-run-discovery';
 import { createDelegationUsageCapture, type ToolLifecycleState } from './tool-lifecycle-processors';
 import {
+  type AbandonableNativeStream,
   type AgentStreamOptions,
   type AgentToolApprovalOptions,
   createRuntimeAbortedTurnPersistence,
@@ -74,6 +75,7 @@ import {
   resolveMemoryOption,
   runTurnAttempts,
   type StreamIterationParams,
+  settleAbandonedNativeStream,
   settleNativeStream,
   type ToolApprovalIterationParams,
   type TurnAttempt,
@@ -523,6 +525,7 @@ async function createToolApprovalTurnAttempt({
   // carries no further content parts.
   lifecycleState.sawModelContribution = true;
   armLiveDecisions(runtime, runtimeData);
+  let constructed: AbandonableNativeStream | undefined; // settled if the leg fails after building it
   try {
     validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
@@ -605,6 +608,7 @@ async function createToolApprovalTurnAttempt({
             streamAbortContext.signal,
             delegationOutcomes
           );
+    constructed = streamResult;
     if ('messageList' in streamResult) {
       await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
     }
@@ -669,6 +673,7 @@ async function createToolApprovalTurnAttempt({
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra approval-resume stream construction failed.'));
+    await settleAbandonedNativeStream(constructed, streamAbortContext);
     const failure = await disposeStreamAfterFailure(streamAbortContext, err);
     return await handleStreamFailure(failure, runtime);
   }
@@ -857,6 +862,7 @@ async function createToolResumeTurnAttempt({
   // carries no further content parts.
   lifecycleState.sawModelContribution = true;
   armLiveDecisions(runtime, runtimeData);
+  let constructed: AbandonableNativeStream | undefined; // settled if the leg fails after building it
   try {
     validateToolResumeAction(action);
     const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
@@ -974,6 +980,7 @@ async function createToolResumeTurnAttempt({
             streamAbortContext.signal,
             delegationOutcomes
           );
+    constructed = streamResult;
     if ('messageList' in streamResult) {
       await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
     }
@@ -1031,6 +1038,7 @@ async function createToolResumeTurnAttempt({
     };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra suspended-tool stream construction failed.'));
+    await settleAbandonedNativeStream(constructed, streamAbortContext);
     const failure = await disposeStreamAfterFailure(streamAbortContext, err);
     return await handleStreamFailure(failure, runtime);
   }

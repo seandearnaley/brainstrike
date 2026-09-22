@@ -257,6 +257,25 @@ export async function settleNativeStream(
   }
 }
 
+export type AbandonableNativeStream = Parameters<typeof settleNativeStream>[0];
+
+/**
+ * A resume leg that fails after its native output exists owns that stream: it
+ * is aborted and read to its close through `settleNativeStream` (bounded, and
+ * recording its own failures) before the leg is disposed. Otherwise Mastra's
+ * cancel persistence and snapshot DELETEs float past the end of the turn and
+ * race the storage close (BST-1221).
+ */
+export async function settleAbandonedNativeStream(
+  stream: AbandonableNativeStream | undefined,
+  streamAbortContext: StreamAbortContext
+): Promise<void> {
+  if (!stream) {
+    return;
+  }
+  await settleNativeStream(stream, streamAbortContext);
+}
+
 /** One cleanup boundary joins every owner and keeps primary and cleanup causes. */
 export async function settleStreamCleanup(
   owners: readonly (Promise<void> | undefined)[],
