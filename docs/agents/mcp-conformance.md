@@ -81,8 +81,8 @@ Guard: `packages/mcp-test-lab/__tests__/evidence-artifact-integrity.test.ts`,
   - `pr`: 6 cases, 10,000 ms per case, 90,000 ms per run.
   - `exhaustive`: 10 cases, 20,000 ms per case, 270,000 ms per run.
 - Selection accepts only `profile`, `caseIds`, `caseTimeoutMs`, and
-  `runTimeoutMs`, and cannot exceed its profile. Explicit `undefined` values are
-  malformed and never treated as omission.
+  `runTimeoutMs`, and cannot exceed its profile.
+  Explicit `undefined` values are malformed and never treated as omission.
 - Keep a run ceiling above the sum of its per-case ceilings. Why: case limits
   are ceilings, not reserved runtime, so a slow serial run fails per case rather
   than as a run timeout.
