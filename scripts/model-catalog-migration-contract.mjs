@@ -561,42 +561,49 @@ function extractModelCatalogOperations(sql) {
 
   const deleteIdsPattern =
     /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bid\s+IN\s*\(([\s\S]*?)\)/gi;
-  for (const match of sql.matchAll(deleteIdsPattern)) {
-    operations.push({
-      ids: extractSqlStringLiterals(match[1]),
-      index: match.index,
-      kind: 'delete-ids',
-    });
-  }
-
   const deleteIdPattern =
     /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bid\s*=\s*'((?:''|[^'])*)'/gi;
-  for (const match of sql.matchAll(deleteIdPattern)) {
-    operations.push({
-      ids: [match[1].replaceAll("''", "'")],
-      index: match.index,
-      kind: 'delete-ids',
-    });
-  }
-
   const deleteProvidersPattern =
     /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bprovider_id\s+IN\s*\(([\s\S]*?)\)/gi;
-  for (const match of sql.matchAll(deleteProvidersPattern)) {
-    operations.push({
-      index: match.index,
-      kind: 'delete-providers',
-      providerIds: extractSqlStringLiterals(match[1]),
-    });
-  }
-
   const deleteProviderPattern =
     /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bprovider_id\s*=\s*'((?:''|[^'])*)'/gi;
-  for (const match of sql.matchAll(deleteProviderPattern)) {
-    operations.push({
-      index: match.index,
-      kind: 'delete-providers',
-      providerIds: [match[1].replaceAll("''", "'")],
-    });
+  // The `[\s\S]*?` gaps above are lazy but unbounded: run on the whole `up`
+  // block they cross `;` and match a WHERE clause in a later, unrelated
+  // statement (BST-1703). Match per statement so every DELETE pattern stays
+  // inside the statement it starts in; `iterateSqlStatements` skips `;`
+  // inside string literals, which a `[^;]` gap would not.
+  for (const statement of iterateSqlStatements(sql)) {
+    for (const match of statement.text.matchAll(deleteIdsPattern)) {
+      operations.push({
+        ids: extractSqlStringLiterals(match[1]),
+        index: statement.index + match.index,
+        kind: 'delete-ids',
+      });
+    }
+
+    for (const match of statement.text.matchAll(deleteIdPattern)) {
+      operations.push({
+        ids: [match[1].replaceAll("''", "'")],
+        index: statement.index + match.index,
+        kind: 'delete-ids',
+      });
+    }
+
+    for (const match of statement.text.matchAll(deleteProvidersPattern)) {
+      operations.push({
+        index: statement.index + match.index,
+        kind: 'delete-providers',
+        providerIds: extractSqlStringLiterals(match[1]),
+      });
+    }
+
+    for (const match of statement.text.matchAll(deleteProviderPattern)) {
+      operations.push({
+        index: statement.index + match.index,
+        kind: 'delete-providers',
+        providerIds: [match[1].replaceAll("''", "'")],
+      });
+    }
   }
 
   const insertPattern = /INSERT\s+INTO\s+"?models"?\s*\(/gi;
@@ -609,6 +616,17 @@ function extractModelCatalogOperations(sql) {
   }
 
   return operations.sort((left, right) => left.index - right.index);
+}
+
+function* iterateSqlStatements(sql) {
+  let startIndex = 0;
+  while (startIndex < sql.length) {
+    const endIndex = findSqlStatementEnd(sql, startIndex);
+    if (endIndex > startIndex) {
+      yield { index: startIndex, text: sql.slice(startIndex, endIndex) };
+    }
+    startIndex = endIndex;
+  }
 }
 
 function findSqlStatementEnd(sql, startIndex) {
