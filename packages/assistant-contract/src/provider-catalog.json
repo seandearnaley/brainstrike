@@ -1528,6 +1528,20 @@
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
+      },
+      {
+        "_note": "Paid Ling 3.0 Flash route: identity, 262,144 / 32,768\nceilings, text-only modality, gateway pricing (0.000000021 /\n0.000000063 per token): OpenRouter Models API, retrieved 2026-09-22\n(BST-1702). Like-for-like paid successor to the retired\n`inclusionai/ling-3.0-flash:free`; Nemotron 3.5 Lightning stays as the\ndifferently-priced stopgap.",
+        "contextWindow": 262144,
+        "id": "inclusionai/ling-3.0-flash",
+        "label": "Ling 3.0 Flash (OpenRouter)",
+        "maxOutputTokens": 32768,
+        "pricing": {
+          "inputPerMTok": 0.021,
+          "outputPerMTok": 0.063
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "unsupported"
       }
     ],
     "runtime": "gateway"
