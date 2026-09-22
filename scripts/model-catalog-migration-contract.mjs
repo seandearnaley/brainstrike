@@ -3,6 +3,11 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import {
+  findModelsStatementEnd,
+  MODELS_WRITE_STATEMENT_START_PATTERN,
+  readSqlStringLiteral,
+} from './model-catalog-migration-sql-statements.mjs';
 import { parseTypeScriptSource } from './provider-registry-ast-helpers.mjs';
 
 const MIGRATION_EXPORT_PATTERN =
@@ -67,11 +72,16 @@ export const RETIRED_PROVIDER_RESIDUE_IDS = new Set(['transformers']);
 // CLOSED list: any OTHER migration writing `models.updated_at` risks making a
 // row permanently unreachable to the `all`/`seed` enablement policies (BST-1794).
 export const MODELS_UPDATED_AT_WRITE_ALLOWLIST = new Set([20, 24, 28]);
-// Matches a whole `UPDATE models ...;` or `INSERT INTO models (...) ... ;`
-// statement (including a trailing `ON CONFLICT ... DO UPDATE SET`), never an
-// `ALTER TABLE models ALTER COLUMN updated_at ...` schema change — that starts
-// with `ALTER`, not `UPDATE`/`INSERT INTO`, so it never matches this pattern.
-const MODELS_WRITE_STATEMENT_PATTERN = /\b(?:UPDATE|INSERT\s+INTO)\s+"?models"?\b[\s\S]*?;/gi;
+// `MODELS_WRITE_STATEMENT_START_PATTERN` and `findModelsStatementEnd` (imported
+// above from ./model-catalog-migration-sql-statements.mjs) locate a whole
+// `UPDATE models ...` / `INSERT INTO models (...) ...` statement — including a
+// `public.models` target — string-literal- and nesting-aware, never an
+// `ALTER TABLE models ALTER COLUMN updated_at ...` schema change (that starts
+// with `ALTER`, not `UPDATE`/`INSERT INTO`, so it never matches the start
+// pattern). BST-1794 follow-up: a lazy `;`-anchored pattern either stopped at
+// a `;` inside a string literal, or — when the `models` statement itself had
+// no terminating `;` — kept scanning into an unrelated later statement,
+// letting a `providers` write masquerade as a `models` one.
 
 /**
  * The load-bearing guard for "Catalog upserts must never write
@@ -88,9 +98,15 @@ export function findModelsUpdatedAtWriteFailures(migrationFiles) {
 
   for (const file of migrationFiles) {
     const upSql = extractMigrationUpSql(file);
-    const writesUpdatedAt = [...upSql.matchAll(MODELS_WRITE_STATEMENT_PATTERN)].some((match) =>
-      /\bupdated_at\s*=/i.test(match[0])
-    );
+    let writesUpdatedAt = false;
+    for (const match of upSql.matchAll(MODELS_WRITE_STATEMENT_START_PATTERN)) {
+      const statementEnd = findModelsStatementEnd(upSql, match.index + match[0].length);
+      const statement = upSql.slice(match.index, statementEnd);
+      if (/\bupdated_at\s*=/i.test(statement)) {
+        writesUpdatedAt = true;
+        break;
+      }
+    }
     if (!writesUpdatedAt) {
       continue;
     }
@@ -230,6 +246,14 @@ function extractNestedStringRecord(source, constName, fileName) {
   return record;
 }
 
+/**
+ * Scope limit shared by every guard built on this function (pre-existing, not
+ * a regression): only an `up` property with a plain string or
+ * no-substitution template-literal initializer is read. A migration whose
+ * `up` SQL is assembled via interpolation (a template literal with `${...}`)
+ * or a helper function call is invisible to every guard in this file,
+ * including `findModelsUpdatedAtWriteFailures`.
+ */
 function extractMigrationUpSql(file) {
   const sourceFile = parseTypeScriptSource(file.source, file.file);
   let upSql = '';
@@ -450,33 +474,6 @@ export function summarizeMigrationFile(file) {
 function stripSqlIdentifier(value) {
   const trimmed = value.trim();
   return trimmed.replace(/^"|"$/g, '');
-}
-
-function readSqlStringLiteral(sql, startIndex) {
-  if (sql[startIndex] !== "'") {
-    return null;
-  }
-
-  let value = '';
-  let index = startIndex + 1;
-  while (index < sql.length) {
-    const char = sql[index];
-    if (char !== "'") {
-      value += char;
-      index += 1;
-      continue;
-    }
-
-    if (sql[index + 1] === "'") {
-      value += "'";
-      index += 2;
-      continue;
-    }
-
-    return { endIndex: index + 1, value };
-  }
-
-  return null;
 }
 
 function extractSqlStringLiterals(sql) {

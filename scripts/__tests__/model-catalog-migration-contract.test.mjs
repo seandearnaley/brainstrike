@@ -712,11 +712,86 @@ export const migrations = [
       );
     });
 
+    it('flags a models UPDATE with no trailing semicolon (re-review finding 1: a `;`-anchored pattern is a blind spot)', () => {
+      // 006-embedding-sets-and-columns.ts already ends its `up` SQL without a
+      // trailing semicolon (comments only after the last real statement), so
+      // a future migration in that shape must not slip past this guard.
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-no-semicolon.ts',
+          'migration099FakeNoSemicolon',
+          `
+            UPDATE models SET updated_at = NOW() WHERE id = 'x'
+          `
+        ),
+      ]);
+
+      assert.deepEqual(
+        failures.map((failure) => failure.file),
+        ['packages/db/src/migrations/099-fake-no-semicolon.ts']
+      );
+    });
+
+    it('does not let a providers statement swallow into an unterminated models statement (re-review finding 2: table confusion via the terminator)', () => {
+      // The models statement has no trailing `;`; a lazy `;`-anchored match
+      // would swallow the providers statement's `updated_at = NOW()` into the
+      // same match and wrongly flag the models file for a providers write —
+      // exactly the table confusion this guard exists to avoid.
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-table-confusion.ts',
+          'migration099FakeTableConfusion',
+          `
+            UPDATE models SET is_enabled = true WHERE id = 'x'
+            UPDATE providers SET updated_at = NOW();
+          `
+        ),
+      ]);
+
+      assert.deepEqual(failures, []);
+    });
+
+    it('flags a models INSERT whose string literal contains a semicolon (re-review finding 3: a `;` inside a string literal truncates the match)', () => {
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-semicolon-in-literal.ts',
+          'migration099FakeSemicolonInLiteral',
+          `
+            INSERT INTO models (id, name) VALUES ('a', 'b;c') ON CONFLICT (id) DO UPDATE SET updated_at = NOW();
+          `
+        ),
+      ]);
+
+      assert.deepEqual(
+        failures.map((failure) => failure.file),
+        ['packages/db/src/migrations/099-fake-semicolon-in-literal.ts']
+      );
+    });
+
+    it('flags a public.models UPDATE (re-review finding 4: `public.models` is not matched)', () => {
+      const failures = findModelsUpdatedAtWriteFailures([
+        migrationFile(
+          'packages/db/src/migrations/099-fake-public-schema.ts',
+          'migration099FakePublicSchema',
+          `
+            UPDATE public.models SET updated_at = NOW() WHERE id = 'x';
+          `
+        ),
+      ]);
+
+      assert.deepEqual(
+        failures.map((failure) => failure.file),
+        ['packages/db/src/migrations/099-fake-public-schema.ts']
+      );
+    });
+
     it('allows the three known-legitimate local-provider migrations (020, 024, 028)', () => {
-      // These are the real up-blocks from the shipped migrations: 020 and 028
-      // upsert local-provider ONNX rows with `ON CONFLICT ... DO UPDATE SET
-      // ... updated_at = CURRENT_TIMESTAMP`; 024 patches the same rows'
-      // capabilities with a plain `UPDATE ... SET updated_at = CURRENT_TIMESTAMP`.
+      // These are shaped after the real up-blocks from the shipped migrations
+      // (abbreviated, not verbatim — e.g. the 020 fixture below carries only
+      // one row): 020 and 028 upsert local-provider ONNX rows with
+      // `ON CONFLICT ... DO UPDATE SET ... updated_at = CURRENT_TIMESTAMP`;
+      // 024 patches the same rows' capabilities with a plain
+      // `UPDATE ... SET updated_at = CURRENT_TIMESTAMP`.
       const failures = findModelsUpdatedAtWriteFailures([
         migrationFile(
           'packages/db/src/migrations/020-local-llm-models.ts',

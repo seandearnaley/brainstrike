@@ -1,0 +1,125 @@
+// SQL-statement-boundary helpers shared by `model-catalog-migration-contract.mjs`.
+// Split out (BST-1794 follow-up) purely to keep that file under the repo's
+// `noExcessiveLinesPerFile` budget — this is plumbing for the
+// `models.updated_at` write guard, not a general-purpose SQL parser, and it
+// should stay scoped to what that guard needs.
+
+/**
+ * Read a single-quoted SQL string literal starting at `startIndex` (where
+ * `sql[startIndex] === "'"`), returning `null` if it is unterminated. Doubled
+ * `''` is the standard SQL escape for a literal quote inside the string.
+ * Every caller in this file relies on this to skip PAST string-literal
+ * content (including any `;`, `(`, or `)` characters inside it) rather than
+ * treating it as SQL syntax.
+ */
+export function readSqlStringLiteral(sql, startIndex) {
+  if (sql[startIndex] !== "'") {
+    return null;
+  }
+
+  let value = '';
+  let index = startIndex + 1;
+  while (index < sql.length) {
+    const char = sql[index];
+    if (char !== "'") {
+      value += char;
+      index += 1;
+      continue;
+    }
+
+    if (sql[index + 1] === "'") {
+      value += "'";
+      index += 2;
+      continue;
+    }
+
+    return { endIndex: index + 1, value };
+  }
+
+  return null;
+}
+
+// Matches the START of a whole `UPDATE models ...` or `INSERT INTO models
+// (...) ...` statement (including a `public.models` target), never an
+// `ALTER TABLE models ALTER COLUMN updated_at ...` schema change — that starts
+// with `ALTER`, not `UPDATE`/`INSERT INTO`, so it never matches this pattern.
+// The statement's END is found separately by `findModelsStatementEnd`, which
+// is string-literal- and nesting-aware (BST-1794 follow-up: a lazy `;`-anchored
+// pattern either stopped at a `;` inside a string literal, or — when the
+// `models` statement itself had no terminating `;` — kept scanning into an
+// unrelated later statement, letting a `providers` write masquerade as a
+// `models` one).
+export const MODELS_WRITE_STATEMENT_START_PATTERN =
+  /\b(?:UPDATE|INSERT\s+INTO)\s+"?(?:public\.)?models"?\b/gi;
+
+// Keywords that can legitimately open a new top-level SQL statement. Used by
+// `findModelsStatementEnd` to recognize "the `models` statement ended here"
+// even when the migration author forgot the trailing `;` (only ever expected
+// at the very end of an `up:` block — see `006-embedding-sets-and-columns.ts`,
+// which trails off after its last `;` with comments only, never mid-block).
+const NEXT_SQL_STATEMENT_KEYWORD_PATTERN =
+  /^(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM|ALTER\s+TABLE|CREATE\b|DROP\b|WITH\b|SELECT\b|BEGIN\b|COMMIT\b|GRANT\b|REVOKE\b)\b/i;
+
+/**
+ * Is the statement-keyword match at `index` actually the `DO UPDATE SET` (or
+ * `DO NOTHING`, etc.) clause of a preceding `ON CONFLICT`, rather than the
+ * start of a new statement? `DO UPDATE` is the one case where a recognized
+ * statement-start keyword legitimately appears mid-statement.
+ */
+function isPrecededByDoKeyword(sql, index) {
+  return /\bDO\s*$/i.test(sql.slice(Math.max(0, index - 40), index));
+}
+
+/**
+ * Find the end of the SQL statement that starts at `searchFrom` (the index
+ * right after a `MODELS_WRITE_STATEMENT_START_PATTERN` match), scanning
+ * string-literal- and paren-nesting-aware so that a `;` inside a quoted value
+ * (e.g. `'b;c'`) never ends the statement early, and a missing terminating
+ * `;` never lets the scan run on into an unrelated following statement.
+ * Returns `sql.length` when the statement runs to the end of the block (the
+ * one legitimate no-trailing-`;` shape).
+ */
+export function findModelsStatementEnd(sql, searchFrom) {
+  let depth = 0;
+  let index = searchFrom;
+
+  while (index < sql.length) {
+    const char = sql[index];
+
+    if (char === "'") {
+      const parsed = readSqlStringLiteral(sql, index);
+      index = parsed ? parsed.endIndex : sql.length;
+      continue;
+    }
+
+    if (char === '(') {
+      depth += 1;
+      index += 1;
+      continue;
+    }
+
+    if (char === ')') {
+      depth = Math.max(0, depth - 1);
+      index += 1;
+      continue;
+    }
+
+    if (depth === 0 && char === ';') {
+      return index;
+    }
+
+    if (
+      depth === 0 &&
+      index > searchFrom &&
+      /\s/.test(sql[index - 1]) &&
+      NEXT_SQL_STATEMENT_KEYWORD_PATTERN.test(sql.slice(index)) &&
+      !isPrecededByDoKeyword(sql, index)
+    ) {
+      return index;
+    }
+
+    index += 1;
+  }
+
+  return sql.length;
+}
