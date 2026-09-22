@@ -18,7 +18,7 @@ import {
 } from '@brainstrike/ui';
 import { Command } from 'cmdk';
 import { Brain, Check, ChevronDown, Eye, Plus } from 'lucide-react';
-import { type ReactNode, useCallback, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
 import type { ProviderGroupConfig } from './assistant-ui-panel';
 import { buildComposerPickerSections, type ComposerPickerEntry } from './composer-picker-sections';
 
@@ -185,6 +185,9 @@ export function ComposerModelPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  // Selection-intent token: bumped by every pick and every close, so a
+  // pending enable that resolves later never overrides a newer choice.
+  const selectionTokenRef = useRef(0);
 
   const sections = useMemo(
     () =>
@@ -206,12 +209,14 @@ export function ComposerModelPicker({
   const handleOpenChange = useCallback((next: boolean) => {
     setOpen(next);
     if (!next) {
+      selectionTokenRef.current += 1;
       setQuery('');
     }
   }, []);
 
   const handlePick = useCallback(
     (entry: ComposerPickerEntry) => {
+      selectionTokenRef.current += 1;
       onModelChange?.(entry.compositeKey);
       handleOpenChange(false);
     },
@@ -223,12 +228,21 @@ export function ComposerModelPicker({
       if (!onEnableModel || pendingKey) {
         return;
       }
+      const token = selectionTokenRef.current;
       setPendingKey(entry.compositeKey);
-      const committed = await onEnableModel(entry.providerId, entry.modelId);
-      setPendingKey(null);
+      let committed: boolean;
+      try {
+        committed = await onEnableModel(entry.providerId, entry.modelId);
+      } finally {
+        // Always clear, even when the host violates its contract and rejects;
+        // the rejection itself still propagates.
+        setPendingKey(null);
+      }
       // A false result was already reported by the host (destructive toast);
-      // the selection deliberately stays where it was.
-      if (committed) {
+      // the selection deliberately stays where it was. A newer pick or a
+      // close since the request abandons only the selection — the enable
+      // write itself has committed.
+      if (committed && selectionTokenRef.current === token) {
         handlePick(entry);
       }
     },

@@ -153,6 +153,19 @@ const baseProps = {
 
 const fixtureWithDisabledDeepseek = {
   ...baseProps,
+  // Metadata for a DISABLED model, so the Not enabled row's lack of a context
+  // badge and capability icons is a real assertion, not a vacuous one.
+  pickerModels: [
+    ...pickerModels,
+    {
+      capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'supported' },
+      contextWindow: 1_000_000,
+      description: 'Fast and cheap',
+      id: 'deepseek/deepseek-v4.1-flash',
+      name: 'DeepSeek V4.1 Flash',
+      providerId: 'openrouter',
+    },
+  ] satisfies ModelPickerModel[],
   providerGroups: providerGroups.map((group) => ({
     ...group,
     providers: group.providers.map((provider) =>
@@ -167,12 +180,53 @@ const fixtureWithDisabledDeepseek = {
                 label: 'DeepSeek V4.1 Flash',
                 type: 'llm' as const,
               },
+              {
+                enabled: false,
+                id: 'deepseek/deepseek-v4.1-pro',
+                label: 'DeepSeek V4.1 Pro',
+                type: 'llm' as const,
+              },
             ],
           }
         : provider
     ),
   })),
 };
+
+const ENABLE_FLASH = /Enable and select DeepSeek V4\.1 Flash/;
+const ENABLE_PRO = /Enable and select DeepSeek V4\.1 Pro/;
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+/**
+ * Temporarily owns process-level unhandled rejections so a test can assert an
+ * EXPECTED one (a host contract violation must propagate, not be swallowed)
+ * without Vitest reporting it as a stray error.
+ */
+function captureUnhandledRejections(): { reasons: unknown[]; restore: () => void } {
+  const previous = process.listeners('unhandledRejection');
+  const reasons: unknown[] = [];
+  const listener = (reason: unknown): void => {
+    reasons.push(reason);
+  };
+  process.removeAllListeners('unhandledRejection');
+  process.on('unhandledRejection', listener);
+  return {
+    reasons,
+    restore: () => {
+      process.off('unhandledRejection', listener);
+      for (const original of previous) {
+        process.on('unhandledRejection', original);
+      }
+    },
+  };
+}
 
 function setup() {
   return userEvent.setup({ pointerEventsCheck: 0 });
@@ -356,6 +410,146 @@ describe('ComposerModelPicker', () => {
     ).not.toHaveAttribute('aria-disabled', 'true');
   });
 
+  it('renders Not enabled rows without a context badge or capability icons', async () => {
+    const user = setup();
+    render(
+      <ComposerModelPicker
+        {...fixtureWithDisabledDeepseek}
+        onEnableModel={vi.fn().mockResolvedValue(true)}
+        onModelChange={vi.fn()}
+      />
+    );
+
+    const picker = await openPicker(user);
+    await user.type(within(picker).getByRole('combobox'), 'deepseek');
+    const row = within(picker).getByRole('option', { name: ENABLE_FLASH });
+    expect(within(row).queryByText(/context$/)).not.toBeInTheDocument();
+    expect(within(row).queryByLabelText('Vision')).not.toBeInTheDocument();
+    expect(within(row).queryByLabelText('Reasoning')).not.toBeInTheDocument();
+  });
+
+  it('disables the row while its enable is pending and ignores a second click', async () => {
+    const user = setup();
+    const pending = deferred<boolean>();
+    const onEnableModel = vi.fn(() => pending.promise);
+    render(
+      <ComposerModelPicker
+        {...fixtureWithDisabledDeepseek}
+        onEnableModel={onEnableModel}
+        onModelChange={vi.fn()}
+      />
+    );
+
+    const picker = await openPicker(user);
+    await user.type(within(picker).getByRole('combobox'), 'deepseek');
+    await user.click(within(picker).getByRole('option', { name: ENABLE_FLASH }));
+    const row = within(picker).getByRole('option', { name: ENABLE_FLASH });
+    expect(row).toHaveAttribute('aria-disabled', 'true');
+    await user.click(row);
+    expect(onEnableModel).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      pending.resolve(false);
+      await pending.promise;
+    });
+  });
+
+  it('clears the pending state when the host enable rejects, and lets the rejection propagate', async () => {
+    const rejections = captureUnhandledRejections();
+    try {
+      const user = setup();
+      const onModelChange = vi.fn();
+      const boom = new Error('boom');
+      const onEnableModel = vi
+        .fn<(providerId: string, modelId: string) => Promise<boolean>>()
+        .mockRejectedValueOnce(boom)
+        .mockResolvedValue(false);
+      render(
+        <ComposerModelPicker
+          {...fixtureWithDisabledDeepseek}
+          onEnableModel={onEnableModel}
+          onModelChange={onModelChange}
+        />
+      );
+
+      const picker = await openPicker(user);
+      await user.type(within(picker).getByRole('combobox'), 'deepseek');
+      await user.click(within(picker).getByRole('option', { name: ENABLE_FLASH }));
+
+      await waitFor(() => expect(rejections.reasons).toEqual([boom]));
+      expect(within(picker).getByRole('option', { name: ENABLE_FLASH })).not.toHaveAttribute(
+        'aria-disabled',
+        'true'
+      );
+
+      await user.click(within(picker).getByRole('option', { name: ENABLE_PRO }));
+      expect(onEnableModel).toHaveBeenCalledTimes(2);
+      expect(onEnableModel).toHaveBeenLastCalledWith('openrouter', 'deepseek/deepseek-v4.1-pro');
+      await act(async () => {
+        await onEnableModel.mock.results[1]?.value;
+      });
+      expect(onModelChange).not.toHaveBeenCalled();
+    } finally {
+      rejections.restore();
+    }
+  });
+
+  it('a pending enable that commits after a newer pick never overrides it', async () => {
+    const user = setup();
+    const onModelChange = vi.fn();
+    const pending = deferred<boolean>();
+    const onEnableModel = vi.fn(() => pending.promise);
+    render(
+      <ComposerModelPicker
+        {...fixtureWithDisabledDeepseek}
+        onEnableModel={onEnableModel}
+        onModelChange={onModelChange}
+      />
+    );
+
+    const picker = await openPicker(user);
+    const search = within(picker).getByRole('combobox');
+    await user.type(search, 'deepseek');
+    await user.click(within(picker).getByRole('option', { name: ENABLE_FLASH }));
+    await user.clear(search);
+    await user.click(within(picker).getByRole('option', { name: /Claude Sonnet 5/ }));
+    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-5');
+
+    await act(async () => {
+      pending.resolve(true);
+      await pending.promise;
+    });
+    expect(onModelChange).toHaveBeenCalledTimes(1);
+    expect(onModelChange).toHaveBeenLastCalledWith('anthropic::claude-sonnet-5');
+  });
+
+  it('a pending enable that commits after the picker closed does not select', async () => {
+    const user = setup();
+    const onModelChange = vi.fn();
+    const pending = deferred<boolean>();
+    const onEnableModel = vi.fn(() => pending.promise);
+    render(
+      <ComposerModelPicker
+        {...fixtureWithDisabledDeepseek}
+        onEnableModel={onEnableModel}
+        onModelChange={onModelChange}
+      />
+    );
+
+    const picker = await openPicker(user);
+    await user.type(within(picker).getByRole('combobox'), 'deepseek');
+    await user.click(within(picker).getByRole('option', { name: ENABLE_FLASH }));
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    await act(async () => {
+      pending.resolve(true);
+      await pending.promise;
+    });
+    expect(onEnableModel).toHaveBeenCalledTimes(1);
+    expect(onModelChange).not.toHaveBeenCalled();
+  });
+
   it('hides Not enabled rows when no onEnableModel handler is provided', async () => {
     const user = setup();
     render(<ComposerModelPicker {...fixtureWithDisabledDeepseek} onModelChange={vi.fn()} />);
@@ -375,6 +569,7 @@ describe('ComposerModelPicker', () => {
     expect(within(picker).getByRole('combobox')).toHaveValue('gpt');
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByTestId('composer-model-menu-trigger')).toHaveFocus();
 
     const reopened = await openPicker(user);
     expect(within(reopened).getByRole('combobox')).toHaveValue('');
