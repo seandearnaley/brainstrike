@@ -68,7 +68,7 @@ Results keep catalog order rather than a relevance score, so the output is deter
 
 - **Recent rows:** label, tagline, context badge, vision/reasoning icons.
 - **List rows:** one dense line with the label, the provider label (when the list is flattened), the context badge and the vision/reasoning icons.
-- **Not enabled rows:** as list rows, plus a ＋ and an accessible name "Enable and select …".
+- **Not enabled rows:** label, provider label and a ＋, with an accessible name "Enable and select …". No context badge and no capability icons. Only enabled models get that metadata: `useAssistantModelPickerConfig` resolves it into `pickerModels` for enabled models only, and changing what `pickerModels` means for its other consumers is out of scope. For the same reason, disabled rows are matched on label, model id and provider only, not tagline.
 - **No price column.** Prices are per-route estimates with long-context tiers and surge bands, so a bare number is misleading at a glance.
 
 ### Keyboard
