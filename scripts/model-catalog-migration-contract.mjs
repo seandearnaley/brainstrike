@@ -119,6 +119,7 @@ export function findModelsUpdatedAtWriteFailures(migrationFiles) {
       const afterTable = statement.slice(match[0].length);
       if (
         /\bupdated_at\s*=/i.test(statement) ||
+        /\bcreated_at\s*=/i.test(statement) ||
         insertColumnListWritesColumn(afterTable, 'updated_at') ||
         insertColumnListWritesColumn(afterTable, 'created_at')
       ) {

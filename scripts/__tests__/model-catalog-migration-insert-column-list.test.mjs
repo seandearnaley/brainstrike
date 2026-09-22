@@ -245,4 +245,50 @@ describe('models.updated_at write guard — INSERT target-column list (BST-1794 
 
     assert.deepEqual(failures, []);
   });
+
+  // BST-1794 review follow-up (F3): the failure message and the
+  // MODELS_UPDATED_AT_WRITE_ALLOWLIST comment both claim this guard covers a
+  // `created_at` ASSIGNMENT, not just an INSERT target-column list — these
+  // three cases exercise that assignment branch directly.
+  it('flags an UPDATE that assigns created_at directly', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-update-created-at.ts',
+        'migration099FakeUpdateCreatedAt',
+        `UPDATE models SET created_at = NOW() WHERE id = 'x';`
+      ),
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.file),
+      ['packages/db/src/migrations/099-fake-update-created-at.ts']
+    );
+  });
+
+  it('flags an INSERT ... ON CONFLICT DO UPDATE that assigns created_at = EXCLUDED.created_at', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-on-conflict-created-at.ts',
+        'migration099FakeOnConflictCreatedAt',
+        `INSERT INTO models (id) VALUES ('x') ON CONFLICT (id) DO UPDATE SET created_at = EXCLUDED.created_at;`
+      ),
+    ]);
+
+    assert.deepEqual(
+      failures.map((failure) => failure.file),
+      ['packages/db/src/migrations/099-fake-on-conflict-created-at.ts']
+    );
+  });
+
+  it('does not flag a providers UPDATE that assigns created_at (different table)', () => {
+    const failures = findModelsUpdatedAtWriteFailures([
+      migrationFile(
+        'packages/db/src/migrations/099-fake-providers-created-at.ts',
+        'migration099FakeProvidersCreatedAt',
+        'UPDATE providers SET created_at = NOW();'
+      ),
+    ]);
+
+    assert.deepEqual(failures, []);
+  });
 });

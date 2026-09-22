@@ -185,7 +185,7 @@ export function findModelsStatementEnd(sql, searchFrom) {
  * via `readSqlStringLiteral` even though a bare column list should not
  * contain one, purely for robustness against malformed input.
  */
-export function extractInsertColumnListSource(afterTableSource) {
+function extractInsertColumnListSource(afterTableSource) {
   const openMatch = afterTableSource.match(/^\s*\(/);
   if (!openMatch) {
     return null;

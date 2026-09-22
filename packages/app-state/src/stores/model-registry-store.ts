@@ -130,22 +130,27 @@ function hasExplicitProviderModelChoice(rows: readonly RawProviderModelChoice[])
 }
 
 function isLlmChoiceRow(row: RawProviderModelChoice): boolean {
-  // A row with no capabilities is not a catalog LLM row.
-  if (row.capabilities === null) {
+  if (typeof row.capabilities === 'string') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.capabilities);
+    } catch (error) {
+      throw new Error(`Model registry row ${row.id} has unparseable capabilities.`, {
+        cause: error,
+      });
+    }
+    // A parsed value that is not a non-null object is not a catalog LLM row
+    // (e.g. the JSON text 'null' parses to null, matching SQL NULL).
+    if (typeof parsed !== 'object' || parsed === null) {
+      return false;
+    }
+    return (parsed as { type?: unknown }).type === 'llm';
+  }
+  // A missing/non-object capabilities value is not a catalog LLM row.
+  if (typeof row.capabilities !== 'object' || row.capabilities === null) {
     return false;
   }
-  if (typeof row.capabilities !== 'string') {
-    return row.capabilities.type === 'llm';
-  }
-  let parsed: { type?: unknown };
-  try {
-    parsed = JSON.parse(row.capabilities) as { type?: unknown };
-  } catch (error) {
-    throw new Error(`Model registry row ${row.id} has unparseable capabilities.`, {
-      cause: error,
-    });
-  }
-  return parsed.type === 'llm';
+  return row.capabilities.type === 'llm';
 }
 
 /**
@@ -425,22 +430,25 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
 
         const placeholders = uniqueModelIds.map((_, index) => `$${index + 2}`).join(', ');
         const isAllPolicy = policy.kind === 'all';
-        // The `all` policy re-asserts the exact eligibility predicates the
-        // TS-side selection just used, so a row another writer touched
-        // between the SELECT and this UPDATE (e.g. the user disabling it)
-        // cannot be re-enabled out from under them — RETURNING then simply
-        // omits that row rather than the UPDATE clobbering it. The `seed`
-        // policy is unchanged: a short RETURNING set there is a real drift
-        // tripwire and must keep throwing.
+        // The `all` policy re-asserts the eligibility predicates the TS-side
+        // selection just used, so a row another writer touched between the
+        // SELECT and this UPDATE (e.g. the user disabling it) cannot be
+        // re-enabled out from under them — RETURNING then simply omits that
+        // row rather than the UPDATE clobbering it. The predicates are not
+        // byte-identical: TS `timestampMillis` compares at millisecond
+        // resolution while SQL `updated_at = created_at` compares at
+        // microsecond resolution, so a sub-millisecond skew between the two
+        // columns can make a row TS-eligible but SQL-ineligible. That skew
+        // only narrows the UPDATE, never widens it, so it fails safe — it
+        // never over-enables a row. The `seed` policy is unchanged: a short
+        // RETURNING set there is a real drift tripwire and must keep
+        // throwing.
+        const allPolicyClause = isAllPolicy
+          ? " AND is_enabled = false AND updated_at = created_at AND capabilities->>'type' = 'llm'"
+          : '';
         const updateResult = await db.query<{ id: string }>(
           `UPDATE models SET is_enabled = true, updated_at = NOW()
-           WHERE provider_id = $1 AND id IN (${placeholders})${
-             isAllPolicy
-               ? `
-           AND is_enabled = false AND updated_at = created_at
-           AND capabilities->>'type' = 'llm'`
-               : ''
-}
+           WHERE provider_id = $1 AND id IN (${placeholders})${allPolicyClause}
            RETURNING id`,
           [providerId, ...uniqueModelIds]
         );

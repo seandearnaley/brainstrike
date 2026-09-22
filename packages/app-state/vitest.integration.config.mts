@@ -28,7 +28,9 @@ export default defineConfig({
     // both lanes can execute concurrently in the same package, and two vitest
     // processes sharing one coverage/.tmp directory race (observed elsewhere
     // in this repo as "Something removed the coverage directory ... Vitest
-    // created earlier"). Full-suite coverage stays owned by `test:coverage`.
+    // created earlier"). `test:coverage` runs `test --coverage`, and `test`
+    // excludes `*.integration.test.*`, so integration tests are outside
+    // coverage in every lane, not just this one.
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
     // Mirrors the pure lane's --exclude suffix so the two lanes partition the
     // suite by construction: a file the pure lane excludes always runs here.

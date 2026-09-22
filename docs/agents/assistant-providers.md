@@ -495,11 +495,11 @@ an off-peak moment).
   defined in `provider-model-default-policies.ts`. `null` holds exactly when
   `authType === 'none' || !capabilities.llm`, pinned by test, not a list.
 - "Untouched" is `!is_enabled` PER ROW plus `updated_at === created_at`; `all` gates PER ROW
-  on it, `seed` gates PROVIDER-WIDE via `hasExplicitProviderModelChoice`. Catalog upserts must never write `models.updated_at`.
+  on it, `seed` gates PROVIDER-WIDE via `hasExplicitProviderModelChoice`. Catalog upserts must never write `models.updated_at` or `created_at`.
 
 Evidence: `assistant-providers/model-enablement-defaults.md`.
 Guard: `provider-model-default-policies.test.ts`, `model-registry-store.test.ts`,
-`use-provider-model-defaults.test.tsx`. The `models.updated_at` rule is guarded
+`use-provider-model-defaults.test.tsx`. The `models.updated_at`/`created_at` rule is guarded
 by `scripts/__tests__/model-catalog-migration-contract.test.mjs`.
 
 ### Provider registry auth metadata

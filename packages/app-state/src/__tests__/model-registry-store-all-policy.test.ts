@@ -143,4 +143,60 @@ describe('initializeProviderModelDefaults — all policy atomicity (BST-1794 fol
     expect(models.find((model) => model.id === 'model-a')?.isEnabled).toBe(false);
     expect(models.find((model) => model.id === 'model-b')?.isEnabled).toBe(false);
   });
+
+  // BST-1794 review follow-up (F4): a row whose capabilities is the JSON text
+  // 'null', or is missing entirely, must be skipped like any other
+  // non-catalog-LLM row — not throw a bare TypeError from `isLlmChoiceRow`.
+  it('skips a row whose capabilities parses to JSON null without throwing', async () => {
+    useModelRegistryStore.setState({
+      models: [createMockModel({ id: 'model-a', isEnabled: false, providerId: 'openrouter' })],
+    });
+    const rows = [
+      {
+        capabilities: 'null',
+        created_at: '2026-07-22T12:00:00.000Z',
+        id: 'model-a',
+        is_enabled: false,
+        updated_at: '2026-07-22T12:00:00.000Z',
+      },
+    ];
+    const mockDb = {
+      query: vi.fn().mockResolvedValueOnce({ rows }).mockResolvedValueOnce({ rows: [] }),
+      syncToFs: vi.fn(async () => undefined),
+    };
+
+    const result = await useModelRegistryStore
+      .getState()
+      .initializeProviderModelDefaults(mockDb as never, 'openrouter', { kind: 'all' });
+
+    expect(result).toBe('preserved');
+    // Only the SELECT ran; the row was filtered out before any UPDATE.
+    expect(mockDb.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips a row with undefined capabilities without throwing', async () => {
+    useModelRegistryStore.setState({
+      models: [createMockModel({ id: 'model-a', isEnabled: false, providerId: 'openrouter' })],
+    });
+    const rows = [
+      {
+        capabilities: undefined,
+        created_at: '2026-07-22T12:00:00.000Z',
+        id: 'model-a',
+        is_enabled: false,
+        updated_at: '2026-07-22T12:00:00.000Z',
+      },
+    ];
+    const mockDb = {
+      query: vi.fn().mockResolvedValueOnce({ rows }).mockResolvedValueOnce({ rows: [] }),
+      syncToFs: vi.fn(async () => undefined),
+    };
+
+    const result = await useModelRegistryStore
+      .getState()
+      .initializeProviderModelDefaults(mockDb as never, 'openrouter', { kind: 'all' });
+
+    expect(result).toBe('preserved');
+    expect(mockDb.query).toHaveBeenCalledTimes(1);
+  });
 });
