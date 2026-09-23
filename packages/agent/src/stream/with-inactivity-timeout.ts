@@ -135,6 +135,21 @@ export interface StreamInactivityOptions<T> {
    */
   readonly reasoningPartKind?: (part: T) => 'content' | 'marker' | undefined;
   /**
+   * Which PRODUCER a part came from, when one stream multiplexes several.
+   *
+   * A background leg's stream carries the parent's turns AND every running
+   * child's output. Each producer keeps its own phase and its own in-flight
+   * calls (a LANE), and the stream is stalled only once every open lane has
+   * outlived its own window — so a child still waiting on its first token is
+   * never judged by the `streaming` window its sibling or parent left behind,
+   * and a child's step boundary never clears another producer's running call.
+   *
+   * The classifiers (`countsAsProviderOutput`, `reasoningPartKind`,
+   * `toolExecutionPartKind`) receive the ROUTED part. Absent means every part
+   * is the stream's own producer's, which reproduces the single-lane behaviour.
+   */
+  readonly routePart?: (part: T) => StreamPartRoute<T>;
+  /**
    * Classify a part that STARTS or SETTLES one tool execution, or `undefined`.
    *
    * Reference-counted by `toolCallId` so parallel calls hold the phase until
@@ -148,6 +163,20 @@ export interface StreamInactivityOptions<T> {
     part: T
   ) => { readonly kind: 'started' | 'settled'; readonly toolCallId: string } | undefined;
 }
+
+/**
+ * Where one part of a multiplexed stream belongs.
+ *
+ * `produced`: output of one producer, classified in its lane. `lane` absent
+ * is the stream's own producer; a named lane opens on its first part.
+ * `bookkeeping`: transport activity that is no producer's output (lifecycle
+ * events, host ledger rows). It re-arms the timer but moves no lane's phase
+ * and clears nothing; it may open a lane (a producer that started) or close
+ * one (a producer that ended, or now waits on a human).
+ */
+export type StreamPartRoute<T> =
+  | { readonly kind: 'produced'; readonly lane?: string; readonly part: T }
+  | { readonly kind: 'bookkeeping'; readonly closes?: string; readonly opens?: string };
 
 export interface StreamStalledErrorContext {
   readonly lastPartType?: string | undefined;
@@ -246,18 +275,136 @@ function trackToolExecution<T>(
   inFlight.delete(boundary.toolCallId);
 }
 
+/** One producer's watchdog state: its own provider phase and its own running calls. */
+interface ProducerLane {
+  /**
+   * Whether this producer has emitted real provider output yet. A resume leg
+   * opens with framework scaffolding (`start`/`step-start`) BEFORE the resumed
+   * call's `tool-result` — real output from Mastra's own integration traces —
+   * and the scaffolding clear below would wipe a SEEDED id on that very first
+   * `step-start`, before the call it was seeded for ever gets to settle.
+   * Gating the clear on this only ever DELAYS when the clear can fire, so the
+   * guarantee (a lost `settled` can only tighten a LATER step's window) still
+   * holds once the producer is actually underway.
+   */
+  hasSeenProviderOutput: boolean;
+  /**
+   * Kept apart from the reported phase so a `reasoning-end` marker arriving
+   * mid-tool cannot "preserve" `tool-executing` into the provider state machine.
+   */
+  providerPhase: Exclude<StreamStallPhase, 'tool-executing'>;
+  readonly toolCallsInFlight: Set<string>;
+}
+
+function openLane(initialToolCallIds: readonly string[] = []): ProducerLane {
+  return {
+    hasSeenProviderOutput: false,
+    providerPhase: 'awaiting-output',
+    toolCallsInFlight: new Set(initialToolCallIds),
+  };
+}
+
+/** Advance one producer's lane over a part that producer emitted. */
+function observeProducedPart<T>(
+  part: T,
+  lane: ProducerLane,
+  options: StreamInactivityOptions<T> | undefined
+): void {
+  // Scaffolding both KEEPS and RE-ARMS the wide window: a fresh step has its
+  // own time-to-first-output, so a step opened after a tool result must not
+  // inherit the previous step's `streaming` phase.
+  lane.providerPhase = resolveNextPhase(part, lane.providerPhase, options);
+  if (lane.providerPhase !== 'awaiting-output') {
+    lane.hasSeenProviderOutput = true;
+  }
+  trackToolExecution(part, lane.toolCallsInFlight, options);
+  if (lane.providerPhase === 'awaiting-output' && lane.hasSeenProviderOutput) {
+    // THIS IS THE SCAFFOLDING RULE, stated in the only terms this generic
+    // watchdog has: a part that does not count as provider output is, by
+    // {@link StreamInactivityOptions.countsAsProviderOutput}'s contract,
+    // FRAMEWORK STEP SCAFFOLDING — and scaffolding opens a new step, so this
+    // producer's previous step's tools are over. The caller owes that contract
+    // a CLOSED, typed list of scaffolding types (Mastra's is `{start,
+    // step-start}`, see `MASTRA_SCAFFOLDING_PART_TYPES`) precisely because
+    // anything it wrongly excludes from "output" — `tool-output`, a progress
+    // chunk — would wipe the in-flight set MID-EXECUTION and drop a running
+    // tool back onto the provider's own window. Clearing here means a lost
+    // `settled` part can only ever TIGHTEN the next window, never hold the wide
+    // one open. The clear is per LANE: one producer's new step says nothing
+    // about another producer's running call.
+    lane.toolCallsInFlight.clear();
+  }
+}
+
+/** Apply one delivered part to the lane it belongs to (see `routePart`). */
+function observeRoutedPart<T>(
+  part: T,
+  rootLane: ProducerLane,
+  lanes: Map<string, ProducerLane>,
+  options: StreamInactivityOptions<T> | undefined
+): void {
+  const route: StreamPartRoute<T> = options?.routePart?.(part) ?? { kind: 'produced', part };
+  if (route.kind === 'bookkeeping') {
+    if (route.closes !== undefined) {
+      lanes.delete(route.closes);
+    }
+    // Never RESET a lane that is already open: a late or replayed start
+    // (Mastra re-announces running tasks to a new subscriber) must not wipe
+    // a call that is executing.
+    if (route.opens !== undefined && !lanes.has(route.opens)) {
+      lanes.set(route.opens, openLane());
+    }
+    return;
+  }
+  let lane = rootLane;
+  if (route.lane !== undefined) {
+    lane = lanes.get(route.lane) ?? openLane();
+    lanes.set(route.lane, lane);
+  }
+  observeProducedPart(route.part, lane, options);
+}
+
+/**
+ * The phase and window the NEXT silence is measured against.
+ *
+ * Silence proves a stall only once EVERY open producer has outlived its own
+ * window, so the widest lane's window applies. Tool execution OVERRIDES the
+ * provider phases: while any lane has a call in flight the silence may belong
+ * to our tool, whatever part arrived last, so the reported phase is
+ * `tool-executing` — the phase `isRecoverableStall` refuses to retry.
+ */
+function resolveStreamWait(
+  lanes: Iterable<ProducerLane>,
+  windows: StreamInactivityWindows
+): { readonly phase: StreamStallPhase; readonly windowMs: number } {
+  let phase: StreamStallPhase = 'awaiting-output';
+  let windowMs = 0;
+  let executing = false;
+  for (const lane of lanes) {
+    const lanePhase = lane.toolCallsInFlight.size > 0 ? 'tool-executing' : lane.providerPhase;
+    executing ||= lanePhase === 'tool-executing';
+    const laneWindowMs = resolveWindowMs(lanePhase, windows);
+    if (laneWindowMs > windowMs) {
+      phase = lanePhase;
+      windowMs = laneWindowMs;
+    }
+  }
+  return { phase: executing ? 'tool-executing' : phase, windowMs };
+}
+
 /**
  * Wrap an async iterable so that silence longer than the applicable window
  * throws {@link StreamStalledError}. The timer resets on every delivered item.
  * Used around the raw Mastra stream so a wedged provider/tool can never freeze
  * the data-stream session forever.
  *
- * The window is PHASE-AWARE across THREE states, because "the provider is
- * quiet" is three different events:
+ * The window is PHASE-AWARE, because "the provider is quiet" is several
+ * different events:
  *
  * - `awaiting-output` → `firstOutputMs`. Has it started at all this step?
  * - `reasoning` → `reasoningGapMs`. It is thinking; has it stopped thinking?
  * - `streaming` → `interOutputMs`. It is answering; is it still delivering?
+ * - `tool-executing` → `toolExecutingMs`. Our guarded tool is running.
  *
  * The first two are the same question wearing different hats — the model is
  * working and has not begun its answer — which is why they share a budget
@@ -268,6 +415,9 @@ function trackToolExecution<T>(
  * (BST-1408). Collapsing `reasoning` into `streaming` then killed
  * `google/gemini-3.7-flash` at `effort: 'high'`, twice in one turn, both times
  * on `lastPartType: 'reasoning-delta'`.
+ *
+ * A multiplexed stream (`routePart`) tracks that phase per PRODUCER and waits
+ * on the widest open lane — see {@link resolveStreamWait}.
  */
 export async function* withInactivityTimeout<T>(
   source: AsyncIterable<T>,
@@ -277,26 +427,15 @@ export async function* withInactivityTimeout<T>(
   const iterator = source[Symbol.asyncIterator]();
   let partsSeen = 0;
   let lastPartType: string | undefined;
-  const toolCallsInFlight = new Set<string>(options?.initialToolCallIds ?? []);
   // Seeding starts the FIRST wait already in `tool-executing` — otherwise a
   // resume leg's opening silence (before any part has been read at all) would
   // be measured against the provider window for the instant between "seeded"
-  // and "first part observed".
-  let phase: StreamStallPhase = toolCallsInFlight.size > 0 ? 'tool-executing' : 'awaiting-output';
-  let providerPhase: Exclude<StreamStallPhase, 'tool-executing'> = 'awaiting-output';
-  // A resume leg opens with framework scaffolding (`start`/`step-start`)
-  // BEFORE the resumed call's `tool-result` — real output from Mastra's own
-  // integration traces. The ordinary scaffolding-clear below would wipe a
-  // SEEDED id on that very first `step-start`, before the call it was seeded
-  // for ever gets to settle. Gating the clear on "has this leg produced any
-  // real provider output yet" is the smallest fix: it only ever DELAYS when
-  // the clear can fire, so the existing guarantee (a lost `settled` can only
-  // tighten a LATER step's window) still holds once the leg is actually
-  // underway.
-  let hasSeenProviderOutput = false;
+  // and "first part observed". Seeds belong to the stream's own producer.
+  const rootLane = openLane(options?.initialToolCallIds);
+  const lanes = new Map<string, ProducerLane>();
   try {
     while (true) {
-      const windowMs = resolveWindowMs(phase, windows);
+      const { phase, windowMs } = resolveStreamWait([rootLane, ...lanes.values()], windows);
       let timer: ReturnType<typeof setTimeout> | undefined;
       const watchdog = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
@@ -315,37 +454,7 @@ export async function* withInactivityTimeout<T>(
         }
         partsSeen += 1;
         lastPartType = options?.describePart?.(result.value) ?? lastPartType;
-        // Scaffolding both KEEPS and RE-ARMS the wide window: a fresh step has
-        // its own time-to-first-output, so a step opened after a tool result
-        // must not inherit the previous step's `streaming` phase.
-        providerPhase = resolveNextPhase(result.value, providerPhase, options);
-        if (providerPhase !== 'awaiting-output') {
-          hasSeenProviderOutput = true;
-        }
-        // Tool execution OVERRIDES the provider phases rather than joining
-        // their state machine: while any call is in flight the silence belongs
-        // to our tool, whatever part happened to arrive last. `providerPhase`
-        // is tracked separately so a `reasoning-end` marker arriving mid-tool
-        // cannot "preserve" `tool-executing` into the provider state machine.
-        trackToolExecution(result.value, toolCallsInFlight, options);
-        if (providerPhase === 'awaiting-output' && hasSeenProviderOutput) {
-          // THIS IS THE SCAFFOLDING RULE, stated in the only terms this
-          // generic watchdog has: a part that does not count as provider
-          // output is, by {@link StreamInactivityOptions.countsAsProviderOutput}'s
-          // contract, FRAMEWORK STEP SCAFFOLDING — and scaffolding opens a new
-          // step, so the previous step's tools are over. The caller owes that
-          // contract a CLOSED, typed list of scaffolding types (Mastra's is
-          // `{start, step-start}`, see `MASTRA_SCAFFOLDING_PART_TYPES`)
-          // precisely because anything it wrongly excludes from "output" —
-          // `tool-output`, a progress chunk — would wipe the in-flight set
-          // MID-EXECUTION and drop a running tool back onto the provider's own
-          // window. Clearing here means a lost `settled` part can only ever
-          // TIGHTEN the next window, never hold the wide one open — gated on
-          // `hasSeenProviderOutput` so a resume leg's OPENING scaffolding
-          // cannot wipe a seeded id before its own settle ever arrives.
-          toolCallsInFlight.clear();
-        }
-        phase = toolCallsInFlight.size > 0 ? 'tool-executing' : providerPhase;
+        observeRoutedPart(result.value, rootLane, lanes, options);
         yield result.value;
       } finally {
         if (timer) {

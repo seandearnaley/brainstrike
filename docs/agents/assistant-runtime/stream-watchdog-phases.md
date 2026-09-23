@@ -223,3 +223,61 @@ The record below is the contract text as it stood before the
    by a late native save. See `assistant-subagents.md` for the real desktop
    cancellation/reconstruction proof and the remaining nested-resume boundary.
 
+
+## 2026-09-22 — each background task is its own producer lane
+
+Supports "Each BACKGROUND task is its own producer LANE" in
+`assistant-runtime.md` § Stream inactivity watchdog.
+
+**Defect.** On a background leg the watchdog wraps the host idle loop's
+COMBINED stream (`withBackgroundIdleLoop`): the parent's turns, every running
+child's parts as `background-task-output`, and the loop's own bookkeeping. The
+classifiers read only the OUTER part, so every child part counted as ordinary
+output, and after the parent's own `finish` the stream sat in `streaming`.
+Every background-child silence — its time-to-first-token on a large context,
+its reasoning gaps, a silent `executeCommand` build — was judged against the
+120 s `BRAINSTRIKE_STREAM_INACTIVITY_MS` window, not its phase window, and a
+`streaming` stall is RECOVERABLE, so the attempt was replaced. The contract's
+"Background delegation is out of scope" line recorded the gap.
+
+**Why lanes, not just unwrapping.** One stream carries several producers, and a
+single phase follows whichever spoke last. Fan-out is the common case: a
+sibling returns, the parent's wakeup continuation answers and finishes, and its
+`finish` leaves `streaming` while another child is still on its first token.
+Unwrapping alone was also unsafe: a child's nested `step-start` would count as
+scaffolding and clear the in-flight set that holds the PARENT's own running
+call, dropping it onto a provider window whose stall is retryable — the
+second-execution hazard `isRecoverableStall` exists to refuse. So each task
+keeps its own phase and in-flight set, the scaffolding clear is per producer,
+and the stream waits on the widest open lane. A call in flight in any lane
+reports `tool-executing`, even if a misconfigured provider window is wider.
+
+**Bookkeeping.** Native lifecycle events and the host's `run-event` /
+`tool-approval-answered` rows are no producer's output. Counted as output, a
+ledger row landing during the parent's first-output wait tightened it to
+`streaming`. `started`/`running` open a lane but never reset an open one (a
+new manager subscriber is re-told every running task) nor reopen a closed one
+(a fast child's terminal can outrun the dispatch acknowledgement — the idle
+loop's own `settled` rule); only `resumed` reopens. A terminal or suspension
+closes it, running call and all, because a parked child waits on a human.
+
+**Known limits (not bugs this change claims to fix).**
+- A foreground child's parts — and a background worker's foreground
+  grandchildren — still ride their owner's lane: their tool boundaries are
+  unwrapped, but their provider phases are not, so the owner reads
+  `streaming` while such a child waits on its first token.
+- A resume leg's in-process child writes raw delegation envelopes into the
+  parent's lane; its task lane, opened by `resumed`, holds the first-output
+  window until its terminal, so its mid-answer silence is judged at that wider
+  window.
+- `background-task-resumed` names no leaf call, so a live-resumed child's
+  approved call is not seeded like `initialToolCallIds`: it rides the
+  first-output window until its first part.
+- One stream-level timer cannot catch one wedged child while a sibling keeps
+  producing; that needs a child-owned watchdog.
+
+Guard: `packages/agent/src/mastra/__tests__/mastra-background-watchdog-lanes.spec.ts`
+(production part shapes; mutations: collapsing lanes into the root, never
+closing, resetting on `opens`, reopening a closed lane on a late start,
+counting host rows as output, skipping the task's envelope all fail it) and
+`packages/agent/src/__tests__/with-inactivity-timeout-lanes.spec.ts`.

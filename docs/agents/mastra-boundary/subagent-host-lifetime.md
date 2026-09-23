@@ -114,6 +114,7 @@ BST-1749 retry pin) and rejects a different value on update. Mastra 1.64 has no
 "none" and Node clamps any delay above 2^31-1 ms (Infinity included) to 1 ms, so
 Off resolves to `NODE_TIMER_MAX_MS` (~24.8 days) rather than a patch; the store
 refuses any host value Node would fire immediately. The parent idle loop's
-300 s patience, which borrowed the same constant, now has its own.
+300 s patience, which borrowed the same constant, is gone: BST-1800 removed that
+timer and the stream watchdog judges liveness.
 Guard: `pglite-background-store.integration.spec.ts`,
 `delegated-deadlines.integration.test.ts`.

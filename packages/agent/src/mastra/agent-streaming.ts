@@ -58,6 +58,7 @@ import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import {
   type StreamInactivityOptions,
+  type StreamPartRoute,
   type StreamStalledError,
   withInactivityTimeout,
 } from '../stream/with-inactivity-timeout';
@@ -1102,8 +1103,10 @@ function collectResumedGuardedToolCallIds(
  * itself (`exactOptionalPropertyTypes` forbids an explicit `undefined` on
  * `initialToolCallIds`, so the branch has to live in a function that can omit
  * the key entirely).
+ *
+ * @internal exported for tests
  */
-function resolveMastraInactivityOptions(
+export function resolveMastraInactivityOptions(
   resumedApprovalToolCall: ResumedApprovalToolCall | undefined,
   guardedToolNames: ReadonlySet<string>,
   onTimeout: (error: StreamStalledError) => void
@@ -1121,6 +1124,7 @@ function resolveMastraInactivityOptions(
       : {}),
     onTimeout,
     reasoningPartKind: readMastraReasoningPartKind,
+    routePart: createMastraStreamPartRouter(),
     toolExecutionPartKind: createMastraToolExecutionPartKindReader(guardedToolNames),
   };
 }
@@ -1303,6 +1307,50 @@ const MASTRA_DELEGATED_CHILD_ENVELOPE_TYPE = 'tool-output';
 const MAX_DELEGATED_ENVELOPE_UNWRAPS = 8;
 
 /**
+ * The child part a delegation envelope carries, or `undefined` when `part` is
+ * not one. POSITIVE identification (see the reader below): a `tool-output`
+ * whose `toolName` is delegation-prefixed and not `providerExecuted`.
+ * Wrapped so an envelope carrying no part is still told apart from a
+ * non-envelope.
+ */
+function unwrapDelegatedChildPart(part: unknown): { readonly child: unknown } | undefined {
+  if (describeMastraStreamPartType(part) !== MASTRA_DELEGATED_CHILD_ENVELOPE_TYPE) {
+    return;
+  }
+  const toolName = readMastraStreamPartString(part, 'toolName');
+  if (
+    toolName === undefined ||
+    !toolName.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX) ||
+    readMastraStreamPartValue(part, 'providerExecuted') === true
+  ) {
+    return;
+  }
+  return { child: readMastraStreamPartValue(part, 'output') };
+}
+
+/**
+ * The innermost part under nested delegation envelopes (a grandchild's inside
+ * its child's), or `undefined` at a `tool-output` that is not a delegation
+ * envelope or past {@link MAX_DELEGATED_ENVELOPE_UNWRAPS} — both TIGHTEN.
+ */
+function unwrapDelegatedChain(part: unknown): { readonly part: unknown } | undefined {
+  let current = part;
+  for (
+    let depth = 0;
+    describeMastraStreamPartType(current) === MASTRA_DELEGATED_CHILD_ENVELOPE_TYPE;
+    depth += 1
+  ) {
+    const envelope =
+      depth < MAX_DELEGATED_ENVELOPE_UNWRAPS ? unwrapDelegatedChildPart(current) : undefined;
+    if (!envelope) {
+      return;
+    }
+    current = envelope.child;
+  }
+  return { part: current };
+}
+
+/**
  * Builds the `toolExecutionPartKind` classifier for one leg, closed over that
  * leg's guarded-name allow-list (`runtime.toolNameMap`'s keys). A factory
  * rather than a bare function because the classifier is already constructed
@@ -1358,22 +1406,12 @@ export function createMastraToolExecutionPartKindReader(
   guardedToolNames: ReadonlySet<string>
 ): (part: unknown) => { kind: 'started' | 'settled'; toolCallId: string } | undefined {
   return (rawPart: unknown) => {
-    let part = rawPart;
-    let type = describeMastraStreamPartType(part);
-    for (let depth = 0; type === MASTRA_DELEGATED_CHILD_ENVELOPE_TYPE; depth += 1) {
-      const envelopeToolName = readMastraStreamPartString(part, 'toolName');
-      const envelopeProviderExecuted = readMastraStreamPartValue(part, 'providerExecuted');
-      if (
-        depth >= MAX_DELEGATED_ENVELOPE_UNWRAPS ||
-        envelopeToolName === undefined ||
-        !envelopeToolName.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX) ||
-        envelopeProviderExecuted === true
-      ) {
-        return;
-      }
-      part = readMastraStreamPartValue(part, 'output');
-      type = describeMastraStreamPartType(part);
+    const innermost = unwrapDelegatedChain(rawPart);
+    if (!innermost) {
+      return;
     }
+    const { part } = innermost;
+    const type = describeMastraStreamPartType(part);
     if (type === undefined || !Object.hasOwn(MASTRA_TOOL_EXECUTION_PART_KINDS, type)) {
       return;
     }
@@ -1395,6 +1433,119 @@ export function createMastraToolExecutionPartKindReader(
       }
     }
     return { kind, toolCallId };
+  };
+}
+
+/**
+ * What each native background lifecycle event does to its task's LANE. These
+ * are bookkeeping, never any producer's output. `started` (the dispatch
+ * acknowledgement on the parent's turn) and `running` open the lane — the
+ * stream now waits on that task, queued or not; a terminal or a suspension
+ * closes it (a human wait never inherits a child's window); only `resumed`
+ * reopens a closed one.
+ *
+ * Typed like the maps above, so a Mastra rename fails to compile. A lifecycle
+ * type missing here falls through to ordinary output, which tightens.
+ */
+const MASTRA_BACKGROUND_LANE_EFFECTS = {
+  'background-task-cancelled': 'closes',
+  'background-task-completed': 'closes',
+  'background-task-failed': 'closes',
+  'background-task-progress': 'none',
+  'background-task-resumed': 'reopens',
+  'background-task-running': 'opens',
+  'background-task-started': 'opens',
+  'background-task-suspended': 'closes',
+} as const satisfies Partial<
+  Record<StaticMastraChunkType, 'closes' | 'none' | 'opens' | 'reopens'>
+>;
+
+type MastraBackgroundLaneEffect =
+  (typeof MASTRA_BACKGROUND_LANE_EFFECTS)[keyof typeof MASTRA_BACKGROUND_LANE_EFFECTS];
+
+/**
+ * Host rows the background loop writes into a leg's stream (the durable
+ * ledger's `delegation.ledger` event, a live decision's answer). They are the
+ * host's bookkeeping, not a producer's output: counted as output, a ledger row
+ * landing during the parent's first-output wait tightened it to `streaming`.
+ */
+const HOST_BOOKKEEPING_PART_TYPES: ReadonlySet<string> = new Set([
+  'run-event',
+  'tool-approval-answered',
+] satisfies StreamChunk['type'][]);
+
+/**
+ * Builds the `routePart` for one leg's stream
+ * (`StreamInactivityOptions.routePart`).
+ *
+ * A background leg's stream is the host idle loop's COMBINED stream: the
+ * parent's turns, every running child's parts folded in as
+ * `background-task-output`, and the loop's bookkeeping. Each background TASK
+ * is its own producer, in a lane keyed by task id. The task's OWN delegation
+ * envelope is transport, so the lane classifies the child's part inside it
+ * exactly as the root lane classifies the parent's own parts — including the
+ * child's foreground grandchildren, whose envelopes stay output and are
+ * unwrapped only for tool boundaries, as the root's are.
+ *
+ * Stateful per leg, mirroring the idle loop's own `settled` set: a terminal
+ * can outrun the dispatch acknowledgement, and a new manager subscriber is
+ * re-told every running task, so a closed lane is reopened only by `resumed`
+ * — a late start or late output of a closed task is activity, not a producer.
+ *
+ * Everything else is the parent's. A top-level delegation envelope stays in
+ * the parent's lane: a foreground child's parts ride it as they always have,
+ * and a resume leg's in-process child (raw envelopes) is held open by the lane
+ * its `resumed` event opened.
+ *
+ * @internal exported for tests
+ */
+export function createMastraStreamPartRouter(): (part: unknown) => StreamPartRoute<unknown> {
+  const closed = new Set<string>();
+  const routeLifecycle = (
+    effect: MastraBackgroundLaneEffect,
+    taskId: string
+  ): StreamPartRoute<unknown> => {
+    if (effect === 'closes') {
+      closed.add(taskId);
+      return { closes: taskId, kind: 'bookkeeping' };
+    }
+    if (effect === 'reopens') {
+      closed.delete(taskId);
+    }
+    return effect === 'none' || closed.has(taskId)
+      ? { kind: 'bookkeeping' }
+      : { kind: 'bookkeeping', opens: taskId };
+  };
+  const routeTaskOutput = (part: unknown, taskId: string): StreamPartRoute<unknown> => {
+    if (closed.has(taskId)) {
+      return { kind: 'bookkeeping' };
+    }
+    const output = readMastraStreamPartValue((part as { payload?: unknown }).payload, 'payload');
+    return {
+      kind: 'produced',
+      lane: taskId,
+      part: unwrapDelegatedChildPart(output)?.child ?? output,
+    };
+  };
+  return (part) => {
+    const type = describeMastraStreamPartType(part);
+    if (type !== undefined && HOST_BOOKKEEPING_PART_TYPES.has(type)) {
+      return { kind: 'bookkeeping' };
+    }
+    const lifecycle =
+      type !== undefined && Object.hasOwn(MASTRA_BACKGROUND_LANE_EFFECTS, type)
+        ? MASTRA_BACKGROUND_LANE_EFFECTS[type as keyof typeof MASTRA_BACKGROUND_LANE_EFFECTS]
+        : undefined;
+    const taskId =
+      lifecycle !== undefined || type === 'background-task-output'
+        ? readMastraStreamPartString(part, 'taskId')
+        : undefined;
+    if (taskId === undefined) {
+      return lifecycle === undefined ? { kind: 'produced', part } : { kind: 'bookkeeping' };
+    }
+    return lifecycle === undefined
+      ? routeTaskOutput(part, taskId)
+      : routeLifecycle(lifecycle, taskId);
   };
 }
 

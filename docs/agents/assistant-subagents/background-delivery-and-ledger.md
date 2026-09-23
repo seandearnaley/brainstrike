@@ -293,3 +293,43 @@ model's value above host config, so `createTask()` overrides it with the host's
 `subagentSettings.maxInvocations` (a required `withBackgroundIdleLoop` param,
 passed from `runtime.subagentSettings` at both call sites), not the deleted
 `DELEGATION_LIMITS` constant; the default rose from 8 to 200 per turn.
+
+## 2026-09-22 — the idle loop is not a liveness authority
+
+Supports the loop sentence in "The parent model is NEVER woken by a child's
+suspension" (`assistant-subagents.md`); the suspension ruling above is
+unchanged. AMENDS the 2026-09-14 record's "Silence from running work past
+`backgroundIdleMs` … closes the stream unfinished".
+
+**What the timer did.** `withBackgroundIdleLoop` armed its own silence timer
+(`maxIdleMs`, defaulting to 300 s borrowed from the Mastra task-deadline
+constant — an unrelated number; BST-1799 had renamed it `DEFAULT_BACKGROUND_IDLE_MS`) only while the parent was purely
+waiting on running children, and re-armed it on every piped chunk and manager
+event. On expiry it logged `background_idle_expired` and CLOSED the combined
+stream without cancelling anything. `projectBackgroundStream` then threw the
+plain `Error('Background stream ended with unfinished child work.')`, which is
+not a watchdog error, so `runTurnAttempts` rethrew it without a `run.stalled`
+row, and the turn's teardown — the attempt's stream-context disposal runs
+`stopBackgroundTree`, then `runtime.dispose()` shuts Mastra down — cancelled
+the child that had merely been quiet.
+
+**Why it was removed, not re-tuned.** The stream watchdog wraps the very same
+combined stream and re-arms on a superset of the same events, so the timer
+could only ever fire when its window was the SHORTER one. Once each background
+task has its own watchdog lane (`assistant-runtime/stream-watchdog-phases.md`),
+a child's first-output, reasoning and tool-executing windows (600 s / 600 s /
+~635 s by default) are all longer than 300 s: the timer would have killed
+exactly the silences the lanes legitimise, with a different, untyped outcome.
+One authority remains; its expiry is a `StreamStalledError` with its
+`run.stalled` breadcrumb. With no timer, `backgroundIdleMs` / `maxIdleMs` went
+too; the projection's "unfinished child work" throw stays as a contract-break
+backstop, reachable only if the loop closes on its own bookkeeping with a task
+still running (the repeated-suspension class).
+
+Paired: `background-idle-loop.spec.ts` ("running work that stays silent keeps
+the leg open; only its terminal settles it" — RED on the timer: the leg closed
+during four fake hours of silence) and `background-worker-stream.integration.spec.ts`
+("keeps a leg open while a quiet background child works, then finishes
+normally", with a 200 ms inter-output window and 1 s of child silence; without
+the task lanes it stalls in `streaming` and the child ends `cancelled`).
+

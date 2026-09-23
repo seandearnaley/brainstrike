@@ -120,12 +120,6 @@ export interface MastraAgentRuntimeOptions {
    * the legacy runtime/env key resolution.
    */
   authInput?: ProviderAuthInput;
-  /**
-   * Silence budget for running background work before the parent stream
-   * closes unfinished (`withBackgroundIdleLoop`); defaults to the longest a
-   * task may run. Tests shorten it to prove the expiry is reported.
-   */
-  backgroundIdleMs?: number;
   /** Host-owned durable background scope; never client RuntimeData. */
   backgroundTaskScope?: BackgroundTaskScope;
   /** Host-admitted settings for the exact resumed child, never renderer authority. */
@@ -234,8 +228,6 @@ export interface MastraAgentRuntime {
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
-  /** See `MastraAgentRuntimeOptions.backgroundIdleMs`. */
-  backgroundIdleMs?: number | undefined;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
   /** Direct child legs retain the child's native default processors and admitted step cap. */
   childExecution?: { readonly maxSteps: number; readonly inputProcessors?: unknown[] };
@@ -1069,7 +1061,6 @@ export async function createMastraAgentRuntime(
     ...assistantIdentityRuntime,
     approvalGate,
     askTools,
-    backgroundIdleMs: options.backgroundIdleMs,
     childPromptFacts,
     conversationBinding: options.conversationBinding,
     delegatedExecutionOptions,
