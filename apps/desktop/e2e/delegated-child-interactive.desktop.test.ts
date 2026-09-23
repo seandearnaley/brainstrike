@@ -93,7 +93,7 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
         .getByRole('combobox', { exact: true, name: 'Read permission' })
         .selectOption('ask');
       // The scenario holds BOTH work permits below ("two work permits"): pin it.
-      await settings.setSubagentLimit('Subagent work at once', 2);
+      await settings.setSubagentLimit('Subagent work at once', 'maxConcurrentWork', 2);
       await ensureAssistantShellVisible(window);
       const root = window.getByTestId('chat-panel');
       const composer = root.getByRole('textbox', { name: 'Message input' });

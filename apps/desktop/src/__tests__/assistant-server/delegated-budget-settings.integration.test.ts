@@ -304,6 +304,44 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('refuses a leg whose run row sits on a delegated CHILD thread instead of reading no limits', async () => {
+    // Host legs run on the ROOT thread (a child follow-up is a fresh managed
+    // root leg). A run row on a child thread would read no budget row and
+    // silently run under its own request's limits, so it must fail loudly.
+    const first = createDesktopDelegatedConversationHost(
+      database,
+      'leg',
+      undefined,
+      undefined,
+      settings
+    );
+    const explorer = await child('explorer', 32);
+    await first.persist(explorer);
+    await database.query(
+      `INSERT INTO brainstrike_assistant_thread_runs
+        (id, resource_id, thread_id, provider, model, runtime_kind, status,
+         started_at, created_at, updated_at, turn_message_id)
+       VALUES ('child-leg', $1, $2, 'openai', 'test', 'desktop', 'running', NOW(), NOW(), NOW(), 'turn')`,
+      [explorer.childResourceId, explorer.childThreadId]
+    );
+    const childLeg = createDesktopDelegatedConversationHost(
+      database,
+      'child-leg',
+      undefined,
+      undefined,
+      settings
+    );
+    await expect(childLeg.budget.readTurnLimits()).rejects.toMatchObject({
+      reason: 'host-leg-on-child-thread',
+    });
+    await expect(
+      childLeg.budget.admitInvocation({
+        parentResourceId: explorer.childResourceId,
+        parentThreadId: explorer.childThreadId,
+      })
+    ).rejects.toMatchObject({ reason: 'host-leg-on-child-thread' });
+  });
+
   it('a later leg on the same turn reads the stored row even without settings', async () => {
     await createDesktopDelegatedConversationHost(
       database,

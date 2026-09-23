@@ -38,19 +38,31 @@ export class SettingsPage {
 
   /**
    * Sets one Subagents limit (Model Catalog → Subagents) through its field,
-   * which commits on Enter, and waits until it is stored without a refusal.
+   * which commits on Enter, and waits until THAT commit is stored: the check
+   * runs before the blur, which would commit a draft on its own.
    */
-  async setSubagentLimit(label: string, value: number): Promise<void> {
+  async setSubagentLimit(label: string, settingKey: string, value: number): Promise<void> {
     const section = (await this.openCategory(/Model Catalog/i, 'embedding-models')).getByTestId(
       'subagent-settings-section'
     );
     const field = section.getByRole('spinbutton', { exact: true, name: label });
     await field.fill(String(value));
     await field.press('Enter');
-    // Only a landed commit leaves no refusal and keeps the value once the
-    // field has blurred and shows the STORED value instead of the draft.
     await expect(section.getByRole('alert')).toHaveCount(0);
     await expect(field).not.toHaveAttribute('aria-invalid');
+    // Only a landed commit reaches the persisted preferences store.
+    await expect
+      .poll(() =>
+        this.page.evaluate((key) => {
+          const stored = window.localStorage.getItem('assistant-subagent-preferences.v1');
+          const settings = stored
+            ? (JSON.parse(stored) as { state?: { settings?: Record<string, unknown> } }).state
+                ?.settings
+            : undefined;
+          return settings?.[key];
+        }, settingKey)
+      )
+      .toBe(value);
     await field.blur();
     await expect(field).toHaveValue(String(value));
   }
