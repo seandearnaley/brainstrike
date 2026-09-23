@@ -35,7 +35,7 @@ a held flush/executor produces an explicit cleanup error at that deadline,
 never success or an infinite owner wait. Cleanup errors retain the original
 stream failure and do not skip diagnostics. The native execution timer is
 cleared in the workflow executor's `finally` on suspension; waiting for a human
-does not spend the five-minute execution deadline. Remove each patch hunk only when its native regression passes
+does not spend the execution deadline (the host-owned `maxChildRuntimeMs` since 2026-09-22). Remove each patch hunk only when its native regression passes
 against an upstream replacement. Actual desktop tests distinguish renderer reload
 from a guarded host restart with a changed native process ID. Selective child
 controls, human follow-up and additional interrupted-work recovery acceptance
