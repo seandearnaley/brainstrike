@@ -201,7 +201,7 @@ export function ModelCatalog({
     (section: CatalogSectionModel, enabled: boolean): void => {
       onBulkChange({
         enabled,
-        modelIds: section.rows.filter((row) => row.enabled !== enabled).map((row) => row.id),
+        modelIds: section.rows.flatMap((row) => (row.enabled === enabled ? [] : [row.id])),
         scopeLabel: section.providerName,
       });
     },

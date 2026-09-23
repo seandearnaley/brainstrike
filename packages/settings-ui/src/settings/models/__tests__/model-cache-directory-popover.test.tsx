@@ -27,13 +27,15 @@ describe('ModelCacheDirectoryPopover', () => {
 
   it('shows the current cache directory on the trigger', () => {
     render(<ModelCacheDirectoryPopover />);
-    expect(screen.getByTestId('model-cache-dir-trigger')).toHaveTextContent(
-      'Local cacheSystem default'
+    expect(screen.getByTestId('model-cache-dir-trigger')).toHaveAccessibleName(
+      'Local cache · System default'
     );
     act(() => {
       useModelRegistryStore.setState({ modelCacheDir: '/models' });
     });
-    expect(screen.getByTestId('model-cache-dir-trigger')).toHaveTextContent('Local cache/models');
+    expect(screen.getByTestId('model-cache-dir-trigger')).toHaveAccessibleName(
+      'Local cache · /models'
+    );
   });
 
   it('edits the directory from the popover', async () => {

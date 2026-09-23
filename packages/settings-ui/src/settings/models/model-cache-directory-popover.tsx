@@ -184,7 +184,8 @@ export function ModelCacheDirectoryPopover() {
           variant="outline"
         >
           <Folder aria-hidden="true" className="size-3.5" />
-          <span>Local cache</span>
+          {/* The space is a text node so the accessible name reads "Local cache · <dir>". */}
+          <span>Local cache ·</span>{' '}
           <span className="min-w-0 truncate font-mono text-muted-foreground" title={currentLabel}>
             {currentLabel}
           </span>

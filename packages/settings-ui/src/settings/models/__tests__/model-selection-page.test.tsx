@@ -10,7 +10,8 @@ import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
 } from '@brainstrike/app-state/stores/model-registry-store';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { usePGliteDatabase } from '@brainstrike/db/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelCatalogProps } from '../model-catalog';
 import { ModelCatalogHeaderActions, ModelSelectionPage } from '../model-selection-page';
@@ -52,6 +53,7 @@ beforeEach(() => {
   installCatalogDomStubs({ width: null });
   __resetModelRegistryStoreForTests();
   catalogProps.current = null;
+  vi.mocked(usePGliteDatabase).mockReturnValue(null);
   toggleMany.mockReset();
   toggleMany.mockResolvedValue({ committed: false });
 });
@@ -82,6 +84,31 @@ describe('ModelSelectionPage', () => {
       });
     });
     expect(toggleMany).toHaveBeenCalledWith(['a', 'b'], false);
+  });
+
+  it('keeps onDownload identity-stable while download state changes', () => {
+    render(<ModelSelectionPage />);
+    const first = catalogProps.current?.onDownload;
+    act(() => {
+      useModelRegistryStore.setState({
+        downloadProgress: { a: 10 },
+        isDownloading: { a: true },
+        modelCacheDir: '/cache',
+      });
+    });
+    expect(catalogProps.current?.onDownload).toBe(first);
+  });
+
+  it('retries the registry fetch against the database', () => {
+    const db = { query: vi.fn() };
+    vi.mocked(usePGliteDatabase).mockReturnValue(db as never);
+    const fetchRegistry = vi.fn().mockResolvedValue(undefined);
+    act(() => {
+      useModelRegistryStore.setState({ error: 'boom', fetchRegistry });
+    });
+    render(<ModelSelectionPage />);
+    fireEvent.click(screen.getByTestId('model-registry-retry'));
+    expect(fetchRegistry).toHaveBeenCalledWith(db);
   });
 
   it('shows the registry error with Retry instead of the catalog', () => {

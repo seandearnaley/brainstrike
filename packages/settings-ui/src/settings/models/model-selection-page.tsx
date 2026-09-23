@@ -201,8 +201,6 @@ export function ModelSelectionPage() {
     modelCacheDir,
     models,
     providers,
-    setDownloading,
-    setDownloadProgress,
   } = useModelRegistryStore(
     useShallow((state) => ({
       downloadedModels: state.downloadedModels,
@@ -214,8 +212,6 @@ export function ModelSelectionPage() {
       modelCacheDir: state.modelCacheDir,
       models: state.models,
       providers: state.providers,
-      setDownloading: state.setDownloading,
-      setDownloadProgress: state.setDownloadProgress,
     }))
   );
   const { toast } = useToast();
@@ -227,18 +223,26 @@ export function ModelSelectionPage() {
 
   useEnsureModelRegistry({ db });
 
+  // Reads the store at call time so the handler stays identity-stable while
+  // download progress ticks (TreeGrid contract: stable row-facing callbacks).
   const handleDownload = useCallback(
     (modelId: string): void => {
-      if (isDownloading[modelId]) {
+      const registry = useModelRegistryStore.getState();
+      if (registry.isDownloading[modelId]) {
         return;
       }
-      const model = models.find((m) => m.id === modelId);
+      const model = registry.models.find((m) => m.id === modelId);
       if (!model) {
         return;
       }
-      void downloadModel(model, { modelCacheDir, setDownloading, setDownloadProgress, toast });
+      void downloadModel(model, {
+        modelCacheDir: registry.modelCacheDir,
+        setDownloading: registry.setDownloading,
+        setDownloadProgress: registry.setDownloadProgress,
+        toast,
+      });
     },
-    [isDownloading, modelCacheDir, models, setDownloadProgress, setDownloading, toast]
+    [toast]
   );
 
   const handleToggle = useCallback(

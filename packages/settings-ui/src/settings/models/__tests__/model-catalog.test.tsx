@@ -300,6 +300,17 @@ describe('ModelCatalog filtering', () => {
     });
   });
 
+  it('disables both bulk buttons while a shown row in the section is busy', async () => {
+    const props = catalogProps({
+      busyModelIds: new Set(['claude-sonnet-4-6']),
+      models: withEnabled('claude-sonnet-4-6', true),
+    });
+    render(<ModelCatalog {...props} />);
+    await userEvent.click(sectionToggle('anthropic'));
+    expect(screen.getByTestId('model-catalog-enable-anthropic')).toBeDisabled();
+    expect(screen.getByTestId('model-catalog-disable-anthropic')).toBeDisabled();
+  });
+
   it('never lets a bulk action reach a row the filter hides', async () => {
     const props = catalogProps({ models: withEnabled('claude-sonnet-4-6', true) });
     render(<ModelCatalog {...props} />);
