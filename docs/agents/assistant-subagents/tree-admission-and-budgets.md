@@ -186,3 +186,11 @@ subagent event; other ancestors may still complete after handling it.
 Delegation cards resolve durable names and colors through the owning workspace repository, validating the actual parent rather than persona identity. Task text comes from the delegation tool input. Missing or contradictory authorized identity remains a visible local error; generic role labels before an address arrives are not fabricated child names.
 
 A child-open request made before the workspace repository is available fails visibly and clears its session intent. Boot hydration still restores the saved root, but cannot replay that rejected child-open request; the user may explicitly open the child after storage is ready. The shared coordinator test covers this boundary.
+
+2026-09-22 (BST-1799): `maxChildSteps` defaults to 100 (matching the root's
+default step cap) with a 1000 ceiling, and built-ins declare that ceiling so the
+setting governs. `maxChildRuntimeMs` joins the per-child settings (default Off);
+see `mastra-boundary/subagent-host-lifetime.md`. The persisted store migrated
+v1 → v2 so saved budgets survive the new field — including a saved 32 steps:
+the store persists the whole settings object, so a user-chosen 32 cannot be told
+from the old default, and only profiles with nothing saved start at 100.

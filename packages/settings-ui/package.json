@@ -56,6 +56,10 @@
       "types": "./dist/settings/models/model-selection-page.d.ts",
       "import": "./dist/settings/models/model-selection-page.js"
     },
+    "./settings/models/use-model-toggle": {
+      "types": "./dist/settings/models/use-model-toggle.d.ts",
+      "import": "./dist/settings/models/use-model-toggle.js"
+    },
     "./settings/providers/providers-settings-category": {
       "types": "./dist/settings/providers/providers-settings-category.d.ts",
       "import": "./dist/settings/providers/providers-settings-category.js"

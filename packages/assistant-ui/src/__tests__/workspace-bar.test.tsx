@@ -36,8 +36,7 @@ async function openFolderMenu(user: ReturnType<typeof userEvent.setup>): Promise
  * A POINTER open cannot be asserted in a headless DOM: Radix's submenu
  * "pointer grace area" is computed from getBoundingClientRect(), which is all
  * zeros here, so the very next pointer move onto a sub item reads as leaving
- * the submenu and closes it. Same reason ComposerModelMenu's drill-down test
- * drives its submenus with ArrowRight.
+ * the submenu and closes it.
  */
 async function openRootSubmenu(
   user: ReturnType<typeof userEvent.setup>,

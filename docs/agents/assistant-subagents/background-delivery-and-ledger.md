@@ -283,6 +283,12 @@ dispatch address without a leaf identity" (an address that delegated nothing
 answers `undefined`). A scripted harness root that must delegate on every turn
 uses `fanout.rootRedelegates`.
 
+2026-09-22: `_background.timeoutMs` is pinned the same way. Mastra ranks the
+model's value above host config, so `createTask()` overrides it with the host's
+`resolveChildTaskTimeoutMs` (the user's runtime limit, default Off) and logs
+`background_task_timeout_pinned`; `updateTask` rejects a different value. See
+`mastra-boundary/subagent-host-lifetime.md` for why the five-minute ceiling went.
+
 ## 2026-09-22 — the idle loop is not a liveness authority
 
 Supports the loop sentence in "The parent model is NEVER woken by a child's
@@ -291,8 +297,8 @@ unchanged. AMENDS the 2026-09-14 record's "Silence from running work past
 `backgroundIdleMs` … closes the stream unfinished".
 
 **What the timer did.** `withBackgroundIdleLoop` armed its own silence timer
-(`maxIdleMs`, defaulting to `MAX_BACKGROUND_TASK_TIMEOUT_MS` — the 300 s Mastra
-task-deadline constant, an unrelated number) only while the parent was purely
+(`maxIdleMs`, defaulting to 300 s borrowed from the Mastra task-deadline
+constant — an unrelated number; BST-1799 had renamed it `DEFAULT_BACKGROUND_IDLE_MS`) only while the parent was purely
 waiting on running children, and re-armed it on every piped chunk and manager
 event. On expiry it logged `background_idle_expired` and CLOSED the combined
 stream without cancelling anything. `projectBackgroundStream` then threw the

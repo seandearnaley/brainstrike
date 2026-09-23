@@ -60,13 +60,9 @@ test.describe('Hosted Web multi-provider picker @stateful @web-assistant-state',
     await expect(trigger).toBeEnabled();
     await trigger.click();
 
-    const moreModels = page.getByTestId('composer-more-models-trigger');
-    await moreModels.focus();
-    await page.keyboard.press('ArrowRight');
-    const anthropic = page.getByRole('menuitem', { name: /Anthropic/ });
-    await anthropic.focus();
-    await page.keyboard.press('ArrowRight');
-    await page.getByRole('menuitemradio', { name: /^Claude Sonnet 5/ }).click();
+    const modelDialog = page.getByRole('dialog', { name: 'Choose a model' });
+    await modelDialog.getByRole('combobox').fill('Claude Sonnet 5');
+    await modelDialog.getByRole('option', { name: /^Claude Sonnet 5/ }).click();
 
     await expect(trigger).toHaveAccessibleName(/Claude Sonnet 5/);
     await expect(

@@ -92,7 +92,6 @@ import {
   getEnabledBuiltInLocalRegistryModelIds,
   getRuntimeProviderLlmModels,
   getToolDescription,
-  isLocalRuntimeProvider,
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
   resolveAdvertisedNativeToolIds,
@@ -122,6 +121,7 @@ import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { useEnableModel } from './hooks/use-enable-model';
 import { useForgeBranchLookupActivation, useForgeRunEvents } from './hooks/use-forge-run-events';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
@@ -218,7 +218,6 @@ export function AssistantUiPanelWrapper({
   const registryHasLoaded = useModelRegistryStore((state) => state.hasLoaded);
   const downloadedModels = useModelRegistryStore((state) => state.downloadedModels);
   const registryError = useModelRegistryStore((state) => state.error);
-  const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
@@ -1039,23 +1038,7 @@ export function AssistantUiPanelWrapper({
     setThreadDraftRuntime,
   });
 
-  const handleModelToggle = useCallback(
-    (providerId: string, modelId: string, enabled: boolean) => {
-      if (!isSupportedProvider(providerId)) {
-        return;
-      }
-
-      if (isLocalRuntimeProvider(providerId)) {
-        return;
-      }
-
-      // Always use database as the source of truth for model enabled state
-      if (db) {
-        void toggleModelInDb(db, modelId, enabled);
-      }
-    },
-    [db, toggleModelInDb]
-  );
+  const handleEnableModel = useEnableModel();
 
   const handleProviderSettingsChange = useCallback(
     (providerId: string, updates: AssistantProviderSettingsUpdate) => {
@@ -1442,8 +1425,8 @@ export function AssistantUiPanelWrapper({
                   {...(selectedProvider ? { selectedProvider } : {})}
                   {...(currentModel ? { selectedModel: currentModel } : {})}
                   disabled={!isProviderReady || Boolean(disabledReason)}
+                  onEnableModel={handleEnableModel}
                   onModelChange={handleModelChange}
-                  onModelToggle={handleModelToggle}
                   {...(panelNotice ? { disabledReason: panelNotice } : {})}
                   {...(planModeAvailable
                     ? {

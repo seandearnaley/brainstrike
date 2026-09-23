@@ -215,8 +215,8 @@ describe('withBackgroundIdleLoop', () => {
     expect((completed.value as { type: string }).type).toBe('background-task-completed');
   });
 
-  // The loop is not a liveness authority. Its own silence timer (the 300 s
-  // task-deadline constant) closed a leg whose child was healthy but quiet,
+  // The loop is not a liveness authority. Its own silence timer (a 300 s default
+  // once borrowed from the task-deadline constant) closed a leg whose child was healthy but quiet,
   // and the leg's disposal then cancelled that child. Silence is judged once,
   // per phase, by the stream watchdog wrapping this combined stream.
   it('running work that stays silent keeps the leg open; only its terminal settles it', async () => {
