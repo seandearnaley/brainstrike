@@ -170,9 +170,10 @@ export function buildAssistantStreamMessageIdOption(runtimeData: RuntimeData | u
 }
 
 /**
- * Matches the maximum user-selectable loop limit. The settings UI labels an
- * unset value as the default, so the runtime must not substitute a smaller
- * hidden cap that ends real coding tasks after only a handful of tool calls.
+ * The root loop's step cap when the user sets none; the settings UI labels an
+ * unset value "100 default" and lets a user raise it to the 1,000-step agent
+ * ceiling. Never substitute a smaller hidden cap: it would end real coding
+ * tasks after only a handful of tool calls.
  */
 const DEFAULT_AGENT_MAX_STEPS = 100;
 const UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS = [

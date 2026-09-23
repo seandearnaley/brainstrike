@@ -35,6 +35,31 @@ describe('ProviderSettingsPanel number fields', () => {
     expect(onSettingsChange.mock.calls).toEqual([['openai', { agentMaxSteps: 64 }]]);
   });
 
+  it('accepts a root step limit up to the 1,000-step agent ceiling and refuses one above it', async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    render(
+      <ProviderSettingsPanel
+        onSettingsChange={onSettingsChange}
+        providerId="openai"
+        settings={{ agentMaxSteps: 100 }}
+      />
+    );
+    const steps = screen.getByRole('spinbutton', { name: 'Max agent steps' });
+    expect(steps).toHaveAttribute('max', '1000');
+    await user.clear(steps);
+    await user.type(steps, '1000');
+    await user.tab();
+    expect(onSettingsChange.mock.calls).toEqual([['openai', { agentMaxSteps: 1000 }]]);
+    await user.clear(steps);
+    await user.type(steps, '1001');
+    await user.tab();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Enter a whole number of steps from 1 to 1,000.'
+    );
+    expect(onSettingsChange).toHaveBeenCalledTimes(1);
+  });
+
   it('typing an input token limit never stores the clamped first keystroke', async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();

@@ -9,6 +9,7 @@ import {
   resolveOpenRouterOutputWindow,
   resolveOpenRouterReasoningActive,
   resolveReasoningVisible,
+  SUBAGENT_SETTINGS_LIMITS,
 } from '@brainstrike/assistant-contract';
 import type {
   AssistantProviderSettings,
@@ -49,7 +50,8 @@ const MAX_OUTPUT_STEP = 64;
 
 const AGENT_MAX_STEPS_DEFAULT = 100;
 const AGENT_MAX_STEPS_MIN = 1;
-const AGENT_MAX_STEPS_MAX = 100;
+/** The root loop shares the subagent step ceiling: one bound for any agent loop. */
+const AGENT_MAX_STEPS_MAX = SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max;
 const INPUT_TOKEN_LIMIT_DEFAULT = 64_000;
 const INPUT_TOKEN_LIMIT_MIN = 4096;
 const INPUT_TOKEN_LIMIT_MAX = 256_000;
