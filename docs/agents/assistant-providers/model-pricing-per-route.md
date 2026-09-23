@@ -101,8 +101,13 @@ held 0.3/2.5, which is Gemini 3.5 Flash-Lite's rate. ai.google.dev's pricing
 page lists model code `gemini-3.5-flash` at a flat 1.50/9.00 on the Standard
 paid tier, with no prompt-size tier (only 3.1 Pro has a >200k tier there). The
 model page confirms the 1,048,576/65,536 limits already on the row.
-`openrouter` `z-ai/glm-5.3` moved from a 1,048,576 to a 1,310,720
-`contextWindow`. That figure is the Models API model-level `context_length`,
-the same field the live metadata reader installs. `top_provider.context_length`
-is still 1,048,576, and 1,310,720 is the widest endpoint (Cloudflare);
-`top_provider.max_completion_tokens` 131,072 matched.
+
+**OpenRouter context windows: record `top_provider.context_length`.** Use the
+window that every route honours, not the model-level `context_length` when that
+is higher than most providers offer. `contextWindow` drives the context meter and
+the compaction limit. If it is too high, a prompt in the gap fails on most
+providers before compaction runs. Example: on 2026-09-23, `z-ai/glm-5.3` listed a
+model-level 1,310,720, which only Cloudflare serves, against a
+`top_provider.context_length` of 1,048,576. The row stays at 1,048,576. The
+live metadata reader (`openrouter-model-metadata.ts`) still installs the
+model-level field.
