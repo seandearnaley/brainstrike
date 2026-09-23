@@ -29,6 +29,7 @@ describe('assistant subagent preferences store', () => {
     store.setMaxStepOutputTokens(16_384);
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
       maxChildOutputTokens: 65_536,
+      maxChildRuntimeMs: null,
       maxChildSteps: 48,
       maxStepOutputTokens: 16_384,
       synthesisOutputTokens: 4096,
@@ -48,6 +49,7 @@ describe('assistant subagent preferences store', () => {
     expect(() => store.setSynthesisOutputTokens(2048)).toThrow(/must not exceed/);
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
       maxChildOutputTokens: 1024,
+      maxChildRuntimeMs: null,
       maxChildSteps: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxChildSteps,
       maxStepOutputTokens: 512,
       synthesisOutputTokens: 512,
@@ -94,6 +96,40 @@ describe('assistant subagent preferences store', () => {
     options.storage.setItem(options.name, { state: { settings }, version: options.version });
     await storeWithPersist.persist.rehydrate();
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(settings);
+  });
+
+  it('sets a runtime limit and turns it back Off, refusing a timer Node would fire at once', () => {
+    const store = useAssistantSubagentPreferencesStore.getState();
+    store.setMaxChildRuntimeMs(3_600_000);
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBe(
+      3_600_000
+    );
+    for (const invalid of [999, 2 ** 31, Number.POSITIVE_INFINITY]) {
+      expect(() => store.setMaxChildRuntimeMs(invalid)).toThrow(/Subagent settings are malformed/);
+    }
+    store.setMaxChildRuntimeMs(null);
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBeNull();
+  });
+
+  it('carries every v1 budget across the upgrade and starts the new runtime limit Off', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
+      throw new Error('persist storage unavailable for test');
+    }
+    // A v1 payload predates `maxChildRuntimeMs`; the strict schema alone would
+    // reject it and silently reset the user's saved budgets to defaults.
+    const v1 = {
+      maxChildOutputTokens: 65_536,
+      maxChildSteps: 32,
+      maxStepOutputTokens: 8192,
+      synthesisOutputTokens: 8192,
+    };
+    options.storage.setItem(options.name, { state: { settings: v1 }, version: 1 });
+    await storeWithPersist.persist.rehydrate();
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
+      ...v1,
+      maxChildRuntimeMs: null,
+    });
   });
 
   it('resets to defaults', () => {

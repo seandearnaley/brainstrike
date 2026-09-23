@@ -1,3 +1,7 @@
+import {
+  DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  resolveChildTaskTimeoutMs,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { Mastra } from '@mastra/core/mastra';
 import { expect, it } from 'vitest';
@@ -11,6 +15,7 @@ it.each(['completed', 'failed', 'timed_out', 'cancelled'] as const)(
     const scope = { resourceId: 'owner', threadId: 'root' };
     const backing = await createPgliteMastraMemory({
       backgroundTaskScope: scope,
+      backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
       database: {
         exec: (sql) => database.exec(sql),
         query: (sql, values) => database.query(sql, values ? [...values] : undefined),

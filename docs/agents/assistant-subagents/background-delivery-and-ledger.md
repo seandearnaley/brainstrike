@@ -282,3 +282,10 @@ before the host"), and the desktop host's "resolves a parked invocation from its
 dispatch address without a leaf identity" (an address that delegated nothing
 answers `undefined`). A scripted harness root that must delegate on every turn
 uses `fanout.rootRedelegates`.
+
+
+2026-09-22: `_background.timeoutMs` is pinned the same way. Mastra ranks the
+model's value above host config, so `createTask()` overrides it with the host's
+`resolveChildTaskTimeoutMs` (the user's runtime limit, default Off) and logs
+`background_task_timeout_pinned`; `updateTask` rejects a different value. See
+`mastra-boundary/subagent-host-lifetime.md` for why the five-minute ceiling went.

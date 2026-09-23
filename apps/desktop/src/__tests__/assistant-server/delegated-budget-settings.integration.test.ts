@@ -50,6 +50,7 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
 
   const settings = {
     maxChildOutputTokens: 16_384,
+    maxChildRuntimeMs: null,
     maxChildSteps: 6,
     maxStepOutputTokens: 4096,
     synthesisOutputTokens: 1024,

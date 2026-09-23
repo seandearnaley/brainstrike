@@ -12,6 +12,7 @@ import {
 import { buildNativeToolRiskMap, getToolActionTarget } from '@brainstrike/assistant-contract';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { PGlite } from '@electric-sql/pglite';
@@ -70,6 +71,16 @@ const persona: AssistantPersonaDefinition = {
   label: 'Explorer',
   maxSteps: 8,
 };
+/** The host owns every child's deadline (`maxChildRuntimeMs`); the model cannot choose one. */
+const hostDeadline = (maxChildRuntimeMs: number) => ({
+  subagentSettings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildRuntimeMs },
+});
+/**
+ * One deadline binds every sibling, so Beta outlives Alpha only by starting
+ * after Alpha timed out. Beta's whole start-to-completed span measured ~110 ms
+ * locally; 2 s leaves that ~20x headroom on a loaded CI runner.
+ */
+const SIBLING_DEADLINE_MS = 2000;
 
 describe('desktop delegated deadline outcomes', () => {
   afterEach(async () => {
@@ -107,25 +118,28 @@ describe('desktop delegated deadline outcomes', () => {
       let started = 0;
       const alphaTerminal = Promise.withResolvers<void>();
       const alphaFailureDetails: (string | undefined)[] = [];
-      holder.model = scriptedAgentModel((options) => {
+      let parentCalls = 0;
+      holder.model = scriptedAgentModel(async (options) => {
         if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
+          if (ending === 'deadline') {
+            // Staggered: the parent's next step dispatches Beta only once Alpha
+            // is natively terminal, so Beta's (identical) deadline starts later.
+            parentCalls += 1;
+            if (parentCalls === 1) {
+              return toolCallParts('agent-explore', 'Alpha', { prompt: 'Alpha' });
+            }
+            if (parentCalls === 2) {
+              await alphaTerminal.promise;
+              return toolCallParts('agent-explore', 'Beta', { prompt: 'Beta' });
+            }
+            return textParts('Parent progress.');
+          }
           if (hasToolResult(options, 'agent-explore')) {
             return textParts('Parent progress.');
           }
           return parallelToolCallParts(
             ['Alpha', 'Beta'].map((name) => ({
-              args: {
-                prompt: name,
-                ...(ending === 'deadline'
-                  ? {
-                      _background: {
-                        enabled: true,
-                        maxRetries: 0,
-                        timeoutMs: name === 'Alpha' ? 1000 : 30_000,
-                      },
-                    }
-                  : {}),
-              },
+              args: { prompt: name },
               toolCallId: name,
               toolName: 'agent-explore',
             }))
@@ -146,6 +160,7 @@ describe('desktop delegated deadline outcomes', () => {
         memory: { memorySettings: settings, resourceId: 'owner', threadId: 'root' },
         model: 'test',
         provider: 'openai',
+        ...(ending === 'deadline' ? hostDeadline(SIBLING_DEADLINE_MS) : {}),
       };
       const memory = await getDesktopMastraMemory(settings, 'host-leg', undefined, runtime);
       const stream = await streamMastraAgent(
@@ -274,7 +289,9 @@ describe('desktop delegated deadline outcomes', () => {
         release.resolve();
         await consuming;
         if (ending === 'deadline') {
-          expect(alphaFailureDetails).toEqual(['Error: Task timed out after 1000ms']);
+          expect(alphaFailureDetails).toEqual([
+            `Error: Task timed out after ${SIBLING_DEADLINE_MS}ms`,
+          ]);
         }
         expect(
           (
@@ -308,27 +325,23 @@ describe('desktop delegated deadline outcomes', () => {
       "UPDATE brainstrike_assistant_thread_runs SET generation_run_id='host-leg' WHERE id='host-leg'"
     );
     const release = Promise.withResolvers<void>();
+    const betaRead = Promise.withResolvers<void>();
+    let reads = 0;
     let parentCalls = 0;
-    holder.model = scriptedAgentModel((options) => {
+    holder.model = scriptedAgentModel(async (options) => {
       if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
         parentCalls += 1;
         if (parentCalls === 1) {
-          return parallelToolCallParts(
-            ['Alpha', 'Beta'].map((name) => ({
-              args: {
-                _background: {
-                  enabled: true,
-                  maxRetries: 0,
-                  timeoutMs: name === 'Alpha' ? 1000 : 30_000,
-                },
-                prompt: name,
-              },
-              toolCallId: name,
-              toolName: 'agent-explore',
-            }))
-          );
+          return toolCallParts('agent-explore', 'Alpha', { prompt: 'Alpha' });
         }
+        // Alpha's deadline wakes the parent in a new native run (call 3), so
+        // Beta starts its own identical deadline only after Alpha timed out.
         if (parentCalls === 3) {
+          return toolCallParts('agent-explore', 'Beta', { prompt: 'Beta' });
+        }
+        // The replacement is admitted only while Beta holds its read.
+        if (parentCalls === 4) {
+          await betaRead.promise;
           return toolCallParts('agent-explore', 'replacement', { prompt: 'Replacement evidence' });
         }
         return textParts('Parent progress.');
@@ -353,6 +366,7 @@ describe('desktop delegated deadline outcomes', () => {
       memory: { memorySettings: settings, resourceId: 'owner', threadId: 'root' },
       model: 'test',
       provider: 'openai',
+      ...hostDeadline(SIBLING_DEADLINE_MS),
     };
     const memory = await getDesktopMastraMemory(settings, 'host-leg', undefined, runtime);
     const stream = await streamMastraAgent(
@@ -368,6 +382,10 @@ describe('desktop delegated deadline outcomes', () => {
               const signal = context?.abortSignal;
               if (!signal) {
                 throw new Error('Missing native executor signal');
+              }
+              reads += 1;
+              if (reads === 2) {
+                betaRead.resolve();
               }
               const aborted = Promise.withResolvers<void>();
               const onAbort = () => aborted.resolve();
@@ -433,6 +451,7 @@ describe('desktop delegated deadline outcomes', () => {
         )
       ).rows;
       expect(invocations).toHaveLength(3);
+      // Alpha from the first native run; Beta and the replacement from its wakeup.
       expect(new Set(invocations.map((row) => row.parent_runtime_run_id)).size).toBe(2);
     } finally {
       release.resolve();
@@ -449,9 +468,8 @@ describe('desktop delegated deadline outcomes', () => {
             ? textParts('Parent: FLAG-42')
             : toolCallParts('agent-explore', 'delegation-call', {
                 prompt: 'find the flag',
-                ...(mode === 'deadline'
-                  ? { _background: { enabled: true, maxRetries: 0, timeoutMs: 1000 } }
-                  : {}),
+                // A model-requested deadline is overridden by the host's.
+                ...(mode === 'deadline' ? { _background: { timeoutMs: 60_000 } } : {}),
               });
         }
         childCalls += 1;
@@ -459,11 +477,13 @@ describe('desktop delegated deadline outcomes', () => {
           ? textParts('Child: FLAG-42')
           : toolCallParts('brainstrike_grepSearch', 'child-call', { pattern: 'flag' });
       }).model;
+      // Only the deadline mode runs its child as a background task.
       const backgroundRuntime = {
         apiKey: 'test-key',
         memory: { memorySettings: settings, resourceId: 'owner', threadId: 'root' },
         model: 'test',
         provider: 'openai',
+        ...hostDeadline(1000),
       };
       if (mode === 'deadline') {
         await database.exec(
@@ -513,6 +533,7 @@ describe('desktop delegated deadline outcomes', () => {
             yolo: false,
           },
           provider: 'openai' as const,
+          ...(mode === 'deadline' ? hostDeadline(1000) : {}),
         },
         tools: {
           'brainstrike.grepSearch': {
@@ -561,6 +582,14 @@ describe('desktop delegated deadline outcomes', () => {
       ).rows[0];
       if (!child) {
         throw new Error('Missing admitted child');
+      }
+      const deadlineQuery =
+        "SELECT status, timeout_ms FROM mastra_background_tasks WHERE tool_call_id='delegation-call'";
+      if (mode === 'deadline') {
+        // The model asked for 60 s; the store persisted the host's deadline.
+        expect((await database.query(deadlineQuery)).rows).toEqual([
+          { status: 'suspended', timeout_ms: 1000 },
+        ]);
       }
       const scope = { ownerResourceId: 'owner', rootThreadId: 'root' };
       if (mode === 'stop') {
@@ -613,13 +642,9 @@ describe('desktop delegated deadline outcomes', () => {
         // ledger continuation is identified by its tools, never counted as a child.
         expect(childCalls).toBe(mode === 'approve' ? 2 : 1);
         if (mode === 'deadline') {
-          expect(
-            (
-              await reloaded.query(
-                "SELECT status FROM mastra_background_tasks WHERE tool_call_id='delegation-call'"
-              )
-            ).rows
-          ).toEqual([{ status: 'timed_out' }]);
+          expect((await reloaded.query(deadlineQuery)).rows).toEqual([
+            { status: 'timed_out', timeout_ms: 1000 },
+          ]);
           expect(
             (
               await reloaded.query(

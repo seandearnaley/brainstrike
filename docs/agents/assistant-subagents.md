@@ -904,7 +904,7 @@ Evidence: `assistant-subagents/child-view-binding.md`.
 - Synthesis forces `toolChoice: none` with no active tools and rejects a provider
   tool call before execution even if the provider ignores that request.
 - **Child budgets are USER SETTINGS; a cut synthesis is a truncated completion.**
-  The four per-child allocations live in `RuntimeSubagentSettings`
+  The per-child allocations and runtime limit live in `RuntimeSubagentSettings`
   (`assistant-contract/subagent-settings.ts`, ranges in
   `SUBAGENT_SETTINGS_LIMITS`), persisted by `assistant-subagent-preferences.v1`,
   edited in Settings → Models → Subagents, sent on EVERY request as
@@ -993,12 +993,12 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   before the turn acknowledged that call's dispatch. Because the task is the only
   delivery, the background manager's `progressThrottleMs` must stay UNSET. A
   resume leg's host executor writes only to its own stream.
-- **The HOST owns the retry policy — none, ever.**
-  `PgliteBackgroundTasksStore.createTask()` pins a scoped task's model-requested
-  retries to 0 and logs `background_task_retries_pinned`, and the delegation
-  dispatches; `updateTask` rejects a non-zero retry count. The root's delegation
-  instruction states that subagents run as background workers and that
-  `_background` is host-owned.
+- **The HOST owns retries (none, ever) and the deadline.** A scoped
+  `createTask()` pins model-requested retries to 0 and `timeoutMs` to the host's
+  `resolveChildTaskTimeoutMs`, logging `background_task_retries_pinned` /
+  `background_task_timeout_pinned`, and the delegation dispatches; `updateTask`
+  rejects either change. The root's instruction states subagents run as
+  background workers and `_background` is host-owned.
 - A background child's SUSPENSION closes the parent stream for that iteration
   with no finish part, so the leg that observes it ends as a PAUSE: the initial
   leg and `createBackgroundResumeStream` both report `suspended`,

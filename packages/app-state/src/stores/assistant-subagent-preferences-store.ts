@@ -30,6 +30,8 @@ interface AssistantSubagentPreferencesData {
 interface AssistantSubagentPreferencesActions {
   resetToDefaults: () => void;
   setMaxChildOutputTokens: (value: number) => void;
+  /** `null` turns the limit Off. */
+  setMaxChildRuntimeMs: (value: number | null) => void;
   setMaxChildSteps: (value: number) => void;
   setMaxStepOutputTokens: (value: number) => void;
   setSynthesisOutputTokens: (value: number) => void;
@@ -40,7 +42,7 @@ export type AssistantSubagentPreferencesStore = AssistantSubagentPreferencesData
 
 export const ASSISTANT_SUBAGENT_PREFERENCES_STORE_NAME =
   'assistant-subagent-preferences.v1' as const;
-const STORE_VERSION = 1 as const;
+const STORE_VERSION = 2 as const;
 
 function defaultData(): AssistantSubagentPreferencesData {
   return { settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS };
@@ -56,12 +58,31 @@ function sanitizePersistedData(persistedState: unknown): AssistantSubagentPrefer
   return parsed.success ? { settings: parsed.data } : defaultData();
 }
 
+/**
+ * v1 predates `maxChildRuntimeMs`. Its four budgets carry over and the new
+ * limit starts Off; without this step the strict schema rejects the v1 shape
+ * and the sanitizer silently resets every saved budget to the defaults.
+ */
+function migratePersistedData(persistedState: unknown, version: number): unknown {
+  if (version >= 2 || !(persistedState && typeof persistedState === 'object')) {
+    return persistedState;
+  }
+  const settings = (persistedState as { settings?: unknown }).settings;
+  if (!(settings && typeof settings === 'object')) {
+    return persistedState;
+  }
+  return { ...persistedState, settings: { ...settings, maxChildRuntimeMs: null } };
+}
+
 const storage = createJSONStorage(() => createBrowserJsonStorage());
 
 export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPreferencesStore>()(
   persist(
     (set, get) => {
-      const patch = (field: keyof RuntimeSubagentSettings, value: number) => {
+      const patch = <Field extends keyof RuntimeSubagentSettings>(
+        field: Field,
+        value: RuntimeSubagentSettings[Field]
+      ) => {
         // Validate the complete next value FIRST; a throw here lands nothing.
         const settings = parseRuntimeSubagentSettings({ ...get().settings, [field]: value });
         set({ settings });
@@ -70,6 +91,7 @@ export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPref
         ...defaultData(),
         resetToDefaults: () => set(defaultData()),
         setMaxChildOutputTokens: (value) => patch('maxChildOutputTokens', value),
+        setMaxChildRuntimeMs: (value) => patch('maxChildRuntimeMs', value),
         setMaxChildSteps: (value) => patch('maxChildSteps', value),
         setMaxStepOutputTokens: (value) => patch('maxStepOutputTokens', value),
         setSynthesisOutputTokens: (value) => patch('synthesisOutputTokens', value),
@@ -77,7 +99,8 @@ export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPref
     },
     {
       merge: createSanitizedPersistMerge(sanitizePersistedData),
-      migrate: sanitizePersistedData,
+      migrate: (persistedState, version) =>
+        sanitizePersistedData(migratePersistedData(persistedState, version)),
       name: ASSISTANT_SUBAGENT_PREFERENCES_STORE_NAME,
       partialize: (state) => ({ settings: state.settings }),
       storage,

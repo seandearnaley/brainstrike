@@ -18,6 +18,10 @@ import {
 } from '@brainstrike/agent/test-fixtures/scripted-agent-model';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
+import {
+  DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  resolveChildTaskTimeoutMs,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import { createDelegatedConversationRepository, migrate } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { z } from 'zod';
@@ -116,6 +120,7 @@ await createHostRun(phase, phase === 'initial' ? input.id : selectedInput.id);
 async function createBacking(runId: string) {
   const memory = await createPgliteMastraMemory({
     backgroundTaskScope: { resourceId: 'owner', threadId: 'root' },
+    backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
     database: {
       exec: (sql) => database.exec(sql),
       query: (sql, values) => database.query(sql, values ? [...values] : undefined),

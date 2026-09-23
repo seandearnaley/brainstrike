@@ -14,13 +14,22 @@ import { DELEGATION_LIMITS } from './delegation-limits.js';
  */
 export interface RuntimeSubagentSettings {
   maxChildOutputTokens: number;
+  /** Wall-clock limit on one child execution; `null` is Off (the default). */
+  maxChildRuntimeMs: number | null;
   maxChildSteps: number;
   maxStepOutputTokens: number;
   synthesisOutputTokens: number;
 }
 
+/**
+ * The longest delay Node's `setTimeout` arms: anything above it (Infinity
+ * included) or below 1 is clamped to 1 ms and fires IMMEDIATELY.
+ */
+export const NODE_TIMER_MAX_MS = 2_147_483_647;
+
 export const SUBAGENT_SETTINGS_LIMITS = Object.freeze({
   maxChildOutputTokens: Object.freeze({ max: DELEGATION_LIMITS.maxTreeOutputTokens, min: 1024 }),
+  maxChildRuntimeMs: Object.freeze({ max: NODE_TIMER_MAX_MS, min: 1000 }),
   maxChildSteps: Object.freeze({ max: 64, min: 1 }),
   maxStepOutputTokens: Object.freeze({ max: 65_536, min: 256 }),
   synthesisOutputTokens: Object.freeze({ max: 8192, min: 256 }),
@@ -28,6 +37,7 @@ export const SUBAGENT_SETTINGS_LIMITS = Object.freeze({
 
 export const DEFAULT_RUNTIME_SUBAGENT_SETTINGS: RuntimeSubagentSettings = Object.freeze({
   maxChildOutputTokens: 32_768,
+  maxChildRuntimeMs: null,
   maxChildSteps: 32,
   maxStepOutputTokens: 8192,
   synthesisOutputTokens: 2048,
@@ -40,6 +50,7 @@ function bounded(limit: { readonly max: number; readonly min: number }) {
 export const runtimeSubagentSettingsSchema = z
   .strictObject({
     maxChildOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxChildOutputTokens),
+    maxChildRuntimeMs: bounded(SUBAGENT_SETTINGS_LIMITS.maxChildRuntimeMs).nullable(),
     maxChildSteps: bounded(SUBAGENT_SETTINGS_LIMITS.maxChildSteps),
     maxStepOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxStepOutputTokens),
     synthesisOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.synthesisOutputTokens),
@@ -82,4 +93,17 @@ export function parseRuntimeSubagentSettings(value: unknown): RuntimeSubagentSet
     throw new RuntimeSubagentSettingsError(`Subagent settings are malformed: ${issues}`);
   }
   return parsed.data;
+}
+
+/**
+ * The deadline the host hands Mastra for one background child execution.
+ * Mastra 1.64 arms `setTimeout(task.timeoutMs)` for EVERY task and has no
+ * "none", so Off resolves to the longest timer Node can arm (~24.8 days);
+ * liveness is the inactivity watchdog's job, not this deadline's
+ * (docs/superpowers/research/2026-09-22-agent-timeout-and-budget-standards.md).
+ */
+export function resolveChildTaskTimeoutMs(
+  settings: Pick<RuntimeSubagentSettings, 'maxChildRuntimeMs'>
+): number {
+  return settings.maxChildRuntimeMs ?? NODE_TIMER_MAX_MS;
 }

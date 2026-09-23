@@ -29,6 +29,38 @@ describe('SubagentSettingsSection', () => {
     expect(screen.getByLabelText('Max output tokens per step')).toHaveValue(8192);
   });
 
+  it('shows the subagent runtime limit Off by default', () => {
+    render(<SubagentSettingsSection />);
+    const runtime = screen.getByLabelText('Max runtime per subagent (minutes)');
+    expect(runtime).toHaveValue(null);
+    expect(runtime).toHaveAttribute('placeholder', 'Off');
+    expect(runtime).toHaveAttribute('min', '1');
+  });
+
+  it('sets a runtime limit in whole minutes and turns it Off when cleared', async () => {
+    const user = userEvent.setup();
+    render(<SubagentSettingsSection />);
+    const runtime = screen.getByLabelText('Max runtime per subagent (minutes)');
+    await user.click(runtime);
+    await user.paste('90');
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBe(
+      5_400_000
+    );
+    await user.clear(runtime);
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBeNull();
+    expect(runtime).toHaveValue(null);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('refuses a fractional runtime instead of rounding it', async () => {
+    const user = userEvent.setup();
+    render(<SubagentSettingsSection />);
+    await user.click(screen.getByLabelText('Max runtime per subagent (minutes)'));
+    await user.paste('1.5');
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number of minutes');
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBeNull();
+  });
+
   it('writes a valid value to the store', async () => {
     const user = userEvent.setup();
     render(<SubagentSettingsSection />);

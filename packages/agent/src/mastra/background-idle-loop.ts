@@ -2,7 +2,6 @@ import { DELEGATION_LIMITS } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { Agent } from '@mastra/core/agent';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
-import { MAX_BACKGROUND_TASK_TIMEOUT_MS } from '../pglite-mastra-memory/background-store';
 import { wasBackgroundOutcomePresented } from './active-background-results-processor';
 import {
   type BackgroundLedgerSource,
@@ -27,6 +26,12 @@ import {
 } from './turn-attempts';
 
 const logger = createLogger('BackgroundIdleLoop');
+
+/**
+ * How long the parent waits on running children with NO chunk or manager
+ * event before it closes. Deliberately independent of a child's task deadline.
+ */
+const DEFAULT_BACKGROUND_IDLE_MS = 300_000;
 
 /**
  * Host-owned replacement for Mastra's `untilIdle` loop (BST-1723, settled
@@ -292,7 +297,7 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   first: Output,
   params: BackgroundIdleLoopParams
 ): Output {
-  const maxIdleMs = params.maxIdleMs ?? MAX_BACKGROUND_TASK_TIMEOUT_MS;
+  const maxIdleMs = params.maxIdleMs ?? DEFAULT_BACKGROUND_IDLE_MS;
   const priorContext = readContextMessages(params.options);
   const running = new Set<string>();
   const settled = new Set<string>();

@@ -1,3 +1,7 @@
+import {
+  DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  resolveChildTaskTimeoutMs,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { PGlite } from '@electric-sql/pglite';
 import type { MastraDBMessage } from '@mastra/core/memory';
@@ -80,6 +84,7 @@ afterEach(async () => {
 it('atomically overlays every terminal task onto stale native saves and acknowledges them', async () => {
   const backing = await createPgliteMastraMemory({
     backgroundTaskScope: scope,
+    backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
     database: port(database),
     memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
   });
@@ -189,6 +194,7 @@ it('atomically overlays every terminal task onto stale native saves and acknowle
 it('fails closed without mutating memory when named task metadata has no retained task row', async () => {
   const backing = await createPgliteMastraMemory({
     backgroundTaskScope: scope,
+    backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
     database: port(database),
     memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
   });
@@ -204,6 +210,7 @@ it('fails closed without mutating memory when named task metadata has no retaine
 it('rolls back delivery acknowledgement when the canonical message write fails', async () => {
   const backing = await createPgliteMastraMemory({
     backgroundTaskScope: scope,
+    backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
     database: port(database),
     memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
   });
@@ -255,6 +262,7 @@ it('rolls back delivery acknowledgement when the canonical message write fails',
 it('keeps newer parent content when a child callback holds an older message snapshot', async () => {
   const backing = await createPgliteMastraMemory({
     backgroundTaskScope: scope,
+    backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
     database: port(database),
     memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
   });
@@ -323,6 +331,7 @@ it('keeps newer parent content when a child callback holds an older message snap
 it('reconciles legitimate progressive snapshot rows sharing one tool call', async () => {
   const backing = await createPgliteMastraMemory({
     backgroundTaskScope: scope,
+    backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
     database: port(database),
     memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
   });
@@ -383,6 +392,7 @@ it('reconciles legitimate progressive snapshot rows sharing one tool call', asyn
 it('rejects duplicate invocation parts before acknowledging the task', async () => {
   const backing = await createPgliteMastraMemory({
     backgroundTaskScope: scope,
+    backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
     database: port(database),
     memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
   });
@@ -429,6 +439,7 @@ it('rejects duplicate invocation parts before acknowledging the task', async () 
 it('reconciles cancellation across stale saves without terminalizing its running sibling', async () => {
   const backing = await createPgliteMastraMemory({
     backgroundTaskScope: scope,
+    backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
     database: port(database),
     memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
   });
