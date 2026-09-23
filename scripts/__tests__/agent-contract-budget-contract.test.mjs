@@ -94,7 +94,9 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
   // row for `STICKY_SECTION_HEADER_LAYER_CLASS`. The table IS the scale, so a
   // new token cannot live in an evidence file without the scale going stale.
-  'ui-conventions.md': 609,
+  // It then rose to 615: § Scroll ownership names the Model Catalog as the
+  // second sanctioned shared-scroller consumer, next to the rule it applies.
+  'ui-conventions.md': 615,
   'workspace-context.md': 1071,
 };
 
