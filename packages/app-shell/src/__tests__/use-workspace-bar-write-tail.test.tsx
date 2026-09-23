@@ -419,6 +419,13 @@ describe('useWorkspaceBar — write tail chaining', () => {
       operatingRootPath: '/ws/docs',
       secondaryRootIds: ['r-main-db'],
     });
+    // The write changed the secondary id list, which re-keys the resolved
+    // secondaries and reports `pending` until the roots query lands. The
+    // stale re-promotion below must reach the "unknown root" refusal, not the
+    // "still loading" one, so wait for the new list to resolve first.
+    await waitFor(() =>
+      expect(result.current.secondaryRoots.map((root) => root.rootId)).toEqual(['r-main-db'])
+    );
 
     act(() => {
       result.current.onMakePrimary('r-worktree-db');
