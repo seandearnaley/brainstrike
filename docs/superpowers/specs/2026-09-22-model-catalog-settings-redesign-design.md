@@ -206,7 +206,8 @@ are enabled.
   headers are `<h3>` elements wrapping a disclosure `<button aria-expanded
   aria-controls>`. The bulk buttons sit beside the disclosure, not nested inside it.
 - **Tab order:** toolbar controls, then per section: the disclosure button, the
-  treegrid (one tab stop with roving focus), then the bulk buttons.
+  bulk buttons, then the treegrid (one tab stop with roving focus). DOM order
+  follows the §3.2 visual order (WCAG 2.4.3); no `tabindex` reordering.
 - **Inside the grid** (TreeTable keyboard): ↑/↓ move between rows, Home/End jump to
   the ends, → opens details (or moves into them), ← closes details or returns to the
   model row. **Space** toggles the focused row's switch through `onCheckboxSpace`, the
