@@ -3,6 +3,7 @@ import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract
 import {
   parseRuntimeSubagentSettings,
   type RuntimeSubagentSettings,
+  resolveChildTaskTimeoutMs,
 } from '@brainstrike/assistant-contract/subagent-settings';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
@@ -15,10 +16,7 @@ import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
-import {
-  type BackgroundTaskScope,
-  MAX_BACKGROUND_TASK_TIMEOUT_MS,
-} from '../pglite-mastra-memory/background-store';
+import type { BackgroundTaskScope } from '../pglite-mastra-memory/background-store';
 import { isListingOnlyModel } from '../providers/listing-only-model';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import {
@@ -121,12 +119,6 @@ export interface MastraAgentRuntimeOptions {
    * the legacy runtime/env key resolution.
    */
   authInput?: ProviderAuthInput;
-  /**
-   * Silence budget for running background work before the parent stream
-   * closes unfinished (`withBackgroundIdleLoop`); defaults to the longest a
-   * task may run. Tests shorten it to prove the expiry is reported.
-   */
-  backgroundIdleMs?: number;
   /** Host-owned durable background scope; never client RuntimeData. */
   backgroundTaskScope?: BackgroundTaskScope;
   /** Host-admitted settings for the exact resumed child, never renderer authority. */
@@ -235,8 +227,6 @@ export interface MastraAgentRuntime {
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
-  /** See `MastraAgentRuntimeOptions.backgroundIdleMs`. */
-  backgroundIdleMs?: number | undefined;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
   /** Direct child legs retain the child's native default processors and admitted step cap. */
   childExecution?: { readonly maxSteps: number; readonly inputProcessors?: unknown[] };
@@ -522,7 +512,8 @@ function registerAgentWithMastra(
   agent: Agent,
   storage: MastraCompositeStore | undefined,
   assistantMessageId: string | undefined,
-  backgroundEnabled: boolean
+  backgroundEnabled: boolean,
+  taskTimeoutMs: number
 ): {
   assertAssistantMessageIdPersisted?: () => void;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
@@ -538,7 +529,7 @@ function registerAgentWithMastra(
     agents: { brainstrikeAssistant: agent },
     backgroundTasks: {
       defaultRetries: { maxRetries: 0 },
-      defaultTimeoutMs: MAX_BACKGROUND_TASK_TIMEOUT_MS,
+      defaultTimeoutMs: taskTimeoutMs,
       enabled: backgroundEnabled,
       waitTimeoutMs: 0,
     },
@@ -989,7 +980,8 @@ export async function createMastraAgentRuntime(
     agent,
     storage,
     runtime?.assistantMessageId,
-    Boolean(backgroundAgentOptions.backgroundTasks)
+    Boolean(backgroundAgentOptions.backgroundTasks),
+    resolveChildTaskTimeoutMs(subagentSettings)
   );
   let unregisterCancellation: (() => void) | undefined;
   let unregisterDecisions: (() => void) | undefined;
@@ -1063,7 +1055,6 @@ export async function createMastraAgentRuntime(
     ...assistantIdentityRuntime,
     approvalGate,
     askTools,
-    backgroundIdleMs: options.backgroundIdleMs,
     childPromptFacts,
     conversationBinding: options.conversationBinding,
     delegatedExecutionOptions,

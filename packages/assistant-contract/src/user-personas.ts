@@ -22,6 +22,7 @@ import {
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from './personas.js';
 import { isSupportedProvider } from './provider-metadata.js';
+import { SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.js';
 import { getNativeToolDefaults } from './tool-categories.js';
 
 /** Directory (under `.brainstrike/`) scanned for persona `.md` files. */
@@ -34,18 +35,15 @@ export const MAX_USER_PERSONA_FILE_CHARS = 64 * 1024;
 export const MAX_USER_PERSONAS = 50;
 
 /**
- * Hard ceiling a user persona's maxSteps may declare.
- *
- * No built-in sits ABOVE this ceiling, deliberately: a user persona must be
- * able to replicate what the shipped Explorer does (32 declared steps since
- * 2026-09-15), and a built-in budget above the user ceiling would make that
- * impossible. The host still caps every child at the user's `maxChildSteps`
- * setting (`effectiveChildStepBudget`).
+ * Hard ceiling a user persona's maxSteps may declare: the host's
+ * `maxChildSteps` ceiling, which is also what every built-in declares, so a
+ * user persona can replicate any built-in. The user's `maxChildSteps` setting
+ * governs the budget (`effectiveChildStepBudget`); a persona only LOWERS it.
  */
-export const MAX_USER_PERSONA_MAX_STEPS = 32;
+export const MAX_USER_PERSONA_MAX_STEPS = SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max;
 
-/** maxSteps applied when the frontmatter omits it. */
-export const DEFAULT_USER_PERSONA_MAX_STEPS = 8;
+/** maxSteps applied when the frontmatter omits it: no persona cap, the setting governs. */
+export const DEFAULT_USER_PERSONA_MAX_STEPS = MAX_USER_PERSONA_MAX_STEPS;
 
 /**
  * Toolset applied when the frontmatter omits `tools:` — the curated read-only

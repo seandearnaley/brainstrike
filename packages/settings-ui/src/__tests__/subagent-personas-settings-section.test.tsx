@@ -14,8 +14,10 @@ import {
   type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
   buildUserPersona,
+  effectiveChildStepBudget,
   personaScope,
 } from '@brainstrike/assistant-contract';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -323,7 +325,10 @@ describe('SubagentPersonasSettingsSection', () => {
     }
     const workerScope = screen.getByTestId('subagent-persona-scope-worker').textContent;
     expect(workerScope).toContain('Worker mode');
-    expect(workerScope).toContain(`Up to ${worker.maxSteps} steps`);
+    // The shown budget is the enforced one: the user's setting governs.
+    expect(workerScope).toContain(
+      `Up to ${effectiveChildStepBudget(worker, DEFAULT_RUNTIME_SUBAGENT_SETTINGS)} steps`
+    );
     expect(workerScope).toContain('every tool the host permits, including edit and run tools');
     const exploreScope = screen.getByTestId('subagent-persona-scope-explore').textContent;
     expect(exploreScope).toContain('Read-only');

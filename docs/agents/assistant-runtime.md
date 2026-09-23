@@ -157,12 +157,16 @@ Guard: `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spe
   `tool-call` is `started`; `tool-result`, `tool-error`, `tool-output-denied`,
   `tool-call-approval` and `tool-call-suspended` are `settled` — approval and
   suspension settle deliberately, because the call is waiting on a HUMAN.
-  Scaffolding (`start`, `step-start`) CLEARS the in-flight set.
+  Scaffolding (`start`, `step-start`) CLEARS its own producer's in-flight set.
 - **Classify a DELEGATED child's calls through the envelope.** UNWRAP a
   `tool-output` whose `toolName` starts with `SUBAGENT_DELEGATION_TOOL_PREFIX`
   and is not itself `providerExecuted` — POSITIVE identification, never "not in
   the guarded set". Apply the same allow-list to the nested part, recursing for a
-  grandchild under a fixed unwrap bound. Background delegation is out of scope.
+  grandchild under a fixed unwrap bound.
+- **Each BACKGROUND task is its own producer LANE** (`createMastraStreamPartRouter`):
+  its own phase and in-flight set, read inside the task's envelope, closed by
+  its terminal or suspension. Lifecycle events and host rows move no phase. Wait
+  on the WIDEST open lane; a call in flight in ANY lane reports `tool-executing`.
 - **Seed a resumed, approval-approved call into the phase.** Mastra never replays
   a suspended step's `tool-call` part, so `collectResumedGuardedToolCallIds`
   passes the resumed call plus its siblings — filtered through the same
@@ -204,20 +208,16 @@ Guard: `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spe
   runtime disposal. Incomplete tool calls are the one exclusion, so Stop cannot
   resurrect execution next turn. Ordinary completion still uses Mastra's finish
   writer only; teardown never performs a second normal write.
-- Delegated children capture their native MessageList on the abort signal,
-  independent of consumer speed; Mastra's public `afterToolCall` hook joins the
-  native child writer before the abort snapshot is saved. `runTurnAttempts` awaits
-  child finalizers before replacing a stalled attempt and before runtime disposal,
-  even when the parent later finishes normally. Native `lastMessages: false`
-  disables the child's automatic MessageHistory processor, so the root-only join
-  is insufficient.
+- Delegated children's abort snapshots follow `assistant-subagents.md` § Cancelled
+  child transcript durability, joined before attempt replacement and disposal.
 
 Settled: the phase boundary is provider output, not the first part; a running
 tool is never measured against a provider-silence window; Mastra's
 `tool-execution-start`/`-end` chunks are not the boundary. Evidence:
 `assistant-runtime/stream-watchdog-phases.md`.
 Guard: `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec.ts`,
-`packages/agent/src/__tests__/mastra-stream-watchdogs.integration.spec.ts`.
+`packages/agent/src/__tests__/mastra-stream-watchdogs.integration.spec.ts`,
+`packages/agent/src/mastra/__tests__/mastra-background-watchdog-lanes.spec.ts`.
 
 ### Mastra error-processor layer
 

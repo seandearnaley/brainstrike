@@ -51,9 +51,9 @@ Evidence: `mastra-boundary/why-not-mastra-server.md`.
   or opening a turn checkpoint, hold it through background work and parent
   continuations (`background-idle-loop.ts`), and release on session closure and
   terminal persistence — including when the transport subscriber detaches.
-- Keep background retries at zero and per-task timeouts positive and at most five
-  minutes; clear the execution timer on suspension, so waiting for a human never
-  spends the deadline.
+- Keep background retries at zero. The HOST owns each task's deadline: the user's
+  runtime limit via `resolveChildTaskTimeoutMs` (Off = Node's longest timer), and
+  a suspension clears the timer, so waiting for a human never spends it.
 - Cancel through explicit resource/thread/native-parent-run filters, and join the
   workflow write, outstanding executor, and workflow deletion before
   acknowledging Stop. Never build a runtime that might restart unrelated work,

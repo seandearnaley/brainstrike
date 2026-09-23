@@ -21,12 +21,63 @@ describe('SubagentSettingsSection', () => {
   it('shows the four budgets with their defaults and ranges', () => {
     render(<SubagentSettingsSection />);
     const steps = screen.getByLabelText('Max steps per subagent');
-    expect(steps).toHaveValue(32);
+    expect(steps).toHaveValue(100);
     expect(steps).toHaveAttribute('min', '1');
-    expect(steps).toHaveAttribute('max', '64');
+    expect(steps).toHaveAttribute('max', '1000');
     expect(screen.getByLabelText('Summary output tokens')).toHaveValue(2048);
     expect(screen.getByLabelText('Max output tokens per subagent')).toHaveValue(32_768);
     expect(screen.getByLabelText('Max output tokens per step')).toHaveValue(8192);
+  });
+
+  it('shows the subagent runtime limit Off by default', () => {
+    render(<SubagentSettingsSection />);
+    const runtime = screen.getByLabelText('Max runtime per subagent (minutes)');
+    expect(runtime).toHaveValue(null);
+    expect(runtime).toHaveAttribute('placeholder', 'Off');
+    expect(runtime).toHaveAttribute('min', '1');
+  });
+
+  it('sets a runtime limit in whole minutes and turns it Off when cleared', async () => {
+    const user = userEvent.setup();
+    render(<SubagentSettingsSection />);
+    const runtime = screen.getByLabelText('Max runtime per subagent (minutes)');
+    await user.click(runtime);
+    await user.paste('90');
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBe(
+      5_400_000
+    );
+    await user.clear(runtime);
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBeNull();
+    expect(runtime).toHaveValue(null);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('never turns the limit Off for unparseable text a number input reports as empty', async () => {
+    const user = userEvent.setup();
+    render(<SubagentSettingsSection />);
+    const runtime = screen.getByLabelText('Max runtime per subagent (minutes)');
+    await user.click(runtime);
+    await user.paste('90');
+    // A browser reports value '' with validity.badInput for "1.", "-" or "1e";
+    // jsdom never sets badInput, so model the browser's report directly.
+    Object.defineProperty(runtime, 'validity', {
+      configurable: true,
+      value: { badInput: true },
+    });
+    fireEvent.change(runtime, { target: { value: '' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number of minutes');
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBe(
+      5_400_000
+    );
+  });
+
+  it('refuses a fractional runtime instead of rounding it', async () => {
+    const user = userEvent.setup();
+    render(<SubagentSettingsSection />);
+    await user.click(screen.getByLabelText('Max runtime per subagent (minutes)'));
+    await user.paste('1.5');
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number of minutes');
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBeNull();
   });
 
   it('writes a valid value to the store', async () => {
@@ -43,12 +94,12 @@ describe('SubagentSettingsSection', () => {
     const user = userEvent.setup();
     render(<SubagentSettingsSection />);
     const steps = screen.getByLabelText('Max steps per subagent');
-    // Pasted, not typed: typing '99' writes the VALID '9' on its first keystroke.
+    // Pasted, not typed: typing '1001' writes the VALID '1' on its first keystroke.
     await user.clear(steps);
-    await user.paste('99');
-    expect(steps).toHaveValue(99);
+    await user.paste('1001');
+    expect(steps).toHaveValue(1001);
     expect(screen.getByRole('alert')).toHaveTextContent(/Subagent settings are malformed/);
-    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildSteps).toBe(32);
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildSteps).toBe(100);
     await user.clear(steps);
     await user.paste('40');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -75,7 +126,7 @@ describe('SubagentSettingsSection', () => {
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
     );
-    expect(screen.getByLabelText('Max steps per subagent')).toHaveValue(32);
+    expect(screen.getByLabelText('Max steps per subagent')).toHaveValue(100);
   });
 
   it('never presents a non-validation failure as a field message', () => {

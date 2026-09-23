@@ -20,7 +20,8 @@ Mastra's typed `_skipBgTaskWait`) keeps that owner through native background
 work and parent continuations; release follows session closure and
 terminal persistence, including when the transport subscriber detaches. The
 PGlite composite store registers a resource/thread-scoped background domain;
-retries are zero and per-task timeouts must be positive and at most five minutes.
+retries are zero and per-task timeouts must be positive and at most five minutes
+(superseded 2026-09-22 by the host-owned runtime limit below).
 Explicit root Stop closes native admission, cancels running, queued and suspended
 tasks, and joins workflow writes. Ordinary paused shutdown and construction
 failures retain pending approvals; only the external root Stop cancels them.
@@ -82,3 +83,38 @@ current host leg, rather than recreating it. The existing usage writer resolves
 native completion ids to that same invocation; its stream queue waits for the
 matching parent terminal so completion cannot outrun publication authorization.
 
+## 2026-09-22: the five-minute ceiling is replaced by a host-owned runtime limit
+
+The ceiling above ("per-task timeouts must be positive and at most five
+minutes") recorded no rationale: it adopted Mastra's own `defaultTimeoutMs`
+(`3e5`) as a hard maximum, and `PgliteBackgroundTasksStore` rejected anything
+larger. In a live swarm (thread-2ae51014, 2026-09-22) healthy, actively
+streaming children died with `Task timed out after 300000ms`. Three facts made
+the ceiling worse than a plain five minutes:
+
+- Mastra arms ONE wall-clock `setTimeout` per execution attempt; progress does
+  not reset it, so a working child is killed exactly like a hung one.
+- The delegated work permit is acquired per STEP inside the child
+  (`delegated-work-budget.ts`), after the timer is armed, so time spent queued
+  behind siblings for one of the two concurrent slots spends the deadline:
+  six children sharing two slots each got roughly a third of it.
+- Mastra ranks the model's `_background.timeoutMs` above host config, so the
+  model could shorten its own child's life; only prompt text discouraged it.
+
+Research across Claude Code, the Claude Agent SDK, Codex, OpenAI Agents, the
+Vercel AI SDK, Temporal and LangGraph found no agent loop with a wall-clock
+deadline by default; liveness is an inactivity/heartbeat timer that re-arms on
+progress (`docs/superpowers/research/2026-09-22-agent-timeout-and-budget-standards.md`).
+
+Replacement: the deadline is the user setting `maxChildRuntimeMs` (Settings →
+Models → Subagents), default Off. `resolveChildTaskTimeoutMs` feeds both
+Mastra's `defaultTimeoutMs` and the scoped store, which pins every task's
+`timeoutMs` to it (logged `background_task_timeout_pinned`, mirroring the
+BST-1749 retry pin) and rejects a different value on update. Mastra 1.64 has no
+"none" and Node clamps any delay above 2^31-1 ms (Infinity included) to 1 ms, so
+Off resolves to `NODE_TIMER_MAX_MS` (~24.8 days) rather than a patch; the store
+refuses any host value Node would fire immediately. The parent idle loop's
+300 s patience, which borrowed the same constant, is gone: BST-1800 removed that
+timer and the stream watchdog judges liveness.
+Guard: `pglite-background-store.integration.spec.ts`,
+`delegated-deadlines.integration.test.ts`.
