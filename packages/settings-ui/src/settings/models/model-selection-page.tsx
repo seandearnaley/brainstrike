@@ -219,7 +219,7 @@ export function ModelSelectionPage() {
   // model", so a failure is reported the same way on both surfaces. Bulk
   // changes go through the same controller (one busy set, one failure path).
   const { busyModelIds, toggle, toggleMany } = useModelToggle();
-  const applyBulkChange = useModelBulkToggle(toggleMany);
+  const applyBulkChange = useModelBulkToggle({ busyModelIds, toggleMany });
 
   useEnsureModelRegistry({ db });
 
