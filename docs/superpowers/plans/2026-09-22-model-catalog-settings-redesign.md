@@ -106,7 +106,8 @@ git switch -c seandearnaley/bst-1805-model-catalog-redesign
 | `packages/settings-ui/src/settings/models/catalog-nodes.ts` | create | identity-stable TreeNodes | 6 |
 | `packages/settings-ui/src/settings/models/use-catalog-row-actions.ts` | create | live row state context | 6 |
 | `packages/settings-ui/src/settings/models/catalog-model-details.tsx` | create | inline details row | 6 |
-| `packages/settings-ui/src/settings/models/catalog-columns.tsx` | create | width tiers, column layouts, cells | 6 |
+| `packages/settings-ui/src/settings/models/catalog-columns.tsx` | create | width tiers, column layouts, column definitions | 6 |
+| `packages/settings-ui/src/settings/models/catalog-cells.tsx` | create | one-line row cells (component-only module, react-refresh) | 6 |
 | `packages/settings-ui/src/settings/models/use-scrollbar-gutter-width.ts` | create | scroller gutter measurement | 6 |
 | `packages/settings-ui/src/settings/models/catalog-column-header.tsx` | create | the single presentational header with sort buttons | 6 |
 | `packages/settings-ui/src/settings/models/catalog-section.tsx` | create | sticky provider header + section TreeTable | 7 |
