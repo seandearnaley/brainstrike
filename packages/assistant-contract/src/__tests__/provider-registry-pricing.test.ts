@@ -10,12 +10,18 @@ const KNOWN_FREE_PRICED_MODEL_KEYS = new Set<string>([]);
  * Anthropic prices cache reads at 0.1x base input on every Claude model EXCEPT
  * Claude Fable 5.1 (and the invite-only Claude Mythos 5.1), which read at
  * 0.025x — $0.25 / MTok against $10 / MTok input. Retrieved 2026-09-08 from
- * https://platform.claude.com/docs/en/about-claude/pricing (BST-1691). Keyed on
+ * https://platform.claude.com/docs/en/about-claude/pricing (BST-1691). Claude
+ * Opus 5.5 is the second exception: 0.05x — $0.20 / MTok against $4 / MTok
+ * input, same page, retrieved 2026-09-22 (BST-1804); the AWS Bedrock pricing
+ * page's global rate for the Bedrock route is the same $0.20. Keyed on
  * the model identity WITHOUT the Bedrock `anthropic.` vendor prefix, so the
  * Bedrock route inherits the same documented exception rather than a second
- * hand-maintained list. Cache WRITES stay at the ordinary 1.25x on this model.
+ * hand-maintained list. Cache WRITES stay at the ordinary 1.25x on both models.
  */
-const CACHE_READ_INPUT_MULTIPLIERS = new Map([['claude-fable-5-1', 0.025]]);
+const CACHE_READ_INPUT_MULTIPLIERS = new Map([
+  ['claude-fable-5-1', 0.025],
+  ['claude-opus-5-5', 0.05],
+]);
 const DEFAULT_CACHE_READ_INPUT_MULTIPLIER = 0.1;
 
 function cacheReadMultiplier(modelId: string): number {

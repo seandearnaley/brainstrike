@@ -43,6 +43,54 @@
         "vision": "supported"
       },
       {
+        "_note": "Identity, limits, modalities, streaming, tool search, reasoning ladder and\nstandard short-context pricing: OpenAI model page and pricing page,\nretrieved 2026-09-22 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-6-sol\nhttps://developers.openai.com/api/docs/pricing\nREASONING LADDER DECLARED: the page reads \"reasoning.effort supports none,\nlow, medium (default), high, xhigh, and max\", so the undeclared\nOPENAI_FAMILY_DEFAULT_EFFORTS fallback (offers minimal, withholds max) is\nwrong for this row, as it is for gpt-6-astra. `none` is offered, so\n`mandatory` is false.\nCACHE RATES OMITTED: $0.20/MTok cached input and $2.50/MTok cache writes\nare published, but a cache rate may only travel with a `promptCaching`\ndialect and there is no `openai` member (BST-1354), as on gpt-6-astra.\nLONG-CONTEXT TIER NOT MODELLED: prompts above 272K input tokens bill at\n$4 input / $15 output; the schema carries one rate pair (BST-1708).\ntokenMeasurement is the sibling-row convention: OpenAI publishes no\ntokenizer for this model.",
+        "contextWindow": 1050000,
+        "id": "gpt-6-sol",
+        "label": "GPT-6 Sol",
+        "maxOutputTokens": 128000,
+        "nativeToolSearch": "openai",
+        "pricing": {
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
+        },
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
+        },
+        "supportsStreaming": true,
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Identity, limits, modalities, streaming, tool search, reasoning ladder and\nstandard short-context pricing: OpenAI model page and pricing page,\nretrieved 2026-09-22 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-6-luna\nhttps://developers.openai.com/api/docs/pricing\nREASONING LADDER DECLARED: the page reads \"reasoning.effort supports none,\nlow, medium (default), high, xhigh, and max\", so the undeclared\nOPENAI_FAMILY_DEFAULT_EFFORTS fallback (offers minimal, withholds max) is\nwrong for this row, as it is for gpt-6-astra. `none` is offered, so\n`mandatory` is false.\nCACHE RATES OMITTED: $0.01/MTok cached input and $0.125/MTok cache writes\nare published, but a cache rate may only travel with a `promptCaching`\ndialect and there is no `openai` member (BST-1354), as on gpt-6-astra.\nLONG-CONTEXT TIER NOT MODELLED: prompts above 272K input tokens bill at\n$0.20 input / $0.75 output; the schema carries one rate pair (BST-1708).\ntokenMeasurement is the sibling-row convention: OpenAI publishes no\ntokenizer for this model.",
+        "contextWindow": 1050000,
+        "id": "gpt-6-luna",
+        "label": "GPT-6 Luna",
+        "maxOutputTokens": 128000,
+        "nativeToolSearch": "openai",
+        "pricing": {
+          "inputPerMTok": 0.1,
+          "outputPerMTok": 0.5
+        },
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
+        },
+        "supportsStreaming": true,
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "_note": "BST-1698: OpenAI cut Sol from 5/30 to 4/20 $/MTok on 2026-08-21.\nStandard short-context tier, retrieved 2026-09-08:\nhttps://developers.openai.com/api/docs/pricing\nhttps://developers.openai.com/api/docs/changelog — \"GPT-5.6 Sol now\ncosts $4 per million input tokens and $20 per million output tokens,\nrepresenting 20% lower input pricing and 33% lower output pricing\",\nwhich reconstructs the prior 5/30 exactly and confirms the column\nreading. The vendor page also publishes long-context, batch, flex and\nfast tiers for this model; this schema carries one rate pair, so the\nstandard short-context tier is declared, as on every other row.\nOpenAI describes the new rate as promotional through at least\n2026-11-21 — re-check on the next catalog sweep.",
         "contextWindow": 1050000,
         "id": "gpt-5.6-sol",
@@ -341,6 +389,30 @@
         },
         "promptCaching": "anthropic",
         "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Vendor model page, pricing, effort ladder and default; retrieved 2026-09-22 (BST-1804):\nhttps://platform.claude.com/docs/en/models/opus-5-5/overview\nhttps://platform.claude.com/docs/en/models/opus-5-5/whats-new-opus-5-5\nhttps://platform.claude.com/docs/en/about-claude/pricing\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nAdaptive thinking is ALWAYS ON: `thinking.type` disabled, or enabled with\nbudget_tokens, returns 400, so `mandatory: true` (same shape as Fable 5/5.1).\nThe DEFAULT effort is MEDIUM on this model; every other effort-capable\nClaude row defaults to high.\nCache reads are 0.05x base input ($0.20/MTok), not the usual 0.1x; the\ncache-write rate is the 5-minute one ($5; 1-hour is $8).\nForced tool use (tool_choice any/tool) returns 400 on this model; auto and\nnone are supported. The catalog cannot express that constraint.",
+        "anthropicReasoning": {
+          "defaultEffort": "medium",
+          "mandatory": true,
+          "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        "contextWindow": 1000000,
+        "id": "claude-opus-5-5",
+        "label": "Claude Opus 5.5",
+        "maxOutputTokens": 128000,
+        "nativeToolSearch": "anthropic",
+        "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 5,
+          "inputPerMTok": 4,
+          "outputPerMTok": 20
+        },
+        "promptCaching": "anthropic",
+        "supportsStreaming": true,
+        "tagline": "For long-running agentic coding and knowledge work",
         "type": "llm",
         "vision": "supported"
       },
@@ -672,6 +744,46 @@
         "vision": "supported"
       },
       {
+        "_note": "Route, 1,050,000/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory false, default_enabled true, efforts\nmax..none, default medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=272000 prompt-token tier at 4/15, which is a\nlong-context tier, not a clock band, so 2/10 is the base rate.",
+        "contextWindow": 1050000,
+        "id": "openai/gpt-6-sol",
+        "label": "GPT-6 Sol (OpenRouter)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
+        },
+        "reasoning": {
+          "defaultEffort": "medium",
+          "defaultEnabled": true,
+          "mandatory": false,
+          "supportedEfforts": ["max", "xhigh", "high", "medium", "low", "none"]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Route, 1,050,000/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory false, default_enabled true, efforts\nmax..none, default medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=272000 prompt-token tier at 0.2/0.75, which\nis a long-context tier, not a clock band, so 0.1/0.5 is the base rate.",
+        "contextWindow": 1050000,
+        "id": "openai/gpt-6-luna",
+        "label": "GPT-6 Luna (OpenRouter)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "inputPerMTok": 0.1,
+          "outputPerMTok": 0.5
+        },
+        "reasoning": {
+          "defaultEffort": "medium",
+          "defaultEnabled": true,
+          "mandatory": false,
+          "supportedEfforts": ["max", "xhigh", "high", "medium", "low", "none"]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "_note": "Updated 0902 snapshot of Qwen3.8 Max. Route, 1M/131,072 ceilings,\ntext/image/video input and gateway pricing: OpenRouter Models API,\nretrieved 2026-09-08 (BST-1695). The output fact is a hard maximum,\nnot a default combined reasoning + answer window. No reasoning ladder\nis recorded here because this pass consulted no vendor doc; the\nundated qwen/qwen3.8-max row keeps the one it shipped with.",
         "contextWindow": 1000000,
         "id": "qwen/qwen3.8-max-0902",
@@ -694,6 +806,53 @@
         "pricing": {
           "inputPerMTok": 1.25,
           "outputPerMTok": 4.25
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Route, 1,048,576/943,718 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, efforts max..minimal, default medium):\nOpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded. OpenRouter\ndescribes it as Meta's cost-efficient \"contributor tier\" but does not\nsay what that tier entails.",
+        "contextWindow": 1048576,
+        "id": "meta/muse-spark-1.3-contributor",
+        "label": "Muse Spark 1.3 Contributor (OpenRouter)",
+        "maxOutputTokens": 943718,
+        "pricing": {
+          "inputPerMTok": 0.1,
+          "outputPerMTok": 0.2
+        },
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": true,
+          "supportedEfforts": [
+            "max",
+            "xhigh",
+            "high",
+            "medium",
+            "low",
+            "minimal"
+          ]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Route, 131,072/16,384 ceilings, text+image input, text output, gateway\npricing and the reasoning object (mandatory true, efforts xhigh..low,\ndefault medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded.",
+        "contextWindow": 131072,
+        "id": "meta/muse-glimmer-30b",
+        "inputModalities": ["text", "image"],
+        "label": "Muse Glimmer 30B (OpenRouter)",
+        "maxOutputTokens": 16384,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.3,
+          "outputPerMTok": 1.2
+        },
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": true,
+          "supportedEfforts": ["xhigh", "high", "medium", "low"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -728,6 +887,25 @@
         "vision": "supported"
       },
       {
+        "_note": "Route, 1M/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, efforts max..low, default high):\nOpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded. Its\ndefault_effort (high) differs from Anthropic's first-party default\n(medium); this row records the gateway's value.",
+        "contextWindow": 1000000,
+        "id": "anthropic/claude-opus-5.5",
+        "label": "Claude Opus 5.5 (OpenRouter)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "inputPerMTok": 4,
+          "outputPerMTok": 20
+        },
+        "reasoning": {
+          "defaultEffort": "high",
+          "mandatory": true,
+          "supportedEfforts": ["max", "xhigh", "high", "medium", "low"]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "_note": "The OpenRouter route for the model BST-957 added as a direct\nAnthropic route; it was missed by earlier gateway passes. Route,\n1M/128,000 ceilings, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695).",
         "contextWindow": 1000000,
         "id": "anthropic/claude-opus-5",
@@ -736,6 +914,38 @@
         "pricing": {
           "inputPerMTok": 5,
           "outputPerMTok": 25
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Route, 192,000/64,000 ceilings, text+image input, text output and gateway\npricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "contextWindow": 192000,
+        "id": "cohere/command-a-plus",
+        "inputModalities": ["text", "image"],
+        "label": "Command A+ (OpenRouter)",
+        "maxOutputTokens": 64000,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.3,
+          "outputPerMTok": 1.5
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Route, 262,144/235,929 ceilings, text/image/video input, text output and\ngateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "contextWindow": 262144,
+        "id": "bytedance-seed/seed-2-1-turbo",
+        "inputModalities": ["text", "image", "video"],
+        "label": "Seed 2.1 Turbo (OpenRouter)",
+        "maxOutputTokens": 235929,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.5,
+          "outputPerMTok": 2.5
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -758,6 +968,22 @@
           "defaultEnabled": true,
           "mandatory": false,
           "supportedEfforts": ["xhigh", "medium", "low"]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Route, 1M/131,072 ceilings, text/image/audio/video input, text output\nand gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes mandatory: false and default_enabled: true\nbut no efforts, so no `reasoning` block is declared.",
+        "contextWindow": 1000000,
+        "id": "qwen/qwen3.8-omni-flash",
+        "inputModalities": ["text", "image", "audio", "video"],
+        "label": "Qwen3.8 Omni Flash (OpenRouter)",
+        "maxOutputTokens": 131072,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.15,
+          "outputPerMTok": 0.47
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -818,6 +1044,28 @@
           "defaultEnabled": true,
           "mandatory": true,
           "supportedEfforts": ["xhigh", "medium", "low"]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "unsupported"
+      },
+      {
+        "_note": "Route, 262,144/182,520 ceilings, text-only modality, gateway pricing and\nthe reasoning object (mandatory false, default_enabled true, efforts\nhigh/medium, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow is the top-level context_length, which is what the live\nmetadata path reads; the route's top_provider.context_length is smaller\n(202,800), so a prompt above that may fail to route to the top provider.",
+        "contextWindow": 262144,
+        "id": "nvidia/nemotron-3-ultra-550b-a55b",
+        "inputModalities": ["text"],
+        "label": "Nemotron 3 Ultra (OpenRouter)",
+        "maxOutputTokens": 182520,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.6,
+          "outputPerMTok": 2.4
+        },
+        "reasoning": {
+          "defaultEffort": "high",
+          "defaultEnabled": true,
+          "mandatory": false,
+          "supportedEfforts": ["high", "medium"]
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -952,6 +1200,35 @@
         "vision": "supported"
       },
       {
+        "_note": "Route, 1,048,576/262,144 ceilings, text/image/audio input, text output,\ngateway pricing and the reasoning object (mandatory false,\ndefault_enabled true, efforts max..none, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow is the top-level context_length, which is what the live\nmetadata path reads; the route's top_provider.context_length is smaller\n(524,288).",
+        "contextWindow": 1048576,
+        "id": "thinkingmachines/inkling-small",
+        "inputModalities": ["text", "image", "audio"],
+        "label": "Inkling Small (OpenRouter)",
+        "maxOutputTokens": 262144,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.45,
+          "outputPerMTok": 1.2
+        },
+        "reasoning": {
+          "defaultEffort": "high",
+          "defaultEnabled": true,
+          "mandatory": false,
+          "supportedEfforts": [
+            "max",
+            "high",
+            "medium",
+            "low",
+            "minimal",
+            "none"
+          ]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "contextWindow": 256000,
         "id": "kwaipilot/kat-coder-pro-v2.5",
         "label": "KAT-Coder Pro V2.5 (OpenRouter)",
@@ -963,6 +1240,26 @@
         "supportsStreaming": true,
         "type": "llm",
         "vision": "unsupported"
+      },
+      {
+        "_note": "Route, 500,000/450,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, default_enabled true, efforts\nxhigh..low, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=200000 prompt-token tier at 3.2/9.6, which\nis a long-context tier, not a clock band, so 1.6/4.8 is the base rate.\nIt is cheaper than grok-4.6 (2/6) on the same gateway.",
+        "contextWindow": 500000,
+        "id": "x-ai/grok-4.7",
+        "label": "Grok 4.7 (OpenRouter)",
+        "maxOutputTokens": 450000,
+        "pricing": {
+          "inputPerMTok": 1.6,
+          "outputPerMTok": 4.8
+        },
+        "reasoning": {
+          "defaultEffort": "high",
+          "defaultEnabled": true,
+          "mandatory": true,
+          "supportedEfforts": ["xhigh", "high", "medium", "low"]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
       },
       {
         "_note": "Identity, modalities, context, output-limit semantics, mandatory\nreasoning, and effort levels: official xAI Grok 4.6 docs/release\nnotes, retrieved 2026-08-18. Route and standard gateway pricing:\nOpenRouter Models API, retrieved 2026-08-18 (BST-1374).\nxAI documents \"No text output limit\" and OpenRouter reports null;\nomit maxOutputTokens rather than inventing a numeric ceiling.",
@@ -1440,6 +1737,28 @@
         "vision": "supported"
       },
       {
+        "_note": "Route, 1,048,576/131,072 ceilings, text/image/video input, text output,\ngateway pricing and the reasoning object (mandatory true,\ndefault_enabled true, efforts max/high/low, default max): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).",
+        "contextWindow": 1048576,
+        "id": "z-ai/glm-5.3-flashx",
+        "inputModalities": ["text", "image", "video"],
+        "label": "GLM 5.3 FlashX (OpenRouter)",
+        "maxOutputTokens": 131072,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.37,
+          "outputPerMTok": 1.25
+        },
+        "reasoning": {
+          "defaultEffort": "max",
+          "defaultEnabled": true,
+          "mandatory": true,
+          "supportedEfforts": ["max", "high", "low"]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "_note": "OpenRouter Models API owns this fixed route's identity, 262,144 /\n128,000 ceilings, text-only input modality and gateway pricing\n(0.0000000825 / 0.00000033 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000132 / 0.000000528 — this route's SURGE rate. Its\n`pricing.overrides` carry two time bands, 00:00-16:00 UTC at\n0.000000132 / 0.000000528 and 16:00-00:00 UTC at the base\n0.0000000825 / 0.00000033, and `pricing.prompt` reports whichever is\nin force at read time. The base rate is what this row records.\nBST-1696 listed the context window as UNVERIFIED; the\nlive route reports 262,144, not the 1M this family's newer routes\ncarry. Tencent's configurable reasoning effort is not enumerated on\nthe route, so no `reasoning` block is declared.",
         "contextWindow": 262144,
         "id": "tencent/hy3",
@@ -1454,6 +1773,38 @@
         "supportsStreaming": true,
         "type": "llm",
         "vision": "unsupported"
+      },
+      {
+        "_note": "Route, 1,048,576/131,072 ceilings, text/image/video/audio input, text\noutput and gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "contextWindow": 1048576,
+        "id": "xiaomi/mimo-v2.6-pro",
+        "inputModalities": ["text", "image", "video", "audio"],
+        "label": "MiMo-V2.6-Pro (OpenRouter)",
+        "maxOutputTokens": 131072,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.435,
+          "outputPerMTok": 0.87
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Route, 1,048,576/131,072 ceilings, text/image/video/audio input, text\noutput and gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "contextWindow": 1048576,
+        "id": "xiaomi/mimo-v2.6-flash",
+        "inputModalities": ["text", "image", "video", "audio"],
+        "label": "MiMo-V2.6-Flash (OpenRouter)",
+        "maxOutputTokens": 131072,
+        "outputModalities": ["text"],
+        "pricing": {
+          "inputPerMTok": 0.14,
+          "outputPerMTok": 0.28
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
       },
       {
         "_note": "OpenRouter Models API owns this fixed route's identity, 1,050,000 /\n131,072 ceilings, text/audio/image/video input modalities and gateway\npricing (0.00000014 / 0.00000028 per token), retrieved 2026-09-08\n(BST-1696). Audio and video are declared inputs on the route; the\ncatalog's `vision` flag only gates the composer's image affordance.",
@@ -1663,6 +2014,25 @@
         },
         "promptCaching": "bedrock",
         "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Bedrock id, limits and capabilities read from the AWS model card;\npricing from the AWS Bedrock pricing page; both retrieved 2026-09-22\n(BST-1804):\nhttps://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html\nhttps://aws.amazon.com/bedrock/pricing/\nIts Programmatic Access table gives the bedrock-runtime Model ID as the\nbare `anthropic.claude-opus-5-5` (geo profiles us./eu./au./jp., global.),\nso there is no -v1:0 suffix; the base id is In-Region unsupported in every\nregion. 1M context, 128K max output, image input and response streaming\ncome from the same card. Reasoning is adaptive thinking, always on (efforts\nlow..max, default medium). Explicit prompt caching is supported (512 min\ntokens per checkpoint, 4 checkpoints, 5min/1hr TTL).\nPRICING is the Global Cross-region Inference rate ($4/$20, 5m cache write\n$5, cache read $0.20), which matches Anthropic first-party, as on the\nsibling Claude rows. Geo and In-region inference bill 10% more: $4.40/$22,\ncache write $5.50, cache read $0.22.",
+        "bedrockReasoning": "adaptive",
+        "contextWindow": 1000000,
+        "id": "anthropic.claude-opus-5-5",
+        "label": "Claude Opus 5.5 (Bedrock)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 5,
+          "inputPerMTok": 4,
+          "outputPerMTok": 20
+        },
+        "promptCaching": "bedrock",
+        "supportsStreaming": true,
+        "tagline": "For long-running agentic coding and knowledge work",
         "type": "llm",
         "vision": "supported"
       },
