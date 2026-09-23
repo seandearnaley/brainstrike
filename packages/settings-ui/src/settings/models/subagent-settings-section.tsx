@@ -54,7 +54,7 @@ function omitField(record: FieldText, field: Field): FieldText {
 }
 
 /**
- * Settings → Models → Subagents: the four per-child budgets
+ * Settings → Subagents → Subagent budgets: the four per-child budgets
  * (`RuntimeSubagentSettings`). The store validates the whole next value and
  * THROWS on an invalid one; that message is shown under the field and nothing
  * lands — never a clamp or a coercion. The field keeps the raw text while it is
@@ -103,7 +103,7 @@ export function SubagentSettingsSection() {
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <Layers aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-            <h3 className="font-medium text-sm">Subagents</h3>
+            <h3 className="font-medium text-sm">Subagent budgets</h3>
           </div>
           <p className="text-muted-foreground text-sm">
             Budgets every delegated subagent runs under. They are copied into the turn when its

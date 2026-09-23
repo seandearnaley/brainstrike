@@ -2,8 +2,6 @@ import { resolveCacheDirectorySelectionTestOverride } from '@brainstrike/app-sta
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import type { ProviderKeySource } from '@brainstrike/assistant-contract';
-import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import type { EmbeddingModelConfig as ModelConfig } from '@brainstrike/indexing-contract';
@@ -12,10 +10,8 @@ import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { AssistantMemorySettingsSection } from './assistant-memory-settings-section';
 import { ModelList } from './model-list';
 import { getModelRuntimeServices } from './model-runtime-services';
-import { SubagentSettingsSection } from './subagent-settings-section';
 import { useModelToggle } from './use-model-toggle';
 
 const logger = createLogger('ModelSelectionPage');
@@ -233,15 +229,7 @@ async function downloadModel(model: DbModel, deps: DownloadDeps): Promise<void> 
   return downloadEmbeddingModel(model, deps);
 }
 
-export interface ModelSelectionPageProps {
-  readonly assistantMemoryBackendAvailable: boolean;
-  readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
-}
-
-export function ModelSelectionPage({
-  assistantMemoryBackendAvailable,
-  providerKeySources,
-}: ModelSelectionPageProps) {
+export function ModelSelectionPage() {
   const db = usePGliteDatabase();
   const [isSelectingCacheDir, setIsSelectingCacheDir] = useState<boolean>(false);
   const {
@@ -429,13 +417,6 @@ export function ModelSelectionPage({
           <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
-
-      <AssistantMemorySettingsSection
-        assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
-        {...(providerKeySources ? { providerKeySources } : {})}
-      />
-
-      <SubagentSettingsSection />
 
       <ModelList
         downloadedModels={downloadedModels}

@@ -105,12 +105,11 @@ function DelegationLimits() {
         Subagents can delegate to other subagents up to {DELEGATION_LIMITS.maxDepth} levels deep,
         with at most {DELEGATION_LIMITS.maxInvocations} delegations per turn and{' '}
         {DELEGATION_LIMITS.maxConcurrentWork} subagents working at once. No subagent may exceed{' '}
-        {settings.maxChildSteps} steps, whatever its persona declares (Settings → Models →
-        Subagents). Each subagent may produce up to{' '}
-        {LIMIT_NUMBER_FORMAT.format(settings.maxChildOutputTokens)} output tokens;{' '}
-        {LIMIT_NUMBER_FORMAT.format(DELEGATION_LIMITS.maxTreeOutputTokens)} output tokens is the
-        ceiling for all subagents in one turn. Personas cannot raise these limits; the host enforces
-        them.
+        {settings.maxChildSteps} steps, whatever its persona declares (see Subagent budgets below).
+        Each subagent may produce up to {LIMIT_NUMBER_FORMAT.format(settings.maxChildOutputTokens)}{' '}
+        output tokens; {LIMIT_NUMBER_FORMAT.format(DELEGATION_LIMITS.maxTreeOutputTokens)} output
+        tokens is the ceiling for all subagents in one turn. Personas cannot raise these limits; the
+        host enforces them.
       </p>
     </div>
   );

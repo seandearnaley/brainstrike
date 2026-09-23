@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { DELEGATION_LIMITS } from './delegation-limits.js';
 
 /**
- * Per-child budgets the USER sets (Settings → Models → Subagents). They ride
- * every request as `runtimeData.subagentSettings`, the desktop host copies them
+ * Per-child budgets the USER sets (Settings → Subagents → Subagent budgets).
+ * They ride every request as `runtimeData.subagentSettings`, the desktop host copies them
  * into the original turn's `brainstrike_delegation_budgets` row at admission,
  * and the agent derives each persona's effective step budget from them.
  *

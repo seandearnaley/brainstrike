@@ -1,5 +1,5 @@
 /**
- * Per-child subagent budgets (Settings → Models → Subagents).
+ * Per-child subagent budgets (Settings → Subagents → Subagent budgets).
  *
  * `settings` is a complete `RuntimeSubagentSettings`; every setter validates
  * the WHOLE next value through the contract parser, so a field that would

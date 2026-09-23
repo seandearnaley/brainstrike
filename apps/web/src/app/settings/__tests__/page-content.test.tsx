@@ -125,4 +125,20 @@ describe('Web SettingsPageContent', () => {
     expect(within(pane).getByTestId('model-selection-page-mock')).toBeInTheDocument();
     expect(window.location.hash).toBe('#settings/models');
   });
+
+  test('renders Assistant Memory as its own category right after Model Catalog', async () => {
+    renderPage();
+
+    const nav = screen.getByRole('navigation', { name: /settings categories/i });
+    const titles = within(nav)
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+    expect(titles.indexOf('Assistant Memory')).toBe(titles.indexOf('Model Catalog') + 1);
+
+    fireEvent.click(within(nav).getByRole('button', { name: /^Assistant Memory$/i }));
+
+    const pane = await screen.findByTestId('settings-category-assistant-memory');
+    expect(within(pane).getByTestId('assistant-memory-settings-section')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#settings/assistant-memory');
+  });
 });

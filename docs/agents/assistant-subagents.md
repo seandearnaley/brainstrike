@@ -907,7 +907,7 @@ Evidence: `assistant-subagents/child-view-binding.md`.
   The four per-child allocations live in `RuntimeSubagentSettings`
   (`assistant-contract/subagent-settings.ts`, ranges in
   `SUBAGENT_SETTINGS_LIMITS`), persisted by `assistant-subagent-preferences.v1`,
-  edited in Settings → Models → Subagents, sent on EVERY request as
+  edited in Settings → Subagents → Subagent budgets, sent on EVERY request as
   `runtimeData.subagentSettings`, and copied into the turn's
   `brainstrike_delegation_budgets` row at first admission.
   `parseRuntimeSubagentSettings` is the ONLY intake: absent means defaults,

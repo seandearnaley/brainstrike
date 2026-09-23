@@ -61,7 +61,7 @@ describe('SubagentPersonasSettingsSection delegation limits', () => {
     expect(limits).toHaveTextContent('11 delegations per turn');
     expect(limits).toHaveTextContent('5 subagents working at once');
     expect(limits).toHaveTextContent(
-      'No subagent may exceed 7 steps, whatever its persona declares (Settings → Models → Subagents).'
+      'No subagent may exceed 7 steps, whatever its persona declares (see Subagent budgets below).'
     );
     expect(limits).toHaveTextContent('4,321');
     expect(limits).toHaveTextContent('98,765');
