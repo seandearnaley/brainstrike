@@ -9,8 +9,6 @@
  * misconfiguration must surface loudly, not produce a nonsense budget.
  */
 
-import { resolveOpenRouterCodingMaxOutputTokens } from './openrouter-coding-defaults.js';
-
 export const CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 export const CONTEXT_BUDGET_SAFETY_MARGIN_MIN = 1024;
 export const CONTEXT_BUDGET_SAFETY_MARGIN_RATIO = 0.05;
@@ -65,18 +63,33 @@ export interface AgentLoopBudgetModelDefinition {
  * The renderer's `buildAgentLoopSettings` and desktop compaction's fallback
  * for a run carrying no `agentLoop` both call this; never re-derive it.
  *
- * OpenRouter reserves the output the request actually sends
- * (`configuredMaxOutputTokens`, else the coding default); every other
- * provider reserves the model's catalog maximum. Throws rather than clamping.
+ * OpenRouter reserves `requestMaxOutputTokens`: the output limit the run's
+ * request actually sends, already resolved by the request path
+ * (`buildEffectiveModelSettings` in the renderer, `buildModelSettingsOption`
+ * on desktop — both size it for the run's reasoning state). There is NO
+ * default here: one would be a second derivation of that window, so a
+ * missing or malformed value throws. Every other provider reserves the
+ * model's catalog maximum and ignores the argument. Throws rather than
+ * clamping.
  */
 export function deriveAgentLoopInputTokenLimit(
   model: AgentLoopBudgetModelDefinition,
   providerId: string | null | undefined,
-  configuredMaxOutputTokens: number | undefined
+  requestMaxOutputTokens: number | undefined
 ): number {
-  const outputReservation =
-    providerId === 'openrouter'
-      ? (configuredMaxOutputTokens ?? resolveOpenRouterCodingMaxOutputTokens(model.maxOutputTokens))
-      : model.maxOutputTokens;
-  return deriveEffectiveInputBudget(model.contextWindow, outputReservation);
+  if (providerId !== 'openrouter') {
+    return deriveEffectiveInputBudget(model.contextWindow, model.maxOutputTokens);
+  }
+  if (
+    !(
+      typeof requestMaxOutputTokens === 'number' &&
+      Number.isSafeInteger(requestMaxOutputTokens) &&
+      requestMaxOutputTokens > 0
+    )
+  ) {
+    throw new Error(
+      `OpenRouter input budget requires the positive integer output limit the request sends, got ${requestMaxOutputTokens}`
+    );
+  }
+  return deriveEffectiveInputBudget(model.contextWindow, requestMaxOutputTokens);
 }

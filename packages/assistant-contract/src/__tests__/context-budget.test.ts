@@ -65,9 +65,22 @@ describe('deriveAgentLoopInputTokenLimit', () => {
     expect(deriveAgentLoopInputTokenLimit(model, 'openrouter', 8192)).toBe(371_808);
   });
 
-  it('reserves the OpenRouter coding default when no output limit is configured', () => {
-    // min(128,000, 32,000) = 32,000; margin 20,000.
-    expect(deriveAgentLoopInputTokenLimit(model, 'openrouter', undefined)).toBe(348_000);
+  // BST-1804 review: a default here would be a SECOND derivation of the
+  // OpenRouter output window — the request path sizes it for the run's
+  // reasoning state (kimi-k3: 131,072), a default could not. The caller must
+  // pass the output limit the request actually sends.
+  it('has no OpenRouter default: throws when the request output limit is not supplied', () => {
+    expect(() => deriveAgentLoopInputTokenLimit(model, 'openrouter', undefined)).toThrow(
+      /output limit the request sends/
+    );
+  });
+
+  it('rejects a malformed OpenRouter request output limit loudly (never a plausible budget)', () => {
+    for (const invalid of [0, -1, 1.5, Number.NaN, null as unknown as number]) {
+      expect(() => deriveAgentLoopInputTokenLimit(model, 'openrouter', invalid)).toThrow(
+        /output limit the request sends/
+      );
+    }
   });
 
   it('throws rather than clamping when the window cannot fit the reservation', () => {

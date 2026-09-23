@@ -39,6 +39,7 @@ import {
   resolveModelNameFromComposite,
   resolveOpenRouterMetadataDisabledReason,
   resolveProviderModelSelection,
+  type SelectedModelBudgetDef,
   toRuntimeProviderModels,
 } from '../assistant-ui-panel-wrapper-runtime';
 
@@ -1459,25 +1460,30 @@ describe('assistant runtime helpers', () => {
 });
 
 describe('buildAgentLoopSettings input-token budget', () => {
-  it('reserves the model-aware OpenRouter coding default instead of the model maximum', () => {
-    const settings = buildAgentLoopSettings(
-      undefined,
-      { contextWindow: 400_000, maxOutputTokens: 128_000 },
-      'openrouter'
-    );
+  // The reservation is the output the request sends (`buildEffectiveModelSettings`),
+  // exactly as `useOpenRouterModelMetadata` composes them.
+  function openRouterAutoLimit(model: SelectedModelBudgetDef): number | undefined {
+    const modelSettings = buildEffectiveModelSettings('openrouter', undefined, model);
+    return buildAgentLoopSettings(undefined, model, 'openrouter', modelSettings)?.inputTokenLimit;
+  }
 
+  it('reserves the model-aware OpenRouter coding default instead of the model maximum', () => {
     // The coding default is min(model output limit, 32,000). The 5% safety margin is 20,000.
-    expect(settings?.inputTokenLimit).toBe(348_000);
+    expect(openRouterAutoLimit({ contextWindow: 400_000, maxOutputTokens: 128_000 })).toBe(348_000);
   });
 
   it('caps the OpenRouter coding default to a smaller model output limit', () => {
-    const settings = buildAgentLoopSettings(
-      undefined,
-      { contextWindow: 64_000, maxOutputTokens: 16_000 },
-      'openrouter'
-    );
+    expect(openRouterAutoLimit({ contextWindow: 64_000, maxOutputTokens: 16_000 })).toBe(44_800);
+  });
 
-    expect(settings?.inputTokenLimit).toBe(44_800);
+  it('has no OpenRouter reservation of its own: throws without the output the request sends', () => {
+    expect(() =>
+      buildAgentLoopSettings(
+        undefined,
+        { contextWindow: 400_000, maxOutputTokens: 128_000 },
+        'openrouter'
+      )
+    ).toThrow(/output limit the request sends/);
   });
 
   it('reserves the configured OpenRouter output limit in the input budget', () => {

@@ -179,6 +179,20 @@ describe('resolveCompactionInputBudget without an agentLoop (BST-1804)', () => {
     ).toBe(deriveEffectiveInputBudget(definition.contextWindow, 64_000));
   });
 
+  it('throws — never a plausible budget — when an OpenRouter run sends a malformed output limit', () => {
+    // The desktop HTTP path does not sanitize `modelSettings`, and
+    // `buildModelSettingsOption` lets an explicit value override the backstop,
+    // so the shared derivation must reject it rather than budget around it.
+    for (const invalid of [0, -1, 1.5, Number.NaN, null]) {
+      expect(() =>
+        resolveCompactionInputBudget({
+          ...runtime('moonshotai/kimi-k3'),
+          modelSettings: { maxOutputTokens: invalid as number },
+        })
+      ).toThrow(/output limit the request sends/);
+    }
+  });
+
   it('sizes the OpenRouter reservation for the reasoning state the run carries', () => {
     // kimi-k3 records a vendor completion window used only while reasoning is
     // active; a run that switches reasoning off reserves the coding ceiling.

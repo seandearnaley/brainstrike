@@ -377,9 +377,9 @@ Guard: `packages/assistant-ui/src/__tests__/follow-up-queue-store.test.ts`,
 **ONE DERIVATION, THREE CONSUMERS.** `buildAgentLoopSettings` produces
 `agentLoopSettings.inputTokenLimit` (explicit user pref, else
 `deriveAgentLoopInputTokenLimit` in `packages/assistant-contract/src/context-budget.ts`:
-OpenRouter reserves the output it sends, others the catalog max; throws, never
-clamps). That one number is the Mastra `TokenLimiter` budget, the meter
-denominator, and the instruction budget note. Never derive a second budget.
+OpenRouter reserves its request's output (required, no default), others the
+catalog max; throws, never clamps). That one number is the Mastra `TokenLimiter`
+budget, the meter denominator, and the instruction budget note. Never derive a second budget.
 
 - The usage store is session-lived, keyed `selectedMemoryThreadId ?? 'active'`;
   writer and reader must use the same key.
