@@ -146,7 +146,7 @@ Guard: `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spe
   below. A stall ends the ATTEMPT, not the turn. Only an unrecoverable stall emits
   a visible assistant message, a terminal `run.failed` event, and an error finish.
 - **Only a GUARDED call may enter `tool-executing` — an ALLOW-list, not a
-  deny-list.** `hasExecutionGuardBehindToolCall` (`agent-streaming.ts`) tests a
+  deny-list.** `hasExecutionGuardBehindToolCall` (`mastra-watchdog-options.ts`) tests a
   tool name against `runtime.toolNameMap`'s KEYS, exactly the set that went
   through `applyToolGuards`. Anything not in it defaults to `false` and stays on
   the tight window. Provider-executed tools, subagent delegation tools and
@@ -713,7 +713,7 @@ restating them here.
   inactivity <= tool-call input budget, <= first-output window, <= reasoning-gap
   window. An unset window widens to the inactivity window rather than throwing.
 - Own the reasoning part set in `MASTRA_REASONING_PART_KINDS`
-  (`agent-streaming.ts`), typed against Mastra's own `ChunkType['type']` union so
+  (`mastra-watchdog-options.ts`), typed against Mastra's own `ChunkType['type']` union so
   a rename fails to COMPILE. CONTENT enters the reasoning phase; block bookkeeping
   markers only PRESERVE the phase already in effect.
 - `MASTRA_SCAFFOLDING_PART_TYPES` (`start`, `step-start`) is a CLOSED list: a new
