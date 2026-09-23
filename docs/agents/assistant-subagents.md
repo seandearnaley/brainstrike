@@ -201,7 +201,7 @@ bespoke `subagent` tool.
   `toolName` starts with `SUBAGENT_DELEGATION_TOOL_PREFIX` and is not
   `providerExecuted` — POSITIVE identification, never "not in the guarded set" —
   and classifies the nested part under the same allow-list, recursing for a
-  grandchild. Background delegation is out of scope.
+  grandchild. A BACKGROUND task is its own producer lane (`assistant-runtime.md`).
 - Subagent tool calls feed the same per-tool token telemetry table as primary
   calls, attributed to the parent run, through a telemetry-only sink that does
   NOT feed the prompt-reconciliation aggregate (`assistant-persistence.md`,
@@ -1010,8 +1010,8 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   `withBackgroundIdleLoop` (`background-idle-loop.ts`), which mirrors Mastra's
   loop except that only a RETURNED, FAILED or CANCELLED task queues a wakeup. A
   suspension is a host-surfaced approval prompt; the model is not the messenger.
-  Silence from running work past `backgroundIdleMs` closes the stream unfinished
-  and the projection reports it.
+  The loop judges no silence: running work holds the leg open until its
+  terminal; the watchdog's task lanes (`assistant-runtime.md`) judge liveness.
 - **WAKEUP LEDGER** (settled 2026-09-15, do not relitigate): a parent wakeup is
   the whole LEDGER of this turn's background invocations, not one line per event.
   Read it from the DURABLE task rows (`background-ledger.ts`), scoped to the runs

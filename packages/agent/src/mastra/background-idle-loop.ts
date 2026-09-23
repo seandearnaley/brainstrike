@@ -28,12 +28,6 @@ import {
 const logger = createLogger('BackgroundIdleLoop');
 
 /**
- * How long the parent waits on running children with NO chunk or manager
- * event before it closes. Deliberately independent of a child's task deadline.
- */
-const DEFAULT_BACKGROUND_IDLE_MS = 300_000;
-
-/**
  * Host-owned replacement for Mastra's `untilIdle` loop (BST-1723, settled
  * 2026-09-14).
  *
@@ -48,8 +42,11 @@ const DEFAULT_BACKGROUND_IDLE_MS = 300_000;
  * Mastra's loop: the leg's first turn is piped as-is, native lifecycle chunks
  * are forwarded so `projectBackgroundStream` folds them, one continuation runs
  * per batch of wakeups, and the combined stream closes once no task is running
- * and nothing is queued. A running task that stays silent past `maxIdleMs`
- * closes the stream with its work unfinished, which the projection reports.
+ * and nothing is queued. The loop judges no silence: running work keeps the
+ * leg open until its terminal, and liveness belongs to the stream watchdog
+ * wrapping this combined stream, which gives every task its own phase lane
+ * (`createMastraStreamPartRouter`). A second, shorter timer here closed a leg
+ * whose child was healthy but quiet, and the leg's disposal cancelled it.
  *
  * While it runs, the loop owns the leg's live decision channel: a decision
  * delivered into the leg reserves the parked tasks (which keeps the loop from
@@ -244,8 +241,6 @@ export interface BackgroundIdleLoopParams {
   /** The durable ledger this leg's wakeups and status rows are built from. */
   readonly ledger: BackgroundLedgerSource;
   readonly manager: BackgroundTaskManager;
-  /** Silence budget for running work before the stream closes unfinished. */
-  readonly maxIdleMs?: number | undefined;
   /** The leg's own options; a continuation reuses them, as Mastra's loop does. */
   readonly options: LegStreamOptions;
   /**
@@ -297,7 +292,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   first: Output,
   params: BackgroundIdleLoopParams
 ): Output {
-  const maxIdleMs = params.maxIdleMs ?? DEFAULT_BACKGROUND_IDLE_MS;
   const priorContext = readContextMessages(params.options);
   const running = new Set<string>();
   const settled = new Set<string>();
@@ -318,21 +312,13 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   /** Pauses whose remembered-grant answer is still being decided. */
   let answering = 0;
   let releaseOwner: (() => void) | undefined;
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let controller!: ReadableStreamDefaultController<unknown>;
 
-  const clearIdleTimer = () => {
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-      idleTimer = undefined;
-    }
-  };
   const close = () => {
     if (closed) {
       return;
     }
     closed = true;
-    clearIdleTimer();
     releaseOwner?.();
     loopAbort.abort();
     try {
@@ -346,7 +332,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       return;
     }
     closed = true;
-    clearIdleTimer();
     releaseOwner?.();
     loopAbort.abort();
     try {
@@ -365,20 +350,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     } catch {
       return false;
     }
-  };
-  const armIdleTimer = () => {
-    clearIdleTimer();
-    if (closed || processing || running.size === 0 || (pending.length > 0 && !parked)) {
-      return;
-    }
-    idleTimer = setTimeout(() => {
-      logger.warn('Background work went silent; closing the parent stream unfinished', {
-        code: 'background_idle_expired',
-        maxIdleMs,
-        runningTasks: [...running],
-      });
-      close();
-    }, maxIdleMs);
   };
   /** Deferral records a parked leg makes before it closes; `settle` joins them. */
   let recording = 0;
@@ -440,7 +411,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     discardPresentedWakeups();
     if (parked) {
       if (running.size > 0) {
-        armIdleTimer();
         return;
       }
       if (pending.length > 0) {
@@ -456,9 +426,7 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     }
     if (running.size === 0) {
       close();
-      return;
     }
-    armIdleTimer();
   };
   /**
    * Parent run ids this leg OBSERVED. The ledger's scope is the GENERATION
@@ -490,7 +458,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
         if (done) {
           return;
         }
-        clearIdleTimer();
         if (!enqueue(value)) {
           return;
         }
@@ -606,7 +573,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     if (!isNewSuspension(event, taskId)) {
       return true;
     }
-    clearIdleTimer();
     if (!enqueue(value)) {
       return false;
     }
@@ -664,7 +630,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       if (closed) {
         throw new LiveDecisionUnavailableError('The leg has settled.');
       }
-      clearIdleTimer();
       for (const task of tasks) {
         running.add(task.id);
         settled.delete(task.id);
