@@ -171,8 +171,9 @@ const EU_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
 
 /**
  * Unprefixed ids with a `jp.<id>` profile. Every member was confirmed against
- * its own AWS model card in the BST-1710 audit (2026-09-10); the ids the cards
- * contradict are gone — see the AWS-card override note above.
+ * its own AWS model card: `anthropic.claude-opus-5-5` from its card retrieved
+ * 2026-09-22 (BST-1804), the rest in the BST-1710 audit (2026-09-10). The ids
+ * the cards contradict are gone — see the AWS-card override note above.
  */
 const JP_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-haiku-4-5-20251001-v1:0',
