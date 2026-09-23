@@ -30,7 +30,7 @@ export const NODE_TIMER_MAX_MS = 2_147_483_647;
 export const SUBAGENT_SETTINGS_LIMITS = Object.freeze({
   maxChildOutputTokens: Object.freeze({ max: DELEGATION_LIMITS.maxTreeOutputTokens, min: 1024 }),
   maxChildRuntimeMs: Object.freeze({ max: NODE_TIMER_MAX_MS, min: 1000 }),
-  maxChildSteps: Object.freeze({ max: 64, min: 1 }),
+  maxChildSteps: Object.freeze({ max: 1000, min: 1 }),
   maxStepOutputTokens: Object.freeze({ max: 65_536, min: 256 }),
   synthesisOutputTokens: Object.freeze({ max: 8192, min: 256 }),
 });
@@ -38,7 +38,7 @@ export const SUBAGENT_SETTINGS_LIMITS = Object.freeze({
 export const DEFAULT_RUNTIME_SUBAGENT_SETTINGS: RuntimeSubagentSettings = Object.freeze({
   maxChildOutputTokens: 32_768,
   maxChildRuntimeMs: null,
-  maxChildSteps: 32,
+  maxChildSteps: 100,
   maxStepOutputTokens: 8192,
   synthesisOutputTokens: 2048,
 });

@@ -38,7 +38,7 @@ describe('assistant subagent preferences store', () => {
 
   it('THROWS on an out-of-range or non-integer value and lands nothing', () => {
     const store = useAssistantSubagentPreferencesStore.getState();
-    for (const invalid of [0, 65, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const invalid of [0, 1001, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() => store.setMaxChildSteps(invalid)).toThrow(/Subagent settings are malformed/);
     }
     expect(() => store.setSynthesisOutputTokens(255)).toThrow(/synthesisOutputTokens/);
@@ -75,7 +75,7 @@ describe('assistant subagent preferences store', () => {
       throw new Error('persist version unavailable for test');
     }
     options.storage.setItem(options.name, {
-      state: { settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 999 } },
+      state: { settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 1001 } },
       version: options.version,
     });
     await storeWithPersist.persist.rehydrate();

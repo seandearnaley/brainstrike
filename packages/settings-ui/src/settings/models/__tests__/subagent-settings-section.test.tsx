@@ -21,9 +21,9 @@ describe('SubagentSettingsSection', () => {
   it('shows the four budgets with their defaults and ranges', () => {
     render(<SubagentSettingsSection />);
     const steps = screen.getByLabelText('Max steps per subagent');
-    expect(steps).toHaveValue(32);
+    expect(steps).toHaveValue(100);
     expect(steps).toHaveAttribute('min', '1');
-    expect(steps).toHaveAttribute('max', '64');
+    expect(steps).toHaveAttribute('max', '1000');
     expect(screen.getByLabelText('Summary output tokens')).toHaveValue(2048);
     expect(screen.getByLabelText('Max output tokens per subagent')).toHaveValue(32_768);
     expect(screen.getByLabelText('Max output tokens per step')).toHaveValue(8192);
@@ -75,12 +75,12 @@ describe('SubagentSettingsSection', () => {
     const user = userEvent.setup();
     render(<SubagentSettingsSection />);
     const steps = screen.getByLabelText('Max steps per subagent');
-    // Pasted, not typed: typing '99' writes the VALID '9' on its first keystroke.
+    // Pasted, not typed: typing '1001' writes the VALID '1' on its first keystroke.
     await user.clear(steps);
-    await user.paste('99');
-    expect(steps).toHaveValue(99);
+    await user.paste('1001');
+    expect(steps).toHaveValue(1001);
     expect(screen.getByRole('alert')).toHaveTextContent(/Subagent settings are malformed/);
-    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildSteps).toBe(32);
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildSteps).toBe(100);
     await user.clear(steps);
     await user.paste('40');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -107,7 +107,7 @@ describe('SubagentSettingsSection', () => {
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
     );
-    expect(screen.getByLabelText('Max steps per subagent')).toHaveValue(32);
+    expect(screen.getByLabelText('Max steps per subagent')).toHaveValue(100);
   });
 
   it('never presents a non-validation failure as a field message', () => {

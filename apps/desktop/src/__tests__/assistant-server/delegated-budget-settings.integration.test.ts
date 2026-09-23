@@ -190,7 +190,7 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
     expect((await database.query('SELECT 1 FROM brainstrike_delegation_budgets')).rows).toEqual([]);
   });
 
-  it('the defaults open a 32-step / 2048-token synthesis row', async () => {
+  it('the defaults open a 100-step / 2048-token synthesis row', async () => {
     const host = createDesktopDelegatedConversationHost(
       database,
       'leg',
@@ -202,6 +202,6 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
     const rows = await database.query<Record<string, number>>(
       "SELECT max_child_steps, synthesis_output_tokens FROM brainstrike_delegation_budgets WHERE root_thread_id = 'root'"
     );
-    expect(rows.rows).toEqual([{ max_child_steps: 32, synthesis_output_tokens: 2048 }]);
+    expect(rows.rows).toEqual([{ max_child_steps: 100, synthesis_output_tokens: 2048 }]);
   });
 });

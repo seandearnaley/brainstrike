@@ -8,7 +8,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { NATIVE_TOOL_ID } from '../native-tool-catalog.js';
-import { type AssistantPersonaDefinition, BUILT_IN_PERSONAS } from '../personas.js';
+import {
+  type AssistantPersonaDefinition,
+  BUILT_IN_PERSONAS,
+  effectiveChildStepBudget,
+} from '../personas.js';
+import { SUBAGENT_SETTINGS_LIMITS } from '../subagent-settings.js';
 import {
   buildUserPersona,
   DEFAULT_USER_PERSONA_MAX_STEPS,
@@ -349,6 +354,24 @@ describe('buildUserPersona', () => {
   it('exposes sane scan caps', () => {
     expect(MAX_USER_PERSONAS).toBeGreaterThan(0);
     expect(MAX_USER_PERSONA_MAX_STEPS).toBeGreaterThanOrEqual(DEFAULT_USER_PERSONA_MAX_STEPS);
+  });
+
+  it("lets the user's step setting govern a persona that declares no maxSteps", () => {
+    // Omitting maxSteps used to mean 8 steps regardless of the setting. It now
+    // declares the host ceiling, so effective = the setting; an author opts
+    // into a LOWER cap only by declaring one.
+    expect(MAX_USER_PERSONA_MAX_STEPS).toBe(SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max);
+    expect(DEFAULT_USER_PERSONA_MAX_STEPS).toBe(MAX_USER_PERSONA_MAX_STEPS);
+    const omitted = buildUserPersona({ content: validFile('description: d'), fileName: 'p.md' });
+    const declared = buildUserPersona({
+      content: validFile('description: d\nmaxSteps: 12'),
+      fileName: 'q.md',
+    });
+    if (!(omitted.ok && declared.ok)) {
+      throw new Error('expected both personas to parse');
+    }
+    expect(effectiveChildStepBudget(omitted.persona, { maxChildSteps: 250 })).toBe(250);
+    expect(effectiveChildStepBudget(declared.persona, { maxChildSteps: 250 })).toBe(12);
   });
 });
 

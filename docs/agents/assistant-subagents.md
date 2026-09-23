@@ -125,8 +125,8 @@ bespoke `subagent` tool.
 - **The step cap is DERIVED into the description, not written into prose — do not
   relitigate.** `delegationDescriptionForPersona` appends it from
   `effectiveChildStepBudget`, and both places a description reaches a model call
-  it. A built-in must not declare a budget a user persona cannot
-  (`MAX_USER_PERSONA_MAX_STEPS`).
+  it. Built-ins declare the host ceiling (`MAX_USER_PERSONA_MAX_STEPS`), so the
+  user's `maxChildSteps` setting governs and a persona can only lower it.
 - **Personas report PROVENANCE and never author the deliverable.** Child
   instructions require `path:line` for code and an explicit marker when a fact
   came from documentation or a comment.

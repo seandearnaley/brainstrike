@@ -14,7 +14,7 @@ describe('RuntimeSubagentSettings', () => {
     expect(DEFAULT_RUNTIME_SUBAGENT_SETTINGS).toEqual({
       maxChildOutputTokens: 32_768,
       maxChildRuntimeMs: null,
-      maxChildSteps: 32,
+      maxChildSteps: 100,
       maxStepOutputTokens: 8192,
       synthesisOutputTokens: 2048,
     });
@@ -33,7 +33,7 @@ describe('RuntimeSubagentSettings', () => {
   });
 
   it('pins the validation ranges and keeps the per-child ceiling under the tree ceiling', () => {
-    expect(SUBAGENT_SETTINGS_LIMITS.maxChildSteps).toEqual({ max: 64, min: 1 });
+    expect(SUBAGENT_SETTINGS_LIMITS.maxChildSteps).toEqual({ max: 1000, min: 1 });
     expect(SUBAGENT_SETTINGS_LIMITS.synthesisOutputTokens).toEqual({ max: 8192, min: 256 });
     expect(SUBAGENT_SETTINGS_LIMITS.maxChildOutputTokens.max).toBe(
       DELEGATION_LIMITS.maxTreeOutputTokens
@@ -48,7 +48,7 @@ describe('RuntimeSubagentSettings', () => {
     const value = {
       maxChildOutputTokens: 65_536,
       maxChildRuntimeMs: 3_600_000,
-      maxChildSteps: 64,
+      maxChildSteps: 1000,
       maxStepOutputTokens: 4096,
       synthesisOutputTokens: 256,
     };
@@ -76,7 +76,7 @@ describe('RuntimeSubagentSettings', () => {
     ],
     ['an unknown field', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth: 9 }],
     ['zero steps', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 0 }],
-    ['65 steps', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 65 }],
+    ['1001 steps', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 1001 }],
     ['fractional steps', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 2.5 }],
     ['synthesis below 256', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, synthesisOutputTokens: 255 }],
     ['synthesis above 8192', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, synthesisOutputTokens: 8193 }],
