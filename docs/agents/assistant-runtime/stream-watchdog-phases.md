@@ -500,3 +500,53 @@ post-prepare capture dropping the stall; output events requiring every id; a
 malformed event throwing; the manager feed restarting a host-run task; a wait
 that never releases its listener; a listener per part; and a renamed Mastra
 key in each map (type-check).
+
+### 2026-09-22 — targeted review of PR #3286 at 2cd023d27 (BST-1802)
+
+- **The stall throw in `afterToolCall` (verified; no restructure needed).** Read
+  in full (`delegated-conversation-binding.ts`, the hook at `afterToolCall`).
+  Every release (`preparedKeys`, the staged deadline, the stall end) comes
+  before the stall throw. The only statement after it is the deadline check,
+  which only throws, and the stall supersedes it. A comment now states that
+  invariant. The pins were strengthened to catch a skipped release: after the
+  hook rejects, whether the unwinding child resolved or threw its abort, the
+  stall end is gone, a second hook call is a no-op, a new execution may prepare
+  at the address, and a deadline staged there is not inherited. Mutations
+  (throw before any release; keep the staged deadline; keep the prepared
+  address; keep the stall end) each turned them red.
+  - **Persistence owner.** `composeDelegatedHooks` runs it whatever the binding
+    throws (`runtime-assembly/stream-options.ts`, `Promise.allSettled`), pinned
+    by `stream-options.spec.ts` ("rejects.toBe(failure)" then two persist
+    calls).
+  - **Mastra always calls the hook.** `wrapToolWithHooks` calls
+    `afterToolCall` on a throw and on success (`@mastra/core` 1.64.0
+    `dist/agent-DsRUDsS_.js`, in `wrapToolWithHooks`). The hooks and the
+    delegation config are installed together, descendants included, through
+    `delegatedExecutionOptions`.
+- **A resumed child's stall address (verified; not a defect).** The resume
+  leg's host executor calls the native `execute` with `toolCallId: task.toolCallId`
+  and `messages: []`. Mastra's tool wrapper treats that as an agent execution
+  (`dist/utils-C9npriyv.js`: `isAgentExecution`, `agent.toolCallId`). The agent
+  tool takes the delegation's `toolCallId` from `context.agent.toolCallId`, and
+  its `runId` from `getToolsForExecution({ runId: task.runId })`. So `prepare`
+  registers `{task.runId, task.toolCallId}`, the same address the stall uses;
+  the "leaf" mutation in `background-resume.ts` concerns only the after-call
+  context.
+  - **Integration guard.** `background-child-watchdog.integration.spec.ts` ("a
+    resumed child's stall ends that resumed execution as its own failed task")
+    wedges an approval-resumed child. It is ended at its inter-output window,
+    the task fails with the stall text, the child gets one `run.failed`, and
+    the leg never stalls. Mutations: addressing the stall to another call id
+    turns it red; so does never watching the host execution (the child then
+    ends at the first-output window with a different message).
+  - **Unit guard.** `background-resume.spec.ts` now also pins the dispatch
+    address the host execution registers.
+- **A manager that errors the feed on our own abort** is disposal, not a lost
+  feed. The `catch` branch now has the `done` branch's `!disposed` guard, so it
+  logs nothing.
+- **Watch churn elsewhere.** The watchdogs announce every watch change in the
+  root scope. A parent waiting on held work now re-judges its wait only when
+  its OWN verdict (`watching(held)`) flips, so another task's watch starting or
+  ending never pushes back the first-output bound on its unwatched held work.
+  Pinned with a stand-in and with the real watchdogs, and mutating the flip
+  check turns both red.

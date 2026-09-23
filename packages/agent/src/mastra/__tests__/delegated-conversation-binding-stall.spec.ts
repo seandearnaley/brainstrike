@@ -62,10 +62,29 @@ async function thrownBy(run: () => unknown): Promise<unknown> {
   return;
 }
 
+/**
+ * Every entry the hook owns for one execution is gone: its stall end, its
+ * prepared address, and any deadline staged at that address.
+ */
+function expectReleased(
+  binding: ReturnType<typeof createDelegatedConversationBinding>,
+  staged: AbortController
+): void {
+  // The stall end: nothing of that execution is left to end.
+  expect(binding.endStalledExecution(target, stall())).toBe(false);
+  // The prepared address: the hook has nothing more to release…
+  expect(afterToolCall(binding)).toBeUndefined();
+  // …and a new execution of the invocation may prepare there.
+  expect(() => binding.prepare(startContext(), { persona: 'explore' })).not.toThrow();
+  // The staged deadline: the new execution never inherits it.
+  staged.abort(new Error('A stale deadline'));
+  expect(binding.getExecutionAbortSignal?.(target)?.aborted).toBe(false);
+}
+
 describe('a stalled background child ends its own execution', () => {
   it('has nothing to end before the invocation is prepared', () => {
     const binding = createDelegatedConversationBinding(async () => {});
-    expect(binding.endStalledExecution?.(target, stall())).toBe(false);
+    expect(binding.endStalledExecution(target, stall())).toBe(false);
   });
 
   it('aborts the child and its execution with the stall, never its cancellation', () => {
@@ -73,7 +92,7 @@ describe('a stalled background child ends its own execution', () => {
     const context = startContext();
     binding.prepare(context, { persona: 'explore' });
     const reason = stall();
-    expect(binding.endStalledExecution?.(target, reason)).toBe(true);
+    expect(binding.endStalledExecution(target, reason)).toBe(true);
     expect(binding.getAbortSignal?.(context.requestContext)?.reason).toBe(reason);
     expect(binding.getExecutionAbortSignal?.(target)?.reason).toBe(reason);
     // A stall is a failure, not the user's selected Stop.
@@ -84,7 +103,7 @@ describe('a stalled background child ends its own execution', () => {
     const binding = createDelegatedConversationBinding(async () => {});
     binding.prepare(startContext(), { persona: 'explore' });
     const reason = stall();
-    binding.endStalledExecution?.(target, reason);
+    binding.endStalledExecution(target, reason);
     expect(await thrownBy(() => afterToolCall(binding))).toBe(reason);
   });
 
@@ -92,7 +111,7 @@ describe('a stalled background child ends its own execution', () => {
     const binding = createDelegatedConversationBinding(async () => {});
     binding.prepare(startContext(), { persona: 'explore' });
     const reason = stall();
-    binding.endStalledExecution?.(target, reason);
+    binding.endStalledExecution(target, reason);
     const unwind = new DOMException('This operation was aborted', 'AbortError');
     expect(await thrownBy(() => afterToolCall(binding, unwind))).toBe(reason);
   });
@@ -103,23 +122,42 @@ describe('a stalled background child ends its own execution', () => {
     expect(await thrownBy(() => afterToolCall(binding))).toBeUndefined();
   });
 
-  it('releases a stalled execution before its hook rejects', async () => {
-    // The hook's own cleanup runs first; the stall is thrown last.
-    const binding = createDelegatedConversationBinding(async () => {});
-    binding.prepare(startContext(), { persona: 'explore' });
-    const reason = stall();
-    binding.endStalledExecution?.(target, reason);
-    expect(await thrownBy(() => afterToolCall(binding))).toBe(reason);
-    expect(binding.endStalledExecution?.(target, stall())).toBe(false);
-  });
+  it.each([
+    { label: 'the unwinding child resolved', unwind: undefined },
+    {
+      label: 'the unwinding child threw its abort',
+      unwind: new DOMException('This operation was aborted', 'AbortError'),
+    },
+  ])(
+    'releases everything a stalled execution holds before its hook rejects ($label)',
+    async ({ unwind }) => {
+      const binding = createDelegatedConversationBinding(async () => {});
+      binding.prepare(startContext(), { persona: 'explore' });
+      // A deadline staged for the NEXT execution of this invocation.
+      const staged = new AbortController();
+      binding.captureExecutionAbortSignal?.(
+        { ...target, parentThreadId: 'root-thread' },
+        staged.signal
+      );
+      const reason = stall();
+      binding.endStalledExecution(target, reason);
+      expect(await thrownBy(() => afterToolCall(binding, unwind))).toBe(reason);
+      expectReleased(binding, staged);
+    }
+  );
 
-  it('releases an execution that failed before its child streamed', async () => {
+  it('releases everything an execution holds when it failed before its child streamed', async () => {
     const binding = createDelegatedConversationBinding(async () => {});
     binding.prepare(startContext(), { persona: 'explore' });
+    const staged = new AbortController();
+    binding.captureExecutionAbortSignal?.(
+      { ...target, parentThreadId: 'root-thread' },
+      staged.signal
+    );
     expect(
       await thrownBy(() => afterToolCall(binding, new Error('Child admission failed')))
     ).toBeUndefined();
-    expect(binding.endStalledExecution?.(target, stall())).toBe(false);
+    expectReleased(binding, staged);
   });
 
   it('keeps the stall in an execution signal captured after preparation', () => {
@@ -131,7 +169,7 @@ describe('a stalled background child ends its own execution', () => {
       native.signal
     );
     const reason = stall();
-    binding.endStalledExecution?.(target, reason);
+    binding.endStalledExecution(target, reason);
     const ended = binding.getExecutionAbortSignal?.(target);
     expect(ended?.reason).toBe(reason);
     // The child's terminal reads this signal: its detail and breadcrumb survive.
@@ -164,6 +202,6 @@ describe('a stalled background child ends its own execution', () => {
     const binding = createDelegatedConversationBinding(async () => {});
     binding.prepare(startContext(), { persona: 'explore' });
     await afterToolCall(binding);
-    expect(binding.endStalledExecution?.(target, stall())).toBe(false);
+    expect(binding.endStalledExecution(target, stall())).toBe(false);
   });
 });

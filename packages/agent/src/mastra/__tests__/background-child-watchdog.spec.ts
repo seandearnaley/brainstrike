@@ -75,13 +75,23 @@ const envelope = (taskId: string, type: string, payload: Record<string, unknown>
 const output = (taskId: string, type: string, payload: Record<string, unknown> = {}) =>
   lifecycle('background-task-output', taskId, { payload: envelope(taskId, type, payload) });
 
-function createManager() {
+function createManager(onAbort: 'close' | 'error' = 'close') {
   let controller: ReadableStreamDefaultController<unknown> | undefined;
   const stream = vi.fn(
-    (_options: Parameters<BackgroundTaskManager['stream']>[0]) =>
+    (options: Parameters<BackgroundTaskManager['stream']>[0]) =>
       new ReadableStream<unknown>({
         start(streamController) {
           controller = streamController;
+          // Mastra 1.64 closes on abort; a manager that errors instead must not
+          // read as a lost feed.
+          options?.abortSignal?.addEventListener(
+            'abort',
+            () =>
+              onAbort === 'close'
+                ? streamController.close()
+                : streamController.error(new Error('stream aborted')),
+            { once: true }
+          );
         },
       })
   );
@@ -102,8 +112,8 @@ function createManager() {
   };
 }
 
-function setup(delivered = true) {
-  const native = createManager();
+function setup(delivered = true, onAbort: 'close' | 'error' = 'close') {
+  const native = createManager(onAbort);
   const endExecution = vi.fn(
     (_target: { parentRuntimeRunId: string; parentToolCallId: string }, _stall: unknown) =>
       delivered
@@ -568,6 +578,53 @@ describe('each background child is judged by its own watchdog', () => {
     // A released listener hears nothing more, even from a late host execution.
     watchdogs.hostExecution({ runId: 'root-run', taskId: 't2', toolCallId: 'call-t2' }).end();
     expect(heard).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['close', 'error'] as const)(
+    'an ordinary disposal is never logged as a lost feed (the manager %ss the stream)',
+    async (onAbort) => {
+      const { native, watchdogs } = setup(true, onAbort);
+      await native.emit(lifecycle('background-task-running', 't1'));
+      watchdogs.dispose();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(loggedCodes()).toEqual([]);
+    }
+  );
+
+  it("churn of a watch the parent does not hold never extends the parent's bound", async () => {
+    const { native, watchdogs } = setup();
+    async function* parentParts(): AsyncGenerator<string> {
+      yield 'answer';
+      // Held, but nothing watches it: dispatched and not running yet.
+      yield 'hold';
+      await new Promise<never>(() => {
+        // The parent waits on its held child.
+      });
+    }
+    let stall: unknown;
+    const parent = (async () => {
+      for await (const _part of withInactivityTimeout(parentParts(), WINDOWS, {
+        heldWork: watchdogs,
+        routePart: (part) =>
+          part === 'hold' ? { holds: 't1', kind: 'bookkeeping' } : { kind: 'produced', part },
+      })) {
+        // Drain; the verdict is the watchdog's.
+      }
+    })().catch((error: unknown) => {
+      stall = error;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    // An unrelated task starts and ends its watch while the parent waits.
+    await vi.advanceTimersByTimeAsync(2000);
+    await native.emit(lifecycle('background-task-running', 'other'));
+    await vi.advanceTimersByTimeAsync(1000);
+    await native.emit(output('other', 'finish'));
+    await vi.advanceTimersByTimeAsync(WINDOWS.firstOutputMs - 3000 - 1);
+    expect(stall).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    await parent;
+    expect(stall).toMatchObject({ inactivityMs: WINDOWS.firstOutputMs, phase: 'awaiting-output' });
+    watchdogs.dispose();
   });
 
   it('judges nothing after disposal', async () => {

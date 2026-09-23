@@ -436,6 +436,8 @@ export function createDelegatedConversationBinding(
         if (nativeKey) {
           stalls.delete(nativeKey);
         }
+        // Everything this hook releases is released above; below it only
+        // decides the outcome, so a throw from here skips no release.
         // The stall is why this execution ended, whatever the unwinding child
         // threw or returned: without it Mastra would read the abort as a
         // timeout, or the empty result as a completion.

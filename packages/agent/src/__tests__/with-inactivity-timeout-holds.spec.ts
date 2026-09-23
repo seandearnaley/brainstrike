@@ -241,6 +241,29 @@ describe('withInactivityTimeout — background work that holds the stream open',
     expect(watch.live()).toBe(0);
   });
 
+  it('a watch change that does not flip the verdict keeps the original deadline', async () => {
+    const watch = createWatch(false);
+    const watched = watchStream(
+      [
+        [0, { type: 'text' }],
+        [0, { task: 't1', type: 'hold' }],
+      ],
+      watch
+    );
+    await vi.advanceTimersByTimeAsync(3000);
+    // Scope-wide churn: announced, but this stream's held work is still unwatched.
+    watch.set(false);
+    // The timeline delivers each part a fake millisecond apart.
+    await vi.advanceTimersByTimeAsync(WINDOWS.firstOutputMs - 3000 - 10);
+    expect(watched.stall()).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(20);
+    await watched.drained;
+    expect(watched.stall()).toMatchObject({
+      inactivityMs: WINDOWS.firstOutputMs,
+      phase: 'awaiting-output',
+    });
+  });
+
   it('ignores the watch while nothing holds the stream open', async () => {
     const watched = watchStream([[0, { type: 'text' }]], createWatch(true));
     await vi.advanceTimersByTimeAsync(WINDOWS.interOutputMs);

@@ -637,7 +637,8 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
       }),
     });
     await expect(ended).resolves.toEqual({ error: undefined });
-    expect(watches).toEqual(['watch:t1', 'observe:t1', 'end:t1']);
+    // Addressed by the task's own dispatch: the key `prepare` registered.
+    expect(watches).toEqual(['watch:t1:root-run:call-t1', 'observe:t1', 'end:t1']);
   }, 2000);
 
   it('a task cancelled while its resumed executor is still in flight settles the join', async () => {

@@ -298,7 +298,8 @@ export function startLeg(params: {
   const backgroundChildWatchdogs: BackgroundChildWatchdogs = {
     dispose: () => {},
     hostExecution: (task) => {
-      watches.push(`watch:${task.taskId}`);
+      // The dispatch address a stall of this execution is delivered to.
+      watches.push(`watch:${task.taskId}:${task.runId}:${task.toolCallId}`);
       return {
         end: () => {
           watches.push(`end:${task.taskId}`);

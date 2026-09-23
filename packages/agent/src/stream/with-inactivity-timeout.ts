@@ -198,7 +198,9 @@ export interface HeldWorkWatch {
   /**
    * Call `listener` whenever {@link watching} may have changed; returns its
    * release. The stream subscribes only while it waits, and releases before
-   * the next wait, so a long wait keeps one listener, never one per part.
+   * the next wait, so a long wait keeps one listener, never one per part. It
+   * re-judges its wait only when its own verdict flips, so churn elsewhere
+   * never pushes its deadline back.
    */
   subscribe(listener: () => void): () => void;
   /** Whether any of the stream's `held` work is judged by its own watchdog right now. */
@@ -484,9 +486,16 @@ export async function* withInactivityTimeout<T>(
         );
       }
       if (held.size > 0 && heldWork) {
+        // Only a flip of THIS stream's verdict re-judges the wait: another
+        // task's watch starting or ending must not push the deadline back.
+        const watchedNow = heldWork.watching(held);
         racers.push(
           new Promise<typeof WATCH_CHANGED>((resolve) => {
-            releaseWatch = heldWork.subscribe(() => resolve(WATCH_CHANGED));
+            releaseWatch = heldWork.subscribe(() => {
+              if (heldWork.watching(held) !== watchedNow) {
+                resolve(WATCH_CHANGED);
+              }
+            });
           })
         );
       }

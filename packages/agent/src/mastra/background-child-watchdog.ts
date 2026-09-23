@@ -433,12 +433,15 @@ export function createBackgroundChildWatchdogs(
         dispose();
       }
     } catch (error) {
-      logger.error('Background child watchdogs lost their lifecycle feed; watching no child', {
-        code: 'background_child_watchdog_feed_failed',
-        error: error instanceof Error ? error.message : String(error),
-        watching: [...watches.keys()],
-      });
-      dispose();
+      // A manager may error the stream on our own abort: that is disposal.
+      if (!disposed) {
+        logger.error('Background child watchdogs lost their lifecycle feed; watching no child', {
+          code: 'background_child_watchdog_feed_failed',
+          error: error instanceof Error ? error.message : String(error),
+          watching: [...watches.keys()],
+        });
+        dispose();
+      }
     } finally {
       reader.releaseLock();
     }
