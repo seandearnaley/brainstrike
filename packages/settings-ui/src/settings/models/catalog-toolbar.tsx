@@ -216,10 +216,8 @@ function ProvidersPopover({
           size="sm"
           variant="outline"
         >
-          Providers
-          <span className="text-muted-foreground">
-            {selected.size === 0 ? 'All' : selected.size}
-          </span>
+          <span className="text-muted-foreground">Providers:</span>
+          <span>{selected.size === 0 ? 'All' : selected.size}</span>
           <ChevronDown aria-hidden="true" className="size-3.5" />
         </Button>
       </PopoverTrigger>
@@ -319,7 +317,8 @@ export function CatalogToolbar({
             data-testid="model-catalog-search"
             onChange={(event) => update('query', event.target.value)}
             onKeyDown={(event) => {
-              if (event.key !== 'Escape') {
+              // Esc during IME composition cancels the composition, not the query.
+              if (event.key !== 'Escape' || event.nativeEvent.isComposing) {
                 return;
               }
               if (filters.query) {
@@ -366,9 +365,12 @@ export function CatalogToolbar({
                 <SlidersHorizontal aria-hidden="true" className="size-3.5" />
                 Filters
                 {activeFilterCount > 0 ? (
-                  <Badge className="h-4 px-1 text-[10px]" variant="secondary">
-                    {activeFilterCount}
-                  </Badge>
+                  <>
+                    {' '}
+                    <Badge className="h-4 px-1 text-[10px]" variant="secondary">
+                      {activeFilterCount} <span className="sr-only">active</span>
+                    </Badge>
+                  </>
                 ) : null}
               </Button>
             </PopoverTrigger>

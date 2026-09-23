@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createRef, useRef, useState } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
@@ -103,6 +103,15 @@ describe('CatalogToolbar', () => {
     expect(search).not.toHaveFocus();
   });
 
+  it('leaves the query alone when Esc ends an IME composition', async () => {
+    render(<Harness />);
+    const search = screen.getByRole('searchbox', { name: 'Search models' });
+    await userEvent.type(search, 'claude');
+    fireEvent.keyDown(search, { isComposing: true, key: 'Escape' });
+    expect(search).toHaveValue('claude');
+    expect(search).toHaveFocus();
+  });
+
   it('switches status and type with native radio groups (Type defaults to All)', async () => {
     const onChange = vi.fn();
     render(<Harness onChange={onChange} />);
@@ -129,7 +138,9 @@ describe('CatalogToolbar', () => {
   it('filters by provider from the Providers popover', async () => {
     const onChange = vi.fn();
     render(<Harness onChange={onChange} />);
-    await userEvent.click(screen.getByTestId('model-catalog-providers-trigger'));
+    const trigger = screen.getByTestId('model-catalog-providers-trigger');
+    expect(trigger).toHaveTextContent('Providers:All');
+    await userEvent.click(trigger);
     await userEvent.click(await screen.findByRole('checkbox', { name: /OpenAI/ }));
     const last = onChange.mock.lastCall?.[0] as CatalogFilters | undefined;
     expect([...(last?.providerIds ?? [])]).toEqual(['openai']);
@@ -182,7 +193,7 @@ describe('CatalogToolbar', () => {
     expect(screen.queryByRole('button', { name: 'Vision' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('model-catalog-providers-trigger')).not.toBeInTheDocument();
     const trigger = screen.getByTestId('model-catalog-filters-trigger');
-    expect(trigger).toHaveTextContent('Filters2');
+    expect(trigger).toHaveAccessibleName('Filters 2 active');
     await userEvent.click(trigger);
     expect(await screen.findByRole('button', { name: 'Vision' })).toHaveAttribute(
       'aria-pressed',
