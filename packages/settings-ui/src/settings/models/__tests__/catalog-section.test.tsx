@@ -93,6 +93,24 @@ describe('CatalogSection header', () => {
     expect(props.onToggleSection).toHaveBeenCalledWith('openai');
   });
 
+  it('truncates a long provider name inside the header instead of painting over the count', () => {
+    renderSection({ section: { ...SECTION, providerName: 'Amazon Bedrock' } });
+    const header = screen.getByTestId('model-catalog-section-header-openai');
+    const heading = within(header).getByRole('heading', { level: 3 });
+    const disclosure = within(heading).getByRole('button', { name: /Amazon Bedrock/ });
+    const name = within(disclosure).getByText('Amazon Bedrock');
+    // A button is shrink-to-fit even as display:flex, so the h3 must itself be a
+    // shrinkable flex container and the button a min-w-0 flex item capped at the
+    // h3 width; only then can the name's `truncate` engage (live defect at 900px).
+    const headingClasses = heading.className.split(' ');
+    expect(headingClasses).toEqual(expect.arrayContaining(['flex', 'min-w-0']));
+    const disclosureClasses = disclosure.className.split(' ');
+    expect(disclosureClasses).toEqual(expect.arrayContaining(['min-w-0', 'max-w-full']));
+    expect(name.className.split(' ')).toContain('truncate');
+    // The clipped name stays available in full to pointer users.
+    expect(name).toHaveAttribute('title', 'Amazon Bedrock');
+  });
+
   it('shows the runtime tag, the enabled meter text, and unfiltered bulk labels', () => {
     renderSection();
     const header = screen.getByTestId('model-catalog-section-header-openai');

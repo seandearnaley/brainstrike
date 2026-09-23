@@ -148,11 +148,11 @@ export function CatalogSection({
         )}
         data-testid={`model-catalog-section-header-${providerId}`}
       >
-        <h3 className="min-w-0">
+        <h3 className="flex min-w-0">
           <button
             aria-controls={regionId}
             aria-expanded={expanded}
-            className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="flex min-w-0 max-w-full items-center gap-2 rounded-md px-1 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             data-testid={`model-catalog-section-toggle-${providerId}`}
             onClick={() => onToggleSection(providerId)}
             type="button"
@@ -165,7 +165,9 @@ export function CatalogSection({
               )}
             />
             <ProviderTile providerId={providerId} />
-            <span className="truncate font-semibold text-sm">{section.providerName}</span>
+            <span className="truncate font-semibold text-sm" title={section.providerName}>
+              {section.providerName}
+            </span>
             {!compact && section.runtimeLabel ? (
               <Badge
                 className="h-5 shrink-0 px-1.5 font-medium text-[10px] uppercase tracking-wide"
