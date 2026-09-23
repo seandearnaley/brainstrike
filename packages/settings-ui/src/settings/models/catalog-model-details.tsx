@@ -1,5 +1,6 @@
 import { Badge, CopyTextButton } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
+import { Absent } from './catalog-cells';
 import { formatUsd } from './catalog-format';
 import type { CatalogPricing, CatalogRow } from './catalog-projection';
 import { useCatalogRowActions } from './use-catalog-row-actions';
@@ -27,13 +28,27 @@ function Chips({ values }: { readonly values: readonly string[] }) {
   );
 }
 
-function formatWindow(row: CatalogRow): string {
-  if (row.contextWindow === null && row.maxOutputTokens === null) {
-    return 'Not published';
+function WindowFact({ row }: { readonly row: CatalogRow }) {
+  const { contextWindow, maxOutputTokens } = row;
+  if (contextWindow === null && maxOutputTokens === null) {
+    return <Fact label="Context · Max output">Not published</Fact>;
   }
-  const context = row.contextWindow === null ? '—' : fullNumber.format(row.contextWindow);
-  const output = row.maxOutputTokens === null ? '—' : fullNumber.format(row.maxOutputTokens);
-  return `${context} · ${output} tokens`;
+  return (
+    <Fact label="Context · Max output">
+      {contextWindow === null ? (
+        <Absent title="Context window not published" />
+      ) : (
+        fullNumber.format(contextWindow)
+      )}
+      {' · '}
+      {maxOutputTokens === null ? (
+        <Absent title="Max output not published" />
+      ) : (
+        fullNumber.format(maxOutputTokens)
+      )}
+      {' tokens'}
+    </Fact>
+  );
 }
 
 function pricingLines(pricing: CatalogPricing | null): string[] {
@@ -53,8 +68,11 @@ function pricingLines(pricing: CatalogPricing | null): string[] {
 }
 
 function ReasoningFact({ row }: { readonly row: CatalogRow }) {
-  if (row.reasoning === null) {
+  if (row.type === 'embedding') {
     return null;
+  }
+  if (row.reasoning === null) {
+    return <Fact label="Reasoning effort">Not published</Fact>;
   }
   let content: ReactNode;
   switch (row.reasoning.state) {
@@ -105,7 +123,7 @@ export function CatalogModelDetails({ row }: { readonly row: CatalogRow }) {
           </span>
         </Fact>
         {row.type === 'chat' ? (
-          <Fact label="Context · Max output">{formatWindow(row)}</Fact>
+          <WindowFact row={row} />
         ) : (
           <Fact label="Dimensions">
             {row.dimension === null ? 'Not published' : fullNumber.format(row.dimension)}

@@ -149,10 +149,55 @@ describe('catalog model rows', () => {
     expect(screen.getByText('No published context window')).toBeInTheDocument();
     expect(screen.getByText('No published max output')).toBeInTheDocument();
     expect(screen.getByText('No published price')).toBeInTheDocument();
-    expect(screen.getByText('No published capabilities')).toBeInTheDocument();
+    expect(screen.getByText('Vision not published')).toBeInTheDocument();
+    expect(screen.getByText('Reasoning not published')).toBeInTheDocument();
     const row = screen.getByTestId('model-row-bare').closest('tr');
     expect(row?.textContent).not.toMatch(/\$0|(^|\D)0K/);
   });
+
+  it.each([
+    {
+      absent: ['Vision not published'],
+      name: 'vision missing, reasoning unverified',
+      reasoning: { reason: 'openrouter-undeclared', state: 'unknown' },
+      states: ['absent', 'unknown'],
+      vision: null,
+    },
+    {
+      absent: ['Reasoning not published'],
+      name: 'vision supported, reasoning missing',
+      reasoning: null,
+      states: ['supported', 'absent'],
+      vision: 'supported',
+    },
+    {
+      absent: ['Vision not published', 'Reasoning not published'],
+      name: 'both missing',
+      reasoning: null,
+      states: ['absent', 'absent'],
+      vision: null,
+    },
+  ] as const)(
+    'keeps each capability in its own slot when $name',
+    ({ absent, reasoning, states, vision }) => {
+      renderRows([makeCatalogRow({ id: 'caps', reasoning, vision })]);
+      const row = screen.getByTestId('model-row-caps').closest('tr');
+      const slots = Array.from(row?.querySelectorAll('[data-capability-slot]') ?? []);
+      expect(slots.map((slot) => slot.getAttribute('data-capability-slot'))).toEqual([
+        'vision',
+        'reasoning',
+      ]);
+      expect(slots.map((slot) => slot.getAttribute('data-capability-state'))).toEqual(states);
+      for (const text of absent) {
+        const label = screen.getByText(text);
+        expect(label).toHaveClass('sr-only');
+        expect(label.closest('[data-capability-slot]')?.getAttribute('data-capability-slot')).toBe(
+          text.startsWith('Vision') ? 'vision' : 'reasoning'
+        );
+      }
+      expect(row?.textContent).not.toMatch(/No published capabilities/);
+    }
+  );
 
   it('labels an unknown reasoning state "unverified"', () => {
     renderRows([
@@ -365,6 +410,70 @@ describe('catalog details row', () => {
     expect(within(details).getByText('Unverified')).toBeInTheDocument();
     expect(within(details).getByText('Not published')).toBeInTheDocument();
     expect(within(details).getByText('No published price')).toBeInTheDocument();
+  });
+
+  it('names the missing context window while showing the published max output', () => {
+    renderRows([makeCatalogRow({ contextWindow: null, id: 'half', maxOutputTokens: 128_000 })], {
+      expandedIds: ['half'],
+    });
+    const details = screen.getByTestId('model-details-half');
+    const missing = within(details).getByText('Context window not published');
+    expect(missing).toHaveClass('sr-only');
+    const value = within(details).getByText('Context · Max output').nextElementSibling;
+    expect(value).toHaveTextContent(/^—Context window not published · 128,000 tokens$/);
+  });
+
+  it('names the missing max output while showing the published context window', () => {
+    renderRows([makeCatalogRow({ contextWindow: 200_000, id: 'half', maxOutputTokens: null })], {
+      expandedIds: ['half'],
+    });
+    const details = screen.getByTestId('model-details-half');
+    expect(within(details).getByText('Max output not published')).toHaveClass('sr-only');
+    const value = within(details).getByText('Context · Max output').nextElementSibling;
+    expect(value).toHaveTextContent(/^200,000 · —Max output not published tokens$/);
+  });
+
+  it('says Not published for a chat row whose reasoning support is unknown to the registry', () => {
+    renderRows(
+      [
+        makeCatalogRow({
+          contextWindow: 200_000,
+          id: 'unreg',
+          maxOutputTokens: 8000,
+          reasoning: null,
+          reasoningEfforts: null,
+        }),
+      ],
+      { expandedIds: ['unreg'] }
+    );
+    const details = screen.getByTestId('model-details-unreg');
+    const label = within(details).getByText('Reasoning effort');
+    expect(label.nextElementSibling).toHaveTextContent('Not published');
+  });
+
+  it('omits the reasoning fact for an embedding row', () => {
+    renderRows(
+      [makeCatalogRow({ dimension: 1536, id: 'emb', reasoning: null, type: 'embedding' })],
+      { expandedIds: ['emb'] }
+    );
+    expect(
+      within(screen.getByTestId('model-details-emb')).queryByText('Reasoning effort')
+    ).not.toBeInTheDocument();
+  });
+
+  it('says Supported when reasoning is supported without an effort ladder', () => {
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'r',
+          reasoning: { source: 'model', state: 'supported' },
+          reasoningEfforts: [],
+        }),
+      ],
+      { expandedIds: ['r'] }
+    );
+    const label = within(screen.getByTestId('model-details-r')).getByText('Reasoning effort');
+    expect(label.nextElementSibling).toHaveTextContent(/^Supported$/);
   });
 
   it('shows the cache path for a downloaded local model', () => {

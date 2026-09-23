@@ -39,7 +39,7 @@ function HighlightedText({ query, text }: { readonly query: string; readonly tex
 }
 
 /** An unpublished fact: a visible dash, with the reason for screen readers and on hover. */
-function Absent({ title }: { readonly title: string }) {
+export function Absent({ title }: { readonly title: string }) {
   return (
     <span className="text-muted-foreground text-xs" title={title}>
       <span aria-hidden="true">—</span>
@@ -115,17 +115,32 @@ const CAPABILITY_CLASS: Record<CapabilityState, string> = {
   unsupported: 'text-muted-foreground/35',
 };
 
-function CapabilityIcon({
+/**
+ * One fixed capability slot. Vision and reasoning always occupy their own slot,
+ * so a missing fact renders its own dash in place and never shifts its
+ * neighbour's icon into the wrong column.
+ */
+function CapabilitySlot({
   icon,
   label,
+  slot,
   state,
 }: {
   readonly icon: ReactNode;
   readonly label: string;
+  readonly slot: 'reasoning' | 'vision';
   readonly state: CapabilityState | null;
 }) {
   if (state === null) {
-    return null;
+    return (
+      <span
+        className="inline-flex size-5 items-center justify-center"
+        data-capability-slot={slot}
+        data-capability-state="absent"
+      >
+        <Absent title={`${label} not published`} />
+      </span>
+    );
   }
   const description = `${label} ${CAPABILITY_COPY[state]}`;
   return (
@@ -135,6 +150,8 @@ function CapabilityIcon({
         'inline-flex size-5 items-center justify-center rounded',
         CAPABILITY_CLASS[state]
       )}
+      data-capability-slot={slot}
+      data-capability-state={state}
       role="img"
       title={description}
     >
@@ -158,23 +175,18 @@ export function CapabilitiesCell({ row }: { readonly row: CatalogRow }) {
       </div>
     );
   }
-  if (row.vision === null && row.reasoning === null) {
-    return (
-      <div className={ROW_LINE}>
-        <Absent title="No published capabilities" />
-      </div>
-    );
-  }
   return (
     <div className={cn(ROW_LINE, 'gap-1.5')}>
-      <CapabilityIcon
+      <CapabilitySlot
         icon={<Eye aria-hidden="true" className="size-3.5" />}
         label="Vision"
+        slot="vision"
         state={row.vision}
       />
-      <CapabilityIcon
+      <CapabilitySlot
         icon={<Sun aria-hidden="true" className="size-3.5" />}
         label="Reasoning"
+        slot="reasoning"
         state={row.reasoning?.state ?? null}
       />
     </div>
