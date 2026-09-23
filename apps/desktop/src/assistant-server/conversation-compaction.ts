@@ -290,11 +290,13 @@ export function resolveCompactionInputBudget(runtimeData: RuntimeData): number {
   if (!definition) {
     throw new Error(`Unknown compaction input budget for ${provider}/${model}.`);
   }
-  return deriveAgentLoopInputTokenLimit(
-    definition,
-    provider,
-    buildModelSettingsOption(runtimeData).modelSettings?.maxOutputTokens
-  );
+  // Only OpenRouter reserves the request's output; a direct provider reserves
+  // the catalog maximum, so it never runs the stream-option builder.
+  const requestMaxOutputTokens =
+    provider === 'openrouter'
+      ? buildModelSettingsOption(runtimeData).modelSettings?.maxOutputTokens
+      : undefined;
+  return deriveAgentLoopInputTokenLimit(definition, provider, requestMaxOutputTokens);
 }
 
 function isAtTrigger(
