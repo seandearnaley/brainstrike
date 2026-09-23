@@ -71,6 +71,10 @@ let capturedLocalAdapterOptions: {
 } | null = null;
 
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
+// cmdk (composer model picker) scrolls the active option into view; happy-dom
+// has no layout.
+window.HTMLElement.prototype.scrollIntoView = vi.fn();
+
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
@@ -1432,7 +1436,7 @@ describe('AssistantUiPanel model picker', () => {
     const container = screen.getByTestId('assistant-model-dropdown');
     expect(container).toBeInTheDocument();
 
-    // Verify the ComposerModelMenu trigger button exists
+    // Verify the ComposerModelPicker trigger button exists
     const trigger = within(container).getByRole('button', { name: /Selected model/ });
     expect(trigger).toBeInTheDocument();
     expect(screen.queryByText(/OpenAI \/ GPT-5\.2/)).not.toBeInTheDocument();
@@ -1488,25 +1492,19 @@ describe('AssistantUiPanel model picker', () => {
 
     render(<AssistantUiPanel {...baseProps} onModelChange={onModelChange} />);
 
-    // Open the composer model menu and drill into More models -> Anthropic.
+    // Open the composer model picker and search for the model.
     const container = screen.getByTestId('assistant-model-dropdown');
     await user.click(within(container).getByRole('button', { name: /Selected model/ }));
 
-    const moreModels = await screen.findByTestId('composer-more-models-trigger');
-    moreModels.focus();
-    await user.keyboard('{ArrowRight}');
-
-    const anthropicTrigger = await screen.findByRole('menuitem', { name: /Anthropic/ });
-    anthropicTrigger.focus();
-    await user.keyboard('{ArrowRight}');
-
-    const option = await screen.findByRole('menuitemradio', { name: /Claude Sonnet 4\.6/ });
+    const picker = await screen.findByRole('dialog');
+    await user.type(within(picker).getByRole('combobox'), 'sonnet 4.6');
+    const option = await within(picker).findByRole('option', { name: /Claude Sonnet 4\.6/ });
     await user.click(option);
 
     // Should be called with composite key format: "provider::model"
     expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-6');
-    // Full panel render + a three-level Radix submenu drill via userEvent:
-    // repeatedly tripped vitest's 5s default on loaded runners.
+    // Full panel render + typing into the picker search via userEvent can
+    // exceed vitest's 5s default on loaded runners.
   }, 20_000);
 
   it('shows placeholder when no models are enabled', () => {
@@ -1632,7 +1630,7 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     // Model-constrained effort (e.g. kimi-k3 max-only) now lives in the
-    // composer model menu — see composer-model-menu.test.tsx.
+    // composer effort control — see composer-effort-control.test.tsx.
     expect(screen.queryByRole('combobox', { name: 'Reasoning effort' })).not.toBeInTheDocument();
     expect(screen.queryByText('Effort')).not.toBeInTheDocument();
     expect(screen.getByText('Reasoning summary')).toBeInTheDocument();

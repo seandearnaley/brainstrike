@@ -92,6 +92,7 @@ export function AssistantConversationPanel({
                           fileMentions={fileMentions}
                           hasGroupedProviders={providerGroups.length > 0}
                           isComposerDisabled={isComposerDisabled}
+                          onEnableModel={undefined}
                           onFileMentionQueryChange={undefined}
                           onModelChange={undefined}
                           pickerModels={pickerModels}
