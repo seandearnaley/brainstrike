@@ -34,7 +34,7 @@ Every task implicitly includes all of these.
 - **Formatting:** run `pnpm exec biome check --write <changed files>` before every commit (block statements, sorted keys and props, and similar), and run `pnpm dlx ultracite check` in the final gate.
 - **TDD:** each task writes its tests first, runs them RED, then implements until GREEN. Every guard listed under "Mutation check" must be mutated to prove a test fails; revert the mutation before committing.
 - **Full lanes, not name filters:** before pushing, run the FULL package lanes (`pnpm --filter @brainstrike/settings-ui test`, `pnpm --filter @brainstrike/ui test`, `pnpm --filter @brainstrike/app-state test`, `pnpm --filter @brainstrike/app-state test:integration`, `pnpm test:scripts`). A shrink-only boundary test was missed on a previous PR because only name-filtered runs were used. A focused `exec vitest run <file>` is for the RED/GREEN loop only.
-- **Type-check** goes through turbo so referenced `dist` declarations are rebuilt: `node scripts/run-turbo-command.mjs -- run type-check --filter=<pkg>`.
+- **Type-check** goes through turbo so referenced `dist` declarations are rebuilt: `pnpm run type-check --filter=<pkg>` (never bare `node scripts/run-turbo-command.mjs`: it resolves the global turbo from PATH).
 - **Quality gates:**
   - React Doctor reports no new error-severity issue (`npx react-doctor . --scope changed --verbose`).
   - `pnpm run lint:eslint` passes (the per-rule warning ratchet must neither grow nor shrink unbanked).
@@ -375,7 +375,7 @@ Remove `...(fields.keywords ?? []),` from the haystack and re-run the Step 4 com
 Run:
 - `pnpm --filter @brainstrike/ui test`
 - `pnpm --filter @brainstrike/assistant-ui exec vitest run --project unit src/__tests__/composer-model-picker.test.tsx`, which proves `1.1M context` is unchanged
-- `node scripts/run-turbo-command.mjs -- run type-check --filter=@brainstrike/ui`
+- `pnpm run type-check --filter=@brainstrike/ui`
 
 Expected: all PASS.
 
@@ -1647,7 +1647,7 @@ After reverting each mutation, re-run the Step 5 command and confirm PASS.
 
 Run:
 - `pnpm --filter @brainstrike/settings-ui test`
-- `node scripts/run-turbo-command.mjs -- run type-check --filter=@brainstrike/settings-ui`
+- `pnpm run type-check --filter=@brainstrike/settings-ui`
 
 Expected: all PASS. `model-list.tsx` is untouched and still compiles.
 
@@ -2072,7 +2072,7 @@ After reverting, re-run Step 4 and confirm PASS.
 
 Run:
 - `pnpm --filter @brainstrike/settings-ui test`
-- `node scripts/run-turbo-command.mjs -- run type-check --filter=@brainstrike/settings-ui`
+- `pnpm run type-check --filter=@brainstrike/settings-ui`
 
 Expected: all PASS.
 
@@ -2951,7 +2951,7 @@ Run:
 - `pnpm --filter @brainstrike/app-state test`
 - `pnpm --filter @brainstrike/app-state test:integration`
 - `pnpm --filter @brainstrike/settings-ui test`
-- `node scripts/run-turbo-command.mjs -- run type-check --filter=@brainstrike/app-state --filter=@brainstrike/settings-ui --filter=@brainstrike/app-shell`
+- `pnpm run type-check --filter=@brainstrike/app-state --filter=@brainstrike/settings-ui --filter=@brainstrike/app-shell`
 
 The app-shell filter matters because its hooks consume `useModelToggle`. Expected: all PASS.
 
@@ -3133,7 +3133,7 @@ Replace the `activeCategory.layout === 'workspace' ? … : 'mx-auto max-w-3xl sp
 
 Run:
 - `pnpm --filter @brainstrike/settings-ui test`
-- `node scripts/run-turbo-command.mjs -- run type-check --filter=@brainstrike/settings-ui --filter=@brainstrike/web --filter=@brainstrike/desktop`
+- `pnpm run type-check --filter=@brainstrike/settings-ui --filter=@brainstrike/web --filter=@brainstrike/desktop`
 
 Expected: all PASS. No app uses `layout` yet.
 
@@ -4617,7 +4617,7 @@ After reverting, re-run Step 8 and confirm PASS.
 
 Run:
 - `pnpm --filter @brainstrike/settings-ui test`
-- `node scripts/run-turbo-command.mjs -- run type-check --filter=@brainstrike/settings-ui`
+- `pnpm run type-check --filter=@brainstrike/settings-ui`
 
 Expected: all PASS.
 
@@ -5107,7 +5107,7 @@ In `docs/agents/ui-conventions.md`, § Scroll ownership, append this bullet afte
 
 Run:
 - `pnpm --filter @brainstrike/settings-ui test`
-- `node scripts/run-turbo-command.mjs -- run type-check --filter=@brainstrike/settings-ui`
+- `pnpm run type-check --filter=@brainstrike/settings-ui`
 
 Expected: all PASS.
 
@@ -5837,7 +5837,7 @@ After reverting, re-run Step 4 and confirm PASS.
 
 Run:
 - `pnpm --filter @brainstrike/settings-ui test`
-- `node scripts/run-turbo-command.mjs -- run type-check --filter=@brainstrike/settings-ui`
+- `pnpm run type-check --filter=@brainstrike/settings-ui`
 
 Expected: all PASS.
 
@@ -7172,7 +7172,7 @@ Run:
 - `pnpm --filter @brainstrike/settings-ui test`
 - `pnpm --filter @brainstrike/web exec vitest run src/app/settings/__tests__ src/app/__tests__/document-title.test.tsx`
 - `pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/renderer/components/settings`
-- `node scripts/run-turbo-command.mjs -- run type-check --filter=@brainstrike/settings-ui --filter=@brainstrike/web --filter=@brainstrike/desktop`
+- `pnpm run type-check --filter=@brainstrike/settings-ui --filter=@brainstrike/web --filter=@brainstrike/desktop`
 - `pnpm run lint:eslint`
 
 Expected: all PASS, and the ESLint warning ratchet unchanged. A new `react-refresh/only-export-components` finding means a `.tsx` file mixes component and non-component exports; move the non-component export to a sibling `.ts` file.
@@ -7402,7 +7402,7 @@ If the pitch assertion fails, measure the real pitch in the failure message. The
 - [ ] **Step 5: Build and run the desktop settings test (against a FRESH build)**
 
 Run:
-- `node scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/desktop --force`
+- `pnpm exec turbo run build --filter=@brainstrike/desktop --force`
 - `(cd apps/desktop && node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/settings-models-and-providers.desktop.test.ts --project=regression --workers=1 --retries=0)`
 
 Expected: 3 passed. Desktop E2E can be flaky headless. If a test fails for a reason unrelated to these selectors, diagnose it; do not skip or retry blindly (AGENTS.md).
@@ -7456,7 +7456,7 @@ A red boundary or budget test is a real finding; fix the cause and never raise a
 - [ ] **Step 2: Type-check, lint and the quality gates**
 
 ```bash
-node scripts/run-turbo-command.mjs -- run type-check --filter=@brainstrike/ui --filter=@brainstrike/app-state --filter=@brainstrike/settings-ui --filter=@brainstrike/app-shell --filter=@brainstrike/assistant-ui --filter=@brainstrike/web --filter=@brainstrike/desktop
+pnpm run type-check --filter=@brainstrike/ui --filter=@brainstrike/app-state --filter=@brainstrike/settings-ui --filter=@brainstrike/app-shell --filter=@brainstrike/assistant-ui --filter=@brainstrike/web --filter=@brainstrike/desktop
 pnpm dlx ultracite check
 pnpm run lint:eslint
 npx react-doctor . --scope changed --verbose
