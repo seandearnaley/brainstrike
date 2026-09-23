@@ -194,12 +194,21 @@ export interface DelegatedConversationBinding {
     readonly toolCallId: string;
   }) => Promise<void>;
   readonly continuation?: ChildContinuationHostPort;
+  /**
+   * End one prepared, still-running execution because its own watchdog judged
+   * the child stalled (`background-child-watchdog.ts`). The stall aborts the
+   * child and its EXECUTION signal — never the selected-Stop cancellation — and
+   * the delegation hook rejects the executor with it, so the native task fails
+   * as its own task. `false` when no execution of that invocation runs here.
+   * Required: a background runtime cannot end a wedged child without it.
+   */
+  readonly endStalledExecution: (target: DelegatedCancellationTarget, stall: Error) => boolean;
   /** Releases only claims acquired by this binding; consumed leaf ids remain durable. */
   readonly finishToolActions?: () => Promise<void>;
   readonly getAbortSignal?: (
     context: DelegationStartContext['requestContext']
   ) => AbortSignal | undefined;
-  /** Signal supplied to the native delegation executor, including its deadline. */
+  /** Signal ending the native delegation execution: its deadline, or its child's stall. */
   readonly getExecutionAbortSignal?: (
     identity: DelegatedCancellationTarget
   ) => AbortSignal | undefined;
@@ -355,6 +364,9 @@ export function createDelegatedConversationBinding(
   const preparedKeys = new Map<string, string>();
   const executionSignals = new Map<string, AbortSignal>();
   const pendingExecutionSignals = new Map<string, AbortSignal>();
+  // One per prepared execution, removed when its tool call returns: the end a
+  // stalled child's own watchdog delivers (`endStalledExecution`).
+  const stalls = new Map<string, AbortController>();
   const signals = new WeakMap<DelegationStartContext['requestContext'], AbortSignal>();
   const invocationKey = (identity: DelegatedCancellationTarget) =>
     JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
@@ -370,11 +382,20 @@ export function createDelegatedConversationBinding(
     captureExecutionAbortSignal: (identity, signal) => {
       const key = inputKey(identity.parentThreadId, identity.parentToolCallId);
       if (signal) {
-        executionSignals.set(invocationKey(identity), signal);
         pendingExecutionSignals.set(key, signal);
       } else {
-        executionSignals.delete(invocationKey(identity));
         pendingExecutionSignals.delete(key);
+      }
+      // A capture after preparation keeps the prepared execution's stall end:
+      // the execution ends on its deadline or its child's stall, in either order.
+      const nativeKey = invocationKey(identity);
+      const stall = stalls.get(nativeKey)?.signal;
+      const executionSignal =
+        signal && stall ? AbortSignal.any([signal, stall]) : (signal ?? stall);
+      if (executionSignal) {
+        executionSignals.set(nativeKey, executionSignal);
+      } else {
+        executionSignals.delete(nativeKey);
       }
     },
     captureExecutionConfiguration(context, execution) {
@@ -387,6 +408,14 @@ export function createDelegatedConversationBinding(
         ...parent,
         configuration: structuredClone({ ...configuration, execution }),
       });
+    },
+    endStalledExecution(target, stall) {
+      const execution = stalls.get(invocationKey(target));
+      if (!execution) {
+        return false;
+      }
+      execution.abort(stall);
+      return true;
     },
     getAbortSignal: (context) => signals.get(context),
     getExecutionAbortSignal: (identity) => executionSignals.get(invocationKey(identity)),
@@ -403,6 +432,16 @@ export function createDelegatedConversationBinding(
         const nativeKey = preparedKeys.get(key);
         preparedKeys.delete(key);
         pendingExecutionSignals.delete(key);
+        const stall = nativeKey ? stalls.get(nativeKey) : undefined;
+        if (nativeKey) {
+          stalls.delete(nativeKey);
+        }
+        // Everything this hook releases is released above; below it only
+        // decides the outcome, so a throw from here skips no release.
+        // The stall is why this execution ended, whatever the unwinding child
+        // threw or returned: without it Mastra would read the abort as a
+        // timeout, or the empty result as a completion.
+        stall?.signal.throwIfAborted();
         // Mastra treats a resolved executor as successful even after its deadline.
         // Keep native timeout classification in charge by rejecting the aborted call.
         if (error === undefined && nativeKey) {
@@ -476,13 +515,13 @@ export function createDelegatedConversationBinding(
       // Native approval resume re-enters admission after the earlier tool hook.
       // Preserve the same cancellation owner; a stopped invocation cannot restart.
       existing?.signal.throwIfAborted();
-      const executionSignal = pendingExecutionSignals.get(key);
+      // This execution ends on its native deadline or on its child's stall.
+      const stall = new AbortController();
+      stalls.set(nativeKey, stall);
+      const deadline = pendingExecutionSignals.get(key);
       pendingExecutionSignals.delete(key);
-      if (executionSignal) {
-        executionSignals.set(nativeKey, executionSignal);
-      } else {
-        executionSignals.delete(nativeKey);
-      }
+      const executionSignal = deadline ? AbortSignal.any([deadline, stall.signal]) : stall.signal;
+      executionSignals.set(nativeKey, executionSignal);
       const controller = existing ?? new AbortController();
       controllers.set(nativeKey, controller);
       preparedKeys.set(key, nativeKey);
@@ -491,7 +530,7 @@ export function createDelegatedConversationBinding(
         AbortSignal.any([
           controller.signal,
           ...(parentSignal ? [parentSignal] : []),
-          ...(executionSignal ? [executionSignal] : []),
+          executionSignal,
         ])
       );
       scopes.set(context.requestContext, {

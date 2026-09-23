@@ -82,10 +82,10 @@ Guard: `packages/agent/src/__tests__/delegated-system-context.integration.spec.t
 - Map the nested stream into the same StreamChunk and transcript contracts as
   root conversations. A compact parent result never substitutes for full child
   storage, and parent prompt budgets are never widened for richer UI data.
-- `DELEGATION_LIMITS` (`assistant-contract/delegation-limits.ts`) is the TREE
-  source: depth, invocations, runnable work, tree output tokens. Per-child
-  allocations are `RuntimeSubagentSettings` and are separate from each model's
-  input window (see "Child budgets are USER SETTINGS").
+- Tree limits (depth, invocations, runnable work, tree output tokens) and the
+  per-child allocations are all `RuntimeSubagentSettings`; no limits constant
+  exists, and none is a model's input window. `maxDepth` stays within the parent
+  watchdog's eight envelope unwraps (see "Child budgets are USER SETTINGS").
 - The host atomically admits invocations and reserves model steps before work,
   across descendants and resume legs. Unknown usage is still charged, reported
   overages persist before tool execution is rejected, and a waiting native
@@ -157,7 +157,7 @@ bespoke `subagent` tool.
   take down chat. The preferences store is factory-reset-registered.
 - **Settings states what the host enforces (BST-1727):** every loadable item
   carries `personaScope` of the SAME definition the child is built from, the
-  panel reads `DELEGATION_LIMITS` directly for the tree-wide block, and it shows
+  panel reads the user's settings for the tree-wide block, and it shows
   `effectiveChildStepBudget` rather than repeating the arithmetic. A bridge
   omitting the fields renders no scope line rather than a guess.
 - **Model pinning:** `resolvePinnedModel`. Same-provider pins reuse the parent
@@ -176,7 +176,7 @@ bespoke `subagent` tool.
   installs the child's budget only for the synchronous projector call and
   restores the prior value in `finally`.
 - **Safety rails:** `createDelegationConfig` (`subagent-delegation.ts`) builds a
-  per-run closure — caps from `DELEGATION_LIMITS`, the persona `maxSteps` clamp,
+  per-run closure — caps from `subagentSettings`, the persona `maxSteps` clamp,
   unknown-persona rejection, and `onDelegationComplete` reporting child usage
   through `onChildUsage` into a durable `run_kind='subagent'` row under the
   PARENT runId. Parent FINISH counters still exclude child tokens; attribution
@@ -195,13 +195,9 @@ bespoke `subagent` tool.
   `requireRunEventKind` throws on an unknown kind, so the contract enum ships
   before any emitter. Metadata carries ids and labels only, never args or
   results.
-- **The parent's stream watchdog reads THROUGH the envelope.** A foreground child
-  has no watchdog and the parent's delegation call is deliberately unguarded, so
-  `createMastraToolExecutionPartKindReader` unwraps a `tool-output` whose
-  `toolName` starts with `SUBAGENT_DELEGATION_TOOL_PREFIX` and is not
-  `providerExecuted` — POSITIVE identification, never "not in the guarded set" —
-  and classifies the nested part under the same allow-list, recursing for a
-  grandchild. Background delegation is out of scope.
+- **A foreground child has no watchdog of its own**: the parent's watchdog reads its
+  calls THROUGH the delegation envelope; a BACKGROUND child has its own watchdog
+  (both in `assistant-runtime.md` § Stream inactivity watchdog).
 - Subagent tool calls feed the same per-tool token telemetry table as primary
   calls, attributed to the parent run, through a telemetry-only sink that does
   NOT feed the prompt-reconciliation aggregate (`assistant-persistence.md`,
@@ -896,23 +892,23 @@ Evidence: `assistant-subagents/child-view-binding.md`.
   text through the parent's writer under the parent's run id; and every
   `DelegatedConversationIdentityError` escaping the host is logged at error level
   with its bounded `reason`, method and host run before it propagates.
-- The runtime shares a FIFO queue of two active model/tool operations across all
-  descendants. Model permits end before native tool/delegation execution and a
-  delegation wait acquires no permit, so up to eight child streams may be
-  admitted while only two operations are runnable. The in-flight backstop is
-  disabled only when both the durable budget and the shared queue exist.
+- Each leg's runtime shares one FIFO queue of `maxConcurrentWork` active
+  model/tool operations across all descendants. Model permits end before
+  native tool/delegation execution and a delegation wait acquires no permit, so
+  more child streams may be admitted than are runnable. The in-flight backstop
+  is disabled only when both the durable budget and the shared queue exist.
 - Synthesis forces `toolChoice: none` with no active tools and rejects a provider
   tool call before execution even if the provider ignores that request.
 - **Child budgets are USER SETTINGS; a cut synthesis is a truncated completion.**
-  The per-child allocations and runtime limit live in `RuntimeSubagentSettings`
-  (`assistant-contract/subagent-settings.ts`, ranges in
-  `SUBAGENT_SETTINGS_LIMITS`), persisted by `assistant-subagent-preferences.v1`,
-  edited in Settings → Subagents → Subagent budgets, sent on EVERY request as
-  `runtimeData.subagentSettings`, and copied into the turn's
-  `brainstrike_delegation_budgets` row at first admission.
-  `parseRuntimeSubagentSettings` is the ONLY intake: absent means defaults,
-  anything else malformed THROWS. `DELEGATION_LIMITS` has no child keys, so
-  reading a constant instead of the request's settings is a compile error.
+  Tree/per-child limits and the runtime limit are `RuntimeSubagentSettings`
+  (`subagent-settings.ts`, ranges `SUBAGENT_SETTINGS_LIMITS`), persisted by
+  `assistant-subagent-preferences.v1`, edited in Settings → Subagents → Subagent limits,
+  sent on EVERY request as `runtimeData.subagentSettings`; the ONLY intake is
+  `parseRuntimeSubagentSettings` (absent → defaults, malformed THROWS) and no
+  limits constant exists. What the budget row stores at first admission is
+  TURN-scoped: a later leg runs under `applyTurnSubagentLimits(request,
+  budget.readTurnLimits())`; only `maxConcurrentWork` / `maxChildRuntimeMs` are
+  per request. A host leg on a child thread is refused (`resolveDelegatedHostScope`).
 - The host's synthesis reservation names its `cap` (`steps` / `child-output` /
   `tree-output`) and the numbers behind it. `delegated-work-budget.ts` reads
   Mastra's `finishReason` on `processOutputStep`, records the outcome in the
@@ -1010,8 +1006,8 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   `withBackgroundIdleLoop` (`background-idle-loop.ts`), which mirrors Mastra's
   loop except that only a RETURNED, FAILED or CANCELLED task queues a wakeup. A
   suspension is a host-surfaced approval prompt; the model is not the messenger.
-  Silence from running work past `backgroundIdleMs` closes the stream unfinished
-  and the projection reports it.
+  The loop judges no silence: running work holds the leg open until its
+  terminal; each child's own watchdog (`assistant-runtime.md`) judges liveness.
 - **WAKEUP LEDGER** (settled 2026-09-15, do not relitigate): a parent wakeup is
   the whole LEDGER of this turn's background invocations, not one line per event.
   Read it from the DURABLE task rows (`background-ledger.ts`), scoped to the runs
@@ -1062,7 +1058,7 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   stop counting a child that ran.
 - The idle loop's bound is explicit: once more distinct background tasks wake the
   parent in one leg than one original root turn may admit invocations
-  (`DELEGATION_LIMITS.maxInvocations`), the leg FAILS naming the numbers and logs
+  (`subagentSettings.maxInvocations`), the leg FAILS naming the numbers and logs
   `background_parent_wakeup_limit_exceeded` — never a silent close. A task wakes
   a leg at most once. The bound counts background TASKS, which equal delegations
   only because persona delegations are the sole background-eligible tools
@@ -1256,9 +1252,13 @@ Guard: `packages/agent/src/mastra/__tests__/prompt-manifest-root-leg.spec.ts`,
   execution of the invocation; rejected duplicate preparation preserves the
   active deadline signal, and host resume capture stages the signal by parent
   thread/tool call.
+- A child's own watchdog ends a stalled execution through the same seam
+  (`endStalledExecution`, never selected Stop): the hook rejects with the stall
+  whatever the unwind threw, so the task fails alone with one failed terminal.
 
 Evidence: `assistant-subagents/child-cancellation-and-deadlines.md`.
-Guard: `apps/desktop/src/__tests__/assistant-server/delegated-deadlines.integration.test.ts`.
+Guard: `apps/desktop/src/__tests__/assistant-server/delegated-deadlines.integration.test.ts`,
+`packages/agent/src/mastra/__tests__/delegated-conversation-binding-stall.spec.ts`.
 
 ### Downstream usage failure and cancelled child projections
 

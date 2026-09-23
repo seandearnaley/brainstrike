@@ -146,12 +146,11 @@ Guard: `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spe
   below. A stall ends the ATTEMPT, not the turn. Only an unrecoverable stall emits
   a visible assistant message, a terminal `run.failed` event, and an error finish.
 - **Only a GUARDED call may enter `tool-executing` — an ALLOW-list, not a
-  deny-list.** `hasExecutionGuardBehindToolCall` (`agent-streaming.ts`) tests a
-  tool name against `runtime.toolNameMap`'s KEYS, exactly the set that went
-  through `applyToolGuards`. Anything not in it defaults to `false` and stays on
-  the tight window. Provider-executed tools, subagent delegation tools and
-  Mastra-injected memory tools are deliberately never in the set and keep riding
-  the ordinary provider-silence windows.
+  deny-list.** `hasExecutionGuardBehindToolCall` (`mastra-watchdog-options.ts`)
+  tests a tool name against `runtime.toolNameMap`'s KEYS, exactly the set that
+  went through `applyToolGuards`; anything else stays on the tight window.
+  Provider-executed, subagent delegation and Mastra-injected memory tools are
+  never in the set and keep riding the ordinary provider-silence windows.
 - Track the phase by REFERENCE COUNT on `toolCallId` so parallel calls hold it
   open until the last settles, and let it OVERRIDE the current provider phase.
   `tool-call` is `started`; `tool-result`, `tool-error`, `tool-output-denied`,
@@ -159,24 +158,30 @@ Guard: `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spe
   suspension settle deliberately, because the call is waiting on a HUMAN.
   Scaffolding (`start`, `step-start`) CLEARS the in-flight set.
 - **Classify a DELEGATED child's calls through the envelope.** UNWRAP a
-  `tool-output` whose `toolName` starts with `SUBAGENT_DELEGATION_TOOL_PREFIX`
-  and is not itself `providerExecuted` — POSITIVE identification, never "not in
-  the guarded set". Apply the same allow-list to the nested part, recursing for a
-  grandchild under a fixed unwrap bound. Background delegation is out of scope.
-- **Seed a resumed, approval-approved call into the phase.** Mastra never replays
-  a suspended step's `tool-call` part, so `collectResumedGuardedToolCallIds`
-  passes the resumed call plus its siblings — filtered through the same
-  `hasExecutionGuardBehindToolCall` predicate — as `initialToolCallIds`. Gate the
-  scaffolding clear on `hasSeenProviderOutput` so a seeded id survives leading
-  scaffolding.
+  `tool-output` whose `toolName` starts with `SUBAGENT_DELEGATION_TOOL_PREFIX` and
+  is not itself `providerExecuted` — POSITIVE identification, never "not in the
+  guarded set" — and apply the allow-list to the nested part, under a fixed bound.
+- **Each BACKGROUND child has its own watchdog** (`background-child-watchdog.ts`):
+  the same classifiers and windows over its task's own output, from execution
+  start until its stream ends or parks. A stall ends that child ALONE
+  (`endStalledExecution`): its task fails with `BackgroundChildStalledError`
+  naming the phase and window, and the parent is woken like any failed task.
+- **The parent watchdog judges only the parent.** Child parts, lifecycle events and
+  host rows move no phase (`createMastraStreamPartRouter`). A task HOLDS the leg
+  from dispatch to terminal or suspension: while a held child is watched the
+  parent sets no window; held work nothing watches waits the first-output window.
+- **Seed a resumed, approval-approved call into the phase.** Mastra never replays a
+  suspended step's `tool-call` part, so `collectResumedGuardedToolCallIds` passes the
+  resumed call plus its siblings — filtered by `hasExecutionGuardBehindToolCall` — as
+  `initialToolCallIds`. Gate the scaffolding clear on `hasSeenProviderOutput` so a
+  seeded id survives leading scaffolding.
 - A `tool-executing` stall is TERMINAL: `isRecoverableStall` (`turn-attempts.ts`)
   refuses recovery with `tool-still-executing`, because a continuation could
   launch a SECOND execution of a tool that may still be alive.
 - Every GUARD window is below `toolExecutingMs` by construction, so a guard that
   answers is never pre-empted. Tool-lifecycle HOOKS are NOT covered: they compose
-  outside the guard and are capped only individually. Keep
-  `resolveStalledVisibleMessage`'s wording honest about that; do not add an
-  aggregate hook cap or a new env knob without a measured case.
+  outside the guard and are capped only individually. Keep `resolveStalledVisibleMessage`
+  honest about that; add no aggregate hook cap or env knob without a measured case.
 - **An EMPTY MODEL RESPONSE rides the same attempt rails.** A terminal `finish`
   on a turn the model contributed nothing to — no text/reasoning delta carrying a
   non-whitespace character and no tool-lifecycle part, across every attempt
@@ -184,19 +189,17 @@ Guard: `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spe
   throws `EmptyModelResponseError` from the mapper's `finish` case. Do NOT
   re-classify an abnormal finish reason: it already fails the run with its own
   truth (`COMPLETED_FINISH_REASONS`, shared with `makeTerminalRunEvent`).
-- `withToolCallInputTimeout` applies its own, much wider
-  `BRAINSTRIKE_TOOL_CALL_INPUT_MS` window as an absolute deadline from the first
-  streamed tool-input marker to its matching input end. `tool-call-delta` renders
-  progress but never extends that deadline. Keep the two windows DECOUPLED. Expiry
-  uses `tool_call_input_streaming_timeout` and aborts before an incomplete call
-  can execute.
+- `withToolCallInputTimeout` applies its own, much wider `BRAINSTRIKE_TOOL_CALL_INPUT_MS`
+  window as an absolute deadline from the first streamed tool-input marker to its
+  matching input end. `tool-call-delta` renders progress but never extends that
+  deadline. Keep the two windows DECOUPLED. Expiry uses
+  `tool_call_input_streaming_timeout` and aborts before an incomplete call can execute.
 - Every initial, approval-resume and suspended-tool-resume stream owns an internal
   AbortController linked to the caller's signal. The watchdog rejects with
   `StreamStalledError` FIRST, then aborts that controller, so provider work cannot
   outlive the terminal stream and the timeout is not misclassified as a user
-  cancellation. Teardown also aborts before disposal. For the built-in local
-  provider the signal crosses `LlmHostChatModel → LocalLlmHostClient →
-  LlmHostManager` and sends the hidden renderer's cancel command.
+  cancellation. Teardown also aborts before disposal. The built-in local provider
+  forwards it to the hidden renderer's cancel command (`LlmHostManager`).
 - On watchdog expiry or caller Stop for a memory-backed turn, the abort seam
   (`mastra/aborted-turn-persistence.ts`) persists the user input, every assistant
   message with partial text RETAINED, and only COMPLETED tool invocations, appends
@@ -204,20 +207,17 @@ Guard: `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spe
   runtime disposal. Incomplete tool calls are the one exclusion, so Stop cannot
   resurrect execution next turn. Ordinary completion still uses Mastra's finish
   writer only; teardown never performs a second normal write.
-- Delegated children capture their native MessageList on the abort signal,
-  independent of consumer speed; Mastra's public `afterToolCall` hook joins the
-  native child writer before the abort snapshot is saved. `runTurnAttempts` awaits
-  child finalizers before replacing a stalled attempt and before runtime disposal,
-  even when the parent later finishes normally. Native `lastMessages: false`
-  disables the child's automatic MessageHistory processor, so the root-only join
-  is insufficient.
+- Delegated children's abort snapshots follow `assistant-subagents.md` § Cancelled
+  child transcript durability, joined before attempt replacement and disposal.
 
 Settled: the phase boundary is provider output, not the first part; a running
 tool is never measured against a provider-silence window; Mastra's
-`tool-execution-start`/`-end` chunks are not the boundary. Evidence:
+`tool-execution-start`/`-end` chunks are not the boundary; each background child
+has its own watchdog and the parent judges only itself (2026-09-22). Evidence:
 `assistant-runtime/stream-watchdog-phases.md`.
 Guard: `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec.ts`,
-`packages/agent/src/__tests__/mastra-stream-watchdogs.integration.spec.ts`.
+`mastra-stream-watchdogs.integration.spec.ts`, `background-child-watchdog.integration.spec.ts`,
+`packages/agent/src/mastra/__tests__/mastra-background-watchdog-holds.spec.ts`, `background-child-watchdog.spec.ts`.
 
 ### Mastra error-processor layer
 
@@ -713,7 +713,7 @@ restating them here.
   inactivity <= tool-call input budget, <= first-output window, <= reasoning-gap
   window. An unset window widens to the inactivity window rather than throwing.
 - Own the reasoning part set in `MASTRA_REASONING_PART_KINDS`
-  (`agent-streaming.ts`), typed against Mastra's own `ChunkType['type']` union so
+  (`mastra-watchdog-options.ts`), typed against Mastra's own `ChunkType['type']` union so
   a rename fails to COMPILE. CONTENT enters the reasoning phase; block bookkeeping
   markers only PRESERVE the phase already in effect.
 - `MASTRA_SCAFFOLDING_PART_TYPES` (`start`, `step-start`) is a CLOSED list: a new

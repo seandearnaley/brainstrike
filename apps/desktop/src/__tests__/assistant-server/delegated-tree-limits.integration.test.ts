@@ -1,11 +1,10 @@
 import type { DelegatedConversationIdentity } from '@brainstrike/agent';
-import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { migrate, runDrizzleMigrations, wasmLoader } from '@brainstrike/db';
 import { createBrainstrikePglite } from '@brainstrike/db/pglite-factory';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
-import { createBudgetedHost } from './fixtures/budgeted-host';
+import { BUDGETED_HOST_SETTINGS, createBudgetedHost } from './fixtures/budgeted-host';
 
 describe('durable delegated tree admission', () => {
   let database: PGlite;
@@ -308,7 +307,7 @@ describe('durable delegated tree admission', () => {
       undefined,
       undefined,
       {
-        ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+        ...BUDGETED_HOST_SETTINGS,
         maxStepOutputTokens: 7168,
       }
     );

@@ -3,6 +3,7 @@ import {
   BUILT_IN_PERSONAS,
   SUBAGENT_REJECTED_OUTCOME,
 } from '@brainstrike/assistant-contract/personas';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { InMemoryStore } from '@mastra/core/storage';
 import { createTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
@@ -13,7 +14,6 @@ import {
   type DelegatedConversationIdentity,
 } from '../mastra/delegated-conversation-binding';
 import type { DelegatedRunIdentity } from '../mastra/delegated-run-publication';
-import { MAX_DELEGATIONS_PER_RUN } from '../mastra/subagent-delegation';
 import {
   scriptedAgentModel,
   textParts,
@@ -34,6 +34,9 @@ vi.mock('../providers/provider-factory', async (original) => ({
   },
 }));
 const { streamMastraAgent } = await import('../mastra/agent-streaming');
+
+/** The request's per-turn invocation limit; the backstop case asks for one more. */
+const MAX_INVOCATIONS = 8;
 
 async function drain(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
   const chunks: StreamChunk[] = [];
@@ -90,7 +93,7 @@ it.for([
     if (!explore) {
       throw new Error('Built-in Explorer is missing');
     }
-    const total = refuse === 'backstop' ? MAX_DELEGATIONS_PER_RUN + 1 : 2;
+    const total = refuse === 'backstop' ? MAX_INVOCATIONS + 1 : 2;
     const refused = `delegate-${total}`;
     const hostReason = 'Delegation depth limit reached (3 descendant levels).';
     const identities: DelegatedConversationIdentity[] = [];
@@ -103,6 +106,7 @@ it.for([
             ? { admitted: false as const, reason: hostReason }
             : { admitted: true as const };
         },
+        readTurnLimits: async () => undefined,
         reserveStep: async (_scope: { threadId: string; resourceId: string }) => ({
           id: `reservation-${identities.length}`,
           outputTokens: 8192,
@@ -176,6 +180,10 @@ it.for([
               yolo: false,
             },
             provider: 'openai',
+            subagentSettings: {
+              ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+              maxInvocations: MAX_INVOCATIONS,
+            },
           },
           storage,
           // A persona registers its delegation tool only with a usable tool set.

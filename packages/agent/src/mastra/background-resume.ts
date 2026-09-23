@@ -8,6 +8,7 @@ import type { MastraMemory } from '@mastra/core/memory';
 import type { RuntimeData, StreamChunk } from '../types';
 import type { attachAbortedTurnMessageList } from './aborted-turn-persistence';
 import type { MastraAgentRuntime } from './agent-runtime';
+import type { HostExecutionWatch } from './background-child-watchdog';
 import {
   type BackgroundIdleLoopParams,
   createSuspensionLedger,
@@ -806,7 +807,7 @@ export function createBackgroundResumeStream(params: {
             channel: params.channel,
             ledger: ledger.source,
             manager,
-            maxIdleMs: runtime.backgroundIdleMs,
+            maxInvocations: runtime.subagentSettings.maxInvocations,
             options,
             recordNativeRootRun: requireNativeRootRunRecorder(runtime.conversationBinding),
             recordWakeup: runtime.conversationBinding?.recordWakeup,
@@ -892,6 +893,12 @@ async function prepareResumedExecutor(params: {
 }): Promise<() => ResumedExecutor> {
   const { controller, manager, memory, options, runtime, scope, task } = params;
   const executed = Promise.withResolvers<void>();
+  const watchdogs = runtime.backgroundChildWatchdogs;
+  if (!watchdogs) {
+    throw new Error('A resumed background executor requires its child watchdogs.');
+  }
+  /** The running execution's own watch: its child is judged from here to its end. */
+  let watch: HostExecutionWatch | undefined;
   // The leg's stream can close before a resumed executor settles: a cancel
   // settles this task's join, and `manager.shutdown()` only bounds the wait
   // (Mastra's grace period), so a tool that runs past it would otherwise throw
@@ -899,6 +906,8 @@ async function prepareResumedExecutor(params: {
   // consumer left; the drop is reported once for the task.
   let closed = false;
   const publish = (chunk: unknown): void => {
+    // The child is alive whether or not its leg can still deliver the part.
+    watch?.observe(chunk);
     if (closed) {
       return;
     }
@@ -939,6 +948,11 @@ async function prepareResumedExecutor(params: {
           },
           nativeOptions?.abortSignal
         );
+        watch = watchdogs.hostExecution({
+          runId: task.runId,
+          taskId: task.id,
+          toolCallId: task.toolCallId,
+        });
         let output: unknown;
         let failure: unknown;
         try {
@@ -960,6 +974,8 @@ async function prepareResumedExecutor(params: {
           failure = error;
           throw error;
         } finally {
+          watch?.end();
+          watch = undefined;
           // Native child resume mutates its invocation context to the leaf
           // call. The host join belongs to this original dispatch address.
           try {

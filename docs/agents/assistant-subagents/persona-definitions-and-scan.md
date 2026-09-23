@@ -167,3 +167,9 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
 and a user persona that omits `maxSteps` does too (previously 8). The rule that
 a built-in declares nothing a user persona cannot still holds; an author opts
 into a LOWER cap only by declaring one.
+
+2026-09-22 (BST-1801): `DELEGATION_LIMITS` no longer exists. The tree-wide
+block reads the user's settings (the tree limits are `RuntimeSubagentSettings`
+now, see `tree-admission-and-budgets.md`), and
+`subagent-personas-delegation-limits.test.tsx` pins it with non-default
+settings instead of a mocked constant.

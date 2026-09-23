@@ -114,3 +114,20 @@ user signals are durable chronological child turns; they do not become parent
 input or launch a second runtime. See the active-input receipt and interruption
 contract in assistant-persistence.md. Production coverage spans native foreground
 and background delivery and the shared Electron child-composer path.
+
+### A stalled background child ends through the deadline seam (BST-1802, 2026-09-22)
+
+Supports "Background child deadlines". A background child's own watchdog
+(`assistant-runtime.md` § Stream inactivity watchdog) ends a stalled execution
+through the seam above rather than a new one: `prepare()` composes a
+per-execution stall controller into the child's signal and into its execution
+signal, `endStalledExecution` aborts it (never the selected-Stop controller, so
+the stall stays failed rather than cancelled), and `afterToolCall` rejects with
+the stall even when the unwinding child threw its own abort — otherwise Mastra
+reads an `AbortError` as `timed_out` ("Task timed out after 300000ms") or the
+empty result as completed. The execution signal is now always present for a
+prepared execution (the stall's end), so a new execution at a released address
+replaces an expired signal with a live one rather than none. The resumed host
+executor needs nothing extra: its manual `afterToolCall` applies the same
+check. `delegated-conversation-binding-stall.spec.ts` pins the abort targets,
+both rejection paths and the no-live-execution answer.

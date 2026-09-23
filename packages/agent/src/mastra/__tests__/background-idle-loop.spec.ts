@@ -128,6 +128,9 @@ function isLedgerRow(chunk: unknown): chunk is LedgerRow {
   return (chunk as { type: string }).type === 'run-event';
 }
 
+/** A bound no test here approaches; the wakeup-bound test passes its own. */
+const ANY_TURN_INVOCATIONS = 8;
+
 describe('withBackgroundIdleLoop', () => {
   it('keeps a presented outcome queued when the parent request fails', async () => {
     const { ledger, manager, push, setTask } = fakeManager([], () => {});
@@ -147,6 +150,7 @@ describe('withBackgroundIdleLoop', () => {
         agent: { id: 'root', stream } as unknown as Agent,
         ledger,
         manager,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: { inputProcessors: [processor] },
         recordNativeRootRun,
         rejectedDelegations: undefined,
@@ -180,7 +184,7 @@ describe('withBackgroundIdleLoop', () => {
       channel,
       ledger,
       manager,
-      maxIdleMs: 60_000,
+      maxInvocations: ANY_TURN_INVOCATIONS,
       options: {} as never,
       recordNativeRootRun,
       rejectedDelegations: undefined,
@@ -216,6 +220,51 @@ describe('withBackgroundIdleLoop', () => {
     expect((completed.value as { type: string }).type).toBe('background-task-completed');
   });
 
+  // The loop is not a liveness authority. Its own silence timer (a 300 s default
+  // once borrowed from the task-deadline constant) closed a leg whose child was healthy but quiet,
+  // and the leg's disposal then cancelled that child. Silence is judged once,
+  // per phase, by the stream watchdog wrapping this combined stream.
+  it('running work that stays silent keeps the leg open; only its terminal settles it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ledger, manager, push, setTask } = fakeManager([], () => {});
+      setTask('t1', 'running');
+      const stream = vi.fn(async () => turn('success'));
+      const output = withBackgroundIdleLoop(
+        turn('success', [lifecycle('background-task-started', 't1')]),
+        {
+          agent: { id: 'root', stream } as unknown as Agent,
+          ledger,
+          manager,
+          maxInvocations: ANY_TURN_INVOCATIONS,
+          options: {} as never,
+          recordNativeRootRun,
+          rejectedDelegations: undefined,
+          scope: { resourceId: 'r', threadId: 't' },
+        }
+      );
+      const reader = output.fullStream.getReader();
+      await readLifecycle(reader);
+      let settled = false;
+      const next = readLifecycle(reader).then((result) => {
+        settled = true;
+        return result;
+      });
+      // Hours of quiet: a long silent build, a slow first token on a huge context.
+      await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1000);
+      expect(settled).toBe(false);
+      setTask('t1', 'completed');
+      push(lifecycle('background-task-completed', 't1'));
+      const completed = await next;
+      expect(completed.done).toBe(false);
+      expect((completed.value as { type: string }).type).toBe('background-task-completed');
+      expect(await drain(reader)).toEqual([]);
+      expect(stream).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('treats a suspension with a NEW stamp as a new pause', async () => {
     const channel = createLiveDecisionChannel();
     const { ledger, manager, push } = fakeManager(
@@ -229,7 +278,7 @@ describe('withBackgroundIdleLoop', () => {
       channel,
       ledger,
       manager,
-      maxIdleMs: 60_000,
+      maxInvocations: ANY_TURN_INVOCATIONS,
       options: {} as never,
       recordNativeRootRun,
       rejectedDelegations: undefined,
@@ -265,7 +314,7 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
         recordNativeRootRun,
         rejectedDelegations: undefined,
@@ -296,7 +345,7 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
         recordNativeRootRun,
         rejectedDelegations: undefined,
@@ -345,7 +394,7 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
         recordNativeRootRun,
         rejectedDelegations: undefined,
@@ -397,7 +446,7 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
         recordNativeRootRun,
         rejectedDelegations: undefined,
@@ -443,7 +492,7 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
         recordNativeRootRun,
         recordWakeup: async (record) => {
@@ -498,7 +547,7 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
         recordNativeRootRun: async (nativeRunId: string) => {
           order.push('map');
@@ -535,7 +584,7 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
         recordNativeRootRun,
         recordWakeup: async (record) => {
@@ -614,7 +663,7 @@ describe('withBackgroundIdleLoop', () => {
         agent: { id: 'root', stream } as unknown as Agent,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
         recordNativeRootRun,
         rejectedDelegations,
@@ -655,38 +704,41 @@ describe('withBackgroundIdleLoop', () => {
     expect(chunks.filter(isLedgerRow).at(-1)?.event.label).toBe('1 of 1 specialist returned');
   });
 
-  it('fails the leg loudly once more invocations wake the parent than one turn may admit', async () => {
-    const { ledger, manager, push, setTask } = fakeManager([], () => {});
-    let dispatched = 0;
-    // Every parent turn dispatches a task that returns at once, as if
-    // admission were bypassed; the script stops after 12 so an unbounded loop ends.
-    const dispatchingTurn = () => {
-      if (dispatched >= 12) {
-        return turn('success');
-      }
-      dispatched += 1;
-      const taskId = `t${dispatched}`;
-      setTask(taskId, 'completed');
-      push(lifecycle('background-task-completed', taskId));
-      return turn('success', [lifecycle('background-task-started', taskId)]);
-    };
-    const stream = vi.fn(async () => dispatchingTurn());
-    const output = withBackgroundIdleLoop(dispatchingTurn(), {
-      agent: { id: 'root', stream } as unknown as Agent,
-      ledger,
-      manager,
-      maxIdleMs: 60_000,
-      options: {} as never,
-      recordNativeRootRun,
-      rejectedDelegations: undefined,
-      scope: { resourceId: 'r', threadId: 't' },
-    });
-    // MUTATION: without the bound the leg wakes the parent for all 12 and closes cleanly.
-    await expect(drain(output.fullStream.getReader())).rejects.toThrow(
-      'Background work woke the parent for 9 invocations; one turn admits at most 8, so the leg stops'
-    );
-    expect(stream).toHaveBeenCalledTimes(8);
-  });
+  it.each([3, 8])(
+    "fails the leg loudly once more invocations wake the parent than the request's maxInvocations (%i)",
+    async (maxInvocations) => {
+      const { ledger, manager, push, setTask } = fakeManager([], () => {});
+      let dispatched = 0;
+      // Every parent turn dispatches a task that returns at once, as if
+      // admission were bypassed; the script stops 4 past the bound so an unbounded loop ends.
+      const dispatchingTurn = () => {
+        if (dispatched >= maxInvocations + 4) {
+          return turn('success');
+        }
+        dispatched += 1;
+        const taskId = `t${dispatched}`;
+        setTask(taskId, 'completed');
+        push(lifecycle('background-task-completed', taskId));
+        return turn('success', [lifecycle('background-task-started', taskId)]);
+      };
+      const stream = vi.fn(async () => dispatchingTurn());
+      const output = withBackgroundIdleLoop(dispatchingTurn(), {
+        agent: { id: 'root', stream } as unknown as Agent,
+        ledger,
+        manager,
+        maxInvocations,
+        options: {} as never,
+        recordNativeRootRun,
+        rejectedDelegations: undefined,
+        scope: { resourceId: 'r', threadId: 't' },
+      });
+      // MUTATION: without the bound the leg wakes the parent for every task and closes cleanly.
+      await expect(drain(output.fullStream.getReader())).rejects.toThrow(
+        `Background work woke the parent for ${maxInvocations + 1} invocations; one turn admits at most ${maxInvocations}, so the leg stops`
+      );
+      expect(stream).toHaveBeenCalledTimes(maxInvocations);
+    }
+  );
 
   it('settles a continuation whose native run it cannot map, instead of abandoning it open', async () => {
     // The continuation stream exists BEFORE its run is mapped (a pause raised
@@ -725,7 +777,7 @@ describe('withBackgroundIdleLoop', () => {
         agent: { id: 'root', stream: async () => continuation } as unknown as Agent,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
         recordNativeRootRun: async () => {
           throw refusal;

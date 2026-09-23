@@ -18,7 +18,6 @@ export * from './conversation-rewind.js';
 export * from './delegated-conversation-stream.js';
 export * from './delegated-tool-actions.js';
 export {
-  DELEGATION_LIMITS,
   type DelegatedBudgetPort,
   type DelegatedInvocationAdmission,
   DelegatedOutputReservationExceededError,
