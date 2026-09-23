@@ -1,6 +1,6 @@
 import type { DbHandle } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { Activity } from 'react';
+import { Activity, type ReactElement } from 'react';
 import { ChildView } from './delegated-workspace-child-view';
 import type { ChildNode } from './delegated-workspace-node';
 
@@ -13,7 +13,7 @@ export function ChildAppSurface({
   readonly db: DbHandle;
   readonly id: string;
   readonly node: ChildNode;
-}) {
+}): ReactElement {
   const isSelected = useWorkspaceTabSelectionStore(
     (state) => state.selection.kind === 'app' && state.selection.appId === id
   );
