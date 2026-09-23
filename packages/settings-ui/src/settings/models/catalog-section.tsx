@@ -18,6 +18,13 @@ import type { CatalogSection as CatalogSectionModel } from './catalog-sections';
 /** First-paint estimates only; TreeTable measures the real rows (TreeGrid row-height contract). */
 const ROW_HEIGHT_ESTIMATES = { detail: 132, model: 36 };
 
+/**
+ * The sticky section header's painted height: MUST equal its literal `h-11`
+ * class below (44px). TreeTable reserves it at the top of the shared scroller
+ * so a keyboard-focused row is never brought into view underneath the header.
+ */
+const SECTION_HEADER_HEIGHT_PX = 44;
+
 function rowClassName(node: TreeNode<CatalogNodeData>): string {
   if (node.data.kind === 'detail') {
     return 'cursor-default bg-muted/20 hover:bg-muted/20';
@@ -133,6 +140,7 @@ export function CatalogSection({
       className="border-b last:border-b-0"
       data-testid={`model-catalog-section-${providerId}`}
     >
+      {/* h-11 is SECTION_HEADER_HEIGHT_PX; change both together. */}
       <div
         className={cn(
           'sticky top-0 flex h-11 items-center gap-3 border-b bg-card px-3',
@@ -216,6 +224,7 @@ export function CatalogSection({
             overscan={8}
             rowClassName={rowClassName}
             rowHeight={ROW_HEIGHT_ESTIMATES}
+            scrollPaddingStart={SECTION_HEADER_HEIGHT_PX}
             scrollParentRef={scrollParentRef}
             selectedId={null}
             selectionMode="single"

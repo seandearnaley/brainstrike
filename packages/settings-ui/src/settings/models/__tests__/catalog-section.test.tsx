@@ -11,12 +11,22 @@ import { CatalogRowActionsContext } from '../use-catalog-row-actions';
 import { installCatalogDomStubs, makeRowActions } from './catalog-dom-harness';
 import { makeCatalogRow } from './catalog-test-harness';
 
+const virtualizerOptions = vi.hoisted(() => ({
+  current: [] as Array<{ count: number; scrollPaddingStart?: number }>,
+}));
+
 vi.mock('@tanstack/react-virtual', async () => {
   const actual =
     await vi.importActual<typeof import('@tanstack/react-virtual')>('@tanstack/react-virtual');
   const { createMockCatalogVirtualizer } =
     await vi.importActual<typeof import('./catalog-dom-harness')>('./catalog-dom-harness');
-  return { ...actual, useVirtualizer: createMockCatalogVirtualizer };
+  return {
+    ...actual,
+    useVirtualizer: (options: { count: number; scrollPaddingStart?: number }) => {
+      virtualizerOptions.current.push(options);
+      return createMockCatalogVirtualizer(options);
+    },
+  };
 });
 
 beforeAll(() => {
@@ -145,6 +155,15 @@ describe('CatalogSection header', () => {
     expect(within(header).queryByText('Hosted')).not.toBeInTheDocument();
     expect(screen.getByTestId('model-catalog-section-count-openai')).toBeInTheDocument();
     expect(screen.getByTestId('model-catalog-enable-openai')).toBeInTheDocument();
+  });
+
+  it('reserves the sticky header height when bringing a focused row into view', () => {
+    // WCAG 2.4.11: keyboard focus must not land under the in-scroller sticky
+    // header. The inset and the header's h-11 class (44px) move together.
+    virtualizerOptions.current.length = 0;
+    renderSection();
+    expect(screen.getByTestId('model-catalog-section-header-openai').className).toContain('h-11');
+    expect(virtualizerOptions.current.at(-1)?.scrollPaddingStart).toBe(44);
   });
 
   it('renders no treegrid while collapsed', () => {

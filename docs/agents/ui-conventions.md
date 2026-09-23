@@ -35,11 +35,11 @@ Evidence: `ui-conventions/retired-tree-adapters.md`.
   non-scrolling spacer, and the virtualizer windows through `scrollMargin`. A
   per-table scrollbar inside a scrolling column freezes the virtual window.
 - The Model Catalog (`settings-ui/src/settings/models/model-catalog.tsx`) is the
-  second shared-scroller consumer: one TreeTable per expanded provider section,
-  ONE presentational column header above the scroller (Explorer forest shape),
-  and in-flow `sticky top-0` provider headers layered with
-  `STICKY_SECTION_HEADER_LAYER_CLASS`. Row pitch is pinned by
-  `apps/web/e2e/settings-models-and-providers.test.ts`.
+  second shared-scroller consumer: one TreeTable per expanded section, ONE
+  presentational column header above the scroller (Explorer forest shape), and
+  in-flow `sticky top-0` headers (`STICKY_SECTION_HEADER_LAYER_CLASS`) whose
+  height each table passes as `scrollPaddingStart` so a focused row clears it.
+  Row pitch is pinned by `apps/web/e2e/settings-models-and-providers.test.ts`.
 
 Settled: shared-scroller mode is the one sanctioned exception. Evidence:
 `ui-conventions/shared-scroller-mode.md`.
