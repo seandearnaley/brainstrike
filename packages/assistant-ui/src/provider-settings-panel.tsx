@@ -16,6 +16,7 @@ import type {
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
 import {
+  type DraftInput,
   Input,
   Label,
   Select,
@@ -24,8 +25,9 @@ import {
   SelectTrigger,
   SelectValue,
   Switch,
+  useDraftField,
 } from '@brainstrike/ui';
-import { useId, useState } from 'react';
+import { useId } from 'react';
 import { clampNumber, parseNumber } from './assistant-ui-panel-utils';
 import {
   useOpenRouterModelMetadataLookup,
@@ -212,25 +214,84 @@ function resolveOpenRouterModelLimits(
   };
 }
 
+interface IntegerRange {
+  readonly max: number;
+  readonly min: number;
+  /** What the number counts, for the refusal message ("steps"). */
+  readonly noun: string;
+}
+
+/**
+ * A committed draft: empty is UNSET (the setting's default or Off), a whole
+ * number in range is the value, anything else is refused — never clamped. A
+ * number input reports '' for unparseable text too; `badInput` tells them apart.
+ */
+function readIntegerDraft(
+  { badInput, text }: DraftInput,
+  range: IntegerRange
+): { readonly value: number | undefined } | { readonly refusal: string } {
+  if (!badInput && text.trim().length === 0) {
+    return { value: undefined };
+  }
+  const value = badInput ? Number.NaN : Number(text);
+  if (!Number.isInteger(value) || value < range.min || value > range.max) {
+    return {
+      refusal: `Enter a whole number of ${range.noun} from ${settingsNumberFormatter.format(range.min)} to ${settingsNumberFormatter.format(range.max)}.`,
+    };
+  }
+  return { value };
+}
+
+/** An optional integer setting edited as a draft and committed on blur/Enter. */
+function useIntegerSettingField(
+  shown: string,
+  range: IntegerRange,
+  store: (value: number | undefined) => void
+) {
+  return useDraftField({
+    commit: (draft) => {
+      const parsed = readIntegerDraft(draft, range);
+      if ('refusal' in parsed) {
+        return parsed.refusal;
+      }
+      store(parsed.value);
+      return;
+    },
+    value: shown,
+  });
+}
+
+function FieldRefusal({ id, message }: { id: string; message: string | undefined }) {
+  return message ? (
+    <p className="text-[10px] text-destructive" id={id} role="alert">
+      {message}
+    </p>
+  ) : null;
+}
+
 const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => {
   const maxStepsEnabled = typeof settings.agentMaxSteps === 'number';
-  const maxStepsValue = clampNumber(
-    settings.agentMaxSteps ?? AGENT_MAX_STEPS_DEFAULT,
-    AGENT_MAX_STEPS_MIN,
-    AGENT_MAX_STEPS_MAX
-  );
   const inputTokenLimitEnabled = typeof settings.agentInputTokenLimit === 'number';
-  const inputTokenLimitValue = clampNumber(
-    settings.agentInputTokenLimit ?? INPUT_TOKEN_LIMIT_DEFAULT,
-    INPUT_TOKEN_LIMIT_MIN,
-    INPUT_TOKEN_LIMIT_MAX
-  );
-  const memoryLastMessagesValue = clampNumber(
-    settings.memoryLastMessages ?? MEMORY_LAST_MESSAGES_DEFAULT,
-    MEMORY_LAST_MESSAGES_MIN,
-    MEMORY_LAST_MESSAGES_MAX
-  );
+  const memoryLastMessages = settings.memoryLastMessages ?? MEMORY_LAST_MESSAGES_DEFAULT;
   const workingMemoryEnabled = settings.workingMemoryEnabled ?? true;
+  const maxStepsErrorId = useId();
+  const inputTokenLimitErrorId = useId();
+  const memoryErrorId = useId();
+  const maxSteps = useIntegerSettingField(
+    maxStepsEnabled ? String(settings.agentMaxSteps) : '',
+    { max: AGENT_MAX_STEPS_MAX, min: AGENT_MAX_STEPS_MIN, noun: 'steps' },
+    (value) => onUpdate({ agentMaxSteps: value })
+  );
+  const inputTokenLimit = useIntegerSettingField(
+    inputTokenLimitEnabled ? String(settings.agentInputTokenLimit) : '',
+    { max: INPUT_TOKEN_LIMIT_MAX, min: INPUT_TOKEN_LIMIT_MIN, noun: 'input tokens' },
+    (value) => onUpdate({ agentInputTokenLimit: value })
+  );
+  const memory = useIntegerSettingField(
+    String(memoryLastMessages),
+    { max: MEMORY_LAST_MESSAGES_MAX, min: MEMORY_LAST_MESSAGES_MIN, noun: 'messages' },
+    (value) => onUpdate({ memoryLastMessages: value })
+  );
 
   return (
     <div className="space-y-2 rounded-md bg-muted/30 p-2">
@@ -241,107 +302,74 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
         <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2">
           <span className="text-[10px] text-muted-foreground">Max steps</span>
           <Input
+            aria-describedby={maxSteps.error ? maxStepsErrorId : undefined}
+            aria-invalid={Boolean(maxSteps.error)}
             aria-label="Max agent steps"
             className="h-7 text-xs"
             disabled={disabled || !maxStepsEnabled}
             inputMode="numeric"
             max={AGENT_MAX_STEPS_MAX}
             min={AGENT_MAX_STEPS_MIN}
-            onChange={(event) => {
-              const parsed = parseNumber(event.target.value);
-              if (parsed === undefined) {
-                onUpdate({ agentMaxSteps: undefined });
-                return;
-              }
-              onUpdate({
-                agentMaxSteps: clampNumber(parsed, AGENT_MAX_STEPS_MIN, AGENT_MAX_STEPS_MAX),
-              });
-            }}
             placeholder="100 default"
             type="number"
-            value={maxStepsEnabled ? maxStepsValue : ''}
+            {...maxSteps.inputProps}
           />
           <Switch
             aria-label="Limit agent steps"
             checked={maxStepsEnabled}
             disabled={disabled}
-            onCheckedChange={(checked) =>
-              onUpdate({
-                agentMaxSteps: checked ? maxStepsValue : undefined,
-              })
-            }
+            onCheckedChange={(checked) => {
+              maxSteps.revert();
+              onUpdate({ agentMaxSteps: checked ? AGENT_MAX_STEPS_DEFAULT : undefined });
+            }}
           />
         </div>
+        <FieldRefusal id={maxStepsErrorId} message={maxSteps.error} />
         <div className="grid grid-cols-[1fr_96px_auto] items-center gap-2">
           <span className="text-[10px] text-muted-foreground">Input tokens</span>
           <Input
+            aria-describedby={inputTokenLimit.error ? inputTokenLimitErrorId : undefined}
+            aria-invalid={Boolean(inputTokenLimit.error)}
             aria-label="Input token limit"
             className="h-7 text-xs"
             disabled={disabled || !inputTokenLimitEnabled}
             inputMode="numeric"
             max={INPUT_TOKEN_LIMIT_MAX}
             min={INPUT_TOKEN_LIMIT_MIN}
-            onChange={(event) => {
-              const parsed = parseNumber(event.target.value);
-              if (parsed === undefined) {
-                onUpdate({ agentInputTokenLimit: undefined });
-                return;
-              }
-              onUpdate({
-                agentInputTokenLimit: clampNumber(
-                  parsed,
-                  INPUT_TOKEN_LIMIT_MIN,
-                  INPUT_TOKEN_LIMIT_MAX
-                ),
-              });
-            }}
             placeholder="Off"
             type="number"
-            value={inputTokenLimitEnabled ? inputTokenLimitValue : ''}
+            {...inputTokenLimit.inputProps}
           />
           <Switch
             aria-label="Limit input tokens"
             checked={inputTokenLimitEnabled}
             disabled={disabled}
-            onCheckedChange={(checked) =>
-              onUpdate({
-                agentInputTokenLimit: checked ? inputTokenLimitValue : undefined,
-              })
-            }
+            onCheckedChange={(checked) => {
+              inputTokenLimit.revert();
+              onUpdate({ agentInputTokenLimit: checked ? INPUT_TOKEN_LIMIT_DEFAULT : undefined });
+            }}
           />
         </div>
+        <FieldRefusal id={inputTokenLimitErrorId} message={inputTokenLimit.error} />
         <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2">
           <span className="text-[10px] text-muted-foreground">Memory messages</span>
           <Input
+            aria-describedby={memory.error ? memoryErrorId : undefined}
+            aria-invalid={Boolean(memory.error)}
             aria-label="Memory messages"
             className="h-7 text-xs"
             disabled={disabled}
             inputMode="numeric"
             max={MEMORY_LAST_MESSAGES_MAX}
             min={MEMORY_LAST_MESSAGES_MIN}
-            onChange={(event) => {
-              const parsed = parseNumber(event.target.value);
-              if (parsed === undefined) {
-                onUpdate({ memoryLastMessages: undefined });
-                return;
-              }
-              onUpdate({
-                memoryLastMessages: clampNumber(
-                  parsed,
-                  MEMORY_LAST_MESSAGES_MIN,
-                  MEMORY_LAST_MESSAGES_MAX
-                ),
-              });
-            }}
             type="number"
-            value={memoryLastMessagesValue}
+            {...memory.inputProps}
           />
           <span className="text-right text-[10px] text-muted-foreground">
-            {memoryLastMessagesValue === 0
-              ? 'Off'
-              : settingsNumberFormatter.format(memoryLastMessagesValue)}
+            {memoryLastMessages === 0 ? 'Off' : settingsNumberFormatter.format(memoryLastMessages)}
           </span>
         </div>
+        <FieldRefusal id={memoryErrorId} message={memory.error} />
         <div className="flex items-center justify-between gap-2">
           <span className="text-[10px] text-muted-foreground">Working memory</span>
           <Switch
@@ -406,14 +434,27 @@ const MaxOutputSection = ({
     MAX_OUTPUT_MIN,
     maximum
   );
-  const [draft, setDraft] = useState(maxOutputEnabled ? String(settings.maxOutputTokens) : '');
   const errorId = useId();
-  const parsedDraft = parseNumber(draft);
-  const draftError = resolveMaxOutputDraftError({
-    draft,
-    enabled: maxOutputEnabled,
-    maximum,
-    maximumSource,
+  // A refused commit blocks the composer (`onValidationChange`) until it is
+  // fixed or Escape restores the stored value; a typed draft reports nothing.
+  const field = useDraftField({
+    commit: ({ text }) => {
+      // Unparseable text arrives as '' and is refused like an empty limit.
+      const refusal = resolveMaxOutputDraftError({
+        draft: text,
+        enabled: maxOutputEnabled,
+        maximum,
+        maximumSource,
+      });
+      onValidationChange?.(refusal);
+      if (refusal) {
+        return refusal;
+      }
+      onUpdate({ maxOutputTokens: Number(text) });
+      return;
+    },
+    onRevert: () => onValidationChange?.(undefined),
+    value: maxOutputEnabled ? String(settings.maxOutputTokens) : '',
   });
 
   return (
@@ -436,51 +477,28 @@ const MaxOutputSection = ({
       </div>
       <div className="flex items-center gap-2">
         <Input
-          aria-describedby={draftError ? errorId : undefined}
-          aria-invalid={Boolean(draftError)}
+          aria-describedby={field.error ? errorId : undefined}
+          aria-invalid={Boolean(field.error)}
           aria-label="Output token limit"
           className="h-8 text-xs"
           disabled={disabled || !maxOutputEnabled}
           inputMode="numeric"
           max={maximum}
           min={MAX_OUTPUT_MIN}
-          onChange={(event) => {
-            const nextDraft = event.target.value;
-            setDraft(nextDraft);
-            const nextError = resolveMaxOutputDraftError({
-              draft: nextDraft,
-              enabled: maxOutputEnabled,
-              maximum,
-              maximumSource,
-            });
-            onValidationChange?.(nextError);
-            if (nextError) {
-              return;
-            }
-            const parsed = parseNumber(nextDraft);
-            if (parsed === undefined) {
-              return;
-            }
-            onUpdate({ maxOutputTokens: parsed });
-          }}
           placeholder="Auto"
           step={1}
           type="number"
-          value={maxOutputEnabled ? draft : ''}
+          {...field.inputProps}
         />
         <span className="text-[10px] text-muted-foreground">
-          {maxOutputEnabled && !draftError
-            ? settingsNumberFormatter.format(parsedDraft ?? maxOutputValue)
+          {maxOutputEnabled && !field.error
+            ? settingsNumberFormatter.format(settings.maxOutputTokens ?? maxOutputValue)
             : maxOutputEnabled
               ? 'Invalid'
               : 'Auto'}
         </span>
       </div>
-      {draftError ? (
-        <p className="text-[10px] text-destructive" id={errorId} role="alert">
-          {draftError}
-        </p>
-      ) : null}
+      <FieldRefusal id={errorId} message={field.error} />
       <input
         aria-label="Max output tokens"
         className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
@@ -552,6 +570,12 @@ const AnthropicReasoningSection = ({
     ANTHROPIC_THINKING_MIN,
     ANTHROPIC_THINKING_MAX
   );
+  const thinkingErrorId = useId();
+  const thinkingBudget = useIntegerSettingField(
+    thinkingEnabled ? String(settings.anthropicThinkingBudgetTokens) : '',
+    { max: ANTHROPIC_THINKING_MAX, min: ANTHROPIC_THINKING_MIN, noun: 'thinking tokens' },
+    (value) => onUpdate({ anthropicThinkingBudgetTokens: value })
+  );
 
   // Effort + the primary Thinking toggle moved to the composer model menu;
   // the advanced numeric budget stays here.
@@ -569,43 +593,33 @@ const AnthropicReasoningSection = ({
             <Switch
               checked={thinkingEnabled}
               disabled={disabled}
-              onCheckedChange={(checked) =>
+              onCheckedChange={(checked) => {
+                thinkingBudget.revert();
                 onUpdate({
                   anthropicThinkingBudgetTokens: checked ? thinkingValue : undefined,
-                })
-              }
+                });
+              }}
             />
           </div>
           <div className="flex items-center gap-2">
             <Input
+              aria-describedby={thinkingBudget.error ? thinkingErrorId : undefined}
+              aria-invalid={Boolean(thinkingBudget.error)}
               aria-label="Anthropic thinking budget input"
               className="h-8 text-xs"
               disabled={disabled || !thinkingEnabled}
               inputMode="numeric"
               max={ANTHROPIC_THINKING_MAX}
               min={ANTHROPIC_THINKING_MIN}
-              onChange={(event) => {
-                const parsed = parseNumber(event.target.value);
-                if (parsed === undefined) {
-                  onUpdate({ anthropicThinkingBudgetTokens: undefined });
-                  return;
-                }
-                onUpdate({
-                  anthropicThinkingBudgetTokens: clampNumber(
-                    parsed,
-                    ANTHROPIC_THINKING_MIN,
-                    ANTHROPIC_THINKING_MAX
-                  ),
-                });
-              }}
               placeholder="Auto"
               type="number"
-              value={thinkingEnabled ? thinkingValue : ''}
+              {...thinkingBudget.inputProps}
             />
             <span className="text-[10px] text-muted-foreground">
               {thinkingEnabled ? settingsNumberFormatter.format(thinkingValue) : 'Auto'}
             </span>
           </div>
+          <FieldRefusal id={thinkingErrorId} message={thinkingBudget.error} />
           <input
             aria-label="Anthropic thinking budget"
             className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"

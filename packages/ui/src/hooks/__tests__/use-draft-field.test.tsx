@@ -1,0 +1,145 @@
+import '@testing-library/jest-dom/vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useDraftField } from '../use-draft-field';
+
+afterEach(() => {
+  cleanup();
+});
+
+/** A stored integer edited through the hook; `commit` refuses anything above `max`. */
+function Harness({
+  max = 1000,
+  onRevert,
+  onStore,
+}: {
+  readonly max?: number;
+  readonly onRevert?: () => void;
+  readonly onStore: (value: number) => void;
+}) {
+  const [stored, setStored] = useState(100);
+  const field = useDraftField({
+    commit: (draft) => {
+      if (draft.badInput) {
+        return 'That is not a number.';
+      }
+      const value = Number(draft.text);
+      if (!Number.isInteger(value) || value > max) {
+        return `Enter a whole number up to ${max}.`;
+      }
+      onStore(value);
+      setStored(value);
+      return;
+    },
+    ...(onRevert ? { onRevert } : {}),
+    value: String(stored),
+  });
+  return (
+    <>
+      <input aria-label="Steps" type="number" {...field.inputProps} />
+      {field.error ? <p role="alert">{field.error}</p> : null}
+      <p data-testid="stored">{stored}</p>
+    </>
+  );
+}
+
+describe('useDraftField', () => {
+  it('stores nothing while typing and commits the whole draft on blur', async () => {
+    const user = userEvent.setup();
+    const onStore = vi.fn();
+    render(<Harness onStore={onStore} />);
+    const input = screen.getByLabelText('Steps');
+    await user.clear(input);
+    await user.type(input, '128');
+    expect(onStore).not.toHaveBeenCalled();
+    expect(input).toHaveValue(128);
+    await user.tab();
+    expect(onStore.mock.calls).toEqual([[128]]);
+    expect(screen.getByTestId('stored')).toHaveTextContent('128');
+  });
+
+  it('commits on Enter', async () => {
+    const user = userEvent.setup();
+    const onStore = vi.fn();
+    render(<Harness onStore={onStore} />);
+    const input = screen.getByLabelText('Steps');
+    await user.clear(input);
+    await user.type(input, '48{Enter}');
+    expect(onStore.mock.calls).toEqual([[48]]);
+    expect(input).toHaveFocus();
+  });
+
+  it('keeps a refused draft on screen with its message and stores nothing', async () => {
+    const user = userEvent.setup();
+    const onStore = vi.fn();
+    render(<Harness max={64} onStore={onStore} />);
+    const input = screen.getByLabelText('Steps');
+    await user.clear(input);
+    await user.type(input, '128');
+    await user.tab();
+    expect(onStore).not.toHaveBeenCalled();
+    expect(input).toHaveValue(128);
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number up to 64.');
+    await user.clear(input);
+    await user.type(input, '32');
+    // The message describes the last COMMIT, not the draft being typed.
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await user.tab();
+    expect(onStore.mock.calls).toEqual([[32]]);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('Escape discards the draft and its message, and the following blur stores nothing', async () => {
+    const user = userEvent.setup();
+    const onStore = vi.fn();
+    const onRevert = vi.fn();
+    render(<Harness max={64} onRevert={onRevert} onStore={onStore} />);
+    const input = screen.getByLabelText('Steps');
+    await user.clear(input);
+    await user.type(input, '128{Enter}');
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await user.type(input, '{Escape}');
+    expect(onRevert).toHaveBeenCalledTimes(1);
+    expect(input).toHaveValue(100);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await user.tab();
+    expect(onStore).not.toHaveBeenCalled();
+  });
+
+  it('a blur without an edit commits nothing', async () => {
+    const user = userEvent.setup();
+    const onStore = vi.fn();
+    render(<Harness onStore={onStore} />);
+    await user.click(screen.getByLabelText('Steps'));
+    await user.tab();
+    expect(onStore).not.toHaveBeenCalled();
+  });
+
+  it('shows the stored value again once a commit lands', async () => {
+    const user = userEvent.setup();
+    const onStore = vi.fn();
+    render(<Harness onStore={onStore} />);
+    const input = screen.getByLabelText('Steps');
+    await user.clear(input);
+    await user.type(input, '007');
+    await user.tab();
+    expect(onStore.mock.calls).toEqual([[7]]);
+    // The draft text "007" is gone; the field renders the stored value.
+    expect((input as HTMLInputElement).value).toBe('7');
+  });
+
+  it("hands commit the browser's bad-input report, so unparseable text is never read as empty", () => {
+    const onStore = vi.fn();
+    render(<Harness onStore={onStore} />);
+    const input = screen.getByLabelText('Steps');
+    // A browser reports value '' with validity.badInput for "1.", "-" or "1e";
+    // jsdom never sets badInput, so model the browser's report directly.
+    Object.defineProperty(input, 'validity', { configurable: true, value: { badInput: true } });
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(screen.getByRole('alert')).toHaveTextContent('That is not a number.');
+    expect(onStore).not.toHaveBeenCalled();
+  });
+});
