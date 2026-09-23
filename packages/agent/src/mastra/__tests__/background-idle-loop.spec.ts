@@ -180,7 +180,6 @@ describe('withBackgroundIdleLoop', () => {
       channel,
       ledger,
       manager,
-      maxIdleMs: 60_000,
       options: {} as never,
       recordNativeRootRun,
       rejectedDelegations: undefined,
@@ -216,6 +215,50 @@ describe('withBackgroundIdleLoop', () => {
     expect((completed.value as { type: string }).type).toBe('background-task-completed');
   });
 
+  // The loop is not a liveness authority. Its own silence timer (the 300 s
+  // task-deadline constant) closed a leg whose child was healthy but quiet,
+  // and the leg's disposal then cancelled that child. Silence is judged once,
+  // per phase, by the stream watchdog wrapping this combined stream.
+  it('running work that stays silent keeps the leg open; only its terminal settles it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ledger, manager, push, setTask } = fakeManager([], () => {});
+      setTask('t1', 'running');
+      const stream = vi.fn(async () => turn('success'));
+      const output = withBackgroundIdleLoop(
+        turn('success', [lifecycle('background-task-started', 't1')]),
+        {
+          agent: { id: 'root', stream } as unknown as Agent,
+          ledger,
+          manager,
+          options: {} as never,
+          recordNativeRootRun,
+          rejectedDelegations: undefined,
+          scope: { resourceId: 'r', threadId: 't' },
+        }
+      );
+      const reader = output.fullStream.getReader();
+      await readLifecycle(reader);
+      let settled = false;
+      const next = readLifecycle(reader).then((result) => {
+        settled = true;
+        return result;
+      });
+      // Hours of quiet: a long silent build, a slow first token on a huge context.
+      await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1000);
+      expect(settled).toBe(false);
+      setTask('t1', 'completed');
+      push(lifecycle('background-task-completed', 't1'));
+      const completed = await next;
+      expect(completed.done).toBe(false);
+      expect((completed.value as { type: string }).type).toBe('background-task-completed');
+      expect(await drain(reader)).toEqual([]);
+      expect(stream).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('treats a suspension with a NEW stamp as a new pause', async () => {
     const channel = createLiveDecisionChannel();
     const { ledger, manager, push } = fakeManager(
@@ -229,7 +272,6 @@ describe('withBackgroundIdleLoop', () => {
       channel,
       ledger,
       manager,
-      maxIdleMs: 60_000,
       options: {} as never,
       recordNativeRootRun,
       rejectedDelegations: undefined,
@@ -265,7 +307,6 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
         options: {} as never,
         recordNativeRootRun,
         rejectedDelegations: undefined,
@@ -296,7 +337,6 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
         options: {} as never,
         recordNativeRootRun,
         rejectedDelegations: undefined,
@@ -345,7 +385,6 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
         options: {} as never,
         recordNativeRootRun,
         rejectedDelegations: undefined,
@@ -397,7 +436,6 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
         options: {} as never,
         recordNativeRootRun,
         rejectedDelegations: undefined,
@@ -443,7 +481,6 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
         options: {} as never,
         recordNativeRootRun,
         recordWakeup: async (record) => {
@@ -498,7 +535,6 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
         options: {} as never,
         recordNativeRootRun: async (nativeRunId: string) => {
           order.push('map');
@@ -535,7 +571,6 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
         options: {} as never,
         recordNativeRootRun,
         recordWakeup: async (record) => {
@@ -614,7 +649,6 @@ describe('withBackgroundIdleLoop', () => {
         agent: { id: 'root', stream } as unknown as Agent,
         ledger,
         manager,
-        maxIdleMs: 60_000,
         options: {} as never,
         recordNativeRootRun,
         rejectedDelegations,
@@ -675,7 +709,6 @@ describe('withBackgroundIdleLoop', () => {
       agent: { id: 'root', stream } as unknown as Agent,
       ledger,
       manager,
-      maxIdleMs: 60_000,
       options: {} as never,
       recordNativeRootRun,
       rejectedDelegations: undefined,
@@ -725,7 +758,6 @@ describe('withBackgroundIdleLoop', () => {
         agent: { id: 'root', stream: async () => continuation } as unknown as Agent,
         ledger,
         manager,
-        maxIdleMs: 60_000,
         options: {} as never,
         recordNativeRootRun: async () => {
           throw refusal;
