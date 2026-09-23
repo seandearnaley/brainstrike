@@ -9,7 +9,6 @@
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/queue": "workspace:*",
-    "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
