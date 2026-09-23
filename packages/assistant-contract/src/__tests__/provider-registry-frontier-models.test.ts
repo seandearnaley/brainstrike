@@ -367,7 +367,8 @@ describe('frontier model refresh (2026-07)', () => {
       const glm53 = getLlmModelDefinition('openrouter', 'z-ai/glm-5.3');
 
       expect(glm53).toEqual({
-        contextWindow: 1_048_576,
+        // BST-1804: Models API context_length, read 2026-09-23.
+        contextWindow: 1_310_720,
         id: 'z-ai/glm-5.3',
         label: 'GLM-5.3 (OpenRouter)',
         maxOutputTokens: 131_072,

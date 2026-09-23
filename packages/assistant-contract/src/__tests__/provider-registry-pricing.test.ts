@@ -296,4 +296,10 @@ describe('model pricing metadata', () => {
     );
     expect(flashLite?.pricing).toEqual({ inputPerMTok: 0.25, outputPerMTok: 1.5 });
   });
+
+  // BST-1804: same page, Standard paid tier; a flat rate with no prompt-size tier.
+  it('prices the Gemini 3.5 Flash default from the Google pricing page', () => {
+    const flash = listProviderLlmModels('google').find((model) => model.id === 'gemini-3.5-flash');
+    expect(flash?.pricing).toEqual({ inputPerMTok: 1.5, outputPerMTok: 9 });
+  });
 });

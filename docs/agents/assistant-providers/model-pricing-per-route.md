@@ -95,3 +95,14 @@ gpt-5.4-pro are 1,050,000, not 400,000. `maxOutputTokens` (128,000) matched on
 every row. `gpt-6-astra` and `gpt-5.6-sol` already matched.
 After the pass, the direct and OpenRouter rows agree on terra, luna, gpt-5.5 and
 gpt-5.4. The live-vs-live check from 2026-09-09 had predicted that result.
+
+**Follow-up drift, same day.** The direct `google` default `gemini-3.5-flash`
+held 0.3/2.5, which is Gemini 3.5 Flash-Lite's rate. ai.google.dev's pricing
+page lists model code `gemini-3.5-flash` at a flat 1.50/9.00 on the Standard
+paid tier, with no prompt-size tier (only 3.1 Pro has a >200k tier there). The
+model page confirms the 1,048,576/65,536 limits already on the row.
+`openrouter` `z-ai/glm-5.3` moved from a 1,048,576 to a 1,310,720
+`contextWindow`. That figure is the Models API model-level `context_length`,
+the same field the live metadata reader installs. `top_provider.context_length`
+is still 1,048,576, and 1,310,720 is the widest endpoint (Cloudflare);
+`top_provider.max_completion_tokens` 131,072 matched.

@@ -606,14 +606,15 @@
         "vision": "supported"
       },
       {
+        "_note": "Direct Google route. Standard paid tier is a flat $1.50 input / $9.00\noutput per 1M tokens (no prompt-size tier); limits 1,048,576/65,536.\nRetrieved 2026-09-23 (BST-1804):\nhttps://ai.google.dev/gemini-api/docs/pricing\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash",
         "contextWindow": 1048576,
         "default": true,
         "id": "gemini-3.5-flash",
         "label": "Gemini 3.5 Flash",
         "maxOutputTokens": 65536,
         "pricing": {
-          "inputPerMTok": 0.3,
-          "outputPerMTok": 2.5
+          "inputPerMTok": 1.5,
+          "outputPerMTok": 9
         },
         "supportsStreaming": true,
         "tagline": "Best mix of smarts and speed",
@@ -1002,8 +1003,8 @@
         "vision": "supported"
       },
       {
-        "_note": "Official Z.AI GLM-5.3 release/model/thinking docs, retrieved\n2026-08-22, own the API ID, text-only modality, native 1M/128K\nlimits, and mandatory max/high/low reasoning ladder with max default.\nOpenRouter Models and endpoint APIs own this fixed route's effective\n1,048,576/131,072 ceilings and gateway pricing (BST-1414). The 128K\nfact is a hard maximum, not a distinct default combined reasoning +\nanswer reservation, so vendorDefaultOutputTokens remains absent.",
-        "contextWindow": 1048576,
+        "_note": "Official Z.AI GLM-5.3 release/model/thinking docs, retrieved\n2026-08-22, own the API ID, text-only modality, native 1M/128K\nlimits, and mandatory max/high/low reasoning ladder with max default.\nOpenRouter Models and endpoint APIs own this fixed route's effective\nceilings and gateway pricing (BST-1414). The 128K\nfact is a hard maximum, not a distinct default combined reasoning +\nanswer reservation, so vendorDefaultOutputTokens remains absent.\ncontextWindow is the Models API model-level context_length (1,310,720,\nthe field the live metadata reader installs); maxOutputTokens is\ntop_provider.max_completion_tokens (131,072). Retrieved 2026-09-23\n(BST-1804).",
+        "contextWindow": 1310720,
         "id": "z-ai/glm-5.3",
         "label": "GLM-5.3 (OpenRouter)",
         "maxOutputTokens": 131072,
