@@ -44,6 +44,7 @@ import { z } from 'zod';
 import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
 import { createDesktopDelegatedContinuationHost } from './delegated-continuation-host';
 import { delegatedHostRunId } from './delegated-host-run-id';
+import { type DelegatedHostScope, resolveDelegatedHostScope } from './delegated-host-scope';
 import { createDelegatedStepBudget } from './delegated-step-budget';
 import {
   assertDelegationRootRunning,
@@ -92,11 +93,6 @@ async function recordSwarmDiagnostic(
 }
 
 const identityString = z.string().refine((value) => value.trim().length > 0);
-const hostScopeSchema = z.object({
-  ownerResourceId: identityString,
-  rootThreadId: identityString,
-  turnMessageId: identityString,
-});
 
 /**
  * The ONE stopped-subtree predicate: an invocation row on any thread in
@@ -205,7 +201,7 @@ function toolActionKey(
 
 async function resolveActionParentThreadId(
   database: DelegatedConversationDatabase,
-  scope: z.infer<typeof hostScopeSchema>,
+  scope: DelegatedHostScope,
   action: Parameters<NonNullable<DelegatedConversationBinding['resolveToolAction']>>[0]
 ): Promise<string> {
   if (!action.continuationId) {
@@ -359,20 +355,13 @@ export function createDesktopDelegatedConversationHost(
     throw new DelegatedConversationIdentityError();
   }
   const repository = createDelegatedConversationRepository(database);
-  const readScope = async (): Promise<z.infer<typeof hostScopeSchema>> => {
-    const result = await database.query(
-      `SELECT runs.resource_id AS "ownerResourceId", runs.thread_id AS "rootThreadId",
-        runs.turn_message_id AS "turnMessageId"
-       FROM brainstrike_assistant_thread_runs runs
-       JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
-       WHERE runs.id = $1`,
-      [hostRunId]
-    );
-    const parsed = hostScopeSchema.safeParse(result.rows[0]);
-    if (result.rows.length !== 1 || !parsed.success) {
+  const resolveScope = () => resolveDelegatedHostScope(database, hostRunId);
+  const readScope = async (): Promise<DelegatedHostScope> => {
+    const scope = await resolveScope();
+    if (!scope) {
       throw new DelegatedConversationIdentityError('host-scope-invalid');
     }
-    return parsed.data;
+    return scope;
   };
   // One immutable host leg belongs to one root. The partial unique root
   // index therefore permits at most one active claim in this binding.
@@ -477,7 +466,13 @@ export function createDesktopDelegatedConversationHost(
         ...(invocation.messageId ? { messageId: invocation.messageId } : {}),
       };
     },
-    budget: createDelegatedStepBudget(database, hostRunId, readScope, subagentSettings),
+    budget: createDelegatedStepBudget(
+      database,
+      hostRunId,
+      readScope,
+      resolveScope,
+      subagentSettings
+    ),
     async claimToolAction(action) {
       const scopes = await host.resolveToolAction(action);
       const leaf = scopes.at(-1);

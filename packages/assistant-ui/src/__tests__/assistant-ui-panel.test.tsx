@@ -1813,6 +1813,7 @@ describe('AssistantUiPanel model picker', () => {
 
     const input = screen.getByRole('spinbutton', { name: 'Output token limit' });
     fireEvent.change(input, { target: { value: '65536' } });
+    fireEvent.blur(input);
 
     expect(input).toHaveValue(65_536);
     expect(input).toHaveAttribute('aria-invalid', 'true');
@@ -1826,32 +1827,38 @@ describe('AssistantUiPanel model picker', () => {
   it('rejects empty, below-minimum, and fractional output drafts before recovering', () => {
     const onSettingsChange = vi.fn();
     const onValidationChange = vi.fn();
-    render(
+    const renderPanel = (maxOutputTokens: number) => (
       <ProviderSettingsPanel
         modelName="openai/gpt-5.4-mini"
         onSettingsChange={onSettingsChange}
         onValidationChange={onValidationChange}
         providerId="openrouter"
-        settings={{ maxOutputTokens: 4096 }}
+        settings={{ maxOutputTokens }}
       />
     );
+    const { rerender } = render(renderPanel(4096));
 
     const input = screen.getByRole('spinbutton', { name: 'Output token limit' });
     fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
     expect(screen.getByRole('alert')).toHaveTextContent(/enter an output limit/i);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: '127' } });
+    fireEvent.blur(input);
     expect(input).toHaveValue(127);
     expect(screen.getByRole('alert')).toHaveTextContent(/at least 128/i);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: '128.5' } });
+    fireEvent.blur(input);
     expect(screen.getByRole('alert')).toHaveTextContent(/whole number/i);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: '512' } });
-    expect(input).toHaveValue(512);
+    fireEvent.blur(input);
+    rerender(renderPanel(512));
+    expect(screen.getByRole('spinbutton', { name: 'Output token limit' })).toHaveValue(512);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(onSettingsChange).toHaveBeenLastCalledWith('openrouter', {
       maxOutputTokens: 512,
@@ -1982,9 +1989,9 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     expect(screen.getByText('Claude reasoning')).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Anthropic thinking budget input' }), {
-      target: { value: '2048' },
-    });
+    const budget = screen.getByRole('spinbutton', { name: 'Anthropic thinking budget input' });
+    fireEvent.change(budget, { target: { value: '2048' } });
+    fireEvent.blur(budget);
 
     expect(onSettingsChange).toHaveBeenCalledWith('anthropic', {
       anthropicThinkingBudgetTokens: 2048,
@@ -2010,9 +2017,9 @@ describe('AssistantUiPanel model picker', () => {
       agentInputTokenLimit: 64_000,
     });
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Memory messages' }), {
-      target: { value: '12' },
-    });
+    const memory = screen.getByRole('spinbutton', { name: 'Memory messages' });
+    fireEvent.change(memory, { target: { value: '12' } });
+    fireEvent.blur(memory);
     expect(onSettingsChange).toHaveBeenCalledWith('openai', { memoryLastMessages: 12 });
 
     fireEvent.click(screen.getByRole('switch', { name: 'Enable working memory' }));
@@ -2046,7 +2053,7 @@ describe('AssistantUiPanel model picker', () => {
     expect(onSettingsChange).toHaveBeenCalledWith('openai', { maxOutputTokens: undefined });
   });
 
-  it('clamps provider numeric controls and clears invalid memory edits', () => {
+  it('refuses out-of-range provider numeric drafts and clears a blank memory edit', () => {
     const onSettingsChange = vi.fn();
 
     render(
@@ -2064,21 +2071,19 @@ describe('AssistantUiPanel model picker', () => {
 
     expect(screen.getByText('Reasoning output')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Max agent steps' }), {
-      target: { value: '999' },
-    });
-    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', { agentMaxSteps: 100 });
+    // A value outside the range is refused with a message, never clamped.
+    const steps = screen.getByRole('spinbutton', { name: 'Max agent steps' });
+    fireEvent.change(steps, { target: { value: '0' } });
+    fireEvent.blur(steps);
+    const limit = screen.getByRole('spinbutton', { name: 'Input token limit' });
+    fireEvent.change(limit, { target: { value: '1' } });
+    fireEvent.blur(limit);
+    expect(screen.getAllByRole('alert')).toHaveLength(2);
+    expect(onSettingsChange).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Input token limit' }), {
-      target: { value: '1' },
-    });
-    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', {
-      agentInputTokenLimit: 4096,
-    });
-
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Memory messages' }), {
-      target: { value: '' },
-    });
+    const memory = screen.getByRole('spinbutton', { name: 'Memory messages' });
+    fireEvent.change(memory, { target: { value: '' } });
+    fireEvent.blur(memory);
     expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', {
       memoryLastMessages: undefined,
     });

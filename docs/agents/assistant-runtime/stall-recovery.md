@@ -111,3 +111,39 @@ runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
   continuation that lost the completed steps would still answer plausibly, it
   would just re-run every tool first, so only the count proves the carry-forward.
 
+## 2026-09-22 — stall recovery on a background leg (open)
+
+Traced, not changed. A recoverable stall on a leg with running background
+children: `onTimeout` aborts the attempt's stream context, whose listener runs
+`stopBackgroundTree(manager, cancelPaused=false)` — `manager.shutdown()` plus
+cancelling every pending and running task in scope (suspended ones survive).
+The continuation is built on the SAME runtime, so its manager refuses new work
+("BackgroundTaskManager is shutting down"), and it re-sends the stalled
+attempt's messages, in which each child is only a dispatch acknowledgement.
+Its idle loop sees nothing running and closes after one parent turn, and the
+turn ends `run.finished` without the children's results. Measured on
+`background-worker-stream.integration.spec.ts`'s quiet-child case with the
+task lanes disabled: `run.stalled` (200 ms, `streaming`, `lastPartType:
+finish`), `subagent.failed`, `run.resumed`, `run.finished`; the child's tool
+signal aborted, its task row `cancelled`, the root text only
+`PARENT_USEFUL_PROGRESS`. Since the task lanes, the watchdog stalls only once
+every open lane has outlived its own window, so no RUNNING child it cancels is
+healthy by the watchdog's own measure (queued tasks are cancelled unstarted).
+What the turn should do next — refuse recovery while background work is
+running, or keep the children and let the continuation re-adopt them — is an
+unmade product decision.
+
+## 2026-09-22 — a wedged background child no longer stalls its parent (BST-1802)
+
+Follows the entry above. Each background child now has its own watchdog, and a
+stalled child fails as its own task (`assistant-runtime.md` § Stream inactivity
+watchdog), so the all-quiet parent stall that entry traced no longer happens
+for wedged children: recovery is not entered, nothing is cancelled, and the
+parent is woken with each failure. Measured on
+`background-child-watchdog.integration.spec.ts`, whose two cases reproduced
+that entry's teardown against the lane code (see
+`stream-watchdog-phases.md`). Still open and unchanged: a stall of the PARENT
+itself on a background leg — judged once no held child is watched — still
+recovers on the same runtime, whose teardown stops the manager; whether
+recovery should refuse or re-adopt running children remains the product
+decision named above.

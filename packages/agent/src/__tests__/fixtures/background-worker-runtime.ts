@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import {
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  type RuntimeSubagentSettings,
   resolveChildTaskTimeoutMs,
 } from '@brainstrike/assistant-contract/subagent-settings';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
@@ -57,6 +58,7 @@ function createScriptedBudgetPort(limits: {
   const reservations = new Map<string, number>();
   return {
     admitInvocation: async () => ({ admitted: true as const }),
+    readTurnLimits: async () => undefined,
     reserveStep: async ({ threadId }) => {
       const used = steps.get(threadId) ?? 0;
       if (used >= limits.maxSteps) {
@@ -182,6 +184,17 @@ interface BackgroundFixture {
   wakeups: (DelegatedWakeupRecord & { readonly promptsAtRecord: number })[];
 }
 
+/**
+ * The request settings every fixture leg carries. The tree limits are pinned
+ * to small numbers (8 invocations, 2 runnable operations) because the suites
+ * test exactly where a refusal lands; the long-horizon defaults would move it.
+ */
+export const BACKGROUND_FIXTURE_SUBAGENT_SETTINGS: RuntimeSubagentSettings = Object.freeze({
+  ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  maxConcurrentWork: 2,
+  maxInvocations: 8,
+});
+
 export async function createBackgroundFixture(
   requireApproval = false,
   signal?: AbortSignal,
@@ -255,6 +268,12 @@ export async function createBackgroundFixture(
      * output exists.
      */
     readonly slowRootTurn?: boolean;
+    /**
+     * Send no `subagentSettings` at all (an older client), so the runtime
+     * falls back to the contract defaults instead of the fixture's pinned
+     * `BACKGROUND_FIXTURE_SUBAGENT_SETTINGS`.
+     */
+    readonly requestOmitsSubagentSettings?: boolean;
   } = {}
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
@@ -522,6 +541,9 @@ export async function createBackgroundFixture(
     ...(fanout.permissionPolicy ? { permissionPolicy: fanout.permissionPolicy } : {}),
     provider: 'openai',
     ...(signal ? { signal } : {}),
+    ...(fanout.requestOmitsSubagentSettings
+      ? {}
+      : { subagentSettings: BACKGROUND_FIXTURE_SUBAGENT_SETTINGS }),
   } as const;
   let cancel: DelegatedCancellationControl | undefined;
   let decide: DelegatedDecisionControl | undefined;

@@ -278,8 +278,6 @@ export {
 } from './mastra/shell-output-stream';
 export {
   createDelegationConfig,
-  MAX_CONCURRENT_DELEGATIONS,
-  MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
 export {

@@ -215,7 +215,7 @@ it('reads the child budget of the most recent host turn, and null when no budget
     (root_thread_id, turn_message_id, owner_resource_id, max_depth, max_invocations, max_output_tokens,
      max_child_steps, max_child_output_tokens, max_step_output_tokens, synthesis_output_tokens) VALUES
     ('root', 'original-user', 'owner', 3, 8, 131072, 32, 32768, 8192, 2048),
-    ('root', 'new-user', 'owner', 3, 8, 131072, 16, 16384, 4096, 1024);
+    ('root', 'new-user', 'owner', 5, 8, 131072, 16, 16384, 4096, 1024);
     INSERT INTO brainstrike_delegation_child_budgets
     (root_thread_id, turn_message_id, child_thread_id, max_steps, steps, charged_output_tokens, synthesis_used) VALUES
     ('root', 'original-user', 'child', 32, 12, 6100, false),
@@ -227,6 +227,7 @@ it('reads the child budget of the most recent host turn, and null when no budget
   expect((await readDelegatedConversationInsights(database, scope, 'child')).budget).toEqual({
     chargedOutputTokens: 900,
     maxChildOutputTokens: 16_384,
+    maxDepth: 5,
     maxSteps: 16,
     steps: 2,
     synthesisUsed: true,
@@ -239,6 +240,7 @@ it('reads the child budget of the most recent host turn, and null when no budget
   expect((await readDelegatedConversationInsights(database, scope, 'child')).budget).toEqual({
     chargedOutputTokens: 6100,
     maxChildOutputTokens: 32_768,
+    maxDepth: 3,
     maxSteps: 32,
     steps: 12,
     synthesisUsed: false,

@@ -35,7 +35,7 @@ a held flush/executor produces an explicit cleanup error at that deadline,
 never success or an infinite owner wait. Cleanup errors retain the original
 stream failure and do not skip diagnostics. The native execution timer is
 cleared in the workflow executor's `finally` on suspension; waiting for a human
-does not spend the five-minute execution deadline. Remove each patch hunk only when its native regression passes
+does not spend the execution deadline (the host-owned `maxChildRuntimeMs` since 2026-09-22). Remove each patch hunk only when its native regression passes
 against an upstream replacement. Actual desktop tests distinguish renderer reload
 from a guarded host restart with a changed native process ID. Selective child
 controls, human follow-up and additional interrupted-work recovery acceptance
@@ -114,6 +114,7 @@ BST-1749 retry pin) and rejects a different value on update. Mastra 1.64 has no
 "none" and Node clamps any delay above 2^31-1 ms (Infinity included) to 1 ms, so
 Off resolves to `NODE_TIMER_MAX_MS` (~24.8 days) rather than a patch; the store
 refuses any host value Node would fire immediately. The parent idle loop's
-300 s patience, which borrowed the same constant, now has its own.
+300 s patience, which borrowed the same constant, is gone: BST-1800 removed that
+timer and the stream watchdog judges liveness.
 Guard: `pglite-background-store.integration.spec.ts`,
 `delegated-deadlines.integration.test.ts`.

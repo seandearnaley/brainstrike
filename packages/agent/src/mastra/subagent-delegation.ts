@@ -5,8 +5,8 @@
  * subagent delegation. It enforces:
  * - **Unknown persona rejection** (no-silent-fallbacks): a delegation to a
  *   `primitiveId` we did not register must never proceed.
- * - **Concurrency + per-run caps**: at most {@link MAX_CONCURRENT_DELEGATIONS} in
- *   flight and {@link MAX_DELEGATIONS_PER_RUN} total.
+ * - **Concurrency + per-run caps**: at most the request's
+ *   `subagentSettings.maxConcurrentWork` in flight and `maxInvocations` total.
  * - **maxSteps clamp**: a model-supplied `maxSteps` can never exceed the persona
  *   cap; `onDelegationStart` always returns `modifiedMaxSteps = min(cap, requested)`.
  *
@@ -19,11 +19,10 @@
  * run_kind='subagent' usage row instead.
  */
 
-import {
-  type AssistantRunEventMetadata,
-  DELEGATION_LIMITS,
-  type DelegatedBudgetPort,
-  type DelegatedInvocationAdmission,
+import type {
+  AssistantRunEventMetadata,
+  DelegatedBudgetPort,
+  DelegatedInvocationAdmission,
 } from '@brainstrike/assistant-contract';
 import {
   type AssistantPersonaDefinition,
@@ -51,9 +50,6 @@ import {
 import { MAX_DELEGATED_CONTEXT_BYTES } from './delegated-system-context';
 import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
 import { type DelegatedWorkQueue, resolveDelegatedWorkBudget } from './delegated-work-budget';
-
-export const MAX_CONCURRENT_DELEGATIONS = DELEGATION_LIMITS.maxConcurrentWork;
-export const MAX_DELEGATIONS_PER_RUN = DELEGATION_LIMITS.maxInvocations;
 
 /** The child run's aggregate provider-reported usage (BST-953). */
 export interface SubagentChildUsageReport {
@@ -213,8 +209,9 @@ export interface CreateDelegationConfigParams {
   /** Persona id → definition; the `primitiveId` Mastra passes is the persona id. */
   readonly personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   /**
-   * The request's validated per-child budgets: every child's step cap is
-   * `effectiveChildStepBudget(persona, subagentSettings)`.
+   * The request's validated limits: every child's step cap is
+   * `effectiveChildStepBudget(persona, subagentSettings)`, and the in-flight
+   * backstop's concurrency and per-turn caps are its tree limits.
    */
   readonly subagentSettings: RuntimeSubagentSettings;
   /**
@@ -647,20 +644,20 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
           resumed ||
           resolveDelegatedWorkBudget(params.conversationBinding?.budget, params.workQueue)
         ) &&
-        inFlight >= MAX_CONCURRENT_DELEGATIONS
+        inFlight >= params.subagentSettings.maxConcurrentWork
       ) {
         return reject(
           'Rejecting delegation: concurrency cap reached',
-          `Too many concurrent subagents (max ${MAX_CONCURRENT_DELEGATIONS}); try again after the current ones finish.`,
+          `Too many concurrent subagents (max ${params.subagentSettings.maxConcurrentWork}); try again after the current ones finish.`,
           'subagent_delegation_concurrency_capped',
           { inFlight }
         );
       }
 
-      if (!resumed && total >= MAX_DELEGATIONS_PER_RUN) {
+      if (!resumed && total >= params.subagentSettings.maxInvocations) {
         return reject(
           'Rejecting delegation: per-run cap reached',
-          `Subagent delegation limit reached (max ${MAX_DELEGATIONS_PER_RUN} per turn).`,
+          `Subagent delegation limit reached (max ${params.subagentSettings.maxInvocations} per turn).`,
           'subagent_delegation_per_run_capped',
           { total }
         );

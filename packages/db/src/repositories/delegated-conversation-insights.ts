@@ -30,6 +30,8 @@ export interface DelegatedChildBudgetInsight {
   readonly chargedOutputTokens: number;
   /** The turn's per-child output allocation, copied from the request's subagent settings at admission. */
   readonly maxChildOutputTokens: number;
+  /** The turn's descendant-level limit, stored with the budget at first admission. */
+  readonly maxDepth: number;
   readonly maxSteps: number;
   readonly steps: number;
   readonly synthesisUsed: boolean;
@@ -83,7 +85,7 @@ SELECT selected.thread_id, selected.configuration, selected.delegation_depth,
    FROM brainstrike_assistant_thread_runs run WHERE run.thread_id=selected.thread_id AND run.resource_id=selected.resource_id
    ORDER BY run.started_at DESC, run.created_at DESC, run.id DESC LIMIT 1) AS latest_run,
   (SELECT jsonb_build_object('chargedOutputTokens', child.charged_output_tokens, 'maxChildOutputTokens', tree.max_child_output_tokens,
-     'maxSteps', child.max_steps, 'steps', child.steps, 'synthesisUsed', child.synthesis_used)
+     'maxDepth', tree.max_depth, 'maxSteps', child.max_steps, 'steps', child.steps, 'synthesisUsed', child.synthesis_used)
    FROM brainstrike_delegation_child_budgets child
    JOIN brainstrike_delegation_budgets tree ON tree.root_thread_id=child.root_thread_id
      AND tree.turn_message_id=child.turn_message_id AND tree.owner_resource_id=$1
@@ -146,6 +148,7 @@ function childBudget(value: unknown): DelegatedChildBudgetInsight | null {
   return {
     chargedOutputTokens: count(row['chargedOutputTokens']),
     maxChildOutputTokens: count(row['maxChildOutputTokens']),
+    maxDepth: count(row['maxDepth']),
     maxSteps: count(row['maxSteps']),
     steps: count(row['steps']),
     synthesisUsed,

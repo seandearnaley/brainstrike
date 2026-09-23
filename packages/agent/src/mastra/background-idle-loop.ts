@@ -1,4 +1,3 @@
-import { DELEGATION_LIMITS } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { Agent } from '@mastra/core/agent';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
@@ -28,12 +27,6 @@ import {
 const logger = createLogger('BackgroundIdleLoop');
 
 /**
- * How long the parent waits on running children with NO chunk or manager
- * event before it closes. Deliberately independent of a child's task deadline.
- */
-const DEFAULT_BACKGROUND_IDLE_MS = 300_000;
-
-/**
  * Host-owned replacement for Mastra's `untilIdle` loop (BST-1723, settled
  * 2026-09-14).
  *
@@ -48,8 +41,12 @@ const DEFAULT_BACKGROUND_IDLE_MS = 300_000;
  * Mastra's loop: the leg's first turn is piped as-is, native lifecycle chunks
  * are forwarded so `projectBackgroundStream` folds them, one continuation runs
  * per batch of wakeups, and the combined stream closes once no task is running
- * and nothing is queued. A running task that stays silent past `maxIdleMs`
- * closes the stream with its work unfinished, which the projection reports.
+ * and nothing is queued. The loop judges no silence: running work keeps the
+ * leg open until its terminal. Each child's liveness belongs to its own
+ * watchdog (`background-child-watchdog.ts`), which ends a stalled child as a
+ * failed task, and the stream watchdog wrapping this combined stream judges
+ * only the parent. A second, shorter timer here closed a leg whose child was
+ * healthy but quiet, and the leg's disposal cancelled it.
  *
  * While it runs, the loop owns the leg's live decision channel: a decision
  * delivered into the leg reserves the parked tasks (which keeps the loop from
@@ -244,8 +241,12 @@ export interface BackgroundIdleLoopParams {
   /** The durable ledger this leg's wakeups and status rows are built from. */
   readonly ledger: BackgroundLedgerSource;
   readonly manager: BackgroundTaskManager;
-  /** Silence budget for running work before the stream closes unfinished. */
-  readonly maxIdleMs?: number | undefined;
+  /**
+   * The request's per-turn invocation limit (`subagentSettings.maxInvocations`):
+   * more distinct tasks waking the parent in one leg than a turn may admit
+   * fails the leg. Required, so no call site can fall back to a constant.
+   */
+  readonly maxInvocations: number;
   /** The leg's own options; a continuation reuses them, as Mastra's loop does. */
   readonly options: LegStreamOptions;
   /**
@@ -297,7 +298,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   first: Output,
   params: BackgroundIdleLoopParams
 ): Output {
-  const maxIdleMs = params.maxIdleMs ?? DEFAULT_BACKGROUND_IDLE_MS;
   const priorContext = readContextMessages(params.options);
   const running = new Set<string>();
   const settled = new Set<string>();
@@ -318,21 +318,13 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   /** Pauses whose remembered-grant answer is still being decided. */
   let answering = 0;
   let releaseOwner: (() => void) | undefined;
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let controller!: ReadableStreamDefaultController<unknown>;
 
-  const clearIdleTimer = () => {
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-      idleTimer = undefined;
-    }
-  };
   const close = () => {
     if (closed) {
       return;
     }
     closed = true;
-    clearIdleTimer();
     releaseOwner?.();
     loopAbort.abort();
     try {
@@ -346,7 +338,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       return;
     }
     closed = true;
-    clearIdleTimer();
     releaseOwner?.();
     loopAbort.abort();
     try {
@@ -365,20 +356,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     } catch {
       return false;
     }
-  };
-  const armIdleTimer = () => {
-    clearIdleTimer();
-    if (closed || processing || running.size === 0 || (pending.length > 0 && !parked)) {
-      return;
-    }
-    idleTimer = setTimeout(() => {
-      logger.warn('Background work went silent; closing the parent stream unfinished', {
-        code: 'background_idle_expired',
-        maxIdleMs,
-        runningTasks: [...running],
-      });
-      close();
-    }, maxIdleMs);
   };
   /** Deferral records a parked leg makes before it closes; `settle` joins them. */
   let recording = 0;
@@ -440,7 +417,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     discardPresentedWakeups();
     if (parked) {
       if (running.size > 0) {
-        armIdleTimer();
         return;
       }
       if (pending.length > 0) {
@@ -456,9 +432,7 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     }
     if (running.size === 0) {
       close();
-      return;
     }
-    armIdleTimer();
   };
   /**
    * Parent run ids this leg OBSERVED. The ledger's scope is the GENERATION
@@ -490,7 +464,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
         if (done) {
           return;
         }
-        clearIdleTimer();
         if (!enqueue(value)) {
           return;
         }
@@ -606,7 +579,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     if (!isNewSuspension(event, taskId)) {
       return true;
     }
-    clearIdleTimer();
     if (!enqueue(value)) {
       return false;
     }
@@ -631,16 +603,16 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     running.delete(taskId);
     if (isParentWakeup(event) && !isRejectedDelegation(event, params.rejectedDelegations)) {
       woken.add(taskId);
-      if (woken.size > DELEGATION_LIMITS.maxInvocations) {
+      if (woken.size > params.maxInvocations) {
         logger.error('Background work woke the parent for more invocations than one turn admits', {
           code: 'background_parent_wakeup_limit_exceeded',
           invocation: describeInvocation(event),
-          limit: DELEGATION_LIMITS.maxInvocations,
+          limit: params.maxInvocations,
           taskIds: [...woken],
         });
         fail(
           new Error(
-            `Background work woke the parent for ${woken.size} invocations; one turn admits at most ${DELEGATION_LIMITS.maxInvocations}, so the leg stops instead of waking the parent again.`
+            `Background work woke the parent for ${woken.size} invocations; one turn admits at most ${params.maxInvocations}, so the leg stops instead of waking the parent again.`
           )
         );
         return;
@@ -664,7 +636,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       if (closed) {
         throw new LiveDecisionUnavailableError('The leg has settled.');
       }
-      clearIdleTimer();
       for (const task of tasks) {
         running.add(task.id);
         settled.delete(task.id);

@@ -79,7 +79,8 @@ function settleActiveChildTools(state: ToolLifecycleState, cancelled: boolean): 
 export function makeDelegatedStreamTermination(
   state: ToolLifecycleState,
   cancelled: boolean,
-  detail?: string
+  detail?: string,
+  metadata?: AssistantRunEventMetadata
 ): StreamChunk[] {
   return [
     ...makeCancelledDelegationRunEventChunks(state),
@@ -89,7 +90,8 @@ export function makeDelegatedStreamTermination(
       ? makeRunEventChunk('run.cancelled', 'cancelled', 'Child run cancelled')
       : makeRunFailedChunk(
           'Child stream interrupted',
-          detail ?? 'The parent stream ended before the child reported a terminal result.'
+          detail ?? 'The parent stream ended before the child reported a terminal result.',
+          metadata
         ),
     cancelled ? makeSyntheticFinishChunk() : makeErrorFinishChunk(),
   ];

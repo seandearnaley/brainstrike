@@ -6,11 +6,18 @@ import {
 } from '../mastra/attempt-legs';
 import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
 import type { StreamChunk } from '../types';
-import { createBackgroundFixture } from './fixtures/background-worker-runtime';
+import {
+  BACKGROUND_FIXTURE_SUBAGENT_SETTINGS,
+  createBackgroundFixture,
+} from './fixtures/background-worker-runtime';
 
 /** The scripted root stops on its own here; a host that never bounds wakeups reaches it. */
 const RUNAWAY_DISPATCHES = 20;
-const ADMITTED = Array.from({ length: 8 }, (_, index) => `redelegate-${index + 1}`);
+/** The request's per-turn limit (the fixture pins 8). */
+const ADMITTED = Array.from(
+  { length: BACKGROUND_FIXTURE_SUBAGENT_SETTINGS.maxInvocations },
+  (_, index) => `redelegate-${index + 1}`
+);
 
 async function drain(iterator: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
   const chunks: StreamChunk[] = [];

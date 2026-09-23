@@ -42,6 +42,7 @@ describe('native delegated work budget boundaries', () => {
     });
     const budget: DelegatedBudgetPort = {
       admitInvocation: async () => ({ admitted: true as const }),
+      readTurnLimits: async () => undefined,
       reserveStep: vi.fn(async () => ({
         cap: 'steps' as const,
         id: 'reserved-summary',
@@ -52,7 +53,7 @@ describe('native delegated work budget boundaries', () => {
       })),
       settleStep: vi.fn(async () => undefined),
     };
-    const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue());
+    const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(2));
     const memory = new Memory({ storage: new InMemoryStore({ id: 'budget-synthesis' }) });
     const agent = new Agent({
       id: 'worker',
@@ -90,6 +91,7 @@ describe('native delegated work budget boundaries', () => {
     const fixture = scriptedAgentModel(() => toolCallParts('effect', 'over-budget-effect', {}));
     const budget: DelegatedBudgetPort = {
       admitInvocation: async () => ({ admitted: true as const }),
+      readTurnLimits: async () => undefined,
       reserveStep: vi.fn(async () => ({
         id: 'reservation',
         outputTokens: 8192,
@@ -99,7 +101,7 @@ describe('native delegated work budget boundaries', () => {
         throw new DelegatedOutputReservationExceededError();
       }),
     };
-    const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue());
+    const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(2));
     const agent = new Agent({
       id: 'worker',
       inputProcessors: [work.processor],
@@ -143,7 +145,8 @@ describe('native delegated work budget boundaries', () => {
         return super.acquire(signal);
       }
     }
-    const queue = new ObservedQueue();
+    // Two runnable operations: the third (model work) queues behind both effects.
+    const queue = new ObservedQueue(2);
     const blockers = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
     const started = Promise.withResolvers<void>();
     let active = 0;
@@ -180,6 +183,7 @@ describe('native delegated work budget boundaries', () => {
     const model = scriptedAgentModel(() => textParts('model entered after release'));
     const budget: DelegatedBudgetPort = {
       admitInvocation: async () => ({ admitted: true as const }),
+      readTurnLimits: async () => undefined,
       reserveStep: vi.fn(async () => ({
         id: 'third',
         outputTokens: 512,
@@ -223,6 +227,7 @@ describe('native delegated work budget boundaries', () => {
       );
       const budget: DelegatedBudgetPort = {
         admitInvocation: async () => ({ admitted: true as const }),
+        readTurnLimits: async () => undefined,
         reserveStep: async () => ({
           cap: 'steps',
           id: 'summary',
@@ -238,7 +243,12 @@ describe('native delegated work budget boundaries', () => {
         },
       };
       const outcomes = createDelegatedSynthesisOutcomes();
-      const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(), undefined, outcomes);
+      const work = createDelegatedWorkBudget(
+        budget,
+        new DelegatedWorkQueue(2),
+        undefined,
+        outcomes
+      );
       const agent = new Agent({
         id: 'worker',
         inputProcessors: [work.processor],
@@ -270,6 +280,7 @@ describe('native delegated work budget boundaries', () => {
       );
       const budget: DelegatedBudgetPort = {
         admitInvocation: async () => ({ admitted: true as const }),
+        readTurnLimits: async () => undefined,
         reserveStep: vi.fn(async () => ({
           cap: 'steps' as const,
           id: 'reserved-summary',
@@ -285,7 +296,12 @@ describe('native delegated work budget boundaries', () => {
         }),
       };
       const outcomes = createDelegatedSynthesisOutcomes();
-      const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(), undefined, outcomes);
+      const work = createDelegatedWorkBudget(
+        budget,
+        new DelegatedWorkQueue(2),
+        undefined,
+        outcomes
+      );
       const agent = new Agent({
         id: 'worker',
         inputProcessors: [work.processor],
@@ -337,6 +353,7 @@ describe('native delegated work budget boundaries', () => {
     let synthesis = false;
     const budget: DelegatedBudgetPort = {
       admitInvocation: async () => ({ admitted: true as const }),
+      readTurnLimits: async () => undefined,
       reserveStep: vi.fn(async () =>
         synthesis
           ? {
@@ -353,7 +370,12 @@ describe('native delegated work budget boundaries', () => {
     };
     const outcomes = createDelegatedSynthesisOutcomes();
     const run = async (thread: string) => {
-      const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(), undefined, outcomes);
+      const work = createDelegatedWorkBudget(
+        budget,
+        new DelegatedWorkQueue(2),
+        undefined,
+        outcomes
+      );
       const agent = new Agent({
         id: 'worker',
         inputProcessors: [work.processor],

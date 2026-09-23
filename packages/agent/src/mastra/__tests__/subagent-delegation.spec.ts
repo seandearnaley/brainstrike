@@ -10,8 +10,6 @@ import {
   createDelegationConfig,
   createDelegationLifecycleTracker,
   createDelegationOutcomeCapture,
-  MAX_CONCURRENT_DELEGATIONS,
-  MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from '../subagent-delegation';
 
@@ -118,18 +116,24 @@ describe('createDelegationConfig', () => {
     expect(result).toMatchObject({ proceed: false });
   });
 
-  it('rejects the 3rd concurrent start while 2 are in flight', async () => {
-    const config = createDelegationConfig({
-      abortSignal: new AbortController().signal,
-      logger: silentLogger,
-      personasById,
-      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-    });
-    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
-    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
-    expect(MAX_CONCURRENT_DELEGATIONS).toBe(2);
-    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
-  });
+  it.each([2, 3])(
+    "rejects a start beyond the request's maxConcurrentWork (%i) while those are in flight",
+    async (maxConcurrentWork) => {
+      const config = createDelegationConfig({
+        abortSignal: new AbortController().signal,
+        logger: silentLogger,
+        personasById,
+        subagentSettings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxConcurrentWork },
+      });
+      for (let index = 0; index < maxConcurrentWork; index += 1) {
+        expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
+      }
+      expect(await config.onDelegationStart?.(startContext())).toEqual({
+        proceed: false,
+        rejectionReason: `Too many concurrent subagents (max ${maxConcurrentWork}); try again after the current ones finish.`,
+      });
+    }
+  );
 
   it.each([false, true])(
     'uses runnable admission only with both a durable budget and its queue: %s',
@@ -138,12 +142,13 @@ describe('createDelegationConfig', () => {
         abortSignal: new AbortController().signal,
         logger: silentLogger,
         personasById,
-        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-        ...(withQueue ? { workQueue: new DelegatedWorkQueue() } : {}),
+        subagentSettings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxConcurrentWork: 2 },
+        ...(withQueue ? { workQueue: new DelegatedWorkQueue(2) } : {}),
         conversationBinding: {
           ...createDelegatedConversationBinding(async () => undefined),
           budget: {
             admitInvocation: async () => ({ admitted: true as const }),
+            readTurnLimits: async () => undefined,
             reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
             settleStep: async () => undefined,
           },
@@ -179,6 +184,7 @@ describe('createDelegationConfig', () => {
               ? { admitted: true as const }
               : { admitted: false as const, reason };
           },
+          readTurnLimits: async () => undefined,
           reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
           settleStep: async () => undefined,
         },
@@ -187,7 +193,7 @@ describe('createDelegationConfig', () => {
       logger: silentLogger,
       personasById,
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workQueue: new DelegatedWorkQueue(),
+      workQueue: new DelegatedWorkQueue(DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxConcurrentWork),
     });
     const admitted = await config.onDelegationStart?.(
       startContext({ resourceId: 'owner', threadId: 'root', toolCallId: 'a' })
@@ -220,6 +226,7 @@ describe('createDelegationConfig', () => {
           admitInvocation: async () => {
             throw failure;
           },
+          readTurnLimits: async () => undefined,
           reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
           settleStep: async () => undefined,
         },
@@ -228,7 +235,7 @@ describe('createDelegationConfig', () => {
       logger: silentLogger,
       personasById,
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workQueue: new DelegatedWorkQueue(),
+      workQueue: new DelegatedWorkQueue(DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxConcurrentWork),
     });
     const refused = await config.onDelegationStart?.(
       startContext({ resourceId: 'owner', threadId: 'root', toolCallId: 'identity' })
@@ -266,22 +273,21 @@ describe('createDelegationConfig', () => {
         ...createDelegatedConversationBinding(async () => undefined),
         budget: {
           admitInvocation: () => pending,
+          readTurnLimits: async () => undefined,
           reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
           settleStep: async () => undefined,
         },
       },
       logger: silentLogger,
       personasById,
-      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workQueue: new DelegatedWorkQueue(),
+      subagentSettings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxInvocations: 8 },
+      workQueue: new DelegatedWorkQueue(DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxConcurrentWork),
     });
     const start = (toolCallId: string) =>
       config.onDelegationStart?.(
         startContext({ resourceId: 'owner', threadId: 'root', toolCallId })
       );
-    const inFlight = Array.from({ length: MAX_DELEGATIONS_PER_RUN }, (_, index) =>
-      start(`sibling-${index}`)
-    );
+    const inFlight = Array.from({ length: 8 }, (_, index) => start(`sibling-${index}`));
     // The ninth arrives while the first eight still await the host.
     const ninth = start('ninth');
     releaseAdmission({ admitted: false, reason: 'host said no' });
@@ -319,6 +325,7 @@ describe('createDelegationConfig', () => {
         ...createDelegatedConversationBinding(async () => undefined),
         budget: {
           admitInvocation: async () => ({ admitted: true as const }),
+          readTurnLimits: async () => undefined,
           reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
           settleStep: async () => undefined,
         },
@@ -326,7 +333,7 @@ describe('createDelegationConfig', () => {
       logger: silentLogger,
       personasById,
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workQueue: new DelegatedWorkQueue(),
+      workQueue: new DelegatedWorkQueue(DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxConcurrentWork),
     });
     await expect(config.onDelegationStart?.(startContext())).rejects.toThrow(/parent thread/i);
   });
@@ -353,7 +360,7 @@ describe('createDelegationConfig', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
-      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      subagentSettings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxConcurrentWork: 2 },
     });
     expect(await config.onDelegationStart?.(startContext({ toolCallId: 'call-1' }))).toMatchObject({
       proceed: true,
@@ -383,7 +390,7 @@ describe('createDelegationConfig', () => {
       abortSignal: new AbortController().signal,
       logger: silentLogger,
       personasById,
-      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      subagentSettings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxConcurrentWork: 2 },
     });
     // Unknown persona rejected — must not increment inFlight.
     await config.onDelegationStart?.(startContext({ primitiveId: 'ghost' }));
@@ -394,20 +401,26 @@ describe('createDelegationConfig', () => {
     expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
   });
 
-  it('enforces the per-run total cap across completed delegations', async () => {
-    const config = createDelegationConfig({
-      abortSignal: new AbortController().signal,
-      logger: silentLogger,
-      personasById,
-      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-    });
-    for (let index = 0; index < MAX_DELEGATIONS_PER_RUN; index += 1) {
-      expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
-      config.onDelegationComplete?.(completeContext());
+  it.each([3, 5])(
+    "enforces the request's maxInvocations (%i) across completed delegations",
+    async (maxInvocations) => {
+      const config = createDelegationConfig({
+        abortSignal: new AbortController().signal,
+        logger: silentLogger,
+        personasById,
+        subagentSettings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxInvocations },
+      });
+      for (let index = 0; index < maxInvocations; index += 1) {
+        expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
+        config.onDelegationComplete?.(completeContext());
+      }
+      // The (max+1)th start is rejected even though nothing is in flight.
+      expect(await config.onDelegationStart?.(startContext())).toEqual({
+        proceed: false,
+        rejectionReason: `Subagent delegation limit reached (max ${maxInvocations} per turn).`,
+      });
     }
-    // The (MAX+1)th start is rejected even though nothing is in flight.
-    expect(await config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
-  });
+  );
 });
 
 describe('createDelegationConfig: a child that returned no answer', () => {
@@ -883,7 +896,11 @@ describe('native delegation deadline ownership', () => {
     expect(() => binding.prepare(duplicate, { maxSteps: 8, persona })).toThrow(
       'Delegated cancellation already owns this native invocation.'
     );
-    expect(binding.getExecutionAbortSignal?.(identity)).toBe(deadline.signal);
+    // The active execution still ends on its own deadline.
+    const preserved = binding.getExecutionAbortSignal?.(identity);
+    const reason = new Error('Task timed out after 1000ms');
+    deadline.abort(reason);
+    expect(preserved?.reason).toBe(reason);
   });
 
   it.each([false, true])(
@@ -922,12 +939,19 @@ describe('native delegation deadline ownership', () => {
         toolCallId: context.toolCallId,
       });
       binding.prepare(resumed, { maxSteps: 8, persona });
-      expect(binding.getExecutionAbortSignal?.(identity)).toBeUndefined();
-      const resumedSignal = new AbortController().signal;
-      binding.captureExecutionAbortSignal?.(identity, resumedSignal);
-      expect(binding.getExecutionAbortSignal?.(identity)).toBe(resumedSignal);
+      // Only the new execution's own end (its child's stall) remains.
+      expect(binding.getExecutionAbortSignal?.(identity)?.aborted).toBe(false);
+      const resumedDeadlineOwner = new AbortController();
+      binding.captureExecutionAbortSignal?.(identity, resumedDeadlineOwner.signal);
+      // Composed with the new execution's own stall end, so it follows the deadline.
+      const composed = binding.getExecutionAbortSignal?.(identity);
+      expect(composed?.aborted).toBe(false);
+      const resumedDeadline = new Error('Task timed out after 2000ms');
+      resumedDeadlineOwner.abort(resumedDeadline);
+      expect(composed?.reason).toBe(resumedDeadline);
       binding.captureExecutionAbortSignal?.(identity, undefined);
-      expect(binding.getExecutionAbortSignal?.(identity)).toBeUndefined();
+      // No deadline any more: only the execution's stall end remains.
+      expect(binding.getExecutionAbortSignal?.(identity)?.aborted).toBe(false);
       expect(() =>
         binding.hooks?.afterToolCall?.({
           context: { threadId: 'root', toolCallId: context.toolCallId },

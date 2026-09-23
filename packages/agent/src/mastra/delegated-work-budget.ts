@@ -1,5 +1,4 @@
 import {
-  DELEGATION_LIMITS,
   type DelegatedBudgetPort,
   DelegatedOutputReservationExceededError,
   type DelegatedStepReservation,
@@ -12,10 +11,24 @@ import {
   type DelegatedSynthesisOutcomes,
 } from './delegated-synthesis-outcomes';
 
-/** FIFO permits for active model/tool work; native delegation waits own no permit. */
+/**
+ * FIFO permits for active model/tool work; native delegation waits own no
+ * permit. `maxConcurrentWork` is the request's setting
+ * (`RuntimeSubagentSettings.maxConcurrentWork`), never a constant.
+ */
 export class DelegatedWorkQueue {
   private active = 0;
   private readonly waiting: (() => void)[] = [];
+  private readonly maxConcurrentWork: number;
+
+  constructor(maxConcurrentWork: number) {
+    if (!Number.isInteger(maxConcurrentWork) || maxConcurrentWork < 1) {
+      throw new Error(
+        `Delegated work concurrency must be a positive integer; received ${maxConcurrentWork}.`
+      );
+    }
+    this.maxConcurrentWork = maxConcurrentWork;
+  }
 
   async acquire(signal?: AbortSignal): Promise<() => void> {
     signal?.throwIfAborted();
@@ -52,7 +65,7 @@ export class DelegatedWorkQueue {
   }
 
   private advance(): void {
-    while (this.active < DELEGATION_LIMITS.maxConcurrentWork && this.waiting.length > 0) {
+    while (this.active < this.maxConcurrentWork && this.waiting.length > 0) {
       this.waiting.shift()?.();
     }
   }

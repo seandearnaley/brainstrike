@@ -2,7 +2,6 @@ import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/sto
 import {
   admittedPersonaConfigurationSchema,
   type ChildExecutionConfiguration,
-  DELEGATION_LIMITS,
   readAdmittedPersonaConfiguration,
   readChildExecutionConfiguration,
   resolvePermissionDecision,
@@ -74,6 +73,14 @@ function formatPermissionPolicy(
     .join(' · ');
 }
 
+/**
+ * The child's level against the depth its turn STORED with its budget; a
+ * legacy child whose turn has no budget row states its level alone.
+ */
+function describeLevel(value: DelegatedConversationInsights): string {
+  return value.budget ? `Level ${value.depth} of ${value.budget.maxDepth}` : `Level ${value.depth}`;
+}
+
 function AdmittedConfigurationDetails({
   execution,
   latestReceiptInvalid,
@@ -120,9 +127,7 @@ function AdmittedConfigurationDetails({
         <p>Effort not recorded</p>
       )}
       <p>Up to {effectiveChildStepBudget(persona, subagentSettings)} steps</p>
-      <p>
-        Level {value.depth} of {DELEGATION_LIMITS.maxDepth}
-      </p>
+      <p>{describeLevel(value)}</p>
       <p className="text-muted-foreground">
         Current host permissions still apply. This admitted profile cannot expand them.
       </p>
