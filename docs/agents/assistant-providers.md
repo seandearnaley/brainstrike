@@ -245,10 +245,12 @@ store persists each thread's own model and provider settings.
   `packages/assistant-contract/src/reasoning-visibility.ts` and projected onto
   each provider's own wire field.
 - Three hard rules: visibility only MODIFIES a reasoning request already being
-  made; output is never suppressed for reasoning that is switched off; and the
-  OpenRouter VISIBLE path adds no field at all, because `require_parameters`
-  would shrink the eligible upstream pool. Only the opt-out adds
-  `exclude: true`, and do not reintroduce a default
+  made (always-on `mandatory` Anthropic rows send `thinking` at Auto solely to
+  carry `display`, because those models always reason, so that request is
+  always being made); output is never suppressed for reasoning that is switched
+  off; and the OpenRouter VISIBLE path adds no field at all, because
+  `require_parameters` would shrink the eligible upstream pool. Only the
+  opt-out adds `exclude: true`, and do not reintroduce a default
   `openrouter.reasoning.summary`.
 - Provider-specific keys are valid escape hatches and win when set, and each
   control must render the RESOLVED value, not the raw key.
