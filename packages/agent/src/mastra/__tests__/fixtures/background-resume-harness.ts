@@ -11,6 +11,7 @@ import type {
 } from '@mastra/core/background-tasks';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { MastraAgentRuntime } from '../../agent-runtime';
+import type { BackgroundChildWatchdogs } from '../../background-child-watchdog';
 import { createBackgroundResumeStream } from '../../background-resume';
 import type { DelegatedWakeupRecord } from '../../delegated-conversation-binding';
 import type { LiveDecisionChannel } from '../../live-decision-channel';
@@ -292,6 +293,24 @@ export function startLeg(params: {
     const hold = params.holdLiveRegistration;
     return typeof hold === 'function' ? hold(registration - 1) : hold;
   };
+  /** What the leg's resumed executors asked their child watchdogs, in order. */
+  const watches: string[] = [];
+  const backgroundChildWatchdogs: BackgroundChildWatchdogs = {
+    changed: () => new Promise<void>(() => {}),
+    dispose: () => {},
+    hostExecution: (task) => {
+      watches.push(`watch:${task.taskId}`);
+      return {
+        end: () => {
+          watches.push(`end:${task.taskId}`);
+        },
+        observe: () => {
+          watches.push(`observe:${task.taskId}`);
+        },
+      };
+    },
+    watching: () => false,
+  };
   const runtime = {
     agent: {
       getToolsForExecution: async () => {
@@ -305,6 +324,7 @@ export function startLeg(params: {
         throw new Error('A parked root takes no parent inference.');
       },
     },
+    backgroundChildWatchdogs,
     backgroundTaskManager: params.manager,
     conversationBinding: {
       // Migration 140: these executor-race rows all belong to the parked
@@ -348,5 +368,5 @@ export function startLeg(params: {
       return { error };
     }
   })();
-  return { ended, leg };
+  return { ended, leg, watches };
 }

@@ -195,13 +195,9 @@ bespoke `subagent` tool.
   `requireRunEventKind` throws on an unknown kind, so the contract enum ships
   before any emitter. Metadata carries ids and labels only, never args or
   results.
-- **The parent's stream watchdog reads THROUGH the envelope.** A foreground child
-  has no watchdog and the parent's delegation call is deliberately unguarded, so
-  `createMastraToolExecutionPartKindReader` unwraps a `tool-output` whose
-  `toolName` starts with `SUBAGENT_DELEGATION_TOOL_PREFIX` and is not
-  `providerExecuted` — POSITIVE identification, never "not in the guarded set" —
-  and classifies the nested part under the same allow-list, recursing for a
-  grandchild. A BACKGROUND task is its own producer lane (`assistant-runtime.md`).
+- **A foreground child has no watchdog of its own**: the parent's watchdog reads its
+  calls THROUGH the delegation envelope; a BACKGROUND child has its own watchdog
+  (both in `assistant-runtime.md` § Stream inactivity watchdog).
 - Subagent tool calls feed the same per-tool token telemetry table as primary
   calls, attributed to the parent run, through a telemetry-only sink that does
   NOT feed the prompt-reconciliation aggregate (`assistant-persistence.md`,
@@ -1011,7 +1007,7 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   loop except that only a RETURNED, FAILED or CANCELLED task queues a wakeup. A
   suspension is a host-surfaced approval prompt; the model is not the messenger.
   The loop judges no silence: running work holds the leg open until its
-  terminal; the watchdog's task lanes (`assistant-runtime.md`) judge liveness.
+  terminal; each child's own watchdog (`assistant-runtime.md`) judges liveness.
 - **WAKEUP LEDGER** (settled 2026-09-15, do not relitigate): a parent wakeup is
   the whole LEDGER of this turn's background invocations, not one line per event.
   Read it from the DURABLE task rows (`background-ledger.ts`), scoped to the runs
@@ -1256,9 +1252,13 @@ Guard: `packages/agent/src/mastra/__tests__/prompt-manifest-root-leg.spec.ts`,
   execution of the invocation; rejected duplicate preparation preserves the
   active deadline signal, and host resume capture stages the signal by parent
   thread/tool call.
+- A child's own watchdog ends a stalled execution through the same seam
+  (`endStalledExecution`, never selected Stop): the hook rejects with the stall
+  whatever the unwind threw, so the task fails alone with one failed terminal.
 
 Evidence: `assistant-subagents/child-cancellation-and-deadlines.md`.
-Guard: `apps/desktop/src/__tests__/assistant-server/delegated-deadlines.integration.test.ts`.
+Guard: `apps/desktop/src/__tests__/assistant-server/delegated-deadlines.integration.test.ts`,
+`packages/agent/src/mastra/__tests__/delegated-conversation-binding-stall.spec.ts`.
 
 ### Downstream usage failure and cancelled child projections
 

@@ -132,3 +132,18 @@ healthy by the watchdog's own measure (queued tasks are cancelled unstarted).
 What the turn should do next — refuse recovery while background work is
 running, or keep the children and let the continuation re-adopt them — is an
 unmade product decision.
+
+## 2026-09-22 — a wedged background child no longer stalls its parent (BST-1802)
+
+Follows the entry above. Each background child now has its own watchdog, and a
+stalled child fails as its own task (`assistant-runtime.md` § Stream inactivity
+watchdog), so the all-quiet parent stall that entry traced no longer happens
+for wedged children: recovery is not entered, nothing is cancelled, and the
+parent is woken with each failure. Measured on
+`background-child-watchdog.integration.spec.ts`, whose two cases reproduced
+that entry's teardown against the lane code (see
+`stream-watchdog-phases.md`). Still open and unchanged: a stall of the PARENT
+itself on a background leg — judged once no held child is watched — still
+recovers on the same runtime, whose teardown stops the manager; whether
+recovery should refuse or re-adopt running children remains the product
+decision named above.

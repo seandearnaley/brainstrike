@@ -624,13 +624,16 @@ it.each([
   }
 );
 
-// A background child that stays quiet past the parent's inter-output window —
-// a silent build, a slow first token — is healthy work, not a stall. Its task
-// lane judges the silence by the child's own phase, and no second timer closes
+// A background child that stays quiet past every one of the PARENT's windows —
+// a silent build, a slow first token — is healthy work, not a stall. Its own
+// watchdog judges the silence by the child's own phase (here its guarded read),
+// the parent judges nothing while it is watched, and no second timer closes
 // the leg: the child returns, the parent wakes, and nothing is cancelled.
 it('keeps a leg open while a quiet background child works, then finishes normally', async () => {
   const previousInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+  const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
   process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '200';
+  process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '500';
   let fixture: Awaited<ReturnType<typeof createBackgroundFixture>> | undefined;
   try {
     fixture = await createBackgroundFixture();
@@ -650,7 +653,8 @@ it('keeps a leg open while a quiet background child works, then finishes normall
       }
     })();
     await entered.promise;
-    // Five inter-output windows of child silence inside its guarded read.
+    // Five inter-output and two first-output windows of child silence inside
+    // its guarded read.
     await new Promise((resolve) => setTimeout(resolve, 1000));
     release.resolve();
     await consuming;
@@ -674,6 +678,11 @@ it('keeps a leg open while a quiet background child works, then finishes normall
       Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
     } else {
       process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousInactivity;
+    }
+    if (previousFirstOutput === undefined) {
+      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
+    } else {
+      process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
     }
     fixture?.release.resolve();
     await fixture?.runtime.dispose();

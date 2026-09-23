@@ -57,6 +57,7 @@ import { getDefaultModel } from '../providers/provider-factory';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import {
+  type HeldWorkWatch,
   type StreamInactivityOptions,
   type StreamStalledError,
   withInactivityTimeout,
@@ -86,6 +87,7 @@ import {
   validateToolApprovalAction,
   validateToolResumeAction,
 } from './attempt-legs';
+import { describeChildExecutionEnd } from './background-child-watchdog';
 import { readTaskEvent } from './background-idle-loop';
 import { projectBackgroundStream } from './background-stream';
 import {
@@ -114,11 +116,8 @@ import {
 } from './mastra-chunk-decoding';
 import {
   createMastraStreamPartRouter,
-  createMastraToolExecutionPartKindReader,
-  describeMastraStreamPartType,
   hasExecutionGuardBehindToolCall,
-  isMastraProviderOutputPart,
-  readMastraReasoningPartKind,
+  resolveMastraProducerOptions,
 } from './mastra-watchdog-options';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
@@ -1116,11 +1115,12 @@ function collectResumedGuardedToolCallIds(
 export function resolveMastraInactivityOptions(
   resumedApprovalToolCall: ResumedApprovalToolCall | undefined,
   guardedToolNames: ReadonlySet<string>,
-  onTimeout: (error: StreamStalledError) => void
+  onTimeout: (error: StreamStalledError) => void,
+  heldWork: HeldWorkWatch | undefined
 ): StreamInactivityOptions<unknown> {
   return {
-    countsAsProviderOutput: isMastraProviderOutputPart,
-    describePart: describeMastraStreamPartType,
+    ...resolveMastraProducerOptions(guardedToolNames),
+    ...(heldWork ? { heldWork } : {}),
     ...(resumedApprovalToolCall
       ? {
           initialToolCallIds: collectResumedGuardedToolCallIds(
@@ -1130,10 +1130,18 @@ export function resolveMastraInactivityOptions(
         }
       : {}),
     onTimeout,
-    reasoningPartKind: readMastraReasoningPartKind,
     routePart: createMastraStreamPartRouter(),
-    toolExecutionPartKind: createMastraToolExecutionPartKindReader(guardedToolNames),
   };
+}
+
+/**
+ * The child's ONE failed terminal when its execution ended on its own: its
+ * native deadline, or its own watchdog judging it stalled (with the stall's
+ * breadcrumb). Selected Stop is a cancellation and never reaches here.
+ */
+function makeExecutionEndTermination(state: ToolLifecycleState, reason: unknown): StreamChunk[] {
+  const { detail, metadata } = describeChildExecutionEnd(reason);
+  return makeDelegatedStreamTermination(state, false, detail, metadata);
 }
 
 export function createAttemptDelegatedProjection({
@@ -1195,14 +1203,7 @@ export function createAttemptDelegatedProjection({
         state.cancellationSignal?.aborted || runtimeData?.signal?.aborted
           ? { chunks: makeDelegatedStreamTermination(state, true), finished: true }
           : executionSignal?.aborted
-            ? {
-                chunks: makeDelegatedStreamTermination(
-                  state,
-                  false,
-                  String(executionSignal.reason)
-                ),
-                finished: true,
-              }
+            ? { chunks: makeExecutionEndTermination(state, executionSignal.reason), finished: true }
             : await processMastraStreamPart(
                 childPart,
                 childToolNames,
@@ -1229,10 +1230,11 @@ export function createAttemptDelegatedProjection({
   });
   const settle = () =>
     delegatedProjection?.finalize((state) =>
-      makeDelegatedStreamTermination(
-        state,
-        Boolean(state.cancellationSignal?.aborted || runtimeData?.signal?.aborted),
-        state.executionSignal?.aborted ? String(state.executionSignal.reason) : undefined
+      (state.cancellationSignal?.aborted || runtimeData?.signal?.aborted
+        ? makeDelegatedStreamTermination(state, true)
+        : state.executionSignal?.aborted
+          ? makeExecutionEndTermination(state, state.executionSignal.reason)
+          : makeDelegatedStreamTermination(state, false)
       ).map((chunk) => {
         if (
           chunk.type === 'delegated-conversation-chunk' ||
@@ -1624,7 +1626,8 @@ export async function* streamAttemptChunks({
       resolveMastraInactivityOptions(
         resumedApprovalToolCall,
         new Set(runtime.toolNameMap.keys()),
-        (error) => streamAbortContext.abort(error)
+        (error) => streamAbortContext.abort(error),
+        runtime.backgroundChildWatchdogs
       )
     );
     const projectedSource = projectBackgroundStream(

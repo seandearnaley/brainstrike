@@ -620,6 +620,26 @@ describe('createBackgroundResumeStream executor registration (BST-1749)', () => 
     expect(lateWrite).toBe('written');
   }, 2000);
 
+  it("a resumed executor's child is watched from its execution's start to its end, fed by its own writer", async () => {
+    // A resume leg's host executor publishes its child's parts itself, never as
+    // task output, so it feeds the child's own watchdog itself.
+    const native = createNativeManager();
+    const { ended, watches } = startLeg({
+      manager: native.manager,
+      resumes: [native.add('t1')],
+      tools: Promise.resolve({
+        [TOOL]: {
+          execute: async (_args, options) => {
+            await options.outputWriter?.({ type: 'child-frame' });
+            await options.suspend?.({ reason: 'next gated read' });
+          },
+        },
+      }),
+    });
+    await expect(ended).resolves.toEqual({ error: undefined });
+    expect(watches).toEqual(['watch:t1', 'observe:t1', 'end:t1']);
+  }, 2000);
+
   it('a task cancelled while its resumed executor is still in flight settles the join', async () => {
     // Mastra publishes `task.cancelled` BEFORE the execution settles (it joins
     // that execution itself, under its 5s grace: `#joinTaskCancellation`), and

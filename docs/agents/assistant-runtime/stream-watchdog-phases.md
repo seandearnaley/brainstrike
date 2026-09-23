@@ -281,3 +281,149 @@ Guard: `packages/agent/src/mastra/__tests__/mastra-background-watchdog-lanes.spe
 closing, resetting on `opens`, reopening a closed lane on a late start,
 counting host rows as output, skipping the task's envelope all fail it) and
 `packages/agent/src/__tests__/with-inactivity-timeout-lanes.spec.ts`.
+
+## 2026-09-22 — each background child has its own watchdog; the parent judges only itself (BST-1802)
+
+Supports "Each BACKGROUND child has its own watchdog" and "The parent watchdog
+judges only the parent" in `assistant-runtime.md` § Stream inactivity watchdog.
+SUPERSEDES the lane record above: the per-task lanes are removed.
+
+**What the lanes left.** One timer over the combined stream fired only once
+every open lane had outlived its own window, so it could not end ONE wedged
+child while a sibling kept producing; and when everything went quiet it fired
+as a PARENT stall, whose recovery aborted the leg and whose teardown stopped the
+background manager, cancelling the stalled child and every healthy sibling.
+Measured with `background-child-watchdog.integration.spec.ts` against the lane
+code (1 s inter-output window, two background children, the wedged child's
+provider silent after its first `text-delta`):
+- one child wedged: `run.stalled` (`streaming`, 1000 ms), the wedged child's
+  `subagent.failed` `cancelled`, then `run.failed` (the continuation, on the
+  same runtime, stalled too); the wedged task `cancelled`, the sibling
+  `completed`, the turn failed with "The model stream stalled after 1000ms
+  without output.";
+- both children wedged: `run.stalled`, both `subagent.failed` `cancelled`,
+  `run.resumed`, `run.finished` — the parent answered with neither result.
+
+**Decision (owner, 2026-09-22; do not relitigate).** A canonical per-subagent
+watchdog, as Claude Code's `CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS` (reset on every
+stream event): each background child's own stream under its own phase-aware
+watchdog with the SAME four windows; a wedged child fails as its own task, and
+its siblings and the parent keep running; the parent watchdog judges only the
+parent's own output. No new setting or env var (the windows' Settings UI is
+BST-1801).
+
+**Seam.** `background-child-watchdog.ts`, one per runtime, created with the
+runtime's other owners and disposed first. It follows the manager's lifecycle
+stream for the root agent's scope from construction — before any dispatch, so
+no event of a task this runtime runs can precede it — and demultiplexes each
+task's `background-task-output` into that child's own stream, judged by
+`withInactivityTimeout` with `resolveMastraProducerOptions`, the root's own
+classifiers (the task's delegation envelope is unwrapped once; a grandchild's
+envelope stays the child's output, as a foreground child's is the root's). A
+resume leg's host executor publishes its child's parts itself, never as task
+output, so it feeds the same instance (`hostExecution`). Rejected seams: the
+child's output processors and `onChunk` see only a subset of parts (no
+`start`/`step-start`, so every later step's time-to-first-output would ride
+`streaming`); the parent consumer's delegated projection is paced by that
+consumer, so a slow persistence write would read as child silence; wrapping
+the child `Agent.stream` would mean overriding Mastra's `MastraModelOutput`.
+
+**Ending a stalled child.** The delegation binding composes one stall
+controller per prepared execution into the child's signal and into its
+EXECUTION signal — the deadline seam of "Background child deadlines" — and
+`afterToolCall` rejects with the stall whatever the unwinding child threw or
+returned, so Mastra classifies the attempt `retry` (retries are pinned to 0) →
+`failed` with the stall's message, never `timed_out` or `completed`. The
+child's projection is the deadline's: one child `run.failed`, whose detail is
+that message and whose metadata carries the breadcrumb (`code`, `phase`,
+`inactivityMs`, `partsSeen`, `lastPartType`). The ledger quotes the message to
+the parent model ("failed — Subagent stalled: …").
+
+**When a child's watch ends.** From `running`, `resumed` or a host executor's
+start until its own stream ends (`finish`, `error`, `abort`, `tripwire`) or it
+pauses (`tool-call-approval`, `tool-call-suspended`), or its task reaches a
+terminal or suspension. Measured through the real background manager: a
+completed child's task output ends `… step-finish, finish`, then
+`background-task-completed`; a paused child's ends at `tool-call-approval` with
+NO `finish`, then `background-task-suspended`. What follows the child's own end
+— its message save, task row and terminal publish — is host persistence;
+judging that gap as the child's silence would fail a finished or parked child
+whenever the database is slow.
+
+**The parent.** `createMastraStreamPartRouter` now routes child output, native
+lifecycle events and host rows as bookkeeping (re-arms, moves no phase). A task
+HOLDS the stream open from its `started` acknowledgement on the parent's own
+turn to its terminal or suspension (a released task is held again only by
+`resumed`, mirroring the idle loop's `settled` set). `running` holds nothing:
+the manager re-tells it to every new subscriber and publishes it for work this
+stream never dispatched — the lanes opened a lane for such an orphan and held
+the parent at the first-output window for the rest of the leg (PR #3283
+review). `heldWork.watching(held)` says whether any task THIS stream holds is
+being watched: while one is, the parent sets no window — every watched child
+ends within its own window and its terminal re-arms the parent. Held work
+nothing watches — dispatched but not running yet, stream ended with its
+terminal still to arrive, or a stall with no live execution here to end
+(`background_child_stall_undeliverable`) — waits the first-output window, the
+value the lanes gave a task that had produced nothing, and the wait is
+re-judged the moment the watch changes, without a part. Removed as dead: named
+lanes, per-lane phases and in-flight sets, the widest-lane wait, and the
+router's unwrap of a task's envelope into its lane.
+
+**After (same spec).** One wedged: the sibling's `subagent.finished`, the wedged
+child's `subagent.failed` (`failed`), `run.finished`; the wedged task `failed`
+with "Subagent stalled: no output for 1000ms while streaming its answer (its
+inter-output window), so the host ended it."; that child's one `run.failed`
+carries `{code: background_child_stalled, phase: streaming, inactivityMs: 1000,
+lastPartType: text-delta}`; the wakeup names the failure and the parent gives
+its final answer. Both wedged: each fails alone and the parent finishes. No
+`run.stalled` in either.
+
+**Envelope unwrap (PR #3283 review).** `unwrapDelegatedChildPart` returns
+`{ child }` so an envelope carrying no part is told apart from a non-envelope;
+the lanes' `?.child ?? output` read such an envelope as the part itself. The
+child watch reads the wrapper explicitly: an empty envelope moves the phase as
+output but names no part in the breadcrumb.
+
+**Contract moves paying for the rules.** The local-provider sentence was
+shortened: the watchdog's abort crosses `LlmHostChatModel → LocalLlmHostClient
+→ LlmHostManager` and sends the hidden renderer's cancel command. The
+subagents contract's restatement of the envelope rule became a reference to
+this section.
+
+**Known limits (recorded, not fixed here).**
+- A parent that wedges MID-TURN while a held child is watched is judged by its
+  own window only once no held child is watched. The lanes behaved alike while
+  the child was healthy (the widest lane was the child's), but cancelled it.
+- Foreground children and a background worker's foreground grandchildren have
+  no watchdog of their own; their provider phases still ride their owner's.
+- A resume leg's in-process child writes raw delegation envelopes, which stay
+  the parent's output (inert while its task's hold is watched).
+- `background-task-resumed` names no leaf call, so a live-resumed child's
+  approved call is not seeded: its execution rides the child's first-output
+  window.
+- With the default windows the Mastra task deadline
+  (`MAX_BACKGROUND_TASK_TIMEOUT_MS`, 300 s) fires before a child's first-output
+  (600 s) or tool-executing backstop, so only inter-output and shorter child
+  stalls can fire first.
+- A `running` replayed for a task not executing in this runtime is watched by
+  the child watchdogs, stalls with nothing to end
+  (`background_child_stall_undeliverable`) and never holds the parent.
+
+Guard: `packages/agent/src/mastra/__tests__/background-child-watchdog.spec.ts`,
+`mastra-background-watchdog-holds.spec.ts`, `delegated-conversation-binding-stall.spec.ts`,
+`background-resume.spec.ts` ("a resumed executor's child is watched …"),
+`packages/agent/src/__tests__/with-inactivity-timeout-holds.spec.ts`,
+`background-child-watchdog.integration.spec.ts` and the quiet-child case of
+`background-worker-stream.integration.spec.ts` (now also under a 500 ms
+first-output window). Nineteen mutations each turned a guard red: never ending
+a watch at the child's own end; re-arming an ended execution on a late
+`running`; feeding one child's output to every watch; `resumed` not starting a
+fresh watch; a task terminal not ending it; a stall only logged; the stall
+winning only when the unwind threw nothing; the stall aborting the selected-Stop
+controller; judging a watched hold; not re-judging on a changed watch; giving
+unwatched held work the producer's window; child output counted as the
+parent's; `resumed` not holding a released task; a resumed executor not
+feeding its watch; the parent watchdog not given the child watch; the child
+terminal losing the stall detail; an empty envelope read as the part; an
+orphan `running` holding the parent; any watched task (not only a held one)
+suspending the parent.

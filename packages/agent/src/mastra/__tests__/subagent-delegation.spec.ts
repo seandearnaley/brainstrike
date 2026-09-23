@@ -922,7 +922,8 @@ describe('native delegation deadline ownership', () => {
         toolCallId: context.toolCallId,
       });
       binding.prepare(resumed, { maxSteps: 8, persona });
-      expect(binding.getExecutionAbortSignal?.(identity)).toBeUndefined();
+      // Only the new execution's own end (its child's stall) remains.
+      expect(binding.getExecutionAbortSignal?.(identity)?.aborted).toBe(false);
       const resumedSignal = new AbortController().signal;
       binding.captureExecutionAbortSignal?.(identity, resumedSignal);
       expect(binding.getExecutionAbortSignal?.(identity)).toBe(resumedSignal);

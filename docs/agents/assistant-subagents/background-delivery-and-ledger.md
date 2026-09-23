@@ -321,3 +321,12 @@ during four fake hours of silence) and `background-worker-stream.integration.spe
 ("keeps a leg open while a quiet background child works, then finishes
 normally", with a 200 ms inter-output window and 1 s of child silence; without
 the task lanes it stalls in `streaming` and the child ends `cancelled`).
+
+## 2026-09-22 — each child's own watchdog judges its liveness (BST-1802)
+
+AMENDS the entry above: the loop still judges no silence, but the watchdog's
+per-task lanes it deferred to are gone. Each background child has its own
+watchdog, which ends a stalled child as a failed task; that task's terminal
+wakes the parent like any failure, and the ledger quotes the stall
+("failed — Subagent stalled: no output for …"). The parent's stream watchdog
+judges only the parent (`assistant-runtime/stream-watchdog-phases.md`).

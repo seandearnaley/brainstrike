@@ -8,7 +8,7 @@
  */
 import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
-import type { StreamPartRoute } from '../stream/with-inactivity-timeout';
+import type { StreamInactivityOptions, StreamPartRoute } from '../stream/with-inactivity-timeout';
 import type { StreamChunk } from '../types';
 import type { StaticMastraChunkType } from './agent-streaming';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
@@ -197,7 +197,7 @@ const MAX_DELEGATED_ENVELOPE_UNWRAPS = 8;
  * Wrapped so an envelope carrying no part is still told apart from a
  * non-envelope.
  */
-function unwrapDelegatedChildPart(part: unknown): { readonly child: unknown } | undefined {
+export function unwrapDelegatedChildPart(part: unknown): { readonly child: unknown } | undefined {
   if (describeMastraStreamPartType(part) !== MASTRA_DELEGATED_CHILD_ENVELOPE_TYPE) {
     return;
   }
@@ -321,31 +321,33 @@ export function createMastraToolExecutionPartKindReader(
 }
 
 /**
- * What each native background lifecycle event does to its task's LANE. These
- * are bookkeeping, never any producer's output. `started` (the dispatch
- * acknowledgement on the parent's turn) and `running` open the lane — the
- * stream now waits on that task, queued or not; a terminal or a suspension
- * closes it (a human wait never inherits a child's window); only `resumed`
- * reopens a closed one.
+ * What each native background event does to the parent's HOLD on its task.
+ * These are bookkeeping, never the parent's output. `started` — the dispatch
+ * acknowledgement on the parent's OWN turn — holds the stream open for the
+ * task, queued or not; a terminal or a suspension releases it (a human wait
+ * holds nothing); only `resumed` holds a released task again. `running` holds
+ * nothing: the manager re-tells it to every new subscriber and publishes it
+ * for work this stream never dispatched, and an orphan must not widen the
+ * parent's own window. `output` is the child's own part: its liveness is its
+ * own watchdog's (`background-child-watchdog.ts`), so to the parent it is
+ * activity only.
  *
  * Typed like the maps above, so a Mastra rename fails to compile. A lifecycle
  * type missing here falls through to ordinary output, which tightens.
  */
-const MASTRA_BACKGROUND_LANE_EFFECTS = {
-  'background-task-cancelled': 'closes',
-  'background-task-completed': 'closes',
-  'background-task-failed': 'closes',
+const MASTRA_BACKGROUND_HOLD_EFFECTS = {
+  'background-task-cancelled': 'releases',
+  'background-task-completed': 'releases',
+  'background-task-failed': 'releases',
+  'background-task-output': 'none',
   'background-task-progress': 'none',
-  'background-task-resumed': 'reopens',
-  'background-task-running': 'opens',
-  'background-task-started': 'opens',
-  'background-task-suspended': 'closes',
+  'background-task-resumed': 'holds-again',
+  'background-task-running': 'none',
+  'background-task-started': 'holds',
+  'background-task-suspended': 'releases',
 } as const satisfies Partial<
-  Record<StaticMastraChunkType, 'closes' | 'none' | 'opens' | 'reopens'>
+  Record<StaticMastraChunkType, 'holds' | 'holds-again' | 'none' | 'releases'>
 >;
-
-type MastraBackgroundLaneEffect =
-  (typeof MASTRA_BACKGROUND_LANE_EFFECTS)[keyof typeof MASTRA_BACKGROUND_LANE_EFFECTS];
 
 /**
  * Host rows the background loop writes into a leg's stream (the durable
@@ -364,71 +366,62 @@ const HOST_BOOKKEEPING_PART_TYPES: ReadonlySet<string> = new Set([
  *
  * A background leg's stream is the host idle loop's COMBINED stream: the
  * parent's turns, every running child's parts folded in as
- * `background-task-output`, and the loop's bookkeeping. Each background TASK
- * is its own producer, in a lane keyed by task id. The task's OWN delegation
- * envelope is transport, so the lane classifies the child's part inside it
- * exactly as the root lane classifies the parent's own parts — including the
- * child's foreground grandchildren, whose envelopes stay output and are
- * unwrapped only for tool boundaries, as the root's are.
+ * `background-task-output`, and the loop's bookkeeping. The parent watchdog
+ * judges only the PARENT: a child's parts, the native lifecycle events and
+ * host rows are bookkeeping, and each background task this leg dispatched or
+ * resumed HOLDS the stream open until its terminal or suspension.
  *
  * Stateful per leg, mirroring the idle loop's own `settled` set: a terminal
- * can outrun the dispatch acknowledgement, and a new manager subscriber is
- * re-told every running task, so a closed lane is reopened only by `resumed`
- * — a late start or late output of a closed task is activity, not a producer.
+ * can outrun the dispatch acknowledgement, so a released task is held again
+ * only by `resumed`.
  *
- * Everything else is the parent's. A top-level delegation envelope stays in
- * the parent's lane: a foreground child's parts ride it as they always have,
- * and a resume leg's in-process child (raw envelopes) is held open by the lane
- * its `resumed` event opened.
+ * Everything else is the parent's. A top-level delegation envelope stays the
+ * parent's output: a foreground child's parts ride it as they always have,
+ * and so do a resume leg's in-process child's raw envelopes.
  *
  * @internal exported for tests
  */
 export function createMastraStreamPartRouter(): (part: unknown) => StreamPartRoute<unknown> {
-  const closed = new Set<string>();
-  const routeLifecycle = (
-    effect: MastraBackgroundLaneEffect,
-    taskId: string
-  ): StreamPartRoute<unknown> => {
-    if (effect === 'closes') {
-      closed.add(taskId);
-      return { closes: taskId, kind: 'bookkeeping' };
-    }
-    if (effect === 'reopens') {
-      closed.delete(taskId);
-    }
-    return effect === 'none' || closed.has(taskId)
-      ? { kind: 'bookkeeping' }
-      : { kind: 'bookkeeping', opens: taskId };
-  };
-  const routeTaskOutput = (part: unknown, taskId: string): StreamPartRoute<unknown> => {
-    if (closed.has(taskId)) {
-      return { kind: 'bookkeeping' };
-    }
-    const output = readMastraStreamPartValue((part as { payload?: unknown }).payload, 'payload');
-    return {
-      kind: 'produced',
-      lane: taskId,
-      part: unwrapDelegatedChildPart(output)?.child ?? output,
-    };
-  };
+  const released = new Set<string>();
   return (part) => {
     const type = describeMastraStreamPartType(part);
     if (type !== undefined && HOST_BOOKKEEPING_PART_TYPES.has(type)) {
       return { kind: 'bookkeeping' };
     }
-    const lifecycle =
-      type !== undefined && Object.hasOwn(MASTRA_BACKGROUND_LANE_EFFECTS, type)
-        ? MASTRA_BACKGROUND_LANE_EFFECTS[type as keyof typeof MASTRA_BACKGROUND_LANE_EFFECTS]
-        : undefined;
-    const taskId =
-      lifecycle !== undefined || type === 'background-task-output'
-        ? readMastraStreamPartString(part, 'taskId')
-        : undefined;
-    if (taskId === undefined) {
-      return lifecycle === undefined ? { kind: 'produced', part } : { kind: 'bookkeeping' };
+    if (type === undefined || !Object.hasOwn(MASTRA_BACKGROUND_HOLD_EFFECTS, type)) {
+      return { kind: 'produced', part };
     }
-    return lifecycle === undefined
-      ? routeTaskOutput(part, taskId)
-      : routeLifecycle(lifecycle, taskId);
+    const effect =
+      MASTRA_BACKGROUND_HOLD_EFFECTS[type as keyof typeof MASTRA_BACKGROUND_HOLD_EFFECTS];
+    const taskId = readMastraStreamPartString(part, 'taskId');
+    if (effect === 'none' || taskId === undefined) {
+      return { kind: 'bookkeeping' };
+    }
+    if (effect === 'releases') {
+      released.add(taskId);
+      return { kind: 'bookkeeping', releases: taskId };
+    }
+    if (effect === 'holds-again') {
+      released.delete(taskId);
+    }
+    return released.has(taskId) ? { kind: 'bookkeeping' } : { holds: taskId, kind: 'bookkeeping' };
+  };
+}
+
+/**
+ * The classifiers every watchdog over ONE Mastra producer shares: a leg's
+ * root stream and a background child's own stream judge their parts alike.
+ */
+export function resolveMastraProducerOptions(
+  guardedToolNames: ReadonlySet<string>
+): Pick<
+  StreamInactivityOptions<unknown>,
+  'countsAsProviderOutput' | 'describePart' | 'reasoningPartKind' | 'toolExecutionPartKind'
+> {
+  return {
+    countsAsProviderOutput: isMastraProviderOutputPart,
+    describePart: describeMastraStreamPartType,
+    reasoningPartKind: readMastraReasoningPartKind,
+    toolExecutionPartKind: createMastraToolExecutionPartKindReader(guardedToolNames),
   };
 }
