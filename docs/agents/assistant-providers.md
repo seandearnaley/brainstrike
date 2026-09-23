@@ -450,9 +450,9 @@ Guard: `packages/assistant-contract/src/__tests__/provider-catalog-schema.test.t
 - It is recorded rather than resolved: OpenRouter is the route that bills the
   user, provider-reported cost stays authoritative at runtime, and a declared
   rate is a display estimate.
-- An `openrouter/*` row's `contextWindow` and `maxOutputTokens` are the route's
-  `top_provider` pair; a larger model-level `context_length` served by only one
-  provider is not recorded. Why: `contextWindow` sets the compaction limit.
+- An `openrouter/*` row's `contextWindow` and `maxOutputTokens`, and the live
+  metadata reader's, are the route's `top_provider` pair; a larger model-level
+  `context_length` served by only one provider is used only when `top_provider.context_length` is null (router meta-models). Why: `contextWindow` sets the compaction limit.
 
 Settled: the 4/15 beside OpenRouter's 2/10 for `gpt-5.6-sol` is a declared
 `min_prompt_tokens: 272000` tier, so 2/10 is that route's base. BST-1804 re-read
@@ -463,7 +463,7 @@ Evidence: `assistant-providers/model-pricing-per-route.md` (also the GLM-5.3
 context-window record).
 Guard: `packages/assistant-contract/src/__tests__/provider-registry-pricing.test.ts`
 (pins both rows AND asserts they differ);
-`provider-registry-2026-09-refresh.test.ts` pins the `top_provider` pairs.
+`provider-registry-2026-09-refresh.test.ts` pins the `top_provider` pairs; `openrouter-model-metadata.test.ts` pins the live reader's pair and fallback.
 
 #### Read the BASE rate, not the rate in force right now
 

@@ -118,3 +118,14 @@ top provider DeepInfra 524,288 / 262,144) and `deepseek/deepseek-v4-flash-0731`
 were set to the `top_provider` pair, and the rule moved into the contract. The
 live metadata reader (`openrouter-model-metadata.ts`) still installs the
 model-level field.
+
+**Live reader follows the rule, 2026-09-22.** `parseOpenRouterModelMetadata`
+now reads `top_provider.context_length` paired with
+`top_provider.max_completion_tokens`, so the context meter, the agent-loop input
+budget and the OpenRouter limit validation stop re-introducing the gap at
+runtime (live GLM-5.3: 1,310,720 model-level against a 1,048,576 / 131,072 top
+provider). The model-level `context_length` is used only when the API publishes
+a null `top_provider.context_length`: of 454 models in the live list, the six
+router meta-models (`openrouter/free`, `openrouter/auto-beta`, …) do so, and
+none has a top-provider window above its model-level one. A malformed
+top-provider window throws rather than falling back.

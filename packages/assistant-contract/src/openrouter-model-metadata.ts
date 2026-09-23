@@ -161,13 +161,23 @@ export function parseOpenRouterModelMetadata(
     throw new Error(`OpenRouter model metadata did not return expected model "${expectedModelId}"`);
   }
 
-  const contextWindow = requirePositiveInteger(data['context_length'], 'context_length');
+  const modelContextWindow = requirePositiveInteger(data['context_length'], 'context_length');
   const supportedParameters = parseSupportedParameters(data['supported_parameters']);
   const reasoning = parseReasoningMetadata(data['reasoning']);
   const topProvider = data['top_provider'];
   if (!isRecord(topProvider)) {
     throw new Error('OpenRouter model metadata requires a top_provider object');
   }
+  // The window and output limit are the TOP PROVIDER's pair: a larger
+  // model-level `context_length` may be served by only one provider, so it is
+  // not paired with another provider's `max_completion_tokens`. The API
+  // publishes a null top-provider window for router meta-models only; then
+  // the model-level window is the only one published, so it is used.
+  const rawTopContextWindow = topProvider['context_length'];
+  const contextWindow =
+    rawTopContextWindow === undefined || rawTopContextWindow === null
+      ? modelContextWindow
+      : requirePositiveInteger(rawTopContextWindow, 'top_provider.context_length');
 
   const rawMaxOutputTokens = topProvider['max_completion_tokens'];
   if (rawMaxOutputTokens === undefined || rawMaxOutputTokens === null) {
