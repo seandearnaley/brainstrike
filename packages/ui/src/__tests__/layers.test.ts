@@ -34,6 +34,7 @@ describe('floating layer scale', () => {
       COMMAND_PALETTE_OVERLAY_CLASS,
       COMMAND_PALETTE_CONTENT_CLASS,
       POPUP_LAYER_CLASS,
+      STICKY_SECTION_HEADER_LAYER_CLASS,
       TOAST_LAYER_CLASS,
     ];
 
