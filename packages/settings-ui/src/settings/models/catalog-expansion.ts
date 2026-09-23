@@ -92,6 +92,11 @@ export function expandAllCatalogSections(
   sectionIds: readonly string[],
   filtering: boolean
 ): CatalogExpansionState {
+  // No sections yet (models still loading): nothing to act on. Writing an empty
+  // manual set here would pre-empt the one-time seed and latch every section shut.
+  if (sectionIds.length === 0) {
+    return state;
+  }
   return filtering
     ? { ...state, sessionCollapsed: new Set<string>() }
     : { ...state, manual: new Set(sectionIds) };
@@ -102,6 +107,11 @@ export function collapseAllCatalogSections(
   sectionIds: readonly string[],
   filtering: boolean
 ): CatalogExpansionState {
+  // No sections yet (models still loading): nothing to act on. Writing an empty
+  // manual set here would pre-empt the one-time seed and latch every section shut.
+  if (sectionIds.length === 0) {
+    return state;
+  }
   return filtering
     ? { ...state, sessionCollapsed: new Set(sectionIds) }
     : { ...state, manual: new Set<string>() };

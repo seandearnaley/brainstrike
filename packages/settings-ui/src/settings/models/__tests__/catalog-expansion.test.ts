@@ -103,6 +103,15 @@ describe('Expand all / Collapse all', () => {
     expect([...resolveExpandedSections(expanded, ['anthropic'], true)]).toEqual(['anthropic']);
   });
 
+  it('ignore Expand all / Collapse all before any section exists, so seeding still happens', () => {
+    for (const act of [expandAllCatalogSections, collapseAllCatalogSections]) {
+      const early = act(INITIAL_CATALOG_EXPANSION, [], false);
+      expect(early).toBe(INITIAL_CATALOG_EXPANSION);
+      const loaded = reconcileCatalogExpansion(early, stats, false);
+      expect([...resolveExpandedSections(loaded, all, false)]).toEqual(['openai', 'openrouter']);
+    }
+  });
+
   it('toggles the manual set when not filtering', () => {
     const toggled = toggleCatalogSection(seeded, 'anthropic', false);
     expect(resolveExpandedSections(toggled, all, false).has('anthropic')).toBe(true);

@@ -44,6 +44,20 @@ describe('useCatalogExpansion', () => {
     expect([...result.current.expandedSectionIds]).toEqual(['openai']);
   });
 
+  it('still seeds when Expand all is clicked before the models load', () => {
+    const initialProps: Props = { filtering: false, providerStats: [], visibleSectionIds: [] };
+    const { rerender, result } = renderHook((props: Props) => useCatalogExpansion(props), {
+      initialProps,
+    });
+    act(() => result.current.expandAll());
+    rerender({
+      filtering: false,
+      providerStats: stats,
+      visibleSectionIds: ['openai', 'anthropic'],
+    });
+    expect([...result.current.expandedSectionIds]).toEqual(['openai']);
+  });
+
   it('expands and collapses every visible section', () => {
     const { result } = renderHook(() =>
       useCatalogExpansion({
