@@ -71,7 +71,7 @@ const CONTRACT_LINE_BUDGETS = {
   // sanctions re-baselining for cases like this one, while this test's own
   // failure message says "do not raise the number" — both are true at once,
   // and this pin does not decide which wins next time.
-  'assistant-providers.md': 2324,
+  'assistant-providers.md': 2323,
   'assistant-runtime.md': 2780,
   'assistant-subagents.md': 1626,
   'changeset-diff.md': 495,

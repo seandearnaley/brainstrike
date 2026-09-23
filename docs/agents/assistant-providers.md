@@ -252,8 +252,7 @@ store persists each thread's own model and provider settings.
   `openrouter.reasoning.summary`.
 - Provider-specific keys are valid escape hatches and win when set, and each
   control must render the RESOLVED value, not the raw key.
-- The Anthropic Thinking toggle is authoritative for "is Claude thinking":
-  switching it off clears the effort as well as the budget.
+- The Anthropic Thinking toggle is authoritative for "is Claude thinking": switching it off clears the effort as well as the budget; always-on rows (`mandatory`, e.g. Fable) expose no toggle, and a cleared toggleable ladder row serialises explicit `disabled` rather than an omit that would leave default-on rows thinking.
 - The offered Anthropic ladder is declared per model in
   `LlmModelDefinition.anthropicReasoning`, recorded from vendor documentation
   and never derived from union membership. An effort outside a model's ladder —

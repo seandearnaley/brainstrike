@@ -88,6 +88,13 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    */
   anthropicReasoning?: {
     readonly defaultEffort: AnthropicEffort;
+    /**
+     * Whether thinking has no off state on this row (BST-1706): the vendor
+     * rejects `thinking.type: 'disabled'`, so only the effort is
+     * configurable. Mirrors the required `mandatory` on the OpenAI-vocabulary
+     * `reasoning` block.
+     */
+    readonly mandatory: boolean;
     readonly supportedEfforts: readonly AnthropicEffort[];
   };
   /**

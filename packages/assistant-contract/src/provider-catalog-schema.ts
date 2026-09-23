@@ -77,6 +77,9 @@ const LlmModelSchema = z.strictObject({
   anthropicReasoning: z
     .strictObject({
       defaultEffort: AnthropicEffortSchema,
+      // Whether the vendor leaves thinking no off state (BST-1706).
+      // Required when the ladder is declared so every row answers it.
+      mandatory: z.boolean(),
       supportedEfforts: z.array(AnthropicEffortSchema),
     })
     .optional(),

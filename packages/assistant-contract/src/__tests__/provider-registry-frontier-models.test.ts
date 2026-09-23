@@ -105,6 +105,7 @@ describe('frontier model refresh (2026-07)', () => {
       expect(fable).toEqual({
         anthropicReasoning: {
           defaultEffort: 'high',
+          mandatory: true,
           supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         },
         contextWindow: 1_000_000,
@@ -156,6 +157,7 @@ describe('frontier model refresh (2026-07)', () => {
       expect(opus).toEqual({
         anthropicReasoning: {
           defaultEffort: 'high',
+          mandatory: false,
           supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         },
         contextWindow: 1_000_000,

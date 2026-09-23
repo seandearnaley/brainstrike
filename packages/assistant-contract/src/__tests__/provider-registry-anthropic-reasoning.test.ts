@@ -4,16 +4,25 @@ import { listProviderLlmModels } from '../provider-registry.js';
 // Vendor effort and model-overview tables, retrieved 2026-09-04 (BST-847).
 describe('direct Anthropic registry reasoning ladders', () => {
   it.each([
-    ['claude-fable-5-1', ['low', 'medium', 'high', 'xhigh', 'max']],
-    ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max']],
-    ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max']],
-    ['claude-opus-4-8', ['low', 'medium', 'high', 'xhigh', 'max']],
-    ['claude-sonnet-5', ['low', 'medium', 'high', 'xhigh', 'max']],
-    ['claude-sonnet-4-6', ['low', 'medium', 'high', 'max']],
-  ] as const)('pins the documented ladder and default for %s', (modelId, supportedEfforts) => {
-    const model = listProviderLlmModels('anthropic').find((candidate) => candidate.id === modelId);
-    expect(model?.anthropicReasoning).toEqual({ defaultEffort: 'high', supportedEfforts });
-  });
+    ['claude-fable-5-1', ['low', 'medium', 'high', 'xhigh', 'max'], true],
+    ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max'], true],
+    ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max'], false],
+    ['claude-opus-4-8', ['low', 'medium', 'high', 'xhigh', 'max'], false],
+    ['claude-sonnet-5', ['low', 'medium', 'high', 'xhigh', 'max'], false],
+    ['claude-sonnet-4-6', ['low', 'medium', 'high', 'max'], false],
+  ] as const)(
+    'pins the documented ladder, default, and mandatory thinking for %s',
+    (modelId, supportedEfforts, mandatory) => {
+      const model = listProviderLlmModels('anthropic').find(
+        (candidate) => candidate.id === modelId
+      );
+      expect(model?.anthropicReasoning).toEqual({
+        defaultEffort: 'high',
+        mandatory,
+        supportedEfforts,
+      });
+    }
+  );
 
   it('keeps Haiku effort unsupported', () => {
     const model = listProviderLlmModels('anthropic').find(
