@@ -365,6 +365,7 @@ every floating layer **in `packages/ui`**. Import the token; do not hardcode a
 
 | Layer | Token | Value |
 | --- | --- | --- |
+| In-flow sticky section header (inside one scroller; not floating) | `STICKY_SECTION_HEADER_LAYER_CLASS` | `10` |
 | Dialog scrim / panel, by nesting depth | `DIALOG_LAYER_CLASSES[depth - 1]` | `50/51` … `64/65` (8 tiers) |
 | Command palette scrim / content | `COMMAND_PALETTE_OVERLAY_CLASS` / `COMMAND_PALETTE_CONTENT_CLASS` | `66` / `67` |
 | Popover, select, dropdown menu, context menu, tooltip | `POPUP_LAYER_CLASS` | `70` |

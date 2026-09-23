@@ -91,7 +91,10 @@ const CONTRACT_LINE_BUDGETS = {
   'platform-contracts.md': 955,
   'README.md': 70,
   'triage-labels.md': 35,
-  'ui-conventions.md': 608,
+  // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
+  // row for `STICKY_SECTION_HEADER_LAYER_CLASS`. The table IS the scale, so a
+  // new token cannot live in an evidence file without the scale going stale.
+  'ui-conventions.md': 609,
   'workspace-context.md': 1071,
 };
 

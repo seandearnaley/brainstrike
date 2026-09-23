@@ -42,3 +42,31 @@ describe('matchesModelQuery', () => {
     expect(matchesModelQuery(bare, 'agentic')).toBe(false);
   });
 });
+
+describe('matchesModelQuery keywords (BST-1805)', () => {
+  const tagged: ModelQueryFields = {
+    keywords: ['Coding', 'Tool use'],
+    label: 'GPT-5.4',
+    modelId: 'gpt-5.4',
+    providerId: 'openai',
+  };
+
+  it('matches a query word against a keyword', () => {
+    expect(matchesModelQuery(tagged, 'tool')).toBe(true);
+  });
+
+  it('still requires every word, keywords included', () => {
+    expect(matchesModelQuery(tagged, 'coding gpt')).toBe(true);
+    expect(matchesModelQuery(tagged, 'coding claude')).toBe(false);
+  });
+
+  it('never matches a word across two keywords', () => {
+    expect(matchesModelQuery(tagged, 'codingtool')).toBe(false);
+  });
+
+  it('is unchanged for callers that pass no keywords', () => {
+    expect(
+      matchesModelQuery({ label: 'GPT-5.4', modelId: 'gpt-5.4', providerId: 'openai' }, 'tool')
+    ).toBe(false);
+  });
+});

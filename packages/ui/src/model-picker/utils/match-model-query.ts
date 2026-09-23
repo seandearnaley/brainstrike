@@ -1,5 +1,10 @@
 /** The text a model can be found by. */
 export interface ModelQueryFields {
+  /**
+   * Extra searchable tags that are never displayed by the matcher (BST-1805:
+   * the Model Catalog passes a row's best-for tags so they stay searchable).
+   */
+  keywords?: readonly string[] | undefined;
   label: string;
   modelId: string;
   providerId: string;
@@ -30,6 +35,7 @@ export function matchesModelQuery(fields: ModelQueryFields, query: string): bool
     fields.providerId,
     fields.providerName ?? '',
     fields.tagline ?? '',
+    ...(fields.keywords ?? []),
   ]
     .join(FIELD_SEPARATOR)
     .toLowerCase();

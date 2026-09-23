@@ -6,6 +6,7 @@ import {
   dialogLayerClasses,
   MAX_DIALOG_NESTING_DEPTH,
   POPUP_LAYER_CLASS,
+  STICKY_SECTION_HEADER_LAYER_CLASS,
   TOAST_LAYER_CLASS,
 } from '../layers';
 
@@ -83,6 +84,17 @@ describe('floating layer scale', () => {
 
   it('keeps toasts above every other layer', () => {
     expect(zIndexOf(TOAST_LAYER_CLASS)).toBeGreaterThan(zIndexOf(POPUP_LAYER_CLASS));
+  });
+
+  // BST-1805: the Model Catalog's sticky provider headers are IN-FLOW (inside
+  // one scroller), so they only need to out-rank positioned row content painted
+  // later in that scroller (Switch thumbs, focus rings) and must stay under
+  // every floating layer a header control can open.
+  it('keeps the in-flow sticky section header below every floating layer', () => {
+    const sticky = zIndexOf(STICKY_SECTION_HEADER_LAYER_CLASS);
+    expect(sticky).toBeGreaterThan(0);
+    expect(sticky).toBeLessThan(zIndexOf(DIALOG_LAYER_CLASSES[0].overlay));
+    expect(sticky).toBeLessThan(zIndexOf(POPUP_LAYER_CLASS));
   });
 });
 
