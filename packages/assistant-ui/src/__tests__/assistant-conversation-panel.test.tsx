@@ -17,6 +17,7 @@ import {
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Activity } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
 import type { DecisionRoute } from '../decision-route-context';
@@ -153,23 +154,26 @@ describe('shared conversation panel', () => {
     await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(''));
   });
 
-  it('sends an active child draft once, retains failed input, and retries the same request id explicitly', async () => {
+  it('retains unconfirmed child input across hidden activity and retries the same request explicitly', async () => {
     const onNew = vi.fn(async () => {});
     const send = vi
       .fn<(input: { readonly id: string; readonly text: string }) => Promise<void>>()
       .mockRejectedValueOnce(new Error('Delivery was interrupted'))
       .mockResolvedValue(undefined);
-    render(
+    const panel = (mode: 'visible' | 'hidden') => (
       <TooltipProvider>
-        <Conversation
-          id="Cedar"
-          messages={[message('Reading')]}
-          onNew={onNew}
-          onSendActiveInput={send}
-          running
-        />
+        <Activity mode={mode}>
+          <Conversation
+            id="Cedar"
+            messages={[message('Reading')]}
+            onNew={onNew}
+            onSendActiveInput={send}
+            running
+          />
+        </Activity>
       </TooltipProvider>
     );
+    const view = render(panel('visible'));
     const user = userEvent.setup();
     const input = screen.getByRole('textbox', { name: 'Message input' });
     await user.type(input, 'Check another file');
@@ -178,6 +182,12 @@ describe('shared conversation panel', () => {
       'role',
       'alert'
     );
+    view.rerender(panel('hidden'));
+    expect(screen.queryByRole('textbox', { name: 'Message input' })).toBeNull();
+    view.rerender(panel('visible'));
+    expect(screen.getByRole('textbox', { name: 'Message input' })).toBe(input);
+    expect(screen.getByText('Delivery was interrupted')).toBeVisible();
+    expect(send).toHaveBeenCalledOnce();
     expect(input).toHaveValue('Check another file');
     await user.click(input);
     await user.keyboard('{Enter}');
