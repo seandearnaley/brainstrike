@@ -281,3 +281,272 @@ Guard: `packages/agent/src/mastra/__tests__/mastra-background-watchdog-lanes.spe
 closing, resetting on `opens`, reopening a closed lane on a late start,
 counting host rows as output, skipping the task's envelope all fail it) and
 `packages/agent/src/__tests__/with-inactivity-timeout-lanes.spec.ts`.
+
+## 2026-09-22 — each background child has its own watchdog; the parent judges only itself (BST-1802)
+
+Supports "Each BACKGROUND child has its own watchdog" and "The parent watchdog
+judges only the parent" in `assistant-runtime.md` § Stream inactivity watchdog.
+SUPERSEDES the lane record above: the per-task lanes are removed.
+
+**What the lanes left.** One timer over the combined stream fired only once
+every open lane had outlived its own window, so it could not end ONE wedged
+child while a sibling kept producing; and when everything went quiet it fired
+as a PARENT stall, whose recovery aborted the leg and whose teardown stopped the
+background manager, cancelling the stalled child and every healthy sibling.
+Measured with `background-child-watchdog.integration.spec.ts` against the lane
+code (1 s inter-output window, two background children, the wedged child's
+provider silent after its first `text-delta`):
+- one child wedged: `run.stalled` (`streaming`, 1000 ms), the wedged child's
+  `subagent.failed` `cancelled`, then `run.failed` (the continuation, on the
+  same runtime, stalled too); the wedged task `cancelled`, the sibling
+  `completed`, the turn failed with "The model stream stalled after 1000ms
+  without output.";
+- both children wedged: `run.stalled`, both `subagent.failed` `cancelled`,
+  `run.resumed`, `run.finished` — the parent answered with neither result.
+
+**Decision (owner, 2026-09-22; do not relitigate).** A canonical per-subagent
+watchdog, as Claude Code's `CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS` (reset on every
+stream event): each background child's own stream under its own phase-aware
+watchdog with the SAME four windows; a wedged child fails as its own task, and
+its siblings and the parent keep running; the parent watchdog judges only the
+parent's own output. No new setting or env var (the windows' Settings UI is
+BST-1801).
+
+**Seam.** `background-child-watchdog.ts`, one per runtime, created with the
+runtime's other owners and disposed first. It follows the manager's lifecycle
+stream for the root agent's scope from construction — before any dispatch, so
+no event of a task this runtime runs can precede it — and demultiplexes each
+task's `background-task-output` into that child's own stream, judged by
+`withInactivityTimeout` with `resolveMastraProducerOptions`, the root's own
+classifiers (the task's delegation envelope is unwrapped once; a grandchild's
+envelope stays the child's output, as a foreground child's is the root's). A
+resume leg's host executor publishes its child's parts itself, never as task
+output, so it feeds the same instance (`hostExecution`). Rejected seams: the
+child's output processors and `onChunk` see only a subset of parts (no
+`start`/`step-start`, so every later step's time-to-first-output would ride
+`streaming`); the parent consumer's delegated projection is paced by that
+consumer, so a slow persistence write would read as child silence; wrapping
+the child `Agent.stream` would mean overriding Mastra's `MastraModelOutput`.
+
+**Ending a stalled child.** The delegation binding composes one stall
+controller per prepared execution into the child's signal and into its
+EXECUTION signal — the deadline seam of "Background child deadlines" — and
+`afterToolCall` rejects with the stall whatever the unwinding child threw or
+returned, so Mastra classifies the attempt `retry` (retries are pinned to 0) →
+`failed` with the stall's message, never `timed_out` or `completed`. The
+child's projection is the deadline's: one child `run.failed`, whose detail is
+that message and whose metadata carries the breadcrumb (`code`, `phase`,
+`inactivityMs`, `partsSeen`, `lastPartType`). The ledger quotes the message to
+the parent model ("failed — Subagent stalled: …").
+
+**When a child's watch ends.** From `running`, `resumed` or a host executor's
+start until its own stream ends (`finish`, `error`, `abort`, `tripwire`) or it
+pauses (`tool-call-approval`, `tool-call-suspended`), or its task reaches a
+terminal or suspension. Measured through the real background manager: a
+completed child's task output ends `… step-finish, finish`, then
+`background-task-completed`; a paused child's ends at `tool-call-approval` with
+NO `finish`, then `background-task-suspended`. What follows the child's own end
+— its message save, task row and terminal publish — is host persistence;
+judging that gap as the child's silence would fail a finished or parked child
+whenever the database is slow.
+
+**The parent.** `createMastraStreamPartRouter` now routes child output, native
+lifecycle events and host rows as bookkeeping (re-arms, moves no phase). A task
+HOLDS the stream open from its `started` acknowledgement on the parent's own
+turn to its terminal or suspension (a released task is held again only by
+`resumed`, mirroring the idle loop's `settled` set). `running` holds nothing:
+the manager re-tells it to every new subscriber and publishes it for work this
+stream never dispatched — the lanes opened a lane for such an orphan and held
+the parent at the first-output window for the rest of the leg (PR #3283
+review). `heldWork.watching(held)` says whether any task THIS stream holds is
+being watched: while one is, the parent sets no window — every watched child
+ends within its own window and its terminal re-arms the parent. Held work
+nothing watches — dispatched but not running yet, stream ended with its
+terminal still to arrive, or a stall with no live execution here to end
+(`background_child_stall_undeliverable`) — waits the first-output window, the
+value the lanes gave a task that had produced nothing, and the wait is
+re-judged the moment the watch changes, without a part. Removed as dead: named
+lanes, per-lane phases and in-flight sets, the widest-lane wait, and the
+router's unwrap of a task's envelope into its lane.
+
+**After (same spec).** One wedged: the sibling's `subagent.finished`, the wedged
+child's `subagent.failed` (`failed`), `run.finished`; the wedged task `failed`
+with "Subagent stalled: no output for 1000ms while streaming its answer (its
+inter-output window), so the host ended it."; that child's one `run.failed`
+carries `{code: background_child_stalled, phase: streaming, inactivityMs: 1000,
+lastPartType: text-delta}`; the wakeup names the failure and the parent gives
+its final answer. Both wedged: each fails alone and the parent finishes. No
+`run.stalled` in either.
+
+**Envelope unwrap (PR #3283 review).** `unwrapDelegatedChildPart` returns
+`{ child }` so an envelope carrying no part is told apart from a non-envelope;
+the lanes' `?.child ?? output` read such an envelope as the part itself. The
+child watch reads the wrapper explicitly: an empty envelope moves the phase as
+output but names no part in the breadcrumb.
+
+**Contract moves paying for the rules.** The local-provider sentence was
+shortened: the watchdog's abort crosses `LlmHostChatModel → LocalLlmHostClient
+→ LlmHostManager` and sends the hidden renderer's cancel command. The
+subagents contract's restatement of the envelope rule became a reference to
+this section.
+
+**Known limits (recorded, not fixed here).**
+- A parent that wedges MID-TURN while a held child is watched is judged by its
+  own window only once no held child is watched. The lanes behaved alike while
+  the child was healthy (the widest lane was the child's), but cancelled it.
+- Foreground children and a background worker's foreground grandchildren have
+  no watchdog of their own; their provider phases still ride their owner's.
+- A resume leg's in-process child writes raw delegation envelopes, which stay
+  the parent's output (inert while its task's hold is watched).
+- `background-task-resumed` names no leaf call, so a live-resumed child's
+  approved call is not seeded: its execution rides the child's first-output
+  window.
+- With the default windows the Mastra task deadline
+  (`MAX_BACKGROUND_TASK_TIMEOUT_MS`, 300 s) fires before a child's first-output
+  (600 s) or tool-executing backstop, so only inter-output and shorter child
+  stalls can fire first.
+- A `running` replayed for a task not executing in this runtime is watched by
+  the child watchdogs, stalls with nothing to end
+  (`background_child_stall_undeliverable`) and never holds the parent.
+
+Guard: `packages/agent/src/mastra/__tests__/background-child-watchdog.spec.ts`,
+`mastra-background-watchdog-holds.spec.ts`, `delegated-conversation-binding-stall.spec.ts`,
+`background-resume.spec.ts` ("a resumed executor's child is watched …"),
+`packages/agent/src/__tests__/with-inactivity-timeout-holds.spec.ts`,
+`background-child-watchdog.integration.spec.ts` and the quiet-child case of
+`background-worker-stream.integration.spec.ts` (now also under a 500 ms
+first-output window). Nineteen mutations each turned a guard red: never ending
+a watch at the child's own end; re-arming an ended execution on a late
+`running`; feeding one child's output to every watch; `resumed` not starting a
+fresh watch; a task terminal not ending it; a stall only logged; the stall
+winning only when the unwind threw nothing; the stall aborting the selected-Stop
+controller; judging a watched hold; not re-judging on a changed watch; giving
+unwatched held work the producer's window; child output counted as the
+parent's; `resumed` not holding a released task; a resumed executor not
+feeding its watch; the parent watchdog not given the child watch; the child
+terminal losing the stall detail; an empty envelope read as the part; an
+orphan `running` holding the parent; any watched task (not only a held one)
+suspending the parent.
+
+### 2026-09-22 — review of PR #3286 at 857add17f (BST-1802)
+
+Each finding was checked against the code, not only the diff.
+
+- **A lifecycle feed that ends (valid, fixed).** The reader returned on `done`
+  and left every watch armed with no feed. Each child would then "stall" at its
+  window and be ended while healthy, and `watching(held)` kept the parent
+  unbounded. Mastra 1.64's `manager.stream` closes only on its abort signal,
+  which only `dispose` aborts, so no production path reached this; it was still
+  wrong. A feed that ends or throws is now logged
+  (`background_child_watchdog_feed_ended` / `_failed`, naming the tasks being
+  watched) and every watch is stopped. Each stop is announced before the
+  listeners are released, so the parent re-judges its held work at once and
+  bounds it at the first-output window.
+- **The hook's cleanup on a stall (not valid; pinned).** Everything
+  `afterToolCall` releases (`preparedKeys`, the pending deadline, the stall
+  controller) is released before the stall is thrown. The persistence owner runs
+  whatever the binding throws: `composeDelegatedHooks` settles both owners with
+  `Promise.allSettled`, pinned by `stream-options.spec.ts`. `executionSignals` is
+  kept for the binding's life, as `controllers` is, because queued child output
+  is projected after the hook ("Signal ownership survives queued output").
+  Before this change `prepare` already set it for every execution that had a
+  native signal (every background task, and every foreground call with one),
+  and the binding is per host run, so there is no new leak. Every `prepare` is
+  followed by `afterToolCall`: Mastra's `wrapToolWithHooks` runs it on success
+  and on a throw; the delegation config and the hooks are installed together,
+  descendants included (`delegatedExecutionOptions`); and the resume leg's host
+  executor calls it in `finally`. Two cases now pin the release: a stalled
+  execution, and a failed one.
+- **A deadline captured after preparation (latent, fixed).** The only
+  production caller, the resume leg's host executor, captures before the native
+  `execute`, and `execute` always runs `onDelegationStart` and so `prepare`.
+  Still, a capture after `prepare` replaced the stall-composed signal with the
+  raw deadline. The capture now composes with the prepared execution's stall, so
+  the child's terminal keeps the stall's detail and breadcrumb in either order.
+- **A malformed lifecycle event (valid, fixed).** A missing id threw into the
+  reader and disposed every watchdog. The event is now logged
+  (`background_child_watchdog_event_malformed`, with its type and the missing
+  fields) and skipped. Output and terminal events need only `taskId`; a start
+  also needs the `runId` and `toolCallId` that address the execution to end.
+- **A late `resumed` after a host-run execution (valid, fixed).** A task whose
+  execution the host runs itself (`hostExecution`) is now watched only by that
+  execution. The manager's copy of its lifecycle never starts a watch nothing
+  feeds, and so never ends a newer execution of the same invocation.
+- **Change listeners pile up (valid, fixed differently).** Keeping one
+  `changed()` promise across iterations would not have helped, because
+  `Promise.race` attaches a reaction to every input on every call.
+  `HeldWorkWatch` now exposes `subscribe(listener) → release`. Each wait
+  subscribes once and releases in its `finally`, so the stream holds at most one
+  listener; `dispose` releases every listener after announcing its stops.
+- **`endStalledExecution` optional (valid, fixed).** It is now required on
+  `DelegatedConversationBinding`. A hand-built binding without it is a compile
+  error, as the decision-contract fixture showed. The construction check stays
+  only for a background runtime that has no binding or scope at all.
+- **Leaf-module claim (fixed differently).** Moving the `StaticMastraChunkType`
+  declaration out of `agent-streaming.ts` would break the R6 guard
+  (`scripts/mastra-stream-chunk-contract.mjs` pins that declaration in that
+  file). `mastra-watchdog-options.ts` and `background-child-watchdog.ts` now
+  type their maps against Mastra's own `ChunkType['type']` and import nothing
+  from `agent-streaming`. `satisfies` still rejects a renamed key: renaming
+  `tool-call` or `background-task-output` in those maps fails to compile.
+
+Guard: `background-child-watchdog.spec.ts` (feed end, parent bound after feed
+end, malformed event, late `resumed`, listener release),
+`delegated-conversation-binding-stall.spec.ts` (post-prepare capture, stalled
+and failed release), `with-inactivity-timeout-holds.spec.ts` (at most one
+listener). Ten mutations turned a guard red: a normal feed end leaving the
+watches armed; listeners released before the stops are announced; a
+post-prepare capture dropping the stall; output events requiring every id; a
+malformed event throwing; the manager feed restarting a host-run task; a wait
+that never releases its listener; a listener per part; and a renamed Mastra
+key in each map (type-check).
+
+### 2026-09-22 — targeted review of PR #3286 at 2cd023d27 (BST-1802)
+
+- **The stall throw in `afterToolCall` (verified; no restructure needed).** Read
+  in full (`delegated-conversation-binding.ts`, the hook at `afterToolCall`).
+  Every release (`preparedKeys`, the staged deadline, the stall end) comes
+  before the stall throw. The only statement after it is the deadline check,
+  which only throws, and the stall supersedes it. A comment now states that
+  invariant. The pins were strengthened to catch a skipped release: after the
+  hook rejects, whether the unwinding child resolved or threw its abort, the
+  stall end is gone, a second hook call is a no-op, a new execution may prepare
+  at the address, and a deadline staged there is not inherited. Mutations
+  (throw before any release; keep the staged deadline; keep the prepared
+  address; keep the stall end) each turned them red.
+  - **Persistence owner.** `composeDelegatedHooks` runs it whatever the binding
+    throws (`runtime-assembly/stream-options.ts`, `Promise.allSettled`), pinned
+    by `stream-options.spec.ts` ("rejects.toBe(failure)" then two persist
+    calls).
+  - **Mastra always calls the hook.** `wrapToolWithHooks` calls
+    `afterToolCall` on a throw and on success (`@mastra/core` 1.64.0
+    `dist/agent-DsRUDsS_.js`, in `wrapToolWithHooks`). The hooks and the
+    delegation config are installed together, descendants included, through
+    `delegatedExecutionOptions`.
+- **A resumed child's stall address (verified; not a defect).** The resume
+  leg's host executor calls the native `execute` with `toolCallId: task.toolCallId`
+  and `messages: []`. Mastra's tool wrapper treats that as an agent execution
+  (`dist/utils-C9npriyv.js`: `isAgentExecution`, `agent.toolCallId`). The agent
+  tool takes the delegation's `toolCallId` from `context.agent.toolCallId`, and
+  its `runId` from `getToolsForExecution({ runId: task.runId })`. So `prepare`
+  registers `{task.runId, task.toolCallId}`, the same address the stall uses;
+  the "leaf" mutation in `background-resume.ts` concerns only the after-call
+  context.
+  - **Integration guard.** `background-child-watchdog.integration.spec.ts` ("a
+    resumed child's stall ends that resumed execution as its own failed task")
+    wedges an approval-resumed child. It is ended at its inter-output window,
+    the task fails with the stall text, the child gets one `run.failed`, and
+    the leg never stalls. Mutations: addressing the stall to another call id
+    turns it red; so does never watching the host execution (the child then
+    ends at the first-output window with a different message).
+  - **Unit guard.** `background-resume.spec.ts` now also pins the dispatch
+    address the host execution registers.
+- **A manager that errors the feed on our own abort** is disposal, not a lost
+  feed. The `catch` branch now has the `done` branch's `!disposed` guard, so it
+  logs nothing.
+- **Watch churn elsewhere.** The watchdogs announce every watch change in the
+  root scope. A parent waiting on held work now re-judges its wait only when
+  its OWN verdict (`watching(held)`) flips, so another task's watch starting or
+  ending never pushes back the first-output bound on its unwatched held work.
+  Pinned with a stand-in and with the real watchdogs, and mutating the flip
+  check turns both red.

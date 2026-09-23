@@ -42,10 +42,11 @@ const logger = createLogger('BackgroundIdleLoop');
  * are forwarded so `projectBackgroundStream` folds them, one continuation runs
  * per batch of wakeups, and the combined stream closes once no task is running
  * and nothing is queued. The loop judges no silence: running work keeps the
- * leg open until its terminal, and liveness belongs to the stream watchdog
- * wrapping this combined stream, which gives every task its own phase lane
- * (`createMastraStreamPartRouter`). A second, shorter timer here closed a leg
- * whose child was healthy but quiet, and the leg's disposal cancelled it.
+ * leg open until its terminal. Each child's liveness belongs to its own
+ * watchdog (`background-child-watchdog.ts`), which ends a stalled child as a
+ * failed task, and the stream watchdog wrapping this combined stream judges
+ * only the parent. A second, shorter timer here closed a leg whose child was
+ * healthy but quiet, and the leg's disposal cancelled it.
  *
  * While it runs, the loop owns the leg's live decision channel: a decision
  * delivered into the leg reserves the parked tasks (which keeps the loop from

@@ -86,6 +86,20 @@ export interface StreamInactivityOptions<T> {
    */
   readonly describePart?: (part: T) => string | undefined;
   /**
+   * The watchdogs that judge the background work holding this stream open
+   * (`routePart`'s `holds`).
+   *
+   * Held work is not this stream's producer, so its silence is not this
+   * stream's to judge while its own watchdog judges it: the stream then waits
+   * without a window. Held work nothing watches — dispatched but not running
+   * yet, or finished streaming with its terminal still to arrive — is bounded
+   * at the first-output window, like a producer that has not answered yet.
+   * The wait is re-judged the moment the watch changes, without a part.
+   *
+   * Absent means nothing watches held work: it is always bounded that way.
+   */
+  readonly heldWork?: HeldWorkWatch;
+  /**
    * Tool calls already known to be EXECUTING before the first part of this
    * stream is even read (BST-1777 final review, I1).
    *
@@ -135,18 +149,19 @@ export interface StreamInactivityOptions<T> {
    */
   readonly reasoningPartKind?: (part: T) => 'content' | 'marker' | undefined;
   /**
-   * Which PRODUCER a part came from, when one stream multiplexes several.
+   * Whether a part is the stream's OWN producer's output, or bookkeeping.
    *
    * A background leg's stream carries the parent's turns AND every running
-   * child's output. Each producer keeps its own phase and its own in-flight
-   * calls (a LANE), and the stream is stalled only once every open lane has
-   * outlived its own window — so a child still waiting on its first token is
-   * never judged by the `streaming` window its sibling or parent left behind,
-   * and a child's step boundary never clears another producer's running call.
+   * child's output. The watchdog judges only the stream's own producer: a
+   * child's parts, its lifecycle events and host rows are bookkeeping, which
+   * re-arms the timer and moves no phase — so a child's text never tightens
+   * the parent's first-output wait, and a child's step boundary never clears
+   * the parent's running call. Bookkeeping may also HOLD the stream open for
+   * a piece of background work, or release it (see {@link heldWork}).
    *
    * The classifiers (`countsAsProviderOutput`, `reasoningPartKind`,
-   * `toolExecutionPartKind`) receive the ROUTED part. Absent means every part
-   * is the stream's own producer's, which reproduces the single-lane behaviour.
+   * `toolExecutionPartKind`) receive only produced parts. Absent means every
+   * part is the stream's own producer's.
    */
   readonly routePart?: (part: T) => StreamPartRoute<T>;
   /**
@@ -165,18 +180,32 @@ export interface StreamInactivityOptions<T> {
 }
 
 /**
- * Where one part of a multiplexed stream belongs.
+ * Where one part of the stream belongs.
  *
- * `produced`: output of one producer, classified in its lane. `lane` absent
- * is the stream's own producer; a named lane opens on its first part.
- * `bookkeeping`: transport activity that is no producer's output (lifecycle
- * events, host ledger rows). It re-arms the timer but moves no lane's phase
- * and clears nothing; it may open a lane (a producer that started) or close
- * one (a producer that ended, or now waits on a human).
+ * `produced`: the stream's own producer's output, classified into its phase.
+ * `bookkeeping`: transport activity that is not the producer's output (a
+ * child's parts, lifecycle events, host ledger rows). It re-arms the timer but
+ * moves no phase and clears nothing; it may HOLD the stream open for a piece
+ * of background work (`holds`, keyed by id) or release that hold (`releases`:
+ * the work ended, or now waits on a human).
  */
 export type StreamPartRoute<T> =
-  | { readonly kind: 'produced'; readonly lane?: string; readonly part: T }
-  | { readonly kind: 'bookkeeping'; readonly closes?: string; readonly opens?: string };
+  | { readonly kind: 'produced'; readonly part: T }
+  | { readonly kind: 'bookkeeping'; readonly holds?: string; readonly releases?: string };
+
+/** The watchdogs of background work that holds a stream open (`heldWork`). */
+export interface HeldWorkWatch {
+  /**
+   * Call `listener` whenever {@link watching} may have changed; returns its
+   * release. The stream subscribes only while it waits, and releases before
+   * the next wait, so a long wait keeps one listener, never one per part. It
+   * re-judges its wait only when its own verdict flips, so churn elsewhere
+   * never pushes its deadline back.
+   */
+  subscribe(listener: () => void): () => void;
+  /** Whether any of the stream's `held` work is judged by its own watchdog right now. */
+  watching(held: ReadonlySet<string>): boolean;
+}
 
 export interface StreamStalledErrorContext {
   readonly lastPartType?: string | undefined;
@@ -275,10 +304,10 @@ function trackToolExecution<T>(
   inFlight.delete(boundary.toolCallId);
 }
 
-/** One producer's watchdog state: its own provider phase and its own running calls. */
-interface ProducerLane {
+/** The producer's watchdog state: its provider phase and its running calls. */
+interface ProducerState {
   /**
-   * Whether this producer has emitted real provider output yet. A resume leg
+   * Whether the producer has emitted real provider output yet. A resume leg
    * opens with framework scaffolding (`start`/`step-start`) BEFORE the resumed
    * call's `tool-result` — real output from Mastra's own integration traces —
    * and the scaffolding clear below would wipe a SEEDED id on that very first
@@ -296,33 +325,25 @@ interface ProducerLane {
   readonly toolCallsInFlight: Set<string>;
 }
 
-function openLane(initialToolCallIds: readonly string[] = []): ProducerLane {
-  return {
-    hasSeenProviderOutput: false,
-    providerPhase: 'awaiting-output',
-    toolCallsInFlight: new Set(initialToolCallIds),
-  };
-}
-
-/** Advance one producer's lane over a part that producer emitted. */
+/** Advance the producer's state over a part it emitted. */
 function observeProducedPart<T>(
   part: T,
-  lane: ProducerLane,
+  producer: ProducerState,
   options: StreamInactivityOptions<T> | undefined
 ): void {
   // Scaffolding both KEEPS and RE-ARMS the wide window: a fresh step has its
   // own time-to-first-output, so a step opened after a tool result must not
   // inherit the previous step's `streaming` phase.
-  lane.providerPhase = resolveNextPhase(part, lane.providerPhase, options);
-  if (lane.providerPhase !== 'awaiting-output') {
-    lane.hasSeenProviderOutput = true;
+  producer.providerPhase = resolveNextPhase(part, producer.providerPhase, options);
+  if (producer.providerPhase !== 'awaiting-output') {
+    producer.hasSeenProviderOutput = true;
   }
-  trackToolExecution(part, lane.toolCallsInFlight, options);
-  if (lane.providerPhase === 'awaiting-output' && lane.hasSeenProviderOutput) {
+  trackToolExecution(part, producer.toolCallsInFlight, options);
+  if (producer.providerPhase === 'awaiting-output' && producer.hasSeenProviderOutput) {
     // THIS IS THE SCAFFOLDING RULE, stated in the only terms this generic
     // watchdog has: a part that does not count as provider output is, by
     // {@link StreamInactivityOptions.countsAsProviderOutput}'s contract,
-    // FRAMEWORK STEP SCAFFOLDING — and scaffolding opens a new step, so this
+    // FRAMEWORK STEP SCAFFOLDING — and scaffolding opens a new step, so the
     // producer's previous step's tools are over. The caller owes that contract
     // a CLOSED, typed list of scaffolding types (Mastra's is `{start,
     // step-start}`, see `MASTRA_SCAFFOLDING_PART_TYPES`) precisely because
@@ -330,67 +351,64 @@ function observeProducedPart<T>(
     // chunk — would wipe the in-flight set MID-EXECUTION and drop a running
     // tool back onto the provider's own window. Clearing here means a lost
     // `settled` part can only ever TIGHTEN the next window, never hold the wide
-    // one open. The clear is per LANE: one producer's new step says nothing
-    // about another producer's running call.
-    lane.toolCallsInFlight.clear();
+    // one open. Bookkeeping never reaches this rule: a child's own new step
+    // says nothing about the producer's running call.
+    producer.toolCallsInFlight.clear();
   }
 }
 
-/** Apply one delivered part to the lane it belongs to (see `routePart`). */
+/** Apply one delivered part to the producer or to the held work (see `routePart`). */
 function observeRoutedPart<T>(
   part: T,
-  rootLane: ProducerLane,
-  lanes: Map<string, ProducerLane>,
+  producer: ProducerState,
+  held: Set<string>,
   options: StreamInactivityOptions<T> | undefined
 ): void {
   const route: StreamPartRoute<T> = options?.routePart?.(part) ?? { kind: 'produced', part };
-  if (route.kind === 'bookkeeping') {
-    if (route.closes !== undefined) {
-      lanes.delete(route.closes);
-    }
-    // Never RESET a lane that is already open: a late or replayed start
-    // (Mastra re-announces running tasks to a new subscriber) must not wipe
-    // a call that is executing.
-    if (route.opens !== undefined && !lanes.has(route.opens)) {
-      lanes.set(route.opens, openLane());
-    }
+  if (route.kind === 'produced') {
+    observeProducedPart(route.part, producer, options);
     return;
   }
-  let lane = rootLane;
-  if (route.lane !== undefined) {
-    lane = lanes.get(route.lane) ?? openLane();
-    lanes.set(route.lane, lane);
+  if (route.releases !== undefined) {
+    held.delete(route.releases);
   }
-  observeProducedPart(route.part, lane, options);
+  if (route.holds !== undefined) {
+    held.add(route.holds);
+  }
 }
 
 /**
- * The phase and window the NEXT silence is measured against.
+ * The phase and window the NEXT silence is measured against, or `undefined`
+ * when the silence is not this stream's to judge.
  *
- * Silence proves a stall only once EVERY open producer has outlived its own
- * window, so the widest lane's window applies. Tool execution OVERRIDES the
- * provider phases: while any lane has a call in flight the silence may belong
- * to our tool, whatever part arrived last, so the reported phase is
- * `tool-executing` — the phase `isRecoverableStall` refuses to retry.
+ * Tool execution OVERRIDES the provider phases: while the producer has a call
+ * in flight the silence may belong to our tool, whatever part arrived last, so
+ * the reported phase is `tool-executing` — the phase `isRecoverableStall`
+ * refuses to retry. Held work watched by its own watchdog suspends judgment;
+ * held work nothing watches waits at least the first-output window.
  */
 function resolveStreamWait(
-  lanes: Iterable<ProducerLane>,
-  windows: StreamInactivityWindows
-): { readonly phase: StreamStallPhase; readonly windowMs: number } {
-  let phase: StreamStallPhase = 'awaiting-output';
-  let windowMs = 0;
-  let executing = false;
-  for (const lane of lanes) {
-    const lanePhase = lane.toolCallsInFlight.size > 0 ? 'tool-executing' : lane.providerPhase;
-    executing ||= lanePhase === 'tool-executing';
-    const laneWindowMs = resolveWindowMs(lanePhase, windows);
-    if (laneWindowMs > windowMs) {
-      phase = lanePhase;
-      windowMs = laneWindowMs;
-    }
+  producer: ProducerState,
+  held: ReadonlySet<string>,
+  windows: StreamInactivityWindows,
+  heldWork: HeldWorkWatch | undefined
+): { readonly phase: StreamStallPhase; readonly windowMs: number } | undefined {
+  const phase = producer.toolCallsInFlight.size > 0 ? 'tool-executing' : producer.providerPhase;
+  const windowMs = resolveWindowMs(phase, windows);
+  if (held.size === 0) {
+    return { phase, windowMs };
   }
-  return { phase: executing ? 'tool-executing' : phase, windowMs };
+  if (heldWork?.watching(held)) {
+    return;
+  }
+  if (phase === 'tool-executing' || windowMs >= windows.firstOutputMs) {
+    return { phase, windowMs: Math.max(windowMs, windows.firstOutputMs) };
+  }
+  return { phase: 'awaiting-output', windowMs: windows.firstOutputMs };
 }
+
+/** The held work's watch changed while the stream waited: judge the wait again. */
+const WATCH_CHANGED = Symbol('held-work-watch-changed');
 
 /**
  * Wrap an async iterable so that silence longer than the applicable window
@@ -416,8 +434,9 @@ function resolveStreamWait(
  * `google/gemini-3.7-flash` at `effort: 'high'`, twice in one turn, both times
  * on `lastPartType: 'reasoning-delta'`.
  *
- * A multiplexed stream (`routePart`) tracks that phase per PRODUCER and waits
- * on the widest open lane — see {@link resolveStreamWait}.
+ * On a stream that background work holds open (`routePart`, `heldWork`), the
+ * phase is the stream's OWN producer's; held work is judged by its own
+ * watchdog — see {@link resolveStreamWait}.
  */
 export async function* withInactivityTimeout<T>(
   source: AsyncIterable<T>,
@@ -430,36 +449,74 @@ export async function* withInactivityTimeout<T>(
   // Seeding starts the FIRST wait already in `tool-executing` — otherwise a
   // resume leg's opening silence (before any part has been read at all) would
   // be measured against the provider window for the instant between "seeded"
-  // and "first part observed". Seeds belong to the stream's own producer.
-  const rootLane = openLane(options?.initialToolCallIds);
-  const lanes = new Map<string, ProducerLane>();
+  // and "first part observed".
+  const producer: ProducerState = {
+    hasSeenProviderOutput: false,
+    providerPhase: 'awaiting-output',
+    toolCallsInFlight: new Set(options?.initialToolCallIds),
+  };
+  const held = new Set<string>();
+  const heldWork = options?.heldWork;
+  // One read stays pending across re-judged waits: a changed watch must never
+  // start a second `next()` on the source.
+  let pending: Promise<IteratorResult<T>> | undefined;
   try {
     while (true) {
-      const { phase, windowMs } = resolveStreamWait([rootLane, ...lanes.values()], windows);
+      pending ??= iterator.next();
+      const wait = resolveStreamWait(producer, held, windows, heldWork);
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const watchdog = new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
-          const error = new StreamStalledError(windowMs, { lastPartType, partsSeen, phase });
-          // Settle the watchdog rejection first so aborting the source cannot
-          // win the Promise.race and disguise a real stall as normal EOF.
-          reject(error);
-          options?.onTimeout?.(error);
-        }, windowMs);
-        (timer as { unref?: () => void }).unref?.();
-      });
+      let releaseWatch: (() => void) | undefined;
+      const racers: Promise<IteratorResult<T> | typeof WATCH_CHANGED>[] = [pending];
+      if (wait) {
+        racers.push(
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+              const error = new StreamStalledError(wait.windowMs, {
+                lastPartType,
+                partsSeen,
+                phase: wait.phase,
+              });
+              // Settle the watchdog rejection first so aborting the source cannot
+              // win the Promise.race and disguise a real stall as normal EOF.
+              reject(error);
+              options?.onTimeout?.(error);
+            }, wait.windowMs);
+            (timer as { unref?: () => void }).unref?.();
+          })
+        );
+      }
+      if (held.size > 0 && heldWork) {
+        // Only a flip of THIS stream's verdict re-judges the wait: another
+        // task's watch starting or ending must not push the deadline back.
+        const watchedNow = heldWork.watching(held);
+        racers.push(
+          new Promise<typeof WATCH_CHANGED>((resolve) => {
+            releaseWatch = heldWork.subscribe(() => {
+              if (heldWork.watching(held) !== watchedNow) {
+                resolve(WATCH_CHANGED);
+              }
+            });
+          })
+        );
+      }
       try {
-        const result = await Promise.race([iterator.next(), watchdog]);
-        if (result.done) {
+        const outcome = await Promise.race(racers);
+        if (outcome === WATCH_CHANGED) {
+          continue;
+        }
+        pending = undefined;
+        if (outcome.done) {
           return;
         }
         partsSeen += 1;
-        lastPartType = options?.describePart?.(result.value) ?? lastPartType;
-        observeRoutedPart(result.value, rootLane, lanes, options);
-        yield result.value;
+        lastPartType = options?.describePart?.(outcome.value) ?? lastPartType;
+        observeRoutedPart(outcome.value, producer, held, options);
+        yield outcome.value;
       } finally {
         if (timer) {
           clearTimeout(timer);
         }
+        releaseWatch?.();
       }
     }
   } finally {
