@@ -54,7 +54,7 @@ describe('useEnableModel', () => {
     expect(toggleMock).not.toHaveBeenCalled();
     expect(toastMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        description: 'not-a-provider models are enabled by their runtime, not the model registry.',
+        description: 'not-a-provider is not a known provider.',
         title: 'Could not enable this model',
         variant: 'destructive',
       })

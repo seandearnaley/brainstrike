@@ -25,9 +25,15 @@ export function useEnableModel(): (providerId: string, modelId: string) => Promi
 
   return useCallback(
     async (providerId: string, modelId: string): Promise<boolean> => {
-      const runtime = isSupportedProvider(providerId)
-        ? getProviderDefinition(providerId).runtime
-        : undefined;
+      if (!isSupportedProvider(providerId)) {
+        toast({
+          description: `${providerId} is not a known provider.`,
+          title: 'Could not enable this model',
+          variant: 'destructive',
+        });
+        return false;
+      }
+      const { runtime } = getProviderDefinition(providerId);
       // Same predicate the picker uses to offer the row: only hosted and gateway
       // providers keep enablement in the model registry.
       if (runtime !== 'hosted' && runtime !== 'gateway') {
@@ -38,6 +44,10 @@ export function useEnableModel(): (providerId: string, modelId: string) => Promi
         });
         return false;
       }
+      // `models.id` is the model registry table's primary key (catalog
+      // migrations upsert `ON CONFLICT (id)`), so a bare id identifies
+      // exactly one row even though the UI keys selection by
+      // `provider::model`.
       return toggleModelEnabled(modelId, true);
     },
     [toast, toggleModelEnabled]

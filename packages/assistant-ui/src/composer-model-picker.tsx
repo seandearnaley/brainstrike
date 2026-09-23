@@ -302,7 +302,7 @@ export function ComposerModelPicker({
                   <Command.Group
                     className={GROUP_HEADING_CLASS}
                     heading={`${group.runtimeLabel} · ${group.providerName} ${group.entries.length}`}
-                    key={group.providerId}
+                    key={`${group.runtimeLabel}:${group.providerId}`}
                   >
                     {group.entries.map((entry) => (
                       <ListRow
