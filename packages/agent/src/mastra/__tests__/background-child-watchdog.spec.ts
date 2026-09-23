@@ -82,14 +82,22 @@ function createManager(onAbort: 'close' | 'error' = 'close') {
       new ReadableStream<unknown>({
         start(streamController) {
           controller = streamController;
-          // Mastra 1.64 closes on abort; a manager that errors instead must not
+          // Mastra 1.64 closes on abort, inside try/catch so a feed that already
+          // ended is not closed twice; a manager that errors instead must not
           // read as a lost feed.
           options?.abortSignal?.addEventListener(
             'abort',
-            () =>
-              onAbort === 'close'
-                ? streamController.close()
-                : streamController.error(new Error('stream aborted')),
+            () => {
+              try {
+                if (onAbort === 'close') {
+                  streamController.close();
+                } else {
+                  streamController.error(new Error('stream aborted'));
+                }
+              } catch {
+                // Already closed by the manager (see `close()` below), as in Mastra.
+              }
+            },
             { once: true }
           );
         },
