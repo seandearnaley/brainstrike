@@ -3,8 +3,9 @@ import { type DbHandle, useDbProviderError, usePGliteDatabase } from '@brainstri
 import type { WorkspaceApp } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { MessageSquare } from 'lucide-react';
-import { Activity, useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { ChildView, Failure } from './delegated-workspace-child-view';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { ChildAppSurface } from './delegated-workspace-child-app-surface';
+import { Failure } from './delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from './delegated-workspace-node';
 import { type DelegatedWorkspaceTab, readDelegatedWorkspaceTab } from './delegated-workspace-tab';
 
@@ -27,26 +28,6 @@ const colors: Record<ChildNode['color'], string> = {
 type AddressEntry =
   | { readonly id: string; readonly address: DelegatedWorkspaceTab }
   | { readonly id: string; readonly error: Error };
-
-/** Keep each child view's draft and scroll state, but pause its subscriptions off screen. */
-function ChildAppSurface({
-  db,
-  id,
-  node,
-}: {
-  readonly db: DbHandle;
-  readonly id: string;
-  readonly node: ChildNode;
-}) {
-  const isSelected = useWorkspaceTabSelectionStore(
-    (state) => state.selection.kind === 'app' && state.selection.appId === id
-  );
-  return (
-    <Activity mode={isSelected ? 'visible' : 'hidden'}>
-      <ChildView db={db} node={node} />
-    </Activity>
-  );
-}
 
 export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
   const openIds = useWorkspaceTabSelectionStore((state) => state.openAppIds);
