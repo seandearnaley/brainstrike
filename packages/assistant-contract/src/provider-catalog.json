@@ -1023,8 +1023,8 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Capabilities and limits: official Qwen model card at commit\n1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0. Route, max completion,\nand gateway pricing: OpenRouter Models API, retrieved 2026-08-15\n(BST-1302).\nAuto intentionally follows Qwen's documented xhigh default. The\nofficial ladder skips high: xhigh, medium, low. No paid route smoke\nwas available (BST-1302), and Qwen publishes recommended maxima for\nseparate reasoning/final output rather than a distinct default\nthinking+answer reservation, so vendorDefaultOutputTokens is absent.",
-        "contextWindow": 262144,
+        "_note": "Capabilities and limits: official Qwen model card at commit\n1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0. Route, max completion,\nand gateway pricing: OpenRouter Models API, retrieved 2026-08-15\n(BST-1302). Context window and max output re-read as the route's\ntop_provider pair 2026-09-23 UTC (BST-1804).\nAuto intentionally follows Qwen's documented xhigh default. The\nofficial ladder skips high: xhigh, medium, low. No paid route smoke\nwas available (BST-1302), and Qwen publishes recommended maxima for\nseparate reasoning/final output rather than a distinct default\nthinking+answer reservation, so vendorDefaultOutputTokens is absent.",
+        "contextWindow": 1000000,
         "id": "qwen/qwen3.8-27b",
         "label": "Qwen3.8 27B (OpenRouter)",
         "maxOutputTokens": 131072,
@@ -1043,11 +1043,11 @@
         "vision": "supported"
       },
       {
-        "_note": "Identity, modalities, context extension, mandatory thinking, and\neffort levels: official Qwen model card at revision 207bd685,\nretrieved 2026-08-15. Route, effective gateway limits, and pricing:\nOpenRouter Models API, retrieved 2026-08-15 (BST-1306).\nQwen requires thinking for every interaction. Its official effort\nladder deliberately skips `high`; Auto follows the xhigh default.",
+        "_note": "Identity, modalities, context extension, mandatory thinking, and\neffort levels: official Qwen model card at revision 207bd685,\nretrieved 2026-08-15. Route, effective gateway limits, and pricing:\nOpenRouter Models API, retrieved 2026-08-15 (BST-1306); the\ntop_provider limit pair re-read 2026-09-23 UTC (BST-1804).\nQwen requires thinking for every interaction. Its official effort\nladder deliberately skips `high`; Auto follows the xhigh default.",
         "contextWindow": 1000000,
         "id": "qwen/qwen3.8-2.4t-a95b",
         "label": "Qwen3.8 2.4T A95B (OpenRouter)",
-        "maxOutputTokens": 262144,
+        "maxOutputTokens": 131072,
         "pricing": {
           "inputPerMTok": 2,
           "outputPerMTok": 6
@@ -1085,11 +1085,11 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Identity, GA status, text modality, optional reasoning, and native\ncontext: official NVIDIA model card at revision d468880b, retrieved\n2026-08-17. Route, effective hosted limits, and gateway pricing:\nOpenRouter Models API, retrieved 2026-08-17 (BST-1343).\nNVIDIA documents reasoning as optional on/off but publishes no effort\nladder. Declare only the explicit `none` control so offline menus and\npersisted model-switch settings preserve the verified off state.",
+        "_note": "Identity, GA status, text modality, optional reasoning, and native\ncontext: official NVIDIA model card at revision d468880b, retrieved\n2026-08-17. Route, effective hosted limits, and gateway pricing:\nOpenRouter Models API, retrieved 2026-08-17 (BST-1343); the\ntop_provider limit pair re-read 2026-09-23 UTC (BST-1804).\nNVIDIA documents reasoning as optional on/off but publishes no effort\nladder. Declare only the explicit `none` control so offline menus and\npersisted model-switch settings preserve the verified off state.",
         "contextWindow": 262144,
         "id": "nvidia/nemotron-3.5-lightning",
         "label": "Nemotron 3.5 Lightning (OpenRouter)",
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 235929,
         "pricing": {
           "inputPerMTok": 0.07,
           "outputPerMTok": 0.2
@@ -1186,11 +1186,11 @@
         "vision": "supported"
       },
       {
-        "_note": "Native 1M context, 128K max output — attributed to Meituan's LongCat\nAPI Platform in the 2026-06-30 release coverage. First-party docs\n(longcat.ai/docs) 404'd at audit time, so this is secondary sourcing:\nre-confirm against Meituan's console before treating it as settled.\nReplaces a 1_048_756 context (a transposition of 2^20 matching no\npublished limit) and a 262_144 output ceiling of unknown origin —\ndouble the provider figure, and absent from OpenRouter's listing too.",
-        "contextWindow": 1000000,
+        "_note": "Context window and max output are the route's top_provider pair,\n1,048,756 / 262,144, live Models API read 2026-09-23 UTC (BST-1804).\nThis supersedes 1,000,000 / 131,072, taken from secondary coverage of\nMeituan's LongCat API Platform (first-party docs 404'd). That audit\ncalled 1,048,756 a transposition of 2^20 matching no published limit;\nOpenRouter now publishes exactly that pair for the route, so it is\nrecorded as published rather than corrected.",
+        "contextWindow": 1048756,
         "id": "meituan/longcat-2.0",
         "label": "LongCat 2.0 (OpenRouter)",
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 262144,
         "pricing": {
           "inputPerMTok": 0.3,
           "outputPerMTok": 1.2
@@ -1201,9 +1201,10 @@
       },
       {
         "_note": "Thinking Machines' model card documents reasoning benchmarks but\npublishes no effort-level parameter, so nothing is declared here:\nabsence is never guessed as support, and the shipped entry's full\neffort enum turned the deliberate `unknown` badge into a silent yes.\nThis places Inkling in the same undeclared bucket as 32 of the 38\nOpenRouter rows (including the default openai/gpt-5.6-terra), where\nefforts resolve from live OpenRouter metadata rather than this table.\nDeclare efforts here only once the provider publishes them.",
-        "contextWindow": 1048576,
+        "contextWindow": 524288,
         "id": "thinkingmachines/inkling",
         "label": "Inkling (OpenRouter)",
+        "maxOutputTokens": 471859,
         "pricing": {
           "inputPerMTok": 1,
           "outputPerMTok": 4.05
@@ -1242,10 +1243,10 @@
         "vision": "supported"
       },
       {
-        "contextWindow": 256000,
+        "contextWindow": 262144,
         "id": "kwaipilot/kat-coder-pro-v2.5",
         "label": "KAT-Coder Pro V2.5 (OpenRouter)",
-        "maxOutputTokens": 80000,
+        "maxOutputTokens": 235929,
         "pricing": {
           "inputPerMTok": 0.74,
           "outputPerMTok": 2.96
@@ -1275,10 +1276,11 @@
         "vision": "supported"
       },
       {
-        "_note": "Identity, modalities, context, output-limit semantics, mandatory\nreasoning, and effort levels: official xAI Grok 4.6 docs/release\nnotes, retrieved 2026-08-18. Route and standard gateway pricing:\nOpenRouter Models API, retrieved 2026-08-18 (BST-1374).\nxAI documents \"No text output limit\" and OpenRouter reports null;\nomit maxOutputTokens rather than inventing a numeric ceiling.",
+        "_note": "Identity, modalities, context, output-limit semantics, mandatory\nreasoning, and effort levels: official xAI Grok 4.6 docs/release\nnotes, retrieved 2026-08-18. Route and standard gateway pricing:\nOpenRouter Models API, retrieved 2026-08-18 (BST-1374).\nxAI documents \"No text output limit\". The route's top_provider pair\nis 500,000 / 450,000 (live read 2026-09-23 UTC, BST-1804) and the row\nrecords that pair; it reported a null output limit on 2026-08-18.",
         "contextWindow": 500000,
         "id": "x-ai/grok-4.6",
         "label": "Grok 4.6 (OpenRouter)",
+        "maxOutputTokens": 450000,
         "pricing": {
           "inputPerMTok": 2,
           "outputPerMTok": 6
@@ -1297,6 +1299,7 @@
         "contextWindow": 500000,
         "id": "x-ai/grok-4.5",
         "label": "Grok 4.5 (OpenRouter)",
+        "maxOutputTokens": 450000,
         "pricing": {
           "inputPerMTok": 2,
           "outputPerMTok": 6
@@ -1311,10 +1314,11 @@
         "vision": "supported"
       },
       {
-        "_note": "Identity, lifecycle, modalities, context, streaming, tools, structured\noutput, and mandatory reasoning ladder: official Meta Model API docs\nand 2026-08-05 release notes. Route, effective gateway limit, default\neffort, and gateway pricing: OpenRouter Models API, retrieved\n2026-08-21 (BST-1383).\nMeta's direct-provider examples publish a 131,072 output limit, but\nthe fixed OpenRouter route reports max_completion_tokens: null.\nOmit maxOutputTokens rather than transplanting a provider-local limit.\nMeta does not document that limit as a distinct default combined\nthinking+answer window, so vendorDefaultOutputTokens is absent too.",
+        "_note": "Identity, lifecycle, modalities, context, streaming, tools, structured\noutput, and mandatory reasoning ladder: official Meta Model API docs\nand 2026-08-05 release notes. Route, effective gateway limit, default\neffort, and gateway pricing: OpenRouter Models API, retrieved\n2026-08-21 (BST-1383).\nMeta's direct-provider examples publish a 131,072 output limit; the\nrow records the route's top_provider pair instead (1,048,576 / 943,718,\nlive read 2026-09-23 UTC, BST-1804), never a provider-local limit.\nMeta does not document that limit as a distinct default combined\nthinking+answer window, so vendorDefaultOutputTokens is absent too.",
         "contextWindow": 1048576,
         "id": "meta/muse-spark-1.2",
         "label": "Muse Spark 1.2 (OpenRouter)",
+        "maxOutputTokens": 943718,
         "pricing": {
           "inputPerMTok": 1.25,
           "outputPerMTok": 4.25
@@ -1333,6 +1337,7 @@
         "contextWindow": 1048576,
         "id": "meta/muse-spark-1.1",
         "label": "Muse Spark 1.1 (OpenRouter)",
+        "maxOutputTokens": 943718,
         "pricing": {
           "inputPerMTok": 1.25,
           "outputPerMTok": 4.25
@@ -1347,11 +1352,11 @@
         "vision": "supported"
       },
       {
-        "_note": "Official maximum max_completion_tokens (platform.kimi.ai K3\nquickstart, verified 2026-08-05). OpenRouter publishes none.\nAuto deliberately runs below the vendor default: Kimi's `max` spends\nthe whole coding-profile output budget reasoning (BST-833).\nOfficial K3 contract (platform.kimi.ai/docs/guide/kimi-k3-quickstart,\nverified 2026-08-05): max_completion_tokens defaults to 131,072\n(max 1,048,576) — the vendor's operating point for thinking +\nanswer. Moonshot's FIRST-PARTY API cannot disable thinking, but\nthe OpenRouter route declares reasoning optional (mandatory:\nfalse, multiple hosts serve this open-weight model); an explicit\nOff maps to `reasoning.enabled: false` under\n`provider.require_parameters`, which narrows routing to endpoints\nhonouring it — so a reasoning-off request correctly keeps the\ncoding ceiling instead of this window. OpenRouter publishes no\nmax completion for this route, so the fact lives here (BST-1170).",
+        "_note": "Context window and max output are the route's top_provider pair,\n1,048,576 / 943,718 (live read 2026-09-23 UTC, BST-1804). It replaced\nthe vendor maximum 1,048,576, recorded while OpenRouter published none.\nAuto deliberately runs below the vendor default: Kimi's `max` spends\nthe whole coding-profile output budget reasoning (BST-833).\nOfficial K3 contract (platform.kimi.ai/docs/guide/kimi-k3-quickstart,\nverified 2026-08-05): max_completion_tokens defaults to 131,072\n(max 1,048,576) — the vendor's operating point for thinking +\nanswer. Moonshot's FIRST-PARTY API cannot disable thinking, but\nthe OpenRouter route declares reasoning optional (mandatory:\nfalse, multiple hosts serve this open-weight model); an explicit\nOff maps to `reasoning.enabled: false` under\n`provider.require_parameters`, which narrows routing to endpoints\nhonouring it — so a reasoning-off request correctly keeps the\ncoding ceiling instead of this window. OpenRouter publishes no\ndefault completion window, so that fact lives here (BST-1170).",
         "contextWindow": 1048576,
         "id": "moonshotai/kimi-k3",
         "label": "Kimi K3 (OpenRouter)",
-        "maxOutputTokens": 1048576,
+        "maxOutputTokens": 943718,
         "pricing": {
           "inputPerMTok": 3,
           "outputPerMTok": 15
@@ -1459,10 +1464,10 @@
         "vision": "unsupported"
       },
       {
-        "contextWindow": 1048576,
+        "contextWindow": 524288,
         "id": "minimax/minimax-m3",
         "label": "MiniMax M3 (OpenRouter)",
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 512000,
         "pricing": {
           "inputPerMTok": 0.3,
           "outputPerMTok": 1.2
@@ -1472,7 +1477,7 @@
         "vision": "supported"
       },
       {
-        "contextWindow": 1048576,
+        "contextWindow": 1024000,
         "id": "deepseek/deepseek-v4-pro",
         "label": "DeepSeek V4 Pro (OpenRouter)",
         "maxOutputTokens": 384000,
@@ -1485,10 +1490,10 @@
         "vision": "unsupported"
       },
       {
-        "contextWindow": 1048576,
+        "contextWindow": 1024000,
         "id": "deepseek/deepseek-v4-flash",
         "label": "DeepSeek V4 Flash (OpenRouter)",
-        "maxOutputTokens": 65536,
+        "maxOutputTokens": 384000,
         "pricing": {
           "inputPerMTok": 0.088606,
           "outputPerMTok": 0.177212
@@ -1501,7 +1506,7 @@
         "contextWindow": 1000000,
         "id": "qwen/qwen3.7-max",
         "label": "Qwen3.7 Max (OpenRouter)",
-        "maxOutputTokens": 65536,
+        "maxOutputTokens": 131072,
         "pricing": {
           "inputPerMTok": 1.475,
           "outputPerMTok": 4.425
@@ -1514,7 +1519,7 @@
         "contextWindow": 1000000,
         "id": "qwen/qwen3.7-plus",
         "label": "Qwen3.7 Plus (OpenRouter)",
-        "maxOutputTokens": 65536,
+        "maxOutputTokens": 131072,
         "pricing": {
           "inputPerMTok": 0.32,
           "outputPerMTok": 1.28
@@ -1540,6 +1545,7 @@
         "contextWindow": 262144,
         "id": "qwen/qwen3-coder-next",
         "label": "Qwen3 Coder Next (OpenRouter)",
+        "maxOutputTokens": 235929,
         "pricing": {
           "inputPerMTok": 0.12,
           "outputPerMTok": 0.8
@@ -1552,6 +1558,7 @@
         "contextWindow": 262144,
         "id": "moonshotai/kimi-k2.6",
         "label": "Kimi K2.6 (OpenRouter)",
+        "maxOutputTokens": 235929,
         "pricing": {
           "inputPerMTok": 0.95,
           "outputPerMTok": 4
@@ -1564,6 +1571,7 @@
         "contextWindow": 262144,
         "id": "moonshotai/kimi-k2.7-code",
         "label": "Kimi K2.7 Code (OpenRouter)",
+        "maxOutputTokens": 235929,
         "pricing": {
           "inputPerMTok": 0.7062,
           "outputPerMTok": 3.3
@@ -1573,7 +1581,7 @@
         "vision": "unsupported"
       },
       {
-        "contextWindow": 400000,
+        "contextWindow": 1050000,
         "id": "openai/gpt-5.5",
         "label": "GPT-5.5 (OpenRouter)",
         "maxOutputTokens": 128000,
@@ -1586,7 +1594,7 @@
         "vision": "supported"
       },
       {
-        "contextWindow": 400000,
+        "contextWindow": 1050000,
         "id": "openai/gpt-5.4",
         "label": "GPT-5.4 (OpenRouter)",
         "maxOutputTokens": 128000,
@@ -1638,10 +1646,10 @@
         "vision": "supported"
       },
       {
-        "contextWindow": 200000,
+        "contextWindow": 1000000,
         "id": "anthropic/claude-opus-4.8",
         "label": "Claude Opus 4.8 (OpenRouter)",
-        "maxOutputTokens": 64000,
+        "maxOutputTokens": 128000,
         "pricing": {
           "inputPerMTok": 5,
           "outputPerMTok": 25
@@ -1651,10 +1659,10 @@
         "vision": "supported"
       },
       {
-        "contextWindow": 200000,
+        "contextWindow": 1000000,
         "id": "anthropic/claude-sonnet-4.6",
         "label": "Claude Sonnet 4.6 (OpenRouter)",
-        "maxOutputTokens": 64000,
+        "maxOutputTokens": 128000,
         "pricing": {
           "inputPerMTok": 3,
           "outputPerMTok": 15
@@ -1708,7 +1716,7 @@
         "contextWindow": 1048576,
         "id": "google/gemini-2.5-flash",
         "label": "Gemini 2.5 Flash (OpenRouter)",
-        "maxOutputTokens": 65536,
+        "maxOutputTokens": 65535,
         "pricing": {
           "inputPerMTok": 0.3,
           "outputPerMTok": 2.5
@@ -1734,12 +1742,12 @@
         "vision": "unsupported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 1,310,720 /\n131,072 ceilings, text/image/video input modalities and gateway\npricing (0.00000015 / 0.0000005 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000075 / 0.00000025, which is the price of the separate\n`z-ai/glm-5.3-flash:batch` route, not of this one. Z.ai publishes no\neffort ladder for this Flash route, so no `reasoning` block is\ndeclared.",
-        "contextWindow": 1310720,
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n943,718 top_provider ceilings (re-read 2026-09-23 UTC, BST-1804;\nreplaces 1,310,720 / 131,072), text/image/video input modalities and gateway\npricing (0.00000015 / 0.0000005 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000075 / 0.00000025, which is the price of the separate\n`z-ai/glm-5.3-flash:batch` route, not of this one. Z.ai publishes no\neffort ladder for this Flash route, so no `reasoning` block is\ndeclared.",
+        "contextWindow": 1048576,
         "id": "z-ai/glm-5.3-flash",
         "inputModalities": ["text", "image", "video"],
         "label": "GLM 5.3 Flash (OpenRouter)",
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 943718,
         "outputModalities": ["text"],
         "pricing": {
           "inputPerMTok": 0.15,
@@ -1820,8 +1828,8 @@
         "vision": "supported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 1,050,000 /\n131,072 ceilings, text/audio/image/video input modalities and gateway\npricing (0.00000014 / 0.00000028 per token), retrieved 2026-09-08\n(BST-1696). Audio and video are declared inputs on the route; the\ncatalog's `vision` flag only gates the composer's image affordance.",
-        "contextWindow": 1050000,
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n131,072 top_provider ceilings (re-read 2026-09-23 UTC, BST-1804;\nreplaces the model-level 1,050,000 window), text/audio/image/video input modalities and gateway\npricing (0.00000014 / 0.00000028 per token), retrieved 2026-09-08\n(BST-1696). Audio and video are declared inputs on the route; the\ncatalog's `vision` flag only gates the composer's image affordance.",
+        "contextWindow": 1048576,
         "id": "xiaomi/mimo-v2.5",
         "inputModalities": ["text", "audio", "image", "video"],
         "label": "MiMo-V2.5 (OpenRouter)",
@@ -1852,12 +1860,12 @@
         "vision": "unsupported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n393,216 ceilings and text-only input modality, retrieved 2026-09-08\n(BST-1696). Gateway pricing re-read 2026-09-23 (BST-1804): the route\nnow carries UTC clock bands, and the base rate held is the cheapest\nband (0.00000066 / 0.00000198 per token; the surge band is 2x). Dated GA snapshot of the already-carried\n`deepseek/deepseek-v4-pro` route; both are kept so a pinned snapshot\nstays selectable.",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n384,000 top_provider ceilings (re-read 2026-09-23 UTC, BST-1804;\nreplaces 393,216) and text-only input modality, retrieved 2026-09-08\n(BST-1696). Gateway pricing re-read 2026-09-23 (BST-1804): the route\nnow carries UTC clock bands, and the base rate held is the cheapest\nband (0.00000066 / 0.00000198 per token; the surge band is 2x). Dated GA snapshot of the already-carried\n`deepseek/deepseek-v4-pro` route; both are kept so a pinned snapshot\nstays selectable.",
         "contextWindow": 1048576,
         "id": "deepseek/deepseek-v4-pro-0813",
         "inputModalities": ["text"],
         "label": "DeepSeek V4 Pro 0813 (OpenRouter)",
-        "maxOutputTokens": 393216,
+        "maxOutputTokens": 384000,
         "outputModalities": ["text"],
         "pricing": {
           "inputPerMTok": 0.66,
@@ -1884,12 +1892,12 @@
         "vision": "unsupported"
       },
       {
-        "_note": "OpenRouter Models API owns this route's identity, 1,048,576 / 384,000\nceilings and text+image input modality, retrieved 2026-09-10\n(BST-1736). Gateway pricing (0.0000001 / 0.0000005 per token) re-read\n2026-09-23 (BST-1804), when the route published no overrides. First stable\nvision-capable DeepSeek flash route; it does NOT supersede\n`deepseek/deepseek-v4-flash-0731`, which is cheaper and text-only, so\nboth are carried. The live route also publishes an input_cache_read\nrate; this one-rate-pair schema carries the base rate only.",
+        "_note": "OpenRouter Models API owns this route's identity, 1,048,576 / 943,718\ntop_provider ceilings (re-read 2026-09-23 UTC, BST-1804; replaces\n384,000) and text+image input modality, retrieved 2026-09-10\n(BST-1736). Gateway pricing (0.0000001 / 0.0000005 per token) re-read\n2026-09-23 (BST-1804), when the route published no overrides. First stable\nvision-capable DeepSeek flash route; it does NOT supersede\n`deepseek/deepseek-v4-flash-0731`, which is cheaper and text-only, so\nboth are carried. The live route also publishes an input_cache_read\nrate; this one-rate-pair schema carries the base rate only.",
         "contextWindow": 1048576,
         "id": "deepseek/deepseek-v4.1-flash",
         "inputModalities": ["image", "text"],
         "label": "DeepSeek V4.1 Flash (OpenRouter)",
-        "maxOutputTokens": 384000,
+        "maxOutputTokens": 943718,
         "outputModalities": ["text"],
         "pricing": {
           "inputPerMTok": 0.1,

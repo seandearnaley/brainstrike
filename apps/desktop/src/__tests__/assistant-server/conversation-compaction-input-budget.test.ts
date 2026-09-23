@@ -65,15 +65,18 @@ describe('resolveCompactionInputBudget', () => {
     expect(resolveCompactionInputBudget(runtime('meta/muse-spark-1.3', runLimit))).toBe(runLimit);
   });
 
-  it('no longer throws for moonshotai/kimi-k3, whose catalog derivation is impossible', () => {
-    const definition = catalogModel('openrouter', 'moonshotai/kimi-k3');
-    expect(definition.maxOutputTokens).toBe(definition.contextWindow);
+  // BST-1804: this pinned moonshotai/kimi-k3 while its catalog row held
+  // maxOutputTokens === contextWindow. Its row now holds the route's
+  // top_provider pair (943,718 of 1,048,576), so minimax/minimax-m3
+  // (512,000 of 524,288, leaving less than the safety margin) carries the case.
+  it('no longer throws for minimax/minimax-m3, whose catalog derivation is impossible', () => {
+    const definition = catalogModel('openrouter', 'minimax/minimax-m3');
     expect(() =>
       deriveEffectiveInputBudget(definition.contextWindow, definition.maxOutputTokens)
     ).toThrow();
 
-    const runLimit = openRouterRunInputTokenLimit('moonshotai/kimi-k3');
-    expect(resolveCompactionInputBudget(runtime('moonshotai/kimi-k3', runLimit))).toBe(runLimit);
+    const runLimit = openRouterRunInputTokenLimit('minimax/minimax-m3');
+    expect(resolveCompactionInputBudget(runtime('minimax/minimax-m3', runLimit))).toBe(runLimit);
   });
 
   it('keeps the catalog derivation for a run that carries no agentLoop', () => {

@@ -1672,14 +1672,16 @@ describe('AssistantUiPanel model picker', () => {
 
     expect(screen.getByText(/Auto requests 131,072.*865,075 effective input/)).toBeInTheDocument();
     const slider = screen.getByRole('slider', { name: 'Max output tokens' });
-    expect(slider).toHaveAttribute('max', '1048576');
+    // BST-1804: the slider bound is the route's top_provider max output.
+    expect(slider).toHaveAttribute('max', '943718');
     expect(slider).toHaveValue('131072');
   });
 
   it('keeps the Kimi K3 vendor window when live metadata cannot carry the catalog facts', () => {
-    // Real K3 live metadata publishes reasoning but no max completion; the
-    // catalog-only vendor window must survive the live merge here exactly as
-    // it does in the request builder.
+    // Live metadata never carries the catalog-only vendor window; it must
+    // survive the live merge here exactly as it does in the request builder.
+    // BST-1804: the fixture mirrors the live route, which now publishes a
+    // 943,718 top-provider max completion.
     render(
       <ProviderSettingsPanel
         modelName="moonshotai/kimi-k3"
@@ -1691,6 +1693,7 @@ describe('AssistantUiPanel model picker', () => {
               checkedAt: 42,
               contextWindow: 1_048_576,
               id: 'moonshotai/kimi-k3',
+              maxOutputTokens: 943_718,
               reasoning: {
                 defaultEffort: 'max',
                 defaultEnabled: true,
@@ -1932,7 +1935,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    expect(screen.getByText(/200,000 context.*64,000 max output/)).toBeInTheDocument();
+    expect(screen.getByText(/1,000,000 context.*128,000 max output/)).toBeInTheDocument();
     expect(screen.getByText('Source: built-in model catalog')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(
       /Live metadata unavailable.*OpenRouter request failed/

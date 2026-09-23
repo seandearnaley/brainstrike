@@ -1341,10 +1341,11 @@ describe('assistant runtime helpers', () => {
       })
     ).toEqual({});
     expect(
+      // BST-1804: the route's top_provider max output is 65,535.
       reconcileProviderSettingsForModel('openrouter', 'google/gemini-2.5-flash', {
-        maxOutputTokens: 65_536,
+        maxOutputTokens: 65_535,
       })
-    ).toEqual({ maxOutputTokens: 65_536 });
+    ).toEqual({ maxOutputTokens: 65_535 });
     expect(
       reconcileProviderSettingsForModel('openrouter', 'custom/unknown-model', {
         maxOutputTokens: 128_000,
