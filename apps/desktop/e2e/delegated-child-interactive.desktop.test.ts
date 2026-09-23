@@ -87,10 +87,13 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
         provider: 'openrouter',
       });
       await new HomePage(window).openSettings();
-      await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+      const settings = new SettingsPage(window);
+      await settings.openCategory(/Permissions/i, 'permissions');
       await window
         .getByRole('combobox', { exact: true, name: 'Read permission' })
         .selectOption('ask');
+      // The scenario holds BOTH work permits below ("two work permits"): pin it.
+      await settings.setSubagentLimit('Subagent work at once', 2);
       await ensureAssistantShellVisible(window);
       const root = window.getByTestId('chat-panel');
       const composer = root.getByRole('textbox', { name: 'Message input' });

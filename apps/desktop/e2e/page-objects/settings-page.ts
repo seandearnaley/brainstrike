@@ -35,4 +35,19 @@ export class SettingsPage {
     await expect(content).toBeVisible({ timeout: 15_000 });
     return content;
   }
+
+  /**
+   * Sets one Subagents limit (Model Catalog → Subagents) through its field,
+   * which commits on Enter, and waits until it is stored without a refusal.
+   */
+  async setSubagentLimit(label: string, value: number): Promise<void> {
+    const section = (await this.openCategory(/Model Catalog/i, 'embedding-models')).getByTestId(
+      'subagent-settings-section'
+    );
+    const field = section.getByRole('spinbutton', { exact: true, name: label });
+    await field.fill(String(value));
+    await field.press('Enter');
+    await expect(field).toHaveValue(String(value));
+    await expect(section.getByRole('alert')).toHaveCount(0);
+  }
 }
