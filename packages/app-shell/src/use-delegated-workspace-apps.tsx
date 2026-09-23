@@ -4,7 +4,8 @@ import type { WorkspaceApp } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { MessageSquare } from 'lucide-react';
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { ChildView, Failure } from './delegated-workspace-child-view';
+import { ChildAppSurface } from './delegated-workspace-child-app-surface';
+import { Failure } from './delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from './delegated-workspace-node';
 import { type DelegatedWorkspaceTab, readDelegatedWorkspaceTab } from './delegated-workspace-tab';
 
@@ -115,7 +116,7 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
                 </p>
               );
             }
-            return <ChildView db={db} key={item.id} node={node} />;
+            return <ChildAppSurface db={db} id={item.id} key={item.id} node={node} />;
           },
         };
       }),

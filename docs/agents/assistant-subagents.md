@@ -314,21 +314,21 @@ Evidence: `assistant-subagents/early-identity-seam.md`.
 
 ## Child conversation interaction contract
 
-- The first-class child UI is specified in
-  [`docs/design/subagent-threads/README.md`](../design/subagent-threads/README.md);
-  it is a design contract, not a claim about current runtime behaviour.
+- [`docs/design/subagent-threads/README.md`](../design/subagent-threads/README.md)
+  specifies child UI design, not current runtime behaviour.
 - Reuse the current thread renderer, runtime adapter, activity rows, color
   tokens, tabs and TreeTable adapter. Select a child by durable conversation
   identity; persona id and call sign are separate.
-- Mount transcripts only for visible panes. Closing a tab changes presentation
-  only; stopping a child stops its owned branch and root stop covers the tree.
+- Activate transcript subscriptions only in visible panes; hidden Activities retain
+  drafts/receipts. Closing a tab changes presentation only; stopping a child stops
+  its owned branch and root stop covers the tree.
 - Direct steering acknowledges delivery and notifies the parent without rewriting
   a completed delegation result.
-- Every inherited control needs a working child-scoped command and persistence
-  path before it appears enabled.
+- Enable inherited controls only with a child-scoped command and persistence path.
 
 Evidence: `assistant-subagents/child-ui-and-shared-surface.md`.
-Guard: `apps/web/e2e/subagent-design-prototype.test.ts`.
+Guard: `apps/web/e2e/subagent-design-prototype.test.ts`,
+`packages/app-shell/src/__tests__/delegated-workspace-app-activity.test.tsx`.
 
 ### Shared conversation surface
 

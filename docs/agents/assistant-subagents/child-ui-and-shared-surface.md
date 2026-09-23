@@ -93,3 +93,36 @@ controls must fit inside the browser viewport and receive center-point hit tests
 a sized wrapper alone does not prove narrow-screen reachability. This suite compiles Tailwind using the shared theme
 and package source directives, and asserts the actual grid layout is present.
 Application navigation and native child binding remain app-shell/E2E work.
+
+### Hidden child streaming work (2026-09-23)
+
+The generic workspace keeps activated app surfaces mounted behind a hidden DOM
+panel. Applied to child conversations, that left every visited child transcript
+subscribed to live output, converting and rendering messages while invisible.
+The focused three-child regression failed with all three subscriptions active
+when only one tab was selected.
+
+Child app surfaces now use React's `Activity` boundary keyed by the existing
+workspace selection. Hidden effects and subscriptions disconnect while component
+state and DOM survive. The root host continues receiving output; selecting a
+child reads the latest snapshot. A plain conditional unmount would lose local
+composer attachments and unconfirmed input receipts, so it is inappropriate here.
+Other workspace apps retain their existing lifecycle.
+
+`delegated-workspace-app-activity.test.tsx` verifies subscription isolation,
+hidden output catch-up, and draft retention; `delegated-workspace-apps.test.tsx`
+checks the actual shared child panel's existing navigation and action routes.
+The shared `assistant-conversation-panel.test.tsx` also hides and restores an
+unconfirmed input, verifying that explicit retry keeps the original request ID
+and that hiding sends no duplicate request.
+
+The desktop `delegated-child-tab-responsiveness.desktop.test.ts` exercises the
+real host with three open child tabs, tab switching, output catch-up and an
+unsent draft. Its controlled held-stream workload also passed without the fix,
+so it is compatibility coverage, not red/green proof of the original latency.
+The deterministic unit regression proves hidden subscription isolation; it does
+not establish a latency bound for a long-running three-stream UI workload.
+The final local Electron run passed in 19.9 seconds and recorded five
+pointer-down-to-selected-tab double-animation-frame samples of 26.1, 28.5, 28.8,
+28.9 and 26.3 ms. These samples describe that controlled workload only; they are
+not a before/after speedup claim or a production latency guarantee.
