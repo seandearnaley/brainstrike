@@ -1,5 +1,5 @@
 /**
- * Subagent limits — per turn tree and per child (Settings → Models → Subagents).
+ * Subagent limits — per turn tree and per child (Settings → Subagents → Subagent limits).
  *
  * `settings` is a complete `RuntimeSubagentSettings`; every setter validates
  * the WHOLE next value through the contract parser, so a field that would

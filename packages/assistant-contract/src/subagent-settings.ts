@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Subagent limits the USER sets (Settings → Models → Subagents). They ride
+ * Subagent limits the USER sets (Settings → Subagents → Subagent limits). They ride
  * every request as `runtimeData.subagentSettings`; no constant stands in for
  * them. Two tiers:
  *

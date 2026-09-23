@@ -32,6 +32,7 @@ import {
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
+  createAssistantMemorySettingsCategory,
   createFactoryResetSettingsCategory,
   createLocalRuntimeSettingsCategory,
   createPermissionSettingsCategory,
@@ -87,7 +88,7 @@ function getToolDescription(toolId: string): string {
 function ModelSelectionCategory() {
   return (
     <div className="space-y-4">
-      <ModelSelectionPage assistantMemoryBackendAvailable={hasDurableAssistantUsageCapability()} />
+      <ModelSelectionPage />
     </div>
   );
 }
@@ -198,6 +199,9 @@ export default function SettingsPageContent() {
         keywords: ['models', 'catalog', 'llm', 'embedding', 'vector'],
         title: 'Model Catalog',
       },
+      createAssistantMemorySettingsCategory({
+        assistantMemoryBackendAvailable: hasDurableAssistantUsageCapability(),
+      }),
       {
         content: (
           <LoggingSettingsSection

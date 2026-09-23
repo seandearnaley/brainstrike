@@ -359,6 +359,7 @@ describe('SettingsPageContent tool operations', () => {
       'local-runtimes',
       'providers',
       'models',
+      'assistant-memory',
       'logging',
       'ai-tools',
       'permissions',

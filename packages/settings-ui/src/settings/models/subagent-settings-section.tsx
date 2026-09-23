@@ -143,7 +143,7 @@ function BudgetField({
 }
 
 /**
- * Settings → Models → Subagents: the per-child budgets and runtime limit
+ * Settings → Subagents → Subagent limits: the per-child budgets and runtime limit
  * (`RuntimeSubagentSettings`). Each field edits a draft and commits it on blur
  * or Enter (`useDraftField`); Escape discards it. The store validates the whole
  * next value and THROWS on an invalid one; that message is shown under the
@@ -210,7 +210,7 @@ export function SubagentSettingsSection() {
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <Layers aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-            <h3 className="font-medium text-sm">Subagents</h3>
+            <h3 className="font-medium text-sm">Subagent limits</h3>
           </div>
           <p className="text-muted-foreground text-sm">
             Limits every delegated subagent runs under. They are copied into the turn when its first

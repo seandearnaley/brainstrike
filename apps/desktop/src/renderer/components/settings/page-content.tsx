@@ -34,6 +34,7 @@ import {
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
+  createAssistantMemorySettingsCategory,
   createFactoryResetSettingsCategory,
   createHooksSettingsCategory,
   createLocalRuntimeSettingsCategory,
@@ -424,14 +425,7 @@ export default function SettingsPageContent() {
         verifyProvider: verifyProviderCredential,
       }),
       {
-        content: (
-          <ModelSelectionPage
-            assistantMemoryBackendAvailable={hasDurableAssistantUsageCapability()}
-            {...(assistantProviderKeySources
-              ? { providerKeySources: assistantProviderKeySources }
-              : {})}
-          />
-        ),
+        content: <ModelSelectionPage />,
         description:
           'Browse every catalogued model, manage local downloads, and set the model cache directory.',
         icon: Layers,
@@ -439,6 +433,10 @@ export default function SettingsPageContent() {
         keywords: ['embeddings', 'models', 'catalog', 'vector', 'llm', 'download', 'cache'],
         title: 'Model Catalog',
       },
+      createAssistantMemorySettingsCategory({
+        assistantMemoryBackendAvailable: hasDurableAssistantUsageCapability(),
+        ...(assistantProviderKeySources ? { providerKeySources: assistantProviderKeySources } : {}),
+      }),
       {
         content: <DesktopLoggingSettings />,
         description: 'Control renderer log verbosity and manage file logging for debugging.',

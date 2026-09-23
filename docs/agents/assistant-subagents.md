@@ -902,7 +902,7 @@ Evidence: `assistant-subagents/child-view-binding.md`.
 - **Child budgets are USER SETTINGS; a cut synthesis is a truncated completion.**
   Tree/per-child limits and the runtime limit are `RuntimeSubagentSettings`
   (`subagent-settings.ts`, ranges `SUBAGENT_SETTINGS_LIMITS`), persisted by
-  `assistant-subagent-preferences.v1`, edited in Settings → Models → Subagents,
+  `assistant-subagent-preferences.v1`, edited in Settings → Subagents → Subagent limits,
   sent on EVERY request as `runtimeData.subagentSettings`; the ONLY intake is
   `parseRuntimeSubagentSettings` (absent → defaults, malformed THROWS) and no
   limits constant exists. What the budget row stores at first admission is

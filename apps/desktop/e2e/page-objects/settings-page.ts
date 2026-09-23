@@ -37,12 +37,12 @@ export class SettingsPage {
   }
 
   /**
-   * Sets one Subagents limit (Model Catalog → Subagents) through its field,
+   * Sets one subagent limit (Settings → Subagents → Subagent limits) through its field,
    * which commits on Enter, and waits until THAT commit is stored: the check
    * runs before the blur, which would commit a draft on its own.
    */
   async setSubagentLimit(label: string, settingKey: string, value: number): Promise<void> {
-    const section = (await this.openCategory(/Model Catalog/i, 'embedding-models')).getByTestId(
+    const section = (await this.openCategory(/Subagents/i, 'subagents')).getByTestId(
       'subagent-settings-section'
     );
     const field = section.getByRole('spinbutton', { exact: true, name: label });

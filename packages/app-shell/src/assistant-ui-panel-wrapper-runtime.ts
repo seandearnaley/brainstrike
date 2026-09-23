@@ -612,8 +612,8 @@ export function buildAssistantRequestData(args: {
   selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
-   * Per-child subagent budgets (Settings → Models → Subagents). REQUIRED and
-   * sent on every request: the defaults are a real value, and the host
+   * Per-child subagent budgets (Settings → Subagents → Subagent budgets).
+   * REQUIRED and sent on every request: the defaults are a real value, and the host
    * validates whatever arrives (`parseRuntimeSubagentSettings`).
    */
   subagentSettings: RuntimeSubagentSettings;
