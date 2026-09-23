@@ -204,11 +204,20 @@ describe('TreeTable shared-scroller reveal inset', () => {
   // Rows are 40px (n0 0-40, n1 40-80, n2 80-120). The scroller sits at 50
   // with a 300px window, so n2 starts 30px below the top edge: fully visible
   // with no inset, but under a 44px in-scroller sticky header with one.
-  function renderRevealable(scrollPaddingStart?: number) {
+  function renderRevealable(
+    scrollPaddingStart?: number,
+    viewport: { clientHeight: number; scrollTop: number } = { clientHeight: 300, scrollTop: 50 }
+  ) {
     scrollToOffsetSpy.current = vi.fn();
     const scrollParent = document.createElement('div');
-    Object.defineProperty(scrollParent, 'scrollTop', { configurable: true, value: 50 });
-    Object.defineProperty(scrollParent, 'clientHeight', { configurable: true, value: 300 });
+    Object.defineProperty(scrollParent, 'scrollTop', {
+      configurable: true,
+      value: viewport.scrollTop,
+    });
+    Object.defineProperty(scrollParent, 'clientHeight', {
+      configurable: true,
+      value: viewport.clientHeight,
+    });
     const ref = createRef<TreeTableHandle>();
     render(
       <TreeTable
@@ -229,6 +238,13 @@ describe('TreeTable shared-scroller reveal inset', () => {
     const ref = renderRevealable(44);
     ref.current?.revealNode('n2');
     expect(scrollToOffsetSpy.current).toHaveBeenCalledWith(80 - 44, { behavior: 'auto' });
+  });
+
+  it('measures the bottom edge from the scroller window, not from the inset-shifted top', () => {
+    // Window 0-100 with a 44px inset: n2 (80-120) overhangs the bottom by 20.
+    const ref = renderRevealable(44, { clientHeight: 100, scrollTop: 0 });
+    ref.current?.revealNode('n2');
+    expect(scrollToOffsetSpy.current).toHaveBeenCalledWith(20, { behavior: 'auto' });
   });
 
   it('forwards the inset to the virtualizer so both scroll paths honour it', () => {
