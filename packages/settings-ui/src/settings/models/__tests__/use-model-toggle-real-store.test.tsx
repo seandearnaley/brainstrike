@@ -29,7 +29,7 @@ import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
 } from '@brainstrike/app-state/stores/model-registry-store';
-import { useModelToggle } from '../use-model-toggle';
+import { type ModelBulkToggleOutcome, useModelToggle } from '../use-model-toggle';
 
 describe('useModelToggle against the real model-registry-store', () => {
   beforeEach(() => {
@@ -75,6 +75,26 @@ describe('useModelToggle against the real model-registry-store', () => {
         variant: 'destructive',
       })
     );
+    expect(result.current.busyModelIds.has('claude-opus-5')).toBe(false);
+  });
+
+  it('toggleMany resolves uncommitted, toasts, and leaves the store restored when the write rejects', async () => {
+    const { result } = renderHook(() => useModelToggle());
+
+    let outcome: ModelBulkToggleOutcome | undefined;
+    await act(async () => {
+      outcome = await result.current.toggleMany(['claude-opus-5'], true);
+    });
+
+    expect(outcome).toEqual({ committed: false });
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: 'disk full',
+        title: 'Could not enable this model',
+        variant: 'destructive',
+      })
+    );
+    expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(false);
     expect(result.current.busyModelIds.has('claude-opus-5')).toBe(false);
   });
 });
