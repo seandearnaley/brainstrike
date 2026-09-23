@@ -571,6 +571,8 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             );
           }
           await syncDurableDatabaseWrites(db);
+          // Re-apply over any refresh that landed mid-write (toggleModel parity).
+          applyStates(() => enabled);
           return previous;
         } catch (error) {
           logger.error('Failed to update models', error);

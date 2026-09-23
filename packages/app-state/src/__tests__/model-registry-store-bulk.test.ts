@@ -71,6 +71,18 @@ describe('model-registry-store setModelsEnabled (BST-1805)', () => {
     expect(enabledStates()).toEqual({ a: true, b: true, c: false });
   });
 
+  it('re-applies the committed states when a stale refresh lands mid-write (toggleModel parity)', async () => {
+    const query = vi.fn(() => {
+      // A registry refresh that read the table BEFORE this write commits.
+      useModelRegistryStore.setState({
+        models: [model('a', false), model('b', true), model('c', false)],
+      });
+      return Promise.resolve({ rows: [{ id: 'a' }, { id: 'c' }] });
+    });
+    await useModelRegistryStore.getState().setModelsEnabled({ query } as never, ['a', 'c'], true);
+    expect(enabledStates()).toEqual({ a: true, b: true, c: true });
+  });
+
   it('restores the exact prior per-id states synchronously when the write rejects', async () => {
     const query = vi
       .fn()
