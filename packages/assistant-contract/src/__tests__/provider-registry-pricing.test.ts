@@ -176,8 +176,9 @@ describe('model pricing metadata', () => {
     const spark = models.find((model) => model.id === 'meta/muse-spark-1.1');
     const kimi = models.find((model) => model.id === 'moonshotai/kimi-k3');
     expect(sonnet?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
-    // BST-1705: GLM-5.2 was re-priced from 0.9282 / 2.9172 on 2026-09-10.
-    expect(glm?.pricing).toEqual({ inputPerMTok: 0.28, outputPerMTok: 0.88 });
+    // BST-1705 re-priced GLM-5.2 from 0.9282 / 2.9172 to 0.28 / 0.88 on
+    // 2026-09-10; BST-1804 re-read the live base as 0.6496 / 2.0416 on 2026-09-23.
+    expect(glm?.pricing).toEqual({ inputPerMTok: 0.6496, outputPerMTok: 2.0416 });
     expect(spark?.pricing).toEqual({ inputPerMTok: 1.25, outputPerMTok: 4.25 });
     expect(kimi?.pricing).toEqual({ inputPerMTok: 3, outputPerMTok: 15 });
   });
@@ -220,11 +221,10 @@ describe('model pricing metadata', () => {
   /**
    * BST-1705 re-priced the `openrouter` GPT-5.x rows from the live Models API
    * and left the direct `openai` block alone (one ticket, one route's source).
-   * The direct rows are therefore KNOWN STALE — five of them still carry the
-   * old 1.25 / 10 GPT-5 rate — so these two blocks now disagree. That
-   * disagreement is a to-do on the `openai` rows, NOT a defect in these ones:
-   * a sweep that "reconciles" them by copying the direct block back over these
-   * values would re-introduce the exact 4x understatement this ticket fixed.
+   * BST-1804 then re-priced the direct block from developers.openai.com (pinned
+   * below), so the two blocks agree again on these four models — but each is
+   * still read from its OWN route's source. A sweep that copies one block over
+   * the other re-introduces the stale-mirror failure both tickets fixed.
    */
   it('prices the OpenRouter GPT-5.x rows from the gateway, not from the stale direct block', () => {
     const models = listProviderLlmModels('openrouter');
@@ -243,6 +243,11 @@ describe('model pricing metadata', () => {
    * a faithful OpenRouter pass-through, so a future sweep could easily "fix"
    * this back into a mirror without reading the row note. This pin makes that
    * a failing test rather than a silent 2x cost misreport.
+   *
+   * BST-1804 re-read BOTH sources on 2026-09-23 and both still stand: OpenAI
+   * publishes 4/20 short-context and 8/30 above 272K, so the direct row is
+   * not a mis-read long-context tier; OpenRouter publishes 2/10 with a 4/15
+   * tier. The routes genuinely diverge, so the pair still differs.
    */
   it('prices the two GPT-5.6 Sol routes from their own sources', () => {
     const platformSol = listProviderLlmModels('openai').find((model) => model.id === 'gpt-5.6-sol');
@@ -252,5 +257,43 @@ describe('model pricing metadata', () => {
     expect(platformSol?.pricing).toEqual({ inputPerMTok: 4, outputPerMTok: 20 });
     expect(routedSol?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
     expect(routedSol?.pricing).not.toEqual(platformSol?.pricing);
+  });
+
+  /**
+   * BST-1804. The direct `openai` rows had kept pre-2026 GPT-5 rates (five at
+   * 1.25 / 10) and a 400K window on the four 1.05M models. Every value below is
+   * OpenAI's standard short-context rate and context window as published on
+   * https://developers.openai.com/api/docs/models/<id>, retrieved 2026-09-23.
+   */
+  it('prices the direct OpenAI rows from developers.openai.com', () => {
+    const models = listProviderLlmModels('openai');
+    const row = (id: string) => {
+      const model = models.find((entry) => entry.id === id);
+      return { contextWindow: model?.contextWindow, pricing: model?.pricing };
+    };
+    const priced = (inputPerMTok: number, outputPerMTok: number, contextWindow: number) => ({
+      contextWindow,
+      pricing: { inputPerMTok, outputPerMTok },
+    });
+    expect(row('gpt-5.6-terra')).toEqual(priced(2, 12, 1_050_000));
+    expect(row('gpt-5.6-luna')).toEqual(priced(0.2, 1.2, 1_050_000));
+    expect(row('gpt-5.5')).toEqual(priced(5, 30, 1_050_000));
+    expect(row('gpt-5.5-pro')).toEqual(priced(30, 180, 1_050_000));
+    expect(row('gpt-5.4')).toEqual(priced(2.5, 15, 1_050_000));
+    expect(row('gpt-5.4-pro')).toEqual(priced(30, 180, 1_050_000));
+    expect(row('gpt-5.4-mini')).toEqual(priced(0.75, 4.5, 400_000));
+    expect(row('gpt-5.4-nano')).toEqual(priced(0.2, 1.25, 400_000));
+    expect(row('gpt-5.3-codex')).toEqual(priced(1.75, 14, 400_000));
+    expect(row('gpt-5.2')).toEqual(priced(1.75, 14, 400_000));
+    expect(row('gpt-5.2-pro')).toEqual(priced(21, 168, 400_000));
+  });
+
+  // BST-1804: https://ai.google.dev/gemini-api/docs/pricing, Standard paid
+  // tier (text/image/video input), retrieved 2026-09-23.
+  it('prices Gemini 3.1 Flash-Lite from the Google pricing page', () => {
+    const flashLite = listProviderLlmModels('google').find(
+      (model) => model.id === 'gemini-3.1-flash-lite'
+    );
+    expect(flashLite?.pricing).toEqual({ inputPerMTok: 0.25, outputPerMTok: 1.5 });
   });
 });

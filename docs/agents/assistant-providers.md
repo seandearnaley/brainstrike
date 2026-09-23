@@ -451,11 +451,11 @@ Guard: `packages/assistant-contract/src/__tests__/provider-catalog-schema.test.t
   user, provider-reported cost stays authoritative at runtime, and a declared
   rate is a display estimate.
 
-Settled: the 4/15 figure beside OpenRouter's 2/10 for `gpt-5.6-sol` is a declared
-`min_prompt_tokens: 272000` long-context tier, so 2/10 is the base rate to hold
-for that route. NOT settled: why the gateway says 2/10 where
-developers.openai.com says 4/20 — re-read both sources during the `openai`-block
-pass that also owes terra, luna and gpt-5.5 their re-pricing.
+Settled: the 4/15 beside OpenRouter's 2/10 for `gpt-5.6-sol` is a declared
+`min_prompt_tokens: 272000` tier, so 2/10 is that route's base. BST-1804 re-read
+both on 2026-09-23: OpenAI's own >272K tier is 8/30, so the direct 4/20 is not a
+mis-read tier; the gap is genuine per-route data, recorded, not explained. The
+same pass re-priced the direct `openai` block from developers.openai.com.
 Evidence: `assistant-providers/model-pricing-per-route.md`.
 Guard: `packages/assistant-contract/src/__tests__/provider-registry-pricing.test.ts`
 (pins both rows AND asserts they differ).

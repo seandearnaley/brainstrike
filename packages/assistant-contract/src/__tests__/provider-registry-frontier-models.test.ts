@@ -371,7 +371,8 @@ describe('frontier model refresh (2026-07)', () => {
         id: 'z-ai/glm-5.3',
         label: 'GLM-5.3 (OpenRouter)',
         maxOutputTokens: 131_072,
-        pricing: { inputPerMTok: 1.4, outputPerMTok: 4.4 },
+        // BST-1804: gateway re-priced from 1.4 / 4.4; live base read 2026-09-23.
+        pricing: { inputPerMTok: 0.84, outputPerMTok: 2.64 },
         reasoning: {
           defaultEffort: 'max',
           defaultEnabled: true,
@@ -607,7 +608,8 @@ describe('frontier model refresh (2026-07)', () => {
         id: 'nvidia/nemotron-3.5-lightning',
         label: 'Nemotron 3.5 Lightning (OpenRouter)',
         maxOutputTokens: 131_072,
-        pricing: { inputPerMTok: 0.08, outputPerMTok: 0.2 },
+        // BST-1804: gateway re-priced from 0.08 / 0.2; live base read 2026-09-23.
+        pricing: { inputPerMTok: 0.07, outputPerMTok: 0.2 },
         reasoning: { mandatory: false, supportedEfforts: ['none'] },
         supportsStreaming: true,
         type: 'llm',

@@ -159,10 +159,10 @@ describe('TaskLedgerPanelView', () => {
     });
 
     const cost = screen.getByTestId('task-ledger-run-cost');
-    // openai gpt-5.2 registry pricing: (1000*1.25 + 200*10)/1e6 = $0.00325.
+    // openai gpt-5.2 registry pricing: (1000*1.75 + 200*14)/1e6 = $0.00455.
     expect(cost).toHaveTextContent(/est\./i);
-    expect(cost).toHaveTextContent(/\$0\.003/);
-    expect(cost).not.toHaveTextContent('$0.00325 exact');
+    expect(cost).toHaveTextContent(/\$0\.00455/);
+    expect(cost).not.toHaveTextContent('$0.00455 exact');
   });
 
   it('renders "cost unavailable" (never a fabricated $0) for an unpriced model', () => {

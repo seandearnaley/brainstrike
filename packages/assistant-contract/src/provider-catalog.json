@@ -110,6 +110,7 @@
         "vision": "supported"
       },
       {
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.6-terra",
         "contextWindow": 1050000,
         "default": true,
         "id": "gpt-5.6-terra",
@@ -117,8 +118,8 @@
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
-          "inputPerMTok": 2.5,
-          "outputPerMTok": 15
+          "inputPerMTok": 2,
+          "outputPerMTok": 12
         },
         "supportsStreaming": true,
         "tagline": "Most capable for everyday work",
@@ -130,14 +131,15 @@
         "vision": "supported"
       },
       {
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.6-luna",
         "contextWindow": 1050000,
         "id": "gpt-5.6-luna",
         "label": "GPT-5.6 Luna",
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
-          "inputPerMTok": 1,
-          "outputPerMTok": 6
+          "inputPerMTok": 0.2,
+          "outputPerMTok": 1.2
         },
         "supportsStreaming": true,
         "tokenMeasurement": {
@@ -148,14 +150,15 @@
         "vision": "supported"
       },
       {
-        "contextWindow": 400000,
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.5\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).",
+        "contextWindow": 1050000,
         "id": "gpt-5.5",
         "label": "GPT-5.5",
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
-          "inputPerMTok": 1.25,
-          "outputPerMTok": 10
+          "inputPerMTok": 5,
+          "outputPerMTok": 30
         },
         "supportsStreaming": true,
         "tokenMeasurement": {
@@ -166,14 +169,15 @@
         "vision": "supported"
       },
       {
-        "contextWindow": 400000,
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.5-pro",
+        "contextWindow": 1050000,
         "id": "gpt-5.5-pro",
         "label": "GPT-5.5 Pro",
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
-          "inputPerMTok": 15,
-          "outputPerMTok": 120
+          "inputPerMTok": 30,
+          "outputPerMTok": 180
         },
         "supportsStreaming": true,
         "tagline": "For your toughest challenges",
@@ -185,14 +189,15 @@
         "vision": "supported"
       },
       {
-        "contextWindow": 400000,
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).",
+        "contextWindow": 1050000,
         "id": "gpt-5.4",
         "label": "GPT-5.4",
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
-          "inputPerMTok": 1.25,
-          "outputPerMTok": 10
+          "inputPerMTok": 2.5,
+          "outputPerMTok": 15
         },
         "supportsStreaming": true,
         "tokenMeasurement": {
@@ -203,14 +208,15 @@
         "vision": "supported"
       },
       {
-        "contextWindow": 400000,
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-pro\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).",
+        "contextWindow": 1050000,
         "id": "gpt-5.4-pro",
         "label": "GPT-5.4 Pro",
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
-          "inputPerMTok": 15,
-          "outputPerMTok": 120
+          "inputPerMTok": 30,
+          "outputPerMTok": 180
         },
         "supportsStreaming": true,
         "tagline": "For your toughest challenges",
@@ -222,14 +228,15 @@
         "vision": "supported"
       },
       {
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-mini",
         "contextWindow": 400000,
         "id": "gpt-5.4-mini",
         "label": "GPT-5.4 Mini",
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
-          "inputPerMTok": 0.25,
-          "outputPerMTok": 2
+          "inputPerMTok": 0.75,
+          "outputPerMTok": 4.5
         },
         "supportsStreaming": true,
         "tokenMeasurement": {
@@ -240,14 +247,15 @@
         "vision": "supported"
       },
       {
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-nano",
         "contextWindow": 400000,
         "id": "gpt-5.4-nano",
         "label": "GPT-5.4 Nano",
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
-          "inputPerMTok": 0.05,
-          "outputPerMTok": 0.4
+          "inputPerMTok": 0.2,
+          "outputPerMTok": 1.25
         },
         "supportsStreaming": true,
         "tagline": "Fastest for lightweight tasks",
@@ -259,13 +267,14 @@
         "vision": "supported"
       },
       {
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.3-codex",
         "contextWindow": 400000,
         "id": "gpt-5.3-codex",
         "label": "GPT-5.3 Codex",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 1.25,
-          "outputPerMTok": 10
+          "inputPerMTok": 1.75,
+          "outputPerMTok": 14
         },
         "supportsStreaming": true,
         "tokenMeasurement": {
@@ -276,13 +285,14 @@
         "vision": "supported"
       },
       {
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.2",
         "contextWindow": 400000,
         "id": "gpt-5.2",
         "label": "GPT-5.2",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 1.25,
-          "outputPerMTok": 10
+          "inputPerMTok": 1.75,
+          "outputPerMTok": 14
         },
         "supportsStreaming": true,
         "tokenMeasurement": {
@@ -293,13 +303,14 @@
         "vision": "supported"
       },
       {
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.2-pro",
         "contextWindow": 400000,
         "id": "gpt-5.2-pro",
         "label": "GPT-5.2 Pro",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 15,
-          "outputPerMTok": 120
+          "inputPerMTok": 21,
+          "outputPerMTok": 168
         },
         "supportsStreaming": true,
         "tagline": "For your toughest challenges",
@@ -639,13 +650,14 @@
         "vision": "supported"
       },
       {
+        "_note": "Standard paid-tier pricing (text / image / video input) and limits:\nhttps://ai.google.dev/gemini-api/docs/pricing\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite\nretrieved 2026-09-23 (BST-1804). Audio input is $0.50/MTok; this\none-rate-pair schema carries the text rate.",
         "contextWindow": 1048576,
         "id": "gemini-3.1-flash-lite",
         "label": "Gemini 3.1 Flash Lite",
         "maxOutputTokens": 65536,
         "pricing": {
-          "inputPerMTok": 0.1,
-          "outputPerMTok": 0.4
+          "inputPerMTok": 0.25,
+          "outputPerMTok": 1.5
         },
         "supportsStreaming": true,
         "tagline": "Fastest for lightweight tasks",
@@ -996,8 +1008,8 @@
         "label": "GLM-5.3 (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
-          "inputPerMTok": 1.4,
-          "outputPerMTok": 4.4
+          "inputPerMTok": 0.84,
+          "outputPerMTok": 2.64
         },
         "reasoning": {
           "defaultEffort": "max",
@@ -1078,7 +1090,7 @@
         "label": "Nemotron 3.5 Lightning (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
-          "inputPerMTok": 0.08,
+          "inputPerMTok": 0.07,
           "outputPerMTok": 0.2
         },
         "reasoning": {
@@ -1356,7 +1368,7 @@
         "vision": "supported"
       },
       {
-        "_note": "BST-1698: PRICED FROM OPENROUTER'S OWN CATALOG, NOT OPENAI'S.\nhttps://openrouter.ai/api/v1/models retrieved 2026-09-08 reports\nprompt \"0.000002\" / completion \"0.00001\" => 2/10 $/MTok, plus a\n>=272000 prompt-token override at 4/15. OpenAI's own standard tier for\nthe same model is 4/20 (see the `openai` block), so the two ROUTES\nDIFFER: every OpenRouter Sol figure is exactly half OpenAI's, and they\ncoincide with OpenAI's batch/flex column. The sibling rows are faithful\npass-throughs (OpenRouter terra 2/12 and luna 0.2/1.2 match OpenAI's\npage exactly), so the divergence is Sol-specific and may be an upstream\ndata error rather than a real discount. Declared from OpenRouter anyway\nbecause this block is a \"curated current subset from OpenRouter's model\ncatalog\" and OpenRouter is the route that bills the user; provider-\nreported billed cost stays authoritative at runtime and this rate is a\ndisplay estimate. Re-check on the next catalog sweep.",
+        "_note": "BST-1698: PRICED FROM OPENROUTER'S OWN CATALOG, NOT OPENAI'S.\nhttps://openrouter.ai/api/v1/models retrieved 2026-09-08 reports\nprompt \"0.000002\" / completion \"0.00001\" => 2/10 $/MTok, plus a\n>=272000 prompt-token override at 4/15. OpenAI's own standard tier for\nthe same model is 4/20 (see the `openai` block), so the two ROUTES\nDIFFER: every OpenRouter Sol figure is exactly half OpenAI's, and they\ncoincide with OpenAI's batch/flex column. The sibling rows are faithful\npass-throughs (OpenRouter terra 2/12 and luna 0.2/1.2 match OpenAI's\npage exactly), so the divergence is Sol-specific and may be an upstream\ndata error rather than a real discount. Declared from OpenRouter anyway\nbecause this block is a \"curated current subset from OpenRouter's model\ncatalog\" and OpenRouter is the route that bills the user; provider-\nreported billed cost stays authoritative at runtime and this rate is a\ndisplay estimate. BST-1804 re-read both sources 2026-09-23: OpenRouter\nstill 2/10 with the 4/15 tier; OpenAI still 4/20 short-context and 8/30\nabove 272K, so the direct row is not a mis-read long-context tier. The\ngap stands as per-route data.",
         "contextWindow": 1050000,
         "id": "openai/gpt-5.6-sol",
         "label": "GPT-5.6 Sol (OpenRouter)",
@@ -1432,8 +1444,8 @@
         "label": "GLM-5.2 (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
-          "inputPerMTok": 0.28,
-          "outputPerMTok": 0.88
+          "inputPerMTok": 0.6496,
+          "outputPerMTok": 2.0416
         },
         "reasoning": {
           "defaultEffort": "high",
@@ -1464,8 +1476,8 @@
         "label": "DeepSeek V4 Pro (OpenRouter)",
         "maxOutputTokens": 384000,
         "pricing": {
-          "inputPerMTok": 0.87,
-          "outputPerMTok": 1.74
+          "inputPerMTok": 0.95526,
+          "outputPerMTok": 1.91052
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1477,8 +1489,8 @@
         "label": "DeepSeek V4 Flash (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
-          "inputPerMTok": 0.08708,
-          "outputPerMTok": 0.17416
+          "inputPerMTok": 0.088606,
+          "outputPerMTok": 0.177212
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1552,8 +1564,8 @@
         "id": "moonshotai/kimi-k2.7-code",
         "label": "Kimi K2.7 Code (OpenRouter)",
         "pricing": {
-          "inputPerMTok": 0.71,
-          "outputPerMTok": 3.5
+          "inputPerMTok": 0.7062,
+          "outputPerMTok": 3.3
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -1823,7 +1835,7 @@
         "vision": "supported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 524,288 /\n131,072 ceilings, text-only input modality and gateway pricing\n(0.00000003 / 0.00000012 per token), retrieved 2026-09-08 (BST-1696).",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 524,288 /\n131,072 ceilings and text-only input modality, retrieved 2026-09-08\n(BST-1696). Gateway pricing (0.00000009 / 0.00000036 per token)\nre-read 2026-09-23 (BST-1804).",
         "contextWindow": 524288,
         "id": "upstage/solar-pro4",
         "inputModalities": ["text"],
@@ -1831,15 +1843,15 @@
         "maxOutputTokens": 131072,
         "outputModalities": ["text"],
         "pricing": {
-          "inputPerMTok": 0.03,
-          "outputPerMTok": 0.12
+          "inputPerMTok": 0.09,
+          "outputPerMTok": 0.36
         },
         "supportsStreaming": true,
         "type": "llm",
         "vision": "unsupported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n393,216 ceilings, text-only input modality and gateway pricing\n(0.00000057948 / 0.00000173844 per token), retrieved 2026-09-08\n(BST-1696). Dated GA snapshot of the already-carried\n`deepseek/deepseek-v4-pro` route; both are kept so a pinned snapshot\nstays selectable.",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n393,216 ceilings and text-only input modality, retrieved 2026-09-08\n(BST-1696). Gateway pricing re-read 2026-09-23 (BST-1804): the route\nnow carries UTC clock bands, and the base rate held is the cheapest\nband (0.00000066 / 0.00000198 per token; the surge band is 2x). Dated GA snapshot of the already-carried\n`deepseek/deepseek-v4-pro` route; both are kept so a pinned snapshot\nstays selectable.",
         "contextWindow": 1048576,
         "id": "deepseek/deepseek-v4-pro-0813",
         "inputModalities": ["text"],
@@ -1847,15 +1859,15 @@
         "maxOutputTokens": 393216,
         "outputModalities": ["text"],
         "pricing": {
-          "inputPerMTok": 0.57948,
-          "outputPerMTok": 1.73844
+          "inputPerMTok": 0.66,
+          "outputPerMTok": 1.98
         },
         "supportsStreaming": true,
         "type": "llm",
         "vision": "unsupported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 1,310,720 /\n943,718 ceilings, text-only input modality and gateway pricing\n(0.000000065 / 0.00000018 per token), retrieved 2026-09-08 (BST-1041).\nThe route existence BST-1041 could not confirm in 2026-07 is now\nlive; its snapshot figures (1,048,576 context, 0.00000014 /\n0.00000028) are stale and the live route's numbers are used instead.",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,310,720 /\n943,718 ceilings and text-only input modality, retrieved 2026-09-08\n(BST-1041). Gateway pricing (0.00000004 / 0.00000064 per token)\nre-read 2026-09-23 (BST-1804).\nThe route existence BST-1041 could not confirm in 2026-07 is now\nlive; its snapshot figures (1,048,576 context, 0.00000014 /\n0.00000028) are stale and the live route's numbers are used instead.",
         "contextWindow": 1310720,
         "id": "deepseek/deepseek-v4-flash-0731",
         "inputModalities": ["text"],
@@ -1863,15 +1875,15 @@
         "maxOutputTokens": 943718,
         "outputModalities": ["text"],
         "pricing": {
-          "inputPerMTok": 0.065,
-          "outputPerMTok": 0.18
+          "inputPerMTok": 0.04,
+          "outputPerMTok": 0.64
         },
         "supportsStreaming": true,
         "type": "llm",
         "vision": "unsupported"
       },
       {
-        "_note": "OpenRouter Models API owns this route's identity, 1,048,576 / 384,000\nceilings, text+image input modality and gateway pricing (0.00000015 /\n0.0000006 per token), retrieved 2026-09-10 (BST-1736). First stable\nvision-capable DeepSeek flash route; it does NOT supersede\n`deepseek/deepseek-v4-flash-0731`, which is cheaper and text-only, so\nboth are carried. The live route also publishes an input_cache_read\nrate (0.000000003) and UTC time-of-day overrides that double the base\nrate during two weekday windows; this one-rate-pair schema carries the\nbase rate only.",
+        "_note": "OpenRouter Models API owns this route's identity, 1,048,576 / 384,000\nceilings and text+image input modality, retrieved 2026-09-10\n(BST-1736). Gateway pricing (0.0000001 / 0.0000005 per token) re-read\n2026-09-23 (BST-1804), when the route published no overrides. First stable\nvision-capable DeepSeek flash route; it does NOT supersede\n`deepseek/deepseek-v4-flash-0731`, which is cheaper and text-only, so\nboth are carried. The live route also publishes an input_cache_read\nrate; this one-rate-pair schema carries the base rate only.",
         "contextWindow": 1048576,
         "id": "deepseek/deepseek-v4.1-flash",
         "inputModalities": ["image", "text"],
@@ -1879,8 +1891,8 @@
         "maxOutputTokens": 384000,
         "outputModalities": ["text"],
         "pricing": {
-          "inputPerMTok": 0.15,
-          "outputPerMTok": 0.6
+          "inputPerMTok": 0.1,
+          "outputPerMTok": 0.5
         },
         "supportsStreaming": true,
         "type": "llm",

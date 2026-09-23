@@ -55,3 +55,43 @@ an upstream data error, and that stands: re-read both sources during the
 own re-pricing) rather than treating either row as settled here. What the
 pin in `provider-registry-pricing.test.ts` asserts is only that the two rows
 DIFFER and are sourced separately — not that 2/10-vs-4/20 has been explained.
+
+---
+
+## 2026-09-23 — BST-1804 re-read of both Sol routes and the direct `openai` pass
+
+This is the `openai`-block pass the section above deferred to.
+
+**Sol, re-read at both sources.** developers.openai.com (model page and the
+pricing page's "Cyber models" table) publishes `gpt-5.6-sol` at 4/20 $/MTok
+short-context and **8/30 above 272K input tokens** (2x input, 1.5x output),
+still marked as promotional pricing "available at least through November 21,
+2026". OpenRouter's Models API publishes `openai/gpt-5.6-sol` at 2/10 with a
+`min_prompt_tokens: 272000` tier at 4/15. That settles the alternative reading
+recorded above: the direct row was NOT read off OpenAI's long-context tier,
+because that tier is 8/30, not 4/20. Both rows are what their own source
+publishes today, so neither changes. The gap itself is still unexplained:
+every OpenRouter Sol figure (both tiers, both cache rates) is exactly half of
+OpenAI's. It is kept as per-route data, and provider-reported billed cost stays
+authoritative at runtime. One more observation, recorded without a conclusion:
+OpenRouter's Sol payload is identical, field for field, to OpenAI's rates for the
+newly released `gpt-6-sol` (2/10, 4/15 above 272K, cache 0.2/2.5). OpenRouter
+already published 2/10 with the 4/15 tier on 2026-09-08, two weeks before
+`gpt-6-sol` shipped, so this match does not show that one was copied from the
+other.
+`provider-registry-pricing.test.ts` keeps its assertion that the two rows
+differ, because both sources still say they do.
+
+**Direct `openai` rows re-priced.** Every row was read from
+`https://developers.openai.com/api/docs/models/<id>` (standard short-context
+rate). Where a row appears in the pricing page's tables, it agrees
+(`gpt-5.3-codex` 1.75/14). Eleven rows were stale:
+terra 2.5/15 → 2/12, luna 1/6 → 0.2/1.2, gpt-5.5 1.25/10 → 5/30, gpt-5.5-pro
+15/120 → 30/180, gpt-5.4 1.25/10 → 2.5/15, gpt-5.4-pro 15/120 → 30/180,
+gpt-5.4-mini 0.25/2 → 0.75/4.5, gpt-5.4-nano 0.05/0.4 → 0.2/1.25,
+gpt-5.3-codex and gpt-5.2 1.25/10 → 1.75/14, and gpt-5.2-pro 15/120 → 21/168.
+Four also had the wrong `contextWindow`: gpt-5.5, gpt-5.5-pro, gpt-5.4 and
+gpt-5.4-pro are 1,050,000, not 400,000. `maxOutputTokens` (128,000) matched on
+every row. `gpt-6-astra` and `gpt-5.6-sol` already matched.
+After the pass, the direct and OpenRouter rows agree on terra, luna, gpt-5.5 and
+gpt-5.4. The live-vs-live check from 2026-09-09 had predicted that result.
