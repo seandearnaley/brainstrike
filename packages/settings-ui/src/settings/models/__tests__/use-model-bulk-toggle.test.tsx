@@ -142,6 +142,87 @@ describe('useModelBulkToggle', () => {
     expect(toast).toHaveBeenCalledTimes(1);
   });
 
+  it('Undo stops after the first failed write and adds no summary toast', async () => {
+    toggleMany.mockResolvedValueOnce({
+      committed: true,
+      previous: new Map([
+        ['a', true],
+        ['b', false],
+      ]),
+    });
+    const { result } = renderHook(() => useModelBulkToggle({ busyModelIds: NO_BUSY, toggleMany }));
+    await act(async () => {
+      await result.current({ enabled: true, modelIds: ['a', 'b'], scopeLabel: 'OpenAI' });
+    });
+    seedStore(['a', 'b'], true);
+    toggleMany.mockResolvedValue({ committed: false });
+
+    act(() => undoActionOf(0)());
+
+    await vi.waitFor(() => {
+      expect(toggleMany).toHaveBeenCalledTimes(2);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(toggleMany).toHaveBeenNthCalledWith(2, ['a'], true);
+    expect(toggleMany).toHaveBeenCalledTimes(2);
+    expect(toast).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not claim a restore when the re-disable write fails', async () => {
+    toggleMany.mockResolvedValueOnce({
+      committed: true,
+      previous: new Map([
+        ['a', true],
+        ['b', false],
+      ]),
+    });
+    const { result } = renderHook(() => useModelBulkToggle({ busyModelIds: NO_BUSY, toggleMany }));
+    await act(async () => {
+      await result.current({ enabled: true, modelIds: ['a', 'b'], scopeLabel: 'OpenAI' });
+    });
+    seedStore(['a', 'b'], true);
+    toggleMany
+      .mockResolvedValueOnce({ committed: true, previous: new Map([['a', true]]) })
+      .mockResolvedValueOnce({ committed: false });
+
+    act(() => undoActionOf(0)());
+
+    await vi.waitFor(() => {
+      expect(toggleMany).toHaveBeenCalledTimes(3);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(toggleMany).toHaveBeenLastCalledWith(['b'], false);
+    expect(toast).toHaveBeenCalledTimes(1);
+  });
+
+  it('Undo with nothing restorable writes nothing and says so', async () => {
+    toggleMany.mockResolvedValueOnce({
+      committed: true,
+      previous: new Map([
+        ['a', true],
+        ['b', true],
+      ]),
+    });
+    const { result } = renderHook(() => useModelBulkToggle({ busyModelIds: NO_BUSY, toggleMany }));
+    await act(async () => {
+      await result.current({ enabled: false, modelIds: ['a', 'b'], scopeLabel: 'OpenAI' });
+    });
+    // Both rows were re-enabled by hand after the bulk disable.
+    seedStore(['a', 'b'], true);
+
+    act(() => undoActionOf(0)());
+
+    await vi.waitFor(() => {
+      expect(toast).toHaveBeenCalledTimes(2);
+    });
+    expect(toggleMany).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Nothing to undo' }));
+  });
+
   it('Undo leaves a row the user toggled after the bulk change, and says so', async () => {
     toggleMany.mockResolvedValueOnce({
       committed: true,

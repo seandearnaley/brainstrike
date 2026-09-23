@@ -9,6 +9,8 @@ describe('formatUsd', () => {
     [1.25, '$1.25'],
     [0.075, '$0.075'],
     [0, '$0'],
+    [1e-7, '$0.0000001'],
+    [0.000_012_5, '$0.0000125'],
   ])('%s → %s', (amount, expected) => {
     expect(formatUsd(amount)).toBe(expected);
   });

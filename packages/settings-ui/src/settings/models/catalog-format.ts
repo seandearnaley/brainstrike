@@ -7,7 +7,8 @@ export function formatUsd(amount: number): string {
   if (Math.abs(cents - Math.round(cents)) < 1e-9) {
     return `$${amount.toFixed(2)}`;
   }
-  return `$${amount}`;
+  // Never `${amount}`: tiny rates would print in exponent form ("$1e-7").
+  return `$${amount.toLocaleString('en-US', { maximumFractionDigits: 20, useGrouping: false })}`;
 }
 
 export function pluralNoun(count: number, singular: string): string {

@@ -69,9 +69,14 @@ interface ModelRegistryState {
   setModelCacheDir: (dir: string) => void;
   /**
    * Enables or disables many models in ONE atomic statement (BST-1805) and
-   * resolves with each id's PRIOR enabled state, for Undo. Rejects — after
-   * restoring those exact states and scheduling a registry refresh — when the
-   * write fails, when an id is not in the loaded registry, or when any id is
+   * resolves with each id's PRIOR enabled state, for Undo.
+   *
+   * Refuses up front — before the optimistic update, so with no restore, no
+   * refresh and no log — when the id list is empty, or when an id is not in
+   * the loaded registry.
+   *
+   * Otherwise rejects — after restoring those exact prior states and
+   * scheduling a registry refresh — when the write fails, or when any id is
    * missing from the database (in which case nothing is written).
    */
   setModelsEnabled: (

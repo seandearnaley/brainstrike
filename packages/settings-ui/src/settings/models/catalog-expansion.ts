@@ -21,9 +21,14 @@ const NO_SECTIONS: ReadonlySet<string> = new Set<string>();
 export function defaultManualExpansion(
   stats: readonly Pick<CatalogProviderStat, 'enabledCount' | 'providerId'>[]
 ): ReadonlySet<string> {
-  const withEnabled = stats.filter((stat) => stat.enabledCount > 0).map((stat) => stat.providerId);
-  if (withEnabled.length > 0) {
-    return new Set(withEnabled);
+  const withEnabled = new Set<string>();
+  for (const stat of stats) {
+    if (stat.enabledCount > 0) {
+      withEnabled.add(stat.providerId);
+    }
+  }
+  if (withEnabled.size > 0) {
+    return withEnabled;
   }
   const first = stats[0];
   return first ? new Set([first.providerId]) : NO_SECTIONS;

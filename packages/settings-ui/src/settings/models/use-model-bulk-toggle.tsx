@@ -73,10 +73,16 @@ export function useModelBulkToggle({
   const undo = useCallback(
     async (previous: ReadonlyMap<string, boolean>, target: boolean): Promise<void> => {
       const restorable = restorableEntries(previous, target, busyRef.current);
+      if (restorable.size === 0) {
+        toast({ title: 'Nothing to undo' });
+        return;
+      }
       const { disable, enable } = groupByPreviousState(restorable);
-      const reEnabled = enable.length > 0 ? await toggleMany(enable, true) : null;
-      const reDisabled = disable.length > 0 ? await toggleMany(disable, false) : null;
-      if (reEnabled?.committed === false || reDisabled?.committed === false) {
+      // A failed write already raised toggleMany's destructive toast; stop there.
+      if (enable.length > 0 && !(await toggleMany(enable, true)).committed) {
+        return;
+      }
+      if (disable.length > 0 && !(await toggleMany(disable, false)).committed) {
         return;
       }
       toast({
