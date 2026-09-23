@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { DELEGATION_LIMITS } from '../delegation-limits.js';
 import {
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  NODE_TIMER_MAX_MS,
   parseRuntimeSubagentSettings,
   RuntimeSubagentSettingsError,
+  resolveChildTaskTimeoutMs,
   SUBAGENT_SETTINGS_LIMITS,
 } from '../subagent-settings.js';
 
@@ -11,14 +13,27 @@ describe('RuntimeSubagentSettings', () => {
   it('ships the raised defaults the swarm runs need', () => {
     expect(DEFAULT_RUNTIME_SUBAGENT_SETTINGS).toEqual({
       maxChildOutputTokens: 32_768,
-      maxChildSteps: 32,
+      maxChildRuntimeMs: null,
+      maxChildSteps: 100,
       maxStepOutputTokens: 8192,
       synthesisOutputTokens: 2048,
     });
   });
 
+  it('runs a child without a wall-clock deadline by default (Off = the longest timer Node arms)', () => {
+    expect(NODE_TIMER_MAX_MS).toBe(2 ** 31 - 1);
+    expect(resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS)).toBe(NODE_TIMER_MAX_MS);
+    expect(
+      resolveChildTaskTimeoutMs({ ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildRuntimeMs: 90_000 })
+    ).toBe(90_000);
+    expect(SUBAGENT_SETTINGS_LIMITS.maxChildRuntimeMs).toEqual({
+      max: NODE_TIMER_MAX_MS,
+      min: 1000,
+    });
+  });
+
   it('pins the validation ranges and keeps the per-child ceiling under the tree ceiling', () => {
-    expect(SUBAGENT_SETTINGS_LIMITS.maxChildSteps).toEqual({ max: 64, min: 1 });
+    expect(SUBAGENT_SETTINGS_LIMITS.maxChildSteps).toEqual({ max: 1000, min: 1 });
     expect(SUBAGENT_SETTINGS_LIMITS.synthesisOutputTokens).toEqual({ max: 8192, min: 256 });
     expect(SUBAGENT_SETTINGS_LIMITS.maxChildOutputTokens.max).toBe(
       DELEGATION_LIMITS.maxTreeOutputTokens
@@ -32,7 +47,8 @@ describe('RuntimeSubagentSettings', () => {
   it('accepts a value inside every range unchanged', () => {
     const value = {
       maxChildOutputTokens: 65_536,
-      maxChildSteps: 64,
+      maxChildRuntimeMs: 3_600_000,
+      maxChildSteps: 1000,
       maxStepOutputTokens: 4096,
       synthesisOutputTokens: 256,
     };
@@ -46,9 +62,21 @@ describe('RuntimeSubagentSettings', () => {
       'a missing field',
       { maxChildSteps: 32, maxStepOutputTokens: 8192, synthesisOutputTokens: 2048 },
     ],
+    [
+      'a runtime below one second',
+      { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildRuntimeMs: 999 },
+    ],
+    [
+      'a runtime Node would fire immediately',
+      { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildRuntimeMs: NODE_TIMER_MAX_MS + 1 },
+    ],
+    [
+      'an infinite runtime (Off is null, never Infinity)',
+      { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildRuntimeMs: Number.POSITIVE_INFINITY },
+    ],
     ['an unknown field', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth: 9 }],
     ['zero steps', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 0 }],
-    ['65 steps', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 65 }],
+    ['1001 steps', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 1001 }],
     ['fractional steps', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 2.5 }],
     ['synthesis below 256', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, synthesisOutputTokens: 255 }],
     ['synthesis above 8192', { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, synthesisOutputTokens: 8193 }],

@@ -19,7 +19,11 @@ import {
   type RuntimeData,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import { parseRuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
+import type { BackgroundTaskOwnership } from '@brainstrike/agent/pglite-mastra-memory';
+import {
+  parseRuntimeSubagentSettings,
+  resolveChildTaskTimeoutMs,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import {
   type DesktopMemoryModelTargetDescriptor,
   type DesktopMemoryModelTargetResolution,
@@ -259,18 +263,22 @@ async function createDesktopMastraMemoryFromCacheState({
     semanticRecallEmbeddingTarget,
   });
   if (runId) {
+    // Absent → defaults; malformed → throws before any child can be admitted.
+    const subagentSettings = parseRuntimeSubagentSettings(runtimeData?.subagentSettings);
     const runDatabase = createRunCriticalDatabase(database, { eventSink, runId });
     // Run-scoped memory instances intentionally bypass the shared cache so the
     // per-run event sink cannot leak observability events across concurrent runs.
+    const backgroundTasks: BackgroundTaskOwnership = runtimeData?.memory
+      ? {
+          backgroundTaskScope: {
+            resourceId: runtimeData.memory.resourceId,
+            threadId: runtimeData.memory.threadId,
+          },
+          backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(subagentSettings),
+        }
+      : {};
     const memory = await createPgliteMastraMemory({
-      ...(runtimeData?.memory
-        ? {
-            backgroundTaskScope: {
-              resourceId: runtimeData.memory.resourceId,
-              threadId: runtimeData.memory.threadId,
-            },
-          }
-        : {}),
+      ...backgroundTasks,
       database: runDatabase,
       ...(embedder ? { embedder } : {}),
       ...(eventSink ? { eventSink } : {}),
@@ -295,8 +303,7 @@ async function createDesktopMastraMemoryFromCacheState({
           runtimeData,
           memoryDependencies?.snapshots
         ),
-      // Absent → defaults; malformed → throws before any child can be admitted.
-      parseRuntimeSubagentSettings(runtimeData?.subagentSettings)
+      subagentSettings
     );
     return {
       ...memory,

@@ -1,4 +1,5 @@
 export {
+  type BackgroundTaskOwnership,
   createPgliteMastraMemory,
   type PgliteMastraMemoryOptions,
   type PgliteMastraMemoryResult,

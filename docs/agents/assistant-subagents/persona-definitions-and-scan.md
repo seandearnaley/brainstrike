@@ -159,3 +159,11 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   fields on built-in and user items; `personas.test.ts` pins the helper
   against the model-facing description. An older bridge that omits the fields
   renders no scope line rather than a guess.
+
+2026-09-22 (BST-1799): the step setting governs. Built-ins declared 32 (Worker
+16) and effective = min(persona, setting), so a "Max steps per subagent" above
+32 silently did nothing. `MAX_USER_PERSONA_MAX_STEPS` is now the host ceiling
+(`SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max`, 1000), every built-in declares it,
+and a user persona that omits `maxSteps` does too (previously 8). The rule that
+a built-in declares nothing a user persona cannot still holds; an author opts
+into a LOWER cap only by declaring one.

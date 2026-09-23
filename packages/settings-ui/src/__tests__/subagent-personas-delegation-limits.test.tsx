@@ -69,9 +69,9 @@ describe('SubagentPersonasSettingsSection delegation limits', () => {
 
   it('states each persona step budget through the shared helper the host enforces with', () => {
     render(<SubagentPersonasSettingsSection />);
-    // Built-ins declare 32 steps; the helper answers 3 while the cap is 7.
-    // The panel must show that answer, not its own arithmetic.
+    // Built-ins declare the 1000-step ceiling; the helper answers 3 while the
+    // cap is 7. The panel must show that answer, not its own arithmetic.
     expect(screen.getAllByText(/Up to 3 steps/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Up to 32 steps/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Up to 1000 steps/)).not.toBeInTheDocument();
   });
 });
