@@ -1,3 +1,5 @@
+import type { TurnSubagentLimits } from './subagent-settings.js';
+
 /*
  * Delegation budget TYPES. The limits themselves — tree and per-child — are
  * user settings (`RuntimeSubagentSettings`, `subagent-settings.ts`). There is
@@ -43,6 +45,12 @@ export interface DelegatedBudgetPort {
     parentThreadId: string;
     parentResourceId: string;
   }): Promise<DelegatedInvocationAdmission>;
+  /**
+   * The limits this leg's original turn stored in its budget row at first
+   * admission, or `undefined` while the turn has no row. A later leg runs
+   * under these, never under its own request's (`applyTurnSubagentLimits`).
+   */
+  readTurnLimits(): Promise<TurnSubagentLimits | undefined>;
   reserveStep(scope: { threadId: string; resourceId: string }): Promise<DelegatedStepReservation>;
   settleStep(reservationId: string, outputTokens: number | undefined): Promise<void>;
 }

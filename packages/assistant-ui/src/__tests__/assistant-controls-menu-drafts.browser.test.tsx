@@ -8,7 +8,12 @@
  */
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
+import {
+  type AssistantProviderSettingsMap,
+  mergeAssistantProviderSettings,
+} from '@brainstrike/types';
 import { cleanup, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import { ControlsMenu } from '../assistant-controls-menu';
@@ -128,6 +133,57 @@ describe('ControlsMenu Output & Limits drafts (real browser)', () => {
       'Enter a whole number of steps from 1 to 1,000.'
     );
     expect(onProviderSettingsChange).not.toHaveBeenCalled();
+  });
+
+  test('switching a refused output draft to Auto lets an outside click dismiss the menu again', async () => {
+    const onProviderSettingsChange = vi.fn();
+    function StatefulMenu() {
+      const [settings, setSettings] = useState<AssistantProviderSettingsMap>({
+        OpenAI: { maxOutputTokens: 1024 },
+      });
+      return (
+        <ControlsMenu
+          modelName="gpt-5"
+          onProviderSettingsChange={(providerId, updates) => {
+            onProviderSettingsChange(providerId, updates);
+            setSettings((current) => ({
+              ...current,
+              [providerId]: mergeAssistantProviderSettings(current[providerId], updates),
+            }));
+          }}
+          providerSettings={settings}
+          selectedProvider="OpenAI"
+        />
+      );
+    }
+    render(
+      <div>
+        <button type="button">Outside</button>
+        <StatefulMenu />
+      </div>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Open assistant controls' }));
+    const submenu = await screen.findByText('Output & Limits');
+    await userEvent.hover(submenu);
+    await userEvent.click(submenu);
+    const output = await screen.findByRole('spinbutton', { name: 'Output token limit' });
+    await userEvent.clear(output);
+    await userEvent.click(output);
+    await userEvent.keyboard('99999{Enter}');
+    expect(screen.getByRole('alert')).toHaveTextContent('Output limit exceeds the 8,192 maximum.');
+
+    await userEvent.click(screen.getByRole('switch', { name: 'Limit output tokens per step' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { hidden: true, name: 'Outside' }), {
+      force: true,
+    });
+
+    await expect
+      .poll(() => screen.queryByRole('spinbutton', { name: 'Output token limit' }))
+      .toBeNull();
+    expect(onProviderSettingsChange.mock.calls).toEqual([
+      ['OpenAI', { maxOutputTokens: undefined }],
+    ]);
   });
 
   test('ArrowLeft moves the caret in a field instead of closing the submenu over its draft', async () => {

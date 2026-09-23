@@ -230,3 +230,24 @@ below `maxDepth`), `background-idle-loop.spec.ts` (wakeup bound),
 `subagent-settings-section.test.tsx`, `subagent-personas-delegation-limits.test.tsx`
 and `delegated-conversation-toolbar.test.tsx`. The admission suites pin the old
 numbers explicitly (`BUDGETED_HOST_SETTINGS`) because they test exact races.
+
+2026-09-22 (BST-1801 review, PR #3285): the row, not the leg's request, is the
+turn's authority. `lockBudget` freezes depth, invocations, tree output and the
+per-child budgets at first admission, yet the idle-loop wakeup bound, the
+worker recursion gate and the model-facing delegation description read the
+CURRENT leg's request, so lowering `maxInvocations` between an approval pause
+and its resume failed the resume leg with `background_parent_wakeup_limit_exceeded`
+although admission had allowed those tasks. `DelegatedBudgetPort.readTurnLimits`
+(the desktop host reads the leg's turn row; `undefined` before first admission)
+feeds `applyTurnSubagentLimits` once, in `createMastraAgentRuntime`, so every
+consumer of `runtime.subagentSettings` sees the stored limits; the first leg's
+values are its request's because it opens the row from that request. A stored
+row the contract rejects throws. `maxConcurrentWork` (each leg's queue) and
+`maxChildRuntimeMs` (each leg's task deadline) stay per request. The child
+toolbar's "Level N of M" reads the same row (`budget.maxDepth` from
+`readDelegatedConversationInsights`); a legacy child without a row states its
+level alone. Paired tests: `subagent-settings.test.ts` (`applyTurnSubagentLimits`),
+`subagent-settings-runtime.spec.ts` ("a later leg keeps the turn row's limits"),
+`delegated-budget-settings.integration.test.ts` ("a later leg reads the turn's
+limits from the row"), `delegated-conversation-insights.integration.test.ts`,
+`delegated-conversation-toolbar.test.tsx`.

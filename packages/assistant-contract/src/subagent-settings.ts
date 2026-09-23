@@ -11,6 +11,11 @@ import { z } from 'zod';
  *   `maxConcurrentWork` sizes each leg's work queue.
  * - PER-CHILD allocations, each within the tree: steps, summary, child and
  *   step output (copied into the same row), and the runtime limit.
+ *
+ * Everything the row stores is TURN-scoped (`TurnSubagentLimits`): a later
+ * leg of the same turn reads it back from the row (`applyTurnSubagentLimits`)
+ * so it never enforces or tells the model different limits than the host
+ * admitted under. `maxConcurrentWork` and `maxChildRuntimeMs` are PER-REQUEST.
  */
 export interface RuntimeSubagentSettings {
   maxChildOutputTokens: number;
@@ -149,6 +154,18 @@ export const runtimeSubagentSettingsSchema = z
     }
   });
 
+/** The limits one original root turn freezes into its budget row at first admission. */
+export type TurnSubagentLimits = Pick<
+  RuntimeSubagentSettings,
+  | 'maxChildOutputTokens'
+  | 'maxChildSteps'
+  | 'maxDepth'
+  | 'maxInvocations'
+  | 'maxStepOutputTokens'
+  | 'maxTreeOutputTokens'
+  | 'synthesisOutputTokens'
+>;
+
 export class RuntimeSubagentSettingsError extends Error {
   override readonly name = 'RuntimeSubagentSettingsError';
 }
@@ -170,6 +187,22 @@ export function parseRuntimeSubagentSettings(value: unknown): RuntimeSubagentSet
     throw new RuntimeSubagentSettingsError(`Subagent settings are malformed: ${issues}`);
   }
   return parsed.data;
+}
+
+/**
+ * The settings one leg runs under: the turn's stored limits when its budget
+ * row exists (`turn`), the request's per-request knobs always. `undefined`
+ * (no row yet: the leg that first delegates opens it from this very request)
+ * is the request itself. A stored row the contract rejects THROWS.
+ */
+export function applyTurnSubagentLimits(
+  request: RuntimeSubagentSettings,
+  turn: TurnSubagentLimits | undefined
+): RuntimeSubagentSettings {
+  if (turn === undefined) {
+    return request;
+  }
+  return parseRuntimeSubagentSettings({ ...request, ...turn });
 }
 
 /**

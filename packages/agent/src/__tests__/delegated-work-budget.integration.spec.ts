@@ -42,6 +42,7 @@ describe('native delegated work budget boundaries', () => {
     });
     const budget: DelegatedBudgetPort = {
       admitInvocation: async () => ({ admitted: true as const }),
+      readTurnLimits: async () => undefined,
       reserveStep: vi.fn(async () => ({
         cap: 'steps' as const,
         id: 'reserved-summary',
@@ -90,6 +91,7 @@ describe('native delegated work budget boundaries', () => {
     const fixture = scriptedAgentModel(() => toolCallParts('effect', 'over-budget-effect', {}));
     const budget: DelegatedBudgetPort = {
       admitInvocation: async () => ({ admitted: true as const }),
+      readTurnLimits: async () => undefined,
       reserveStep: vi.fn(async () => ({
         id: 'reservation',
         outputTokens: 8192,
@@ -181,6 +183,7 @@ describe('native delegated work budget boundaries', () => {
     const model = scriptedAgentModel(() => textParts('model entered after release'));
     const budget: DelegatedBudgetPort = {
       admitInvocation: async () => ({ admitted: true as const }),
+      readTurnLimits: async () => undefined,
       reserveStep: vi.fn(async () => ({
         id: 'third',
         outputTokens: 512,
@@ -224,6 +227,7 @@ describe('native delegated work budget boundaries', () => {
       );
       const budget: DelegatedBudgetPort = {
         admitInvocation: async () => ({ admitted: true as const }),
+        readTurnLimits: async () => undefined,
         reserveStep: async () => ({
           cap: 'steps',
           id: 'summary',
@@ -276,6 +280,7 @@ describe('native delegated work budget boundaries', () => {
       );
       const budget: DelegatedBudgetPort = {
         admitInvocation: async () => ({ admitted: true as const }),
+        readTurnLimits: async () => undefined,
         reserveStep: vi.fn(async () => ({
           cap: 'steps' as const,
           id: 'reserved-summary',
@@ -348,6 +353,7 @@ describe('native delegated work budget boundaries', () => {
     let synthesis = false;
     const budget: DelegatedBudgetPort = {
       admitInvocation: async () => ({ admitted: true as const }),
+      readTurnLimits: async () => undefined,
       reserveStep: vi.fn(async () =>
         synthesis
           ? {

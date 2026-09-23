@@ -91,6 +91,7 @@ it('four specialist Explorer children complete under a read:ask posture with one
   const binding = {
     budget: {
       admitInvocation: async () => ({ admitted: true as const }),
+      readTurnLimits: async () => undefined,
       reserveStep: async (_scope: { threadId: string; resourceId: string }) => {
         const id = `reservation-${reservations.length}`;
         reservations.push(id);

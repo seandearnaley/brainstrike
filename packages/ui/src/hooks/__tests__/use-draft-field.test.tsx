@@ -201,4 +201,48 @@ describe('useDraftField', () => {
     expect(landed).toBe(true);
     expect(onStore.mock.calls).toEqual([[120]]);
   });
+
+  it('revert() reports through onRevert, so no caller can forget to clear a refusal', () => {
+    const onRevert = vi.fn();
+    let revert: (() => void) | undefined;
+    function RevertHarness() {
+      const field = useDraftField({ commit: () => 'never valid', onRevert, value: '1' });
+      revert = field.revert;
+      return <input aria-label="Field" {...field.inputProps} />;
+    }
+    render(<RevertHarness />);
+    fireEvent.change(screen.getByLabelText('Field'), { target: { value: '2' } });
+    act(() => {
+      revert?.();
+    });
+    expect(onRevert).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Field')).toHaveValue('1');
+  });
+
+  it('does not commit a refused draft again as-is; returning to the field re-validates it', async () => {
+    const user = userEvent.setup();
+    const commit = vi.fn(() => 'Too large.');
+    function CountingHarness() {
+      const field = useDraftField({ commit, value: '1' });
+      return (
+        <>
+          <input aria-label="Field" {...field.inputProps} />
+          {field.error ? <p role="alert">{field.error}</p> : null}
+        </>
+      );
+    }
+    render(<CountingHarness />);
+    const input = screen.getByLabelText('Field');
+    await user.clear(input);
+    await user.type(input, '9{Enter}');
+    expect(commit).toHaveBeenCalledTimes(1);
+    // The blur after a refused Enter repeats nothing: same draft, same outcome.
+    await user.tab();
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert')).toHaveTextContent('Too large.');
+    // Coming back to the field (its rules may have changed meanwhile) re-checks it.
+    await user.click(input);
+    await user.tab();
+    expect(commit).toHaveBeenCalledTimes(2);
+  });
 });

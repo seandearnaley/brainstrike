@@ -179,6 +179,7 @@ describe('worker recursion depth', () => {
           bindRun: async () => ({ threadId: 'worker-child' }),
           budget: {
             admitInvocation: async () => ({ admitted: true as const }),
+            readTurnLimits: async () => undefined,
             reserveStep: async () => ({ id: 'unused', outputTokens: 512, synthesis: false }),
             settleStep: async () => undefined,
           },

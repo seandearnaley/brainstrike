@@ -106,6 +106,7 @@ it.for([
             ? { admitted: false as const, reason: hostReason }
             : { admitted: true as const };
         },
+        readTurnLimits: async () => undefined,
         reserveStep: async (_scope: { threadId: string; resourceId: string }) => ({
           id: `reservation-${identities.length}`,
           outputTokens: 8192,

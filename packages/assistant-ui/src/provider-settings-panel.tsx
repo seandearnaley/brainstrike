@@ -470,7 +470,8 @@ const MaxOutputSection = ({
           checked={maxOutputEnabled}
           disabled={disabled}
           onCheckedChange={(checked) => {
-            onValidationChange?.(undefined);
+            // Discards a refused draft and, through `onRevert`, its composer block.
+            field.revert();
             onUpdate({
               maxOutputTokens: checked ? maxOutputValue : undefined,
             });
@@ -503,12 +504,13 @@ const MaxOutputSection = ({
       <FieldRefusal id={errorId} message={field.error} />
       <input
         aria-label="Max output tokens"
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-colors hover:bg-muted/80"
         disabled={disabled || !maxOutputEnabled}
         max={maximum}
         min={MAX_OUTPUT_MIN}
         onChange={(event) => {
-          onValidationChange?.(undefined);
+          // The slider sets the value another way: the typed draft is discarded.
+          field.revert();
           onUpdate({
             maxOutputTokens: clampNumber(Number(event.target.value), MAX_OUTPUT_MIN, maximum),
           });
@@ -624,19 +626,21 @@ const AnthropicReasoningSection = ({
           <FieldRefusal id={thinkingErrorId} message={thinkingBudget.error} />
           <input
             aria-label="Anthropic thinking budget"
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-colors hover:bg-muted/80"
             disabled={disabled || !thinkingEnabled}
             max={ANTHROPIC_THINKING_MAX}
             min={ANTHROPIC_THINKING_MIN}
-            onChange={(event) =>
+            onChange={(event) => {
+              // The slider sets the value another way: the typed draft is discarded.
+              thinkingBudget.revert();
               onUpdate({
                 anthropicThinkingBudgetTokens: clampNumber(
                   Number(event.target.value),
                   ANTHROPIC_THINKING_MIN,
                   ANTHROPIC_THINKING_MAX
                 ),
-              })
-            }
+              });
+            }}
             step={ANTHROPIC_THINKING_STEP}
             type="range"
             value={thinkingEnabled ? thinkingValue : ANTHROPIC_THINKING_DEFAULT}
@@ -803,7 +807,10 @@ export const ProviderSettingsPanel = ({
               : MAX_OUTPUT_DEFAULT
           }
           disabled={!canUpdate}
-          key={`${providerId}:${modelName ?? ''}:${currentSettings.maxOutputTokens ?? 'auto'}:${maximumOutputTokens}`}
+          // Not keyed on the stored value: the draft field shows it whenever no
+          // draft is pending, and a remount per commit would drop focus and
+          // silently discard a refused draft instead of reverting it.
+          key={`${providerId}:${modelName ?? ''}`}
           maximum={maximumOutputTokens}
           maximumSource={openRouterLimits?.sourceLabel}
           onUpdate={updateSettings}

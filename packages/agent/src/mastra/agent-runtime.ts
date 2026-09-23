@@ -1,6 +1,7 @@
 import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import {
+  applyTurnSubagentLimits,
   parseRuntimeSubagentSettings,
   type RuntimeSubagentSettings,
   resolveChildTaskTimeoutMs,
@@ -322,8 +323,9 @@ export interface MastraAgentRuntime {
   resolvedToolResultBudget: ScaledToolResultBudget;
   rootDelegatedContextProcessor?: InputProcessor | undefined;
   /**
-   * Validated request budgets (`runtimeData.subagentSettings`, absent →
-   * defaults); the delegation config clamps every child with them.
+   * The leg's validated limits: the request's (`runtimeData.subagentSettings`,
+   * absent → defaults) with the turn's stored limits over them once its
+   * budget row exists. Every consumer reads these, never the request.
    */
   subagentSettings: RuntimeSubagentSettings;
   /** Bounded, content-free token measurements for this concrete run/tool map. */
@@ -843,8 +845,12 @@ export async function createMastraAgentRuntime(
   // Subagent personas (D10): built BEFORE the instructions so guidance only
   // names personas that actually registered a delegation tool this run.
   // Validated ONCE per runtime; a malformed request field fails construction
-  // loudly rather than admitting a child under an unknown budget.
-  const subagentSettings = parseRuntimeSubagentSettings(sanitizedRuntime.subagentSettings);
+  // loudly rather than admitting a child under an unknown budget. A later leg
+  // of a turn runs under the limits its budget row stored, not its request's.
+  const subagentSettings = applyTurnSubagentLimits(
+    parseRuntimeSubagentSettings(sanitizedRuntime.subagentSettings),
+    await options.conversationBinding?.budget?.readTurnLimits()
+  );
   const delegatedExecutionOptions: DelegatedExecutionOptions = {};
   const delegatedTurnPersistence = createDelegatedTurnPersistence(memory, sanitizedRuntime.memory);
   const {

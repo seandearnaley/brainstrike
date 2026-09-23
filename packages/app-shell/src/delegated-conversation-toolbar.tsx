@@ -73,6 +73,14 @@ function formatPermissionPolicy(
     .join(' · ');
 }
 
+/**
+ * The child's level against the depth its turn STORED with its budget; a
+ * legacy child whose turn has no budget row states its level alone.
+ */
+function describeLevel(value: DelegatedConversationInsights): string {
+  return value.budget ? `Level ${value.depth} of ${value.budget.maxDepth}` : `Level ${value.depth}`;
+}
+
 function AdmittedConfigurationDetails({
   execution,
   latestReceiptInvalid,
@@ -84,9 +92,8 @@ function AdmittedConfigurationDetails({
   readonly persona: AssistantPersonaDefinition;
   readonly value: DelegatedConversationInsights;
 }) {
-  // The admitted profile's declared steps capped by, and the level measured
-  // against, the CURRENT user settings (the turn's durable budget row is what
-  // the host enforces; see the header).
+  // The admitted profile's declared steps, capped by the CURRENT user setting
+  // (the durable per-child row is what the host enforces; see the header).
   const subagentSettings = useAssistantSubagentPreferencesStore((state) => state.settings);
   const scope = personaScope(persona);
   const model =
@@ -120,9 +127,7 @@ function AdmittedConfigurationDetails({
         <p>Effort not recorded</p>
       )}
       <p>Up to {effectiveChildStepBudget(persona, subagentSettings)} steps</p>
-      <p>
-        Level {value.depth} of {subagentSettings.maxDepth}
-      </p>
+      <p>{describeLevel(value)}</p>
       <p className="text-muted-foreground">
         Current host permissions still apply. This admitted profile cannot expand them.
       </p>

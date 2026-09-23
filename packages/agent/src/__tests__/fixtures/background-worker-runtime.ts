@@ -58,6 +58,7 @@ function createScriptedBudgetPort(limits: {
   const reservations = new Map<string, number>();
   return {
     admitInvocation: async () => ({ admitted: true as const }),
+    readTurnLimits: async () => undefined,
     reserveStep: async ({ threadId }) => {
       const used = steps.get(threadId) ?? 0;
       if (used >= limits.maxSteps) {

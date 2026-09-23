@@ -336,11 +336,16 @@ export async function setupFanout(
         "SELECT tool_call_id FROM mastra_background_tasks WHERE status = 'suspended' ORDER BY tool_call_id"
       )
     ).rows.map((row) => row.tool_call_id);
+  // Discovery runs OUTSIDE any host leg, as the status route does: its memory
+  // carries no run binding (a binding names a host run whose row must exist).
   const discover = async () =>
     listSuspendedMastraRuns(
       { resourceId: 'owner', threadId: 'root' },
       {
-        ...(await leg(`resume-host-${legs}`)),
+        ...baseOptions,
+        ...(await getDesktopMastraMemory(settings, undefined, undefined, {
+          memory: runtimeMemory,
+        })),
         backgroundTaskScope: { resourceId: 'owner', threadId: 'root' },
         delegatedSuspensionDiscovery: createDesktopDelegatedSuspensionResolver(database, {
           ownerResourceId: 'owner',

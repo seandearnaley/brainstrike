@@ -4,7 +4,10 @@ import {
   DelegatedOutputReservationExceededError,
   type DelegatedStepReservation,
 } from '@brainstrike/assistant-contract';
-import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
+import type {
+  RuntimeSubagentSettings,
+  TurnSubagentLimits,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import {
   createDelegatedConversationRepository,
   type DelegatedConversationDatabase,
@@ -22,6 +25,15 @@ const treeSchema = z.object({
   maxStepOutputTokens: z.number().int().positive(),
   synthesisOutputTokens: z.number().int().positive(),
 });
+const turnLimitsSchema = z.strictObject({
+  maxChildOutputTokens: z.number().int().positive(),
+  maxChildSteps: z.number().int().positive(),
+  maxDepth: z.number().int().positive(),
+  maxInvocations: z.number().int().positive(),
+  maxStepOutputTokens: z.number().int().positive(),
+  maxTreeOutputTokens: z.number().int().positive(),
+  synthesisOutputTokens: z.number().int().positive(),
+}) satisfies z.ZodType<TurnSubagentLimits>;
 const childSchema = z.object({
   chargedOutputTokens: z.number().int().nonnegative(),
   maxSteps: z.number().int().positive(),
@@ -116,6 +128,19 @@ export function createDelegatedStepBudget(
           subagentSettings
         );
       });
+    },
+    async readTurnLimits() {
+      const scope = await readScope();
+      const result = await database.query(
+        `SELECT max_child_output_tokens AS "maxChildOutputTokens", max_child_steps AS "maxChildSteps",
+           max_depth AS "maxDepth", max_invocations AS "maxInvocations",
+           max_step_output_tokens AS "maxStepOutputTokens", max_output_tokens AS "maxTreeOutputTokens",
+           synthesis_output_tokens AS "synthesisOutputTokens"
+         FROM brainstrike_delegation_budgets
+         WHERE root_thread_id = $1 AND turn_message_id = $2 AND owner_resource_id = $3`,
+        [scope.rootThreadId, scope.turnMessageId, scope.ownerResourceId]
+      );
+      return result.rows.length === 0 ? undefined : turnLimitsSchema.parse(result.rows[0]);
     },
     async reserveStep(childScope) {
       return await transact(async (tx, scope) => {

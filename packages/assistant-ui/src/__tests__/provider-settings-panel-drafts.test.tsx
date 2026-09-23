@@ -6,8 +6,10 @@
  * the range is REFUSED with a message and stores nothing — never clamped.
  */
 import '@testing-library/jest-dom/vitest';
+import { type AssistantProviderSettings, mergeAssistantProviderSettings } from '@brainstrike/types';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProviderSettingsPanel } from '../provider-settings-panel';
 
@@ -238,6 +240,74 @@ describe('ProviderSettingsPanel number fields', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(onValidationChange).toHaveBeenLastCalledWith(undefined);
     expect(onSettingsChange).not.toHaveBeenCalled();
+  });
+
+  it('switching an output limit to Auto discards its refused draft and unblocks the composer', async () => {
+    const user = userEvent.setup();
+    const onValidationChange = vi.fn();
+    function StatefulPanel() {
+      const [settings, setSettings] = useState<AssistantProviderSettings>({
+        maxOutputTokens: 1024,
+      });
+      return (
+        <ProviderSettingsPanel
+          onSettingsChange={(_providerId, updates) =>
+            setSettings((current) => mergeAssistantProviderSettings(current, updates))
+          }
+          onValidationChange={onValidationChange}
+          providerId="openai"
+          settings={settings}
+        />
+      );
+    }
+    render(<StatefulPanel />);
+    const output = screen.getByRole('spinbutton', { name: 'Output token limit' });
+    await user.clear(output);
+    await user.type(output, '99999{Enter}');
+    expect(screen.getByRole('alert')).toHaveTextContent(/8,192 maximum/);
+
+    await user.click(screen.getByRole('switch', { name: 'Limit output tokens per step' }));
+
+    const auto = screen.getByRole('spinbutton', { name: 'Output token limit' });
+    expect(auto).toBeDisabled();
+    expect(auto).toHaveValue(null);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(onValidationChange).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('moving a slider discards the refused draft it overrides, and its composer block', async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const onValidationChange = vi.fn();
+    render(
+      <ProviderSettingsPanel
+        onSettingsChange={onSettingsChange}
+        onValidationChange={onValidationChange}
+        providerId="anthropic"
+        settings={{ anthropicThinkingBudgetTokens: 4096, maxOutputTokens: 1024 }}
+      />
+    );
+    const output = screen.getByRole('spinbutton', { name: 'Output token limit' });
+    await user.clear(output);
+    await user.type(output, '99999{Enter}');
+    const thinking = screen.getByRole('spinbutton', { name: 'Anthropic thinking budget input' });
+    await user.clear(thinking);
+    await user.type(thinking, '5{Enter}');
+    expect(screen.getAllByRole('alert')).toHaveLength(2);
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Max output tokens' }), {
+      target: { value: '2048' },
+    });
+    fireEvent.change(screen.getByRole('slider', { name: 'Anthropic thinking budget' }), {
+      target: { value: '8192' },
+    });
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(onValidationChange).toHaveBeenLastCalledWith(undefined);
+    expect(onSettingsChange.mock.calls).toEqual([
+      ['anthropic', { maxOutputTokens: 2048 }],
+      ['anthropic', { anthropicThinkingBudgetTokens: 8192 }],
+    ]);
   });
 
   it('commits a typed thinking budget on blur, not per keystroke', async () => {

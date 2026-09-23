@@ -58,16 +58,43 @@ it('shows the admitted scope and real run model while keeping uncaptured usage a
   expect(screen.getByText('No captured usage yet')).toBeVisible();
   expect(screen.queryByText(/\$0/)).not.toBeInTheDocument();
 });
-it("states the child's level against the user's depth setting, not a constant", async () => {
+it("states the child's level against the depth its turn stored, not today's setting", async () => {
+  // The user has since lowered the setting; the turn ran under 7.
   useAssistantSubagentPreferencesStore.setState({
-    settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth: 7 },
+    settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth: 1 },
   });
+  const user = userEvent.setup();
+  render(
+    <DelegatedConversationToolbar
+      insights={{
+        status: 'ready',
+        value: {
+          ...insights(),
+          budget: {
+            chargedOutputTokens: 0,
+            maxChildOutputTokens: 32_768,
+            maxDepth: 7,
+            maxSteps: 32,
+            steps: 0,
+            synthesisUsed: false,
+          },
+          depth: 2,
+        },
+      }}
+      isRunning
+    />
+  );
+  await user.click(screen.getByRole('button', { name: 'Child details' }));
+  expect(screen.getByText('Level 2 of 7')).toBeVisible();
+});
+it('states only the level of a legacy child whose turn stored no budget', async () => {
   const user = userEvent.setup();
   render(
     <DelegatedConversationToolbar insights={{ status: 'ready', value: insights() }} isRunning />
   );
   await user.click(screen.getByRole('button', { name: 'Child details' }));
-  expect(screen.getByText('Level 1 of 7')).toBeVisible();
+  expect(screen.getByText('Level 1')).toBeVisible();
+  expect(screen.queryByText(/Level 1 of/)).not.toBeInTheDocument();
 });
 it('uses the ordinary usage renderer for separate direct and inclusive totals without pricing an unknown model', async () => {
   const user = userEvent.setup();
@@ -196,6 +223,7 @@ it('states steps and output tokens used against the child budget in the header',
           budget: {
             chargedOutputTokens: 6100,
             maxChildOutputTokens: 32_768,
+            maxDepth: 3,
             maxSteps: 32,
             steps: 12,
             synthesisUsed: false,

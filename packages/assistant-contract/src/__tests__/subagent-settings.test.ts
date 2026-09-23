@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as contract from '../index.js';
 import {
+  applyTurnSubagentLimits,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   NODE_TIMER_MAX_MS,
   parseRuntimeSubagentSettings,
@@ -159,6 +160,46 @@ describe('RuntimeSubagentSettings', () => {
   ])('THROWS on %s instead of coercing', (_label, value) => {
     expect(() => parseRuntimeSubagentSettings(value)).toThrow(RuntimeSubagentSettingsError);
     expect(() => parseRuntimeSubagentSettings(value)).toThrow(/Subagent settings are malformed/);
+  });
+
+  describe('applyTurnSubagentLimits', () => {
+    // A later leg of one turn: the request lowered invocations and raised depth,
+    // but the turn's budget row holds what the first admission stored.
+    const request = {
+      ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      maxChildRuntimeMs: 60_000,
+      maxChildSteps: 12,
+      maxConcurrentWork: 3,
+      maxDepth: 5,
+      maxInvocations: 2,
+    };
+    const turn = {
+      maxChildOutputTokens: 16_384,
+      maxChildSteps: 40,
+      maxDepth: 1,
+      maxInvocations: 8,
+      maxStepOutputTokens: 4096,
+      maxTreeOutputTokens: 131_072,
+      synthesisOutputTokens: 1024,
+    };
+
+    it("takes every turn-scoped limit from the turn's row and every per-request one from the request", () => {
+      expect(applyTurnSubagentLimits(request, turn)).toEqual({
+        ...turn,
+        maxChildRuntimeMs: 60_000,
+        maxConcurrentWork: 3,
+      });
+    });
+
+    it('is the request itself before the turn has a row (the first leg)', () => {
+      expect(applyTurnSubagentLimits(request, undefined)).toBe(request);
+    });
+
+    it('THROWS on a stored row the contract rejects instead of trusting it', () => {
+      expect(() =>
+        applyTurnSubagentLimits(request, { ...turn, maxTreeOutputTokens: 1024 })
+      ).toThrow(/maxChildOutputTokens must not exceed maxTreeOutputTokens/);
+    });
   });
 
   it('names the tree rule a child output budget breaks', () => {

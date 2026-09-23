@@ -25,7 +25,10 @@ export interface DraftFieldOptions {
    * once the value landed. Throw only for a defect: a throw propagates.
    */
   readonly commit: (draft: DraftInput) => string | undefined;
-  /** Escape discarded the draft (and any refusal message). */
+  /**
+   * The draft and any refusal message were discarded (Escape, or `revert()`
+   * from a control that took over the value): clear what a refusal reported.
+   */
   readonly onRevert?: () => void;
   /** The stored value's text, shown whenever no draft is being edited. */
   readonly value: string;
@@ -37,10 +40,14 @@ export interface DraftField {
   readonly inputProps: {
     readonly onBlur: () => void;
     readonly onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+    readonly onFocus: () => void;
     readonly onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
     readonly value: string;
   };
-  /** Drop the draft and its message, e.g. when the field is switched off. */
+  /**
+   * Drop the draft and its message and call `onRevert`: every control that
+   * disables the field or sets its value another way must call this.
+   */
   readonly revert: () => void;
 }
 
@@ -106,9 +113,15 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
   const pending = useRef<DraftInput | null>(null);
   // The latest render's `commit`, for a scope calling in from outside React.
   const latestCommit = useRef(commit);
+  const latestOnRevert = useRef(onRevert);
   useLayoutEffect(() => {
     latestCommit.current = commit;
+    latestOnRevert.current = onRevert;
   });
+  // The draft whose commit was just refused. Committing it again unchanged
+  // only repeats the refusal and its side effects (a refused Enter, then the
+  // blur); focusing the field again clears it, since its rules may have moved.
+  const refused = useRef<DraftInput | null>(null);
   const scope = useContext(DraftFieldScopeContext);
 
   const setDraft = useCallback((next: DraftInput | null): void => {
@@ -121,9 +134,13 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
     if (current === null) {
       return true;
     }
+    if (current === refused.current) {
+      return false;
+    }
     const refusal = latestCommit.current(current);
     setError(refusal);
     if (refusal !== undefined) {
+      refused.current = current;
       return false;
     }
     setDraft(null);
@@ -132,6 +149,7 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
   const revert = (): void => {
     setDraft(null);
     setError(undefined);
+    latestOnRevert.current?.();
   };
 
   useEffect(() => scope?.register(commitPending), [scope, commitPending]);
@@ -144,6 +162,9 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
       },
       onChange: (event) =>
         setDraft({ badInput: event.target.validity.badInput, text: event.target.value }),
+      onFocus: () => {
+        refused.current = null;
+      },
       onKeyDown: (event) => {
         if (event.key === 'Enter') {
           commitPending();
@@ -151,7 +172,6 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
         }
         if (event.key === 'Escape' && (draft !== null || error !== undefined)) {
           revert();
-          onRevert?.();
           return;
         }
         if (CARET_KEYS.has(event.key)) {

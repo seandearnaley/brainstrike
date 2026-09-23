@@ -247,6 +247,35 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
     });
   });
 
+  it("a later leg reads the turn's limits from the row, never its own different request", async () => {
+    const first = createDesktopDelegatedConversationHost(
+      database,
+      'leg',
+      undefined,
+      undefined,
+      settings
+    );
+    // Before the first admission the turn has no row: the leg uses its request.
+    await expect(first.budget.readTurnLimits()).resolves.toBeUndefined();
+    await first.persist(await child('opened', 32));
+    const later = createDesktopDelegatedConversationHost(
+      database,
+      'later-leg',
+      undefined,
+      undefined,
+      { ...settings, maxDepth: 6, maxInvocations: 1, maxTreeOutputTokens: 1_000_000 }
+    );
+    await expect(later.budget.readTurnLimits()).resolves.toEqual({
+      maxChildOutputTokens: 16_384,
+      maxChildSteps: 6,
+      maxDepth: 2,
+      maxInvocations: 5,
+      maxStepOutputTokens: 4096,
+      maxTreeOutputTokens: 65_536,
+      synthesisOutputTokens: 1024,
+    });
+  });
+
   it('a later leg on the same turn reads the stored row even without settings', async () => {
     await createDesktopDelegatedConversationHost(
       database,
