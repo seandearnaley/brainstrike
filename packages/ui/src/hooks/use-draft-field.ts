@@ -1,5 +1,13 @@
 import type * as React from 'react';
-import { useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 
 /**
  * What the user typed. A number input reports `text: ''` for unparseable text
@@ -37,46 +45,117 @@ export interface DraftField {
 }
 
 /**
+ * Every draft field rendered inside a surface that can disappear without the
+ * field ever blurring — a menu or popover that unmounts on an outside click.
+ * The surface commits the pending drafts from its dismissal handler and stays
+ * open when one is refused, so no draft is dropped silently.
+ */
+export interface DraftFieldScope {
+  /**
+   * Commit every pending draft in the scope. `false` when any was refused; its
+   * message is now shown on the field and the draft is kept.
+   */
+  commitAll(): boolean;
+  /** @internal `useDraftField` registration; returns the unregister function. */
+  register(commitPending: () => boolean): () => void;
+}
+
+export function createDraftFieldScope(): DraftFieldScope {
+  const fields = new Set<() => boolean>();
+  return {
+    commitAll: () => {
+      let landed = true;
+      for (const commitPending of fields) {
+        // Every field commits, even after a refusal, so each shows its own outcome.
+        landed = commitPending() && landed;
+      }
+      return landed;
+    },
+    register: (commitPending) => {
+      fields.add(commitPending);
+      return () => {
+        fields.delete(commitPending);
+      };
+    },
+  };
+}
+
+/** Provide with `<DraftFieldScopeContext value={scope}>` around the fields. */
+export const DraftFieldScopeContext = createContext<DraftFieldScope | null>(null);
+
+/**
+ * Caret keys belong to the field. A Radix submenu treats ArrowLeft (ArrowRight
+ * in RTL) inside it as "close this submenu", which would take the draft along.
+ */
+const CARET_KEYS = new Set(['ArrowLeft', 'ArrowRight']);
+
+/**
  * An input that edits a local DRAFT and commits it on blur or Enter; Escape
  * discards it. Keystrokes are not values: typing "128" into a 1–64 field must
  * not store 1 and 12 on the way and then leave "128" on screen beside a stored
  * 12. A refused draft stays visible with its message and stores nothing.
  * Spread `inputProps` onto the input; render `error` where the field wants it.
  * To discard drafts from outside (a "reset to defaults"), remount the field.
+ * Inside a `DraftFieldScopeContext`, the scope can commit the pending draft.
  */
 export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): DraftField {
-  const [draft, setDraft] = useState<DraftInput | null>(null);
+  const [draft, setDraftState] = useState<DraftInput | null>(null);
   const [error, setError] = useState<string | undefined>();
+  // The pending draft as of the last EVENT, not the last render: a scope may
+  // commit from a native event that arrives before this field re-renders.
+  const pending = useRef<DraftInput | null>(null);
+  // The latest render's `commit`, for a scope calling in from outside React.
+  const latestCommit = useRef(commit);
+  useLayoutEffect(() => {
+    latestCommit.current = commit;
+  });
+  const scope = useContext(DraftFieldScopeContext);
 
-  const commitDraft = (): void => {
-    if (draft === null) {
-      return;
+  const setDraft = useCallback((next: DraftInput | null): void => {
+    pending.current = next;
+    setDraftState(next);
+  }, []);
+  /** `true` when nothing is pending or the draft landed; `false` when refused. */
+  const commitPending = useCallback((): boolean => {
+    const current = pending.current;
+    if (current === null) {
+      return true;
     }
-    const refusal = commit(draft);
+    const refusal = latestCommit.current(current);
     setError(refusal);
-    if (refusal === undefined) {
-      setDraft(null);
+    if (refusal !== undefined) {
+      return false;
     }
-  };
+    setDraft(null);
+    return true;
+  }, [setDraft]);
   const revert = (): void => {
     setDraft(null);
     setError(undefined);
   };
 
+  useEffect(() => scope?.register(commitPending), [scope, commitPending]);
+
   return {
     error,
     inputProps: {
-      onBlur: commitDraft,
+      onBlur: () => {
+        commitPending();
+      },
       onChange: (event) =>
         setDraft({ badInput: event.target.validity.badInput, text: event.target.value }),
       onKeyDown: (event) => {
         if (event.key === 'Enter') {
-          commitDraft();
+          commitPending();
           return;
         }
         if (event.key === 'Escape' && (draft !== null || error !== undefined)) {
           revert();
           onRevert?.();
+          return;
+        }
+        if (CARET_KEYS.has(event.key)) {
+          event.stopPropagation();
         }
       },
       value: draft?.text ?? value,

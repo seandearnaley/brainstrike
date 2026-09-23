@@ -1,9 +1,9 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useDraftField } from '../use-draft-field';
+import { createDraftFieldScope, DraftFieldScopeContext, useDraftField } from '../use-draft-field';
 
 afterEach(() => {
   cleanup();
@@ -141,5 +141,64 @@ describe('useDraftField', () => {
     fireEvent.blur(input);
     expect(screen.getByRole('alert')).toHaveTextContent('That is not a number.');
     expect(onStore).not.toHaveBeenCalled();
+  });
+
+  it('lets an enclosing scope commit every pending draft, keeping each refusal visible', () => {
+    const scope = createDraftFieldScope();
+    const onStore = vi.fn();
+    const { unmount } = render(
+      <DraftFieldScopeContext value={scope}>
+        <Harness max={64} onStore={onStore} />
+      </DraftFieldScopeContext>
+    );
+    const input = screen.getByLabelText('Steps');
+    // Nothing pending: the scope has nothing to refuse.
+    expect(scope.commitAll()).toBe(true);
+    fireEvent.change(input, { target: { value: '128' } });
+    let landed = true;
+    act(() => {
+      landed = scope.commitAll();
+    });
+    expect(landed).toBe(false);
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number up to 64.');
+    expect(input).toHaveValue(128);
+    fireEvent.change(input, { target: { value: '32' } });
+    act(() => {
+      landed = scope.commitAll();
+    });
+    expect(landed).toBe(true);
+    expect(onStore.mock.calls).toEqual([[32]]);
+    // A second commit of the same interaction stores nothing more.
+    act(() => {
+      landed = scope.commitAll();
+    });
+    expect(onStore).toHaveBeenCalledTimes(1);
+    // An unmounted field leaves the scope, refused draft and all.
+    fireEvent.change(input, { target: { value: '999' } });
+    unmount();
+    expect(scope.commitAll()).toBe(true);
+  });
+
+  it("commits through the LATEST render's rules when the scope calls in", () => {
+    const scope = createDraftFieldScope();
+    const onStore = vi.fn();
+    const { rerender } = render(
+      <DraftFieldScopeContext value={scope}>
+        <Harness max={64} onStore={onStore} />
+      </DraftFieldScopeContext>
+    );
+    fireEvent.change(screen.getByLabelText('Steps'), { target: { value: '120' } });
+    // The limit rises after the draft was typed; the scope must not apply the old one.
+    rerender(
+      <DraftFieldScopeContext value={scope}>
+        <Harness max={128} onStore={onStore} />
+      </DraftFieldScopeContext>
+    );
+    let landed = false;
+    act(() => {
+      landed = scope.commitAll();
+    });
+    expect(landed).toBe(true);
+    expect(onStore.mock.calls).toEqual([[120]]);
   });
 });

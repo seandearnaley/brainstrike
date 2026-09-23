@@ -6,6 +6,9 @@ import type {
 } from '@brainstrike/types';
 import {
   Button,
+  createDraftFieldScope,
+  type DraftFieldScope,
+  DraftFieldScopeContext,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -19,7 +22,7 @@ import {
 } from '@brainstrike/ui';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { SlidersHorizontal } from 'lucide-react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { DetailLevelControl } from './assistant-detail-control';
 import type {
   AssistantToolMenuConfig,
@@ -48,13 +51,29 @@ interface ToolMenuGroup {
 
 const TOOL_SOURCE_ORDER: AssistantToolSource[] = ['native', 'mcp'];
 
+/**
+ * A menu dismissal the draft fields inside it must survive. Radix unmounts the
+ * content on an outside pointer-down BEFORE a focused field blurs, so its
+ * blur-commit never runs: the dismissal commits every pending draft itself,
+ * and `preventDefault` (Radix's documented way to cancel a dismissal) keeps
+ * the menu open while a refused draft shows its message. Escape still
+ * discards: it is not an outside interaction.
+ */
+function commitDraftsOrStayOpen(drafts: DraftFieldScope, event: Event): void {
+  if (!drafts.commitAll()) {
+    event.preventDefault();
+  }
+}
+
 const OutputLimitsSection = ({
+  drafts,
   hasOutputControls,
   modelName,
   onProviderSettingsChange,
   providerId,
   settings,
 }: {
+  drafts: DraftFieldScope;
   hasOutputControls: boolean;
   modelName: string | undefined;
   onProviderSettingsChange:
@@ -72,13 +91,20 @@ const OutputLimitsSection = ({
       <DropdownMenuSeparator className="my-2" />
       <DropdownMenuSub>
         <DropdownMenuSubTrigger className="text-sm">Output & Limits</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="w-[420px] p-2">
-          <ProviderSettingsPanel
-            modelName={modelName}
-            onSettingsChange={onProviderSettingsChange}
-            providerId={providerId}
-            settings={settings}
-          />
+        <DropdownMenuSubContent
+          className="w-[420px] p-2"
+          // The submenu closes when focus leaves it (the pointer moves onto a
+          // root item); cancelling that keeps a refused draft on screen.
+          onFocusOutside={(event) => commitDraftsOrStayOpen(drafts, event)}
+        >
+          <DraftFieldScopeContext value={drafts}>
+            <ProviderSettingsPanel
+              modelName={modelName}
+              onSettingsChange={onProviderSettingsChange}
+              providerId={providerId}
+              settings={settings}
+            />
+          </DraftFieldScopeContext>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
     </>
@@ -259,6 +285,7 @@ export const ControlsMenu = ({
   // The Detail control is always relevant, so the menu always renders even
   // without tools or reasoning settings.
   const activeSettings = selectedProvider ? providerSettings?.[selectedProvider] : undefined;
+  const [drafts] = useState(createDraftFieldScope);
 
   return (
     <DropdownMenu>
@@ -273,9 +300,16 @@ export const ControlsMenu = ({
           <span>Controls</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[340px] p-2">
+      <DropdownMenuContent
+        align="end"
+        className="w-[340px] p-2"
+        // A pointer-down outside (the trigger included) dismisses the whole
+        // menu, submenu and all, before any field blurs.
+        onInteractOutside={(event) => commitDraftsOrStayOpen(drafts, event)}
+      >
         <DetailLevelControl />
         <OutputLimitsSection
+          drafts={drafts}
           hasOutputControls={hasOutputControls}
           modelName={modelName}
           onProviderSettingsChange={onProviderSettingsChange}
