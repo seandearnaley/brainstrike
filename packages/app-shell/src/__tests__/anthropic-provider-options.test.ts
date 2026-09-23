@@ -65,16 +65,57 @@ describe('direct Anthropic provider options', () => {
     ).toEqual({ anthropic: { effort: 'high', thinking: { budgetTokens: 4096, type: 'enabled' } } });
   });
 
-  it.each(['claude-fable-5-1', 'claude-fable-5'] as const)(
+  it.each(['claude-opus-5-5', 'claude-fable-5-1', 'claude-fable-5'] as const)(
+    'sends adaptive thinking with its display at Auto effort for always-on %s',
+    (modelId) => {
+      // BST-1804: these rows think whether or not `thinking` is sent, and
+      // their vendor default display is `omitted` — Opus 5.5 even returns its
+      // between-tool-call progress text in those empty blocks. Omitting at
+      // Auto effort therefore hid it; send adaptive (equivalent to omitting)
+      // carrying the visibility setting, and no effort (the vendor default).
+      expect(buildProviderOptions('anthropic', modelId, {})).toEqual({
+        anthropic: { thinking: { display: 'summarized', type: 'adaptive' } },
+      });
+      expect(buildProviderOptions('anthropic', modelId, { reasoningVisible: false })).toEqual({
+        anthropic: { thinking: { display: 'omitted', type: 'adaptive' } },
+      });
+    }
+  );
+
+  it.each(['claude-opus-5-5', 'claude-fable-5-1', 'claude-fable-5'] as const)(
+    'sends effort and adaptive thinking with its display for always-on %s',
+    (modelId) => {
+      expect(buildProviderOptions('anthropic', modelId, { anthropicEffort: 'high' })).toEqual({
+        anthropic: { effort: 'high', thinking: { display: 'summarized', type: 'adaptive' } },
+      });
+    }
+  );
+
+  it.each(['claude-opus-5-5', 'claude-fable-5-1', 'claude-fable-5'] as const)(
     'never serialises budget or disabled thinking for always-on %s',
     (modelId) => {
       // Always-on thinking rejects `disabled`, and the legacy budget `enabled`
-      // form is not its wire shape: with no effort there is nothing to send,
-      // and a persisted budget from another model is dropped, not forwarded.
-      expect(buildProviderOptions('anthropic', modelId, {})).toBeUndefined();
+      // form is not its wire shape: a persisted budget from another model is
+      // dropped, not forwarded.
       expect(
         buildProviderOptions('anthropic', modelId, { anthropicThinkingBudgetTokens: 4096 })
-      ).toBeUndefined();
+      ).toEqual({ anthropic: { thinking: { display: 'summarized', type: 'adaptive' } } });
+    }
+  );
+
+  it.each([
+    [
+      'claude-opus-5',
+      { anthropicEffort: 'high' },
+      { effort: 'high', thinking: { display: 'summarized', type: 'adaptive' } },
+    ],
+    ['claude-opus-5', {}, { thinking: { type: 'disabled' } }],
+    ['claude-sonnet-5', {}, { thinking: { type: 'disabled' } }],
+    ['claude-opus-4-8', {}, { thinking: { type: 'disabled' } }],
+  ] as const)(
+    'leaves the non-always-on request shape unchanged for %s / %o',
+    (modelId, settings, expected) => {
+      expect(buildProviderOptions('anthropic', modelId, settings)).toEqual({ anthropic: expected });
     }
   );
 

@@ -48,6 +48,14 @@
  * handed an id Bedrock cannot invoke. It was added. The us./eu. sets matched
  * their cards for all six audited ids.
  *
+ * `anthropic.claude-opus-5-5` (BST-1804) was classified from its own card
+ * alone, retrieved 2026-09-22
+ * (docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html):
+ * Programmatic Access lists Geo ids `us.`, `eu.`, `au.` AND `jp.` plus
+ * `global.`, and its bedrock-runtime Regional Availability table matches the
+ * Opus 4.7 / 4.8 shape exactly (Geo ✗ / Global ✓ only in the core set plus
+ * ap-southeast-6; GovCloud Geo ✓ / Global ✗).
+ *
  * Cards NOT read in that pass keep their models.dev-derived membership
  * unchanged: fable-5, fable-5-1, opus-4-1, opus-4-5, opus-4-6-v1,
  * deepseek.r1 and the llama4 pair. None of them is in the jp. set, so none can
@@ -137,6 +145,7 @@ const US_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-opus-4-7',
   'anthropic.claude-opus-4-8',
   'anthropic.claude-opus-5',
+  'anthropic.claude-opus-5-5',
   'anthropic.claude-sonnet-4-5-20250929-v1:0',
   'anthropic.claude-sonnet-4-6',
   'anthropic.claude-sonnet-5',
@@ -154,6 +163,7 @@ const EU_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-opus-4-7',
   'anthropic.claude-opus-4-8',
   'anthropic.claude-opus-5',
+  'anthropic.claude-opus-5-5',
   'anthropic.claude-sonnet-4-5-20250929-v1:0',
   'anthropic.claude-sonnet-4-6',
   'anthropic.claude-sonnet-5',
@@ -161,13 +171,15 @@ const EU_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
 
 /**
  * Unprefixed ids with a `jp.<id>` profile. Every member was confirmed against
- * its own AWS model card in the BST-1710 audit (2026-09-10); the ids the cards
- * contradict are gone — see the AWS-card override note above.
+ * its own AWS model card: `anthropic.claude-opus-5-5` from its card retrieved
+ * 2026-09-22 (BST-1804), the rest in the BST-1710 audit (2026-09-10). The ids
+ * the cards contradict are gone — see the AWS-card override note above.
  */
 const JP_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-haiku-4-5-20251001-v1:0',
   'anthropic.claude-opus-4-7',
   'anthropic.claude-opus-4-8',
+  'anthropic.claude-opus-5-5',
   'anthropic.claude-sonnet-4-5-20250929-v1:0',
   'anthropic.claude-sonnet-4-6',
 ]);
@@ -183,6 +195,7 @@ const AU_PROFILE_MODEL_IDS: ReadonlySet<string> = new Set([
   'anthropic.claude-opus-4-7',
   'anthropic.claude-opus-4-8',
   'anthropic.claude-opus-5',
+  'anthropic.claude-opus-5-5',
   'anthropic.claude-sonnet-4-5-20250929-v1:0',
   'anthropic.claude-sonnet-4-6',
   'anthropic.claude-sonnet-5',
@@ -270,7 +283,7 @@ const FABLE_GLOBAL_REGIONS = globalOnlyRegions(
 /** Haiku 4.5 / Sonnet 4.5: `ca-west-1` is Geo ✗ on both (Geo ✓ elsewhere). */
 const CA_WEST_GLOBAL_REGIONS = globalOnlyRegions('ca-west-1');
 
-/** Opus 4.7 / 4.8: US+EU+AU+JP geo — only NZ falls through to global. */
+/** Opus 4.7 / 4.8 / 5.5: US+EU+AU+JP geo — only NZ falls through to global. */
 const NZ_ONLY_GLOBAL_REGIONS = globalOnlyRegions('ap-southeast-6');
 
 /** Opus 5 / Sonnet 5: no JP geo, so Tokyo and Osaka join NZ on global. */
@@ -321,6 +334,7 @@ export const GLOBAL_PROFILE_REGIONS_BY_MODEL: ReadonlyMap<string, ReadonlySet<st
   ['anthropic.claude-opus-4-7', NZ_ONLY_GLOBAL_REGIONS],
   ['anthropic.claude-opus-4-8', NZ_ONLY_GLOBAL_REGIONS],
   ['anthropic.claude-opus-5', NO_JP_GEO_GLOBAL_REGIONS],
+  ['anthropic.claude-opus-5-5', NZ_ONLY_GLOBAL_REGIONS],
   ['anthropic.claude-sonnet-5', NO_JP_GEO_GLOBAL_REGIONS],
   // Sonnet 4.6's card is the widest: US+EU+AU(incl. NZ)+JP(incl. Osaka) geo.
   ['anthropic.claude-sonnet-4-6', globalOnlyRegions()],

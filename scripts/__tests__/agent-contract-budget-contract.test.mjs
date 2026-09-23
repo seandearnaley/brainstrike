@@ -71,7 +71,14 @@ const CONTRACT_LINE_BUDGETS = {
   // sanctions re-baselining for cases like this one, while this test's own
   // failure message says "do not raise the number" — both are true at once,
   // and this pin does not decide which wins next time.
-  'assistant-providers.md': 2323,
+  //
+  // BST-1804 raised this from 2323 (+5): the OpenRouter top_provider
+  // context-window rule was promoted from evidence into the pricing section.
+  // It then rose to 2336 (+8) when the review found the rule unenforced:
+  // the rule now names its null-only fallback and the audit that enforces it.
+  // Then 2338 (+2): the visibility hard rule states why always-on Anthropic
+  // rows send `thinking` at Auto.
+  'assistant-providers.md': 2338,
   'assistant-runtime.md': 2780,
   'assistant-subagents.md': 1626,
   'changeset-diff.md': 495,

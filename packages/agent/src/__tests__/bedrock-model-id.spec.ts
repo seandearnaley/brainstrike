@@ -270,6 +270,55 @@ describe('resolveBedrockModelId', () => {
     });
   });
 
+  /**
+   * BST-1804: the Claude Opus 5.5 card
+   * (docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html,
+   * retrieved 2026-09-22) lists Geo ids `us.`, `eu.`, `au.` AND `jp.` — unlike
+   * Opus 5, it publishes a JP geo — plus `global.`, and marks the bare id
+   * In-Region ✗ in every region. Its bedrock-runtime table is Geo ✗ / Global ✓
+   * exactly in the core set plus ap-southeast-6, and Geo ✓ / Global ✗ in
+   * GovCloud: the Opus 4.7 / 4.8 shape.
+   */
+  describe('anthropic.claude-opus-5-5 follows its own card', () => {
+    const id = 'anthropic.claude-opus-5-5';
+
+    it('emits every geo profile the card publishes, including jp.', () => {
+      expect(resolveBedrockModelId(id, 'us-east-1')).toBe(`us.${id}`);
+      expect(resolveBedrockModelId(id, 'eu-west-1')).toBe(`eu.${id}`);
+      expect(resolveBedrockModelId(id, 'ap-southeast-2')).toBe(`au.${id}`);
+      expect(resolveBedrockModelId(id, 'ap-northeast-1')).toBe(`jp.${id}`);
+    });
+
+    it('routes only the Geo ✗ / Global ✓ regions through global.', () => {
+      expect(GLOBAL_PROFILE_REGIONS_BY_MODEL.get(id)).toEqual(
+        new Set([
+          'af-south-1',
+          'ap-east-2',
+          'ap-northeast-2',
+          'ap-south-1',
+          'ap-south-2',
+          'ap-southeast-1',
+          'ap-southeast-3',
+          'ap-southeast-5',
+          'ap-southeast-6',
+          'ap-southeast-7',
+          'il-central-1',
+          'me-central-1',
+          'me-south-1',
+          'mx-central-1',
+          'sa-east-1',
+        ])
+      );
+      expect(resolveBedrockModelId(id, 'ap-southeast-6')).toBe(`global.${id}`);
+      expect(resolveBedrockModelId(id, 'sa-east-1')).toBe(`global.${id}`);
+    });
+
+    it('never emits global. in GovCloud, which the card marks Global ✗', () => {
+      expect(resolveBedrockModelId(id, 'us-gov-west-1')).toBe(id);
+      expect(resolveBedrockModelId(id, 'us-gov-east-1')).toBe(id);
+    });
+  });
+
   describe('other ap regions', () => {
     it('never emits apac. — no apac. profile exists on any card or on models.dev', () => {
       // ap-south-1 now takes the GLOBAL profile (its card row is Geo ✗ /

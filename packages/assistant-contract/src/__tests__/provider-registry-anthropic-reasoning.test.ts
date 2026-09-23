@@ -24,6 +24,23 @@ describe('direct Anthropic registry reasoning ladders', () => {
     }
   );
 
+  /**
+   * BST-1804. The one row whose DEFAULT is not high: Anthropic's effort page
+   * says Claude Opus 5.5 "defaults to medium", and its what's-new page says
+   * thinking is always on (disabled or budget_tokens returns 400). Retrieved
+   * 2026-09-22.
+   */
+  it('pins the documented ladder, MEDIUM default, and mandatory thinking for claude-opus-5-5', () => {
+    const model = listProviderLlmModels('anthropic').find(
+      (candidate) => candidate.id === 'claude-opus-5-5'
+    );
+    expect(model?.anthropicReasoning).toEqual({
+      defaultEffort: 'medium',
+      mandatory: true,
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    });
+  });
+
   it('keeps Haiku effort unsupported', () => {
     const model = listProviderLlmModels('anthropic').find(
       (candidate) => candidate.id === 'claude-haiku-4-5'
@@ -37,7 +54,7 @@ describe('direct Anthropic registry reasoning ladders', () => {
     const ladders = listProviderLlmModels('anthropic').flatMap((model) =>
       model.anthropicReasoning ? [model.anthropicReasoning] : []
     );
-    expect(ladders).toHaveLength(6);
+    expect(ladders).toHaveLength(7);
     for (const ladder of ladders) {
       expect(ladder.supportedEfforts).toContain(ladder.defaultEffort);
       let previous = -1;

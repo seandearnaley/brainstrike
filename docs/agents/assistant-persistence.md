@@ -376,10 +376,10 @@ Guard: `packages/assistant-ui/src/__tests__/follow-up-queue-store.test.ts`,
 
 **ONE DERIVATION, THREE CONSUMERS.** `buildAgentLoopSettings` produces
 `agentLoopSettings.inputTokenLimit` (explicit user pref, else
-`deriveEffectiveInputBudget(contextWindow, maxOutputTokens)` from
-`packages/assistant-contract/src/context-budget.ts`, which throws rather than
-clamping). That one number is the Mastra `TokenLimiter` budget, the meter
-denominator, and the instruction budget note. Never derive a second budget.
+`deriveAgentLoopInputTokenLimit` in `packages/assistant-contract/src/context-budget.ts`:
+OpenRouter reserves its request's output (required, no default), others the
+catalog max; throws, never clamps). That one number is the Mastra `TokenLimiter`
+budget, the meter denominator, and the instruction budget note. Never derive a second budget.
 
 - The usage store is session-lived, keyed `selectedMemoryThreadId ?? 'active'`;
   writer and reader must use the same key.
@@ -1017,15 +1017,15 @@ messages from the provider prompt, leaving every raw message unchanged in
 `mastra_messages` and visible in scrollback.
 
 - **Trigger:** add the previous run's durable prompt baseline to the current
-  message estimate and check against 90% of the same `deriveEffectiveInputBudget`
+  message estimate and check against 90% of the same `deriveAgentLoopInputTokenLimit`
   denominator the meter uses; target ~70%. Recency pruning runs first and
   compaction proceeds only if usage is STILL ≥ 90% after it. No calibration row or
   a failed lookup uses baseline 0 with a debug log; a baseline already at or above
   the target warns and no-ops the agentic path for that turn.
 - **`resolveCompactionInputBudget` RETURNS `runtimeData.agentLoop.inputTokenLimit`
-  whenever the run carries one.** Never re-derive a second budget here — one
-  derivation, three consumers. The catalog derivation stays ONLY as the fallback
-  for runs with no `agentLoop`; a PRESENT but unusable `inputTokenLimit` THROWS
+  whenever the run carries one.** Never re-derive a second budget here. A run with
+  no `agentLoop` calls the SAME `deriveAgentLoopInputTokenLimit`, fed the output
+  `buildModelSettingsOption` sends; a PRESENT but unusable `inputTokenLimit` THROWS
   rather than quietly resolving to a different number.
 - **Persistence is a metadata marker, not a new enum:** an ordinary
   `role: 'assistant'` message whose `metadata.custom` carries
