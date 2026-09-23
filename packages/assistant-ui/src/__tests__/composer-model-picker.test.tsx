@@ -567,6 +567,66 @@ describe('ComposerModelPicker', () => {
     expect(onModelChange).not.toHaveBeenCalled();
   });
 
+  it('an external selectedModel change while an enable is pending invalidates it', async () => {
+    const user = setup();
+    const onModelChange = vi.fn();
+    const pending = deferred<boolean>();
+    const onEnableModel = vi.fn(() => pending.promise);
+    const { rerender } = render(
+      <ComposerModelPicker
+        {...fixtureWithDisabledDeepseek}
+        onEnableModel={onEnableModel}
+        onModelChange={onModelChange}
+      />
+    );
+
+    const picker = await openPicker(user);
+    await user.type(within(picker).getByRole('combobox'), 'deepseek');
+    await user.click(within(picker).getByRole('option', { name: ENABLE_FLASH }));
+
+    // Another control changes selectedModel while the enable is in flight.
+    rerender(
+      <ComposerModelPicker
+        {...fixtureWithDisabledDeepseek}
+        onEnableModel={onEnableModel}
+        onModelChange={onModelChange}
+        selectedModel="anthropic::claude-sonnet-5"
+      />
+    );
+
+    await act(async () => {
+      pending.resolve(true);
+      await pending.promise;
+    });
+    expect(onModelChange).not.toHaveBeenCalled();
+  });
+
+  it('unmounting while an enable is pending invalidates it', async () => {
+    const user = setup();
+    const onModelChange = vi.fn();
+    const pending = deferred<boolean>();
+    const onEnableModel = vi.fn(() => pending.promise);
+    const { unmount } = render(
+      <ComposerModelPicker
+        {...fixtureWithDisabledDeepseek}
+        onEnableModel={onEnableModel}
+        onModelChange={onModelChange}
+      />
+    );
+
+    const picker = await openPicker(user);
+    await user.type(within(picker).getByRole('combobox'), 'deepseek');
+    await user.click(within(picker).getByRole('option', { name: ENABLE_FLASH }));
+
+    unmount();
+
+    await act(async () => {
+      pending.resolve(true);
+      await pending.promise;
+    });
+    expect(onModelChange).not.toHaveBeenCalled();
+  });
+
   it('hides Not enabled rows when no onEnableModel handler is provided', async () => {
     const user = setup();
     render(<ComposerModelPicker {...fixtureWithDisabledDeepseek} onModelChange={vi.fn()} />);

@@ -112,4 +112,53 @@ describe('model-registry-store toggleModel failure surfacing', () => {
 
     expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(true);
   });
+
+  it('restores the previous isEnabled synchronously on a failed write, before the refresh lands', async () => {
+    const model = createMockModel({ id: 'model-1', isEnabled: false });
+    useModelRegistryStore.setState({ models: [model] });
+
+    const writeError = new Error('disk full');
+    // The refresh promise never resolves within this test, so if the
+    // revert depended on it, the assertion below would still see `true`.
+    const refreshQuery = new Promise<never>(() => {
+      // intentionally never settles
+    });
+
+    const mockDb = {
+      query: vi.fn().mockRejectedValueOnce(writeError).mockReturnValueOnce(refreshQuery),
+    };
+
+    await expect(
+      useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true)
+    ).rejects.toThrow('disk full');
+
+    // Assert immediately after the rejection settles, without waiting for
+    // the scheduled fetchRegistry refresh to resolve.
+    expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(false);
+  });
+
+  it('leaves the model at its previous value when both the write and the refresh fail', async () => {
+    const model = createMockModel({ id: 'model-1', isEnabled: false });
+    useModelRegistryStore.setState({ models: [model] });
+
+    const writeError = new Error('disk full');
+    const refreshError = new Error('refresh also failed');
+
+    const mockDb = {
+      query: vi.fn().mockRejectedValueOnce(writeError).mockRejectedValueOnce(refreshError),
+    };
+
+    await expect(
+      useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true)
+    ).rejects.toThrow('disk full');
+
+    expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(false);
+
+    // Let the scheduled (failing) fetchRegistry refresh settle too, and
+    // confirm the restored value survives that failure.
+    await vi.waitFor(() => {
+      expect(mockDb.query).toHaveBeenCalledTimes(2);
+    });
+    expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(false);
+  });
 });

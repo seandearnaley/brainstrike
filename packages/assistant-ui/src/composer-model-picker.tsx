@@ -18,7 +18,7 @@ import {
 } from '@brainstrike/ui';
 import { Command } from 'cmdk';
 import { Brain, Check, ChevronDown, Eye, Plus } from 'lucide-react';
-import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ProviderGroupConfig } from './assistant-ui-panel';
 import { buildComposerPickerSections, type ComposerPickerEntry } from './composer-picker-sections';
 
@@ -205,6 +205,17 @@ export function ComposerModelPicker({
   const hasOptions = sections.enabledByKey.size > 0;
   const canSelect = Boolean(onModelChange) && hasOptions && !disabled;
   const triggerText = triggerLabel(selectedEntry, hasOptions);
+
+  // An external change to `selectedModel` (another control, or the pick
+  // this component itself just made) invalidates any enable still in
+  // flight; unmounting does the same, so a resolution that lands after
+  // either can never call handlePick with a stale selection.
+  useEffect(
+    () => () => {
+      selectionTokenRef.current += 1;
+    },
+    [selectedModel]
+  );
 
   const handleOpenChange = useCallback((next: boolean) => {
     setOpen(next);

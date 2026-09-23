@@ -513,6 +513,8 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       },
 
       toggleModel: async (db: IDatabase, modelId: string, enabled: boolean) => {
+        const previousModel = get().models.find((m) => m.id === modelId);
+        const previousIsEnabled = previousModel?.isEnabled;
         try {
           // Optimistic update
           set((state) => ({
@@ -530,6 +532,13 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           }));
         } catch (error) {
           logger.error('Failed to toggle model', error);
+          if (previousIsEnabled !== undefined) {
+            set((state) => ({
+              models: state.models.map((m) =>
+                m.id === modelId ? { ...m, isEnabled: previousIsEnabled } : m
+              ),
+            }));
+          }
           void get().fetchRegistry(db);
           throw error;
         }
