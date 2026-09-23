@@ -342,6 +342,67 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
     ).rejects.toMatchObject({ reason: 'host-leg-on-child-thread' });
   });
 
+  it("no run row can exist without its root thread row, and another owner's thread throws", async () => {
+    // readTurnLimits runs at runtime construction for every leg with a budget
+    // port. A thread row missing under an existing run row would read as "no
+    // limits"; the schema makes it impossible (runs.thread_id REFERENCES
+    // mastra_threads ON DELETE CASCADE), so the only thread-row failure left
+    // is a PRESENT row owned by another resource: an identity failure.
+    await expect(
+      database.exec(`INSERT INTO brainstrike_assistant_thread_runs
+        (id, resource_id, thread_id, provider, model, runtime_kind, status,
+         started_at, created_at, updated_at, turn_message_id) VALUES
+        ('threadless-leg', 'owner', 'no-such-thread', 'openai', 'test', 'desktop', 'running', NOW(), NOW(), NOW(), 'turn');`)
+    ).rejects.toThrow(/foreign key/i);
+    await database.exec(`INSERT INTO brainstrike_assistant_thread_runs
+      (id, resource_id, thread_id, provider, model, runtime_kind, status,
+       started_at, created_at, updated_at, turn_message_id) VALUES
+      ('stranger-leg', 'stranger', 'root', 'openai', 'test', 'desktop', 'running', NOW(), NOW(), NOW(), 'turn');`);
+    const stranger = createDesktopDelegatedConversationHost(
+      database,
+      'stranger-leg',
+      undefined,
+      undefined,
+      settings
+    );
+    await expect(stranger.budget.readTurnLimits()).rejects.toMatchObject({
+      reason: 'host-scope-invalid',
+    });
+  });
+
+  it("another resource's child row for the leg's thread never refuses the leg as a child", async () => {
+    const first = createDesktopDelegatedConversationHost(
+      database,
+      'leg',
+      undefined,
+      undefined,
+      settings
+    );
+    await first.persist(await child('owned', 32));
+    // A child row naming this thread under a DIFFERENT resource than the one
+    // the leg's run row and thread row carry.
+    await database.exec(`INSERT INTO mastra_threads
+        (id, "resourceId", title, metadata, "createdAt", "updatedAt")
+        VALUES ('foreign', 'intruder', 'Foreign', '{}', NOW(), NOW());
+      INSERT INTO brainstrike_delegated_conversations
+        (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id,
+         configuration, display_name, color)
+        VALUES ('foreign', 'owner', 'root', 'root', 'resource-foreign', '{}', 'Foreign', 'blue');
+      INSERT INTO brainstrike_assistant_thread_runs
+        (id, resource_id, thread_id, provider, model, runtime_kind, status,
+         started_at, created_at, updated_at, turn_message_id) VALUES
+        ('foreign-leg', 'intruder', 'foreign', 'openai', 'test', 'desktop', 'running', NOW(), NOW(), NOW(), 'turn');`);
+    await expect(
+      createDesktopDelegatedConversationHost(
+        database,
+        'foreign-leg',
+        undefined,
+        undefined,
+        settings
+      ).budget.readTurnLimits()
+    ).resolves.toBeUndefined();
+  });
+
   it('a later leg on the same turn reads the stored row even without settings', async () => {
     await createDesktopDelegatedConversationHost(
       database,

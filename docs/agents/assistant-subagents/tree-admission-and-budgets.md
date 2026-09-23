@@ -251,3 +251,27 @@ level alone. Paired tests: `subagent-settings.test.ts` (`applyTurnSubagentLimits
 `delegated-budget-settings.integration.test.ts` ("a later leg reads the turn's
 limits from the row"), `delegated-conversation-insights.integration.test.ts`,
 `delegated-conversation-toolbar.test.tsx`.
+
+2026-09-23 (BST-1801 review, PR #3285): `readTurnLimits` runs at runtime
+construction for every leg with a budget port, so it must not fail a leg that
+has not delegated, yet must not fall back silently. `resolveDelegatedHostScope`
+(`delegated-host-scope.ts`) is the ONE scope resolution behind admission's
+`readScope` and `readTurnLimits`: it reads the leg's run row as the root turn,
+refuses a run row on this owner's delegated child thread with
+`host-leg-on-child-thread` (host legs run on the root: the request's run row is
+created on the selected root thread, a continuation decision is looked up with
+that thread as root, and a follow-up to an idle child is a fresh managed root
+leg), and answers "no stored limits" ONLY for a leg with no run row or a NULL
+turn anchor (the renderer writes `turnAnchorMessageId ?? null` for a thread with
+no user message; such a leg used to throw `host-scope-invalid` at construction
+and fail the whole run). Every other outcome throws: a root thread row owned by
+another resource is an identity failure, and a MISSING thread row under an
+existing run row is impossible (`thread_id` REFERENCES `mastra_threads` ON
+DELETE CASCADE, migration 118). The child-thread check is scoped by the run's
+resource, so another resource's row never refuses a leg. Admission keeps its
+identity reason (`host-scope-invalid`) for the no-row / no-anchor cases. Paired
+tests in `delegated-budget-settings.integration.test.ts`: "reads no stored
+limits, never an identity error, for a leg without a turn message or run row",
+"refuses a leg whose run row sits on a delegated CHILD thread", "no run row can
+exist without its root thread row, and another owner's thread throws",
+"another resource's child row for the leg's thread never refuses the leg".

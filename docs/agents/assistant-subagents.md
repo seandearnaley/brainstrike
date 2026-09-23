@@ -904,15 +904,15 @@ Evidence: `assistant-subagents/child-view-binding.md`.
 - Synthesis forces `toolChoice: none` with no active tools and rejects a provider
   tool call before execution even if the provider ignores that request.
 - **Child budgets are USER SETTINGS; a cut synthesis is a truncated completion.**
-  Tree limits, per-child allocations and the runtime limit are
-  `RuntimeSubagentSettings` (`subagent-settings.ts`, ranges in
-  `SUBAGENT_SETTINGS_LIMITS`), persisted by `assistant-subagent-preferences.v1`,
-  edited in Settings → Models → Subagents, sent on EVERY request as
-  `runtimeData.subagentSettings`. `parseRuntimeSubagentSettings` is the ONLY
-  intake (absent → defaults, malformed THROWS); no limits constant exists.
-  What the turn's budget row stores at first admission is TURN-scoped: a later
-  leg runs under `applyTurnSubagentLimits(request, budget.readTurnLimits())`;
-  only `maxConcurrentWork` and `maxChildRuntimeMs` are per request.
+  Tree/per-child limits and the runtime limit are `RuntimeSubagentSettings`
+  (`subagent-settings.ts`, ranges `SUBAGENT_SETTINGS_LIMITS`), persisted by
+  `assistant-subagent-preferences.v1`, edited in Settings → Models → Subagents,
+  sent on EVERY request as `runtimeData.subagentSettings`; the ONLY intake is
+  `parseRuntimeSubagentSettings` (absent → defaults, malformed THROWS) and no
+  limits constant exists. What the budget row stores at first admission is
+  TURN-scoped: a later leg runs under `applyTurnSubagentLimits(request,
+  budget.readTurnLimits())`; only `maxConcurrentWork` / `maxChildRuntimeMs` are
+  per request. A host leg on a child thread is refused (`resolveDelegatedHostScope`).
 - The host's synthesis reservation names its `cap` (`steps` / `child-output` /
   `tree-output`) and the numbers behind it. `delegated-work-budget.ts` reads
   Mastra's `finishReason` on `processOutputStep`, records the outcome in the
