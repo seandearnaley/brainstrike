@@ -286,7 +286,9 @@ Test ids are kept for E2E continuity: `model-row-<id>`, `model-toggle-<id>`,
    `formatTokenCount` helpers, delete `model-filters.ts`. Pure and fully unit-tested,
    with no UI change.
 3. **Catalog UI.** The workspace layout, toolbar, sections, rows, details, bulk
-   actions and undo, cache popover; delete `model-list.tsx`; update the web and
+   actions and undo, cache popover; port `model-list.test.tsx`'s still-valid cases
+   to `ModelCatalog` coverage and drop its Chat/Embeddings and Local/Remote
+   assertions before deleting `model-list.tsx` and its test; update the web and
    desktop `settings-models-and-providers` E2E.
 
 ## 11. Testing and verification (RED/GREEN)
