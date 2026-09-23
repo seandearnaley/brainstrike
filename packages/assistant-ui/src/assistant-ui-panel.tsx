@@ -62,7 +62,7 @@ import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { ComposerEffortControl } from './composer-effort-control';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
-import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
+import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-picker';
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
 import { RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
@@ -261,6 +261,8 @@ export interface AssistantUiPanelProps
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
 
+  /** Enable a registry-backed model from the picker; resolves true once committed. */
+  onEnableModel?: (providerId: string, modelId: string) => Promise<boolean>;
   /**
    * Clear the persisted plan-mode preference. Called when the user APPROVES a
    * submitted plan so the resume request exits plan mode and the rebuilt server
@@ -274,7 +276,6 @@ export interface AssistantUiPanelProps
    */
   onFileMentionQueryChange?: (query: string) => void;
   onModelChange?: (compositeKey: string) => void;
-  onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
@@ -407,6 +408,7 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
+  onEnableModel: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
   onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
@@ -465,6 +467,7 @@ const LocalRuntimeChat = ({
   onProviderSettingsChange,
   selectedProvider,
   selectedModel,
+  onEnableModel,
   onModelChange,
   onRunEditActivity,
   onRunFailed,
@@ -569,6 +572,7 @@ const LocalRuntimeChat = ({
           omSegment={omSegment}
           onComposerDraftCommandApplied={onComposerDraftCommandApplied}
           onComposerTextChange={onComposerTextChange}
+          onEnableModel={onEnableModel}
           onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
@@ -612,6 +616,7 @@ const DataStreamRuntimeChat = ({
   onProviderSettingsChange,
   selectedProvider,
   selectedModel,
+  onEnableModel,
   onModelChange,
   onContextBreakdown,
   onChildRunUsage,
@@ -754,6 +759,7 @@ const DataStreamRuntimeChat = ({
             omSegment={omSegment}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
             onComposerTextChange={onComposerTextChange}
+            onEnableModel={onEnableModel}
             onFileMentionQueryChange={onFileMentionQueryChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
@@ -812,6 +818,7 @@ export const ChatThreadUI = ({
   onProviderSettingsChange,
   selectedProvider,
   selectedModel,
+  onEnableModel,
   onModelChange,
   onRunEditActivity,
   onRunFailed,
@@ -852,6 +859,7 @@ export const ChatThreadUI = ({
     | undefined;
   selectedProvider: string | undefined;
   selectedModel: string | undefined;
+  onEnableModel: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onRunEditActivity?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
@@ -1043,6 +1051,7 @@ export const ChatThreadUI = ({
                   {hasGroupedProviders && (
                     <ProviderModelHeader
                       groups={providerGroups}
+                      onEnableModel={onEnableModel}
                       onModelChange={onModelChange}
                       onProviderSettingsChange={onProviderSettingsChange}
                       pickerModels={pickerModels}
@@ -1085,6 +1094,7 @@ export const AssistantUiPanel = ({
   requestData,
   requestBodyLimitBytes,
   prepareRequestData,
+  onEnableModel,
   onModelChange,
   onExitPlanMode,
   onRunEditActivity,
@@ -1200,6 +1210,7 @@ export const AssistantUiPanel = ({
             omSegment={omSegment}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
             onComposerTextChange={onComposerTextChange}
+            onEnableModel={onEnableModel}
             onFileMentionQueryChange={onFileMentionQueryChange}
             onLoadingStateChange={handleLocalLoadingStateChange}
             onModelChange={onModelChange}
@@ -1257,6 +1268,7 @@ export const AssistantUiPanel = ({
             onComposerTextChange={onComposerTextChange}
             onContextBreakdown={onContextBreakdown}
             onDelegatedConversation={onDelegatedConversation}
+            onEnableModel={onEnableModel}
             onFileMentionQueryChange={onFileMentionQueryChange}
             onModelChange={onModelChange}
             onPausesCancelled={rereadAfterStop}
@@ -1392,6 +1404,7 @@ const AssistantMessage = () => {
 
 interface ProviderModelHeaderProps {
   groups: ProviderGroupConfig[];
+  onEnableModel?: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -1406,6 +1419,7 @@ interface ProviderModelHeaderProps {
 
 const ProviderModelHeader = ({
   groups,
+  onEnableModel,
   pickerModels,
   providerSettings,
   onProviderSettingsChange,
@@ -1423,7 +1437,8 @@ const ProviderModelHeader = ({
     <div className="bs-composer-control-dock" data-testid="assistant-composer-controls">
       <div className="bs-composer-primary-controls">
         <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
-          <ComposerModelMenu
+          <ComposerModelPicker
+            onEnableModel={onEnableModel}
             onModelChange={onModelChange}
             pickerModels={pickerModels}
             providerGroups={groups}

@@ -1558,6 +1558,9 @@ importers:
       assistant-stream:
         specifier: 'catalog:'
         version: 0.3.41
+      cmdk:
+        specifier: ^1.1.1
+        version: 1.1.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       lucide-react:
         specifier: 'catalog:'
         version: 1.41.0(react@19.3.0)
