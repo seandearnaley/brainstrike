@@ -172,6 +172,7 @@ vi.mock('@brainstrike/settings-ui/settings/models/model-runtime-services', () =>
 }));
 
 vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
+  ModelCatalogHeaderActions: vi.fn(() => null),
   ModelSelectionPage: modelSelectionPageMock,
 }));
 

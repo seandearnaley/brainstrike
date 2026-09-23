@@ -34,6 +34,12 @@ Evidence: `ui-conventions/retired-tree-adapters.md`.
   scroll owner: each table passes it as `scrollParentRef`, its viewport becomes a
   non-scrolling spacer, and the virtualizer windows through `scrollMargin`. A
   per-table scrollbar inside a scrolling column freezes the virtual window.
+- The Model Catalog (`settings-ui/src/settings/models/model-catalog.tsx`) is the
+  second shared-scroller consumer: one TreeTable per expanded section, ONE
+  presentational column header above the scroller (Explorer forest shape), and
+  in-flow `sticky top-0` headers (`STICKY_SECTION_HEADER_LAYER_CLASS`) whose
+  height each table passes as `scrollPaddingStart` so a focused row clears it.
+  Row pitch is pinned by `apps/web/e2e/settings-models-and-providers.test.ts`.
 
 Settled: shared-scroller mode is the one sanctioned exception. Evidence:
 `ui-conventions/shared-scroller-mode.md`.
@@ -365,6 +371,7 @@ every floating layer **in `packages/ui`**. Import the token; do not hardcode a
 
 | Layer | Token | Value |
 | --- | --- | --- |
+| In-flow sticky section header (inside one scroller; not floating) | `STICKY_SECTION_HEADER_LAYER_CLASS` | `10` |
 | Dialog scrim / panel, by nesting depth | `DIALOG_LAYER_CLASSES[depth - 1]` | `50/51` … `64/65` (8 tiers) |
 | Command palette scrim / content | `COMMAND_PALETTE_OVERLAY_CLASS` / `COMMAND_PALETTE_CONTENT_CLASS` | `66` / `67` |
 | Popover, select, dropdown menu, context menu, tooltip | `POPUP_LAYER_CLASS` | `70` |

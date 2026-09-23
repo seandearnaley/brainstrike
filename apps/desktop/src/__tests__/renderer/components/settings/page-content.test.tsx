@@ -311,6 +311,7 @@ vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOri
 });
 
 vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
+  ModelCatalogHeaderActions: vi.fn(() => null),
   ModelSelectionPage: vi.fn(() => (
     <div data-testid="model-selection-page-mock">
       <h4>Provider API Keys</h4>

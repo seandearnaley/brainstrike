@@ -67,6 +67,23 @@ interface ModelRegistryState {
   setDownloading: (modelId: string, isDownloading: boolean) => void;
   setDownloadProgress: (modelId: string, progress: number) => void;
   setModelCacheDir: (dir: string) => void;
+  /**
+   * Enables or disables many models in ONE atomic statement (BST-1805) and
+   * resolves with each id's PRIOR enabled state, for Undo.
+   *
+   * Refuses up front — before the optimistic update, so with no restore, no
+   * refresh and no log — when the id list is empty, or when an id is not in
+   * the loaded registry.
+   *
+   * Otherwise rejects — after restoring those exact prior states and
+   * scheduling a registry refresh — when the write fails, or when any id is
+   * missing from the database (in which case nothing is written).
+   */
+  setModelsEnabled: (
+    db: DbHandle,
+    modelIds: readonly string[],
+    enabled: boolean
+  ) => Promise<ReadonlyMap<string, boolean>>;
   toggleModel: (db: DbHandle, modelId: string, enabled: boolean) => Promise<void>;
   toggleProvider: (db: DbHandle, providerId: string, enabled: boolean) => Promise<void>;
 }
@@ -510,6 +527,64 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
 
       setModelCacheDir: (dir: string) => {
         set({ modelCacheDir: dir });
+      },
+
+      setModelsEnabled: async (db: DbHandle, modelIds: readonly string[], enabled: boolean) => {
+        const uniqueIds = Array.from(new Set(modelIds));
+        if (uniqueIds.length === 0) {
+          throw new Error('Choose at least one model to update.');
+        }
+        const modelsById = new Map(get().models.map((model) => [model.id, model]));
+        const previous = new Map<string, boolean>();
+        const unknownIds: string[] = [];
+        for (const id of uniqueIds) {
+          const model = modelsById.get(id);
+          if (model) {
+            previous.set(id, model.isEnabled);
+          } else {
+            unknownIds.push(id);
+          }
+        }
+        if (unknownIds.length > 0) {
+          throw new Error(`These models are not in the loaded registry: ${unknownIds.join(', ')}`);
+        }
+
+        const applyStates = (resolve: (id: string) => boolean): void => {
+          set((state) => ({
+            models: state.models.map((model) =>
+              previous.has(model.id) ? { ...model, isEnabled: resolve(model.id) } : model
+            ),
+          }));
+        };
+
+        // Optimistic update.
+        applyStates(() => enabled);
+        try {
+          // ONE statement for every id. The count guard makes it all-or-nothing:
+          // if any id is missing from the table, no row is updated, so a short
+          // RETURNING set can never be a partial write.
+          const result = await db.query<{ id: string }>(
+            `UPDATE models SET is_enabled = $1, updated_at = NOW()
+             WHERE id = ANY($2)
+               AND (SELECT count(*) FROM models WHERE id = ANY($2)) = $3
+             RETURNING id`,
+            [enabled, uniqueIds, uniqueIds.length]
+          );
+          if (result.rows.length !== uniqueIds.length) {
+            throw new Error(
+              'Some of these models are missing from the database, so nothing was changed.'
+            );
+          }
+          await syncDurableDatabaseWrites(db);
+          // Re-apply over any refresh that landed mid-write (toggleModel parity).
+          applyStates(() => enabled);
+          return previous;
+        } catch (error) {
+          logger.error('Failed to update models', error);
+          applyStates((id) => previous.get(id) === true);
+          void get().fetchRegistry(db);
+          throw error;
+        }
       },
 
       toggleModel: async (db: IDatabase, modelId: string, enabled: boolean) => {

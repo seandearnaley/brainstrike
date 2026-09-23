@@ -4,6 +4,12 @@ import { useToast } from '@brainstrike/ui';
 import { useCallback, useState } from 'react';
 
 const EMPTY_IDS: ReadonlySet<string> = new Set<string>();
+export const DATABASE_NOT_READY = 'The model database is not ready yet. Try again in a moment.';
+
+/** A bulk write's result. `previous` holds each id's enabled state before the write, for Undo. */
+export type ModelBulkToggleOutcome =
+  | { readonly committed: false }
+  | { readonly committed: true; readonly previous: ReadonlyMap<string, boolean> };
 
 export interface ModelToggleController {
   /** Model ids with a write in flight; their switches disable. */
@@ -14,11 +20,28 @@ export interface ModelToggleController {
    * error path.
    */
   readonly toggle: (modelId: string, enabled: boolean) => Promise<boolean>;
+  /**
+   * One database write for many models (BST-1805), with `toggle`'s contract:
+   * every id is busy while the write is in flight, a failure raises a
+   * destructive toast, and the promise never rejects.
+   */
+  readonly toggleMany: (
+    modelIds: readonly string[],
+    enabled: boolean
+  ) => Promise<ModelBulkToggleOutcome>;
+}
+
+function describeModels(count: number): string {
+  return count === 1 ? 'this model' : `${count} models`;
+}
+
+function errorDescription(error: unknown): string {
+  return error instanceof Error ? error.message : 'The change was not saved.';
 }
 
 /**
- * Enabling/disabling a catalogued model, shared by the Provider Hub cards and
- * the Model Catalog list so the two surfaces cannot drift in how a write is
+ * Enabling/disabling catalogued models, shared by the Provider Hub cards and
+ * the Model Catalog so the two surfaces cannot drift in how a write is
  * attempted, reported, or refused (BST-1358 review).
  *
  * NO SILENT FALLBACKS on either arm:
@@ -32,13 +55,20 @@ export interface ModelToggleController {
 export function useModelToggle(): ModelToggleController {
   const db = usePGliteDatabase();
   const toggleModel = useModelRegistryStore((state) => state.toggleModel);
+  const setModelsEnabled = useModelRegistryStore((state) => state.setModelsEnabled);
   const { toast } = useToast();
   const [busyModelIds, setBusyModelIds] = useState<ReadonlySet<string>>(EMPTY_IDS);
 
-  const release = useCallback((modelId: string) => {
+  const markBusy = useCallback((modelIds: readonly string[], busy: boolean): void => {
     setBusyModelIds((current) => {
       const next = new Set(current);
-      next.delete(modelId);
+      for (const id of modelIds) {
+        if (busy) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
+      }
       return next;
     });
   }, []);
@@ -47,29 +77,57 @@ export function useModelToggle(): ModelToggleController {
     async (modelId: string, enabled: boolean): Promise<boolean> => {
       if (!db) {
         toast({
-          description: 'The model database is not ready yet. Try again in a moment.',
+          description: DATABASE_NOT_READY,
           title: 'Could not update model',
           variant: 'destructive',
         });
         return false;
       }
-      setBusyModelIds((current) => new Set(current).add(modelId));
+      markBusy([modelId], true);
       try {
         await toggleModel(db, modelId, enabled);
         return true;
       } catch (error: unknown) {
         toast({
-          description: error instanceof Error ? error.message : 'The change was not saved.',
+          description: errorDescription(error),
           title: `Could not ${enabled ? 'enable' : 'disable'} this model`,
           variant: 'destructive',
         });
         return false;
       } finally {
-        release(modelId);
+        markBusy([modelId], false);
       }
     },
-    [db, release, toast, toggleModel]
+    [db, markBusy, toast, toggleModel]
   );
 
-  return { busyModelIds, toggle };
+  const toggleMany = useCallback(
+    async (modelIds: readonly string[], enabled: boolean): Promise<ModelBulkToggleOutcome> => {
+      if (!db) {
+        toast({
+          description: DATABASE_NOT_READY,
+          title: 'Could not update models',
+          variant: 'destructive',
+        });
+        return { committed: false };
+      }
+      markBusy(modelIds, true);
+      try {
+        const previous = await setModelsEnabled(db, modelIds, enabled);
+        return { committed: true, previous };
+      } catch (error: unknown) {
+        toast({
+          description: errorDescription(error),
+          title: `Could not ${enabled ? 'enable' : 'disable'} ${describeModels(modelIds.length)}`,
+          variant: 'destructive',
+        });
+        return { committed: false };
+      } finally {
+        markBusy(modelIds, false);
+      }
+    },
+    [db, markBusy, setModelsEnabled, toast]
+  );
+
+  return { busyModelIds, toggle, toggleMany };
 }
