@@ -6,6 +6,7 @@ import {
   DESKTOP_NATIVE_TOOL_IDS,
   type DesktopNativeToolId,
   DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
+  deriveAgentLoopInputTokenLimit,
   deriveEffectiveInputBudget,
   findLlmModelDefinition,
   type GoogleProviderOptions,
@@ -1460,13 +1461,12 @@ export function buildAgentLoopSettings(
   const maxSteps = buildPositiveIntegerSetting(settings?.agentMaxSteps);
   let inputTokenLimit = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
   if (inputTokenLimit === undefined && selectedModelDef !== undefined) {
-    const outputReservation =
-      providerId === 'openrouter'
-        ? (buildPositiveIntegerSetting(modelSettings?.maxOutputTokens) ??
-          buildPositiveIntegerSetting(settings?.maxOutputTokens) ??
-          resolveOpenRouterCodingMaxOutputTokens(selectedModelDef.maxOutputTokens))
-        : selectedModelDef.maxOutputTokens;
-    inputTokenLimit = deriveEffectiveInputBudget(selectedModelDef.contextWindow, outputReservation);
+    inputTokenLimit = deriveAgentLoopInputTokenLimit(
+      selectedModelDef,
+      providerId,
+      buildPositiveIntegerSetting(modelSettings?.maxOutputTokens) ??
+        buildPositiveIntegerSetting(settings?.maxOutputTokens)
+    );
   }
   if (!(maxSteps || inputTokenLimit)) {
     return;

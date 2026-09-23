@@ -9,6 +9,8 @@
  * misconfiguration must surface loudly, not produce a nonsense budget.
  */
 
+import { resolveOpenRouterCodingMaxOutputTokens } from './openrouter-coding-defaults.js';
+
 export const CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 export const CONTEXT_BUDGET_SAFETY_MARGIN_MIN = 1024;
 export const CONTEXT_BUDGET_SAFETY_MARGIN_RATIO = 0.05;
@@ -46,4 +48,35 @@ export function deriveEffectiveInputBudget(
     );
   }
   return budget;
+}
+
+/**
+ * The catalog facts the agent-loop input limit is derived from. Matches both
+ * static registry rows and runtime-discovered local model definitions.
+ */
+export interface AgentLoopBudgetModelDefinition {
+  readonly contextWindow: number;
+  readonly maxOutputTokens?: number;
+}
+
+/**
+ * THE derivation of `agentLoop.inputTokenLimit` when the user has not pinned
+ * one — the ONE-DERIVATION invariant in docs/agents/assistant-persistence.md.
+ * The renderer's `buildAgentLoopSettings` and desktop compaction's fallback
+ * for a run carrying no `agentLoop` both call this; never re-derive it.
+ *
+ * OpenRouter reserves the output the request actually sends
+ * (`configuredMaxOutputTokens`, else the coding default); every other
+ * provider reserves the model's catalog maximum. Throws rather than clamping.
+ */
+export function deriveAgentLoopInputTokenLimit(
+  model: AgentLoopBudgetModelDefinition,
+  providerId: string | null | undefined,
+  configuredMaxOutputTokens: number | undefined
+): number {
+  const outputReservation =
+    providerId === 'openrouter'
+      ? (configuredMaxOutputTokens ?? resolveOpenRouterCodingMaxOutputTokens(model.maxOutputTokens))
+      : model.maxOutputTokens;
+  return deriveEffectiveInputBudget(model.contextWindow, outputReservation);
 }

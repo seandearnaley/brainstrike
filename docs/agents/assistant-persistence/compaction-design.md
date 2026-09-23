@@ -47,6 +47,22 @@ the provider prompt — while leaving every raw message physically unchanged in
   different number (the desktop assistant HTTP path does not sanitize
   `agentLoop`). Paired test:
   `apps/desktop/src/__tests__/assistant-server/conversation-compaction-input-budget.test.ts`.
+  BST-1804 closed the remaining gap in that fallback. It still reserved the
+  catalog's HARD `maxOutputTokens`, and once the catalog carried OpenRouter's
+  top-provider maxima that gave 25,000 for `x-ai/grok-4.7` (500,000 window,
+  450,000 max) and 52,429 for `moonshotai/kimi-k3` (943,718 of 1,048,576), and
+  THREW for `minimax/minimax-m3` (512,000 of 524,288) — caught by the
+  pre-request caller, which by then (BST-1737) warned with
+  `conversation_compaction_pre_request_failed` and minted the visible
+  `compaction.failed` breadcrumb, but the turn still ran uncompacted. The pure
+  part of `buildAgentLoopSettings` moved into
+  `deriveAgentLoopInputTokenLimit` (`packages/assistant-contract/src/context-budget.ts`);
+  the renderer and this fallback now both call it, the fallback feeding it the
+  output the run sends (`buildModelSettingsOption` from `@brainstrike/agent`:
+  explicit `modelSettings`, else OpenRouter's reasoning-aware output window).
+  Default-settings budgets are now 865,075 / 466,073 / 443,000 for those three
+  rows. `packages/app-shell`'s `buildAgentLoopSettings` suite pins the renderer
+  to the same reproduction the desktop test pins the fallback to.
 - **Persistence — no new enum, a metadata marker (matches the
   `approval-action-message.ts` precedent):** the summary is an ordinary
   `role: 'assistant'` Mastra message whose `metadata.custom` carries a

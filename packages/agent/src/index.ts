@@ -270,6 +270,7 @@ export {
 } from './mastra/permission-policy-request';
 export { resolveSelfApprovalDecision } from './mastra/permission-tool-gate';
 export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
+export { buildModelSettingsOption } from './mastra/runtime-assembly/stream-options';
 export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,

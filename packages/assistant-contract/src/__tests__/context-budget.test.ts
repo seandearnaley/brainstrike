@@ -3,6 +3,7 @@ import {
   CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS,
   CONTEXT_BUDGET_SAFETY_MARGIN_MIN,
   CONTEXT_BUDGET_SAFETY_MARGIN_RATIO,
+  deriveAgentLoopInputTokenLimit,
   deriveEffectiveInputBudget,
 } from '../context-budget.js';
 
@@ -42,5 +43,40 @@ describe('deriveEffectiveInputBudget', () => {
     expect(CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS).toBe(4096);
     expect(CONTEXT_BUDGET_SAFETY_MARGIN_MIN).toBe(1024);
     expect(CONTEXT_BUDGET_SAFETY_MARGIN_RATIO).toBe(0.05);
+  });
+});
+
+describe('deriveAgentLoopInputTokenLimit', () => {
+  const model = { contextWindow: 400_000, maxOutputTokens: 128_000 };
+
+  it('reserves a direct provider model its catalog maximum output', () => {
+    expect(deriveAgentLoopInputTokenLimit(model, 'anthropic', undefined)).toBe(
+      deriveEffectiveInputBudget(400_000, 128_000)
+    );
+  });
+
+  it('ignores a configured output limit for a direct provider (reserves the maximum)', () => {
+    expect(deriveAgentLoopInputTokenLimit(model, 'openai', 8192)).toBe(
+      deriveEffectiveInputBudget(400_000, 128_000)
+    );
+  });
+
+  it('reserves the configured output limit for OpenRouter', () => {
+    expect(deriveAgentLoopInputTokenLimit(model, 'openrouter', 8192)).toBe(371_808);
+  });
+
+  it('reserves the OpenRouter coding default when no output limit is configured', () => {
+    // min(128,000, 32,000) = 32,000; margin 20,000.
+    expect(deriveAgentLoopInputTokenLimit(model, 'openrouter', undefined)).toBe(348_000);
+  });
+
+  it('throws rather than clamping when the window cannot fit the reservation', () => {
+    expect(() =>
+      deriveAgentLoopInputTokenLimit(
+        { contextWindow: 524_288, maxOutputTokens: 512_000 },
+        'anthropic',
+        undefined
+      )
+    ).toThrow(/cannot fit/);
   });
 });

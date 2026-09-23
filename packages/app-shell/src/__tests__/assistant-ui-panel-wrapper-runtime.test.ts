@@ -1,3 +1,10 @@
+import {
+  deriveEffectiveInputBudget,
+  getLlmModelDefinition,
+  type ProviderId,
+  resolveOpenRouterOutputWindow,
+  resolveOpenRouterReasoningActive,
+} from '@brainstrike/assistant-contract';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
@@ -1526,6 +1533,35 @@ describe('buildAgentLoopSettings input-token budget', () => {
       /contextWindow must be a positive number/
     );
   });
+
+  // BST-1804: desktop compaction's no-`agentLoop` fallback pins itself to
+  // this SAME reproduction (conversation-compaction-input-budget.test.ts), so
+  // this is the renderer half of the pair — if either side drifts, one fails.
+  it.each([
+    ['openrouter', 'moonshotai/kimi-k3'],
+    ['openrouter', 'minimax/minimax-m3'],
+    ['openrouter', 'x-ai/grok-4.7'],
+    ['anthropic', 'claude-opus-5-5'],
+  ] as const)(
+    'derives %s/%s at default settings from the reservation the run sends',
+    (providerId, modelId) => {
+      const definition = getLlmModelDefinition(providerId as ProviderId, modelId);
+      const modelSettings = buildEffectiveModelSettings(
+        providerId,
+        undefined,
+        definition,
+        undefined,
+        modelId
+      );
+      const outputReservation =
+        providerId === 'openrouter'
+          ? resolveOpenRouterOutputWindow(definition, resolveOpenRouterReasoningActive(definition))
+          : definition.maxOutputTokens;
+      expect(
+        buildAgentLoopSettings(undefined, definition, providerId, modelSettings)?.inputTokenLimit
+      ).toBe(deriveEffectiveInputBudget(definition.contextWindow, outputReservation));
+    }
+  );
 
   it('uses conservative floor budget for dynamic local model definitions (32k context)', () => {
     // toRuntimeProviderModels sets contextWindow: 32_768, no maxOutputTokens
