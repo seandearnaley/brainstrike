@@ -201,7 +201,7 @@ bespoke `subagent` tool.
   `toolName` starts with `SUBAGENT_DELEGATION_TOOL_PREFIX` and is not
   `providerExecuted` — POSITIVE identification, never "not in the guarded set" —
   and classifies the nested part under the same allow-list, recursing for a
-  grandchild. Background delegation is out of scope.
+  grandchild. A BACKGROUND task is its own producer lane (`assistant-runtime.md`).
 - Subagent tool calls feed the same per-tool token telemetry table as primary
   calls, attributed to the parent run, through a telemetry-only sink that does
   NOT feed the prompt-reconciliation aggregate (`assistant-persistence.md`,
