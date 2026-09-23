@@ -451,8 +451,12 @@ Guard: `packages/assistant-contract/src/__tests__/provider-catalog-schema.test.t
   user, provider-reported cost stays authoritative at runtime, and a declared
   rate is a display estimate.
 - An `openrouter/*` row's `contextWindow` and `maxOutputTokens`, and the live
-  metadata reader's, are the route's `top_provider` pair; a larger model-level
-  `context_length` served by only one provider is used only when `top_provider.context_length` is null (router meta-models). Why: `contextWindow` sets the compaction limit.
+  metadata reader's, are the route's `top_provider` pair, for EVERY row. The
+  model-level `context_length` stands in only when `top_provider.context_length`
+  is null (router meta-models); an absent field is malformed and throws, and a
+  null output limit means the row declares none. Why: `contextWindow` sets the
+  compaction limit, and a larger model-level window may be served by one
+  provider only.
 
 Settled: the 4/15 beside OpenRouter's 2/10 for `gpt-5.6-sol` is a declared
 `min_prompt_tokens: 272000` tier, so 2/10 is that route's base. BST-1804 re-read
@@ -463,7 +467,10 @@ Evidence: `assistant-providers/model-pricing-per-route.md` (also the GLM-5.3
 context-window record).
 Guard: `packages/assistant-contract/src/__tests__/provider-registry-pricing.test.ts`
 (pins both rows AND asserts they differ);
-`provider-registry-2026-09-refresh.test.ts` pins the `top_provider` pairs; `openrouter-model-metadata.test.ts` pins the live reader's pair and fallback.
+`auditOpenRouterLimits` in `scripts/openrouter-pricing-audit.mjs` enforces the
+`top_provider` pairs against the live Models API (see the audit section below);
+`openrouter-model-metadata.test.ts` pins the live reader's pair and null-only
+fallback.
 
 #### Read the BASE rate, not the rate in force right now
 
@@ -478,8 +485,9 @@ Guard: `packages/assistant-contract/src/__tests__/provider-registry-pricing.test
   matching neither or mixing both; classifying by elimination is fail-open,
   because the band reader defaults every absent UTC field. A third shape gets
   read by a human and taught to the script.
-- Run `pnpm run audit:openrouter-pricing` when adding or re-pricing a row. It is
-  deliberately not in `lint:ci`: the fact lives upstream and OpenRouter re-prices
+- Run `pnpm run audit:openrouter-pricing` when adding, re-pricing or re-limiting
+  a row; it audits rates AND the `top_provider` limit pair. It is deliberately
+  not in `lint:ci`: the fact lives upstream and OpenRouter re-prices
   weekly, so a network gate would fail PRs for reasons outside them and skipping
   on a network error would be silent degradation.
 
@@ -488,7 +496,7 @@ below the standing rate; it is recorded rather than guessed around.
 Evidence: `assistant-providers/openrouter-pricing-audit.md`.
 Guard: `scripts/__tests__/openrouter-pricing-audit.test.mjs` (offline derivation
 against real payload shapes, including one surge payload captured at a peak and
-an off-peak moment).
+an off-peak moment, and the limit-pair check with its null-only fallback).
 
 #### `is_enabled` is not evidence of user intent
 

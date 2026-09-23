@@ -32,6 +32,15 @@
 // depend on when it runs, and when a row disagrees it says WHICH of these
 // mistakes the held number looks like.
 //
+// It also audits each row's LIMITS (BST-1804): `contextWindow` and
+// `maxOutputTokens` must be the route's `top_provider` pair, because
+// `contextWindow` sets the compaction limit and a larger model-level
+// `context_length` may be served by one provider only. The model-level window
+// is read ONLY where the top-provider window is explicitly null (router
+// meta-models); a null top-provider output limit means the row omits one. An
+// ABSENT top-provider field is an unreadable payload, never a fallback. See
+// `auditOpenRouterLimits`.
+//
 // NOT A REQUIRED CI CHECK, deliberately. It needs the network, and OpenRouter
 // re-prices roughly weekly, so wiring it into `lint:ci` would paint unrelated
 // PRs red for upstream reasons. It is an on-demand catalog-authoring tool
@@ -426,6 +435,118 @@ export function auditOpenRouterPricing({ catalog, liveModels, tolerance = 0 }) {
   return { audited, findings };
 }
 
+/** `null` is a published "none"; anything else must be a positive integer. */
+function readTopProviderLimit(topProvider, field) {
+  const value = topProvider[field];
+  if (value === null) {
+    return null;
+  }
+  if (!(Number.isSafeInteger(value) && value > 0)) {
+    throw new PricingShapeError(
+      `top_provider.${field} is neither null nor a positive integer: ${String(value)}`
+    );
+  }
+  return value;
+}
+
+/**
+ * The pair an `openrouter` row must hold: the route's `top_provider` window and
+ * output limit. The model-level `context_length` stands in ONLY when the top
+ * provider publishes a null window (router meta-models); a null output limit
+ * means the row declares none. Throws on an absent or malformed field rather
+ * than falling back — an unread shape is for a human, not a default.
+ */
+export function deriveOpenRouterLimitPair(live) {
+  const topProvider = live.top_provider;
+  if (topProvider === null || typeof topProvider !== 'object') {
+    throw new PricingShapeError('top_provider is not an object');
+  }
+  const topWindow = readTopProviderLimit(topProvider, 'context_length');
+  const maxOutput = readTopProviderLimit(topProvider, 'max_completion_tokens');
+  let contextWindow = topWindow;
+  if (topWindow === null) {
+    if (!(Number.isSafeInteger(live.context_length) && live.context_length > 0)) {
+      throw new PricingShapeError(
+        `top_provider.context_length is null and context_length is not a positive integer: ${String(live.context_length)}`
+      );
+    }
+    contextWindow = live.context_length;
+  }
+  return { contextWindow, maxOutputTokens: maxOutput ?? undefined };
+}
+
+/**
+ * Compare every `openrouter` LLM row's `contextWindow` / `maxOutputTokens`
+ * against the live route's top-provider pair. Exact: these are integers
+ * published verbatim, so there is no representation error to absorb.
+ */
+export function auditOpenRouterLimits({ catalog, liveModels }) {
+  const provider = catalog.find((entry) => entry.id === PROVIDER_ID);
+  if (provider === undefined) {
+    throw new Error(`the catalog has no "${PROVIDER_ID}" provider`);
+  }
+  const liveById = new Map(liveModels.map((model) => [model.id, model]));
+  const findings = [];
+  let audited = 0;
+
+  for (const model of provider.models) {
+    if (model.type !== undefined && model.type !== 'llm') {
+      continue;
+    }
+    const live = liveById.get(model.id);
+    if (live === undefined) {
+      findings.push({ kind: 'route-missing', modelId: model.id });
+      continue;
+    }
+    let expected;
+    try {
+      expected = deriveOpenRouterLimitPair(live);
+    } catch (error) {
+      if (!(error instanceof PricingShapeError)) {
+        throw error;
+      }
+      findings.push({ kind: 'limit-shape-unrecognised', modelId: model.id, reason: error.message });
+      continue;
+    }
+    audited += 1;
+    const held = { contextWindow: model.contextWindow, maxOutputTokens: model.maxOutputTokens };
+    if (
+      held.contextWindow === expected.contextWindow &&
+      held.maxOutputTokens === expected.maxOutputTokens
+    ) {
+      continue;
+    }
+    findings.push({ expected, held, kind: 'limit-drift', modelId: model.id });
+  }
+
+  return { audited, findings };
+}
+
+function formatLimit(value) {
+  return value === undefined ? 'none' : String(value);
+}
+
+function formatLimitFinding(finding) {
+  if (finding.kind === 'route-missing') {
+    return `  ${finding.modelId}: not published by the live Models API`;
+  }
+  if (finding.kind === 'limit-shape-unrecognised') {
+    return `  ${finding.modelId}: live limit shape not understood — ${finding.reason}`;
+  }
+  const { expected, held } = finding;
+  return [
+    `  ${finding.modelId}: held ${formatLimit(held.contextWindow)} / ${formatLimit(held.maxOutputTokens)}`,
+    `top provider ${formatLimit(expected.contextWindow)} / ${formatLimit(expected.maxOutputTokens)}`,
+  ].join(' ');
+}
+
+export function summarizeLimitFindings({ audited, findings }) {
+  const drifted = findings.filter((finding) => finding.kind === 'limit-drift').length;
+  const notAudited = findings.length - drifted;
+  const tail = notAudited === 0 ? '' : `; ${notAudited} row(s) could not be audited`;
+  return `openrouter limits audit: ${drifted} of ${audited} audited routes disagree with the top-provider pair${tail}.`;
+}
+
 function formatFinding(finding) {
   if (finding.kind === 'route-missing') {
     return `  ${finding.modelId}: not published by the live Models API`;
@@ -503,20 +624,36 @@ async function main() {
 
   const catalog = JSON.parse(await readFile(path.join(REPO_ROOT, CATALOG_PATH), 'utf8'));
   const liveModels = await loadLiveModels(fixturePath);
-  const { audited, findings } = auditOpenRouterPricing({ catalog, liveModels, tolerance });
+  const pricing = auditOpenRouterPricing({ catalog, liveModels, tolerance });
+  const limits = auditOpenRouterLimits({ catalog, liveModels });
 
-  if (findings.length === 0) {
+  if (pricing.findings.length === 0) {
     process.stdout.write(
-      `openrouter pricing audit: ${audited} routes match their live base rate.\n`
+      `openrouter pricing audit: ${pricing.audited} routes match their live base rate.\n`
+    );
+  } else {
+    process.stderr.write(
+      `${summarizeFindings(pricing)}\n${pricing.findings
+        .map(formatFinding)
+        .join(
+          '\n'
+        )}\n\nRecord the BASE rate (the cheapest time band) from the STANDARD route.\nSee the openrouter provider _note in packages/assistant-contract/src/provider-catalog.json.\n`
+    );
+    process.exitCode = 1;
+  }
+
+  if (limits.findings.length === 0) {
+    process.stdout.write(
+      `openrouter limits audit: ${limits.audited} routes match their top-provider pair.\n`
     );
     return;
   }
   process.stderr.write(
-    `${summarizeFindings({ audited, findings })}\n${findings
-      .map(formatFinding)
+    `${summarizeLimitFindings(limits)}\n${limits.findings
+      .map(formatLimitFinding)
       .join(
         '\n'
-      )}\n\nRecord the BASE rate (the cheapest time band) from the STANDARD route.\nSee the openrouter provider _note in packages/assistant-contract/src/provider-catalog.json.\n`
+      )}\n\nRecord contextWindow / maxOutputTokens as the route's top_provider pair.\nSee docs/agents/assistant-providers.md, "Model pricing is per-ROUTE, not per-model".\n`
   );
   process.exitCode = 1;
 }

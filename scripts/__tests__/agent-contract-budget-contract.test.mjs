@@ -74,7 +74,9 @@ const CONTRACT_LINE_BUDGETS = {
   //
   // BST-1804 raised this from 2323 (+5): the OpenRouter top_provider
   // context-window rule was promoted from evidence into the pricing section.
-  'assistant-providers.md': 2328,
+  // It then rose to 2336 (+8) when the review found the rule unenforced:
+  // the rule now names its null-only fallback and the audit that enforces it.
+  'assistant-providers.md': 2336,
   'assistant-runtime.md': 2780,
   'assistant-subagents.md': 1626,
   'changeset-diff.md': 495,

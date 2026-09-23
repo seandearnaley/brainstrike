@@ -23,6 +23,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  auditOpenRouterLimits,
   auditOpenRouterPricing,
   classifyHeldRate,
   deriveOpenRouterBaseRate,
@@ -30,6 +31,7 @@ import {
   readModelsEnvelope,
   splitOverrides,
   summarizeFindings,
+  summarizeLimitFindings,
 } from '../openrouter-pricing-audit.mjs';
 
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
@@ -554,4 +556,164 @@ test('a response that is not the Models API envelope fails by name', () => {
       /source did not return the expected/
     );
   }
+});
+
+// BST-1804. An OpenRouter row's contextWindow and maxOutputTokens are the
+// route's `top_provider` pair (docs/agents/assistant-providers.md), because
+// contextWindow sets the compaction limit and a larger model-level window may
+// be served by one provider only. 28 of 73 rows had drifted from it while the
+// rule was documented but unenforced. Fixtures are the live
+// https://openrouter.ai/api/v1/models shapes read 2026-09-23 UTC, trimmed to
+// the fields the check reads.
+const LIMITS_FIXTURE = [
+  {
+    // Model-level window served by one provider; the top provider serves less.
+    context_length: 1_310_720,
+    id: 'z-ai/glm-5.3-flash',
+    top_provider: {
+      context_length: 1_048_576,
+      is_moderated: false,
+      max_completion_tokens: 943_718,
+    },
+  },
+  {
+    // Router meta-model: the only shape that publishes a null top-provider window.
+    context_length: 200_000,
+    id: 'openrouter/free',
+    top_provider: { context_length: null, is_moderated: false, max_completion_tokens: null },
+  },
+];
+
+function limitsCatalogWith(models) {
+  return catalogWith(models.map((model) => ({ type: 'llm', ...model })));
+}
+
+test('a row holding the top-provider pair reports no limit findings', () => {
+  const { audited, findings } = auditOpenRouterLimits({
+    catalog: limitsCatalogWith([
+      { contextWindow: 1_048_576, id: 'z-ai/glm-5.3-flash', maxOutputTokens: 943_718 },
+    ]),
+    liveModels: LIMITS_FIXTURE,
+  });
+  assert.equal(audited, 1);
+  assert.deepEqual(findings, []);
+});
+
+test('the larger model-level window is limit drift, not the route limit', () => {
+  // The exact row that shipped before this check existed.
+  const { findings } = auditOpenRouterLimits({
+    catalog: limitsCatalogWith([
+      { contextWindow: 1_310_720, id: 'z-ai/glm-5.3-flash', maxOutputTokens: 131_072 },
+    ]),
+    liveModels: LIMITS_FIXTURE,
+  });
+  assert.deepEqual(findings, [
+    {
+      expected: { contextWindow: 1_048_576, maxOutputTokens: 943_718 },
+      held: { contextWindow: 1_310_720, maxOutputTokens: 131_072 },
+      kind: 'limit-drift',
+      modelId: 'z-ai/glm-5.3-flash',
+    },
+  ]);
+});
+
+test('each half of the pair drifts on its own', () => {
+  const windowOnly = auditOpenRouterLimits({
+    catalog: limitsCatalogWith([
+      { contextWindow: 1_000_000, id: 'z-ai/glm-5.3-flash', maxOutputTokens: 943_718 },
+    ]),
+    liveModels: LIMITS_FIXTURE,
+  });
+  assert.deepEqual(
+    windowOnly.findings.map((finding) => finding.kind),
+    ['limit-drift']
+  );
+  // An omitted max output is drift when the route publishes one.
+  const outputOmitted = auditOpenRouterLimits({
+    catalog: limitsCatalogWith([{ contextWindow: 1_048_576, id: 'z-ai/glm-5.3-flash' }]),
+    liveModels: LIMITS_FIXTURE,
+  });
+  assert.deepEqual(outputOmitted.findings[0].held, {
+    contextWindow: 1_048_576,
+    maxOutputTokens: undefined,
+  });
+});
+
+test('only a NULL top-provider window reads the model-level window, and a null output limit is omitted', () => {
+  const holds = auditOpenRouterLimits({
+    catalog: limitsCatalogWith([{ contextWindow: 200_000, id: 'openrouter/free' }]),
+    liveModels: LIMITS_FIXTURE,
+  });
+  assert.deepEqual(holds.findings, []);
+  const invented = auditOpenRouterLimits({
+    catalog: limitsCatalogWith([
+      { contextWindow: 200_000, id: 'openrouter/free', maxOutputTokens: 32_000 },
+    ]),
+    liveModels: LIMITS_FIXTURE,
+  });
+  assert.deepEqual(invented.findings[0].expected, {
+    contextWindow: 200_000,
+    maxOutputTokens: undefined,
+  });
+});
+
+test('an absent or malformed top-provider limit is unreadable, never a fallback', () => {
+  const liveModels = [
+    {
+      context_length: 200_000,
+      id: 'vendor/absent-window',
+      top_provider: { max_completion_tokens: 8192 },
+    },
+    {
+      context_length: 200_000,
+      id: 'vendor/absent-output',
+      top_provider: { context_length: 200_000 },
+    },
+    {
+      context_length: 200_000,
+      id: 'vendor/zero-window',
+      top_provider: { context_length: 0, max_completion_tokens: null },
+    },
+    { context_length: 200_000, id: 'vendor/no-top-provider' },
+  ];
+  const { audited, findings } = auditOpenRouterLimits({
+    catalog: limitsCatalogWith(
+      liveModels.map((model) => ({ contextWindow: 200_000, id: model.id }))
+    ),
+    liveModels,
+  });
+  assert.equal(audited, 0);
+  assert.deepEqual(
+    findings.map((finding) => [finding.kind, finding.modelId]),
+    [
+      ['limit-shape-unrecognised', 'vendor/absent-window'],
+      ['limit-shape-unrecognised', 'vendor/absent-output'],
+      ['limit-shape-unrecognised', 'vendor/zero-window'],
+      ['limit-shape-unrecognised', 'vendor/no-top-provider'],
+    ]
+  );
+  assert.match(findings[0].reason, /top_provider\.context_length/);
+  assert.match(findings[1].reason, /top_provider\.max_completion_tokens/);
+});
+
+test('a row the gateway no longer publishes is a limit finding too, and non-LLM rows are skipped', () => {
+  const { audited, findings } = auditOpenRouterLimits({
+    catalog: limitsCatalogWith([
+      { contextWindow: 8192, id: 'vendor/retired-route' },
+      { id: 'vendor/embeddings', type: 'embedding' },
+    ]),
+    liveModels: LIMITS_FIXTURE,
+  });
+  assert.equal(audited, 0);
+  assert.deepEqual(findings, [{ kind: 'route-missing', modelId: 'vendor/retired-route' }]);
+});
+
+test('the limits summary counts drift apart from rows that could not be audited', () => {
+  assert.equal(
+    summarizeLimitFindings({
+      audited: 3,
+      findings: [{ kind: 'limit-drift' }, { kind: 'route-missing' }],
+    }),
+    'openrouter limits audit: 1 of 3 audited routes disagree with the top-provider pair; 1 row(s) could not be audited.'
+  );
 });
