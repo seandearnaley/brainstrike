@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   AgenticCompactionSummarySchemaError,
   type AgentMessage,
+  buildModelSettingsOption,
   type CompactionMessage,
   type CompactionRangeEntry,
   estimateCompactionMessageTokens,
@@ -20,7 +21,7 @@ import {
   COMPACTION_SUMMARY_METADATA_KEY,
   type CompactionSummaryPayload,
 } from '@brainstrike/assistant-contract/compaction-summary';
-import { deriveEffectiveInputBudget } from '@brainstrike/assistant-contract/context-budget';
+import { deriveAgentLoopInputTokenLimit } from '@brainstrike/assistant-contract/context-budget';
 import {
   ASSISTANT_MESSAGE_PARENTS_TABLE,
   TOKEN_ESTIMATE_CALIBRATION_TABLE,
@@ -252,22 +253,23 @@ function requireThreadContext(runtimeData: RuntimeData):
  * the renderer's `buildAgentLoopSettings` through the request body into
  * `RuntimeData` unmodified on the desktop path.
  *
- * Re-deriving from the catalog's `maxOutputTokens` here diverged from that
- * number for every provider whose request path reserves LESS output than the
- * model's hard maximum — OpenRouter caps its reservation at
- * OPENROUTER_CODING_MAX_OUTPUT_TOKENS (32,000), so 49 of the 57 OpenRouter
- * catalog rows compacted against a budget smaller than the run's (18x smaller
- * for `meta/muse-spark-1.3`: 52,429 against the run's 964,147), and
- * `moonshotai/kimi-k3` (contextWindow === maxOutputTokens) made the derivation
- * THROW — a throw the pre-request caller swallows, so that recommended coding
- * model silently got no compaction at all.
+ * A run with NO `agentLoop` (a raw client, or a request built before the
+ * settings exist) gets the number that SAME derivation would have produced:
+ * `deriveAgentLoopInputTokenLimit`, the function `buildAgentLoopSettings`
+ * itself calls, fed the output reservation this run actually sends
+ * (`buildModelSettingsOption` — the explicit `modelSettings`, else OpenRouter's
+ * reasoning-aware output window). BST-1804: the fallback used to be its own
+ * formula reserving the catalog's HARD `maxOutputTokens`, which OpenRouter
+ * never sends (it caps at OPENROUTER_CODING_MAX_OUTPUT_TOKENS or the vendor
+ * window). Once the catalog carried top-provider maxima that meant 25-52K
+ * budgets on 0.5-1M windows (x-ai/grok-4.7, moonshotai/kimi-k3) and a THROW
+ * for minimax/minimax-m3 — which the pre-request caller catches, so the turn
+ * ran uncompacted with only its `compaction.failed` breadcrumb to show for it.
  *
- * The catalog derivation stays as the fallback for runs that carry no
- * `agentLoop` (a raw client, or a request built before the settings exist).
  * A PRESENT-but-unusable `inputTokenLimit` throws rather than quietly falling
  * back to a different number: the desktop assistant HTTP path does not
  * sanitize `agentLoop` (only the IPC tool path does), so silently substituting
- * the catalog value would hide a malformed request behind a plausible budget.
+ * the derived value would hide a malformed request behind a plausible budget.
  */
 export function resolveCompactionInputBudget(runtimeData: RuntimeData): number {
   const provider = runtimeData.provider?.trim();
@@ -288,7 +290,13 @@ export function resolveCompactionInputBudget(runtimeData: RuntimeData): number {
   if (!definition) {
     throw new Error(`Unknown compaction input budget for ${provider}/${model}.`);
   }
-  return deriveEffectiveInputBudget(definition.contextWindow, definition.maxOutputTokens);
+  // Only OpenRouter reserves the request's output; a direct provider reserves
+  // the catalog maximum, so it never runs the stream-option builder.
+  const requestMaxOutputTokens =
+    provider === 'openrouter'
+      ? buildModelSettingsOption(runtimeData).modelSettings?.maxOutputTokens
+      : undefined;
+  return deriveAgentLoopInputTokenLimit(definition, provider, requestMaxOutputTokens);
 }
 
 function isAtTrigger(

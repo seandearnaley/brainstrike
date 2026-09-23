@@ -1,9 +1,13 @@
+import { findLlmModelDefinition } from '@brainstrike/assistant-contract/provider-registry';
 import { describe, expect, it } from 'vitest';
 import { createCatalogProjector, projectCatalogRow } from '../catalog-projection';
 import { makeDbModel } from './catalog-test-harness';
 
 describe('projectCatalogRow', () => {
   it('joins the registry facts for a registered chat model', () => {
+    // Prices come from the registry: catalog re-pricing must not break the join.
+    const terraPricing = findLlmModelDefinition('openai', 'gpt-5.6-terra')?.pricing;
+    expect(terraPricing).toBeDefined();
     const row = projectCatalogRow(
       makeDbModel({
         id: 'gpt-5.6-terra',
@@ -23,8 +27,8 @@ describe('projectCatalogRow', () => {
       pricing: {
         cacheReadPerMTok: null,
         cacheWritePerMTok: null,
-        inputPerMTok: 2.5,
-        outputPerMTok: 15,
+        inputPerMTok: terraPricing?.inputPerMTok,
+        outputPerMTok: terraPricing?.outputPerMTok,
       },
       providerName: 'OpenAI',
       recommended: true,

@@ -245,14 +245,16 @@ store persists each thread's own model and provider settings.
   `packages/assistant-contract/src/reasoning-visibility.ts` and projected onto
   each provider's own wire field.
 - Three hard rules: visibility only MODIFIES a reasoning request already being
-  made; output is never suppressed for reasoning that is switched off; and the
-  OpenRouter VISIBLE path adds no field at all, because `require_parameters`
-  would shrink the eligible upstream pool. Only the opt-out adds
-  `exclude: true`, and do not reintroduce a default
+  made (always-on `mandatory` Anthropic rows send `thinking` at Auto solely to
+  carry `display`, because those models always reason, so that request is
+  always being made); output is never suppressed for reasoning that is switched
+  off; and the OpenRouter VISIBLE path adds no field at all, because
+  `require_parameters` would shrink the eligible upstream pool. Only the
+  opt-out adds `exclude: true`, and do not reintroduce a default
   `openrouter.reasoning.summary`.
 - Provider-specific keys are valid escape hatches and win when set, and each
   control must render the RESOLVED value, not the raw key.
-- The Anthropic Thinking toggle is authoritative for "is Claude thinking": switching it off clears the effort as well as the budget; always-on rows (`mandatory`, e.g. Fable) expose no toggle, and a cleared toggleable ladder row serialises explicit `disabled` rather than an omit that would leave default-on rows thinking.
+- The Anthropic Thinking toggle is authoritative for "is Claude thinking": switching it off clears the effort as well as the budget; always-on rows (`mandatory`, e.g. Fable) expose no toggle, and a cleared toggleable ladder row serialises explicit `disabled` rather than an omit that would leave default-on rows thinking. Always-on rows (`mandatory`: Opus 5.5, Fable 5/5.1) send `thinking: {type: 'adaptive', display}` at every effort, Auto included (Auto sends no effort). Why: the vendor default `display` is `omitted`, so an omitted `thinking` hides reasoning and Opus 5.5's between-tool-call progress text. Visibility uses only the GA `summarized`/`omitted`. Evidence: `assistant-providers/anthropic-thinking-mirrors.md`.
 - The offered Anthropic ladder is declared per model in
   `LlmModelDefinition.anthropicReasoning`, recorded from vendor documentation
   and never derived from union membership. An effort outside a model's ladder —
@@ -450,15 +452,27 @@ Guard: `packages/assistant-contract/src/__tests__/provider-catalog-schema.test.t
 - It is recorded rather than resolved: OpenRouter is the route that bills the
   user, provider-reported cost stays authoritative at runtime, and a declared
   rate is a display estimate.
+- An `openrouter/*` row's `contextWindow` and `maxOutputTokens`, and the live
+  metadata reader's, are the route's `top_provider` pair, for EVERY row. The
+  model-level `context_length` stands in only when `top_provider.context_length`
+  is null (router meta-models); an absent field is malformed and throws, and a
+  null output limit means the row declares none. Why: `contextWindow` sets the
+  compaction limit, and a larger model-level window may be served by one
+  provider only.
 
-Settled: the 4/15 figure beside OpenRouter's 2/10 for `gpt-5.6-sol` is a declared
-`min_prompt_tokens: 272000` long-context tier, so 2/10 is the base rate to hold
-for that route. NOT settled: why the gateway says 2/10 where
-developers.openai.com says 4/20 — re-read both sources during the `openai`-block
-pass that also owes terra, luna and gpt-5.5 their re-pricing.
-Evidence: `assistant-providers/model-pricing-per-route.md`.
+Settled: the 4/15 beside OpenRouter's 2/10 for `gpt-5.6-sol` is a declared
+`min_prompt_tokens: 272000` tier, so 2/10 is that route's base. BST-1804 re-read
+both on 2026-09-23: OpenAI's own >272K tier is 8/30, so the direct 4/20 is not a
+mis-read tier; the gap is genuine per-route data, recorded, not explained. The
+same pass re-priced the direct `openai` block from developers.openai.com.
+Evidence: `assistant-providers/model-pricing-per-route.md` (also the GLM-5.3
+context-window record).
 Guard: `packages/assistant-contract/src/__tests__/provider-registry-pricing.test.ts`
-(pins both rows AND asserts they differ).
+(pins both rows AND asserts they differ);
+`auditOpenRouterLimits` in `scripts/openrouter-pricing-audit.mjs` enforces the
+`top_provider` pairs against the live Models API (see the audit section below);
+`openrouter-model-metadata.test.ts` pins the live reader's pair and null-only
+fallback.
 
 #### Read the BASE rate, not the rate in force right now
 
@@ -473,8 +487,9 @@ Guard: `packages/assistant-contract/src/__tests__/provider-registry-pricing.test
   matching neither or mixing both; classifying by elimination is fail-open,
   because the band reader defaults every absent UTC field. A third shape gets
   read by a human and taught to the script.
-- Run `pnpm run audit:openrouter-pricing` when adding or re-pricing a row. It is
-  deliberately not in `lint:ci`: the fact lives upstream and OpenRouter re-prices
+- Run `pnpm run audit:openrouter-pricing` when adding, re-pricing or re-limiting
+  a row; it audits rates AND the `top_provider` limit pair. It is deliberately
+  not in `lint:ci`: the fact lives upstream and OpenRouter re-prices
   weekly, so a network gate would fail PRs for reasons outside them and skipping
   on a network error would be silent degradation.
 
@@ -483,7 +498,7 @@ below the standing rate; it is recorded rather than guessed around.
 Evidence: `assistant-providers/openrouter-pricing-audit.md`.
 Guard: `scripts/__tests__/openrouter-pricing-audit.test.mjs` (offline derivation
 against real payload shapes, including one surge payload captured at a peak and
-an off-peak moment).
+an off-peak moment, and the limit-pair check with its null-only fallback).
 
 #### `is_enabled` is not evidence of user intent
 
