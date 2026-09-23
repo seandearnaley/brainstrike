@@ -197,3 +197,22 @@ describe('CatalogSection keyboard', () => {
     expect(props.onToggleModel).not.toHaveBeenCalled();
   });
 });
+
+describe('CatalogSection details and pointer', () => {
+  it('← closes an open details row', () => {
+    const props = renderSection({ detailsOpenIds: new Set(['gpt-a']) });
+    const grid = screen.getByRole('treegrid', { name: 'OpenAI models' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'ArrowLeft' });
+    expect(props.onToggleDetails).toHaveBeenCalledWith('gpt-a');
+  });
+
+  it('a pointer click on a model row selects nothing', async () => {
+    const props = renderSection();
+    const row = screen.getByRole('row', { name: /GPT A/ });
+    await userEvent.click(within(row).getByText('GPT A'));
+    expect(props.onToggleDetails).not.toHaveBeenCalled();
+    expect(props.onToggleModel).not.toHaveBeenCalled();
+    expect(row).not.toHaveAttribute('aria-selected', 'true');
+  });
+});
