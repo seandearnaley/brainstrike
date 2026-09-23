@@ -883,7 +883,11 @@ describe('native delegation deadline ownership', () => {
     expect(() => binding.prepare(duplicate, { maxSteps: 8, persona })).toThrow(
       'Delegated cancellation already owns this native invocation.'
     );
-    expect(binding.getExecutionAbortSignal?.(identity)).toBe(deadline.signal);
+    // The active execution still ends on its own deadline.
+    const preserved = binding.getExecutionAbortSignal?.(identity);
+    const reason = new Error('Task timed out after 1000ms');
+    deadline.abort(reason);
+    expect(preserved?.reason).toBe(reason);
   });
 
   it.each([false, true])(
@@ -922,12 +926,19 @@ describe('native delegation deadline ownership', () => {
         toolCallId: context.toolCallId,
       });
       binding.prepare(resumed, { maxSteps: 8, persona });
-      expect(binding.getExecutionAbortSignal?.(identity)).toBeUndefined();
-      const resumedSignal = new AbortController().signal;
-      binding.captureExecutionAbortSignal?.(identity, resumedSignal);
-      expect(binding.getExecutionAbortSignal?.(identity)).toBe(resumedSignal);
+      // Only the new execution's own end (its child's stall) remains.
+      expect(binding.getExecutionAbortSignal?.(identity)?.aborted).toBe(false);
+      const resumedDeadlineOwner = new AbortController();
+      binding.captureExecutionAbortSignal?.(identity, resumedDeadlineOwner.signal);
+      // Composed with the new execution's own stall end, so it follows the deadline.
+      const composed = binding.getExecutionAbortSignal?.(identity);
+      expect(composed?.aborted).toBe(false);
+      const resumedDeadline = new Error('Task timed out after 2000ms');
+      resumedDeadlineOwner.abort(resumedDeadline);
+      expect(composed?.reason).toBe(resumedDeadline);
       binding.captureExecutionAbortSignal?.(identity, undefined);
-      expect(binding.getExecutionAbortSignal?.(identity)).toBeUndefined();
+      // No deadline any more: only the execution's stall end remains.
+      expect(binding.getExecutionAbortSignal?.(identity)?.aborted).toBe(false);
       expect(() =>
         binding.hooks?.afterToolCall?.({
           context: { threadId: 'root', toolCallId: context.toolCallId },

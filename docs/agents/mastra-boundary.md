@@ -173,8 +173,8 @@ Evidence: `mastra-boundary/memory-model-credentials.md`.
   suspend pauses, and abnormal-ending policy are one module each under
   `packages/agent/src/mastra/`.
 - Keep classification and watchdog mechanism out of the mapper: they belong to
-  `provider-error-metadata.ts`, `mastra-chunk-decoding.ts`, and the two
-  `packages/agent/src/stream/with-*-timeout.ts` modules.
+  `provider-error-metadata.ts`, `mastra-chunk-decoding.ts`, `mastra-watchdog-options.ts`
+  and the two `packages/agent/src/stream/with-*-timeout.ts` modules.
 - Transient-vs-durable is a mapper decision, load-bearing for three rulings in
   `docs/agents/assistant-runtime.md`: run-event deferral across streaming text
   parts, `chunk.type === 'run-event'` as the durable-persistence discriminator,

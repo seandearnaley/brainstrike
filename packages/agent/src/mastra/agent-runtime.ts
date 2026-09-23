@@ -39,6 +39,10 @@ import {
   composeCacheAwareInstructions,
 } from './anthropic-instruction-cache';
 import type { RuntimeApprovalGate } from './approval-gate';
+import {
+  type BackgroundChildWatchdogs,
+  watchBackgroundChildren,
+} from './background-child-watchdog';
 import { requireBackgroundResultDelivery } from './background-result-delivery';
 import type { DelegatedExecutionOptions } from './build-persona-subagents';
 import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
@@ -227,6 +231,12 @@ export interface MastraAgentRuntime {
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
+  /**
+   * Each background child's own watchdog (`background-child-watchdog.ts`),
+   * present exactly when `backgroundTaskManager` is. The parent's stream
+   * watchdog reads it as the watch over the work that holds its stream open.
+   */
+  backgroundChildWatchdogs?: BackgroundChildWatchdogs | undefined;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
   /** Direct child legs retain the child's native default processors and admitted step cap. */
   childExecution?: { readonly maxSteps: number; readonly inputProcessors?: unknown[] };
@@ -983,6 +993,7 @@ export async function createMastraAgentRuntime(
     Boolean(backgroundAgentOptions.backgroundTasks),
     resolveChildTaskTimeoutMs(subagentSettings)
   );
+  let backgroundChildWatchdogs: BackgroundChildWatchdogs | undefined;
   let unregisterCancellation: (() => void) | undefined;
   let unregisterDecisions: (() => void) | undefined;
   let unregisterFollowup: (() => void) | undefined;
@@ -993,6 +1004,8 @@ export async function createMastraAgentRuntime(
     // replace an earlier error. Decision settlement remains fail-closed.
     for (const cleanup of [
       () => invalidateMcpAppAdmission?.(),
+      // Judge no child through shutdown: its cancellation is not a stall.
+      () => backgroundChildWatchdogs?.dispose(),
       () => mastra?.shutdown(),
       () => unregisterCancellation?.(),
       () => unregisterDecisions?.(),
@@ -1036,6 +1049,13 @@ export async function createMastraAgentRuntime(
     await delegatedTurnPersistence?.finalize(targets);
   };
   await initializeRuntimeLifetime(() => {
+    backgroundChildWatchdogs = watchBackgroundChildren(
+      assistantIdentityRuntime.backgroundTaskManager,
+      options,
+      agent.id,
+      toolNameMap,
+      resilienceConfig
+    );
     unregisterCancellation = options.conversationBinding?.registerCancellation?.(cancelInvocations);
     unregisterDecisions = options.conversationBinding?.registerDecisionControl?.((request) =>
       liveDecisions.deliver(request)
@@ -1055,6 +1075,7 @@ export async function createMastraAgentRuntime(
     ...assistantIdentityRuntime,
     approvalGate,
     askTools,
+    backgroundChildWatchdogs,
     childPromptFacts,
     conversationBinding: options.conversationBinding,
     delegatedExecutionOptions,

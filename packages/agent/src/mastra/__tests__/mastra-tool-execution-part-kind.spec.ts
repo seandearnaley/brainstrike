@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createMastraToolExecutionPartKindReader,
   isMastraProviderOutputPart,
-} from '../agent-streaming';
+} from '../mastra-watchdog-options';
 
 const part = (type: string, toolCallId?: unknown, extra?: Record<string, unknown>) => ({
   payload: { toolCallId, ...extra },
