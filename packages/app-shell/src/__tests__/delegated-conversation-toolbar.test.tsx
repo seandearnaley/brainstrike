@@ -1,13 +1,21 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
+import {
+  __resetAssistantSubagentPreferencesStoreForTests,
+  useAssistantSubagentPreferencesStore,
+} from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import { BUILT_IN_PERSONAS } from '@brainstrike/assistant-contract/personas';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import type { DelegatedConversationInsights } from '@brainstrike/db';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it } from 'vitest';
 import { DelegatedConversationToolbar } from '../delegated-conversation-toolbar';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  __resetAssistantSubagentPreferencesStoreForTests();
+});
 function insights(
   threadId = 'child',
   allowedToolIds: readonly string[] = ['brainstrike.readWorkspaceFile']
@@ -49,6 +57,17 @@ it('shows the admitted scope and real run model while keeping uncaptured usage a
   expect(screen.getByText('readWorkspaceFile')).toBeVisible();
   expect(screen.getByText('No captured usage yet')).toBeVisible();
   expect(screen.queryByText(/\$0/)).not.toBeInTheDocument();
+});
+it("states the child's level against the user's depth setting, not a constant", async () => {
+  useAssistantSubagentPreferencesStore.setState({
+    settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth: 7 },
+  });
+  const user = userEvent.setup();
+  render(
+    <DelegatedConversationToolbar insights={{ status: 'ready', value: insights() }} isRunning />
+  );
+  await user.click(screen.getByRole('button', { name: 'Child details' }));
+  expect(screen.getByText('Level 1 of 7')).toBeVisible();
 });
 it('uses the ordinary usage renderer for separate direct and inclusive totals without pricing an unknown model', async () => {
   const user = userEvent.setup();

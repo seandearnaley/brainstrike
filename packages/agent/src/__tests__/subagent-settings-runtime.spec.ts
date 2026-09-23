@@ -18,8 +18,8 @@ const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
 
 describe('subagent settings in the delegation config', () => {
   it('clamps a child to min(persona, settings) and lets the model ask for less', async () => {
-    // One config per start: the in-flight counter (MAX_CONCURRENT_DELEGATIONS)
-    // would otherwise refuse the third start for concurrency, not for its cap.
+    // One config per start: the in-flight counter (`maxConcurrentWork`) would
+    // otherwise be what refuses a later start, not the step cap under test.
     const start = async (maxSteps?: number) =>
       createDelegationConfig({
         abortSignal: new AbortController().signal,
@@ -43,7 +43,9 @@ describe('subagent settings in the delegation config', () => {
 
 describe('subagent settings on the runtime', () => {
   it('defaults when the request omits them and tells the model the effective budget', async () => {
-    const fixture = await createBackgroundFixture();
+    const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+      requestOmitsSubagentSettings: true,
+    });
     const { backing, runtime, runtimeData, release, database, model } = fixture;
     release.resolve();
     try {

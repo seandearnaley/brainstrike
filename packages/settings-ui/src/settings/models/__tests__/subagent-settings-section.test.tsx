@@ -40,6 +40,62 @@ describe('SubagentSettingsSection', () => {
     expect(screen.getByLabelText('Max output tokens per step')).toHaveValue(8192);
   });
 
+  it('shows the four per-turn tree limits with their defaults and ranges', () => {
+    render(<SubagentSettingsSection />);
+    const depth = screen.getByLabelText('Max delegation depth');
+    expect(depth).toHaveValue(3);
+    expect(depth).toHaveAttribute('min', '1');
+    expect(depth).toHaveAttribute('max', '8');
+    const invocations = screen.getByLabelText('Max subagents per turn');
+    expect(invocations).toHaveValue(200);
+    expect(invocations).toHaveAttribute('max', '1000');
+    const concurrent = screen.getByLabelText('Subagent work at once');
+    expect(concurrent).toHaveValue(6);
+    expect(concurrent).toHaveAttribute('max', '20');
+    const treeOutput = screen.getByLabelText('Max output tokens per turn');
+    expect(treeOutput).toHaveValue(6_553_600);
+    expect(treeOutput).toHaveAttribute('max', '131072000');
+  });
+
+  it('commits each tree limit to the store on blur', async () => {
+    const user = userEvent.setup();
+    render(<SubagentSettingsSection />);
+    for (const [label, value] of [
+      ['Max delegation depth', '5'],
+      ['Max subagents per turn', '40'],
+      ['Subagent work at once', '3'],
+      ['Max output tokens per turn', '262144'],
+    ] as const) {
+      const input = screen.getByLabelText(label);
+      await user.clear(input);
+      await user.type(input, value);
+      await user.tab();
+    }
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
+      ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      maxConcurrentWork: 3,
+      maxDepth: 5,
+      maxInvocations: 40,
+      maxTreeOutputTokens: 262_144,
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('refuses a turn output budget below the per-subagent budget, naming the rule', async () => {
+    const user = userEvent.setup();
+    render(<SubagentSettingsSection />);
+    const treeOutput = screen.getByLabelText('Max output tokens per turn');
+    await user.clear(treeOutput);
+    await user.type(treeOutput, '16384');
+    await user.tab();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /maxChildOutputTokens must not exceed maxTreeOutputTokens/
+    );
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
+      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+    );
+  });
+
   it('shows the subagent runtime limit Off by default', () => {
     render(<SubagentSettingsSection />);
     const runtime = screen.getByLabelText('Max runtime per subagent (minutes)');

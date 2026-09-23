@@ -807,6 +807,7 @@ export function createBackgroundResumeStream(params: {
             ledger: ledger.source,
             manager,
             maxIdleMs: runtime.backgroundIdleMs,
+            maxInvocations: runtime.subagentSettings.maxInvocations,
             options,
             recordNativeRootRun: requireNativeRootRunRecorder(runtime.conversationBinding),
             recordWakeup: runtime.conversationBinding?.recordWakeup,

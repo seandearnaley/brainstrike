@@ -17,12 +17,42 @@ const MS_PER_MINUTE = 60_000;
 const MAX_RUNTIME_MINUTES = Math.floor(NODE_TIMER_MAX_MS / MS_PER_MINUTE);
 const RUNTIME_ID = 'subagent-max-child-runtime';
 
-const FIELDS: readonly {
+interface FieldSpec {
   readonly field: Field;
   readonly help: string;
   readonly id: string;
   readonly label: string;
-}[] = [
+}
+
+/** Tree limits: one set per turn, across every subagent and its descendants. */
+const TURN_FIELDS: readonly FieldSpec[] = [
+  {
+    field: 'maxDepth',
+    help: 'How many levels deep subagents may delegate to other subagents.',
+    id: 'subagent-max-depth',
+    label: 'Max delegation depth',
+  },
+  {
+    field: 'maxInvocations',
+    help: 'Subagents one turn may start, nested ones included. Background subagents may wake the main agent at most this many times.',
+    id: 'subagent-max-invocations',
+    label: 'Max subagents per turn',
+  },
+  {
+    field: 'maxConcurrentWork',
+    help: 'Model calls and tool runs that may execute at once across all subagents; the rest wait their turn.',
+    id: 'subagent-max-concurrent-work',
+    label: 'Subagent work at once',
+  },
+  {
+    field: 'maxTreeOutputTokens',
+    help: 'Output all subagents in one turn may produce together. The default never binds before the per-subagent budgets do; lower it to cap cost.',
+    id: 'subagent-max-tree-output-tokens',
+    label: 'Max output tokens per turn',
+  },
+];
+
+const CHILD_FIELDS: readonly FieldSpec[] = [
   {
     field: 'maxChildSteps',
     help: 'Model calls a subagent may make, including its reserved summary step. A persona that declares fewer keeps its own number.',
@@ -37,7 +67,7 @@ const FIELDS: readonly {
   },
   {
     field: 'maxChildOutputTokens',
-    help: 'Output one subagent may produce in a turn; 131,072 across all subagents is the fixed ceiling.',
+    help: 'Output one subagent may produce in a turn; it cannot exceed the output budget for the whole turn.',
     id: 'subagent-max-child-output-tokens',
     label: 'Max output tokens per subagent',
   },
@@ -126,7 +156,11 @@ export function SubagentSettingsSection() {
       setMaxChildOutputTokens: state.setMaxChildOutputTokens,
       setMaxChildRuntimeMs: state.setMaxChildRuntimeMs,
       setMaxChildSteps: state.setMaxChildSteps,
+      setMaxConcurrentWork: state.setMaxConcurrentWork,
+      setMaxDepth: state.setMaxDepth,
+      setMaxInvocations: state.setMaxInvocations,
       setMaxStepOutputTokens: state.setMaxStepOutputTokens,
+      setMaxTreeOutputTokens: state.setMaxTreeOutputTokens,
       setSynthesisOutputTokens: state.setSynthesisOutputTokens,
       settings: state.settings,
     }))
@@ -134,7 +168,11 @@ export function SubagentSettingsSection() {
   const setters: Record<Field, (value: number) => void> = {
     maxChildOutputTokens: store.setMaxChildOutputTokens,
     maxChildSteps: store.setMaxChildSteps,
+    maxConcurrentWork: store.setMaxConcurrentWork,
+    maxDepth: store.setMaxDepth,
+    maxInvocations: store.setMaxInvocations,
     maxStepOutputTokens: store.setMaxStepOutputTokens,
+    maxTreeOutputTokens: store.setMaxTreeOutputTokens,
     synthesisOutputTokens: store.setSynthesisOutputTokens,
   };
   // Reset remounts the fields, which discards every pending draft and message.
@@ -154,6 +192,17 @@ export function SubagentSettingsSection() {
   };
 
   const runtimeMs = store.settings.maxChildRuntimeMs;
+  const renderField = ({ field, help, id, label }: FieldSpec) => (
+    <BudgetField
+      help={help}
+      id={id}
+      key={`${field}:${generation}`}
+      label={label}
+      limits={SUBAGENT_SETTINGS_LIMITS[field]}
+      onCommit={({ text }) => refusalOf(() => setters[field](parseNumberInput(text)))}
+      value={String(store.settings[field])}
+    />
+  );
 
   return (
     <Card className="space-y-5 p-4" data-testid="subagent-settings-section">
@@ -164,8 +213,8 @@ export function SubagentSettingsSection() {
             <h3 className="font-medium text-sm">Subagents</h3>
           </div>
           <p className="text-muted-foreground text-sm">
-            Budgets every delegated subagent runs under. They are copied into the turn when its
-            first subagent starts, so a change applies to the next turn.
+            Limits every delegated subagent runs under. They are copied into the turn when its first
+            subagent starts, so a change applies to the next turn.
           </p>
         </div>
         <Button
@@ -181,18 +230,11 @@ export function SubagentSettingsSection() {
           Reset to defaults
         </Button>
       </div>
+      <h4 className="font-medium text-sm">Each turn</h4>
+      <div className="grid gap-4 md:grid-cols-2">{TURN_FIELDS.map(renderField)}</div>
+      <h4 className="font-medium text-sm">Each subagent</h4>
       <div className="grid gap-4 md:grid-cols-2">
-        {FIELDS.map(({ field, help, id, label }) => (
-          <BudgetField
-            help={help}
-            id={id}
-            key={`${field}:${generation}`}
-            label={label}
-            limits={SUBAGENT_SETTINGS_LIMITS[field]}
-            onCommit={({ text }) => refusalOf(() => setters[field](parseNumberInput(text)))}
-            value={String(store.settings[field])}
-          />
-        ))}
+        {CHILD_FIELDS.map(renderField)}
         <BudgetField
           help="Wall-clock limit on one subagent run. Empty is Off (the default): a subagent runs until it finishes or you stop it, and stalls are caught by the inactivity watchdog."
           id={RUNTIME_ID}

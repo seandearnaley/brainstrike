@@ -1,4 +1,3 @@
-import { DELEGATION_LIMITS } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { Agent } from '@mastra/core/agent';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
@@ -246,6 +245,12 @@ export interface BackgroundIdleLoopParams {
   readonly manager: BackgroundTaskManager;
   /** Silence budget for running work before the stream closes unfinished. */
   readonly maxIdleMs?: number | undefined;
+  /**
+   * The request's per-turn invocation limit (`subagentSettings.maxInvocations`):
+   * more distinct tasks waking the parent in one leg than a turn may admit
+   * fails the leg. Required, so no call site can fall back to a constant.
+   */
+  readonly maxInvocations: number;
   /** The leg's own options; a continuation reuses them, as Mastra's loop does. */
   readonly options: LegStreamOptions;
   /**
@@ -631,16 +636,16 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     running.delete(taskId);
     if (isParentWakeup(event) && !isRejectedDelegation(event, params.rejectedDelegations)) {
       woken.add(taskId);
-      if (woken.size > DELEGATION_LIMITS.maxInvocations) {
+      if (woken.size > params.maxInvocations) {
         logger.error('Background work woke the parent for more invocations than one turn admits', {
           code: 'background_parent_wakeup_limit_exceeded',
           invocation: describeInvocation(event),
-          limit: DELEGATION_LIMITS.maxInvocations,
+          limit: params.maxInvocations,
           taskIds: [...woken],
         });
         fail(
           new Error(
-            `Background work woke the parent for ${woken.size} invocations; one turn admits at most ${DELEGATION_LIMITS.maxInvocations}, so the leg stops instead of waking the parent again.`
+            `Background work woke the parent for ${woken.size} invocations; one turn admits at most ${params.maxInvocations}, so the leg stops instead of waking the parent again.`
           )
         );
         return;

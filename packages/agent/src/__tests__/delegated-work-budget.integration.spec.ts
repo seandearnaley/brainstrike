@@ -52,7 +52,7 @@ describe('native delegated work budget boundaries', () => {
       })),
       settleStep: vi.fn(async () => undefined),
     };
-    const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue());
+    const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(2));
     const memory = new Memory({ storage: new InMemoryStore({ id: 'budget-synthesis' }) });
     const agent = new Agent({
       id: 'worker',
@@ -99,7 +99,7 @@ describe('native delegated work budget boundaries', () => {
         throw new DelegatedOutputReservationExceededError();
       }),
     };
-    const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue());
+    const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(2));
     const agent = new Agent({
       id: 'worker',
       inputProcessors: [work.processor],
@@ -143,7 +143,8 @@ describe('native delegated work budget boundaries', () => {
         return super.acquire(signal);
       }
     }
-    const queue = new ObservedQueue();
+    // Two runnable operations: the third (model work) queues behind both effects.
+    const queue = new ObservedQueue(2);
     const blockers = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
     const started = Promise.withResolvers<void>();
     let active = 0;
@@ -238,7 +239,12 @@ describe('native delegated work budget boundaries', () => {
         },
       };
       const outcomes = createDelegatedSynthesisOutcomes();
-      const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(), undefined, outcomes);
+      const work = createDelegatedWorkBudget(
+        budget,
+        new DelegatedWorkQueue(2),
+        undefined,
+        outcomes
+      );
       const agent = new Agent({
         id: 'worker',
         inputProcessors: [work.processor],
@@ -285,7 +291,12 @@ describe('native delegated work budget boundaries', () => {
         }),
       };
       const outcomes = createDelegatedSynthesisOutcomes();
-      const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(), undefined, outcomes);
+      const work = createDelegatedWorkBudget(
+        budget,
+        new DelegatedWorkQueue(2),
+        undefined,
+        outcomes
+      );
       const agent = new Agent({
         id: 'worker',
         inputProcessors: [work.processor],
@@ -353,7 +364,12 @@ describe('native delegated work budget boundaries', () => {
     };
     const outcomes = createDelegatedSynthesisOutcomes();
     const run = async (thread: string) => {
-      const work = createDelegatedWorkBudget(budget, new DelegatedWorkQueue(), undefined, outcomes);
+      const work = createDelegatedWorkBudget(
+        budget,
+        new DelegatedWorkQueue(2),
+        undefined,
+        outcomes
+      );
       const agent = new Agent({
         id: 'worker',
         inputProcessors: [work.processor],

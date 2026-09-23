@@ -28,7 +28,8 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
 
   async function child(
     childThreadId: string,
-    maxSteps: number
+    maxSteps: number,
+    parent?: DelegatedConversationIdentity
   ): Promise<DelegatedConversationIdentity> {
     const childResourceId = `resource-${childThreadId}`;
     await database.query(
@@ -40,19 +41,24 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
       childResourceId,
       childThreadId,
       configuration: { maxSteps, persona: { id: 'explore' } },
-      parentResourceId: 'owner',
-      parentRuntimeRunId: 'native-root',
-      parentThreadId: 'root',
+      parentResourceId: parent?.childResourceId ?? 'owner',
+      parentRuntimeRunId: parent ? `native-${parent.childThreadId}` : 'native-root',
+      parentThreadId: parent?.childThreadId ?? 'root',
       parentToolCallId: `call-${childThreadId}`,
       personaId: 'explore',
     };
   }
 
+  // Every value differs from the defaults, so a constant read anywhere shows.
   const settings = {
     maxChildOutputTokens: 16_384,
     maxChildRuntimeMs: null,
     maxChildSteps: 6,
+    maxConcurrentWork: 4,
+    maxDepth: 2,
+    maxInvocations: 5,
     maxStepOutputTokens: 4096,
+    maxTreeOutputTokens: 65_536,
     synthesisOutputTokens: 1024,
   };
 
@@ -74,9 +80,9 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
       {
         max_child_output_tokens: 16_384,
         max_child_steps: 6,
-        max_depth: 3,
-        max_invocations: 8,
-        max_output_tokens: 131_072,
+        max_depth: 2,
+        max_invocations: 5,
+        max_output_tokens: 65_536,
         max_step_output_tokens: 4096,
         synthesis_output_tokens: 1024,
       },
@@ -86,6 +92,81 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
     );
     // The persona declared 32; the setting (6) is the ceiling; synthesis (1024) is precharged.
     expect(childRow.rows).toEqual([{ charged_output_tokens: 1024, max_steps: 6 }]);
+  });
+
+  it("refuses the invocation past the request's per-turn limit, at start and at persist", async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'leg', undefined, undefined, {
+      ...settings,
+      maxInvocations: 2,
+    });
+    const root = { parentResourceId: 'owner', parentThreadId: 'root' };
+    await host.persist(await child('first-of-two', 32));
+    await host.persist(await child('second-of-two', 32));
+    const refusal = 'Delegation invocation limit reached (2 per original turn).';
+    await expect(host.budget.admitInvocation(root)).resolves.toEqual({
+      admitted: false,
+      reason: refusal,
+    });
+    await expect(host.persist(await child('third-of-two', 32))).rejects.toThrow(refusal);
+  });
+
+  it("refuses a descendant below the request's depth limit", async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'leg', undefined, undefined, {
+      ...settings,
+      maxDepth: 1,
+    });
+    const first = await child('level-one', 32);
+    await host.persist(first);
+    await expect(
+      host.budget.admitInvocation({
+        parentResourceId: first.childResourceId,
+        parentThreadId: first.childThreadId,
+      })
+    ).resolves.toEqual({
+      admitted: false,
+      reason: 'Delegation depth limit reached (1 descendant levels).',
+    });
+    await expect(host.persist(await child('level-two', 32, first))).rejects.toThrow(
+      'Delegation depth limit reached (1 descendant levels).'
+    );
+  });
+
+  it("names the tree-output cap at the request's tree budget, before any child's own", async () => {
+    const host = createDesktopDelegatedConversationHost(database, 'leg', undefined, undefined, {
+      ...settings,
+      maxChildOutputTokens: 1024,
+      maxStepOutputTokens: 512,
+      maxTreeOutputTokens: 1536,
+      synthesisOutputTokens: 256,
+    });
+    const alpha = await child('tree-alpha', 32);
+    const beta = await child('tree-beta', 32);
+    await host.persist(alpha);
+    await host.persist(beta);
+    const scopeOf = (identity: DelegatedConversationIdentity) => ({
+      resourceId: identity.childResourceId,
+      threadId: identity.childThreadId,
+    });
+    // Precharged summaries 2 x 256, then Alpha 512 + 256 and Beta 256 fill 1,536.
+    await host.budget.reserveStep(scopeOf(alpha));
+    await host.budget.reserveStep(scopeOf(alpha));
+    await expect(host.budget.reserveStep(scopeOf(beta))).resolves.toMatchObject({
+      outputTokens: 256,
+      synthesis: false,
+    });
+    // Beta has spent 512 of its 1,024: the TREE is what is exhausted.
+    await expect(host.budget.reserveStep(scopeOf(beta))).resolves.toMatchObject({
+      cap: 'tree-output',
+      limit: 1536,
+      synthesis: true,
+      used: 1536,
+    });
+    await expect(
+      host.budget.admitInvocation({ parentResourceId: 'owner', parentThreadId: 'root' })
+    ).resolves.toEqual({
+      admitted: false,
+      reason: 'Delegation output budget cannot reserve a child summary.',
+    });
   });
 
   it('reserves steps and the synthesis step from the stored settings, naming the cap', async () => {

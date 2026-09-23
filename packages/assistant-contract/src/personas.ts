@@ -4,7 +4,6 @@
  * native/MCP tools. Runtime host capabilities and permissions remain the ceiling.
  */
 
-import { DELEGATION_LIMITS } from './delegation-limits.js';
 import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
 import { type RuntimeSubagentSettings, SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.js';
 import {
@@ -132,9 +131,9 @@ export function delegationDescriptionForPersona(
   return (
     `${persona.description} Runs at most ${steps} ${steps === 1 ? 'step' : 'steps'}${summary} — ` +
     'scope the task to that budget and split anything larger across several ' +
-    `delegations. The root turn permits at most ${DELEGATION_LIMITS.maxDepth} descendant levels, ` +
-    `${DELEGATION_LIMITS.maxInvocations} invocations, ${DELEGATION_LIMITS.maxConcurrentWork} active work operations, ` +
-    `${settings.maxChildOutputTokens} output tokens per child and ${DELEGATION_LIMITS.maxTreeOutputTokens} across descendants.`
+    `delegations. The root turn permits at most ${settings.maxDepth} descendant levels, ` +
+    `${settings.maxInvocations} invocations, ${settings.maxConcurrentWork} active work operations, ` +
+    `${settings.maxChildOutputTokens} output tokens per child and ${settings.maxTreeOutputTokens} across descendants.`
   );
 }
 

@@ -41,6 +41,20 @@ describe('effectiveChildStepBudget', () => {
       `${settings.maxChildOutputTokens} output tokens per child`
     );
   });
+
+  it("states the turn's tree limits from the request settings, never a constant", () => {
+    const settings = {
+      ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      maxConcurrentWork: 5,
+      maxDepth: 7,
+      maxInvocations: 11,
+      maxTreeOutputTokens: 98_765,
+    };
+    expect(delegationDescriptionForPersona({ description: 'd', maxSteps: 4 }, settings)).toContain(
+      'The root turn permits at most 7 descendant levels, 11 invocations, 5 active work ' +
+        'operations, 32768 output tokens per child and 98765 across descendants.'
+    );
+  });
 });
 
 describe('personaMode', () => {

@@ -288,3 +288,8 @@ model's value above host config, so `createTask()` overrides it with the host's
 `resolveChildTaskTimeoutMs` (the user's runtime limit, default Off) and logs
 `background_task_timeout_pinned`; `updateTask` rejects a different value. See
 `mastra-boundary/subagent-host-lifetime.md` for why the five-minute ceiling went.
+
+2026-09-22 (BST-1801): the wakeup bound is the request's
+`subagentSettings.maxInvocations` (a required `withBackgroundIdleLoop` param,
+passed from `runtime.subagentSettings` at both call sites), not the deleted
+`DELEGATION_LIMITS` constant; the default rose from 8 to 200 per turn.

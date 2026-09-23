@@ -8,7 +8,7 @@ import { createTool } from '@mastra/core/tools';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { resolveScaledToolResultBudget } from '../../stream/tool-output-limits';
-import { buildPersonaSubAgents } from '../build-persona-subagents';
+import { buildPersonaSubAgents, type DelegatedExecutionOptions } from '../build-persona-subagents';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
 import type { PermissionToolGateLogger } from '../permission-tool-gate';
 
@@ -162,5 +162,68 @@ describe('persona child prompt facts', () => {
     expect(facts?.instructions).toBe(await child.getInstructions());
     expect(facts?.instructions).toContain('Available tools: brainstrike.queryEmbeddingSpace');
     expect([...built.childPromptFacts.keys()]).toEqual([...built.personasById.keys()]);
+  });
+});
+
+describe('worker recursion depth', () => {
+  it.each([
+    { expected: false, maxDepth: 1 },
+    { expected: true, maxDepth: 2 },
+  ])(
+    "a worker may delegate further only below the request's maxDepth ($maxDepth)",
+    async ({ expected, maxDepth }) => {
+      const built = await buildPersonaSubAgents({
+        ...baseOptions('openai'),
+        conversationBinding: {
+          ...createDelegatedConversationBinding(async () => undefined),
+          bindRun: async () => ({ threadId: 'worker-child' }),
+          budget: {
+            admitInvocation: async () => ({ admitted: true as const }),
+            reserveStep: async () => ({ id: 'unused', outputTokens: 512, synthesis: false }),
+            settleStep: async () => undefined,
+          },
+          claimToolAction: async () => undefined,
+          finishToolActions: async () => undefined,
+          prepareToolAction: async () => undefined,
+          releaseUnexecutedToolAction: async () => undefined,
+          resolveToolAction: async () => [],
+        },
+        delegatedExecutionOptions: {},
+        hasStorage: true,
+        localToolIds: new Set(TOOL_IDS.map((id) => id.replace(/[^a-zA-Z0-9_-]/g, '_'))),
+        modelName: 'gpt-5.6-sol',
+        personas: [workerPersona],
+        subagentSettings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth },
+      });
+      const worker = built.subAgents['worker'];
+      if (!worker) {
+        throw new Error('Expected the worker child');
+      }
+      expect(Object.keys(await worker.listAgents()).length > 0).toBe(expected);
+    }
+  );
+});
+
+describe('delegated work queue', () => {
+  it("is sized by the request's maxConcurrentWork", async () => {
+    const delegatedExecutionOptions: DelegatedExecutionOptions = {};
+    await buildPersonaSubAgents({
+      ...baseOptions('openai'),
+      delegatedExecutionOptions,
+      personas: [explorePersona],
+      subagentSettings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxConcurrentWork: 3 },
+    });
+    const queue = delegatedExecutionOptions.workQueue;
+    if (!queue) {
+      throw new Error('Expected the builder to create the work queue');
+    }
+    const granted: boolean[] = [false, false, false, false];
+    for (const index of granted.keys()) {
+      void queue.acquire().then(() => {
+        granted[index] = true;
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(granted).toEqual([true, true, true, false]);
   });
 });

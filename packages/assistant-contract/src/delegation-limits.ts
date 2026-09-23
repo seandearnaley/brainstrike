@@ -1,16 +1,9 @@
-/**
- * Host-owned TREE limits for one original root turn, including resumes and
- * descendants. Per-child budgets (steps, synthesis, child/step output tokens)
- * are user settings — see `subagent-settings.ts` — validated against
- * `SUBAGENT_SETTINGS_LIMITS`; this object deliberately has no child keys so a
- * consumer cannot read a stale constant instead of the request's settings.
+/*
+ * Delegation budget TYPES. The limits themselves — tree and per-child — are
+ * user settings (`RuntimeSubagentSettings`, `subagent-settings.ts`). There is
+ * deliberately no limits constant here: a consumer reading one instead of the
+ * request's settings would be a compile error.
  */
-export const DELEGATION_LIMITS = Object.freeze({
-  maxConcurrentWork: 2,
-  maxDepth: 3,
-  maxInvocations: 8,
-  maxTreeOutputTokens: 131_072,
-});
 
 /** Which durable cap forced a child's reserved synthesis step. */
 export type DelegationBudgetCap = 'steps' | 'child-output' | 'tree-output';
