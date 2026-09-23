@@ -296,7 +296,6 @@ export function startLeg(params: {
   /** What the leg's resumed executors asked their child watchdogs, in order. */
   const watches: string[] = [];
   const backgroundChildWatchdogs: BackgroundChildWatchdogs = {
-    changed: () => new Promise<void>(() => {}),
     dispose: () => {},
     hostExecution: (task) => {
       watches.push(`watch:${task.taskId}`);
@@ -309,6 +308,7 @@ export function startLeg(params: {
         },
       };
     },
+    subscribe: () => () => {},
     watching: () => false,
   };
   const runtime = {

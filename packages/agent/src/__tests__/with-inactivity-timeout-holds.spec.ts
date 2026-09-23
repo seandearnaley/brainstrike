@@ -28,16 +28,27 @@ const WINDOWS = {
 } as const;
 
 /** A controllable stand-in for the per-child watchdogs' `watching()` state. */
-function createWatch(initial: boolean): HeldWorkWatch & { set(watching: boolean): void } {
+function createWatch(initial: boolean): HeldWorkWatch & {
+  /** Listeners subscribed and not yet released. */
+  live(): number;
+  set(watching: boolean): void;
+} {
   let watching = initial;
-  let changed = Promise.withResolvers<void>();
+  const listeners = new Set<() => void>();
   return {
-    changed: () => changed.promise,
+    live: () => listeners.size,
     set(next) {
       watching = next;
-      const settled = changed;
-      changed = Promise.withResolvers<void>();
-      settled.resolve();
+      for (const listener of [...listeners]) {
+        listener();
+      }
+    },
+    subscribe(listener) {
+      const own = () => listener();
+      listeners.add(own);
+      return () => {
+        listeners.delete(own);
+      };
     },
     watching: (held) => watching && held.size > 0,
   };
@@ -203,6 +214,31 @@ describe('withInactivityTimeout — background work that holds the stream open',
       inactivityMs: WINDOWS.firstOutputMs,
       phase: 'awaiting-output',
     });
+  });
+
+  it('holds at most one change listener however many parts arrive while held', async () => {
+    const watch = createWatch(true);
+    const parts: (readonly [number, HoldPart])[] = [
+      [0, { type: 'text' }],
+      [0, { task: 't1', type: 'hold' }],
+      ...Array.from({ length: 50 }, () => [10, { type: 'child-output' }] as const),
+    ];
+    const live: number[] = [];
+    const drained = (async () => {
+      for await (const _part of withInactivityTimeout(timeline(parts), WINDOWS, options(watch))) {
+        live.push(watch.live());
+      }
+    })().catch(() => {
+      // The verdict is not under test here.
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(live).toHaveLength(52);
+    expect(Math.max(...live)).toBeLessThanOrEqual(1);
+    watch.set(false);
+    await vi.advanceTimersByTimeAsync(WINDOWS.firstOutputMs);
+    await drained;
+    // The ended stream keeps no listener.
+    expect(watch.live()).toBe(0);
   });
 
   it('ignores the watch while nothing holds the stream open', async () => {

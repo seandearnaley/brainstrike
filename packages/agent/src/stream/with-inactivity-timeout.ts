@@ -195,8 +195,12 @@ export type StreamPartRoute<T> =
 
 /** The watchdogs of background work that holds a stream open (`heldWork`). */
 export interface HeldWorkWatch {
-  /** Settles the next time {@link watching} may have changed. */
-  changed(): Promise<void>;
+  /**
+   * Call `listener` whenever {@link watching} may have changed; returns its
+   * release. The stream subscribes only while it waits, and releases before
+   * the next wait, so a long wait keeps one listener, never one per part.
+   */
+  subscribe(listener: () => void): () => void;
   /** Whether any of the stream's `held` work is judged by its own watchdog right now. */
   watching(held: ReadonlySet<string>): boolean;
 }
@@ -459,6 +463,7 @@ export async function* withInactivityTimeout<T>(
       pending ??= iterator.next();
       const wait = resolveStreamWait(producer, held, windows, heldWork);
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let releaseWatch: (() => void) | undefined;
       const racers: Promise<IteratorResult<T> | typeof WATCH_CHANGED>[] = [pending];
       if (wait) {
         racers.push(
@@ -479,7 +484,11 @@ export async function* withInactivityTimeout<T>(
         );
       }
       if (held.size > 0 && heldWork) {
-        racers.push(heldWork.changed().then(() => WATCH_CHANGED));
+        racers.push(
+          new Promise<typeof WATCH_CHANGED>((resolve) => {
+            releaseWatch = heldWork.subscribe(() => resolve(WATCH_CHANGED));
+          })
+        );
       }
       try {
         const outcome = await Promise.race(racers);
@@ -498,6 +507,7 @@ export async function* withInactivityTimeout<T>(
         if (timer) {
           clearTimeout(timer);
         }
+        releaseWatch?.();
       }
     }
   } finally {

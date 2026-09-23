@@ -14,10 +14,30 @@
  */
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { StreamStalledError, withInactivityTimeout } from '../../stream/with-inactivity-timeout';
 import {
   BackgroundChildStalledError,
   createBackgroundChildWatchdogs,
 } from '../background-child-watchdog';
+
+const loggedErrors = vi.hoisted(() => [] as unknown[][]);
+// The coded diagnostics are part of the contract under test.
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: (scope: string) => ({
+      ...actual.createLogger(scope),
+      error: (...args: unknown[]) => {
+        loggedErrors.push(args);
+      },
+    }),
+  };
+});
+
+/** The `code` of every error the watchdogs logged, in order. */
+const loggedCodes = () =>
+  loggedErrors.map((args) => (args[1] as { readonly code?: unknown } | undefined)?.code);
 
 const WINDOWS = {
   firstOutputMs: 5000,
@@ -66,6 +86,11 @@ function createManager() {
       })
   );
   return {
+    /** The manager ends the lifecycle stream on its own (not our dispose). */
+    async close() {
+      controller?.close();
+      await vi.advanceTimersByTimeAsync(0);
+    },
     async emit(...events: unknown[]) {
       for (const event of events) {
         controller?.enqueue(event);
@@ -108,6 +133,7 @@ function stallOf(endExecution: ReturnType<typeof setup>['endExecution'], call = 
 describe('each background child is judged by its own watchdog', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    loggedErrors.length = 0;
   });
 
   afterEach(() => {
@@ -418,19 +444,130 @@ describe('each background child is judged by its own watchdog', () => {
 
   it('announces every change in what it watches', async () => {
     const { native, watchdogs } = setup();
-    let changes = 0;
-    const count = async () => {
-      while (true) {
-        await watchdogs.changed();
-        changes += 1;
-      }
-    };
-    void count();
+    const heard = vi.fn();
+    const unsubscribe = watchdogs.subscribe(heard);
     await native.emit(lifecycle('background-task-running', 't1'));
-    expect(changes).toBe(1);
+    expect(heard).toHaveBeenCalledTimes(1);
     await native.emit(output('t1', 'finish'));
-    expect(changes).toBe(2);
+    expect(heard).toHaveBeenCalledTimes(2);
+    unsubscribe();
+    await native.emit(lifecycle('background-task-running', 't2'));
+    expect(heard).toHaveBeenCalledTimes(2);
     watchdogs.dispose();
+  });
+
+  it('a lifecycle feed that ends stops every watch: no child is judged blind', async () => {
+    const { endExecution, native, watchdogs } = setup();
+    await native.emit(
+      lifecycle('background-task-running', 't1'),
+      output('t1', 'text-delta', { text: 'healthy' })
+    );
+    await native.close();
+    expect(watchingAny(watchdogs)).toBe(false);
+    expect(loggedCodes()).toEqual(['background_child_watchdog_feed_ended']);
+    await vi.advanceTimersByTimeAsync(10 * WINDOWS.toolExecutingMs);
+    // A child whose parts can no longer arrive is never ended for silence.
+    expect(endExecution).not.toHaveBeenCalled();
+    watchdogs.dispose();
+  });
+
+  it('after its feed ends, the parent bounds the held child at its first-output window', async () => {
+    const { endExecution, native, watchdogs } = setup();
+    await native.emit(lifecycle('background-task-running', 't1'), output('t1', 'start'));
+    async function* parentParts(): AsyncGenerator<string> {
+      yield 'answer';
+      yield 'hold';
+      await new Promise<never>(() => {
+        // The parent waits on its held child.
+      });
+    }
+    let stall: unknown;
+    const parent = (async () => {
+      for await (const _part of withInactivityTimeout(parentParts(), WINDOWS, {
+        heldWork: watchdogs,
+        routePart: (part) =>
+          part === 'hold' ? { holds: 't1', kind: 'bookkeeping' } : { kind: 'produced', part },
+      })) {
+        // Drain; the verdict is the watchdog's.
+      }
+    })().catch((error: unknown) => {
+      stall = error;
+    });
+    // The child keeps answering on its own feed, past the parent's own window;
+    // watched, it is not the parent's to judge.
+    for (let tick = 0; tick < 8; tick += 1) {
+      await native.emit(output('t1', 'text-delta', { text: 'working' }));
+      await vi.advanceTimersByTimeAsync(WINDOWS.interOutputMs - 100);
+    }
+    expect(stall).toBeUndefined();
+    await native.close();
+    await vi.advanceTimersByTimeAsync(WINDOWS.firstOutputMs - 1);
+    expect(stall).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    await parent;
+    expect(stall).toBeInstanceOf(StreamStalledError);
+    expect(stall).toMatchObject({ inactivityMs: WINDOWS.firstOutputMs, phase: 'awaiting-output' });
+    expect(endExecution).not.toHaveBeenCalled();
+    watchdogs.dispose();
+  });
+
+  it('skips a malformed lifecycle event and keeps judging every child', async () => {
+    const { endExecution, native, watchdogs } = setup();
+    await native.emit(lifecycle('background-task-running', 't1'));
+    // An output needs only its task id.
+    await native.emit({
+      payload: { payload: envelope('t1', 'text-delta', { text: 'partial' }), taskId: 't1' },
+      type: 'background-task-output',
+    });
+    // A start that names no dispatching call could never be ended: skipped.
+    await native.emit({
+      payload: { runId: 'root-run', taskId: 't2' },
+      type: 'background-task-running',
+    });
+    expect(loggedErrors).toEqual([
+      [
+        expect.any(String),
+        {
+          code: 'background_child_watchdog_event_malformed',
+          eventType: 'background-task-running',
+          missing: ['toolCallId'],
+        },
+      ],
+    ]);
+    expect(watchdogs.watching(new Set(['t2']))).toBe(false);
+    await vi.advanceTimersByTimeAsync(WINDOWS.interOutputMs);
+    // t1 is still judged, fed by the id-only output.
+    expect(stallOf(endExecution)).toMatchObject({ phase: 'streaming' });
+    watchdogs.dispose();
+  });
+
+  it('a `resumed` delivered after a host-run execution ended never starts a watch nothing feeds', async () => {
+    const { endExecution, native, watchdogs } = setup();
+    const execution = watchdogs.hostExecution({
+      runId: 'root-run',
+      taskId: 't1',
+      toolCallId: 'call-t1',
+    });
+    execution.observe(envelope('t1', 'text-delta', { text: 'resumed work' }));
+    execution.end();
+    // The manager's lifecycle copy of that same resume arrives late.
+    await native.emit(lifecycle('background-task-resumed', 't1'));
+    expect(watchingAny(watchdogs)).toBe(false);
+    await vi.advanceTimersByTimeAsync(10 * WINDOWS.toolExecutingMs);
+    expect(endExecution).not.toHaveBeenCalled();
+    watchdogs.dispose();
+  });
+
+  it('releases every change listener on disposal, after announcing the stop', async () => {
+    const { native, watchdogs } = setup();
+    await native.emit(lifecycle('background-task-running', 't1'));
+    const heard = vi.fn();
+    watchdogs.subscribe(heard);
+    watchdogs.dispose();
+    expect(heard).toHaveBeenCalledTimes(1);
+    // A released listener hears nothing more, even from a late host execution.
+    watchdogs.hostExecution({ runId: 'root-run', taskId: 't2', toolCallId: 'call-t2' }).end();
+    expect(heard).toHaveBeenCalledTimes(1);
   });
 
   it('judges nothing after disposal', async () => {

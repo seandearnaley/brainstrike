@@ -427,3 +427,76 @@ feeding its watch; the parent watchdog not given the child watch; the child
 terminal losing the stall detail; an empty envelope read as the part; an
 orphan `running` holding the parent; any watched task (not only a held one)
 suspending the parent.
+
+### 2026-09-22 — review of PR #3286 at 857add17f (BST-1802)
+
+Each finding was checked against the code, not only the diff.
+
+- **A lifecycle feed that ends (valid, fixed).** The reader returned on `done`
+  and left every watch armed with no feed. Each child would then "stall" at its
+  window and be ended while healthy, and `watching(held)` kept the parent
+  unbounded. Mastra 1.64's `manager.stream` closes only on its abort signal,
+  which only `dispose` aborts, so no production path reached this; it was still
+  wrong. A feed that ends or throws is now logged
+  (`background_child_watchdog_feed_ended` / `_failed`, naming the tasks being
+  watched) and every watch is stopped. Each stop is announced before the
+  listeners are released, so the parent re-judges its held work at once and
+  bounds it at the first-output window.
+- **The hook's cleanup on a stall (not valid; pinned).** Everything
+  `afterToolCall` releases (`preparedKeys`, the pending deadline, the stall
+  controller) is released before the stall is thrown. The persistence owner runs
+  whatever the binding throws: `composeDelegatedHooks` settles both owners with
+  `Promise.allSettled`, pinned by `stream-options.spec.ts`. `executionSignals` is
+  kept for the binding's life, as `controllers` is, because queued child output
+  is projected after the hook ("Signal ownership survives queued output").
+  Before this change `prepare` already set it for every execution that had a
+  native signal (every background task, and every foreground call with one),
+  and the binding is per host run, so there is no new leak. Every `prepare` is
+  followed by `afterToolCall`: Mastra's `wrapToolWithHooks` runs it on success
+  and on a throw; the delegation config and the hooks are installed together,
+  descendants included (`delegatedExecutionOptions`); and the resume leg's host
+  executor calls it in `finally`. Two cases now pin the release: a stalled
+  execution, and a failed one.
+- **A deadline captured after preparation (latent, fixed).** The only
+  production caller, the resume leg's host executor, captures before the native
+  `execute`, and `execute` always runs `onDelegationStart` and so `prepare`.
+  Still, a capture after `prepare` replaced the stall-composed signal with the
+  raw deadline. The capture now composes with the prepared execution's stall, so
+  the child's terminal keeps the stall's detail and breadcrumb in either order.
+- **A malformed lifecycle event (valid, fixed).** A missing id threw into the
+  reader and disposed every watchdog. The event is now logged
+  (`background_child_watchdog_event_malformed`, with its type and the missing
+  fields) and skipped. Output and terminal events need only `taskId`; a start
+  also needs the `runId` and `toolCallId` that address the execution to end.
+- **A late `resumed` after a host-run execution (valid, fixed).** A task whose
+  execution the host runs itself (`hostExecution`) is now watched only by that
+  execution. The manager's copy of its lifecycle never starts a watch nothing
+  feeds, and so never ends a newer execution of the same invocation.
+- **Change listeners pile up (valid, fixed differently).** Keeping one
+  `changed()` promise across iterations would not have helped, because
+  `Promise.race` attaches a reaction to every input on every call.
+  `HeldWorkWatch` now exposes `subscribe(listener) → release`. Each wait
+  subscribes once and releases in its `finally`, so the stream holds at most one
+  listener; `dispose` releases every listener after announcing its stops.
+- **`endStalledExecution` optional (valid, fixed).** It is now required on
+  `DelegatedConversationBinding`. A hand-built binding without it is a compile
+  error, as the decision-contract fixture showed. The construction check stays
+  only for a background runtime that has no binding or scope at all.
+- **Leaf-module claim (fixed differently).** Moving the `StaticMastraChunkType`
+  declaration out of `agent-streaming.ts` would break the R6 guard
+  (`scripts/mastra-stream-chunk-contract.mjs` pins that declaration in that
+  file). `mastra-watchdog-options.ts` and `background-child-watchdog.ts` now
+  type their maps against Mastra's own `ChunkType['type']` and import nothing
+  from `agent-streaming`. `satisfies` still rejects a renamed key: renaming
+  `tool-call` or `background-task-output` in those maps fails to compile.
+
+Guard: `background-child-watchdog.spec.ts` (feed end, parent bound after feed
+end, malformed event, late `resumed`, listener release),
+`delegated-conversation-binding-stall.spec.ts` (post-prepare capture, stalled
+and failed release), `with-inactivity-timeout-holds.spec.ts` (at most one
+listener). Ten mutations turned a guard red: a normal feed end leaving the
+watches armed; listeners released before the stops are announced; a
+post-prepare capture dropping the stall; output events requiring every id; a
+malformed event throwing; the manager feed restarting a host-run task; a wait
+that never releases its listener; a listener per part; and a renamed Mastra
+key in each map (type-check).

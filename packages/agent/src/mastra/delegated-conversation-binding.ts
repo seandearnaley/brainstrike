@@ -200,8 +200,9 @@ export interface DelegatedConversationBinding {
    * child and its EXECUTION signal — never the selected-Stop cancellation — and
    * the delegation hook rejects the executor with it, so the native task fails
    * as its own task. `false` when no execution of that invocation runs here.
+   * Required: a background runtime cannot end a wedged child without it.
    */
-  readonly endStalledExecution?: (target: DelegatedCancellationTarget, stall: Error) => boolean;
+  readonly endStalledExecution: (target: DelegatedCancellationTarget, stall: Error) => boolean;
   /** Releases only claims acquired by this binding; consumed leaf ids remain durable. */
   readonly finishToolActions?: () => Promise<void>;
   readonly getAbortSignal?: (
@@ -381,11 +382,20 @@ export function createDelegatedConversationBinding(
     captureExecutionAbortSignal: (identity, signal) => {
       const key = inputKey(identity.parentThreadId, identity.parentToolCallId);
       if (signal) {
-        executionSignals.set(invocationKey(identity), signal);
         pendingExecutionSignals.set(key, signal);
       } else {
-        executionSignals.delete(invocationKey(identity));
         pendingExecutionSignals.delete(key);
+      }
+      // A capture after preparation keeps the prepared execution's stall end:
+      // the execution ends on its deadline or its child's stall, in either order.
+      const nativeKey = invocationKey(identity);
+      const stall = stalls.get(nativeKey)?.signal;
+      const executionSignal =
+        signal && stall ? AbortSignal.any([signal, stall]) : (signal ?? stall);
+      if (executionSignal) {
+        executionSignals.set(nativeKey, executionSignal);
+      } else {
+        executionSignals.delete(nativeKey);
       }
     },
     captureExecutionConfiguration(context, execution) {
@@ -506,11 +516,9 @@ export function createDelegatedConversationBinding(
       // This execution ends on its native deadline or on its child's stall.
       const stall = new AbortController();
       stalls.set(nativeKey, stall);
-      const nativeExecutionSignal = pendingExecutionSignals.get(key);
+      const deadline = pendingExecutionSignals.get(key);
       pendingExecutionSignals.delete(key);
-      const executionSignal = nativeExecutionSignal
-        ? AbortSignal.any([nativeExecutionSignal, stall.signal])
-        : stall.signal;
+      const executionSignal = deadline ? AbortSignal.any([deadline, stall.signal]) : stall.signal;
       executionSignals.set(nativeKey, executionSignal);
       const controller = existing ?? new AbortController();
       controllers.set(nativeKey, controller);

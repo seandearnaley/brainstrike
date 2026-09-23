@@ -92,14 +92,20 @@ function createWatch(
   initial: boolean | ReadonlySet<string>
 ): HeldWorkWatch & { set(watching: boolean): void } {
   let watched = initial;
-  let changed = Promise.withResolvers<void>();
+  const listeners = new Set<() => void>();
   return {
-    changed: () => changed.promise,
     set(next) {
       watched = next;
-      const settled = changed;
-      changed = Promise.withResolvers<void>();
-      settled.resolve();
+      for (const listener of [...listeners]) {
+        listener();
+      }
+    },
+    subscribe(listener) {
+      const own = () => listener();
+      listeners.add(own);
+      return () => {
+        listeners.delete(own);
+      };
     },
     watching: (held) => {
       const current = watched;

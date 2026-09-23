@@ -9,7 +9,10 @@ import type { DelegationStartContext } from '@mastra/core/agent';
 import { RequestContext } from '@mastra/core/request-context';
 import { describe, expect, it } from 'vitest';
 import { StreamStalledError } from '../../stream/with-inactivity-timeout';
-import { BackgroundChildStalledError } from '../background-child-watchdog';
+import {
+  BackgroundChildStalledError,
+  describeChildExecutionEnd,
+} from '../background-child-watchdog';
 import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
 
 const target = { parentRuntimeRunId: 'root-run', parentToolCallId: 'call-t1' } as const;
@@ -98,6 +101,63 @@ describe('a stalled background child ends its own execution', () => {
     const binding = createDelegatedConversationBinding(async () => {});
     binding.prepare(startContext(), { persona: 'explore' });
     expect(await thrownBy(() => afterToolCall(binding))).toBeUndefined();
+  });
+
+  it('releases a stalled execution before its hook rejects', async () => {
+    // The hook's own cleanup runs first; the stall is thrown last.
+    const binding = createDelegatedConversationBinding(async () => {});
+    binding.prepare(startContext(), { persona: 'explore' });
+    const reason = stall();
+    binding.endStalledExecution?.(target, reason);
+    expect(await thrownBy(() => afterToolCall(binding))).toBe(reason);
+    expect(binding.endStalledExecution?.(target, stall())).toBe(false);
+  });
+
+  it('releases an execution that failed before its child streamed', async () => {
+    const binding = createDelegatedConversationBinding(async () => {});
+    binding.prepare(startContext(), { persona: 'explore' });
+    expect(
+      await thrownBy(() => afterToolCall(binding, new Error('Child admission failed')))
+    ).toBeUndefined();
+    expect(binding.endStalledExecution?.(target, stall())).toBe(false);
+  });
+
+  it('keeps the stall in an execution signal captured after preparation', () => {
+    const binding = createDelegatedConversationBinding(async () => {});
+    binding.prepare(startContext(), { persona: 'explore' });
+    const native = new AbortController();
+    binding.captureExecutionAbortSignal?.(
+      { ...target, parentThreadId: 'root-thread' },
+      native.signal
+    );
+    const reason = stall();
+    binding.endStalledExecution?.(target, reason);
+    const ended = binding.getExecutionAbortSignal?.(target);
+    expect(ended?.reason).toBe(reason);
+    // The child's terminal reads this signal: its detail and breadcrumb survive.
+    expect(describeChildExecutionEnd(ended?.reason)).toEqual({
+      detail: reason.message,
+      metadata: {
+        code: 'background_child_stalled',
+        inactivityMs: 1000,
+        lastPartType: 'text-delta',
+        partsSeen: 3,
+        phase: 'streaming',
+      },
+    });
+  });
+
+  it('still ends on a native deadline captured after preparation', () => {
+    const binding = createDelegatedConversationBinding(async () => {});
+    binding.prepare(startContext(), { persona: 'explore' });
+    const native = new AbortController();
+    binding.captureExecutionAbortSignal?.(
+      { ...target, parentThreadId: 'root-thread' },
+      native.signal
+    );
+    const deadline = new Error('Task timed out after 1000ms');
+    native.abort(deadline);
+    expect(binding.getExecutionAbortSignal?.(target)?.reason).toBe(deadline);
   });
 
   it('has nothing to end once the execution is over', async () => {

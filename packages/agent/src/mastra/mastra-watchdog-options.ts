@@ -7,10 +7,10 @@
  * stream-mapper imports, so every watchdog over Mastra parts shares it.
  */
 import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
+import type { ChunkType } from '@mastra/core/stream';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import type { StreamInactivityOptions, StreamPartRoute } from '../stream/with-inactivity-timeout';
 import type { StreamChunk } from '../types';
-import type { StaticMastraChunkType } from './agent-streaming';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 
 /**
@@ -71,11 +71,11 @@ export function isMastraProviderOutputPart(part: unknown): boolean {
  * between `reasoning-end` and the first `text-delta` is still "has it begun
  * answering?") and an already-answering stream tight.
  *
- * Typed as `StaticMastraChunkType`, the union DERIVED FROM MASTRA'S OWN
- * `ChunkType['type']` that `MASTRA_STATIC_CHUNK_DISPOSITIONS` is checked
- * against. A Mastra release that renames one of these fails to compile here
- * rather than silently dropping a type out of the set and re-arming the tight
- * window against high-effort reasoning — the exact regression this prevents.
+ * Typed against Mastra's own `ChunkType['type']` union, the union the stream
+ * mapper's `MASTRA_STATIC_CHUNK_DISPOSITIONS` is also derived from. A Mastra
+ * release that renames one of these fails to compile here rather than silently
+ * dropping a type out of the set and re-arming the tight window against
+ * high-effort reasoning — the exact regression this prevents.
  */
 const MASTRA_REASONING_PART_KINDS = {
   'reasoning-delta': 'content',
@@ -83,7 +83,7 @@ const MASTRA_REASONING_PART_KINDS = {
   'reasoning-signature': 'marker',
   'reasoning-start': 'content',
   'redacted-reasoning': 'content',
-} as const satisfies Partial<Record<StaticMastraChunkType, 'content' | 'marker'>>;
+} as const satisfies Partial<Record<ChunkType['type'], 'content' | 'marker'>>;
 
 export function readMastraReasoningPartKind(part: unknown): 'content' | 'marker' | undefined {
   const type = describeMastraStreamPartType(part);
@@ -105,8 +105,8 @@ export function readMastraReasoningPartKind(part: unknown): 'content' | 'marker'
  * on a human, not executing, and a human wait must never inherit the wide
  * tool-executing backstop. `tool-output-denied` is the declined outcome.
  *
- * Typed against `StaticMastraChunkType` for the same reason the reasoning map
- * is: a Mastra rename fails to compile here instead of silently dropping a
+ * Typed against Mastra's `ChunkType['type']` for the same reason the reasoning
+ * map is: a Mastra rename fails to compile here instead of silently dropping a
  * boundary and leaving a running tool on the tight window.
  */
 const MASTRA_TOOL_EXECUTION_PART_KINDS = {
@@ -116,7 +116,7 @@ const MASTRA_TOOL_EXECUTION_PART_KINDS = {
   'tool-error': 'settled',
   'tool-output-denied': 'settled',
   'tool-result': 'settled',
-} as const satisfies Partial<Record<StaticMastraChunkType, 'started' | 'settled'>>;
+} as const satisfies Partial<Record<ChunkType['type'], 'started' | 'settled'>>;
 
 /**
  * Whether a tool call has a per-call execution guard behind it (BST-1777
@@ -346,7 +346,7 @@ const MASTRA_BACKGROUND_HOLD_EFFECTS = {
   'background-task-started': 'holds',
   'background-task-suspended': 'releases',
 } as const satisfies Partial<
-  Record<StaticMastraChunkType, 'holds' | 'holds-again' | 'none' | 'releases'>
+  Record<ChunkType['type'], 'holds' | 'holds-again' | 'none' | 'releases'>
 >;
 
 /**

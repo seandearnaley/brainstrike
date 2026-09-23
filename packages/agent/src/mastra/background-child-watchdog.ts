@@ -26,6 +26,7 @@
 
 import { createLogger } from '@brainstrike/logging';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
+import type { ChunkType } from '@mastra/core/stream';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { AssistantRunEventMetadata } from '../run-events';
 import {
@@ -35,7 +36,6 @@ import {
   type StreamStallPhase,
   withInactivityTimeout,
 } from '../stream/with-inactivity-timeout';
-import type { StaticMastraChunkType } from './agent-streaming';
 import type {
   DelegatedCancellationTarget,
   DelegatedConversationBinding,
@@ -161,7 +161,7 @@ const MASTRA_TASK_WATCH_EFFECTS = {
   'background-task-running': 'watches',
   'background-task-suspended': 'ends',
 } as const satisfies Partial<
-  Record<StaticMastraChunkType, 'ends' | 'output' | 'watches' | 'watches-again'>
+  Record<ChunkType['type'], 'ends' | 'output' | 'watches' | 'watches-again'>
 >;
 
 /**
@@ -176,7 +176,7 @@ const MASTRA_CHILD_STREAM_ENDS: ReadonlySet<string> = new Set([
   'tool-call-approval',
   'tool-call-suspended',
   'tripwire',
-] satisfies StaticMastraChunkType[]);
+] satisfies ChunkType['type'][]);
 
 interface ChildStreamWatch {
   push(part: unknown): void;
@@ -240,9 +240,20 @@ function watchChildStream(
   };
 }
 
+/** The identity fields a native lifecycle event of `effect` must carry. */
+const REQUIRED_EVENT_FIELDS = {
+  ends: ['taskId'],
+  output: ['taskId'],
+  watches: ['taskId', 'runId', 'toolCallId'],
+  'watches-again': ['taskId', 'runId', 'toolCallId'],
+} as const satisfies Record<
+  (typeof MASTRA_TASK_WATCH_EFFECTS)[keyof typeof MASTRA_TASK_WATCH_EFFECTS],
+  readonly ('runId' | 'taskId' | 'toolCallId')[]
+>;
+
 /**
  * The watchdogs of every background child of one runtime. `watching(held)`
- * and `changed()` tell the parent's watchdog whether the work its stream
+ * and `subscribe()` tell the parent's watchdog whether the work its stream
  * holds is being judged.
  */
 export function createBackgroundChildWatchdogs(
@@ -256,12 +267,20 @@ export function createBackgroundChildWatchdogs(
    * every task still listed as running); only a resume starts a new execution.
    */
   const ended = new Set<string>();
-  let changed = Promise.withResolvers<void>();
+  /**
+   * Tasks whose executions the host runs itself (a resume leg's executor).
+   * Their parts reach the host through that executor, never as task output,
+   * so only `hostExecution` watches them: the manager's copy of their
+   * lifecycle — a `resumed` that lands after the execution already ended —
+   * would start a watch nothing feeds.
+   */
+  const hostRun = new Set<string>();
+  const listeners = new Set<() => void>();
   let disposed = false;
   const announce = () => {
-    const settled = changed;
-    changed = Promise.withResolvers<void>();
-    settled.resolve();
+    for (const listener of [...listeners]) {
+      listener();
+    }
   };
   const stopWatching = (taskId: string) => {
     ended.add(taskId);
@@ -343,11 +362,31 @@ export function createBackgroundChildWatchdogs(
       return;
     }
     const effect = MASTRA_TASK_WATCH_EFFECTS[type as keyof typeof MASTRA_TASK_WATCH_EFFECTS];
-    const taskId = readMastraStreamPartString(event, 'taskId');
-    const runId = readMastraStreamPartString(event, 'runId');
-    const toolCallId = readMastraStreamPartString(event, 'toolCallId');
-    if (!(taskId && runId && toolCallId)) {
-      throw new Error(`Native background event ${type} omitted its task identity.`);
+    const identity = {
+      runId: readMastraStreamPartString(event, 'runId'),
+      taskId: readMastraStreamPartString(event, 'taskId'),
+      toolCallId: readMastraStreamPartString(event, 'toolCallId'),
+    };
+    const missing = REQUIRED_EVENT_FIELDS[effect].filter((field) => identity[field] === undefined);
+    if (missing.length > 0) {
+      // One event the watchdogs cannot attribute; every other child stays judged.
+      logger.error('Background child watchdogs skipped a lifecycle event missing its identity', {
+        code: 'background_child_watchdog_event_malformed',
+        eventType: type,
+        missing,
+      });
+      return;
+    }
+    const { runId, taskId, toolCallId } = identity;
+    if (taskId === undefined) {
+      return;
+    }
+    if (effect === 'ends') {
+      stopWatching(taskId);
+      return;
+    }
+    if (hostRun.has(taskId)) {
+      return;
     }
     if (effect === 'output') {
       observe(
@@ -356,19 +395,19 @@ export function createBackgroundChildWatchdogs(
       );
       return;
     }
-    if (effect === 'ends') {
-      stopWatching(taskId);
-      return;
+    if (runId !== undefined && toolCallId !== undefined) {
+      watch({ runId, taskId, toolCallId }, effect === 'watches-again');
     }
-    watch({ runId, taskId, toolCallId }, effect === 'watches-again');
   };
   const following = new AbortController();
   const dispose = () => {
     disposed = true;
     following.abort();
+    // Announce each stop first, so a waiting parent re-judges its held work.
     for (const taskId of [...watches.keys()]) {
       stopWatching(taskId);
     }
+    listeners.clear();
   };
 
   const reader = params.manager
@@ -379,16 +418,25 @@ export function createBackgroundChildWatchdogs(
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
-          return;
+          break;
         }
         follow(value);
       }
+      if (!disposed) {
+        // No child's lifecycle can arrive any more, so no child can be judged:
+        // stop every watch rather than let it stall blind, and let the parent
+        // bound its held work at the first-output window.
+        logger.error('Background child watchdogs lost their lifecycle feed; watching no child', {
+          code: 'background_child_watchdog_feed_ended',
+          watching: [...watches.keys()],
+        });
+        dispose();
+      }
     } catch (error) {
-      // No child can be judged without its lifecycle: say so and judge none,
-      // leaving held work to the parent's own bound.
-      logger.error('Background child watchdogs lost the native lifecycle stream', {
+      logger.error('Background child watchdogs lost their lifecycle feed; watching no child', {
         code: 'background_child_watchdog_feed_failed',
         error: error instanceof Error ? error.message : String(error),
+        watching: [...watches.keys()],
       });
       dispose();
     } finally {
@@ -397,13 +445,25 @@ export function createBackgroundChildWatchdogs(
   })();
 
   return {
-    changed: () => changed.promise,
     dispose,
     hostExecution(task) {
+      hostRun.add(task.taskId);
       watch(task, true);
       return {
         end: () => stopWatching(task.taskId),
         observe: (output) => observe(task.taskId, output),
+      };
+    },
+    subscribe(listener) {
+      if (disposed) {
+        return () => {
+          // Nothing will change any more.
+        };
+      }
+      const own = () => listener();
+      listeners.add(own);
+      return () => {
+        listeners.delete(own);
       };
     },
     watching: (held) => [...held].some((taskId) => watches.has(taskId)),
