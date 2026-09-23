@@ -276,6 +276,34 @@ describe('delegation budgets from RuntimeSubagentSettings', () => {
     });
   });
 
+  it('reads no stored limits, never an identity error, for a leg without a turn message or run row', async () => {
+    // Runtime construction reads these before any delegation: a leg whose run
+    // row has no turn anchor (a thread with no user message), or a run id with
+    // no row at all, must build; admission still refuses such a leg later.
+    await database.exec(`INSERT INTO brainstrike_assistant_thread_runs
+      (id, resource_id, thread_id, provider, model, runtime_kind, status,
+       started_at, created_at, updated_at, turn_message_id) VALUES
+      ('anchorless-leg', 'owner', 'root', 'openai', 'test', 'desktop', 'running', NOW(), NOW(), NOW(), NULL);`);
+    await expect(
+      createDesktopDelegatedConversationHost(
+        database,
+        'anchorless-leg',
+        undefined,
+        undefined,
+        settings
+      ).budget.readTurnLimits()
+    ).resolves.toBeUndefined();
+    await expect(
+      createDesktopDelegatedConversationHost(
+        database,
+        'unknown-leg',
+        undefined,
+        undefined,
+        settings
+      ).budget.readTurnLimits()
+    ).resolves.toBeUndefined();
+  });
+
   it('a later leg on the same turn reads the stored row even without settings', async () => {
     await createDesktopDelegatedConversationHost(
       database,

@@ -245,4 +245,23 @@ describe('useDraftField', () => {
     await user.tab();
     expect(commit).toHaveBeenCalledTimes(2);
   });
+
+  it('an unmount with a standing refusal reports the revert; one without reports nothing', async () => {
+    const user = userEvent.setup();
+    const onRevert = vi.fn();
+    function RefusingField() {
+      const field = useDraftField({ commit: () => 'Too large.', onRevert, value: '1' });
+      return <input aria-label="Field" {...field.inputProps} />;
+    }
+    const clean = render(<RefusingField />);
+    clean.unmount();
+    expect(onRevert).not.toHaveBeenCalled();
+
+    const refused = render(<RefusingField />);
+    const input = screen.getByLabelText('Field');
+    await user.clear(input);
+    await user.type(input, '9{Enter}');
+    refused.unmount();
+    expect(onRevert).toHaveBeenCalledTimes(1);
+  });
 });

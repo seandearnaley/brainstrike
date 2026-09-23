@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import { ControlsMenu } from '../assistant-controls-menu';
+import { MetadataProviders } from '../openrouter-model-metadata-context';
 
 afterEach(() => {
   cleanup();
@@ -184,6 +185,39 @@ describe('ControlsMenu Output & Limits drafts (real browser)', () => {
     expect(onProviderSettingsChange.mock.calls).toEqual([
       ['OpenAI', { maxOutputTokens: undefined }],
     ]);
+  });
+
+  test('Escape from another control closes the menu and unblocks the composer a refusal blocked', async () => {
+    const onValidation = vi.fn();
+    render(
+      <MetadataProviders onValidation={onValidation} value={undefined}>
+        <ControlsMenu
+          modelName="gpt-5"
+          onProviderSettingsChange={vi.fn()}
+          providerSettings={{ OpenAI: { maxOutputTokens: 1024 } }}
+          selectedProvider="OpenAI"
+        />
+      </MetadataProviders>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Open assistant controls' }));
+    const submenu = await screen.findByText('Output & Limits');
+    await userEvent.hover(submenu);
+    await userEvent.click(submenu);
+    const output = await screen.findByRole('spinbutton', { name: 'Output token limit' });
+    await userEvent.clear(output);
+    await userEvent.click(output);
+    await userEvent.keyboard('99999{Enter}');
+    expect(onValidation).toHaveBeenLastCalledWith('Output limit exceeds the 8,192 maximum.');
+
+    // Focus leaves the field WITHOUT toggling anything; the field's own Escape
+    // handler never sees the key that closes the menu.
+    screen.getByRole('switch', { name: 'Limit output tokens per step' }).focus();
+    await userEvent.keyboard('{Escape}');
+
+    await expect
+      .poll(() => screen.queryByRole('spinbutton', { name: 'Output token limit' }))
+      .toBeNull();
+    expect(onValidation).toHaveBeenLastCalledWith(undefined);
   });
 
   test('ArrowLeft moves the caret in a field instead of closing the submenu over its draft', async () => {

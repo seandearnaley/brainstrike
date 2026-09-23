@@ -275,6 +275,30 @@ describe('ProviderSettingsPanel number fields', () => {
     expect(onValidationChange).toHaveBeenLastCalledWith(undefined);
   });
 
+  it('a model switch that remounts the output field unblocks the composer its refusal blocked', async () => {
+    const user = userEvent.setup();
+    const onValidationChange = vi.fn();
+    const renderPanel = (modelName: string) => (
+      <ProviderSettingsPanel
+        modelName={modelName}
+        onSettingsChange={vi.fn()}
+        onValidationChange={onValidationChange}
+        providerId="openai"
+        settings={{ maxOutputTokens: 1024 }}
+      />
+    );
+    const { rerender } = render(renderPanel('gpt-5'));
+    const output = screen.getByRole('spinbutton', { name: 'Output token limit' });
+    await user.clear(output);
+    await user.type(output, '99999{Enter}');
+    expect(onValidationChange).toHaveBeenLastCalledWith(expect.stringContaining('8,192 maximum'));
+
+    rerender(renderPanel('gpt-5-mini'));
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(onValidationChange).toHaveBeenLastCalledWith(undefined);
+  });
+
   it('moving a slider discards the refused draft it overrides, and its composer block', async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();

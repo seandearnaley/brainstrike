@@ -26,8 +26,9 @@ export interface DraftFieldOptions {
    */
   readonly commit: (draft: DraftInput) => string | undefined;
   /**
-   * The draft and any refusal message were discarded (Escape, or `revert()`
-   * from a control that took over the value): clear what a refusal reported.
+   * The draft and any refusal message were discarded (Escape, `revert()` from
+   * a control that took over the value, or the field unmounting over a
+   * standing refusal): clear what a refusal reported.
    */
   readonly onRevert?: () => void;
   /** The stored value's text, shown whenever no draft is being edited. */
@@ -122,6 +123,9 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
   // only repeats the refusal and its side effects (a refused Enter, then the
   // blur); focusing the field again clears it, since its rules may have moved.
   const refused = useRef<DraftInput | null>(null);
+  // A refusal the field is showing (and may have reported upward); an unmount
+  // over it — a menu closed from another control, a remount — reports the revert.
+  const standingRefusal = useRef(false);
   const scope = useContext(DraftFieldScopeContext);
 
   const setDraft = useCallback((next: DraftInput | null): void => {
@@ -139,6 +143,7 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
     }
     const refusal = latestCommit.current(current);
     setError(refusal);
+    standingRefusal.current = refusal !== undefined;
     if (refusal !== undefined) {
       refused.current = current;
       return false;
@@ -149,10 +154,20 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
   const revert = (): void => {
     setDraft(null);
     setError(undefined);
+    standingRefusal.current = false;
     latestOnRevert.current?.();
   };
 
   useEffect(() => scope?.register(commitPending), [scope, commitPending]);
+  // biome-ignore lint/plugin: unmount-only cleanup reporting a discarded refusal — not a state-as-event-handler effect
+  useEffect(
+    () => () => {
+      if (standingRefusal.current) {
+        latestOnRevert.current?.();
+      }
+    },
+    []
+  );
 
   return {
     error,
@@ -170,7 +185,7 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
           commitPending();
           return;
         }
-        if (event.key === 'Escape' && (draft !== null || error !== undefined)) {
+        if (event.key === 'Escape' && (pending.current !== null || standingRefusal.current)) {
           revert();
           return;
         }

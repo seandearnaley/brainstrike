@@ -129,16 +129,24 @@ export function createDelegatedStepBudget(
         );
       });
     },
+    // Runtime construction asks this before any delegation, so it must not
+    // resolve the leg's identity: a leg without a turn anchor (a thread with no
+    // user message) or without a run row stored no limits, and admission still
+    // refuses such a leg with its identity reason when it delegates.
     async readTurnLimits() {
-      const scope = await readScope();
       const result = await database.query(
-        `SELECT max_child_output_tokens AS "maxChildOutputTokens", max_child_steps AS "maxChildSteps",
-           max_depth AS "maxDepth", max_invocations AS "maxInvocations",
-           max_step_output_tokens AS "maxStepOutputTokens", max_output_tokens AS "maxTreeOutputTokens",
-           synthesis_output_tokens AS "synthesisOutputTokens"
-         FROM brainstrike_delegation_budgets
-         WHERE root_thread_id = $1 AND turn_message_id = $2 AND owner_resource_id = $3`,
-        [scope.rootThreadId, scope.turnMessageId, scope.ownerResourceId]
+        `SELECT budget.max_child_output_tokens AS "maxChildOutputTokens",
+           budget.max_child_steps AS "maxChildSteps", budget.max_depth AS "maxDepth",
+           budget.max_invocations AS "maxInvocations",
+           budget.max_step_output_tokens AS "maxStepOutputTokens",
+           budget.max_output_tokens AS "maxTreeOutputTokens",
+           budget.synthesis_output_tokens AS "synthesisOutputTokens"
+         FROM brainstrike_assistant_thread_runs host
+         JOIN brainstrike_delegation_budgets budget ON budget.root_thread_id = host.thread_id
+           AND budget.turn_message_id = host.turn_message_id
+           AND budget.owner_resource_id = host.resource_id
+         WHERE host.id = $1`,
+        [hostRunId]
       );
       return result.rows.length === 0 ? undefined : turnLimitsSchema.parse(result.rows[0]);
     },

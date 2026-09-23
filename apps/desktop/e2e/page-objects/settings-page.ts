@@ -47,7 +47,11 @@ export class SettingsPage {
     const field = section.getByRole('spinbutton', { exact: true, name: label });
     await field.fill(String(value));
     await field.press('Enter');
-    await expect(field).toHaveValue(String(value));
+    // Only a landed commit leaves no refusal and keeps the value once the
+    // field has blurred and shows the STORED value instead of the draft.
     await expect(section.getByRole('alert')).toHaveCount(0);
+    await expect(field).not.toHaveAttribute('aria-invalid');
+    await field.blur();
+    await expect(field).toHaveValue(String(value));
   }
 }
