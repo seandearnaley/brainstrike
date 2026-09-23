@@ -9,7 +9,18 @@ vi.mock('../hooks/use-configured-assistant-providers', () => ({
 vi.mock('../hooks/use-assistant-local-runtime-catalog', () => ({
   useAssistantLocalRuntimeCatalog: () => ({ localRuntimeModels: null }),
 }));
-afterEach(cleanup);
+
+const { toggleModelEnabledMock } = vi.hoisted(() => ({
+  toggleModelEnabledMock: vi.fn(async () => true),
+}));
+vi.mock('@brainstrike/settings-ui/settings/models/use-model-toggle', () => ({
+  useModelToggle: () => ({ busyModelIds: new Set<string>(), toggle: toggleModelEnabledMock }),
+}));
+
+afterEach(() => {
+  cleanup();
+  toggleModelEnabledMock.mockClear();
+});
 const persona = {
   allowedToolIds: ['brainstrike.grepSearch', 'brainstrike.readWorkspaceFile'],
   description: 'Read',
@@ -29,6 +40,14 @@ const props = {
   isRunning: () => false,
   persona,
 };
+
+it('wires onEnableModel to the shared useEnableModel hook for a hosted provider', async () => {
+  const { result } = renderHook(useChildNextRunControls, { initialProps: props });
+  expect(typeof result.current.panelProps.onEnableModel).toBe('function');
+
+  await expect(result.current.panelProps.onEnableModel?.('openai', 'gpt-5.4')).resolves.toBe(true);
+  expect(toggleModelEnabledMock).toHaveBeenCalledWith('gpt-5.4', true);
+});
 
 it('uses the current root selection until overridden and sends complete child-local generation settings', () => {
   const { result, rerender } = renderHook(useChildNextRunControls, { initialProps: props });

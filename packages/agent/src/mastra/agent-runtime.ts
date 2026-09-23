@@ -3,6 +3,7 @@ import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract
 import {
   parseRuntimeSubagentSettings,
   type RuntimeSubagentSettings,
+  resolveChildTaskTimeoutMs,
 } from '@brainstrike/assistant-contract/subagent-settings';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
@@ -15,10 +16,7 @@ import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
-import {
-  type BackgroundTaskScope,
-  MAX_BACKGROUND_TASK_TIMEOUT_MS,
-} from '../pglite-mastra-memory/background-store';
+import type { BackgroundTaskScope } from '../pglite-mastra-memory/background-store';
 import { isListingOnlyModel } from '../providers/listing-only-model';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import {
@@ -514,7 +512,8 @@ function registerAgentWithMastra(
   agent: Agent,
   storage: MastraCompositeStore | undefined,
   assistantMessageId: string | undefined,
-  backgroundEnabled: boolean
+  backgroundEnabled: boolean,
+  taskTimeoutMs: number
 ): {
   assertAssistantMessageIdPersisted?: () => void;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
@@ -530,7 +529,7 @@ function registerAgentWithMastra(
     agents: { brainstrikeAssistant: agent },
     backgroundTasks: {
       defaultRetries: { maxRetries: 0 },
-      defaultTimeoutMs: MAX_BACKGROUND_TASK_TIMEOUT_MS,
+      defaultTimeoutMs: taskTimeoutMs,
       enabled: backgroundEnabled,
       waitTimeoutMs: 0,
     },
@@ -981,7 +980,8 @@ export async function createMastraAgentRuntime(
     agent,
     storage,
     runtime?.assistantMessageId,
-    Boolean(backgroundAgentOptions.backgroundTasks)
+    Boolean(backgroundAgentOptions.backgroundTasks),
+    resolveChildTaskTimeoutMs(subagentSettings)
   );
   let unregisterCancellation: (() => void) | undefined;
   let unregisterDecisions: (() => void) | undefined;

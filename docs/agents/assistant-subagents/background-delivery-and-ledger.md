@@ -321,3 +321,9 @@ during four fake hours of silence) and `background-worker-stream.integration.spe
 ("keeps a leg open while a quiet background child works, then finishes
 normally", with a 200 ms inter-output window and 1 s of child silence; without
 the task lanes it stalls in `streaming` and the child ends `cancelled`).
+
+2026-09-22: `_background.timeoutMs` is pinned the same way. Mastra ranks the
+model's value above host config, so `createTask()` overrides it with the host's
+`resolveChildTaskTimeoutMs` (the user's runtime limit, default Off) and logs
+`background_task_timeout_pinned`; `updateTask` rejects a different value. See
+`mastra-boundary/subagent-host-lifetime.md` for why the five-minute ceiling went.
