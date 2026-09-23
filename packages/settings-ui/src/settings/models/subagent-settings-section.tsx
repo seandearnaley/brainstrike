@@ -5,25 +5,54 @@ import {
   RuntimeSubagentSettingsError,
   SUBAGENT_SETTINGS_LIMITS,
 } from '@brainstrike/assistant-contract/subagent-settings';
-import { Button, Card, Input, Label } from '@brainstrike/ui';
+import { Button, Card, type DraftInput, Input, Label, useDraftField } from '@brainstrike/ui';
 import { Layers } from 'lucide-react';
 import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 type Field = Exclude<keyof RuntimeSubagentSettings, 'maxChildRuntimeMs'>;
-type FieldText = Partial<Record<keyof RuntimeSubagentSettings, string>>;
 
 const MS_PER_MINUTE = 60_000;
 /** The runtime field's own unit: whole minutes up to the longest Node timer. */
 const MAX_RUNTIME_MINUTES = Math.floor(NODE_TIMER_MAX_MS / MS_PER_MINUTE);
 const RUNTIME_ID = 'subagent-max-child-runtime';
 
-const FIELDS: readonly {
+interface FieldSpec {
   readonly field: Field;
   readonly help: string;
   readonly id: string;
   readonly label: string;
-}[] = [
+}
+
+/** Tree limits: one set per turn, across every subagent and its descendants. */
+const TURN_FIELDS: readonly FieldSpec[] = [
+  {
+    field: 'maxDepth',
+    help: 'How many levels deep subagents may delegate to other subagents.',
+    id: 'subagent-max-depth',
+    label: 'Max delegation depth',
+  },
+  {
+    field: 'maxInvocations',
+    help: 'Subagents one turn may start, nested ones included. Background subagents may wake the main agent at most this many times.',
+    id: 'subagent-max-invocations',
+    label: 'Max subagents per turn',
+  },
+  {
+    field: 'maxConcurrentWork',
+    help: 'Model calls and tool runs that may execute at once across all subagents; the rest wait their turn.',
+    id: 'subagent-max-concurrent-work',
+    label: 'Subagent work at once',
+  },
+  {
+    field: 'maxTreeOutputTokens',
+    help: 'Output all subagents in one turn may produce together. The default never binds before the per-subagent budgets do; lower it to cap cost.',
+    id: 'subagent-max-tree-output-tokens',
+    label: 'Max output tokens per turn',
+  },
+];
+
+const CHILD_FIELDS: readonly FieldSpec[] = [
   {
     field: 'maxChildSteps',
     help: 'Model calls a subagent may make, including its reserved summary step. A persona that declares fewer keeps its own number.',
@@ -38,7 +67,7 @@ const FIELDS: readonly {
   },
   {
     field: 'maxChildOutputTokens',
-    help: 'Output one subagent may produce in a turn; 131,072 across all subagents is the fixed ceiling.',
+    help: 'Output one subagent may produce in a turn; it cannot exceed the output budget for the whole turn.',
     id: 'subagent-max-child-output-tokens',
     label: 'Max output tokens per subagent',
   },
@@ -54,17 +83,71 @@ function parseNumberInput(value: string): number {
   return value.trim().length === 0 ? Number.NaN : Number(value);
 }
 
-function omitField(record: FieldText, field: keyof RuntimeSubagentSettings): FieldText {
-  const { [field]: _omitted, ...rest } = record;
-  return rest;
+/**
+ * Run a store write; the contract's validation refusal is the field's message,
+ * any other throw is a defect and propagates.
+ */
+function refusalOf(write: () => void): string | undefined {
+  try {
+    write();
+  } catch (error) {
+    if (!(error instanceof RuntimeSubagentSettingsError)) {
+      throw error;
+    }
+    return error.message;
+  }
+  return;
+}
+
+function BudgetField({
+  help,
+  id,
+  label,
+  limits,
+  onCommit,
+  placeholder,
+  value,
+}: {
+  readonly help: string;
+  readonly id: string;
+  readonly label: string;
+  readonly limits: { readonly max: number; readonly min: number };
+  readonly onCommit: (draft: DraftInput) => string | undefined;
+  readonly placeholder?: string;
+  readonly value: string;
+}) {
+  const field = useDraftField({ commit: onCommit, value });
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        aria-describedby={field.error ? `${id}-error` : `${id}-help`}
+        aria-invalid={field.error ? true : undefined}
+        id={id}
+        max={limits.max}
+        min={limits.min}
+        placeholder={placeholder}
+        type="number"
+        {...field.inputProps}
+      />
+      <p className="text-muted-foreground text-xs" id={`${id}-help`}>
+        {help}
+      </p>
+      {field.error ? (
+        <p className="text-destructive text-xs" id={`${id}-error`} role="alert">
+          {field.error}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 /**
  * Settings → Models → Subagents: the per-child budgets and runtime limit
- * (`RuntimeSubagentSettings`). The store validates the whole next value and
- * THROWS on an invalid one; that message is shown under the field and nothing
- * lands — never a clamp or a coercion. The field keeps the raw text while it is
- * invalid (a controlled draft), and shows the stored value once a write lands.
+ * (`RuntimeSubagentSettings`). Each field edits a draft and commits it on blur
+ * or Enter (`useDraftField`); Escape discards it. The store validates the whole
+ * next value and THROWS on an invalid one; that message is shown under the
+ * field and nothing lands — never a clamp or a coercion.
  */
 export function SubagentSettingsSection() {
   const store = useAssistantSubagentPreferencesStore(
@@ -73,7 +156,11 @@ export function SubagentSettingsSection() {
       setMaxChildOutputTokens: state.setMaxChildOutputTokens,
       setMaxChildRuntimeMs: state.setMaxChildRuntimeMs,
       setMaxChildSteps: state.setMaxChildSteps,
+      setMaxConcurrentWork: state.setMaxConcurrentWork,
+      setMaxDepth: state.setMaxDepth,
+      setMaxInvocations: state.setMaxInvocations,
       setMaxStepOutputTokens: state.setMaxStepOutputTokens,
+      setMaxTreeOutputTokens: state.setMaxTreeOutputTokens,
       setSynthesisOutputTokens: state.setSynthesisOutputTokens,
       settings: state.settings,
     }))
@@ -81,62 +168,41 @@ export function SubagentSettingsSection() {
   const setters: Record<Field, (value: number) => void> = {
     maxChildOutputTokens: store.setMaxChildOutputTokens,
     maxChildSteps: store.setMaxChildSteps,
+    maxConcurrentWork: store.setMaxConcurrentWork,
+    maxDepth: store.setMaxDepth,
+    maxInvocations: store.setMaxInvocations,
     maxStepOutputTokens: store.setMaxStepOutputTokens,
+    maxTreeOutputTokens: store.setMaxTreeOutputTokens,
     synthesisOutputTokens: store.setSynthesisOutputTokens,
   };
-  const [drafts, setDrafts] = useState<FieldText>({});
-  const [errors, setErrors] = useState<FieldText>({});
+  // Reset remounts the fields, which discards every pending draft and message.
+  const [generation, setGeneration] = useState(0);
 
-  const reject = (field: keyof RuntimeSubagentSettings, raw: string, message: string): void => {
-    setDrafts((current) => ({ ...current, [field]: raw }));
-    setErrors((current) => ({ ...current, [field]: message }));
-  };
-
-  const write = (field: keyof RuntimeSubagentSettings, raw: string, commit: () => void): void => {
-    try {
-      commit();
-    } catch (error) {
-      // Only the contract's validation refusal is a user-facing message; any
-      // other throw is a defect and propagates.
-      if (!(error instanceof RuntimeSubagentSettingsError)) {
-        throw error;
-      }
-      reject(field, raw, error.message);
-      return;
-    }
-    setDrafts((current) => omitField(current, field));
-    setErrors((current) => omitField(current, field));
-  };
-
-  const writeRuntime = (raw: string, badInput: boolean): void => {
+  const commitRuntime = ({ badInput, text }: DraftInput): string | undefined => {
     // A number input reports '' for unparseable text ("1.", "-", "1e"); only a
     // genuinely EMPTY field means Off.
-    if (badInput) {
-      reject(
-        'maxChildRuntimeMs',
-        raw,
-        `Enter a whole number of minutes from 1 to ${MAX_RUNTIME_MINUTES}, or leave it empty for no limit.`
-      );
-      return;
+    if (!badInput && text.trim().length === 0) {
+      return refusalOf(() => store.setMaxChildRuntimeMs(null));
     }
-    if (raw.trim().length === 0) {
-      write('maxChildRuntimeMs', raw, () => store.setMaxChildRuntimeMs(null));
-      return;
-    }
-    const minutes = Number(raw);
+    const minutes = badInput ? Number.NaN : Number(text);
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_RUNTIME_MINUTES) {
-      reject(
-        'maxChildRuntimeMs',
-        raw,
-        `Enter a whole number of minutes from 1 to ${MAX_RUNTIME_MINUTES}, or leave it empty for no limit.`
-      );
-      return;
+      return `Enter a whole number of minutes from 1 to ${MAX_RUNTIME_MINUTES}, or leave it empty for no limit.`;
     }
-    write('maxChildRuntimeMs', raw, () => store.setMaxChildRuntimeMs(minutes * MS_PER_MINUTE));
+    return refusalOf(() => store.setMaxChildRuntimeMs(minutes * MS_PER_MINUTE));
   };
 
   const runtimeMs = store.settings.maxChildRuntimeMs;
-  const runtimeError = errors.maxChildRuntimeMs;
+  const renderField = ({ field, help, id, label }: FieldSpec) => (
+    <BudgetField
+      help={help}
+      id={id}
+      key={`${field}:${generation}`}
+      label={label}
+      limits={SUBAGENT_SETTINGS_LIMITS[field]}
+      onCommit={({ text }) => refusalOf(() => setters[field](parseNumberInput(text)))}
+      value={String(store.settings[field])}
+    />
+  );
 
   return (
     <Card className="space-y-5 p-4" data-testid="subagent-settings-section">
@@ -147,16 +213,15 @@ export function SubagentSettingsSection() {
             <h3 className="font-medium text-sm">Subagents</h3>
           </div>
           <p className="text-muted-foreground text-sm">
-            Budgets every delegated subagent runs under. They are copied into the turn when its
-            first subagent starts, so a change applies to the next turn.
+            Limits every delegated subagent runs under. They are copied into the turn when its first
+            subagent starts, so a change applies to the next turn.
           </p>
         </div>
         <Button
           aria-label="Reset subagent budgets to defaults"
           onClick={() => {
             store.resetToDefaults();
-            setDrafts({});
-            setErrors({});
+            setGeneration((current) => current + 1);
           }}
           size="sm"
           type="button"
@@ -165,63 +230,21 @@ export function SubagentSettingsSection() {
           Reset to defaults
         </Button>
       </div>
+      <h4 className="font-medium text-sm">Each turn</h4>
+      <div className="grid gap-4 md:grid-cols-2">{TURN_FIELDS.map(renderField)}</div>
+      <h4 className="font-medium text-sm">Each subagent</h4>
       <div className="grid gap-4 md:grid-cols-2">
-        {FIELDS.map(({ field, help, id, label }) => {
-          const error = errors[field];
-          return (
-            <div className="space-y-2" key={field}>
-              <Label htmlFor={id}>{label}</Label>
-              <Input
-                aria-describedby={error ? `${id}-error` : `${id}-help`}
-                aria-invalid={error ? true : undefined}
-                id={id}
-                max={SUBAGENT_SETTINGS_LIMITS[field].max}
-                min={SUBAGENT_SETTINGS_LIMITS[field].min}
-                onChange={(event) =>
-                  write(field, event.target.value, () =>
-                    setters[field](parseNumberInput(event.target.value))
-                  )
-                }
-                type="number"
-                value={drafts[field] ?? String(store.settings[field])}
-              />
-              <p className="text-muted-foreground text-xs" id={`${id}-help`}>
-                {help}
-              </p>
-              {error ? (
-                <p className="text-destructive text-xs" id={`${id}-error`} role="alert">
-                  {error}
-                </p>
-              ) : null}
-            </div>
-          );
-        })}
-        <div className="space-y-2">
-          <Label htmlFor={RUNTIME_ID}>Max runtime per subagent (minutes)</Label>
-          <Input
-            aria-describedby={runtimeError ? `${RUNTIME_ID}-error` : `${RUNTIME_ID}-help`}
-            aria-invalid={runtimeError ? true : undefined}
-            id={RUNTIME_ID}
-            max={MAX_RUNTIME_MINUTES}
-            min={1}
-            onChange={(event) => writeRuntime(event.target.value, event.target.validity.badInput)}
-            placeholder="Off"
-            type="number"
-            value={
-              drafts.maxChildRuntimeMs ??
-              (runtimeMs === null ? '' : String(runtimeMs / MS_PER_MINUTE))
-            }
-          />
-          <p className="text-muted-foreground text-xs" id={`${RUNTIME_ID}-help`}>
-            Wall-clock limit on one subagent run. Empty is Off (the default): a subagent runs until
-            it finishes or you stop it, and stalls are caught by the inactivity watchdog.
-          </p>
-          {runtimeError ? (
-            <p className="text-destructive text-xs" id={`${RUNTIME_ID}-error`} role="alert">
-              {runtimeError}
-            </p>
-          ) : null}
-        </div>
+        {CHILD_FIELDS.map(renderField)}
+        <BudgetField
+          help="Wall-clock limit on one subagent run. Empty is Off (the default): a subagent runs until it finishes or you stop it, and stalls are caught by the inactivity watchdog."
+          id={RUNTIME_ID}
+          key={`maxChildRuntimeMs:${generation}`}
+          label="Max runtime per subagent (minutes)"
+          limits={{ max: MAX_RUNTIME_MINUTES, min: 1 }}
+          onCommit={commitRuntime}
+          placeholder="Off"
+          value={runtimeMs === null ? '' : String(runtimeMs / MS_PER_MINUTE)}
+        />
       </div>
     </Card>
   );

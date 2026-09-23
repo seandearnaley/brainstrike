@@ -1,7 +1,4 @@
-import {
-  DELEGATION_LIMITS,
-  type DelegatedInvocationAdmission,
-} from '@brainstrike/assistant-contract';
+import type { DelegatedInvocationAdmission } from '@brainstrike/assistant-contract';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import {
   type DelegatedConversationDatabase,
@@ -34,8 +31,8 @@ class DelegationBudgetRefusal extends Error {}
 /**
  * Open (idempotently) and lock the original turn's budget row. Only a leg that
  * carries the request's validated `RuntimeSubagentSettings` can OPEN the row —
- * the per-child values are copied from those settings, never from a constant —
- * and a later leg without settings reads the row the first leg stored.
+ * the tree limits and per-child values are copied from those settings, never
+ * from a constant — and a later leg reads the row the first leg stored.
  */
 async function lockBudget(
   tx: DelegatedConversationDatabase,
@@ -65,9 +62,9 @@ async function lockBudget(
         scope.rootThreadId,
         scope.turnMessageId,
         scope.ownerResourceId,
-        DELEGATION_LIMITS.maxDepth,
-        DELEGATION_LIMITS.maxInvocations,
-        DELEGATION_LIMITS.maxTreeOutputTokens,
+        subagentSettings.maxDepth,
+        subagentSettings.maxInvocations,
+        subagentSettings.maxTreeOutputTokens,
         subagentSettings.maxChildSteps,
         subagentSettings.maxChildOutputTokens,
         subagentSettings.maxStepOutputTokens,

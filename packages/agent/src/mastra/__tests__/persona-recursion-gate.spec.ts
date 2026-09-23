@@ -62,6 +62,7 @@ describe('persona recursion gate', () => {
           bindRun: async () => ({ threadId: 'child' }),
           budget: {
             admitInvocation: async () => ({ admitted: true as const }),
+            readTurnLimits: async () => undefined,
             reserveStep: async () => ({ id: 'unused', outputTokens: 8192, synthesis: false }),
             settleStep: async () => undefined,
           },

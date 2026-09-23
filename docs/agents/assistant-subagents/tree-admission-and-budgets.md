@@ -194,3 +194,84 @@ see `mastra-boundary/subagent-host-lifetime.md`. The persisted store migrated
 v1 → v2 so saved budgets survive the new field — including a saved 32 steps:
 the store persists the whole settings object, so a user-chosen 32 cannot be told
 from the old default, and only profiles with nothing saved start at 100.
+
+2026-09-22 (BST-1801): the TREE limits are user settings too. The constant
+`DELEGATION_LIMITS` (depth 3, 8 invocations, 2 runnable, 131,072 tree tokens)
+starved long-horizon turns the same way the per-child constants had: 8
+invocations also capped parent wakeups, and 131,072 tree tokens held only four
+32,768-token children. `maxDepth`, `maxInvocations`, `maxConcurrentWork` and
+`maxTreeOutputTokens` joined `RuntimeSubagentSettings` rather than a sibling
+object because `maxChildOutputTokens <= maxTreeOutputTokens` is a cross-tier
+rule one schema must check, and both tiers already share the store, the
+`runtimeData.subagentSettings` field, the single intake and the budget row.
+The constant is deleted, so a consumer reading one is a compile error (the
+guarantee "has no child keys" used to give). Defaults and ranges, justified in
+`subagent-settings.ts` against
+docs/superpowers/research/2026-09-22-agent-timeout-and-budget-standards.md:
+depth 3 (Claude Code's nesting default), 1..8 (the parent watchdog unwraps at
+most eight delegation envelopes); 200 invocations (Claude Code's per-session
+total before it removed that cap), 1..1000; 6 runnable operations (Codex's
+thread default), 1..20 (Claude Code's concurrency default); tree output 200 x
+32,768 = 6,553,600 so it never binds before the per-child and invocation caps
+(run-ending token budgets are opt-in in every surveyed agent), 1,024..131,072,000
+(every admissible invocation at the largest per-child allocation; fits int4).
+Depth, invocations and tree output are copied into the existing budget-row
+columns at first admission; `maxConcurrentWork` sizes each leg's FIFO queue
+(`DelegatedWorkQueue`) and the in-flight backstop, like the runtime limit, so
+it needed no column or migration. The persisted store migrated v2 -> v3,
+starting the tree limits at the defaults and keeping every saved budget.
+Paired tests: `subagent-settings.test.ts`, `personas.test.ts` (the model-facing
+description states the request's tree limits),
+`assistant-subagent-preferences-store.test.ts` (v2 upgrade),
+`delegated-budget-settings.integration.test.ts` (row values, invocation, depth
+and tree-output refusals from the request), `delegated-work-queue.spec.ts`,
+`subagent-delegation.spec.ts`, `build-persona-subagents.spec.ts` (recursion
+below `maxDepth`), `background-idle-loop.spec.ts` (wakeup bound),
+`subagent-settings-section.test.tsx`, `subagent-personas-delegation-limits.test.tsx`
+and `delegated-conversation-toolbar.test.tsx`. The admission suites pin the old
+numbers explicitly (`BUDGETED_HOST_SETTINGS`) because they test exact races.
+
+2026-09-22 (BST-1801 review, PR #3285): the row, not the leg's request, is the
+turn's authority. `lockBudget` freezes depth, invocations, tree output and the
+per-child budgets at first admission, yet the idle-loop wakeup bound, the
+worker recursion gate and the model-facing delegation description read the
+CURRENT leg's request, so lowering `maxInvocations` between an approval pause
+and its resume failed the resume leg with `background_parent_wakeup_limit_exceeded`
+although admission had allowed those tasks. `DelegatedBudgetPort.readTurnLimits`
+(the desktop host reads the leg's turn row; `undefined` before first admission)
+feeds `applyTurnSubagentLimits` once, in `createMastraAgentRuntime`, so every
+consumer of `runtime.subagentSettings` sees the stored limits; the first leg's
+values are its request's because it opens the row from that request. A stored
+row the contract rejects throws. `maxConcurrentWork` (each leg's queue) and
+`maxChildRuntimeMs` (each leg's task deadline) stay per request. The child
+toolbar's "Level N of M" reads the same row (`budget.maxDepth` from
+`readDelegatedConversationInsights`); a legacy child without a row states its
+level alone. Paired tests: `subagent-settings.test.ts` (`applyTurnSubagentLimits`),
+`subagent-settings-runtime.spec.ts` ("a later leg keeps the turn row's limits"),
+`delegated-budget-settings.integration.test.ts` ("a later leg reads the turn's
+limits from the row"), `delegated-conversation-insights.integration.test.ts`,
+`delegated-conversation-toolbar.test.tsx`.
+
+2026-09-23 (BST-1801 review, PR #3285): `readTurnLimits` runs at runtime
+construction for every leg with a budget port, so it must not fail a leg that
+has not delegated, yet must not fall back silently. `resolveDelegatedHostScope`
+(`delegated-host-scope.ts`) is the ONE scope resolution behind admission's
+`readScope` and `readTurnLimits`: it reads the leg's run row as the root turn,
+refuses a run row on this owner's delegated child thread with
+`host-leg-on-child-thread` (host legs run on the root: the request's run row is
+created on the selected root thread, a continuation decision is looked up with
+that thread as root, and a follow-up to an idle child is a fresh managed root
+leg), and answers "no stored limits" ONLY for a leg with no run row or a NULL
+turn anchor (the renderer writes `turnAnchorMessageId ?? null` for a thread with
+no user message; such a leg used to throw `host-scope-invalid` at construction
+and fail the whole run). Every other outcome throws: a root thread row owned by
+another resource is an identity failure, and a MISSING thread row under an
+existing run row is impossible (`thread_id` REFERENCES `mastra_threads` ON
+DELETE CASCADE, migration 118). The child-thread check is scoped by the run's
+resource, so another resource's row never refuses a leg. Admission keeps its
+identity reason (`host-scope-invalid`) for the no-row / no-anchor cases. Paired
+tests in `delegated-budget-settings.integration.test.ts`: "reads no stored
+limits, never an identity error, for a leg without a turn message or run row",
+"refuses a leg whose run row sits on a delegated CHILD thread", "no run row can
+exist without its root thread row, and another owner's thread throws",
+"another resource's child row for the leg's thread never refuses the leg".

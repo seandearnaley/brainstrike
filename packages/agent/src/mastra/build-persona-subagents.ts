@@ -16,7 +16,6 @@
 
 import {
   AdmittedChildConfigurationError,
-  DELEGATION_LIMITS,
   deriveEffectiveInputBudget,
   intersectChildPermissionCeilings,
   NATIVE_TOOL_ID,
@@ -738,7 +737,7 @@ async function createConfiguredChild({
     !params.planModeActive &&
     params.conversationBinding?.budget &&
     params.delegatedExecutionOptions &&
-    depth + (params.delegatedDepthOffset ?? 0) < DELEGATION_LIMITS.maxDepth
+    depth + (params.delegatedDepthOffset ?? 0) < params.subagentSettings.maxDepth
       ? {
           agents: async () => {
             descendants ??= buildPersonaSubAgents({
@@ -872,7 +871,9 @@ export async function buildPersonaSubAgents(
   params: BuildPersonaSubAgentsParams
 ): Promise<PersonaSubAgentBuildResult> {
   if (params.delegatedExecutionOptions) {
-    params.delegatedExecutionOptions.workQueue ??= new DelegatedWorkQueue();
+    params.delegatedExecutionOptions.workQueue ??= new DelegatedWorkQueue(
+      params.subagentSettings.maxConcurrentWork
+    );
     params.delegatedExecutionOptions.synthesisOutcomes ??= createDelegatedSynthesisOutcomes();
   }
   const canSuspend = canSuspendPersonaTools(params);

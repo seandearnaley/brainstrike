@@ -370,6 +370,7 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
       scope,
     }),
     manager,
+    maxInvocations: runtime.subagentSettings.maxInvocations,
     options,
     recordNativeRootRun: requireNativeRootRunRecorder(runtime.conversationBinding),
     recordWakeup: runtime.conversationBinding?.recordWakeup,

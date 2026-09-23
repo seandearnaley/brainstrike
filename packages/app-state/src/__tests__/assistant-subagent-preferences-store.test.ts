@@ -27,13 +27,35 @@ describe('assistant subagent preferences store', () => {
     store.setSynthesisOutputTokens(4096);
     store.setMaxChildOutputTokens(65_536);
     store.setMaxStepOutputTokens(16_384);
+    store.setMaxDepth(5);
+    store.setMaxInvocations(40);
+    store.setMaxConcurrentWork(3);
+    store.setMaxTreeOutputTokens(262_144);
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
       maxChildOutputTokens: 65_536,
       maxChildRuntimeMs: null,
       maxChildSteps: 48,
+      maxConcurrentWork: 3,
+      maxDepth: 5,
+      maxInvocations: 40,
       maxStepOutputTokens: 16_384,
+      maxTreeOutputTokens: 262_144,
       synthesisOutputTokens: 4096,
     });
+  });
+
+  it('THROWS on an out-of-range tree limit and on a tree output budget below the child budget', () => {
+    const store = useAssistantSubagentPreferencesStore.getState();
+    expect(() => store.setMaxDepth(9)).toThrow(/maxDepth/);
+    expect(() => store.setMaxInvocations(0)).toThrow(/maxInvocations/);
+    expect(() => store.setMaxConcurrentWork(21)).toThrow(/maxConcurrentWork/);
+    // Default child output is 32,768: the tree budget cannot drop below it.
+    expect(() => store.setMaxTreeOutputTokens(16_384)).toThrow(
+      /maxChildOutputTokens must not exceed maxTreeOutputTokens/
+    );
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
+      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+    );
   });
 
   it('THROWS on an out-of-range or non-integer value and lands nothing', () => {
@@ -48,9 +70,8 @@ describe('assistant subagent preferences store', () => {
     store.setMaxChildOutputTokens(1024);
     expect(() => store.setSynthesisOutputTokens(2048)).toThrow(/must not exceed/);
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
+      ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       maxChildOutputTokens: 1024,
-      maxChildRuntimeMs: null,
-      maxChildSteps: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxChildSteps,
       maxStepOutputTokens: 512,
       synthesisOutputTokens: 512,
     });
@@ -127,8 +148,34 @@ describe('assistant subagent preferences store', () => {
     options.storage.setItem(options.name, { state: { settings: v1 }, version: 1 });
     await storeWithPersist.persist.rehydrate();
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
+      ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       ...v1,
       maxChildRuntimeMs: null,
+    });
+  });
+
+  it('carries every v2 budget across the upgrade and starts the tree limits at their defaults', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
+      throw new Error('persist storage unavailable for test');
+    }
+    expect(options.version).toBe(3);
+    // A v2 payload predates the tree limits (they were host constants).
+    const v2 = {
+      maxChildOutputTokens: 131_072,
+      maxChildRuntimeMs: 5_400_000,
+      maxChildSteps: 640,
+      maxStepOutputTokens: 16_384,
+      synthesisOutputTokens: 4096,
+    };
+    options.storage.setItem(options.name, { state: { settings: v2 }, version: 2 });
+    await storeWithPersist.persist.rehydrate();
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
+      ...v2,
+      maxConcurrentWork: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxConcurrentWork,
+      maxDepth: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxDepth,
+      maxInvocations: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxInvocations,
+      maxTreeOutputTokens: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxTreeOutputTokens,
     });
   });
 

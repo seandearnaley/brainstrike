@@ -265,6 +265,7 @@ it.each([
         ...originalBinding,
         budget: {
           admitInvocation: async () => ({ admitted: true as const }),
+          readTurnLimits: async () => undefined,
           reserveStep,
           settleStep: vi.fn(async () => {}),
         },

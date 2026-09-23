@@ -1,4 +1,5 @@
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
+import { Agent } from '@mastra/core/agent';
 import { describe, expect, it, vi } from 'vitest';
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import { createStreamIteratorFromRuntime } from '../mastra/attempt-legs';
@@ -18,8 +19,8 @@ const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
 
 describe('subagent settings in the delegation config', () => {
   it('clamps a child to min(persona, settings) and lets the model ask for less', async () => {
-    // One config per start: the in-flight counter (MAX_CONCURRENT_DELEGATIONS)
-    // would otherwise refuse the third start for concurrency, not for its cap.
+    // One config per start: the in-flight counter (`maxConcurrentWork`) would
+    // otherwise be what refuses a later start, not the step cap under test.
     const start = async (maxSteps?: number) =>
       createDelegationConfig({
         abortSignal: new AbortController().signal,
@@ -43,7 +44,9 @@ describe('subagent settings in the delegation config', () => {
 
 describe('subagent settings on the runtime', () => {
   it('defaults when the request omits them and tells the model the effective budget', async () => {
-    const fixture = await createBackgroundFixture();
+    const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+      requestOmitsSubagentSettings: true,
+    });
     const { backing, runtime, runtimeData, release, database, model } = fixture;
     release.resolve();
     try {
@@ -96,6 +99,67 @@ describe('subagent settings on the runtime', () => {
         expect(capped.instructionBreakdown).toBeDefined();
       } finally {
         await capped.dispose();
+      }
+    } finally {
+      await runtime.dispose();
+      await database.close();
+    }
+  });
+
+  it("a later leg keeps the turn row's limits for wakeups, recursion and the description", async () => {
+    // Worker children with a durable budget may recurse; the row allows ONE
+    // level and 8 invocations while this leg's request asks for 5 and 2.
+    const fixture = await createBackgroundFixture(false, undefined, false, undefined, true, 1, {
+      durableWork: true,
+    });
+    const { discoveryOptions, database, runtime } = fixture;
+    const binding = discoveryOptions.conversationBinding;
+    const budget = binding?.budget;
+    if (!(binding && budget)) {
+      throw new Error('The durable-work fixture must carry a budget port');
+    }
+    const row = {
+      maxChildOutputTokens: 16_384,
+      maxChildSteps: 40,
+      maxDepth: 1,
+      maxInvocations: 8,
+      maxStepOutputTokens: 4096,
+      maxTreeOutputTokens: 131_072,
+      synthesisOutputTokens: 1024,
+    };
+    try {
+      const later = await createMastraAgentRuntime({
+        ...discoveryOptions,
+        conversationBinding: { ...binding, budget: { ...budget, readTurnLimits: async () => row } },
+        runtime: {
+          ...discoveryOptions.runtime,
+          subagentSettings: {
+            ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+            maxChildRuntimeMs: 60_000,
+            maxConcurrentWork: 3,
+            maxDepth: 5,
+            maxInvocations: 2,
+          },
+        },
+      });
+      try {
+        // The idle loop's wakeup bound and every other consumer read this.
+        expect(later.subagentSettings).toEqual({
+          ...row,
+          maxChildRuntimeMs: 60_000,
+          maxConcurrentWork: 3,
+        });
+        const child = (await later.agent.listAgents())['explore'];
+        if (!(child instanceof Agent)) {
+          throw new Error('Expected the worker persona child');
+        }
+        expect(child.getDescription()).toContain(
+          'The root turn permits at most 1 descendant levels, 8 invocations, 3 active work operations, 16384 output tokens per child and 131072 across descendants.'
+        );
+        // Depth 1 of the row's 1: the child cannot delegate further.
+        expect(Object.keys(await child.listAgents())).toEqual([]);
+      } finally {
+        await later.dispose();
       }
     } finally {
       await runtime.dispose();

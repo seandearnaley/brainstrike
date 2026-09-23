@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/agent/test-fixtures/scripted-agent-model';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -151,6 +152,9 @@ describe('desktop selective cancellation', () => {
       memory: { memorySettings: settings, resourceId: 'owner', threadId: 'root' },
       model: 'test',
       provider: 'openai',
+      // Two runnable operations: Alpha and Beta hold both permits, so Gamma
+      // can only start once Alpha's stop releases one.
+      subagentSettings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxConcurrentWork: 2 },
     };
     const memory = await getDesktopMastraMemory(settings, 'host-leg', undefined, runtime);
     const stream = await streamMastraAgent(
