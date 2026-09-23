@@ -2,6 +2,7 @@ import {
   MASTRA_BACKGROUND_TASKS_SCHEMA_SQL,
   MASTRA_BACKGROUND_TASKS_TABLE,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import { NODE_TIMER_MAX_MS } from '@brainstrike/assistant-contract/subagent-settings';
 import { createLogger } from '@brainstrike/logging';
 import type {
   BackgroundTask,
@@ -13,8 +14,6 @@ import type {
 import { BackgroundTasksStorage } from '@mastra/core/storage';
 import { z } from 'zod';
 import type { PgliteDatabase, PgliteQueryValue } from './types';
-
-export const MAX_BACKGROUND_TASK_TIMEOUT_MS = 300_000;
 
 export interface BackgroundTaskScope {
   readonly resourceId: string;
@@ -206,20 +205,41 @@ function pagination(filter: TaskFilter, values: PgliteQueryValue[]): string {
 
 const logger = createLogger('PgliteBackgroundTasksStore');
 
+function assertNodeTimerDelay(timeoutMs: number | undefined): void {
+  if (
+    timeoutMs === undefined ||
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > NODE_TIMER_MAX_MS
+  ) {
+    throw new Error(
+      `Background task timeout must be a whole number of milliseconds Node can arm (1..${NODE_TIMER_MAX_MS}).`
+    );
+  }
+}
+
 /** Native Mastra background-task domain, backed by the existing PGlite owner. */
 export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
+  /**
+   * `taskTimeoutMs` is the host's deadline for every scoped task — the
+   * resolved `maxChildRuntimeMs` setting, the same value handed to Mastra's
+   * `defaultTimeoutMs`. Unscoped (global) stores carry no host policy.
+   */
   constructor(
     private readonly database: PgliteDatabase,
-    private readonly scope?: BackgroundTaskScope
+    private readonly scope?: BackgroundTaskScope,
+    private readonly taskTimeoutMs?: number
   ) {
     super();
+    if (scope) {
+      assertNodeTimerDelay(taskTimeoutMs);
+    }
   }
   override async init(): Promise<void> {
     await this.database.exec(MASTRA_BACKGROUND_TASKS_SCHEMA_SQL);
   }
   override async createTask(task: BackgroundTask): Promise<void> {
-    const valid = this.pinHostRetryPolicy(taskSchema.parse(task));
-    this.assertTimeout(valid.timeoutMs);
+    const valid = this.pinHostTimeout(this.pinHostRetryPolicy(taskSchema.parse(task)));
     if (
       this.scope &&
       (valid.resourceId !== this.scope.resourceId || valid.threadId !== this.scope.threadId)
@@ -240,7 +260,9 @@ export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
     if (this.scope && update.maxRetries !== undefined && update.maxRetries !== 0) {
       throw new Error('Automatic background worker retries are not permitted');
     }
-    this.assertTimeout(update.timeoutMs);
+    if (this.scope && update.timeoutMs !== undefined && update.timeoutMs !== this.taskTimeoutMs) {
+      throw new Error('Background task timeouts are host-owned');
+    }
     const keys = mutableFields.filter((key) => Object.hasOwn(update, key));
     const values: PgliteQueryValue[] = keys.map((key) => sqlValue(key, update[key]));
     values.push(taskId);
@@ -355,20 +377,27 @@ export class PgliteBackgroundTasksStore extends BackgroundTasksStorage {
     });
     return { ...task, maxRetries: 0 };
   }
-  private assertTimeout(timeoutMs: number | undefined): void {
-    if (!this.scope) {
-      return;
+  /**
+   * The host owns a child's deadline exactly as it owns retries: Mastra
+   * advertises `_background.timeoutMs` to the model and ranks the model's value
+   * above host config, so a model could shorten (or stretch) its own child's
+   * life. The requested value is overridden here and logged, like retries.
+   */
+  private pinHostTimeout<
+    Task extends Pick<BackgroundTask, 'id' | 'timeoutMs' | 'toolCallId' | 'toolName'>,
+  >(task: Task): Task {
+    if (!this.scope || this.taskTimeoutMs === undefined || task.timeoutMs === this.taskTimeoutMs) {
+      return task;
     }
-    if (
-      timeoutMs !== undefined &&
-      (!Number.isSafeInteger(timeoutMs) ||
-        timeoutMs <= 0 ||
-        timeoutMs > MAX_BACKGROUND_TASK_TIMEOUT_MS)
-    ) {
-      throw new Error(
-        'Background task timeout must be a positive integer no greater than the host limit.'
-      );
-    }
+    logger.warn('Background worker timeout pinned to the host policy', {
+      code: 'background_task_timeout_pinned',
+      hostTimeoutMs: this.taskTimeoutMs,
+      requestedTimeoutMs: task.timeoutMs,
+      taskId: task.id,
+      toolCallId: task.toolCallId,
+      toolName: task.toolName,
+    });
+    return { ...task, timeoutMs: this.taskTimeoutMs };
   }
   override async dangerouslyClearAll(): Promise<void> {
     await this.deleteTasks({});

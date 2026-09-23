@@ -68,16 +68,21 @@ export function lengthParts(text: string): LanguageModelV2StreamPart[] {
   ];
 }
 
-/** A model transport fixture: Agent, tools, hooks, streams and storage stay real. */
+/**
+ * A model transport fixture: Agent, tools, hooks, streams and storage stay real.
+ * An async script holds its model step until the test's gate opens.
+ */
 export function scriptedAgentModel(
-  script: (options: LanguageModelV2CallOptions) => LanguageModelV2StreamPart[]
+  script: (
+    options: LanguageModelV2CallOptions
+  ) => LanguageModelV2StreamPart[] | Promise<LanguageModelV2StreamPart[]>
 ): { model: ScriptedModel; prompts: LanguageModelV2CallOptions[] } {
   const prompts: LanguageModelV2CallOptions[] = [];
   const model: ScriptedModel = {
     doGenerate: () => Promise.reject(new Error('Unexpected non-streaming model call')),
     doStream: async (options) => {
       prompts.push(options);
-      const parts = script(options);
+      const parts = await script(options);
       return {
         stream: new ReadableStream<LanguageModelV2StreamPart>({
           start(controller) {
