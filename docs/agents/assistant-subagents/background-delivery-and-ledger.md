@@ -283,7 +283,6 @@ dispatch address without a leaf identity" (an address that delegated nothing
 answers `undefined`). A scripted harness root that must delegate on every turn
 uses `fanout.rootRedelegates`.
 
-
 2026-09-22: `_background.timeoutMs` is pinned the same way. Mastra ranks the
 model's value above host config, so `createTask()` overrides it with the host's
 `resolveChildTaskTimeoutMs` (the user's runtime limit, default Off) and logs

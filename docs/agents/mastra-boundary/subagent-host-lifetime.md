@@ -20,7 +20,8 @@ Mastra's typed `_skipBgTaskWait`) keeps that owner through native background
 work and parent continuations; release follows session closure and
 terminal persistence, including when the transport subscriber detaches. The
 PGlite composite store registers a resource/thread-scoped background domain;
-retries are zero and per-task timeouts must be positive and at most five minutes.
+retries are zero and per-task timeouts must be positive and at most five minutes
+(superseded 2026-09-22 by the host-owned runtime limit below).
 Explicit root Stop closes native admission, cancels running, queued and suspended
 tasks, and joins workflow writes. Ordinary paused shutdown and construction
 failures retain pending approvals; only the external root Stop cancels them.
@@ -81,7 +82,6 @@ owner/root/turn scope. Resume authorizes the original invocation against the
 current host leg, rather than recreating it. The existing usage writer resolves
 native completion ids to that same invocation; its stream queue waits for the
 matching parent terminal so completion cannot outrun publication authorization.
-
 
 ## 2026-09-22: the five-minute ceiling is replaced by a host-owned runtime limit
 

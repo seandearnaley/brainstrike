@@ -82,7 +82,7 @@ export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPref
       const patch = <Field extends keyof RuntimeSubagentSettings>(
         field: Field,
         value: RuntimeSubagentSettings[Field]
-      ) => {
+      ): void => {
         // Validate the complete next value FIRST; a throw here lands nothing.
         const settings = parseRuntimeSubagentSettings({ ...get().settings, [field]: value });
         set({ settings });

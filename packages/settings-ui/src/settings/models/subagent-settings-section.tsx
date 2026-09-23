@@ -87,12 +87,12 @@ export function SubagentSettingsSection() {
   const [drafts, setDrafts] = useState<FieldText>({});
   const [errors, setErrors] = useState<FieldText>({});
 
-  const reject = (field: keyof RuntimeSubagentSettings, raw: string, message: string) => {
+  const reject = (field: keyof RuntimeSubagentSettings, raw: string, message: string): void => {
     setDrafts((current) => ({ ...current, [field]: raw }));
     setErrors((current) => ({ ...current, [field]: message }));
   };
 
-  const write = (field: keyof RuntimeSubagentSettings, raw: string, commit: () => void) => {
+  const write = (field: keyof RuntimeSubagentSettings, raw: string, commit: () => void): void => {
     try {
       commit();
     } catch (error) {
@@ -108,7 +108,17 @@ export function SubagentSettingsSection() {
     setErrors((current) => omitField(current, field));
   };
 
-  const writeRuntime = (raw: string) => {
+  const writeRuntime = (raw: string, badInput: boolean): void => {
+    // A number input reports '' for unparseable text ("1.", "-", "1e"); only a
+    // genuinely EMPTY field means Off.
+    if (badInput) {
+      reject(
+        'maxChildRuntimeMs',
+        raw,
+        `Enter a whole number of minutes from 1 to ${MAX_RUNTIME_MINUTES}, or leave it empty for no limit.`
+      );
+      return;
+    }
     if (raw.trim().length === 0) {
       write('maxChildRuntimeMs', raw, () => store.setMaxChildRuntimeMs(null));
       return;
@@ -194,7 +204,7 @@ export function SubagentSettingsSection() {
             id={RUNTIME_ID}
             max={MAX_RUNTIME_MINUTES}
             min={1}
-            onChange={(event) => writeRuntime(event.target.value)}
+            onChange={(event) => writeRuntime(event.target.value, event.target.validity.badInput)}
             placeholder="Off"
             type="number"
             value={

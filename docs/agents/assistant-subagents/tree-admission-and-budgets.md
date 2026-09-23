@@ -191,4 +191,6 @@ A child-open request made before the workspace repository is available fails vis
 default step cap) with a 1000 ceiling, and built-ins declare that ceiling so the
 setting governs. `maxChildRuntimeMs` joins the per-child settings (default Off);
 see `mastra-boundary/subagent-host-lifetime.md`. The persisted store migrated
-v1 → v2 so saved budgets survive the new field.
+v1 → v2 so saved budgets survive the new field — including a saved 32 steps:
+the store persists the whole settings object, so a user-chosen 32 cannot be told
+from the old default, and only profiles with nothing saved start at 100.

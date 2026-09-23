@@ -52,6 +52,25 @@ describe('SubagentSettingsSection', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('never turns the limit Off for unparseable text a number input reports as empty', async () => {
+    const user = userEvent.setup();
+    render(<SubagentSettingsSection />);
+    const runtime = screen.getByLabelText('Max runtime per subagent (minutes)');
+    await user.click(runtime);
+    await user.paste('90');
+    // A browser reports value '' with validity.badInput for "1.", "-" or "1e";
+    // jsdom never sets badInput, so model the browser's report directly.
+    Object.defineProperty(runtime, 'validity', {
+      configurable: true,
+      value: { badInput: true },
+    });
+    fireEvent.change(runtime, { target: { value: '' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number of minutes');
+    expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBe(
+      5_400_000
+    );
+  });
+
   it('refuses a fractional runtime instead of rounding it', async () => {
     const user = userEvent.setup();
     render(<SubagentSettingsSection />);

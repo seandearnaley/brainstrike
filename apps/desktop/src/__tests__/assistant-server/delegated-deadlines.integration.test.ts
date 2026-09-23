@@ -126,7 +126,12 @@ describe('desktop delegated deadline outcomes', () => {
             // is natively terminal, so Beta's (identical) deadline starts later.
             parentCalls += 1;
             if (parentCalls === 1) {
-              return toolCallParts('agent-explore', 'Alpha', { prompt: 'Alpha' });
+              // The model asks for 60 s; the host pin must bind Alpha's FIRST
+              // attempt too (no suspension re-reads the row here).
+              return toolCallParts('agent-explore', 'Alpha', {
+                _background: { timeoutMs: 60_000 },
+                prompt: 'Alpha',
+              });
             }
             if (parentCalls === 2) {
               await alphaTerminal.promise;
@@ -477,7 +482,8 @@ describe('desktop delegated deadline outcomes', () => {
           ? textParts('Child: FLAG-42')
           : toolCallParts('brainstrike_grepSearch', 'child-call', { pattern: 'flag' });
       }).model;
-      // Only the deadline mode runs its child as a background task.
+      // Passed (with its 1 s host deadline) only in deadline mode, the one mode
+      // whose child runs as a background task.
       const backgroundRuntime = {
         apiKey: 'test-key',
         memory: { memorySettings: settings, resourceId: 'owner', threadId: 'root' },
