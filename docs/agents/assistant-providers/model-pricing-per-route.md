@@ -60,7 +60,9 @@ DIFFER and are sourced separately — not that 2/10-vs-4/20 has been explained.
 
 ## 2026-09-23 — BST-1804 re-read of both Sol routes and the direct `openai` pass
 
-This is the `openai`-block pass the section above deferred to.
+This is the `openai`-block pass the section above deferred to. Every date in
+this section is UTC: the whole pass ran on 2026-09-23 UTC (the evening of
+2026-09-22 in US time zones).
 
 **Sol, re-read at both sources.** developers.openai.com (model page and the
 pricing page's "Cyber models" table) publishes `gpt-5.6-sol` at 4/20 $/MTok
@@ -117,9 +119,10 @@ top provider DeepInfra 524,288 / 262,144) and `deepseek/deepseek-v4-flash-0731`
 (1,310,720 from Cloudflare alone; top provider 1,048,576 / 943,718). All three
 were set to the `top_provider` pair, and the rule moved into the contract. The
 live metadata reader (`openrouter-model-metadata.ts`) still installs the
-model-level field.
+model-level field. (Superseded: the next paragraph fixes the reader, and
+"Every OpenRouter row swept" below finds 28 more rows off the pair.)
 
-**Live reader follows the rule, 2026-09-22.** `parseOpenRouterModelMetadata`
+**Live reader follows the rule, 2026-09-23.** `parseOpenRouterModelMetadata`
 now reads `top_provider.context_length` paired with
 `top_provider.max_completion_tokens`, so the context meter, the agent-loop input
 budget and the OpenRouter limit validation stop re-introducing the gap at
@@ -128,4 +131,33 @@ provider). The model-level `context_length` is used only when the API publishes
 a null `top_provider.context_length`: of 454 models in the live list, the six
 router meta-models (`openrouter/free`, `openrouter/auto-beta`, …) do so, and
 none has a top-provider window above its model-level one. A malformed
-top-provider window throws rather than falling back.
+top-provider window throws rather than falling back. (Superseded in part: an
+ABSENT window was still read as null; see the next paragraph.)
+
+**Every OpenRouter row swept, and the rule enforced, 2026-09-23.** A
+whole-branch review found the rule applied to only some rows. A sweep of all 73
+`openrouter` LLM rows against the saved Models API read (fetched
+2026-09-23T01:29:07Z, 454 routes) found 28 off the `top_provider` pair, and all
+28 were set to it. They fell into three groups:
+
+- A larger model-level window: `z-ai/glm-5.3-flash` 1,310,720 → 1,048,576;
+  `thinkingmachines/inkling` and `minimax/minimax-m3` 1,048,576 → 524,288;
+  `deepseek/deepseek-v4-pro` and `-flash` 1,048,576 → 1,024,000;
+  `xiaomi/mimo-v2.5` 1,050,000 → 1,048,576.
+- OpenRouter twins lagging the live route: `openai/gpt-5.5` and `gpt-5.4`
+  400,000 → 1,050,000; `anthropic/claude-opus-4.8` and `claude-sonnet-4.6`
+  200,000 / 64,000 → 1,000,000 / 128,000.
+- A max output from vendor docs or an older read, e.g. `moonshotai/kimi-k3`
+  1,048,576 → 943,718. Eight rows that omitted a max output now hold the one
+  the route publishes.
+
+No row has a null top-provider window and none is missing from the read. Two
+earlier rulings gave way to the published pair rather than becoming
+exceptions. `meituan/longcat-2.0` had been set to 1,000,000 / 131,072 from
+secondary vendor coverage, which called OpenRouter's 1,048,756 a transposition;
+the route now publishes 1,048,756 / 262,144. `x-ai/grok-4.6` and
+`meta/muse-spark-1.2` omitted a max output because the route then published
+null. `auditOpenRouterLimits` in `scripts/openrouter-pricing-audit.mjs` now
+enforces the pair, and the live reader throws on an absent top-provider window
+instead of reading it as null. The full row list is in the branch's commit
+history.
