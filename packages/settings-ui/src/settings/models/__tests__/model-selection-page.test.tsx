@@ -19,6 +19,24 @@ import { installCatalogDomStubs } from './catalog-dom-harness';
 
 const catalogProps = vi.hoisted(() => ({ current: null as ModelCatalogProps | null }));
 const toggleMany = vi.hoisted(() => vi.fn());
+const toast = vi.hoisted(() => vi.fn());
+const logError = vi.hoisted(() => vi.fn());
+
+vi.mock('@brainstrike/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/ui')>()),
+  useToast: () => ({ toast }),
+}));
+
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => ({ debug: vi.fn(), error: logError, info: vi.fn(), warn: vi.fn() }),
+}));
+
+const DATABASE_NOT_READY_TOAST = {
+  description: 'The model database is not ready yet. Try again in a moment.',
+  title: 'Could not refresh the model registry',
+  variant: 'destructive',
+};
 
 vi.mock('@brainstrike/db/react', () => ({
   usePGliteDatabase: vi.fn(() => null),
@@ -28,7 +46,8 @@ vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),
 }));
 
-vi.mock('../use-model-toggle', () => ({
+vi.mock('../use-model-toggle', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../use-model-toggle')>()),
   useModelToggle: () => ({ busyModelIds: new Set<string>(), toggle: vi.fn(), toggleMany }),
 }));
 
@@ -55,6 +74,8 @@ beforeEach(() => {
   catalogProps.current = null;
   vi.mocked(usePGliteDatabase).mockReturnValue(null);
   toggleMany.mockReset();
+  toast.mockReset();
+  logError.mockReset();
   toggleMany.mockResolvedValue({ committed: false });
 });
 afterEach(() => {
@@ -111,6 +132,46 @@ describe('ModelSelectionPage', () => {
     expect(fetchRegistry).toHaveBeenCalledWith(db);
   });
 
+  it('Retry with no database raises the not-ready toast instead of doing nothing', () => {
+    const fetchRegistry = vi.fn().mockResolvedValue(undefined);
+    act(() => {
+      useModelRegistryStore.setState({ error: 'boom', fetchRegistry });
+    });
+    render(<ModelSelectionPage />);
+    fireEvent.click(screen.getByTestId('model-registry-retry'));
+    expect(fetchRegistry).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(DATABASE_NOT_READY_TOAST);
+  });
+
+  it('onRefresh with no database raises the not-ready toast instead of doing nothing', () => {
+    const fetchRegistry = vi.fn().mockResolvedValue(undefined);
+    act(() => {
+      useModelRegistryStore.setState({ fetchRegistry });
+    });
+    render(<ModelSelectionPage />);
+    act(() => {
+      catalogProps.current?.onRefresh();
+    });
+    expect(fetchRegistry).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(DATABASE_NOT_READY_TOAST);
+  });
+
+  it('onDownload for a model missing from the catalog logs and raises a destructive toast', () => {
+    render(<ModelSelectionPage />);
+    act(() => {
+      catalogProps.current?.onDownload('ghost-model');
+    });
+    expect(logError).toHaveBeenCalledWith(
+      'Download requested for a model not in the catalog',
+      expect.objectContaining({ modelId: 'ghost-model' })
+    );
+    expect(toast).toHaveBeenCalledWith({
+      description: 'ghost-model is not in the model catalog.',
+      title: 'Could not download model',
+      variant: 'destructive',
+    });
+  });
+
   it('shows the registry error with Retry instead of the catalog', () => {
     act(() => {
       useModelRegistryStore.setState({ error: 'boom' });
@@ -136,5 +197,29 @@ describe('ModelCatalogHeaderActions', () => {
       useModelRegistryStore.setState({ isLoading: true });
     });
     expect(screen.getByTestId('model-registry-refresh')).toBeDisabled();
+  });
+
+  it('Refresh with no database raises the not-ready toast instead of doing nothing', () => {
+    const fetchRegistry = vi.fn().mockResolvedValue(undefined);
+    act(() => {
+      useModelRegistryStore.setState({ fetchRegistry });
+    });
+    render(<ModelCatalogHeaderActions />);
+    fireEvent.click(screen.getByTestId('model-registry-refresh'));
+    expect(fetchRegistry).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(DATABASE_NOT_READY_TOAST);
+  });
+
+  it('Refresh fetches the registry against the database', () => {
+    const db = { query: vi.fn() };
+    vi.mocked(usePGliteDatabase).mockReturnValue(db as never);
+    const fetchRegistry = vi.fn().mockResolvedValue(undefined);
+    act(() => {
+      useModelRegistryStore.setState({ fetchRegistry });
+    });
+    render(<ModelCatalogHeaderActions />);
+    fireEvent.click(screen.getByTestId('model-registry-refresh'));
+    expect(fetchRegistry).toHaveBeenCalledWith(db);
+    expect(toast).not.toHaveBeenCalled();
   });
 });

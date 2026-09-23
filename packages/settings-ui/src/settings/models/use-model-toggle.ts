@@ -4,7 +4,7 @@ import { useToast } from '@brainstrike/ui';
 import { useCallback, useState } from 'react';
 
 const EMPTY_IDS: ReadonlySet<string> = new Set<string>();
-const DATABASE_NOT_READY = 'The model database is not ready yet. Try again in a moment.';
+export const DATABASE_NOT_READY = 'The model database is not ready yet. Try again in a moment.';
 
 /** A bulk write's result. `previous` holds each id's enabled state before the write, for Undo. */
 export type ModelBulkToggleOutcome =

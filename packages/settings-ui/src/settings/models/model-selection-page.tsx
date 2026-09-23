@@ -13,7 +13,7 @@ import { ModelCacheDirectoryPopover } from './model-cache-directory-popover';
 import { ModelCatalog } from './model-catalog';
 import { getModelRuntimeServices } from './model-runtime-services';
 import { type ModelBulkChange, useModelBulkToggle } from './use-model-bulk-toggle';
-import { useModelToggle } from './use-model-toggle';
+import { DATABASE_NOT_READY, useModelToggle } from './use-model-toggle';
 
 const logger = createLogger('ModelSelectionPage');
 
@@ -163,12 +163,31 @@ async function downloadModel(model: DbModel, deps: DownloadDeps): Promise<void> 
   return downloadEmbeddingModel(model, deps);
 }
 
+/**
+ * Refetch the registry. A missing database is surfaced as a destructive toast
+ * (the `useModelToggle` contract), never a silent no-op.
+ */
+function useRegistryRefresh(): () => void {
+  const db = usePGliteDatabase();
+  const fetchRegistry = useModelRegistryStore((state) => state.fetchRegistry);
+  const { toast } = useToast();
+  return useCallback((): void => {
+    if (!db) {
+      toast({
+        description: DATABASE_NOT_READY,
+        title: 'Could not refresh the model registry',
+        variant: 'destructive',
+      });
+      return;
+    }
+    void fetchRegistry(db);
+  }, [db, fetchRegistry, toast]);
+}
+
 /** Model Catalog category header controls: local cache directory + registry refresh. */
 export function ModelCatalogHeaderActions() {
-  const db = usePGliteDatabase();
-  const { fetchRegistry, isLoading } = useModelRegistryStore(
-    useShallow((state) => ({ fetchRegistry: state.fetchRegistry, isLoading: state.isLoading }))
-  );
+  const isLoading = useModelRegistryStore((state) => state.isLoading);
+  const refresh = useRegistryRefresh();
   return (
     <div className="flex items-center gap-2">
       <ModelCacheDirectoryPopover />
@@ -176,7 +195,7 @@ export function ModelCatalogHeaderActions() {
         aria-label="Refresh model registry"
         data-testid="model-registry-refresh"
         disabled={isLoading}
-        onClick={() => db && fetchRegistry(db)}
+        onClick={refresh}
         size="icon-sm"
         title="Refresh model registry"
         variant="outline"
@@ -195,7 +214,6 @@ export function ModelSelectionPage() {
     downloadedModels,
     downloadProgress,
     error,
-    fetchRegistry,
     hasLoaded,
     isDownloading,
     modelCacheDir,
@@ -206,7 +224,6 @@ export function ModelSelectionPage() {
       downloadedModels: state.downloadedModels,
       downloadProgress: state.downloadProgress,
       error: state.error,
-      fetchRegistry: state.fetchRegistry,
       hasLoaded: state.hasLoaded,
       isDownloading: state.isDownloading,
       modelCacheDir: state.modelCacheDir,
@@ -233,6 +250,12 @@ export function ModelSelectionPage() {
       }
       const model = registry.models.find((m) => m.id === modelId);
       if (!model) {
+        logger.error('Download requested for a model not in the catalog', { modelId });
+        toast({
+          description: `${modelId} is not in the model catalog.`,
+          title: 'Could not download model',
+          variant: 'destructive',
+        });
         return;
       }
       void downloadModel(model, {
@@ -259,11 +282,7 @@ export function ModelSelectionPage() {
     [applyBulkChange]
   );
 
-  const handleRefresh = useCallback((): void => {
-    if (db) {
-      void fetchRegistry(db);
-    }
-  }, [db, fetchRegistry]);
+  const handleRefresh = useRegistryRefresh();
 
   if (error) {
     return (
@@ -276,7 +295,7 @@ export function ModelSelectionPage() {
         <Button
           className="mt-2"
           data-testid="model-registry-retry"
-          onClick={() => db && fetchRegistry(db)}
+          onClick={handleRefresh}
           size="sm"
           variant="outline"
         >
