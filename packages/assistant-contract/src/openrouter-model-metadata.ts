@@ -172,10 +172,11 @@ export function parseOpenRouterModelMetadata(
   // model-level `context_length` may be served by only one provider, so it is
   // not paired with another provider's `max_completion_tokens`. The API
   // publishes a null top-provider window for router meta-models only; then
-  // the model-level window is the only one published, so it is used.
+  // the model-level window is the only one published, so it is used. The key
+  // itself is always published, so an ABSENT window is malformed and throws.
   const rawTopContextWindow = topProvider['context_length'];
   const contextWindow =
-    rawTopContextWindow === undefined || rawTopContextWindow === null
+    rawTopContextWindow === null
       ? modelContextWindow
       : requirePositiveInteger(rawTopContextWindow, 'top_provider.context_length');
 
@@ -223,7 +224,10 @@ function parseSnapshotMetadata(value: unknown): OpenRouterModelMetadata {
   }
 
   const checkedAt = requirePositiveInteger(value['checkedAt'], 'checkedAt');
+  // The snapshot's window is already the resolved top-provider window, so it
+  // round-trips as that field; the model-level field carries the same value.
   const topProvider: Record<string, unknown> = {};
+  topProvider['context_length'] = value['contextWindow'];
   if (value['maxOutputTokens'] !== undefined) {
     topProvider['max_completion_tokens'] = value['maxOutputTokens'];
   }

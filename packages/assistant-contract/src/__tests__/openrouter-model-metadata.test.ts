@@ -125,6 +125,25 @@ describe('parseOpenRouterModelMetadata', () => {
     ).toThrow('top_provider.context_length');
   });
 
+  // The live API always publishes the key (a number, or null for router
+  // meta-models), so an absent key is a malformed payload, not a null one.
+  it('rejects an absent top-provider context window instead of falling back', () => {
+    expect(() =>
+      parseOpenRouterModelMetadata(
+        {
+          data: {
+            context_length: 200_000,
+            id: 'openai/model',
+            supported_parameters: [],
+            top_provider: { is_moderated: false, max_completion_tokens: null },
+          },
+        },
+        'openai/model',
+        42
+      )
+    ).toThrow('top_provider.context_length');
+  });
+
   it('allows the documented nullable output limit without inventing one', () => {
     expect(
       parseOpenRouterModelMetadata(
@@ -162,7 +181,7 @@ describe('parseOpenRouterModelMetadata', () => {
               supported_efforts: ['high', 'low'],
             },
             supported_parameters: ['reasoning'],
-            top_provider: { max_completion_tokens: 16_384 },
+            top_provider: { context_length: 32_768, max_completion_tokens: 16_384 },
           },
         },
         'example/bad-reasoning',
@@ -184,7 +203,7 @@ describe('parseOpenRouterModelMetadata', () => {
               supports_max_tokens: true,
             },
             supported_parameters: ['reasoning'],
-            top_provider: { max_completion_tokens: 16_384 },
+            top_provider: { context_length: 32_768, max_completion_tokens: 16_384 },
           },
         },
         'example/token-budget-only',
@@ -232,7 +251,7 @@ describe('parseOpenRouterModelMetadata', () => {
           context_length: 8192,
           id: 'openai/model',
           supported_parameters: [],
-          top_provider: { max_completion_tokens: 8193 },
+          top_provider: { context_length: 8192, max_completion_tokens: 8193 },
         },
       },
       'cannot exceed context_length',
