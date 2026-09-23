@@ -7,7 +7,7 @@ export type CatalogContextBand = '128k' | '1m' | '200k' | 'any';
 
 export interface CatalogFilters {
   readonly context: CatalogContextBand;
-  /** Empty means every provider. */
+  /** Selected section ids (`CatalogProviderStat.providerId`); empty means every provider. */
   readonly providerIds: ReadonlySet<string>;
   readonly query: string;
   readonly reasoning: boolean;
@@ -79,6 +79,11 @@ function matchesQuery(row: CatalogRow, query: string): boolean {
   );
 }
 
+/**
+ * Row-level predicates only. `providerIds` holds SECTION ids (a ghost row's
+ * section is `UNKNOWN_PROVIDER_SECTION_ID`, not its raw provider id), so the
+ * provider filter is applied per section bucket in `buildCatalogView`.
+ */
 export function matchesCatalogFilters(row: CatalogRow, filters: CatalogFilters): boolean {
   return (
     (filters.status === 'all' || row.enabled === (filters.status === 'enabled')) &&
@@ -86,7 +91,6 @@ export function matchesCatalogFilters(row: CatalogRow, filters: CatalogFilters):
     (!filters.vision || row.vision === 'supported') &&
     (!filters.reasoning || row.reasoning?.state === 'supported') &&
     matchesContext(row, filters.context) &&
-    (filters.providerIds.size === 0 || filters.providerIds.has(row.providerId)) &&
     matchesQuery(row, filters.query)
   );
 }
@@ -117,14 +121,22 @@ export interface CatalogFilterChip {
   readonly label: string;
 }
 
+/**
+ * `providerNames` must name every selected section id (build it from
+ * `CatalogView.providerStats`, which includes the unknown-provider bucket).
+ */
 function describeProviders(
   providerIds: ReadonlySet<string>,
   providerNames: ReadonlyMap<string, string>
 ): string {
-  if (providerIds.size > 2) {
-    return `${providerIds.size} providers`;
-  }
-  return Array.from(providerIds, (id) => providerNames.get(id) ?? id).join(', ');
+  const names = Array.from(providerIds, (id) => {
+    const name = providerNames.get(id);
+    if (name === undefined) {
+      throw new Error(`No provider name for selected provider: ${id}`);
+    }
+    return name;
+  });
+  return names.length > 2 ? `${names.length} providers` : names.join(', ');
 }
 
 export function describeActiveFilters(

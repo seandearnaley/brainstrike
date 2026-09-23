@@ -84,6 +84,22 @@ describe('projectCatalogRow', () => {
     });
   });
 
+  it('gives a chat row under a provider missing from the registry no signal at all', () => {
+    const row = projectCatalogRow(
+      makeDbModel({ capabilities: { type: 'llm' }, id: 'old-chat', providerId: 'retired' }),
+      'Unknown provider'
+    );
+    expect(row).toMatchObject({
+      contextWindow: null,
+      pricing: null,
+      reasoning: null,
+      reasoningEfforts: null,
+      registered: false,
+      type: 'chat',
+      vision: null,
+    });
+  });
+
   it('preserves an unknown reasoning state instead of coercing it', () => {
     const row = projectCatalogRow(
       makeDbModel({ id: 'openai/gpt-6-astra', providerId: 'openrouter' }),

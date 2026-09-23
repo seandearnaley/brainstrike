@@ -165,6 +165,9 @@ export function buildCatalogView({
       totalCount: providerRows.length,
     };
     providerStats.push(stat);
+    if (filters.providerIds.size > 0 && !filters.providerIds.has(provider.id)) {
+      continue;
+    }
     const matching = providerRows.filter((row) => matchesCatalogFilters(row, filters));
     if (matching.length === 0) {
       continue;

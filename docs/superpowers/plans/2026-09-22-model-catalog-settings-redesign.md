@@ -6378,7 +6378,14 @@ export function ModelCatalog({
     providerStats: view.providerStats,
     visibleSectionIds,
   });
-  const chips = useMemo(() => describeActiveFilters(filters, providerNames), [filters, providerNames]);
+  // Chip names come from providerStats: its ids are the SECTION ids the
+  // Providers filter selects (including UNKNOWN_PROVIDER_SECTION_ID), and
+  // describeActiveFilters throws on a selected id it cannot name.
+  const sectionNames = useMemo(
+    () => new Map(view.providerStats.map((stat) => [stat.providerId, stat.providerName])),
+    [view.providerStats]
+  );
+  const chips = useMemo(() => describeActiveFilters(filters, sectionNames), [filters, sectionNames]);
 
   const toggleDetails = useCallback((modelId: string): void => {
     setDetailsOpenIds((current) => {

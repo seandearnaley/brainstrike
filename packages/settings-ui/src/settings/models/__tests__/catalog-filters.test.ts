@@ -99,13 +99,10 @@ describe('matchesCatalogFilters', () => {
     expect(matchesCatalogFilters(row, withFilters({ context: 'any' }))).toBe(true);
   });
 
-  it('filters by provider, where an empty set means every provider', () => {
+  it('leaves the provider filter to the section buckets (buildCatalogView)', () => {
     const row = makeCatalogRow({ id: 'm', providerId: 'openai' });
-    expect(matchesCatalogFilters(row, withFilters({ providerIds: new Set(['openai']) }))).toBe(
-      true
-    );
     expect(matchesCatalogFilters(row, withFilters({ providerIds: new Set(['anthropic']) }))).toBe(
-      false
+      true
     );
   });
 
@@ -188,9 +185,23 @@ describe('describeActiveFilters / clearCatalogFilter', () => {
   it('summarises more than two providers by count', () => {
     const chips = describeActiveFilters(
       withFilters({ providerIds: new Set(['a', 'b', 'c']) }),
-      new Map()
+      new Map([
+        ['a', 'A'],
+        ['b', 'B'],
+        ['c', 'C'],
+      ])
     );
     expect(chips).toEqual([{ key: 'providers', label: '3 providers' }]);
+  });
+
+  it('fails loudly on a selected provider with no name, never rendering the raw id', () => {
+    const names = new Map([['openai', 'OpenAI']]);
+    expect(() =>
+      describeActiveFilters(withFilters({ providerIds: new Set(['openai', 'retired']) }), names)
+    ).toThrow('No provider name for selected provider: retired');
+    expect(() =>
+      describeActiveFilters(withFilters({ providerIds: new Set(['a', 'b', 'retired']) }), names)
+    ).toThrow('No provider name for selected provider: a');
   });
 });
 

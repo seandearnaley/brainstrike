@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CATALOG_FILTERS } from '../catalog-filters';
+import { DEFAULT_CATALOG_FILTERS, describeActiveFilters } from '../catalog-filters';
 import type { CatalogRow } from '../catalog-projection';
 import {
   buildCatalogView,
   sortCatalogRows,
+  UNKNOWN_PROVIDER_NAME,
   UNKNOWN_PROVIDER_SECTION_ID,
 } from '../catalog-sections';
 import { makeCatalogRow, makeDbProvider } from './catalog-test-harness';
@@ -103,6 +104,49 @@ describe('buildCatalogView', () => {
     expect(view.sections[0]).toMatchObject({ enabledCount: 1, totalCount: 2 });
     expect(view.sections[0]?.rows.map((row) => row.id)).toEqual(['gpt-b']);
     expect(view.providerStats).toHaveLength(5);
+  });
+
+  it('filters providers by section, where an empty set means every provider', () => {
+    const view = buildCatalogView({
+      filters: { ...DEFAULT_CATALOG_FILTERS, providerIds: new Set(['openai']) },
+      providers,
+      rows,
+      sort: null,
+    });
+    expect(view.sections.map((section) => section.providerId)).toEqual(['openai']);
+    expect(view.providerStats).toHaveLength(5);
+  });
+
+  it('selects the unknown-provider section by its section id, not the raw provider id', () => {
+    const byBucket = buildCatalogView({
+      filters: { ...DEFAULT_CATALOG_FILTERS, providerIds: new Set([UNKNOWN_PROVIDER_SECTION_ID]) },
+      providers,
+      rows,
+      sort: null,
+    });
+    expect(byBucket.sections.map((section) => section.providerId)).toEqual([
+      UNKNOWN_PROVIDER_SECTION_ID,
+    ]);
+    expect(byBucket.sections[0]?.rows.map((row) => row.id)).toEqual(['ghost']);
+    const byRawId = buildCatalogView({
+      filters: { ...DEFAULT_CATALOG_FILTERS, providerIds: new Set(['retired']) },
+      providers,
+      rows,
+      sort: null,
+    });
+    expect(byRawId.sections).toEqual([]);
+  });
+
+  it('names the unknown-provider chip from providerStats, never the raw section id', () => {
+    const filters = {
+      ...DEFAULT_CATALOG_FILTERS,
+      providerIds: new Set(['openai', UNKNOWN_PROVIDER_SECTION_ID]),
+    };
+    const view = buildCatalogView({ filters, providers, rows, sort: null });
+    const names = new Map(view.providerStats.map((stat) => [stat.providerId, stat.providerName]));
+    expect(describeActiveFilters(filters, names)).toEqual([
+      { key: 'providers', label: `OpenAI, ${UNKNOWN_PROVIDER_NAME}` },
+    ]);
   });
 
   it('summarises the catalog with and without filters', () => {
