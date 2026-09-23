@@ -60,8 +60,8 @@ the provider prompt — while leaving every raw message physically unchanged in
   the renderer and this fallback now both call it, the fallback feeding it the
   output the run sends (`buildModelSettingsOption` from `@brainstrike/agent`:
   explicit `modelSettings`, else OpenRouter's reasoning-aware output window).
-  Default-settings budgets are now 865,075 / 466,073 / 443,000 for those three
-  rows. `packages/app-shell`'s `buildAgentLoopSettings` suite pins the renderer
+  Default-settings budgets are now 443,000 (grok-4.7), 865,075 (kimi-k3) and
+  466,073 (minimax-m3). `packages/app-shell`'s `buildAgentLoopSettings` suite pins the renderer
   to the same reproduction the desktop test pins the fallback to.
 - **Persistence — no new enum, a metadata marker (matches the
   `approval-action-message.ts` precedent):** the summary is an ordinary
