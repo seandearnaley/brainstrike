@@ -86,45 +86,83 @@ test('switches among running child tabs and retains the child draft', async ({
       for (const index of [0, 1, 2, 0, 2]) {
         const tab = childTabs.nth(index);
         const name = (await tab.innerText()).trim();
-        const painted = tab.evaluate(
-          (element) =>
-            new Promise<number>((resolve, reject) => {
-              const timeout = globalThis.setTimeout(
-                () => reject(new Error('Child tab did not paint')),
-                5000
-              );
-              element.addEventListener(
-                'pointerdown',
-                () => {
-                  const start = performance.now();
-                  const observer = new MutationObserver(() => {
-                    if (element.getAttribute('aria-selected') !== 'true') {
-                      return;
-                    }
-                    observer.disconnect();
-                    requestAnimationFrame(() =>
-                      requestAnimationFrame(() => {
-                        globalThis.clearTimeout(timeout);
-                        resolve(performance.now() - start);
-                      })
-                    );
+        await tab.evaluate((element) => {
+          const measured = element as HTMLElement & {
+            switchMeasurement?: {
+              durationMs?: number;
+              cleanup: () => void;
+            };
+          };
+          const controller = new AbortController();
+          let observer: MutationObserver | undefined;
+          let frame: number | undefined;
+          let nextFrame: number | undefined;
+          const cleanup = () => {
+            controller.abort();
+            observer?.disconnect();
+            if (frame !== undefined) {
+              cancelAnimationFrame(frame);
+            }
+            if (nextFrame !== undefined) {
+              cancelAnimationFrame(nextFrame);
+            }
+          };
+          const measurement: { durationMs?: number; cleanup: () => void } = { cleanup };
+          measured.switchMeasurement = measurement;
+          element.addEventListener(
+            'pointerdown',
+            () => {
+              const start = performance.now();
+              observer = new MutationObserver(() => {
+                if (element.getAttribute('aria-selected') !== 'true') {
+                  return;
+                }
+                observer?.disconnect();
+                frame = requestAnimationFrame(() => {
+                  nextFrame = requestAnimationFrame(() => {
+                    measurement.durationMs = performance.now() - start;
                   });
-                  observer.observe(element, {
-                    attributeFilter: ['aria-selected'],
-                    attributes: true,
-                  });
-                },
-                { once: true }
-              );
-            })
-        );
-        await tab.click();
-        await expect(tab).toHaveAttribute('aria-selected', 'true');
-        await expect(window.getByRole('region', { exact: true, name })).toBeVisible();
-        timings.push(await painted);
-        await expect(
-          window.locator('[data-testid="assistant-conversation-panel"]:visible')
-        ).toHaveCount(1);
+                });
+              });
+              observer.observe(element, {
+                attributeFilter: ['aria-selected'],
+                attributes: true,
+              });
+            },
+            { once: true, signal: controller.signal }
+          );
+        });
+        try {
+          await tab.click();
+          await expect(tab).toHaveAttribute('aria-selected', 'true');
+          await expect(window.getByRole('region', { exact: true, name })).toBeVisible();
+          await expect
+            .poll(() =>
+              tab.evaluate(
+                (element) =>
+                  (element as HTMLElement & { switchMeasurement?: { durationMs?: number } })
+                    .switchMeasurement?.durationMs
+              )
+            )
+            .toBeGreaterThanOrEqual(0);
+          const duration = await tab.evaluate(
+            (element) =>
+              (element as HTMLElement & { switchMeasurement: { durationMs: number } })
+                .switchMeasurement.durationMs
+          );
+          timings.push(duration);
+          await expect(
+            window.locator('[data-testid="assistant-conversation-panel"]:visible')
+          ).toHaveCount(1);
+        } finally {
+          await tab.evaluate((element) => {
+            const measured = element as HTMLElement & {
+              switchMeasurement?: { cleanup: () => void };
+            };
+            measured.switchMeasurement?.cleanup();
+            measured.switchMeasurement = undefined;
+          });
+        }
       }
       await testInfo.attach('child-tab-switch-ms', {
         body: JSON.stringify(timings),
