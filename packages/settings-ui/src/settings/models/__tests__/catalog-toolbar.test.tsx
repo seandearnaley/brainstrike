@@ -73,6 +73,17 @@ function Harness({
 }
 
 describe('CatalogToolbar', () => {
+  it('gives the wide search a small flex basis so the filter row fits one line at 1440', () => {
+    render(<Harness />);
+    const wrapper = screen.getByTestId('model-catalog-search').parentElement;
+    // Flex wrapping breaks on the basis, not the shrunk width: a fixed w-72
+    // pushed "Providers" onto a second row (mockup: flex 1 1 220px, max 380px).
+    expect(wrapper?.className.split(' ')).toEqual(
+      expect.arrayContaining(['min-w-0', 'flex-[1_1_14rem]', 'max-w-96'])
+    );
+    expect(wrapper?.className.split(' ')).not.toContain('w-72');
+  });
+
   it('summarises the unfiltered catalog', () => {
     render(<Harness />);
     expect(screen.getByTestId('model-catalog-summary')).toHaveTextContent(

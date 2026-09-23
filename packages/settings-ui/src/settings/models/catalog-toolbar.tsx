@@ -309,7 +309,7 @@ export function CatalogToolbar({
   return (
     <div className="flex shrink-0 flex-col gap-2" data-testid="model-catalog-toolbar">
       <div className="flex flex-wrap items-center gap-2">
-        <div className={cn('relative', compact ? 'w-full' : 'w-72 shrink-0')}>
+        <div className={cn('relative', compact ? 'w-full' : 'min-w-0 max-w-96 flex-[1_1_14rem]')}>
           <SettingsSearchIcon />
           <Input
             aria-label="Search models"
