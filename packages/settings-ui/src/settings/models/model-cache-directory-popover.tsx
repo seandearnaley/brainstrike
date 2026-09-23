@@ -133,42 +133,43 @@ export function ModelCacheDirectoryPopover() {
     }
 
     setIsSelectingCacheDir(true);
-
-    let selectedPath = '';
     try {
-      const handle = await requestDirectoryAccess();
-      if (typeof handle.path === 'string') {
-        selectedPath = handle.path;
+      let handle: { path?: string };
+      try {
+        handle = await requestDirectoryAccess();
+      } catch (err: unknown) {
+        logger.error('Failed to select cache directory', err);
+        toast({
+          description:
+            err instanceof Error
+              ? err.message
+              : 'The directory picker failed without an error message.',
+          title: 'Directory selection failed',
+          variant: 'destructive',
+        });
+        return;
       }
-    } catch (err) {
-      logger.error('Failed to select cache directory', err);
-      toast({
-        description: (err as Error).message,
-        title: 'Directory selection failed',
-        variant: 'destructive',
-      });
-      setIsSelectingCacheDir(false);
-      return;
-    }
 
-    if (!selectedPath) {
-      toast({
-        description: 'Please choose a folder to store local model files.',
-        title: 'No directory selected',
-        variant: 'destructive',
-      });
-      setIsSelectingCacheDir(false);
-      return;
-    }
+      const selectedPath = typeof handle.path === 'string' ? handle.path : '';
+      if (!selectedPath) {
+        toast({
+          description: 'Please choose a folder to store local model files.',
+          title: 'No directory selected',
+          variant: 'destructive',
+        });
+        return;
+      }
 
-    applySelectedCacheDirectory({
-      db,
-      fetchRegistry,
-      selectedPath,
-      setModelCacheDir,
-      toast,
-    });
-    setIsSelectingCacheDir(false);
+      applySelectedCacheDirectory({
+        db,
+        fetchRegistry,
+        selectedPath,
+        setModelCacheDir,
+        toast,
+      });
+    } finally {
+      setIsSelectingCacheDir(false);
+    }
   };
 
   // An empty value IS the system default (the form's documented meaning).

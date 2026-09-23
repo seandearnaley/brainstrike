@@ -5,7 +5,7 @@ import {
 } from '@brainstrike/app-state/stores/model-registry-store';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installCatalogDomStubs } from './catalog-dom-harness';
 
 const toast = vi.fn();
@@ -23,6 +23,10 @@ describe('ModelCacheDirectoryPopover', () => {
     installCatalogDomStubs({ width: null });
     toast.mockReset();
     __resetModelRegistryStoreForTests();
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'electronAPI');
   });
 
   it('shows the current cache directory on the trigger', () => {
@@ -52,5 +56,23 @@ describe('ModelCacheDirectoryPopover', () => {
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Directory selection unavailable', variant: 'destructive' })
     );
+  });
+
+  it('reports a non-Error bridge rejection and re-enables Select', async () => {
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: { fileSystem: { requestDirectoryAccess: () => Promise.reject(null) } },
+    });
+    render(<ModelCacheDirectoryPopover />);
+    await userEvent.click(screen.getByTestId('model-cache-dir-trigger'));
+    const select = await screen.findByTestId('model-cache-dir-select');
+    await userEvent.click(select);
+
+    expect(toast).toHaveBeenCalledWith({
+      description: 'The directory picker failed without an error message.',
+      title: 'Directory selection failed',
+      variant: 'destructive',
+    });
+    expect(select).toBeEnabled();
   });
 });
