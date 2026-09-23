@@ -252,7 +252,7 @@ store persists each thread's own model and provider settings.
   `openrouter.reasoning.summary`.
 - Provider-specific keys are valid escape hatches and win when set, and each
   control must render the RESOLVED value, not the raw key.
-- The Anthropic Thinking toggle is authoritative for "is Claude thinking": switching it off clears the effort as well as the budget; always-on rows (`mandatory`, e.g. Fable) expose no toggle, and a cleared toggleable ladder row serialises explicit `disabled` rather than an omit that would leave default-on rows thinking.
+- The Anthropic Thinking toggle is authoritative for "is Claude thinking": switching it off clears the effort as well as the budget; always-on rows (`mandatory`, e.g. Fable) expose no toggle, and a cleared toggleable ladder row serialises explicit `disabled` rather than an omit that would leave default-on rows thinking. Always-on rows (`mandatory`: Opus 5.5, Fable 5/5.1) send `thinking: {type: 'adaptive', display}` at every effort, Auto included (Auto sends no effort). Why: the vendor default `display` is `omitted`, so an omitted `thinking` hides reasoning and Opus 5.5's between-tool-call progress text. Visibility uses only the GA `summarized`/`omitted`. Evidence: `assistant-providers/anthropic-thinking-mirrors.md`.
 - The offered Anthropic ladder is declared per model in
   `LlmModelDefinition.anthropicReasoning`, recorded from vendor documentation
   and never derived from union membership. An effort outside a model's ladder —

@@ -1634,16 +1634,16 @@ function resolveAnthropicThinkingShape(input: {
   showReasoning: boolean;
 }): AnthropicProviderOptions['thinking'] | undefined {
   if (input.mandatory) {
-    // Deliberate: with no effort there is nothing to send, so the user's
-    // show-reasoning preference has no effect until an effort is picked —
-    // adaptive REQUIRES the effort parameter vendor-side, and inventing one
-    // would misstate the request. Same as before this change.
-    return input.effort === undefined
-      ? undefined
-      : {
-          display: input.showReasoning ? 'summarized' : 'omitted',
-          type: 'adaptive',
-        };
+    // BST-1804: sent at EVERY effort, Auto included. Anthropic documents that
+    // these rows think with no configuration, that `{type: "adaptive"}` needs
+    // no effort, and that `display` defaults to `omitted` on them — so an
+    // omitted `thinking` hides the show-reasoning preference, and on Opus 5.5
+    // the between-tool-call progress text it returns in thinking blocks.
+    // Auto still sends no effort: the vendor default applies.
+    return {
+      display: input.showReasoning ? 'summarized' : 'omitted',
+      type: 'adaptive',
+    };
   }
   if (typeof input.budgetTokens === 'number') {
     return {
@@ -1675,8 +1675,8 @@ function buildAnthropicOptions(
   // An explicit budget pins the legacy `enabled` form (older models); it also
   // carries no `display`, so it is left exactly as configured. Otherwise the
   // modern adaptive form carries `display`, which defaults to `omitted`
-  // provider-side — the reason Claude runs showed no thinking at all. Only
-  // emitted alongside a chosen effort.
+  // provider-side — the reason Claude runs showed no thinking at all. Emitted
+  // alongside a chosen effort, and at Auto for always-on (`mandatory`) rows.
   //
   // Thinking-shape rules (mandatory short-circuit, explicit disable on
   // clear) live on resolveAnthropicThinkingShape above. `hasLadder` is
