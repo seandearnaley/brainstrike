@@ -450,15 +450,20 @@ Guard: `packages/assistant-contract/src/__tests__/provider-catalog-schema.test.t
 - It is recorded rather than resolved: OpenRouter is the route that bills the
   user, provider-reported cost stays authoritative at runtime, and a declared
   rate is a display estimate.
+- An `openrouter/*` row's `contextWindow` and `maxOutputTokens` are the route's
+  `top_provider` pair; a larger model-level `context_length` served by only one
+  provider is not recorded. Why: `contextWindow` sets the compaction limit.
 
 Settled: the 4/15 beside OpenRouter's 2/10 for `gpt-5.6-sol` is a declared
 `min_prompt_tokens: 272000` tier, so 2/10 is that route's base. BST-1804 re-read
 both on 2026-09-23: OpenAI's own >272K tier is 8/30, so the direct 4/20 is not a
 mis-read tier; the gap is genuine per-route data, recorded, not explained. The
 same pass re-priced the direct `openai` block from developers.openai.com.
-Evidence: `assistant-providers/model-pricing-per-route.md`.
+Evidence: `assistant-providers/model-pricing-per-route.md` (also the GLM-5.3
+context-window record).
 Guard: `packages/assistant-contract/src/__tests__/provider-registry-pricing.test.ts`
-(pins both rows AND asserts they differ).
+(pins both rows AND asserts they differ);
+`provider-registry-2026-09-refresh.test.ts` pins the `top_provider` pairs.
 
 #### Read the BASE rate, not the rate in force right now
 

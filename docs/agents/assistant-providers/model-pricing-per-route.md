@@ -102,12 +102,19 @@ page lists model code `gemini-3.5-flash` at a flat 1.50/9.00 on the Standard
 paid tier, with no prompt-size tier (only 3.1 Pro has a >200k tier there). The
 model page confirms the 1,048,576/65,536 limits already on the row.
 
-**OpenRouter context windows: record `top_provider.context_length`.** Use the
-window that every route honours, not the model-level `context_length` when that
-is higher than most providers offer. `contextWindow` drives the context meter and
-the compaction limit. If it is too high, a prompt in the gap fails on most
-providers before compaction runs. Example: on 2026-09-23, `z-ai/glm-5.3` listed a
-model-level 1,310,720, which only Cloudflare serves, against a
-`top_provider.context_length` of 1,048,576. The row stays at 1,048,576. The
+**OpenRouter context windows, 2026-09-23.** `z-ai/glm-5.3` listed a model-level
+`context_length` of 1,310,720, which only Cloudflare served, against a
+`top_provider.context_length` of 1,048,576 that nearly every other endpoint
+matched. An earlier commit on the branch had raised the row to 1,310,720; it was
+reverted to 1,048,576, because `contextWindow` drives the context meter and the
+compaction limit, and a prompt in the gap would fail on most providers before
+compaction ran. Review then found three more rows reading the model-level field,
+each pairing one provider's window with another provider's max output:
+`nvidia/nemotron-3-ultra-550b-a55b` (262,144 from DeepInfra alone, which caps
+output at 16,384; top provider BaseTen 202,800 / 182,520),
+`thinkingmachines/inkling-small` (1,048,576 from BaseTen alone, output 32,768;
+top provider DeepInfra 524,288 / 262,144) and `deepseek/deepseek-v4-flash-0731`
+(1,310,720 from Cloudflare alone; top provider 1,048,576 / 943,718). All three
+were set to the `top_provider` pair, and the rule moved into the contract. The
 live metadata reader (`openrouter-model-metadata.ts`) still installs the
 model-level field.

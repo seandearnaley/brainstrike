@@ -262,7 +262,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       vision: 'supported',
     },
     {
-      contextWindow: 1_048_576,
+      contextWindow: 524_288,
       id: 'thinkingmachines/inkling-small',
       inputModalities: ['text', 'image', 'audio'],
       label: 'Inkling Small (OpenRouter)',
@@ -292,7 +292,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       vision: 'supported',
     },
     {
-      contextWindow: 262_144,
+      contextWindow: 202_800,
       id: 'nvidia/nemotron-3-ultra-550b-a55b',
       inputModalities: ['text'],
       label: 'Nemotron 3 Ultra (OpenRouter)',
@@ -317,6 +317,13 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       expect(getLlmModelDefinition('openrouter', id)).toEqual(expected);
     }
   );
+
+  it('records the top_provider context window, not a single-provider model-level one', () => {
+    // Model-level context_length is 1_310_720, served only by Cloudflare.
+    const flash = getLlmModelDefinition('openrouter', 'deepseek/deepseek-v4-flash-0731');
+    expect(flash?.contextWindow).toBe(1_048_576);
+    expect(flash?.maxOutputTokens).toBe(943_718);
+  });
 
   it('promotes none of the new rows to a default or the OpenRouter seed set', () => {
     expect(resolveDefaultModel('openai')).toBe('gpt-5.6-terra');

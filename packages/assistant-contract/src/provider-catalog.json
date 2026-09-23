@@ -1063,8 +1063,8 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Route, 262,144/182,520 ceilings, text-only modality, gateway pricing and\nthe reasoning object (mandatory false, default_enabled true, efforts\nhigh/medium, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow is the top-level context_length, which is what the live\nmetadata path reads; the route's top_provider.context_length is smaller\n(202,800), so a prompt above that may fail to route to the top provider.",
-        "contextWindow": 262144,
+        "_note": "Route, 202,800/182,520 ceilings, text-only modality, gateway pricing and\nthe reasoning object (mandatory false, default_enabled true, efforts\nhigh/medium, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow and maxOutputTokens are the top_provider pair (BaseTen).\nThe model-level context_length of 262,144 is served only by DeepInfra\n(16,384 output), so it is not recorded.",
+        "contextWindow": 202800,
         "id": "nvidia/nemotron-3-ultra-550b-a55b",
         "inputModalities": ["text"],
         "label": "Nemotron 3 Ultra (OpenRouter)",
@@ -1213,8 +1213,8 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1,048,576/262,144 ceilings, text/image/audio input, text output,\ngateway pricing and the reasoning object (mandatory false,\ndefault_enabled true, efforts max..none, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow is the top-level context_length, which is what the live\nmetadata path reads; the route's top_provider.context_length is smaller\n(524,288).",
-        "contextWindow": 1048576,
+        "_note": "Route, 524,288/262,144 ceilings, text/image/audio input, text output,\ngateway pricing and the reasoning object (mandatory false,\ndefault_enabled true, efforts max..none, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow and maxOutputTokens are the top_provider pair (DeepInfra).\nThe model-level context_length of 1,048,576 is served only by BaseTen\n(32,768 output), so it is not recorded.",
+        "contextWindow": 524288,
         "id": "thinkingmachines/inkling-small",
         "inputModalities": ["text", "image", "audio"],
         "label": "Inkling Small (OpenRouter)",
@@ -1868,8 +1868,8 @@
         "vision": "unsupported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 1,310,720 /\n943,718 ceilings and text-only input modality, retrieved 2026-09-08\n(BST-1041). Gateway pricing (0.00000004 / 0.00000064 per token)\nre-read 2026-09-23 (BST-1804).\nThe route existence BST-1041 could not confirm in 2026-07 is now\nlive; its snapshot figures (1,048,576 context, 0.00000014 /\n0.00000028) are stale and the live route's numbers are used instead.",
-        "contextWindow": 1310720,
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n943,718 ceilings and text-only input modality, retrieved 2026-09-08\n(BST-1041). Gateway pricing (0.00000004 / 0.00000064 per token)\nre-read 2026-09-23 (BST-1804).\ncontextWindow and maxOutputTokens are the top_provider pair. The\nmodel-level context_length of 1,310,720 is served only by Cloudflare,\nso it is not recorded. The route existence BST-1041 could not confirm\nin 2026-07 is now live; its snapshot pricing (0.00000014 / 0.00000028)\nis stale and the live route's rate is used instead.",
+        "contextWindow": 1048576,
         "id": "deepseek/deepseek-v4-flash-0731",
         "inputModalities": ["text"],
         "label": "DeepSeek V4 Flash 0731 (OpenRouter)",
