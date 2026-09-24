@@ -90,6 +90,7 @@ const CONTRACT_LINE_BUDGETS = {
   // actually read rather than only in the provider contract.
   'database.md': 855,
   'domain.md': 37,
+  'effect-boundary.md': 59,
   'explorer-search-tapestry.md': 638,
   'issue-tracker.md': 56,
   'local-inference.md': 403,

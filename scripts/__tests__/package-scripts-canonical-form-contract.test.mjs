@@ -68,6 +68,10 @@ function canonicalCleanFor(relDir) {
 const CANONICAL_TYPE_CHECK_FORMS = [
   'tsc --noEmit',
   'tsc --noEmit && tsc --noEmit --project tsconfig.test.json',
+  // A package that depends on `effect` appends the Effect language service in
+  // dedicated diagnostics mode (docs/agents/effect-boundary.md § "Effect
+  // diagnostics"; scripts/__tests__/effect-boundary-contract.test.mjs).
+  'tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict',
 ];
 
 /**

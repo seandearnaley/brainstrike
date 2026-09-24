@@ -320,6 +320,7 @@
       "with": [
         "@brainstrike/assistant-contract#dev",
         "@brainstrike/indexing-contract#dev",
+        "@brainstrike/effect-kit#dev",
         "@brainstrike/logging#dev",
         "@brainstrike/types#dev", // Run the 'dev' script from the @brainstrike/types package
         "@brainstrike/utils#dev", // Run the 'dev' script from the @brainstrike/utils package

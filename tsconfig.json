@@ -53,6 +53,9 @@
       "@brainstrike/hooks": [
         "./packages/hooks/src"
       ],
+      "@brainstrike/effect-kit": [
+        "./packages/effect-kit/src"
+      ],
       "@brainstrike/logging": [
         "./packages/logging/src"
       ],
@@ -256,6 +259,9 @@
     },
     {
       "path": "./packages/tokenization"
+    },
+    {
+      "path": "./packages/effect-kit"
     },
     {
       "path": "./packages/logging"

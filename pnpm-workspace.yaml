@@ -41,6 +41,11 @@ catalog:
   # present transitively, promoted to a direct dep so the walk can rely on it.
   '@babel/core': ^8.0.1
   '@codemirror/state': ^6.7.4
+  # ADR-0004: the Effect language service on TypeScript 7. Run in dedicated
+  # `effect-tsgo diagnostics` mode from each Effect package's type-check, never
+  # `effect-tsgo patch` (which would rewrite the shared `tsc`). Exact pin: its
+  # supported TypeScript list moves with every release.
+  '@effect/tsgo': 0.45.0
   '@electric-sql/pglite': 0.5.8
   '@electric-sql/pglite-pg_textsearch': 0.0.10
   '@electric-sql/pglite-pgvector': 0.0.9
@@ -98,6 +103,10 @@ catalog:
   bindings: 1.5.0
   concurrently: ^10.0.5
   drizzle-orm: 0.45.2
+  # ADR-0004: Effect v4 is a release candidate, so the pin is EXACT. The RC
+  # line still renames import paths between candidates, so a bump is a
+  # reviewed change, never a range resolution. docs/agents/effect-boundary.md.
+  effect: 4.0.0-rc.117
   electron: ^44.2.0
   esbuild: ^0.28.2
   eslint-plugin-react-refresh: ^0.5.6
