@@ -92,7 +92,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     const childTab = window
       .getByRole('tablist', { name: 'Workspace tabs' })
       .getByRole('tab', { selected: true });
-    await expect(childTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+    await expect(childTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
     const childName = (await childTab.innerText()).trim();
     const child = window.getByRole('region', { exact: true, name: childName });
     await expect(
@@ -155,7 +155,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(child.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     const completedRequests = provider.requestCount();
     const closeChild = window.getByRole('button', {
-      name: /^Close (Cedar|Fern|Aspen|Maple|Iris|Willow)-/,
+      name: /^Close [A-Z][a-z]+-/,
     });
     await closeChild.click();
     await testInfo.attach('activity-before-reopen', {
@@ -345,7 +345,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     const childTab = window
       .getByRole('tablist', { name: 'Workspace tabs' })
       .getByRole('tab', { selected: true });
-    await expect(childTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+    await expect(childTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
     const childName = (await childTab.innerText()).trim();
     const child = window.getByRole('region', { exact: true, name: childName });
     const input = child.getByRole('textbox', { name: 'Message input' });

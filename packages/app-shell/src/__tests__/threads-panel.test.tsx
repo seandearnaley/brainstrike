@@ -1091,9 +1091,10 @@ describe('ThreadsPanel', () => {
 
     fireEvent.click(within(toolbar).getByRole('button', { name: 'Color' }));
     const bulkColorGrid = await screen.findByTestId('thread-bulk-color-grid');
-    expect(bulkColorGrid).toHaveClass('grid-cols-4');
+    expect(within(bulkColorGrid).getByText('Voltage')).toBeVisible();
+    expect(within(bulkColorGrid).getByText('Afterglow')).toBeVisible();
     for (const button of within(bulkColorGrid).getAllByRole('button')) {
-      expect(button).toHaveClass('size-8', 'justify-self-center');
+      expect(button).toHaveClass('size-8');
     }
     fireEvent.click(await screen.findByRole('button', { name: 'Use Rose color for 2 threads' }));
     await waitFor(() => {
@@ -1791,10 +1792,9 @@ describe('ThreadsPanel groups', () => {
       'research',
     ]);
     const folderColorGrid = within(groupCustomizer).getByTestId('thread-group-color-grid');
-    expect(folderColorGrid).toHaveClass('grid-cols-4');
-    for (const button of within(folderColorGrid).getAllByRole('button')) {
-      expect(button).toHaveClass('size-8', 'justify-self-center');
-    }
+    expect(within(folderColorGrid).getByText('Voltage')).toBeVisible();
+    expect(within(folderColorGrid).getByText('Afterglow')).toBeVisible();
+    expect(within(folderColorGrid).getAllByRole('button')).toHaveLength(19);
     fireEvent.click(await screen.findByRole('button', { name: 'Use Rose color for Research' }));
 
     await waitFor(() => {

@@ -96,6 +96,18 @@ export const ASSISTANT_THREAD_COLOR_IDS = [
   'rose',
   'violet',
   'slate',
+  'cyan',
+  'lime',
+  'orange',
+  'fuchsia',
+  'indigo',
+  'red',
+  'teal',
+  'green',
+  'yellow',
+  'pink',
+  'purple',
+  'zinc',
 ] as const;
 
 export type AssistantThreadIconId = (typeof ASSISTANT_THREAD_ICON_IDS)[number];

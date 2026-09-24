@@ -25,6 +25,7 @@ export {
   type CreateDelegatedChild,
   type CreateDelegatedInvocation,
   createDelegatedConversationRepository,
+  DELEGATED_CONVERSATION_COLOR_IDS,
   type DelegatedConversationColor,
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,

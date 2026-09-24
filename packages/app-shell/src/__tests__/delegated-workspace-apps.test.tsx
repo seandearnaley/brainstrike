@@ -101,6 +101,10 @@ describe('delegated workspace app registration', () => {
     useWorkspaceTabSelectionStore.getState().openApp(firstId);
     const { result, rerender } = renderHook(useDelegatedWorkspaceApps);
     await waitFor(() => expect(result.current[0]?.label).toBe('Cedar'));
+    expect(result.current[0]?.tabAppearance).toMatchObject({
+      colorId: 'emerald',
+      selectedClassName: expect.stringContaining('bg-emerald'),
+    });
     const resolved = result.current;
     rerender();
     expect(result.current).toBe(resolved);

@@ -61,6 +61,18 @@ describe('personaLabelForToolName', () => {
 });
 
 describe('SubagentExecutionCard', () => {
+  it('uses the child color on its delegation card', () => {
+    const { container } = renderCard({
+      presentation: { colorId: 'orange', displayName: 'Aspen', markClassName: 'bg-orange-500' },
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(container.querySelector('.bs-subagent-card')?.getAttribute('data-agent-color')).toBe(
+      'orange'
+    );
+  });
   it('shows a delegation that ran but never answered as "No answer", not Completed', () => {
     // BST-1410. The delegation tool call succeeds even when the child exhausts
     // its step cap mid-tool-loop and writes nothing, so `status.type` alone

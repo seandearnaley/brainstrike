@@ -787,6 +787,24 @@ describe('desktop delegated conversation authority', () => {
     });
   });
 
+  it('reuses a persisted child display identity when admission is retried after an upgrade', async () => {
+    const host = createBudgetedHost(database, 'initial-leg');
+    await host.persist(identity);
+    await database.query(
+      `UPDATE brainstrike_delegated_conversations
+       SET display_name = 'Aspen-c83c57', color = 'rose'
+       WHERE thread_id = 'child'`
+    );
+
+    await host.persist(identity);
+    expect(await createDelegatedConversationRepository(database).get(scope, 'child')).toMatchObject(
+      {
+        color: 'rose',
+        displayName: 'Aspen-c83c57',
+      }
+    );
+  });
+
   it('reauthorizes the original invocation across reconstructed host resume legs', async () => {
     const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);

@@ -21,18 +21,21 @@ function ChildRow({ row }: { readonly row: Extract<DelegatedSidebarRow, { kind: 
   );
   const status = snapshot?.update.message.status.type;
   const needsInput = snapshot ? status === 'requires-action' : row.needsInput;
+  const appearance = ASSISTANT_THREAD_COLOR_PRESENTATION[row.node.color];
   return (
     <button
-      className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted"
+      className={`flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-xs ${appearance.idleClassName}`}
+      data-agent-color={row.node.color}
       onClick={() =>
         threadWorkspaceNavigation.open(row.node.ownerResourceId, row.node.rootThreadId, row.id)
       }
       type="button"
     >
-      <Icon
+      <span
         aria-hidden="true"
-        className={`size-3.5 shrink-0 ${ASSISTANT_THREAD_COLOR_PRESENTATION[row.node.color].markClassName}`}
+        className={`h-4 w-0.5 shrink-0 rounded-full ${appearance.accentClassName}`}
       />
+      <Icon aria-hidden="true" className={`size-3.5 shrink-0 ${appearance.markClassName}`} />
       <span className="truncate">{row.node.displayName}</span>
       {unread ? (
         <span aria-label="Unread child activity" className="shrink-0 text-xs" role="img">

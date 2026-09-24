@@ -66,6 +66,7 @@ export function DelegatedWorkspaceNavigation({
         throw new Error('The child conversation belongs to another parent.');
       }
       return {
+        colorId: node.color,
         displayName: node.displayName,
         markClassName: ASSISTANT_THREAD_COLOR_PRESENTATION[node.color].markClassName,
       };

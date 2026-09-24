@@ -506,9 +506,14 @@ const AppTabButton = memo<AppTabButtonProps>(function AppTabButton({
       className={cn(
         'group/app-tab my-1 flex flex-shrink-0 items-stretch overflow-hidden rounded-md transition-colors motion-reduce:transition-none',
         isActive
-          ? 'bg-primary/10 text-primary'
-          : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+          ? app.tabAppearance
+            ? `text-foreground ${app.tabAppearance.selectedClassName}`
+            : 'bg-primary/10 text-primary'
+          : app.tabAppearance
+            ? `text-muted-foreground hover:text-foreground ${app.tabAppearance.idleClassName}`
+            : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
       )}
+      data-agent-color={app.tabAppearance?.colorId}
       role="presentation"
     >
       <button
@@ -523,6 +528,12 @@ const AppTabButton = memo<AppTabButtonProps>(function AppTabButton({
         tabIndex={isActive ? 0 : -1}
         type="button"
       >
+        {app.tabAppearance ? (
+          <span
+            aria-hidden="true"
+            className={`h-4 w-0.5 rounded-full ${app.tabAppearance.accentClassName}`}
+          />
+        ) : null}
         <Icon className="h-3.5 w-3.5" />
         <span>{app.label}</span>
       </button>

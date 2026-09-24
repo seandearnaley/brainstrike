@@ -210,9 +210,10 @@ test('restores distinct child tabs and native transcripts without executing a ru
   const flint = window.getByRole('tab', { exact: true, name: 'Flint' });
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
-  // The first SVG is the tab's identity mark; trailing controls may add icons.
-  await expect(cedar.locator('svg').first()).toHaveClass(/text-emerald-500/u);
-  await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);
+  await expect(cedar.locator('..')).toHaveAttribute('data-agent-color', 'emerald');
+  await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'amber');
+  await expect(cedar.locator('span[aria-hidden="true"]').first()).toHaveClass(/bg-emerald-500/u);
+  await expect(flint.locator('span[aria-hidden="true"]').first()).toHaveClass(/bg-amber-500/u);
   await expect(window.getByText('Cedar saved native transcript', { exact: true })).toBeVisible();
   const rootDraft = rootPanel.getByRole('textbox', { name: 'Message input' });
   await rootDraft.fill('UNSENT_PARENT_DRAFT_1724');
@@ -287,7 +288,8 @@ test('restores distinct child tabs and native transcripts without executing a ru
     .toBeLessThanOrEqual(1);
   await window.getByRole('button', { exact: true, name: 'Flint Child' }).click();
   await expect(flint).toHaveAttribute('aria-selected', 'true');
-  await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);
+  await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'amber');
+  await expect(flint.locator('span[aria-hidden="true"]').first()).toHaveClass(/bg-amber-500/u);
   await sidebarCedar.getByRole('button', { name: /Expand/ }).click();
   const wrenRow = window.getByRole('row').filter({
     has: window.getByRole('button', { exact: true, name: 'Wren Child' }),

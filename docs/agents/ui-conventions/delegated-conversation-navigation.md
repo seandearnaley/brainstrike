@@ -10,6 +10,11 @@ Extracted verbatim from the pre-distillation contract.
 ## Delegated conversation navigation (BST-1724 / BST-1725)
 
 - Navigation slice: child cards/tab titles use durable callsigns, with persona role kept separate.
+- New callsigns use a larger name set and independently selected color. Previously
+  persisted callsigns and colors are never regenerated on reopen.
+- The child conversation carries that color through its sidebar row, tab,
+  header, reading backdrop, and composer. A delegation card in the parent uses
+  the child's color rather than inheriting the parent's tint.
 - Breadcrumbs follow validated native owner/root/parent bindings; returning focuses the originating delegation button while mounted, otherwise the canonical destination tab.
 - Root thread filters/sort and folders choose the visible roots; child rows remain beneath those roots in durable creation order, never independently selected/reparented by root bulk actions.
 - Search includes owned descendants, with one keyboard-selectable option per matched message. Activation revalidates native ancestry and message ownership, activates the owning root through the saved-workspace coordinator, then opens the singleton child tab. Child titles use the durable callsign.
@@ -24,4 +29,3 @@ Extracted verbatim from the pre-distillation contract.
 - Free-form steering remains BST-1723 acceptance, not claimed by this slice.
 
 Paired acceptance: `delegated-workspace-reload.desktop.test.ts`, `delegated-worker-write.desktop.test.ts`, `delegated-sidebar-lifecycle.test.tsx`, `delegated-sidebar-rows.test.ts`, `delegated-conversation-ancestry.test.ts`, and `delegated-conversation-store.test.ts`.
-

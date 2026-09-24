@@ -29,6 +29,7 @@ import { ToolResultRendererProvider } from '../tool-result-renderer-context';
 import type { ToolResultRenderer } from '../use-tool-result-renderers';
 
 function Conversation({
+  agentColor,
   id,
   messages,
   onNew,
@@ -43,6 +44,7 @@ function Conversation({
   allowIdleInput = false,
   decisionRoute,
 }: {
+  agentColor?: string;
   attachments?: boolean;
   composerDisabled?: boolean;
   allowIdleInput?: boolean;
@@ -69,6 +71,7 @@ function Conversation({
   return (
     <AssistantConversationPanel
       {...(attachments ? { attachmentsAvailability: { state: 'enabled' as const } } : {})}
+      agentColor={agentColor}
       allowIdleInput={allowIdleInput}
       decisionRoute={decisionRoute}
       isComposerDisabled={composerDisabled}
@@ -94,6 +97,18 @@ describe('shared conversation panel', () => {
     cleanup();
     resetFollowUpQueueStore();
     useRewindComposerStore.getState().consume();
+  });
+
+  it('marks the child conversation for its own color theme', () => {
+    render(
+      <TooltipProvider>
+        <Conversation agentColor="teal" id="Cedar" messages={[]} onNew={async () => {}} />
+      </TooltipProvider>
+    );
+    expect(screen.getByTestId('assistant-conversation-panel')).toHaveAttribute(
+      'data-agent-color',
+      'teal'
+    );
   });
 
   it.each(['pending', 'delivered'])(

@@ -137,6 +137,75 @@
   --radius: var(--bs-radius, 0.5rem);
 }
 
+/* Agent identity is scoped to a conversation. The same validated color paints
+   its reading surface and composer; delegation cards override it per child. */
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="blue"] { --agent-accent: var(--color-sky-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="emerald"] { --agent-accent: var(--color-emerald-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="amber"] { --agent-accent: var(--color-amber-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="rose"] { --agent-accent: var(--color-rose-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="violet"] { --agent-accent: var(--color-violet-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="slate"] { --agent-accent: var(--color-slate-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="cyan"] { --agent-accent: var(--color-cyan-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="lime"] { --agent-accent: var(--color-lime-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="orange"] { --agent-accent: var(--color-orange-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="fuchsia"] { --agent-accent: var(--color-fuchsia-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="indigo"] { --agent-accent: var(--color-indigo-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="red"] { --agent-accent: var(--color-red-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="teal"] { --agent-accent: var(--color-teal-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="green"] { --agent-accent: var(--color-green-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="yellow"] { --agent-accent: var(--color-yellow-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="pink"] { --agent-accent: var(--color-pink-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="purple"] { --agent-accent: var(--color-purple-500); }
+:where(.assistant-ui-panel, .bs-subagent-card)[data-agent-color="zinc"] { --agent-accent: var(--color-zinc-500); }
+
+.assistant-ui-panel[data-agent-color] {
+  --agent-wash: color-mix(in oklab, var(--agent-accent) 6%, hsl(var(--background)));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 10%, hsl(var(--background)));
+  --agent-edge: color-mix(in oklab, var(--agent-accent) 32%, hsl(var(--border)));
+  box-shadow: inset 2px 0 var(--agent-accent);
+}
+
+.dark .assistant-ui-panel[data-agent-color] {
+  --agent-wash: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 14%, hsl(var(--background)));
+}
+
+.assistant-ui-panel[data-agent-color] .bs-thread {
+  background: var(--agent-wash);
+}
+
+.assistant-ui-panel[data-agent-color] .bs-composer-shell {
+  border-top-color: var(--agent-edge);
+  background: linear-gradient(to top, var(--agent-wash) 78%, transparent), var(--agent-wash);
+}
+
+.assistant-ui-panel[data-agent-color] .aui-composer-root {
+  border-color: var(--agent-edge);
+  background: linear-gradient(180deg, var(--agent-card), hsl(var(--background)));
+}
+
+.assistant-ui-panel[data-agent-color] .aui-user-message-content {
+  background-color: var(--agent-card);
+}
+
+.assistant-ui-panel[data-agent-color] :where(.bs-tool-timeline, .bs-run-timeline) {
+  border-color: var(--agent-edge);
+  background-color: var(--agent-card);
+}
+
+.assistant-ui-panel[data-agent-color] .aui-composer-send:not(:disabled) {
+  background: color-mix(in oklab, var(--agent-accent) 28%, hsl(var(--background)));
+  color: hsl(var(--foreground));
+}
+
+.bs-subagent-card[data-agent-color] {
+  --agent-card: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
+  --agent-edge: color-mix(in oklab, var(--agent-accent) 35%, hsl(var(--border)));
+  border-color: var(--agent-edge);
+  background: var(--agent-card);
+  box-shadow: inset 2px 0 var(--agent-accent);
+}
+
 /**
  * CRITICAL: Override .aui-root fixed positioning for embedded panel layout
  *
