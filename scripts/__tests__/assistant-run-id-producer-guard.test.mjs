@@ -197,6 +197,8 @@ test('accepts the brand named in annotations and generic positions that do not a
 export interface Input { readonly id: HostRunId }
 export function create(input: Input): Promise<HostRunId> { return Promise.resolve(input.id); }
 const ids: Map<string, HostRunId> = new Map();
+const byThread = new Map<string, HostRunId>();
+const [current] = useState<HostRunId | null>(null);
 `,
   });
 
@@ -231,11 +233,12 @@ const f = raw as contract.HostRunId;
   );
 });
 
-test('flags a brand minted through a type argument', async () => {
+test('flags a brand minted through a type argument or a type predicate', async () => {
   const root = await writeFixture({
     [OWNING_FILE]: COMPLIANT_OWNER,
     'apps/desktop/src/background-run.ts': `const mint = Brand.nominal<HostRunId>();
 const cast = unsafeCast<HostRunId>('run-x');
+const isRunId = (value: string): value is HostRunId => value.startsWith('run-');
 `,
   });
 
@@ -244,7 +247,7 @@ const cast = unsafeCast<HostRunId>('run-x');
     violations
       .filter((violation) => violation.reason.includes(BRAND_ASSERTED_ONLY_IN_PRODUCER))
       .map((violation) => violation.lineNumber),
-    [1, 2]
+    [1, 2, 3]
   );
 });
 

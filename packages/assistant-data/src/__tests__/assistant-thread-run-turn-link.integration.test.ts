@@ -1,4 +1,3 @@
-import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 /**
  * BST-1163: the stored run↔turn-message link. `createThreadRun` persists
  * `turn_message_id` — the id of the user message whose turn the run belongs
@@ -12,6 +11,7 @@ import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
  * docs/agents/assistant-persistence.md § RUN-EVENT / THREAD-RUN SCHEMA
  * OWNERSHIP).
  */
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   createDelegatedContinuationRepository,
   createDelegatedConversationRepository,

@@ -1,4 +1,3 @@
-import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 /**
  * `persistDesktopToolCallTelemetry` against a REAL PGlite (BST-1190 review
  * fix).
@@ -15,6 +14,7 @@ import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 
 import type { StreamChunk, ToolCallTelemetrySample } from '@brainstrike/agent';
 import { MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';

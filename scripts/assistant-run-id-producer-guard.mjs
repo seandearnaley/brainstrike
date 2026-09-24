@@ -25,8 +25,9 @@
 //     naming `HostRunId`, and any renaming import or export of it, is flagged.
 // The brand closes the gap for minters that call `createThreadRun`. A minter
 // that skips `createThreadRun` entirely (`crypto.randomUUID()` in a
-// background/cron run) is still invisible here, as is a type alias that hides
-// the brand's name. That residual gap is why the doc section, not this script,
+// background/cron run) is still invisible here, as are assertions that never
+// name the brand: a type alias hiding it, `as never`, or an indexed access
+// such as `CreateAssistantThreadRunInput['id']`. That residual gap is why the doc section, not this script,
 // is the authority. Widening the guard to "any id-shaped expression reaching a
 // memory payload" was considered and rejected as unmaintainably fuzzy.
 
@@ -154,15 +155,46 @@ function findProducerSyntax(filePath, sourceText) {
   return { brandConstructions, brandRenames, calls, declarations, exports };
 }
 
+// Generic containers and hooks whose type argument only describes what they
+// hold; `new Map<string, HostRunId>()` or `useState<HostRunId | null>()` can
+// store a brand but never mint one.
+const NON_MINTING_GENERICS = new Set([
+  'Array',
+  'Map',
+  'Promise',
+  'Set',
+  'WeakMap',
+  'WeakSet',
+  'useCallback',
+  'useMemo',
+  'useRef',
+  'useState',
+]);
+
+function calleeName(expression) {
+  if (ts.isIdentifier(expression)) {
+    return expression.text;
+  }
+  return ts.isPropertyAccessExpression(expression) ? expression.name.text : undefined;
+}
+
 /**
  * The type a node can mint a brand with: the target of an `as` or `<T>`
- * assertion, or the type arguments of a call (`Brand.nominal<HostRunId>()`).
+ * assertion, a type predicate (`value is HostRunId`), or the type arguments of
+ * a call (`Brand.nominal<HostRunId>()`) other than a non-minting container.
  */
 function brandConstructingType(node) {
   if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
     return node.type;
   }
-  if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && node.typeArguments) {
+  if (ts.isTypePredicateNode(node)) {
+    return node.type ?? null;
+  }
+  if (
+    (ts.isCallExpression(node) || ts.isNewExpression(node)) &&
+    node.typeArguments &&
+    !NON_MINTING_GENERICS.has(calleeName(node.expression))
+  ) {
     return node.typeArguments;
   }
   return null;

@@ -1,4 +1,3 @@
-import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 // @vitest-environment node
 
 import { createTool } from '@brainstrike/agent/test-fixtures/delegated-stream';
@@ -8,6 +7,7 @@ import {
   toolCallParts,
 } from '@brainstrike/agent/test-fixtures/scripted-agent-model';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';

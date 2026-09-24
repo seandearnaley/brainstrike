@@ -1,4 +1,3 @@
-import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 /**
  * Task Ledger source 'hook': the main-process assistant-server records a
  * Stop-hook-reported run verdict against REAL PGlite via
@@ -21,6 +20,7 @@ import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 // for the user-precedence half of the contract). Imported via app-shell's
 // assistant-data package, the same convention as
 // run-usage-live-loop.integration.test.ts; placement is interim per R04 (BST-984).
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';

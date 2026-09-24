@@ -123,6 +123,9 @@ Supports § "Schema at boundaries" (the renderer-minted id rule).
   seventeen tests fail, and with rename detection disabled, one does.
 - Tests assert the brand on literal ids (35 sites across 14 integration test
   files). The guard ignores tests, which cannot open a production request path.
-- Limits: a minter that never calls `createThreadRun`, or a type alias that
-  hides the brand's name, is still invisible to the guard. The contract rule
+- Limits: a minter that never calls `createThreadRun` is still invisible to
+  the guard, as is any assertion that never names the brand (a type alias,
+  `as never`, `CreateAssistantThreadRunInput['id']`). Type predicates
+  (`value is HostRunId`) are flagged; container generics such as
+  `new Map<string, HostRunId>()` are not. The contract rule
   stays the authority, as it was before the brand.
