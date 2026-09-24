@@ -199,6 +199,8 @@ import type {
 export interface AssistantUiPanelProps
   extends ComposerDraftCommandBridgeProps,
     AssistantStreamCallbacks {
+  /** Validated thread identity color; absent threads keep the neutral surface. */
+  agentColor?: string | undefined;
   /**
    * Composer image-attachment availability, resolved by the app-shell
    * wrapper. Absent renders no attachment affordance and registers no
@@ -1076,6 +1078,7 @@ export const ChatThreadUI = ({
 export const AssistantUiPanel = ({
   onRuntimeReady,
   className,
+  agentColor,
   composerDraftCommand,
   contextWindow,
   cumulativeUsage,
@@ -1191,6 +1194,7 @@ export const AssistantUiPanel = ({
       <section
         aria-label="Assistant chat"
         className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
+        data-agent-color={agentColor}
         data-testid="chat-panel"
       >
         {isLocalProvider && modelName && !localViaDataStream ? (

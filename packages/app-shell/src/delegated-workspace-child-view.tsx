@@ -158,6 +158,7 @@ function ReadyChildView({
               isRunning={isRunning}
               label={node.displayName}
               panelProps={{
+                agentColor: node.color,
                 decisionRoute: {
                   dispatch: async (message) => {
                     if (typeof message === 'string') {

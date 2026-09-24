@@ -28,6 +28,7 @@ export type AssistantConversationPanelProps = Partial<
     readonly onSendActiveInput?: SendActiveConversationInput | undefined;
     readonly prepareActiveInput?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
     readonly className?: string;
+    readonly agentColor?: string | undefined;
     readonly decisionRoute?: DecisionRoute | undefined;
     readonly label: string;
     /**
@@ -46,6 +47,7 @@ const EMPTY: never[] = [];
 /** The main thread's complete surface, bound to an existing conversation runtime. */
 export function AssistantConversationPanel({
   className,
+  agentColor,
   decisionRoute,
   allowIdleInput = false,
   onSendActiveInput,
@@ -72,6 +74,7 @@ export function AssistantConversationPanel({
       <section
         aria-label={label}
         className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
+        data-agent-color={agentColor}
         data-testid="assistant-conversation-panel"
         data-thread-key={threadKey}
       >

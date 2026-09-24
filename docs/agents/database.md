@@ -361,6 +361,9 @@ Guard: `packages/db/__tests__/delegated-invocations.integration.test.ts`.
 - Thread group structure and presentation are local-first Brainstrike state in
   `brainstrike_assistant_thread_groups`, not Mastra thread metadata. The repository
   rejects unsupported color/icon values at both read and write boundaries.
+- Migration 143 expands the group and delegated child color checks to the three
+  curated eighteen-color sets while preserving existing values. Keep both checks
+  aligned with their repository unions when adding a color.
 - Every schema change here — a presentation column, a sidecar, a constraint replacement
   — is added to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
   Renderer repositories only probe schema readiness and never create or alter tables or

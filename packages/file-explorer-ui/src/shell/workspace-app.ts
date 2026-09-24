@@ -25,6 +25,13 @@ export interface WorkspaceApp {
    * rather than in `render()` itself.
    */
   readonly render: () => ReactNode;
+  /** Optional identity tint for an app that represents a colored conversation. */
+  readonly tabAppearance?: {
+    readonly accentClassName: string;
+    readonly colorId: string;
+    readonly idleClassName: string;
+    readonly selectedClassName: string;
+  };
 }
 
 export const CONTEXT_EXPLORER_APP_ID = 'context-explorer';

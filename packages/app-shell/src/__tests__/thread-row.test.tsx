@@ -199,6 +199,22 @@ describe('ThreadRow', () => {
     expect(screen.getByTestId('thread-row')).toBeVisible();
   });
 
+  it('offers curated color sets and persists a chosen Voltage color', async () => {
+    const user = userEvent.setup();
+    const onUpdateThreadMetadata = vi.fn().mockResolvedValue(undefined);
+    renderRow(createProps({ onUpdateThreadMetadata }));
+
+    await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
+    await user.click(screen.getByRole('button', { name: 'Customize' }));
+    const customizer = screen.getByRole('dialog');
+    expect(within(customizer).getByTestId('thread-color-palette-studio')).toBeVisible();
+    expect(within(customizer).getByTestId('thread-color-palette-voltage')).toBeVisible();
+    expect(within(customizer).getByTestId('thread-color-palette-afterglow')).toBeVisible();
+    await user.click(within(customizer).getByRole('button', { name: 'Use Cyan color' }));
+
+    expect(onUpdateThreadMetadata).toHaveBeenCalledWith(THREAD.id, { color: 'cyan' });
+  });
+
   it('keeps delete confirmation and failures local to the row', async () => {
     const user = userEvent.setup();
     const onDeleteThread = vi.fn().mockRejectedValue(new Error('Delete failed.'));

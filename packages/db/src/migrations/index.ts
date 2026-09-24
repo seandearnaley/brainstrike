@@ -141,6 +141,7 @@ import { migration139SwarmDiagnostics } from './139-swarm-diagnostics.js';
 import { migration140AssistantNativeRuns } from './140-assistant-native-runs.js';
 import { migration141OpenrouterInclusionaiLing30Flash } from './141-openrouter-inclusionai-ling-3-0-flash.js';
 import { migration142OpenaiAnthropicOpenrouterBedrockCatalogModels } from './142-openai-anthropic-openrouter-bedrock-catalog-models.js';
+import { migration143AgentIdentityPalettes } from './143-agent-identity-palettes.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -288,6 +289,7 @@ export const migrations: Migration[] = [
   migration140AssistantNativeRuns,
   migration141OpenrouterInclusionaiLing30Flash,
   migration142OpenaiAnthropicOpenrouterBedrockCatalogModels,
+  migration143AgentIdentityPalettes,
 ];
 
 // Export base migrations (without chunks table) for test environments

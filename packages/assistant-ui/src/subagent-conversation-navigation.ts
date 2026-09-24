@@ -9,6 +9,7 @@ export const SubagentConversationNavigationContext = createContext<
 >(null);
 
 export interface SubagentConversationPresentation {
+  readonly colorId?: string;
   readonly displayName: string;
   readonly markClassName: string;
 }

@@ -27,7 +27,28 @@ interface JsonObject {
   readonly [key: string]: JsonValue;
 }
 
-export type DelegatedConversationColor = 'blue' | 'emerald' | 'amber' | 'rose' | 'violet' | 'slate';
+export const DELEGATED_CONVERSATION_COLOR_IDS = [
+  'blue',
+  'emerald',
+  'amber',
+  'rose',
+  'violet',
+  'slate',
+  'cyan',
+  'lime',
+  'orange',
+  'fuchsia',
+  'indigo',
+  'red',
+  'teal',
+  'green',
+  'yellow',
+  'pink',
+  'purple',
+  'zinc',
+] as const;
+export type DelegatedConversationColor = (typeof DELEGATED_CONVERSATION_COLOR_IDS)[number];
+const DELEGATED_CONVERSATION_COLOR_ID_SET = new Set<string>(DELEGATED_CONVERSATION_COLOR_IDS);
 
 export interface CreateDelegatedChild {
   readonly color: DelegatedConversationColor;
@@ -140,15 +161,8 @@ function requireTokenCount(value: number): number {
 }
 
 function requireColor(value: unknown): DelegatedConversationColor {
-  if (
-    value === 'blue' ||
-    value === 'emerald' ||
-    value === 'amber' ||
-    value === 'rose' ||
-    value === 'violet' ||
-    value === 'slate'
-  ) {
-    return value;
+  if (typeof value === 'string' && DELEGATED_CONVERSATION_COLOR_ID_SET.has(value)) {
+    return value as DelegatedConversationColor;
   }
   throw new DelegatedConversationIdentityError();
 }

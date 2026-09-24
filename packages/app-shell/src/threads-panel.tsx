@@ -1,7 +1,6 @@
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
-  ASSISTANT_THREAD_COLOR_IDS,
   ASSISTANT_THREAD_ICON_IDS,
   type AssistantMemoryThread,
   type AssistantThreadColorId,
@@ -67,6 +66,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import {
+  ASSISTANT_THREAD_COLOR_PALETTES,
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
@@ -294,7 +294,7 @@ function ThreadGroupHeader({
                       <div>
                         <div className="font-medium text-xs">Group appearance</div>
                         <p className="text-[10px] text-muted-foreground">
-                          Choose an icon and accent.
+                          Choose an icon and color.
                         </p>
                       </div>
                     </div>
@@ -343,43 +343,55 @@ function ThreadGroupHeader({
                         </Button>
                       </div>
                     </div>
-                    <div className="text-[11px] text-muted-foreground">Color</div>
-                    <div className="grid grid-cols-4 gap-1" data-testid="thread-group-color-grid">
-                      {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
-                        <Button
-                          aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${group.name}`}
-                          aria-pressed={group.color === colorId}
-                          className={`justify-self-center ${
-                            group.color === colorId
-                              ? 'bg-accent shadow-inner ring-1 ring-border'
-                              : ''
-                          }`}
-                          key={colorId}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onColorChange(colorId);
-                          }}
-                          size="icon-sm"
-                          type="button"
-                          variant="ghost"
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`size-4 rounded-full ring-1 ring-black/10 ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
-                          />
-                        </Button>
+                    <div className="text-[11px] text-muted-foreground">Color palette</div>
+                    <div className="grid gap-2" data-testid="thread-group-color-grid">
+                      {ASSISTANT_THREAD_COLOR_PALETTES.map((palette) => (
+                        <div key={palette.label}>
+                          <div className="mb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                            {palette.label}
+                          </div>
+                          <fieldset
+                            aria-label={`${palette.label} colors`}
+                            className="grid grid-cols-6 gap-1"
+                          >
+                            {palette.colors.map((colorId) => (
+                              <Button
+                                aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${group.name}`}
+                                aria-pressed={group.color === colorId}
+                                className={
+                                  group.color === colorId
+                                    ? 'bg-accent shadow-inner ring-1 ring-border'
+                                    : undefined
+                                }
+                                key={colorId}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onColorChange(colorId);
+                                }}
+                                size="icon-sm"
+                                type="button"
+                                variant="ghost"
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className={`size-4 rounded-full ring-1 ring-black/10 ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
+                                />
+                              </Button>
+                            ))}
+                          </fieldset>
+                        </div>
                       ))}
                       <Button
                         aria-label={`Clear color for ${group.name}`}
                         aria-pressed={group.color === null}
-                        className={`justify-self-center ${
+                        className={`h-7 justify-start gap-2 px-2 text-[11px] ${
                           group.color === null ? 'bg-accent shadow-inner ring-1 ring-border' : ''
                         }`}
                         onClick={(event) => {
                           event.stopPropagation();
                           onColorChange(null);
                         }}
-                        size="icon-sm"
+                        size="sm"
                         type="button"
                         variant="ghost"
                       >
@@ -387,6 +399,7 @@ function ThreadGroupHeader({
                           aria-hidden="true"
                           className="size-4 rounded-full border border-border bg-muted"
                         />
+                        No color
                       </Button>
                     </div>
                   </div>
@@ -986,23 +999,32 @@ function ThreadBulkSelectionOverlay({
       {controller.panel === 'color' ? (
         <div className="pointer-events-auto ml-auto w-56 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
           <div className="px-2 pb-1 text-[11px] text-muted-foreground">Color selected</div>
-          <div className="grid grid-cols-4 gap-1" data-testid="thread-bulk-color-grid">
-            {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
-              <Button
-                aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${controller.selectedCount} threads`}
-                className="justify-self-center"
-                disabled={controller.pending}
-                key={colorId}
-                onClick={() => controller.onColor(colorId)}
-                size="icon-sm"
-                type="button"
-                variant="ghost"
-              >
-                <span
-                  aria-hidden="true"
-                  className={`size-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
-                />
-              </Button>
+          <div className="grid gap-2" data-testid="thread-bulk-color-grid">
+            {ASSISTANT_THREAD_COLOR_PALETTES.map((palette) => (
+              <div key={palette.label}>
+                <div className="px-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                  {palette.label}
+                </div>
+                <fieldset aria-label={`${palette.label} colors`} className="grid grid-cols-6 gap-1">
+                  {palette.colors.map((colorId) => (
+                    <Button
+                      aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${controller.selectedCount} threads`}
+                      className="justify-self-center"
+                      disabled={controller.pending}
+                      key={colorId}
+                      onClick={() => controller.onColor(colorId)}
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`size-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
+                      />
+                    </Button>
+                  ))}
+                </fieldset>
+              </div>
             ))}
           </div>
         </div>

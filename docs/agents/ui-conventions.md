@@ -261,6 +261,12 @@ Guard: `tree-table-render-stability.test.tsx`,
   never the surface fill, which renders the mark invisible. Use
   `getAssistantThreadColorSurface` rather than re-deriving an "unassigned"
   fallback, and never re-declare heights or type sizes at a call site.
+- The eighteen durable thread colors are presented in three six-color sets from
+  `ASSISTANT_THREAD_COLOR_PALETTES` in thread, group, and bulk pickers. A child
+  uses the same color presentation in its sidebar row, workspace tab, and
+  conversation header. The shared assistant panel carries each conversation's
+  color into the reading backdrop, composer, and activity surfaces; delegation
+  cards use their child's own color. Keep callsign text and status alongside tint.
 - The threads tree cell renders one `ThreadRow` (`thread-row.tsx`), never a
   single-element `ThreadRows` list: the row owns rename draft, customization,
   details, delete confirmation and pending/error state, while the connected panel
@@ -582,6 +588,8 @@ Guard: `approval-row.browser.test.tsx`.
   separate. Breadcrumbs follow validated native owner/root/parent bindings;
   returning focuses the originating delegation button while mounted, otherwise
   the canonical destination tab.
+- New callsigns draw from the expanded name set and color set independently;
+  existing persisted child names and colors retain their identity.
 - Root filters/sort and folders choose the visible roots; child rows stay beneath
   those roots in durable creation order, never independently selected or
   reparented by root bulk actions.

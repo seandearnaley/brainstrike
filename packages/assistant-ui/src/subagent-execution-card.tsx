@@ -235,7 +235,10 @@ export const SubagentExecutionCard = ({
   const hasRows = rows.length > 0;
 
   return (
-    <div className="my-1 rounded-md border border-border bg-muted/30 text-sm">
+    <div
+      className="bs-subagent-card my-1 rounded-md border border-border bg-muted/30 text-sm"
+      data-agent-color={presentation?.colorId}
+    >
       <StepRowHeader
         family="delegate"
         label={expanded ? 'Collapse details' : 'Expand details'}

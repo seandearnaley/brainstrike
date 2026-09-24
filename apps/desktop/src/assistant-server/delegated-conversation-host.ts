@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type {
   BackgroundGeneration,
   ChildContinuationHostPort,
@@ -32,7 +32,6 @@ import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   createDelegatedContinuationRepository,
   createDelegatedConversationRepository,
-  type DelegatedConversationColor,
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
   type DelegatedConversationScope,
@@ -43,6 +42,7 @@ import {
 import { z } from 'zod';
 import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
 import { createDesktopDelegatedContinuationHost } from './delegated-continuation-host';
+import { createDelegatedDisplayIdentity } from './delegated-display-identity';
 import { delegatedHostRunId } from './delegated-host-run-id';
 import { type DelegatedHostScope, resolveDelegatedHostScope } from './delegated-host-scope';
 import { createDelegatedStepBudget } from './delegated-step-budget';
@@ -219,31 +219,6 @@ async function resolveActionParentThreadId(
     throw new DelegatedConversationIdentityError('continuation-ancestry-mismatch');
   }
   return continuation.threadId;
-}
-
-const DISPLAY_IDENTITIES = [
-  { color: 'blue', name: 'Cedar' },
-  { color: 'emerald', name: 'Fern' },
-  { color: 'amber', name: 'Aspen' },
-  { color: 'rose', name: 'Maple' },
-  { color: 'violet', name: 'Iris' },
-  { color: 'slate', name: 'Willow' },
-] as const satisfies readonly { color: DelegatedConversationColor; name: string }[];
-
-/** Display identity only: never derive ownership or ancestry from a native id. */
-function createDisplayIdentity(threadId: string): {
-  color: DelegatedConversationColor;
-  displayName: string;
-} {
-  const digest = createHash('sha256').update(threadId).digest();
-  const display = DISPLAY_IDENTITIES[digest.readUInt8(0) % DISPLAY_IDENTITIES.length];
-  if (!display) {
-    throw new Error('Delegated conversation display palette is empty.');
-  }
-  return {
-    color: display.color,
-    displayName: `${display.name}-${digest.toString('hex').slice(0, 6)}`,
-  };
 }
 
 /**
@@ -579,7 +554,7 @@ export function createDesktopDelegatedConversationHost(
           subagentSettings
         );
         await admissionRepository.createChild(scope, {
-          ...createDisplayIdentity(identity.childThreadId),
+          ...createDelegatedDisplayIdentity(identity.childThreadId),
           configuration: identity.configuration,
           parentThreadId: identity.parentThreadId,
           resourceId: identity.childResourceId,

@@ -1,5 +1,4 @@
 import {
-  ASSISTANT_THREAD_COLOR_IDS,
   ASSISTANT_THREAD_ICON_IDS,
   type AssistantMemoryThread,
   type AssistantThreadColorId,
@@ -38,6 +37,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import {
+  ASSISTANT_THREAD_COLOR_PALETTES,
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
@@ -881,7 +881,7 @@ function ThreadCustomizationPanel({
     <div className="grid gap-3" data-testid="thread-customization-panel">
       <div>
         <div className="font-medium text-xs">Thread appearance</div>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">Choose an icon and accent.</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">Choose an icon and color.</p>
       </div>
       <div className="grid gap-3">
         <div>
@@ -914,31 +914,44 @@ function ThreadCustomizationPanel({
           </div>
         </div>
         <div>
-          <div className="mb-1.5 text-[11px] text-muted-foreground">Color</div>
-          <div className="grid grid-cols-6 gap-1">
-            {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => {
-              const label = ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label;
-              const selected = getThreadColorId(thread) === colorId;
-              return (
-                <Button
-                  aria-label={`Use ${label} color`}
-                  aria-pressed={selected}
-                  className={selected ? 'bg-accent shadow-inner ring-1 ring-border' : undefined}
-                  disabled={metadataSaving}
-                  key={colorId}
-                  onClick={() => {
-                    saveMetadata({ color: colorId });
-                  }}
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
+          <div className="mb-1.5 text-[11px] text-muted-foreground">Color palette</div>
+          <div className="grid gap-2.5">
+            {ASSISTANT_THREAD_COLOR_PALETTES.map((palette) => (
+              <div key={palette.label}>
+                <div className="mb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                  {palette.label}
+                </div>
+                <fieldset
+                  aria-label={`${palette.label} colors`}
+                  className="grid grid-cols-6 gap-1"
+                  data-testid={`thread-color-palette-${palette.label.toLowerCase()}`}
                 >
-                  <span
-                    className={`size-4 rounded-full ring-1 ring-black/10 ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
-                  />
-                </Button>
-              );
-            })}
+                  {palette.colors.map((colorId) => {
+                    const label = ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label;
+                    const selected = getThreadColorId(thread) === colorId;
+                    return (
+                      <Button
+                        aria-label={`Use ${label} color`}
+                        aria-pressed={selected}
+                        className={
+                          selected ? 'bg-accent shadow-inner ring-1 ring-border' : undefined
+                        }
+                        disabled={metadataSaving}
+                        key={colorId}
+                        onClick={() => saveMetadata({ color: colorId })}
+                        size="icon-sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <span
+                          className={`size-4 rounded-full ring-1 ring-black/10 ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
+                        />
+                      </Button>
+                    );
+                  })}
+                </fieldset>
+              </div>
+            ))}
           </div>
         </div>
       </div>

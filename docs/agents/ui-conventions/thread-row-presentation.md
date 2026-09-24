@@ -26,4 +26,8 @@ Extracted verbatim from the pre-distillation contract.
   database, vector, search, or virtualizer setup. The whole-panel suite retains
   grouping, filtering, bulk selection, drag suppression, and persistence
   wiring coverage.
-
+- The color picker groups eighteen choices into Studio, Voltage, and Afterglow.
+  Thread, group, and bulk actions share that set; saved color ids remain durable
+  independent of picker layout. The child workspace tab and conversation header
+  consume the same surface classes as root tabs and rows. The assistant panel
+  receives the same saved color for its backdrop, composer, and activity cards.

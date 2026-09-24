@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ASSISTANT_THREAD_COLOR_PALETTES,
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
@@ -44,14 +45,15 @@ describe('assistant thread presentation', () => {
   });
 
   it('resolves every durable metadata color to explicit light and dark presentation classes', () => {
-    expect(Object.keys(ASSISTANT_THREAD_COLOR_PRESENTATION).sort()).toEqual([
-      'amber',
-      'blue',
-      'emerald',
-      'rose',
-      'slate',
-      'violet',
+    expect(ASSISTANT_THREAD_COLOR_PALETTES.map(({ label }) => label)).toEqual([
+      'Studio',
+      'Voltage',
+      'Afterglow',
     ]);
+    expect(ASSISTANT_THREAD_COLOR_PALETTES.flatMap(({ colors }) => colors).sort()).toEqual(
+      Object.keys(ASSISTANT_THREAD_COLOR_PRESENTATION).sort()
+    );
+    expect(Object.keys(ASSISTANT_THREAD_COLOR_PRESENTATION)).toHaveLength(18);
     expect(ASSISTANT_THREAD_COLOR_PRESENTATION.rose).toMatchObject({
       accentClassName: 'bg-rose-500',
       label: 'Rose',
