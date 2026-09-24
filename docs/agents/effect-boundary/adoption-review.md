@@ -53,7 +53,13 @@ Measured against rc.117 on Node:
   runs the synchronous body and returns `Success`. The helper therefore calls
   `signal.throwIfAborted()` before starting.
 - `Effect.timeout` interrupts the fiber, which aborts the `AbortSignal` that
-  `Effect.tryPromise` hands to `try`: the work stops, not only the wait.
+  `Effect.tryPromise` hands to `try`. Work that observes that signal stops;
+  work that ignores it keeps running, and only its result is dropped.
+- A `signal` abort is recorded as an `Interrupt` reason with no `fiberId`. A
+  fiber that interrupts itself records its own id, and an abort that arrives
+  while that fiber's finalizers run adds no reason. The helper maps to
+  `signal.reason` only for the first shape, so a self-interruption keeps its
+  own error even when the caller aborts late.
 
 ## Language service
 

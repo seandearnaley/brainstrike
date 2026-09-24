@@ -75,6 +75,28 @@ describe('runAtPromiseBoundary', () => {
     expect(ran).toBe(false);
   });
 
+  it('keeps a self-interruption error when the signal aborts while its finalizers run', async () => {
+    const controller = new AbortController();
+    const { promise: finalizing, resolve: markFinalizing } = Promise.withResolvers<void>();
+    const { promise: finalizerGate, resolve: releaseFinalizer } = Promise.withResolvers<void>();
+
+    const running = runAtPromiseBoundary(
+      Effect.interrupt.pipe(
+        Effect.ensuring(
+          Effect.sync(markFinalizing).pipe(Effect.andThen(Effect.promise(() => finalizerGate)))
+        )
+      ),
+      { signal: controller.signal }
+    ).catch((error: unknown) => error);
+    await finalizing;
+    controller.abort(new DOMException('late abort', 'AbortError'));
+    releaseFinalizer();
+    const rejection = await running;
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect(rejection).not.toBe(controller.signal.reason);
+  });
+
   it('rejects with an Error for an interruption that no signal caused', async () => {
     const rejection = await runAtPromiseBoundary(Effect.interrupt).catch((error: unknown) => error);
 

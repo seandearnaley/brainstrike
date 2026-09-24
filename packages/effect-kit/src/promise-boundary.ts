@@ -20,6 +20,8 @@ export interface PromiseBoundaryOptions {
  * - An interruption caused by `signal` rejects with `signal.reason`, so callers
  *   that already test for an `AbortError` see the same error they always did.
  *   Effect's own runner rejects with a generic interruption error instead.
+ *   An interruption the effect started itself keeps its own error, even if the
+ *   signal aborts while its finalizers run.
  * - An already-aborted `signal` rejects before the effect starts. Effect's own
  *   runner still runs a synchronous effect to completion in that case.
  */
@@ -33,8 +35,21 @@ export async function runAtPromiseBoundary<A, E>(
   if (Exit.isSuccess(exit)) {
     return exit.value;
   }
-  if (signal?.aborted === true && Cause.hasInterruptsOnly(exit.cause)) {
+  if (signal?.aborted === true && interruptedFromOutside(exit.cause)) {
     throw signal.reason;
   }
   throw Cause.squash(exit.cause);
+}
+
+/**
+ * True when the cause is only interruptions and one of them came from outside
+ * any fiber, which is how the runner records an abort of `signal`. A fiber
+ * that interrupts itself (or is interrupted by another fiber) records that
+ * fiber's id instead.
+ */
+function interruptedFromOutside(cause: Cause.Cause<unknown>): boolean {
+  return (
+    Cause.hasInterruptsOnly(cause) &&
+    cause.reasons.some((reason) => Cause.isInterruptReason(reason) && reason.fiberId === undefined)
+  );
 }
