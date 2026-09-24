@@ -1,3 +1,4 @@
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   type RediscoveredToolApproval,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
@@ -188,7 +189,7 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       });
     const seedRun = async (runId: string, turnMessageId: string) => {
       await repository.createThreadRun({
-        id: runId,
+        id: runId as HostRunId,
         model: 'claude-sonnet-5',
         provider: 'anthropic',
         resourceId: 'workspace-a',

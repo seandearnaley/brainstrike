@@ -33,6 +33,7 @@ import {
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import { readChildFollowupRunConfigAction } from '@brainstrike/assistant-contract/child-followup';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
 import {
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
@@ -160,8 +161,9 @@ export function resolveProviderFromComposite(
   return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
-function createThreadRunId(): string {
-  return `run-${crypto.randomUUID()}`;
+/** The sole `HostRunId` producer; the assertion is the brand's only construction site. */
+function createThreadRunId(): HostRunId {
+  return `run-${crypto.randomUUID()}` as HostRunId;
 }
 
 function toAssistantThreadRuntimeKind(

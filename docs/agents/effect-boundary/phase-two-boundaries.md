@@ -100,3 +100,32 @@ each move found, and what stayed hand-written (2026-09-24, effect
   is its single validator.
 - `apps/desktop` became an Effect package with this change; its diagnostics run
   on `tsconfig.test.json` (567 files, 0 findings).
+
+## The host run id brand
+
+Supports § "Schema at boundaries" (the renderer-minted id rule).
+
+- `createThreadRunId` in `@brainstrike/app-shell` is the one producer of a
+  durable host run id (`assistant-persistence.md`, "runId provenance"). It runs
+  in the renderer. A Schema brand decoder measured 243 KB minified and 74.3 KB
+  gzipped in an esbuild browser bundle; `Brand.nominal` alone measured 10.7 KB
+  gzipped. Either would be the renderer's first Effect import, spent checking a
+  `crypto.randomUUID()` result that cannot be malformed.
+- `HostRunId` is therefore `string & Brand.Brand<'HostRunId'>`, imported with
+  `import type`. `host-run-id.js` compiles to `export {};`. The producer asserts
+  the brand once. `CreateAssistantThreadRunInput.id` requires it, and ids read
+  back from storage stay `string`, because rows written by older builds must
+  still load.
+- `assistant-run-id-producer-guard.mjs` pins the one construction. It flags any
+  other production `as HostRunId`, `<HostRunId>` assertion, `HostRunId` type
+  argument (`Brand.nominal<HostRunId>()`), or renamed import or export. The
+  guard's fixtures were falsified: with brand detection disabled, nine of
+  seventeen tests fail, and with rename detection disabled, one does.
+- Tests assert the brand on literal ids (35 sites across 14 integration test
+  files). The guard ignores tests, which cannot open a production request path.
+- Limits: a minter that never calls `createThreadRun` is still invisible to
+  the guard, as is any assertion that never names the brand (a type alias,
+  `as never`, `CreateAssistantThreadRunInput['id']`). Type predicates
+  (`value is HostRunId`) are flagged; container generics such as
+  `new Map<string, HostRunId>()` are not. The contract rule
+  stays the authority, as it was before the brand.

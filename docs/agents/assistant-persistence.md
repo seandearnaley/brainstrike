@@ -484,11 +484,11 @@ injected handles and all gated on `if (runId)`:
   made every stamped terminal tool event fail to persist (22P02).
 - **runId provenance, not startup ordering, is what makes the writers safe.**
   `memory.runId` has exactly ONE producer, `createThreadRunId` inside
-  `createAssistantThreadRunPromise`; `buildAssistantRequestData` puts no `runId`
-  on `data.memory`; desktop has ONE physical database. Do NOT add a defensive
-  `CREATE TABLE IF NOT EXISTS` in main or an ordering handshake — both are
-  machinery for an unreachable state that would mask a broken invariant. A SECOND
-  runId producer would make it real, and must bootstrap the schema itself.
+  `createAssistantThreadRunPromise`; only it asserts the `HostRunId` brand that
+  `createThreadRun` requires. `buildAssistantRequestData` puts no `runId` on
+  `data.memory`; desktop has ONE physical database. Do NOT add a defensive
+  `CREATE TABLE IF NOT EXISTS` in main or an ordering handshake — machinery for
+  an unreachable state masks a broken invariant. A SECOND producer makes it real.
 - **Loudness is not uniform.** `observeDesktopAssistantRunEvents` rethrows on
   flush only when the source stream did not also throw, and
   `recordDesktopAssistantThreadRunStatus` only logs, so a failed run-status UPDATE

@@ -1420,6 +1420,9 @@ importers:
       '@modelcontextprotocol/core':
         specifier: 'catalog:'
         version: 2.0.0
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
       zod:
         specifier: 'catalog:'
         version: 4.5.4
@@ -1430,6 +1433,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.45.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3

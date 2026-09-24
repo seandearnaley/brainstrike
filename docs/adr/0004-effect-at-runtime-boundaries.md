@@ -40,8 +40,9 @@ Adopt Effect v4 (`effect`, exact-pinned) one runtime boundary at a time.
    git-inventory walk. The FIFO mutexes stay hand-written: Effect's `Semaphore`
    is not strictly FIFO (`effect-boundary/phase-one-pilots.md`).
 3. **Phase 2:** Schema at boundaries that only main or a worker reaches: IPC
-   handlers in Electron main, PGlite row decoding in repositories, chunking
-   worker messages, and a branded host run id.
+   handlers in Electron main, PGlite row decoding in repositories, and chunking
+   worker messages. The host run id, minted in the renderer, gets a type-only
+   brand instead.
 
 Later phases (host lifecycles as scoped Layers, RPC over workers,
 `@effect/sql-pglite`, Stream) each need their own decision.

@@ -15,6 +15,7 @@
  * the `run_events` row, which the FKs require.
  */
 import type { AssistantRunEventKind } from '@brainstrike/assistant-contract';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   type AssistantThreadRepository,
   createPgliteAssistantThreadRepository,
@@ -40,7 +41,7 @@ let sequence = 0;
  */
 async function seedRun(threadId: string, resourceId: string, runId: string): Promise<void> {
   await repository.createThreadRun({
-    id: runId,
+    id: runId as HostRunId,
     model: 'test-model',
     provider: 'test-provider',
     resourceId,

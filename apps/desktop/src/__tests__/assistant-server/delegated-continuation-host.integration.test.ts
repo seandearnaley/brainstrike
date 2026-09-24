@@ -7,6 +7,7 @@ import {
   toolCallParts,
 } from '@brainstrike/agent/test-fixtures/scripted-agent-model';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
@@ -655,7 +656,7 @@ it.each(['complete', 'approval'] as const)(
       await repository.completeThreadRun('wake-host', { status: 'completed' });
       await repository.createThreadRun({
         childContinuation: { id: input.id, nativeRunId: pause.nativeRunId },
-        id: 'resume-host',
+        id: 'resume-host' as HostRunId,
         model: 'gpt-5.4',
         provider: 'openai',
         resourceId: 'owner',
