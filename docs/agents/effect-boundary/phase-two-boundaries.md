@@ -31,6 +31,18 @@ each move found, and what stayed hand-written (2026-09-24, effect
 - `SchemaTransformation.transform` needs explicit type parameters
   (`transform<Date, unknown>`) when the encoded side is `unknown`; inference
   otherwise picks `Transformation<Date, Date>` and fails to type-check.
+- Node loads the compiled db package without a bundler, so importing it now
+  evaluates the whole `effect` barrel: about 350 ms cold in the authoring
+  container (`effect/Schema` alone about 230 ms). The real-process
+  `idle-grandchild-restart.integration.test.ts` cases went from 15.1-15.5 s to
+  15.6-15.9 s there. A second finding: Schema reads `globalThis.FormData` at
+  import, which makes Node load undici, and undici reads
+  `performance.markResourceTiming`. The db clock-at-import probe therefore loads
+  undici before it removes `performance`.
+- The first push imported `./mcp-task-row-schema` without `.js`. Node's ESM
+  loader rejected it in every unbundled consumer (desktop E2E, the packaged
+  app, real-process host tests); `runtime-import-extensions.test.ts` names the
+  file.
 
 ## Row counts: the file-chunk repositories
 
@@ -57,6 +69,15 @@ each move found, and what stayed hand-written (2026-09-24, effect
   both ways: retyping `ChunkRequest.id` as `number` failed the build, and so did
   adding a key to the interface alone. The first draft
   (`Interface extends S['Type']` only) missed the second case.
+- Review then found the check one-directional: an interface NARROWER than the
+  schema still passed, so the guard could admit values its interface excludes.
+  Adding the reverse check (`S['Type']` minus `readonly` must fit the interface)
+  failed all three interfaces on the existing code: every optional
+  `ChunkingRequestOptions` field accepts an explicit `undefined` (the pinned
+  leniency), which `exactOptionalPropertyTypes` excluded from the interface. The
+  interface now says `| undefined`; every dependent type-checks unchanged.
+  Making `maxTokens` required, or dropping `| undefined` from `overlap`, now
+  fails the build.
 - Not moved: the embedding-worker protocol asserts in `indexing-contract`
   (about 85 exact-message test assertions, and telemetry rejects failure
   reasons over 240 characters, which a multi-line schema message could exceed)

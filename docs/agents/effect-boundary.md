@@ -36,7 +36,7 @@ Guard: `apps/desktop/src/__tests__/preload-sandbox-imports.test.ts`.
 
 - Package APIs stay Promise-based until their callers are Effect code. Effect
   code returns to Promise code only through `runAtPromiseBoundary`; outside
-  `@brainstrike/effect-kit` no module calls `Effect.run*` or builds a runtime.
+  `@brainstrike/effect-kit` no module references `Effect.run*` or builds a runtime.
 - `runAtPromiseBoundary` resolves with the value, rejects with the failure value
   itself (a tagged error keeps its class), rejects with the thrown value for a
   defect, and rejects with `signal.reason` when the caller's signal interrupted

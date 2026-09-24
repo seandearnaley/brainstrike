@@ -64,15 +64,30 @@ type UndeclaredKeys<Interface, Declared> = {
 };
 
 /**
+ * The schema type without `readonly`. Structured clone delivers fresh mutable
+ * values, so readonly-ness is the one difference the drift check ignores.
+ */
+type Writable<T> = T extends readonly (infer Item)[]
+  ? Writable<Item>[]
+  : T extends object
+    ? { -readonly [K in keyof T]: Writable<T[K]> }
+    : T;
+
+/**
  * A type guard for `schema` that narrows to the hand-written message
- * interface. The constraint is the drift check: the interface must fit the
- * schema's type, and may not declare a top-level key the schema lacks (nested
- * option objects have their own guard). A field added to
- * only one side, or typed differently on each, stops this module compiling.
+ * interface. The type parameters are the drift check, in both directions: the
+ * interface must fit the schema's type, the schema's type (readonly aside) must
+ * fit the interface, and the interface may not declare a top-level key the
+ * schema lacks, even an optional one. A field added to only one side, typed
+ * differently on each, or narrowed on the interface alone (an optional field
+ * made required, a union member dropped, `| undefined` removed from a field the
+ * schema accepts as `undefined`) stops this module compiling.
  */
 const guardFor = <S extends Schema.Top>(schema: S) => {
   const matches = Schema.is(schema);
-  return <Interface extends S['Type'] & UndeclaredKeys<Interface, S['Type']>>() =>
+  return <Interface extends S['Type'] & UndeclaredKeys<Interface, S['Type']>>(
+    ..._exact: [Writable<S['Type']>] extends [Interface] ? [] : [never]
+  ) =>
     (value: unknown): value is Interface =>
       matches(value);
 };

@@ -18,17 +18,12 @@ const PROVIDER_ID_MESSAGE =
   `secrets IPC provider must be a non-empty string of at most ${MAX_PROVIDER_ID_LENGTH} ` +
   'characters with no control characters.';
 
+const CONTROL_CHARACTER = /\p{Cc}/u;
+
 function isPrintableProviderId(value: string): boolean {
-  if (value.length === 0 || value.length > MAX_PROVIDER_ID_LENGTH) {
-    return false;
-  }
-  for (const character of value) {
-    const code = character.charCodeAt(0);
-    if (code <= 0x1f || code === 0x7f) {
-      return false;
-    }
-  }
-  return true;
+  return (
+    value.length > 0 && value.length <= MAX_PROVIDER_ID_LENGTH && !CONTROL_CHARACTER.test(value)
+  );
 }
 
 const providerId = Schema.String.annotate({ message: PROVIDER_ID_MESSAGE }).check(
