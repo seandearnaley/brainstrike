@@ -118,7 +118,7 @@ const TYPE_CHECK_ALLOWLIST = new Map([
   ],
   [
     '@brainstrike/web',
-    'app — `tsc --build --force` primes referenced-project outputs before the --noEmit passes',
+    'app — `tsc --build` primes referenced-project outputs before the --noEmit passes (never --force: it rewrites dist that concurrent type-checks read)',
   ],
   [
     '@brainstrike/desktop',
