@@ -719,11 +719,11 @@ Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
   runs `node <depth>/scripts/prune-stale-dist.mjs`. The pruner requires
   rootDir `src`, outDir `dist`, per-file emit; any other layout cleans.
 - A pruned package with a tsup config pins `splitting: false`, and the pruner
-  stays in `turbo.jsonc` `global.inputs`.
+  stays in `turbo.jsonc` `global.inputs`. A type-check never runs `tsc --build
+  --force`: it rewrites dist that concurrent type-checks read (BST-1818).
 
-Settled: prune, not clean, for wired packages. Evidence:
-`ci-quality/turbo-cache-and-dist-hygiene.md`.
-Guard: `scripts/__tests__/prune-stale-dist.test.mjs`.
+Settled: prune, not clean, for wired packages. Evidence: `ci-quality/turbo-cache-and-dist-hygiene.md`.
+Guard: `scripts/__tests__/prune-stale-dist.test.mjs`, `package-scripts-canonical-form-contract.test.mjs`.
 
 ### Canonical package build strategies
 
