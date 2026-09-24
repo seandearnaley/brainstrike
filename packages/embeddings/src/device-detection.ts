@@ -5,6 +5,7 @@
  * Enables proper WebGPU validation and user-friendly error messages.
  */
 
+import { runWithTimeout } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('device-detection');
@@ -107,28 +108,21 @@ interface WebGPUProbeResult {
 }
 
 /**
- * Creates a timeout promise that rejects after the specified duration.
- */
-function createTimeoutPromise<T>(ms: number, message: string): Promise<T> {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error(message)), ms);
-  });
-}
-
-/**
  * Probe WebGPU adapter availability (extracted for complexity reduction).
  * Includes a timeout to prevent UI hangs from unresponsive GPU drivers.
  */
 async function probeWebGPUAdapter(gpu: GPU): Promise<WebGPUProbeResult> {
   try {
-    // Race adapter request against timeout to prevent UI hangs
-    const adapter = await Promise.race([
-      gpu.requestAdapter({ powerPreference: 'high-performance' }),
-      createTimeoutPromise<GPUAdapter | null>(
-        WEBGPU_ADAPTER_TIMEOUT_MS,
-        `WebGPU adapter request timed out after ${WEBGPU_ADAPTER_TIMEOUT_MS}ms`
-      ),
-    ]);
+    // Bound the adapter request so an unresponsive GPU driver cannot hang the
+    // UI; the deadline timer is cleared as soon as the request settles.
+    const adapter = await runWithTimeout(
+      () => gpu.requestAdapter({ powerPreference: 'high-performance' }),
+      {
+        onTimeout: () =>
+          new Error(`WebGPU adapter request timed out after ${WEBGPU_ADAPTER_TIMEOUT_MS}ms`),
+        timeoutMs: WEBGPU_ADAPTER_TIMEOUT_MS,
+      }
+    );
 
     if (!adapter) {
       return {

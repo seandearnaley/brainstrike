@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@babel/parser": "^8.0.4",
+    "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "web-tree-sitter": "^0.25.10"

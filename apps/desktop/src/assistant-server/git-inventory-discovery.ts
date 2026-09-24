@@ -18,6 +18,7 @@
 
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import { type ConcurrencyLimiter, createConcurrencyLimiter } from '@brainstrike/effect-kit';
 import type { GitResult } from '@brainstrike/types';
 
 /** Directory names the walk never descends into (dedicated `.git` handling is separate — see {@link walkForGitEntries}). */
@@ -124,49 +125,23 @@ export interface WalkForGitEntriesParams {
    * `maxConcurrency`.
    */
   readonly semaphore?: WalkSemaphore;
-  /** Aborting stops the walk from queueing further `readdir` calls — see {@link walkDirectory}'s check. */
+  /**
+   * Aborting stops the walk from queueing further `readdir` calls and drops
+   * any still waiting for a permit — see {@link walkDirectory}.
+   */
   readonly signal?: AbortSignal | undefined;
 }
 
-/** Opaque handle a caller can share across multiple {@link walkForGitEntries} calls — see {@link createWalkSemaphore}. */
-export interface WalkSemaphore {
-  readonly acquire: () => Promise<() => void>;
-}
+/**
+ * Opaque handle a caller can share across multiple {@link walkForGitEntries}
+ * calls — see {@link createWalkSemaphore}. It bounds concurrency only; the
+ * walk never depends on the order readdirs are admitted in.
+ */
+export type WalkSemaphore = ConcurrencyLimiter;
 
-/** Simple counting semaphore bounding concurrent `readdir` calls across every walk it is passed into. */
-class Semaphore implements WalkSemaphore {
-  private available: number;
-  private readonly queue: Array<() => void> = [];
-
-  constructor(max: number) {
-    this.available = max;
-  }
-
-  async acquire(): Promise<() => void> {
-    if (this.available > 0) {
-      this.available -= 1;
-      return () => this.release();
-    }
-    return await new Promise((resolve) => {
-      this.queue.push(() => {
-        this.available -= 1;
-        resolve(() => this.release());
-      });
-    });
-  }
-
-  private release(): void {
-    this.available += 1;
-    const next = this.queue.shift();
-    if (next) {
-      next();
-    }
-  }
-}
-
-/** Create a {@link WalkSemaphore} bounded to `max` concurrent acquisitions, to share across several {@link walkForGitEntries} calls (one per workspace root) in a single snapshot build. */
+/** Create a {@link WalkSemaphore} bounded to `max` concurrent `readdir` calls, to share across several {@link walkForGitEntries} calls (one per workspace root) in a single snapshot build. */
 export function createWalkSemaphore(max: number): WalkSemaphore {
-  return new Semaphore(max);
+  return createConcurrencyLimiter(max);
 }
 
 interface WalkContext {
@@ -188,23 +163,27 @@ async function walkDirectory(
   // Cheap per-recursion abort check (BST-1112 review — codex P1 3712467640):
   // once the caller's build has been aborted (`stop()` racing a slow walk),
   // every new `walkDirectory` call bails before issuing another `readdir`.
-  // This does not cancel a `readdir` already in flight — `InventoryFs` has no
-  // signal parameter of its own — it only stops the walk from QUEUEING more
-  // work, which is what bounds `stop()`'s drain.
+  // A `readdir` already in flight is not cancelled — `InventoryFs` has no
+  // signal parameter of its own — but the walk stops waiting for it, and the
+  // shared limiter drops every `readdir` still waiting for a permit. That is
+  // what bounds `stop()`'s drain.
   if (ctx.signal?.aborted) {
     return;
   }
-  const release = await ctx.semaphore.acquire();
   let entries: readonly InventoryDirent[];
   try {
-    entries = await fs.readdir(dirPath);
+    entries = await ctx.semaphore(() => fs.readdir(dirPath), { signal: ctx.signal });
   } catch (error) {
+    // Aborted while this readdir waited for a permit (or was still running):
+    // it is exactly the queued work `stop()` asked the walk to drop, and the
+    // aborted build's snapshot is discarded, so it is not a directory failure.
+    if (ctx.signal?.aborted) {
+      return;
+    }
     ctx.errors.push(
       `git inventory: root "${ctx.rootLabel}" — failed to read directory "${dirPath}": ${formatError(error)}`
     );
     return;
-  } finally {
-    release();
   }
 
   const childWalks: Promise<void>[] = [];
@@ -266,7 +245,8 @@ export async function walkForGitEntries(
     maxDepth: params.maxDepth ?? DEFAULT_WALK_MAX_DEPTH,
     rootLabel: params.rootLabel,
     semaphore:
-      params.semaphore ?? new Semaphore(params.maxConcurrency ?? DEFAULT_WALK_MAX_CONCURRENCY),
+      params.semaphore ??
+      createWalkSemaphore(params.maxConcurrency ?? DEFAULT_WALK_MAX_CONCURRENCY),
     signal: params.signal,
   };
   await walkDirectory(ctx, params.fs, params.rootPath, 0);
