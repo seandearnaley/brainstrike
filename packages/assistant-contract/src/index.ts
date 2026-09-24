@@ -18,9 +18,9 @@ export * from './conversation-rewind.js';
 export * from './delegated-conversation-stream.js';
 export * from './delegated-tool-actions.js';
 export {
-  DELEGATION_LIMITS,
   type DelegatedBudgetPort,
   type DelegatedInvocationAdmission,
+  DelegatedOutputReservationExceededError,
   type DelegatedStepReservation,
   type DelegationBudgetCap,
 } from './delegation-limits.js';
@@ -54,6 +54,7 @@ export * from './provider-credential.js';
 export * from './provider-key-resolution.js';
 export * from './provider-key-source.js';
 export * from './provider-metadata.js';
+export * from './provider-model-default-policies.js';
 export * from './provider-registry.js';
 export * from './provider-verification.js';
 export * from './reasoning-visibility.js';

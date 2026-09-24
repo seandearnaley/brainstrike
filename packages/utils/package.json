@@ -8,6 +8,7 @@
     "minimatch": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/file-tree-test-fixtures": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@stryker-mutator/api": "catalog:",
     "@stryker-mutator/core": "catalog:",

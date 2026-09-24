@@ -6,7 +6,11 @@ import {
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type RuntimeData,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
+import {
+  NATIVE_TOOL_ID,
+  requireNativeToolExecutionBudget,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
@@ -25,10 +29,12 @@ const logger = createLogger('ExecuteCommandTool');
 const REDACTED_COMMAND_LOG_VALUE = { redacted: true } as const;
 const REDACTED_CWD_LOG_VALUE = { redacted: true } as const;
 
-/** Default per-command timeout when the model does not specify one. */
-const DEFAULT_TIMEOUT_MS = 120_000;
-/** Hard ceiling on the per-call timeout so a bad value cannot wedge the host. */
-const MAX_TIMEOUT_MS = 600_000;
+/**
+ * `defaultMs`: per-command timeout when the model does not specify one.
+ * `maxMs`: hard ceiling on the per-call timeout so a bad value cannot wedge the host.
+ */
+const { defaultMs: DEFAULT_TIMEOUT_MS, maxMs: MAX_TIMEOUT_MS } =
+  requireNativeToolExecutionBudget(EXECUTE_COMMAND_TOOL_ID);
 /** Maximum command-input characters repeated in the model-facing result. */
 const MAX_ECHOED_COMMAND_CHARS = 200;
 /**
@@ -261,12 +267,12 @@ async function resolveCommandCwd(
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      throw new Error(`cwd "${requestedCwd}" does not exist.`);
+      throw new ToolInputError(`cwd "${requestedCwd}" does not exist.`);
     }
     throw error;
   }
   if (!isWithinRoot(canonicalRootPath, canonicalCwd)) {
-    throw new Error(
+    throw new ToolInputError(
       `cwd "${requestedCwd}" resolves outside the workspace root "${root.displayName}". A command's start directory must be inside an open folder.`
     );
   }

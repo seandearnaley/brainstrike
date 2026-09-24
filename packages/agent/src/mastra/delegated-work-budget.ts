@@ -1,6 +1,6 @@
 import {
-  DELEGATION_LIMITS,
   type DelegatedBudgetPort,
+  DelegatedOutputReservationExceededError,
   type DelegatedStepReservation,
 } from '@brainstrike/assistant-contract';
 import type { ToolsInput } from '@mastra/core/agent';
@@ -11,10 +11,24 @@ import {
   type DelegatedSynthesisOutcomes,
 } from './delegated-synthesis-outcomes';
 
-/** FIFO permits for active model/tool work; native delegation waits own no permit. */
+/**
+ * FIFO permits for active model/tool work; native delegation waits own no
+ * permit. `maxConcurrentWork` is the request's setting
+ * (`RuntimeSubagentSettings.maxConcurrentWork`), never a constant.
+ */
 export class DelegatedWorkQueue {
   private active = 0;
   private readonly waiting: (() => void)[] = [];
+  private readonly maxConcurrentWork: number;
+
+  constructor(maxConcurrentWork: number) {
+    if (!Number.isInteger(maxConcurrentWork) || maxConcurrentWork < 1) {
+      throw new Error(
+        `Delegated work concurrency must be a positive integer; received ${maxConcurrentWork}.`
+      );
+    }
+    this.maxConcurrentWork = maxConcurrentWork;
+  }
 
   async acquire(signal?: AbortSignal): Promise<() => void> {
     signal?.throwIfAborted();
@@ -51,7 +65,7 @@ export class DelegatedWorkQueue {
   }
 
   private advance(): void {
-    while (this.active < DELEGATION_LIMITS.maxConcurrentWork && this.waiting.length > 0) {
+    while (this.active < this.maxConcurrentWork && this.waiting.length > 0) {
       this.waiting.shift()?.();
     }
   }
@@ -151,7 +165,7 @@ export function createDelegatedWorkBudget(
           if (!reservation) {
             throw new Error('Delegated output has no durable reservation.');
           }
-          await budget.settleStep(reservation.id, usage?.outputTokens);
+          await settleOutputStep(budget, reservation, usage?.outputTokens, finishReason, toolCalls);
           if (reservation.synthesis && toolCalls?.length) {
             throw new Error('Delegated synthesis cannot execute tools.');
           }
@@ -193,6 +207,28 @@ export function createDelegatedWorkBudget(
     },
     release,
   };
+}
+
+async function settleOutputStep(
+  budget: DelegatedBudgetPort,
+  reservation: DelegatedStepReservation,
+  outputTokens: number | undefined,
+  finishReason: string | undefined,
+  toolCalls: readonly unknown[] | undefined
+): Promise<void> {
+  try {
+    await budget.settleStep(reservation.id, outputTokens);
+  } catch (error) {
+    // The host has already charged the full usage. Retain only a cut, tool-free
+    // final summary: it cannot spend more. Never recover a persistence failure.
+    if (
+      !(error instanceof DelegatedOutputReservationExceededError && reservation.synthesis) ||
+      finishReason !== 'length' ||
+      toolCalls?.length
+    ) {
+      throw error;
+    }
+  }
 }
 
 /** Keep native descriptors, approval flags and raw/model projections intact. */

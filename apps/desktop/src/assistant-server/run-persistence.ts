@@ -15,6 +15,7 @@ import {
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { AssistantRunErrorRepository } from '@brainstrike/db';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
+import { completeFailedRootRun } from './delegated-stream-failure';
 import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { runCriticalDatabaseOperation } from './run-critical-database';
@@ -50,6 +51,34 @@ const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const TOKEN_ESTIMATE_CALIBRATION_TABLE = 'brainstrike_token_estimate_calibration';
 const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
+
+/**
+ * Stamp the DURABLE host leg on a pause this leg streams, exactly where the
+ * observer already stamps `runId` on every run event: the host is the one place
+ * that knows which `brainstrike_assistant_thread_runs` row is streaming. The
+ * notice carries it into its action echo, and the history topology adapter
+ * anchors the suspended message on that leg's `turn_message_id` (BST-1163) —
+ * the pause's own `runId` is Mastra's native run id and never matches a
+ * thread-run row.
+ *
+ * A pause of THIS turn qualifies: the root's own, and a delegated child's card
+ * (whose decision is appended by the root runtime, so the root turn's anchor is
+ * the right one). A CHILD-CONTINUATION pause does not: a continuation leg's
+ * `turn_message_id` is the continuation id, not a root message, so anchoring a
+ * root edge on it would persist a dangling parent.
+ */
+function withHostLeg(chunk: StreamChunk, hostRunId: string): StreamChunk {
+  if (chunk.type === 'tool-approval-required' || chunk.type === 'tool-suspend-required') {
+    return { ...chunk, hostRunId };
+  }
+  if (
+    chunk.type === 'delegated-conversation-chunk' &&
+    (chunk.chunk.type === 'tool-approval-required' || chunk.chunk.type === 'tool-suspend-required')
+  ) {
+    return { ...chunk, chunk: { ...chunk.chunk, hostRunId } };
+  }
+  return chunk;
+}
 
 export async function* observeDesktopAssistantRunEvents(
   stream: AsyncIterable<StreamChunk>,
@@ -124,7 +153,7 @@ export async function* observeDesktopAssistantRunEvents(
         continue;
       }
       if (chunk.type !== 'run-event') {
-        yield chunk;
+        yield withHostLeg(chunk, runId);
         continue;
       }
       const event: AssistantRunEvent = {
@@ -207,7 +236,11 @@ async function persistBoundDelegatedUsage(
   } catch (error: unknown) {
     logger.error('Failed to persist bound delegated usage', {
       code: 'assistant_delegated_usage_write_failed',
+      delegation: value.delegation,
       error,
+      model: value.model,
+      personaId: value.personaId,
+      provider: value.provider,
       runId,
     });
     throw error;
@@ -579,6 +612,10 @@ async function completeDesktopAssistantThreadRun(
 ): Promise<void> {
   const now = new Date();
   const database = await getDatabase();
+  if (status === 'failed') {
+    await completeFailedRootRun(database, runId, error);
+    return;
+  }
   await database.query(
     `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
      SET status = $2, error = $3, completed_at = $4, updated_at = $5

@@ -13,7 +13,7 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { use } from 'react';
+import { type ComponentProps, createElement, use } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
 import { DelegatedWorkspaceNavigation } from '../delegated-workspace-navigation';
@@ -22,7 +22,24 @@ import { useDelegatedConversationRoot } from '../use-delegated-conversation-root
 import { useDelegatedWorkspaceApps } from '../use-delegated-workspace-apps';
 import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 
-const mocks = vi.hoisted(() => ({ db: { query: vi.fn() }, get: vi.fn(), insights: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  childRoute: vi.fn(),
+  db: { query: vi.fn() },
+  get: vi.fn(),
+  insights: vi.fn(),
+}));
+vi.mock('../delegated-child-conversation-panel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../delegated-child-conversation-panel')>();
+  return {
+    ...original,
+    DelegatedChildConversationPanel(
+      props: ComponentProps<typeof original.DelegatedChildConversationPanel>
+    ) {
+      mocks.childRoute(props.panelProps?.decisionRoute);
+      return createElement(original.DelegatedChildConversationPanel, props);
+    },
+  };
+});
 vi.mock('@brainstrike/db/react', () => ({
   useDbProviderError: () => null,
   useOptionalPGliteDatabase: () => mocks.db,
@@ -54,6 +71,22 @@ afterEach(() => {
 });
 
 describe('delegated workspace app registration', () => {
+  it('carries a saved family accent into the tab without a finite palette lookup', async () => {
+    mocks.get.mockResolvedValue({ ...node, color: 'family:1734:680' });
+    useWorkspaceTabSelectionStore.getState().openApp(delegatedWorkspaceTabId(address));
+    const { result } = renderHook(useDelegatedWorkspaceApps);
+    await waitFor(() => expect(result.current[0]?.label).toBe('Cedar'));
+    expect(result.current[0]?.tabAppearance).toMatchObject({
+      colorId: 'family:1734:680',
+      markClassName: 'bs-agent-family-mark',
+      selectedClassName: 'bs-agent-family bs-agent-family-selected',
+      style: {
+        '--agent-accent-dark': expect.stringContaining('173.4'),
+        '--agent-accent-light': expect.stringContaining('173.4'),
+      },
+    });
+  });
+
   it('returns to the owning root without manufacturing a child tab for it', async () => {
     useWorkspaceTabSelectionStore.getState().hydrate([], { kind: 'empty' });
     function ReturnToRoot() {
@@ -84,6 +117,10 @@ describe('delegated workspace app registration', () => {
     useWorkspaceTabSelectionStore.getState().openApp(firstId);
     const { result, rerender } = renderHook(useDelegatedWorkspaceApps);
     await waitFor(() => expect(result.current[0]?.label).toBe('Cedar'));
+    expect(result.current[0]?.tabAppearance).toMatchObject({
+      colorId: 'emerald',
+      selectedClassName: expect.stringContaining('bg-emerald'),
+    });
     const resolved = result.current;
     rerender();
     expect(result.current).toBe(resolved);
@@ -142,6 +179,8 @@ describe('delegated workspace app registration', () => {
     });
     useWorkspaceTabSelectionStore.getState().hydrate([], { kind: 'empty' });
     let publish: ((text: string) => void) | undefined;
+    let registerOwner: (() => void) | undefined;
+    const ownerMessages = [] as const;
     function OpenChild() {
       const open = use(SubagentConversationNavigationContext);
       return (
@@ -152,6 +191,15 @@ describe('delegated workspace app registration', () => {
     }
     function Harness() {
       const root = useDelegatedConversationRoot('owner', 'root');
+      registerOwner = () => {
+        root?.onRuntimeReady({
+          thread: {
+            append: vi.fn(),
+            getState: () => ({ messages: ownerMessages, threadId: 'registered-root' }),
+            subscribe: () => () => undefined,
+          },
+        });
+      };
       publish = (text) => root?.onDelegatedConversation(delegatedUpdate('child', 'initial', text));
       const apps = useDelegatedWorkspaceApps();
       return (
@@ -184,11 +232,18 @@ describe('delegated workspace app registration', () => {
       </FileExplorerProvider>
     );
     act(() => {
+      registerOwner?.();
       publish?.('First live child transcript.');
     });
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Open Cedar' }));
     expect(await screen.findByText('First live child transcript.')).toBeVisible();
+    const route = mocks.childRoute.mock.lastCall?.[0] as
+      | import('@brainstrike/assistant-ui').DecisionRoute
+      | undefined;
+    // Queue ownership follows the persisted root, not its runtime-local ID.
+    expect(route?.queueThreadKey).toBe('root');
+    await expect(route?.dispatch('invalid decision')).rejects.toThrow('structured run metadata');
     expect(screen.getByTestId('child-workspace-mode')).toHaveTextContent(
       'Shared workspace: bound folder is no longer open'
     );

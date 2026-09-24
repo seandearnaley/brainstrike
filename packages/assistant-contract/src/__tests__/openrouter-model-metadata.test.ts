@@ -46,6 +46,104 @@ describe('parseOpenRouterModelMetadata', () => {
     });
   });
 
+  // BST-1804: fixtures copy the live GET /api/v1/model/{author}/{slug} shape
+  // (re-read 2026-09-22), trimmed to the fields the parser reads plus the
+  // `is_moderated` sibling the real `top_provider` carries.
+  it('pairs the top provider context window with its output limit, not the model-level maximum', () => {
+    expect(
+      parseOpenRouterModelMetadata(
+        {
+          data: {
+            context_length: 1_310_720,
+            id: 'z-ai/glm-5.3',
+            supported_parameters: ['max_tokens', 'reasoning', 'tools'],
+            top_provider: {
+              context_length: 1_048_576,
+              is_moderated: false,
+              max_completion_tokens: 131_072,
+            },
+          },
+        },
+        'z-ai/glm-5.3',
+        42
+      )
+    ).toMatchObject({ contextWindow: 1_048_576, maxOutputTokens: 131_072 });
+  });
+
+  it('keeps the shared window when the model-level and top-provider values agree', () => {
+    expect(
+      parseOpenRouterModelMetadata(
+        {
+          data: {
+            context_length: 192_000,
+            id: 'cohere/command-a-plus',
+            supported_parameters: ['max_tokens', 'tools'],
+            top_provider: {
+              context_length: 192_000,
+              is_moderated: true,
+              max_completion_tokens: 64_000,
+            },
+          },
+        },
+        'cohere/command-a-plus',
+        42
+      )
+    ).toMatchObject({ contextWindow: 192_000, maxOutputTokens: 64_000 });
+  });
+
+  it('falls back to the model-level window only when the top provider publishes none', () => {
+    const metadata = parseOpenRouterModelMetadata(
+      {
+        data: {
+          context_length: 200_000,
+          id: 'openrouter/free',
+          supported_parameters: ['max_tokens', 'tools'],
+          top_provider: { context_length: null, is_moderated: false, max_completion_tokens: null },
+        },
+      },
+      'openrouter/free',
+      42
+    );
+    expect(metadata.contextWindow).toBe(200_000);
+    expect(metadata).not.toHaveProperty('maxOutputTokens');
+  });
+
+  it('rejects a malformed top-provider context window instead of falling back', () => {
+    expect(() =>
+      parseOpenRouterModelMetadata(
+        {
+          data: {
+            context_length: 200_000,
+            id: 'openai/model',
+            supported_parameters: [],
+            top_provider: { context_length: 0, max_completion_tokens: null },
+          },
+        },
+        'openai/model',
+        42
+      )
+    ).toThrow('top_provider.context_length');
+  });
+
+  // The live API always publishes the key (a number, or null for router
+  // meta-models), so an absent key is a malformed payload, not a null one.
+  it('rejects an absent top-provider context window instead of falling back', () => {
+    expect(() =>
+      parseOpenRouterModelMetadata(
+        {
+          data: {
+            context_length: 200_000,
+            id: 'openai/model',
+            supported_parameters: [],
+            top_provider: { is_moderated: false, max_completion_tokens: null },
+          },
+        },
+        'openai/model',
+        42
+      )
+    ).toThrow('top_provider.context_length');
+  });
+
   it('allows the documented nullable output limit without inventing one', () => {
     expect(
       parseOpenRouterModelMetadata(
@@ -83,7 +181,7 @@ describe('parseOpenRouterModelMetadata', () => {
               supported_efforts: ['high', 'low'],
             },
             supported_parameters: ['reasoning'],
-            top_provider: { max_completion_tokens: 16_384 },
+            top_provider: { context_length: 32_768, max_completion_tokens: 16_384 },
           },
         },
         'example/bad-reasoning',
@@ -105,7 +203,7 @@ describe('parseOpenRouterModelMetadata', () => {
               supports_max_tokens: true,
             },
             supported_parameters: ['reasoning'],
-            top_provider: { max_completion_tokens: 16_384 },
+            top_provider: { context_length: 32_768, max_completion_tokens: 16_384 },
           },
         },
         'example/token-budget-only',
@@ -153,7 +251,7 @@ describe('parseOpenRouterModelMetadata', () => {
           context_length: 8192,
           id: 'openai/model',
           supported_parameters: [],
-          top_provider: { max_completion_tokens: 8193 },
+          top_provider: { context_length: 8192, max_completion_tokens: 8193 },
         },
       },
       'cannot exceed context_length',

@@ -423,11 +423,12 @@ export interface RuntimeData {
    */
   subagentPersonasRequest?: SubagentPersonasAvailabilityRequest;
   /**
-   * Renderer-supplied per-child delegation budgets (Settings → Models →
-   * Subagents, `assistant-subagent-preferences.v1`). A preference the host
-   * VALIDATES (`parseRuntimeSubagentSettings`: absent → defaults, malformed
-   * → throws) and copies into the original turn's durable budget row at first
-   * admission; it can never exceed `DELEGATION_LIMITS` tree ceilings.
+   * Renderer-supplied delegation limits, per turn tree and per child
+   * (Settings → Subagents → Subagent limits, `assistant-subagent-preferences.v1`). A
+   * preference the host VALIDATES (`parseRuntimeSubagentSettings`: absent →
+   * defaults, malformed → throws). Its budgets are copied into the original
+   * turn's durable budget row at first admission; a later leg never changes
+   * that row.
    */
   subagentSettings?: RuntimeSubagentSettings;
   /**

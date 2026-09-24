@@ -9,11 +9,13 @@ import {
   resolveOpenRouterOutputWindow,
   resolveOpenRouterReasoningActive,
   resolveReasoningVisible,
+  SUBAGENT_SETTINGS_LIMITS,
 } from '@brainstrike/assistant-contract';
-import type {
-  AssistantProviderSettings,
-  AssistantProviderSettingsUpdate,
-  OpenAiReasoningSummary,
+import {
+  type AssistantProviderSettings,
+  type AssistantProviderSettingsUpdate,
+  mergeAssistantProviderSettings,
+  type OpenAiReasoningSummary,
 } from '@brainstrike/types';
 import {
   Input,
@@ -24,19 +26,25 @@ import {
   SelectTrigger,
   SelectValue,
   Switch,
+  useDraftField,
 } from '@brainstrike/ui';
-import { useId, useState } from 'react';
+import { useId } from 'react';
 import { clampNumber, parseNumber } from './assistant-ui-panel-utils';
 import {
   useOpenRouterModelMetadataLookup,
   useProviderSettingsValidationChange,
 } from './openrouter-model-metadata-context';
 import {
+  type OpenRouterModelLimits,
+  OpenRouterModelLimitsCard,
+} from './provider-settings-model-limits';
+import {
   ANTHROPIC_THINKING_DEFAULT,
   ANTHROPIC_THINKING_MAX,
   ANTHROPIC_THINKING_MIN,
   ANTHROPIC_THINKING_STEP,
 } from './reasoning-effort-controls';
+import { useIntegerSettingField } from './use-provider-settings-draft-field';
 
 const settingsNumberFormatter = new Intl.NumberFormat();
 
@@ -47,7 +55,8 @@ const MAX_OUTPUT_STEP = 64;
 
 const AGENT_MAX_STEPS_DEFAULT = 100;
 const AGENT_MAX_STEPS_MIN = 1;
-const AGENT_MAX_STEPS_MAX = 100;
+/** The root loop shares the subagent step ceiling: one bound for any agent loop. */
+const AGENT_MAX_STEPS_MAX = SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max;
 const INPUT_TOKEN_LIMIT_DEFAULT = 64_000;
 const INPUT_TOKEN_LIMIT_MIN = 4096;
 const INPUT_TOKEN_LIMIT_MAX = 256_000;
@@ -81,22 +90,6 @@ interface ProviderSettingsSectionProps {
   disabled: boolean;
   onUpdate: ProviderSettingsUpdate;
   settings: AssistantProviderSettings;
-}
-
-interface OpenRouterModelLimits {
-  contextWindow: number;
-  effectiveInputBudget?: number;
-  label: string;
-  maxOutputTokens: number | undefined;
-  outputReservation: number;
-  outputWarning?: string;
-  sourceLabel: string;
-  status?: {
-    kind: 'error' | 'loading';
-    message: string;
-  };
-  usesConfiguredOutput: boolean;
-  warning?: string;
 }
 
 function resolveOpenRouterSourceLabel(lookup: OpenRouterModelMetadataLookup | undefined): string {
@@ -212,138 +205,149 @@ function resolveOpenRouterModelLimits(
   };
 }
 
+function FieldRefusal({ id, message }: { id: string; message: string | undefined }) {
+  return message ? (
+    <p className="text-destructive text-xs" id={id} role="alert">
+      {message}
+    </p>
+  ) : null;
+}
+
 const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => {
   const maxStepsEnabled = typeof settings.agentMaxSteps === 'number';
-  const maxStepsValue = clampNumber(
-    settings.agentMaxSteps ?? AGENT_MAX_STEPS_DEFAULT,
-    AGENT_MAX_STEPS_MIN,
-    AGENT_MAX_STEPS_MAX
-  );
   const inputTokenLimitEnabled = typeof settings.agentInputTokenLimit === 'number';
-  const inputTokenLimitValue = clampNumber(
-    settings.agentInputTokenLimit ?? INPUT_TOKEN_LIMIT_DEFAULT,
-    INPUT_TOKEN_LIMIT_MIN,
-    INPUT_TOKEN_LIMIT_MAX
-  );
-  const memoryLastMessagesValue = clampNumber(
-    settings.memoryLastMessages ?? MEMORY_LAST_MESSAGES_DEFAULT,
-    MEMORY_LAST_MESSAGES_MIN,
-    MEMORY_LAST_MESSAGES_MAX
-  );
+  const memoryLastMessages = settings.memoryLastMessages ?? MEMORY_LAST_MESSAGES_DEFAULT;
   const workingMemoryEnabled = settings.workingMemoryEnabled ?? true;
+  const maxStepsErrorId = useId();
+  const maxStepsHelpId = useId();
+  const maxStepsInputId = useId();
+  const inputTokenLimitErrorId = useId();
+  const inputTokenLimitHelpId = useId();
+  const inputTokenLimitInputId = useId();
+  const memoryErrorId = useId();
+  const memoryHelpId = useId();
+  const memoryInputId = useId();
+  const maxSteps = useIntegerSettingField(
+    maxStepsEnabled ? String(settings.agentMaxSteps) : '',
+    { max: AGENT_MAX_STEPS_MAX, min: AGENT_MAX_STEPS_MIN, noun: 'steps' },
+    (value) => onUpdate({ agentMaxSteps: value })
+  );
+  const inputTokenLimit = useIntegerSettingField(
+    inputTokenLimitEnabled ? String(settings.agentInputTokenLimit) : '',
+    { max: INPUT_TOKEN_LIMIT_MAX, min: INPUT_TOKEN_LIMIT_MIN, noun: 'input tokens' },
+    (value) => onUpdate({ agentInputTokenLimit: value })
+  );
+  const memory = useIntegerSettingField(
+    String(memoryLastMessages),
+    { max: MEMORY_LAST_MESSAGES_MAX, min: MEMORY_LAST_MESSAGES_MIN, noun: 'messages' },
+    (value) => onUpdate({ memoryLastMessages: value })
+  );
 
   return (
-    <div className="space-y-2 rounded-md bg-muted/30 p-2">
-      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-        Agent context
-      </Label>
-      <div className="grid gap-2">
-        <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">Max steps</span>
-          <Input
-            aria-label="Max agent steps"
-            className="h-7 text-xs"
-            disabled={disabled || !maxStepsEnabled}
-            inputMode="numeric"
-            max={AGENT_MAX_STEPS_MAX}
-            min={AGENT_MAX_STEPS_MIN}
-            onChange={(event) => {
-              const parsed = parseNumber(event.target.value);
-              if (parsed === undefined) {
-                onUpdate({ agentMaxSteps: undefined });
-                return;
-              }
-              onUpdate({
-                agentMaxSteps: clampNumber(parsed, AGENT_MAX_STEPS_MIN, AGENT_MAX_STEPS_MAX),
-              });
-            }}
-            placeholder="100 default"
-            type="number"
-            value={maxStepsEnabled ? maxStepsValue : ''}
-          />
-          <Switch
-            aria-label="Limit agent steps"
-            checked={maxStepsEnabled}
-            disabled={disabled}
-            onCheckedChange={(checked) =>
-              onUpdate({
-                agentMaxSteps: checked ? maxStepsValue : undefined,
-              })
-            }
-          />
+    <section aria-label="Agent context" className="min-w-0 space-y-3 border-border border-t pt-4">
+      <div>
+        <h3 className="font-semibold text-foreground text-xs">Agent context</h3>
+        <p className="text-muted-foreground text-xs">Bounds for each agent run.</p>
+      </div>
+      <div className="space-y-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="min-w-[160px] flex-1">
+            <Label className="font-medium text-foreground text-xs" htmlFor={maxStepsInputId}>
+              Max steps
+            </Label>
+            <p className="text-muted-foreground text-xs" id={maxStepsHelpId}>
+              Model steps per run. Without a custom limit, the default is 100.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <Input
+              aria-describedby={`${maxStepsHelpId}${maxSteps.error ? ` ${maxStepsErrorId}` : ''}`}
+              aria-invalid={Boolean(maxSteps.error)}
+              className="h-9 w-28 min-w-0 shrink-0 text-sm"
+              disabled={disabled || !maxStepsEnabled}
+              id={maxStepsInputId}
+              inputMode="numeric"
+              max={AGENT_MAX_STEPS_MAX}
+              min={AGENT_MAX_STEPS_MIN}
+              placeholder="Default · 100"
+              type="number"
+              {...maxSteps.inputProps}
+            />
+            <Switch
+              aria-label="Limit agent steps"
+              checked={maxStepsEnabled}
+              disabled={disabled}
+              onCheckedChange={(checked) => {
+                maxSteps.revert();
+                onUpdate({ agentMaxSteps: checked ? AGENT_MAX_STEPS_DEFAULT : undefined });
+              }}
+            />
+          </div>
         </div>
-        <div className="grid grid-cols-[1fr_96px_auto] items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">Input tokens</span>
-          <Input
-            aria-label="Input token limit"
-            className="h-7 text-xs"
-            disabled={disabled || !inputTokenLimitEnabled}
-            inputMode="numeric"
-            max={INPUT_TOKEN_LIMIT_MAX}
-            min={INPUT_TOKEN_LIMIT_MIN}
-            onChange={(event) => {
-              const parsed = parseNumber(event.target.value);
-              if (parsed === undefined) {
-                onUpdate({ agentInputTokenLimit: undefined });
-                return;
-              }
-              onUpdate({
-                agentInputTokenLimit: clampNumber(
-                  parsed,
-                  INPUT_TOKEN_LIMIT_MIN,
-                  INPUT_TOKEN_LIMIT_MAX
-                ),
-              });
-            }}
-            placeholder="Off"
-            type="number"
-            value={inputTokenLimitEnabled ? inputTokenLimitValue : ''}
-          />
-          <Switch
-            aria-label="Limit input tokens"
-            checked={inputTokenLimitEnabled}
-            disabled={disabled}
-            onCheckedChange={(checked) =>
-              onUpdate({
-                agentInputTokenLimit: checked ? inputTokenLimitValue : undefined,
-              })
-            }
-          />
+        <FieldRefusal id={maxStepsErrorId} message={maxSteps.error} />
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="min-w-[160px] flex-1">
+            <Label className="font-medium text-foreground text-xs" htmlFor={inputTokenLimitInputId}>
+              Input tokens
+            </Label>
+            <p className="text-muted-foreground text-xs" id={inputTokenLimitHelpId}>
+              Caps input tokens available to each model step.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <Input
+              aria-describedby={`${inputTokenLimitHelpId}${inputTokenLimit.error ? ` ${inputTokenLimitErrorId}` : ''}`}
+              aria-invalid={Boolean(inputTokenLimit.error)}
+              className="h-9 w-28 min-w-0 shrink-0 text-sm"
+              disabled={disabled || !inputTokenLimitEnabled}
+              id={inputTokenLimitInputId}
+              inputMode="numeric"
+              max={INPUT_TOKEN_LIMIT_MAX}
+              min={INPUT_TOKEN_LIMIT_MIN}
+              placeholder="Off"
+              type="number"
+              {...inputTokenLimit.inputProps}
+            />
+            <Switch
+              aria-label="Limit input tokens"
+              checked={inputTokenLimitEnabled}
+              disabled={disabled}
+              onCheckedChange={(checked) => {
+                inputTokenLimit.revert();
+                onUpdate({ agentInputTokenLimit: checked ? INPUT_TOKEN_LIMIT_DEFAULT : undefined });
+              }}
+            />
+          </div>
         </div>
-        <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">Memory messages</span>
+        <FieldRefusal id={inputTokenLimitErrorId} message={inputTokenLimit.error} />
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="min-w-[160px] flex-1">
+            <Label className="font-medium text-foreground text-xs" htmlFor={memoryInputId}>
+              Recent messages
+            </Label>
+            <p className="text-muted-foreground text-xs" id={memoryHelpId}>
+              Recent messages retained for context. Set 0 to turn this off.
+            </p>
+          </div>
           <Input
-            aria-label="Memory messages"
-            className="h-7 text-xs"
+            aria-describedby={`${memoryHelpId}${memory.error ? ` ${memoryErrorId}` : ''}`}
+            aria-invalid={Boolean(memory.error)}
+            className="h-9 w-28 min-w-0 shrink-0 text-sm"
             disabled={disabled}
+            id={memoryInputId}
             inputMode="numeric"
             max={MEMORY_LAST_MESSAGES_MAX}
             min={MEMORY_LAST_MESSAGES_MIN}
-            onChange={(event) => {
-              const parsed = parseNumber(event.target.value);
-              if (parsed === undefined) {
-                onUpdate({ memoryLastMessages: undefined });
-                return;
-              }
-              onUpdate({
-                memoryLastMessages: clampNumber(
-                  parsed,
-                  MEMORY_LAST_MESSAGES_MIN,
-                  MEMORY_LAST_MESSAGES_MAX
-                ),
-              });
-            }}
             type="number"
-            value={memoryLastMessagesValue}
+            {...memory.inputProps}
           />
-          <span className="text-right text-[10px] text-muted-foreground">
-            {memoryLastMessagesValue === 0
-              ? 'Off'
-              : settingsNumberFormatter.format(memoryLastMessagesValue)}
-          </span>
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] text-muted-foreground">Working memory</span>
+        <FieldRefusal id={memoryErrorId} message={memory.error} />
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-medium text-foreground text-xs">Working memory</p>
+            <p className="text-muted-foreground text-xs">Keep useful context between steps.</p>
+          </div>
           <Switch
             aria-label="Enable working memory"
             checked={workingMemoryEnabled}
@@ -352,7 +356,7 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
           />
         </div>
       </div>
-    </div>
+    </section>
   );
 };
 
@@ -394,7 +398,9 @@ const MaxOutputSection = ({
   defaultValue = MAX_OUTPUT_DEFAULT,
   maximum = MAX_OUTPUT_MAX,
   maximumSource,
+  autoDescription = 'Auto uses the provider default.',
 }: ProviderSettingsSectionProps & {
+  autoDescription?: string;
   defaultValue?: number;
   maximum?: number;
   maximumSource?: string | undefined;
@@ -406,89 +412,79 @@ const MaxOutputSection = ({
     MAX_OUTPUT_MIN,
     maximum
   );
-  const [draft, setDraft] = useState(maxOutputEnabled ? String(settings.maxOutputTokens) : '');
   const errorId = useId();
-  const parsedDraft = parseNumber(draft);
-  const draftError = resolveMaxOutputDraftError({
-    draft,
-    enabled: maxOutputEnabled,
-    maximum,
-    maximumSource,
+  const helpId = useId();
+  // A refused commit blocks the composer (`onValidationChange`) until it is
+  // fixed or Escape restores the stored value; a typed draft reports nothing.
+  const field = useDraftField({
+    commit: ({ text }) => {
+      // Unparseable text arrives as '' and is refused like an empty limit.
+      const refusal = resolveMaxOutputDraftError({
+        draft: text,
+        enabled: maxOutputEnabled,
+        maximum,
+        maximumSource,
+      });
+      onValidationChange?.(refusal);
+      if (refusal) {
+        return refusal;
+      }
+      onUpdate({ maxOutputTokens: Number(text) });
+      return;
+    },
+    onRevert: () => onValidationChange?.(undefined),
+    value: maxOutputEnabled ? String(settings.maxOutputTokens) : '',
   });
 
   return (
-    <div className="space-y-2 rounded-md bg-muted/30 p-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-          Output tokens / step
-        </Label>
+    <section aria-label="Output tokens" className="min-w-0 space-y-3 border-border border-t pt-4">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="font-semibold text-foreground text-xs">Output tokens per step</h3>
+          <p className="text-muted-foreground text-xs" id={helpId}>
+            Maximum output tokens for each model step. {autoDescription}
+          </p>
+        </div>
         <Switch
           aria-label="Limit output tokens per step"
           checked={maxOutputEnabled}
           disabled={disabled}
           onCheckedChange={(checked) => {
-            onValidationChange?.(undefined);
+            // Discards a refused draft and, through `onRevert`, its composer block.
+            field.revert();
             onUpdate({
               maxOutputTokens: checked ? maxOutputValue : undefined,
             });
           }}
         />
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-3">
         <Input
-          aria-describedby={draftError ? errorId : undefined}
-          aria-invalid={Boolean(draftError)}
+          aria-describedby={`${helpId}${field.error ? ` ${errorId}` : ''}`}
+          aria-invalid={Boolean(field.error)}
           aria-label="Output token limit"
-          className="h-8 text-xs"
+          className="h-9 min-w-0 flex-1 text-sm"
           disabled={disabled || !maxOutputEnabled}
           inputMode="numeric"
           max={maximum}
           min={MAX_OUTPUT_MIN}
-          onChange={(event) => {
-            const nextDraft = event.target.value;
-            setDraft(nextDraft);
-            const nextError = resolveMaxOutputDraftError({
-              draft: nextDraft,
-              enabled: maxOutputEnabled,
-              maximum,
-              maximumSource,
-            });
-            onValidationChange?.(nextError);
-            if (nextError) {
-              return;
-            }
-            const parsed = parseNumber(nextDraft);
-            if (parsed === undefined) {
-              return;
-            }
-            onUpdate({ maxOutputTokens: parsed });
-          }}
           placeholder="Auto"
           step={1}
           type="number"
-          value={maxOutputEnabled ? draft : ''}
+          {...field.inputProps}
         />
-        <span className="text-[10px] text-muted-foreground">
-          {maxOutputEnabled && !draftError
-            ? settingsNumberFormatter.format(parsedDraft ?? maxOutputValue)
-            : maxOutputEnabled
-              ? 'Invalid'
-              : 'Auto'}
-        </span>
+        <span className="shrink-0 text-muted-foreground text-xs">tokens</span>
       </div>
-      {draftError ? (
-        <p className="text-[10px] text-destructive" id={errorId} role="alert">
-          {draftError}
-        </p>
-      ) : null}
+      <FieldRefusal id={errorId} message={field.error} />
       <input
         aria-label="Max output tokens"
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-colors hover:bg-muted/80"
         disabled={disabled || !maxOutputEnabled}
         max={maximum}
         min={MAX_OUTPUT_MIN}
         onChange={(event) => {
-          onValidationChange?.(undefined);
+          // The slider sets the value another way: the typed draft is discarded.
+          field.revert();
           onUpdate({
             maxOutputTokens: clampNumber(Number(event.target.value), MAX_OUTPUT_MIN, maximum),
           });
@@ -497,48 +493,51 @@ const MaxOutputSection = ({
         type="range"
         value={maxOutputEnabled ? maxOutputValue : defaultValue}
       />
-    </div>
+      <div className="flex justify-between text-[11px] text-muted-foreground">
+        <span>{settingsNumberFormatter.format(MAX_OUTPUT_MIN)}</span>
+        <span>{settingsNumberFormatter.format(maximum)} tokens</span>
+      </div>
+    </section>
   );
 };
 
 // Reasoning EFFORT moved to the composer model menu (Effort submenu); this
 // section keeps only the provider-supported reasoning-summary control.
 const OpenAiReasoningSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => (
-  <div className="space-y-2 rounded-md bg-muted/30 p-2">
-    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-      Reasoning output
-    </Label>
-    <div className="grid gap-2">
-      <div className="space-y-1">
-        <span className="text-[10px] text-muted-foreground">Reasoning summary</span>
-        <Select
-          disabled={disabled}
-          // `reasoningSummary: undefined` no longer means "no summary" — the
-          // shared visibility default fills it in. Off must therefore write the
-          // explicit opt-out, or the option would render but do nothing.
-          onValueChange={(value) =>
-            onUpdate(
-              value === 'off'
-                ? { reasoningSummary: undefined, reasoningVisible: false }
-                : { reasoningSummary: value as OpenAiReasoningSummary, reasoningVisible: true }
-            )
-          }
-          value={resolveReasoningVisible(settings) ? (settings.reasoningSummary ?? 'auto') : 'off'}
-        >
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder="Auto" />
-          </SelectTrigger>
-          <SelectContent>
-            {OPENAI_SUMMARY_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+  <section aria-label="Reasoning output" className="min-w-0 space-y-3 border-border border-t pt-4">
+    <div>
+      <h3 className="font-semibold text-foreground text-xs">Reasoning output</h3>
+      <p className="text-muted-foreground text-xs">Choose how much reasoning summary to show.</p>
     </div>
-  </div>
+    <div className="min-w-0 space-y-1">
+      <Label className="font-medium text-foreground text-xs">Reasoning summary</Label>
+      <Select
+        disabled={disabled}
+        // `reasoningSummary: undefined` no longer means "no summary" — the
+        // shared visibility default fills it in. Off must therefore write the
+        // explicit opt-out, or the option would render but do nothing.
+        onValueChange={(value) =>
+          onUpdate(
+            value === 'off'
+              ? { reasoningSummary: undefined, reasoningVisible: false }
+              : { reasoningSummary: value as OpenAiReasoningSummary, reasoningVisible: true }
+          )
+        }
+        value={resolveReasoningVisible(settings) ? (settings.reasoningSummary ?? 'auto') : 'off'}
+      >
+        <SelectTrigger className="h-9 w-full min-w-0 text-sm">
+          <SelectValue placeholder="Auto" />
+        </SelectTrigger>
+        <SelectContent>
+          {OPENAI_SUMMARY_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  </section>
 );
 
 const AnthropicReasoningSection = ({
@@ -552,159 +551,114 @@ const AnthropicReasoningSection = ({
     ANTHROPIC_THINKING_MIN,
     ANTHROPIC_THINKING_MAX
   );
+  const thinkingErrorId = useId();
+  const thinkingHelpId = useId();
+  const thinkingBudget = useIntegerSettingField(
+    thinkingEnabled ? String(settings.anthropicThinkingBudgetTokens) : '',
+    { max: ANTHROPIC_THINKING_MAX, min: ANTHROPIC_THINKING_MIN, noun: 'thinking tokens' },
+    (value) => onUpdate({ anthropicThinkingBudgetTokens: value })
+  );
 
   // Effort + the primary Thinking toggle moved to the composer model menu;
   // the advanced numeric budget stays here.
   return (
-    <div className="space-y-2 rounded-md bg-muted/30 p-2">
-      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-        Claude reasoning
-      </Label>
-      <div className="space-y-2">
-        <div className="space-y-2 rounded-md border border-border bg-background p-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              Thinking budget
-            </span>
-            <Switch
-              checked={thinkingEnabled}
-              disabled={disabled}
-              onCheckedChange={(checked) =>
-                onUpdate({
-                  anthropicThinkingBudgetTokens: checked ? thinkingValue : undefined,
-                })
-              }
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Input
-              aria-label="Anthropic thinking budget input"
-              className="h-8 text-xs"
-              disabled={disabled || !thinkingEnabled}
-              inputMode="numeric"
-              max={ANTHROPIC_THINKING_MAX}
-              min={ANTHROPIC_THINKING_MIN}
-              onChange={(event) => {
-                const parsed = parseNumber(event.target.value);
-                if (parsed === undefined) {
-                  onUpdate({ anthropicThinkingBudgetTokens: undefined });
-                  return;
-                }
-                onUpdate({
-                  anthropicThinkingBudgetTokens: clampNumber(
-                    parsed,
-                    ANTHROPIC_THINKING_MIN,
-                    ANTHROPIC_THINKING_MAX
-                  ),
-                });
-              }}
-              placeholder="Auto"
-              type="number"
-              value={thinkingEnabled ? thinkingValue : ''}
-            />
-            <span className="text-[10px] text-muted-foreground">
-              {thinkingEnabled ? settingsNumberFormatter.format(thinkingValue) : 'Auto'}
-            </span>
-          </div>
-          <input
-            aria-label="Anthropic thinking budget"
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
-            disabled={disabled || !thinkingEnabled}
-            max={ANTHROPIC_THINKING_MAX}
-            min={ANTHROPIC_THINKING_MIN}
-            onChange={(event) =>
+    <section
+      aria-label="Claude reasoning"
+      className="min-w-0 space-y-3 border-border border-t pt-4"
+    >
+      <div>
+        <h3 className="font-semibold text-foreground text-xs">Claude reasoning</h3>
+        <p className="text-muted-foreground text-xs" id={thinkingHelpId}>
+          Optional budget for Claude thinking.
+        </p>
+      </div>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-medium text-foreground text-xs">Thinking budget</span>
+          <Switch
+            aria-label="Limit Anthropic thinking budget"
+            checked={thinkingEnabled}
+            disabled={disabled}
+            onCheckedChange={(checked) => {
+              thinkingBudget.revert();
               onUpdate({
-                anthropicThinkingBudgetTokens: clampNumber(
-                  Number(event.target.value),
-                  ANTHROPIC_THINKING_MIN,
-                  ANTHROPIC_THINKING_MAX
-                ),
-              })
-            }
-            step={ANTHROPIC_THINKING_STEP}
-            type="range"
-            value={thinkingEnabled ? thinkingValue : ANTHROPIC_THINKING_DEFAULT}
+                anthropicThinkingBudgetTokens: checked ? thinkingValue : undefined,
+              });
+            }}
           />
         </div>
+        <div className="flex min-w-0 items-center gap-3">
+          <Input
+            aria-describedby={`${thinkingHelpId}${thinkingBudget.error ? ` ${thinkingErrorId}` : ''}`}
+            aria-invalid={Boolean(thinkingBudget.error)}
+            aria-label="Anthropic thinking budget input"
+            className="h-9 min-w-0 flex-1 text-sm"
+            disabled={disabled || !thinkingEnabled}
+            inputMode="numeric"
+            max={ANTHROPIC_THINKING_MAX}
+            min={ANTHROPIC_THINKING_MIN}
+            placeholder="Auto"
+            type="number"
+            {...thinkingBudget.inputProps}
+          />
+          <span className="shrink-0 text-muted-foreground text-xs">tokens</span>
+        </div>
+        <FieldRefusal id={thinkingErrorId} message={thinkingBudget.error} />
+        <input
+          aria-label="Anthropic thinking budget"
+          className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-colors hover:bg-muted/80"
+          disabled={disabled || !thinkingEnabled}
+          max={ANTHROPIC_THINKING_MAX}
+          min={ANTHROPIC_THINKING_MIN}
+          onChange={(event) => {
+            // The slider sets the value another way: the typed draft is discarded.
+            thinkingBudget.revert();
+            onUpdate({
+              anthropicThinkingBudgetTokens: clampNumber(
+                Number(event.target.value),
+                ANTHROPIC_THINKING_MIN,
+                ANTHROPIC_THINKING_MAX
+              ),
+            });
+          }}
+          step={ANTHROPIC_THINKING_STEP}
+          type="range"
+          value={thinkingEnabled ? thinkingValue : ANTHROPIC_THINKING_DEFAULT}
+        />
+        <div className="flex justify-between text-[11px] text-muted-foreground">
+          <span>{settingsNumberFormatter.format(ANTHROPIC_THINKING_MIN)}</span>
+          <span>{settingsNumberFormatter.format(ANTHROPIC_THINKING_MAX)} tokens</span>
+        </div>
       </div>
-    </div>
+    </section>
   );
 };
 
 // The thinking LEVEL select moved to the composer model menu (Effort
 // submenu); this section keeps only the include-thoughts debug toggle.
 const GoogleThinkingSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => (
-  <div className="space-y-2 rounded-md bg-muted/30 p-2">
-    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-      Gemini thinking
-    </Label>
-    <div className="space-y-2">
-      <div className="flex items-center justify-between rounded-md border border-border bg-background p-2">
-        <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-            Include thoughts
-          </p>
-          <p className="text-[10px] text-muted-foreground">Stream internal reasoning (debug).</p>
-        </div>
-        <Switch
-          // Must show the RESOLVED value, not just the explicit one: with the
-          // key unset the shared default already includes thoughts, so a bare
-          // Boolean() would render off while they stream — and turning them
-          // off would take two clicks.
-          checked={settings.googleIncludeThoughts ?? resolveReasoningVisible(settings)}
-          disabled={disabled}
-          onCheckedChange={(checked) => onUpdate({ googleIncludeThoughts: checked })}
-        />
+  <section aria-label="Gemini thinking" className="min-w-0 space-y-3 border-border border-t pt-4">
+    <div>
+      <h3 className="font-semibold text-foreground text-xs">Gemini thinking</h3>
+    </div>
+    <div className="flex min-w-0 items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="font-medium text-foreground text-xs">Include thoughts</p>
+        <p className="text-muted-foreground text-xs">Stream internal reasoning for debugging.</p>
       </div>
+      <Switch
+        aria-label="Include Google thoughts"
+        // Must show the RESOLVED value, not just the explicit one: with the
+        // key unset the shared default already includes thoughts, so a bare
+        // Boolean() would render off while they stream — and turning them
+        // off would take two clicks.
+        checked={settings.googleIncludeThoughts ?? resolveReasoningVisible(settings)}
+        disabled={disabled}
+        onCheckedChange={(checked) => onUpdate({ googleIncludeThoughts: checked })}
+      />
     </div>
-  </div>
+  </section>
 );
-
-function OpenRouterModelLimitsCard({ limits }: { limits: OpenRouterModelLimits | undefined }) {
-  if (!limits) {
-    return (
-      <p className="rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-[10px] text-destructive">
-        OpenRouter limits unavailable for this model in the built-in catalog.
-      </p>
-    );
-  }
-
-  return (
-    <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground">
-      <p className="font-medium text-foreground">{limits.label}</p>
-      <p>
-        {settingsNumberFormatter.format(limits.contextWindow)} context ·{' '}
-        {limits.maxOutputTokens === undefined
-          ? 'max output not declared'
-          : `${settingsNumberFormatter.format(limits.maxOutputTokens)} max output`}
-      </p>
-      <p>
-        {limits.usesConfiguredOutput
-          ? `${settingsNumberFormatter.format(limits.outputReservation)} configured output`
-          : `Auto requests ${settingsNumberFormatter.format(limits.outputReservation)}`}{' '}
-        ·{' '}
-        {limits.effectiveInputBudget === undefined
-          ? 'effective input unavailable until the output limit is fixed'
-          : `${settingsNumberFormatter.format(limits.effectiveInputBudget)} effective input`}
-      </p>
-      <p>Source: {limits.sourceLabel}</p>
-      {limits.outputWarning ? <p className="text-destructive">{limits.outputWarning}</p> : null}
-      {limits.status ? (
-        <p
-          className={limits.status.kind === 'error' ? 'text-destructive' : 'text-muted-foreground'}
-          role="status"
-        >
-          {limits.status.message}
-        </p>
-      ) : null}
-      {limits.warning ? (
-        <p className="text-amber-700 dark:text-amber-300">
-          Stale metadata warning: {limits.warning}
-        </p>
-      ) : null}
-    </div>
-  );
-}
 
 // `modelName` stays on the props contract for callers, but no remaining
 // section is model-scoped (the model-constrained effort controls moved to the
@@ -744,6 +698,14 @@ export const ProviderSettingsPanel = ({
           effectiveOpenRouterModelMetadataLookup
         )
       : undefined;
+  const openRouterAutoReservation =
+    normalizedProvider === 'openrouter'
+      ? (resolveOpenRouterModelLimits(
+          modelName,
+          mergeAssistantProviderSettings(currentSettings, { maxOutputTokens: undefined }),
+          effectiveOpenRouterModelMetadataLookup
+        )?.outputReservation ?? resolveOpenRouterCodingMaxOutputTokens())
+      : undefined;
   const maximumOutputTokens =
     normalizedProvider === 'openrouter'
       ? (openRouterLimits?.maxOutputTokens ?? resolveOpenRouterCodingMaxOutputTokens())
@@ -757,37 +719,33 @@ export const ProviderSettingsPanel = ({
   };
 
   return (
-    <div className="space-y-3 rounded-md border border-border bg-background px-3 py-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-            Output & Limits
-          </p>
-          <p className="text-muted-foreground text-xs">
-            Per-provider agent runtime, output, and token limit controls. Reasoning effort and the
-            thinking toggle live in the model menu.
-          </p>
-        </div>
-      </div>
+    <div className="min-w-0 space-y-4">
+      <p className="text-muted-foreground text-xs">
+        Set how much the agent can process and produce. Thinking controls live beside the model.
+      </p>
 
       {normalizedProvider === 'openrouter' ? (
         <OpenRouterModelLimitsCard limits={openRouterLimits} />
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="min-w-0 space-y-4">
         <AgentRuntimeSection
           disabled={!canUpdate}
           onUpdate={updateSettings}
           settings={currentSettings}
         />
         <MaxOutputSection
-          defaultValue={
-            normalizedProvider === 'openrouter'
-              ? (openRouterLimits?.outputReservation ?? resolveOpenRouterCodingMaxOutputTokens())
-              : MAX_OUTPUT_DEFAULT
+          autoDescription={
+            openRouterAutoReservation === undefined
+              ? 'Auto uses the provider default.'
+              : `Auto requests ${settingsNumberFormatter.format(openRouterAutoReservation)} tokens for this model.`
           }
+          defaultValue={openRouterAutoReservation ?? MAX_OUTPUT_DEFAULT}
           disabled={!canUpdate}
-          key={`${providerId}:${modelName ?? ''}:${currentSettings.maxOutputTokens ?? 'auto'}:${maximumOutputTokens}`}
+          // Not keyed on the stored value: the draft field shows it whenever no
+          // draft is pending, and a remount per commit would drop focus and
+          // silently discard a refused draft instead of reverting it.
+          key={`${providerId}:${modelName ?? ''}`}
           maximum={maximumOutputTokens}
           maximumSource={openRouterLimits?.sourceLabel}
           onUpdate={updateSettings}

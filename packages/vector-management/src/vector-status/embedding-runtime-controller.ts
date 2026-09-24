@@ -90,7 +90,7 @@ function projectDesktopRuntimeStatus(status: EmbeddingHostStatus): EmbeddingRunt
   return runtimeStatus;
 }
 
-interface EmbeddingHostApi {
+export interface EmbeddingHostApi {
   readonly cancelAllBackfills?: () => Promise<void>;
   readonly cancelBackfill?: (embeddingSetId: string) => Promise<void>;
   readonly enqueueBackfill?: (request: {
@@ -124,18 +124,35 @@ interface UseEmbeddingRuntimeControllerParams {
 
 const BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 10 * 60 * 1000;
 
-function getEmbeddingHostApi(): EmbeddingHostApi | null {
+function isEmbeddingHostApi(value: unknown): value is EmbeddingHostApi {
+  if (!(value && typeof value === 'object')) {
+    return false;
+  }
+  const candidate = value as Partial<EmbeddingHostApi>;
+  return (
+    typeof candidate.ensureStarted === 'function' &&
+    typeof candidate.getStatus === 'function' &&
+    typeof candidate.onStatus === 'function' &&
+    typeof candidate.reset === 'function' &&
+    typeof candidate.stop === 'function'
+  );
+}
+
+export function getEmbeddingHostApi(): EmbeddingHostApi | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const currentWindow = window as Window & {
-    electronAPI?: unknown;
-    embeddingHost?: EmbeddingHostApi;
-  };
-  if (!currentWindow.electronAPI) {
-    return null;
-  }
-  return currentWindow.embeddingHost ?? null;
+  const candidate = (window as Window & { embeddingHost?: unknown }).embeddingHost;
+  return isEmbeddingHostApi(candidate) ? candidate : null;
+}
+
+export function hasEmbeddingBackfillCapability(): boolean {
+  const embeddingHost = getEmbeddingHostApi();
+  return Boolean(
+    embeddingHost &&
+      typeof embeddingHost.getBackfillsInFlight === 'function' &&
+      typeof embeddingHost.onBackfillProgress === 'function'
+  );
 }
 
 function createStoppedLocalStatus(runtimeId: string): EmbeddingRuntimeStatus {

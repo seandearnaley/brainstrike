@@ -86,11 +86,12 @@ describe('frontier model refresh (2026-07)', () => {
   });
 
   describe('Anthropic', () => {
-    it('exposes Fable 5.1 / Fable 5 / Opus 5 / Sonnet 5 alongside the retained Opus and Haiku models', () => {
+    it('exposes Fable 5.1 / Fable 5 / Opus 5.5 / Opus 5 / Sonnet 5 alongside the retained Opus and Haiku models', () => {
       const ids = llmIds('anthropic');
       expect(ids).toEqual([
         'claude-fable-5-1',
         'claude-fable-5',
+        'claude-opus-5-5',
         'claude-opus-5',
         'claude-opus-4-8',
         'claude-sonnet-5',
@@ -105,6 +106,7 @@ describe('frontier model refresh (2026-07)', () => {
       expect(fable).toEqual({
         anthropicReasoning: {
           defaultEffort: 'high',
+          mandatory: true,
           supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         },
         contextWindow: 1_000_000,
@@ -156,6 +158,7 @@ describe('frontier model refresh (2026-07)', () => {
       expect(opus).toEqual({
         anthropicReasoning: {
           defaultEffort: 'high',
+          mandatory: false,
           supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         },
         contextWindow: 1_000_000,
@@ -364,11 +367,14 @@ describe('frontier model refresh (2026-07)', () => {
       const glm53 = getLlmModelDefinition('openrouter', 'z-ai/glm-5.3');
 
       expect(glm53).toEqual({
+        // BST-1804: top_provider.context_length, not the Cloudflare-only
+        // model-level 1_310_720.
         contextWindow: 1_048_576,
         id: 'z-ai/glm-5.3',
         label: 'GLM-5.3 (OpenRouter)',
         maxOutputTokens: 131_072,
-        pricing: { inputPerMTok: 1.4, outputPerMTok: 4.4 },
+        // BST-1804: gateway re-priced from 1.4 / 4.4; live base read 2026-09-23.
+        pricing: { inputPerMTok: 0.84, outputPerMTok: 2.64 },
         reasoning: {
           defaultEffort: 'max',
           defaultEnabled: true,
@@ -386,15 +392,17 @@ describe('frontier model refresh (2026-07)', () => {
       const kimi = getLlmModelDefinition('openrouter', 'moonshotai/kimi-k3');
 
       expect(spark.contextWindow).toBe(1_048_576);
-      expect(spark.maxOutputTokens).toBeUndefined();
+      // BST-1804: the route's top_provider pair.
+      expect(spark.maxOutputTokens).toBe(943_718);
       expect(spark.reasoning).toEqual({
         defaultEffort: 'medium',
         mandatory: true,
         supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
       });
       expect(kimi.contextWindow).toBe(1_048_576);
-      // Official Moonshot maximum completion window (BST-1170).
-      expect(kimi.maxOutputTokens).toBe(1_048_576);
+      // BST-1804: the route's top_provider pair, not the 1_048_576 vendor
+      // maximum recorded while OpenRouter published none (BST-1170).
+      expect(kimi.maxOutputTokens).toBe(943_718);
       expect(kimi.reasoning).toEqual({
         // Auto runs below the vendor default; recorded, not derived (BST-833).
         autoEffort: 'low',
@@ -403,7 +411,7 @@ describe('frontier model refresh (2026-07)', () => {
         mandatory: false,
         supportedEfforts: ['max', 'high', 'low'],
         // Official Moonshot completion window for always-on thinking
-        // (BST-1170); OpenRouter publishes no max completion for this route.
+        // (BST-1170); OpenRouter publishes no default completion window.
         vendorDefaultOutputTokens: 131_072,
       });
     });
@@ -424,15 +432,19 @@ describe('frontier model refresh (2026-07)', () => {
         },
         vision: 'supported',
       });
+      // BST-1804: every OpenRouter row records the route's top_provider pair
+      // (scripts/openrouter-pricing-audit.mjs enforces it against the live
+      // Models API), not the larger model-level context_length.
       expect(inkling).toMatchObject({
-        contextWindow: 1_048_576,
+        contextWindow: 524_288,
+        maxOutputTokens: 471_859,
         vision: 'supported',
       });
-      // Provider figures: native 1M context, 128K max output. Guards against
-      // reintroducing the 1_048_756 transposition or the unsourced 262_144.
+      // BST-1804: supersedes the secondary-sourced 1_000_000 / 131_072; the
+      // route publishes this pair (see the row's _note).
       expect(longcat).toMatchObject({
-        contextWindow: 1_000_000,
-        maxOutputTokens: 131_072,
+        contextWindow: 1_048_756,
+        maxOutputTokens: 262_144,
         vision: 'unsupported',
       });
 
@@ -489,6 +501,8 @@ describe('frontier model refresh (2026-07)', () => {
         contextWindow: 500_000,
         id: 'x-ai/grok-4.6',
         label: 'Grok 4.6 (OpenRouter)',
+        // BST-1804: the route's top_provider pair; it published null on 2026-08-18.
+        maxOutputTokens: 450_000,
         pricing: { inputPerMTok: 2, outputPerMTok: 6 },
         reasoning: {
           defaultEffort: 'high',
@@ -500,7 +514,6 @@ describe('frontier model refresh (2026-07)', () => {
         type: 'llm',
         vision: 'supported',
       });
-      expect(grok.maxOutputTokens).toBeUndefined();
     });
 
     it('declares Muse Spark 1.2 from vendor capabilities and gateway metadata', () => {
@@ -510,6 +523,8 @@ describe('frontier model refresh (2026-07)', () => {
         contextWindow: 1_048_576,
         id: 'meta/muse-spark-1.2',
         label: 'Muse Spark 1.2 (OpenRouter)',
+        // BST-1804: the route's top_provider pair; it published null on 2026-08-21.
+        maxOutputTokens: 943_718,
         pricing: { inputPerMTok: 1.25, outputPerMTok: 4.25 },
         reasoning: {
           defaultEffort: 'medium',
@@ -521,14 +536,14 @@ describe('frontier model refresh (2026-07)', () => {
         type: 'llm',
         vision: 'supported',
       });
-      expect(spark.maxOutputTokens).toBeUndefined();
     });
 
     it('declares Qwen3.8 27B from vendor capabilities and gateway metadata', () => {
       const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-27b');
 
       expect(qwen).toEqual({
-        contextWindow: 262_144,
+        // BST-1804: the route's top_provider pair.
+        contextWindow: 1_000_000,
         id: 'qwen/qwen3.8-27b',
         label: 'Qwen3.8 27B (OpenRouter)',
         maxOutputTokens: 131_072,
@@ -582,7 +597,8 @@ describe('frontier model refresh (2026-07)', () => {
         contextWindow: 1_000_000,
         id: 'qwen/qwen3.8-2.4t-a95b',
         label: 'Qwen3.8 2.4T A95B (OpenRouter)',
-        maxOutputTokens: 262_144,
+        // BST-1804: the route's top_provider pair.
+        maxOutputTokens: 131_072,
         pricing: { inputPerMTok: 2, outputPerMTok: 6 },
         reasoning: {
           defaultEffort: 'xhigh',
@@ -603,8 +619,10 @@ describe('frontier model refresh (2026-07)', () => {
         contextWindow: 262_144,
         id: 'nvidia/nemotron-3.5-lightning',
         label: 'Nemotron 3.5 Lightning (OpenRouter)',
-        maxOutputTokens: 131_072,
-        pricing: { inputPerMTok: 0.08, outputPerMTok: 0.2 },
+        // BST-1804: the route's top_provider pair.
+        maxOutputTokens: 235_929,
+        // BST-1804: gateway re-priced from 0.08 / 0.2; live base read 2026-09-23.
+        pricing: { inputPerMTok: 0.07, outputPerMTok: 0.2 },
         reasoning: { mandatory: false, supportedEfforts: ['none'] },
         supportsStreaming: true,
         type: 'llm',

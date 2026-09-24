@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from 'react';
+import type { ComponentType, CSSProperties, ReactNode } from 'react';
 
 /**
  * A WorkspaceApp is a closable SINGLETON surface that lives in the workspace tab
@@ -25,6 +25,15 @@ export interface WorkspaceApp {
    * rather than in `render()` itself.
    */
   readonly render: () => ReactNode;
+  /** Optional identity tint for an app that represents a colored conversation. */
+  readonly tabAppearance?: {
+    readonly accentClassName: string;
+    readonly colorId: string;
+    readonly idleClassName: string;
+    readonly markClassName?: string;
+    readonly selectedClassName: string;
+    readonly style?: CSSProperties;
+  };
 }
 
 export const CONTEXT_EXPLORER_APP_ID = 'context-explorer';

@@ -31,6 +31,43 @@ export interface DelegatedConversationIdentity {
   readonly personaId: string;
 }
 
+/** The native leaf a delegated decision addresses, as the ledger keys it. */
+export interface DelegatedToolActionLeaf {
+  readonly childRuntimeRunId: string;
+  readonly toolCallId: string;
+}
+
+/**
+ * A parked leaf a session grant would answer, with the thread chain the host
+ * reads its stopped-subtree guard over. `threadIds` MUST be exactly the write's
+ * authorized ancestry — every child thread from the root's own child down to
+ * the leaf's, no more and no less — not merely "a chain that authorizes it".
+ * Both deviations are faults, and neither is caught by the host: SHORT restores
+ * the BST-1749 permanent refusal (the write refuses what the read missed, and
+ * `scope: 'child'` marks only the named child's invocation row, so an ancestor
+ * stop is visible only through the full chain); LONG silently over-skips a
+ * sibling the write would have answered, leaving its task suspended with no
+ * recovery path (assistant-subagents.md). The one caller derives it from
+ * `resolveParkedInvocation`'s host-resolved scopes, walked over the same edges
+ * `resolveToolAction` re-walks for the write, so the two agree by construction
+ * (PR #3221 review).
+ */
+export interface DelegatedToolActionCandidate extends DelegatedToolActionLeaf {
+  readonly threadIds: readonly string[];
+}
+
+/** Why a candidate cannot be answered, so the skip log names the real state. */
+export interface DelegatedToolActionUnanswerable extends DelegatedToolActionLeaf {
+  readonly reason: 'answered' | 'stopped';
+}
+
+/** A delegated leaf decision the host records as answered (`recordToolActionAnswers`). */
+export interface DelegatedToolActionAnswer {
+  readonly delegation: DelegatedToolActionIdentity;
+  readonly runId: string;
+  readonly toolCallId: string;
+}
+
 export interface DelegatedToolActionScope {
   /** Admission-time profile and effective budget, read from the authorized child record. */
   readonly configuration?: unknown;
@@ -118,6 +155,19 @@ export interface DelegatedLiveDecisionRecord {
   readonly toolName?: string;
 }
 
+/**
+ * The GENERATION a host leg belongs to (migration 140), and every native ROOT
+ * run mapped to it. `generationRunId` is the host run that OPENED the
+ * generation — an initial send or a regeneration — so every leg of one
+ * generation reports the same ledger identity; `nativeRunIds` is the scope its
+ * ledger counts over: the first turn's run plus one per continuation, across
+ * every leg the generation has had.
+ */
+export interface BackgroundGeneration {
+  readonly generationRunId: string;
+  readonly nativeRunIds: readonly string[];
+}
+
 export interface DelegatedConversationBinding {
   readonly abortInvocations?: (targets: readonly DelegatedCancellationTarget[]) => void;
   /** Host capability required for durable invocation publication/resume authorization. */
@@ -127,6 +177,10 @@ export interface DelegatedConversationBinding {
     readonly baseline?: DelegatedConversationBaseline;
   }>;
   readonly budget?: DelegatedBudgetPort;
+  readonly captureExecutionAbortSignal?: (
+    identity: DelegatedCancellationTarget & { readonly parentThreadId: string },
+    signal: AbortSignal | undefined
+  ) => void;
   /** Exact settings supplied by the constructed native child before its first input persists. */
   readonly captureExecutionConfiguration?: (
     context: DelegationStartContext['requestContext'],
@@ -140,10 +194,26 @@ export interface DelegatedConversationBinding {
     readonly toolCallId: string;
   }) => Promise<void>;
   readonly continuation?: ChildContinuationHostPort;
+  /**
+   * End one prepared, still-running execution because its own watchdog judged
+   * the child stalled (`background-child-watchdog.ts`). The stall aborts the
+   * child and its EXECUTION signal — never the selected-Stop cancellation — and
+   * the delegation hook rejects the executor with it, so the native task fails
+   * as its own task. `false` when no execution of that invocation runs here.
+   * Required: a background runtime cannot end a wedged child without it.
+   */
+  readonly endStalledExecution: (target: DelegatedCancellationTarget, stall: Error) => boolean;
   /** Releases only claims acquired by this binding; consumed leaf ids remain durable. */
   readonly finishToolActions?: () => Promise<void>;
   readonly getAbortSignal?: (
     context: DelegationStartContext['requestContext']
+  ) => AbortSignal | undefined;
+  /** Signal ending the native delegation execution: its deadline, or its child's stall. */
+  readonly getExecutionAbortSignal?: (
+    identity: DelegatedCancellationTarget
+  ) => AbortSignal | undefined;
+  readonly getInvocationAbortSignal?: (
+    identity: DelegatedCancellationTarget
   ) => AbortSignal | undefined;
   readonly hooks?: ToolHooks;
   readonly inputProcessor: InputProcessor;
@@ -155,25 +225,59 @@ export interface DelegatedConversationBinding {
   /** Freeze child history after admission and before invoking native resume. */
   readonly prepareToolAction?: NonNullable<DelegatedConversationBinding['claimToolAction']>;
   /**
+   * This leg's generation and its native-run scope (migration 140). Unlike the
+   * diagnostic records below this IS runtime authority: it decides the ledger
+   * identity every leg of the generation publishes under. It throws when the
+   * leg resumed a native run no host leg mapped, rather than guess.
+   */
+  readonly readBackgroundGeneration?: () => Promise<BackgroundGeneration>;
+  /**
    * `recordLiveDecision`, `recordPromptManifest` and `recordWakeup` write
    * debug-pack evidence (migration 139): host-owned, append-only, never runtime
    * authority. The host logs a failed write with a code and resolves — a
    * diagnostic record never fails the leg (swarm diagnostics plan, ruling 4).
    */
+  /**
+   * The candidates among `candidates` that `recordToolActionAnswers` would
+   * refuse for a reason of their OWN, so a session grant skips them instead of
+   * refusing the user's own click over them. Two reasons, both settled:
+   * `'answered'` — the leaf already carries a durable decision (claimed,
+   * consumed or interrupted; none can be answered again, BST-1720) because
+   * another decision answered it (BST-1749, PR #3209 review); `'stopped'` —
+   * the leaf's thread chain carries a cancellation request for this turn, so
+   * the child will never resume and there is nothing to answer. A Stop that
+   * never reached `cancelStoredBackgroundInvocations` leaves exactly that
+   * pairing — a stopped subtree whose task is still suspended — and refusing
+   * over it refused the user's card on every retry that still carried the
+   * grant. Root-wide admission (the root run not running, or cancelled) is
+   * NOT read here: it refuses the user's own answer too and must stay fatal.
+   */
+  readonly readUnanswerableToolActionLeaves?: (
+    candidates: readonly DelegatedToolActionCandidate[]
+  ) => Promise<readonly DelegatedToolActionUnanswerable[]>;
   readonly recordLiveDecision?: (record: DelegatedLiveDecisionRecord) => Promise<void>;
+  /**
+   * Maps a native ROOT run to the host leg that started it (migration 140):
+   * the first turn's run and one per continuation. Runtime authority — a later
+   * approval/resume leg derives its generation from this mapping.
+   */
+  readonly recordNativeRootRun?: (nativeRunId: string) => Promise<void>;
   readonly recordPromptManifest?: (record: DelegatedPromptManifestRecord) => Promise<void>;
   /**
-   * Record a decision the HOST answered by policy (a session grant covering a
-   * parked sibling) as consumed at once. It is not a pending user decision, so
-   * it never takes the root's single active claim; the unique leaf key still
-   * forbids answering the same pause twice (settled 2026-09-14, thread-796a942d:
-   * claiming siblings hit `tool-action-already-consumed-or-root-busy`).
+   * Record the decisions a RUNNING leg answers at once — a live user decision
+   * and every parked sibling a session grant covers — as consumed, ALL OR
+   * NONE: one write that records nothing when any answer is refused, so a
+   * refused sibling can never leave the user's own pause consumed and
+   * unresumed (BST-1749 review). The batch names each leaf at most once, and
+   * the host requires a transaction. They are not pending user
+   * decisions, so they never take the root's single active claim; the unique
+   * leaf key still forbids answering the same pause twice (settled 2026-09-14,
+   * thread-796a942d: claiming siblings hit
+   * `tool-action-already-consumed-or-root-busy`).
    */
-  readonly recordToolActionAnswer?: (action: {
-    readonly delegation: DelegatedToolActionIdentity;
-    readonly runId: string;
-    readonly toolCallId: string;
-  }) => Promise<void>;
+  readonly recordToolActionAnswers?: (
+    actions: readonly DelegatedToolActionAnswer[]
+  ) => Promise<void>;
   readonly recordWakeup?: (record: DelegatedWakeupRecord) => Promise<void>;
   readonly registerCancellation?: (control: DelegatedCancellationControl) => () => void;
   readonly registerDecisionControl?: (control: DelegatedDecisionControl) => () => void;
@@ -188,6 +292,13 @@ export interface DelegatedConversationBinding {
    * background siblings from their dispatch address with it, because no leaf
    * identity exists yet to authorize through `resolveToolAction` (which
    * refuses a bare address by design: `tool-action-leaf-identity-required`).
+   * The background ledger asks it too: a delegation refused at start persists
+   * no invocation, so a completed task whose address delegated nothing is no
+   * invocation of any leg (REJECTED ADMISSION IS NO INVOCATION). Durability is
+   * therefore part of this contract: an invocation, once persisted, MUST stay
+   * resolvable from its dispatch address for the life of the parent thread. A
+   * host that pruned one would not merely answer late — the ledger reads
+   * `undefined` as "refused" and would quietly stop counting a child that ran.
    */
   readonly resolveParkedInvocation?: (parent: {
     readonly parentRuntimeRunId: string;
@@ -247,8 +358,15 @@ export function createDelegatedConversationBinding(
 ): DelegatedConversationBinding {
   const scopes = new WeakMap<DelegationStartContext['requestContext'], ParentIdentity>();
   const inputs = new Map<string, DelegatedOriginalToolCall>();
+  // Native completion can precede downstream projection. Retain cancellation
+  // authority for this runtime-owned binding, including already queued output.
   const controllers = new Map<string, AbortController>();
   const preparedKeys = new Map<string, string>();
+  const executionSignals = new Map<string, AbortSignal>();
+  const pendingExecutionSignals = new Map<string, AbortSignal>();
+  // One per prepared execution, removed when its tool call returns: the end a
+  // stalled child's own watchdog delivers (`endStalledExecution`).
+  const stalls = new Map<string, AbortController>();
   const signals = new WeakMap<DelegationStartContext['requestContext'], AbortSignal>();
   const invocationKey = (identity: DelegatedCancellationTarget) =>
     JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
@@ -259,6 +377,25 @@ export function createDelegatedConversationBinding(
         controllers
           .get(invocationKey(target))
           ?.abort(new Error('Delegated conversation stopped by user.'));
+      }
+    },
+    captureExecutionAbortSignal: (identity, signal) => {
+      const key = inputKey(identity.parentThreadId, identity.parentToolCallId);
+      if (signal) {
+        pendingExecutionSignals.set(key, signal);
+      } else {
+        pendingExecutionSignals.delete(key);
+      }
+      // A capture after preparation keeps the prepared execution's stall end:
+      // the execution ends on its deadline or its child's stall, in either order.
+      const nativeKey = invocationKey(identity);
+      const stall = stalls.get(nativeKey)?.signal;
+      const executionSignal =
+        signal && stall ? AbortSignal.any([signal, stall]) : (signal ?? stall);
+      if (executionSignal) {
+        executionSignals.set(nativeKey, executionSignal);
+      } else {
+        executionSignals.delete(nativeKey);
       }
     },
     captureExecutionConfiguration(context, execution) {
@@ -272,20 +409,43 @@ export function createDelegatedConversationBinding(
         configuration: structuredClone({ ...configuration, execution }),
       });
     },
+    endStalledExecution(target, stall) {
+      const execution = stalls.get(invocationKey(target));
+      if (!execution) {
+        return false;
+      }
+      execution.abort(stall);
+      return true;
+    },
     getAbortSignal: (context) => signals.get(context),
+    getExecutionAbortSignal: (identity) => executionSignals.get(invocationKey(identity)),
+    getInvocationAbortSignal: (identity) => controllers.get(invocationKey(identity))?.signal,
     hooks: {
-      afterToolCall({ input, context, toolName }) {
+      afterToolCall({ input, context, toolName, error }) {
         // Snapshot resume has no process-local prepared controller to release.
         if (preparedKeys.size === 0 || !toolName.startsWith('agent-')) {
           return;
         }
         const threadId = requireIdentity(readToolExecutionThreadId([input, context]));
         const toolCallId = requireIdentity(readToolCallId([input, context]));
-        const preparedKey = inputKey(threadId, toolCallId);
-        const nativeKey = preparedKeys.get(preparedKey);
+        const key = inputKey(threadId, toolCallId);
+        const nativeKey = preparedKeys.get(key);
+        preparedKeys.delete(key);
+        pendingExecutionSignals.delete(key);
+        const stall = nativeKey ? stalls.get(nativeKey) : undefined;
         if (nativeKey) {
-          controllers.delete(nativeKey);
-          preparedKeys.delete(preparedKey);
+          stalls.delete(nativeKey);
+        }
+        // Everything this hook releases is released above; below it only
+        // decides the outcome, so a throw from here skips no release.
+        // The stall is why this execution ended, whatever the unwinding child
+        // threw or returned: without it Mastra would read the abort as a
+        // timeout, or the empty result as a completion.
+        stall?.signal.throwIfAborted();
+        // Mastra treats a resolved executor as successful even after its deadline.
+        // Keep native timeout classification in charge by rejecting the aborted call.
+        if (error === undefined && nativeKey) {
+          executionSignals.get(nativeKey)?.throwIfAborted();
         }
       },
       beforeToolCall({ input, context, toolName }) {
@@ -313,6 +473,9 @@ export function createDelegatedConversationBinding(
           throw new Error('Delegation input capture already owns this native call.');
         }
         inputs.set(key, original);
+        if ('abortSignal' in context && context.abortSignal instanceof AbortSignal) {
+          pendingExecutionSignals.set(key, context.abortSignal);
+        }
       },
     },
     inputProcessor: {
@@ -341,19 +504,34 @@ export function createDelegatedConversationBinding(
       if (originalToolCall && originalToolCall.toolName !== `agent-${context.primitiveId}`) {
         throw new Error('Captured delegation input belongs to a different native agent.');
       }
-      const controller = new AbortController();
       const nativeKey = invocationKey({
         parentRuntimeRunId: requireIdentity(context.runId),
         parentToolCallId: requireIdentity(context.toolCallId),
       });
-      if (controllers.has(nativeKey)) {
+      const existing = controllers.get(nativeKey);
+      if (existing && preparedKeys.has(key)) {
         throw new Error('Delegated cancellation already owns this native invocation.');
       }
+      // Native approval resume re-enters admission after the earlier tool hook.
+      // Preserve the same cancellation owner; a stopped invocation cannot restart.
+      existing?.signal.throwIfAborted();
+      // This execution ends on its native deadline or on its child's stall.
+      const stall = new AbortController();
+      stalls.set(nativeKey, stall);
+      const deadline = pendingExecutionSignals.get(key);
+      pendingExecutionSignals.delete(key);
+      const executionSignal = deadline ? AbortSignal.any([deadline, stall.signal]) : stall.signal;
+      executionSignals.set(nativeKey, executionSignal);
+      const controller = existing ?? new AbortController();
       controllers.set(nativeKey, controller);
       preparedKeys.set(key, nativeKey);
       signals.set(
         context.requestContext,
-        parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal
+        AbortSignal.any([
+          controller.signal,
+          ...(parentSignal ? [parentSignal] : []),
+          executionSignal,
+        ])
       );
       scopes.set(context.requestContext, {
         configuration: structuredClone(configuration),

@@ -30,7 +30,12 @@
     // these patterns at depth 1 — widening to `**` reinstates the fallback.
     ".": {
       "entry": ["*.{js,mjs,cjs,ts,mts,cts}"],
-      "project": ["*.{js,mjs,cjs,ts,mts,cts}"]
+      "project": ["*.{js,mjs,cjs,ts,mts,cts}"],
+      "ignoreDependencies": [
+        // scripts/react-compiler-inventory.mjs imports transformSync directly.
+        // CLI scripts are outside the root graph; keep the exception root-only.
+        "oxc-transform-react"
+      ]
     },
     // Define workspaces based on the Turborepo setup
     "apps/web": {
@@ -448,6 +453,20 @@
         // Exact-pinned official runner provenance. The bounded conformance lane
         // consumes its CLI/package entry rather than importing it from src/.
         "@modelcontextprotocol/conformance"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/effect-kit": {
+      "project": ["src/**/*.ts"],
+      "ignore": ["**/__tests__/**", "**/*.test.ts"],
+      "ignoreDependencies": [
+        // The Effect language-service tsconfig plugin NAME, not a package: the
+        // pinned `@effect/tsgo` binary resolves it in its dedicated diagnostics
+        // mode (docs/agents/effect-boundary.md § "Effect diagnostics"). Every
+        // Effect package carries the same entry.
+        "@effect/language-service"
       ],
       "typescript": {
         "config": "tsconfig.json"

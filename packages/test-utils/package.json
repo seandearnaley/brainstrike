@@ -1,9 +1,6 @@
 {
   "name": "@brainstrike/test-utils",
   "version": "0.1.0",
-  "dependencies": {
-    "@brainstrike/types": "workspace:*"
-  },
   "devDependencies": {
     "@playwright/test": "catalog:",
     "@stryker-mutator/api": "catalog:",

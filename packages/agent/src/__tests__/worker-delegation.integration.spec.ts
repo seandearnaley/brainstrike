@@ -3,6 +3,7 @@ import {
   getToolActionTarget,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
+import { DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY } from '@brainstrike/assistant-contract/memory-settings';
 import { BUILT_IN_PERSONAS } from '@brainstrike/assistant-contract/personas';
 import { buildUserPersona } from '@brainstrike/assistant-contract/user-personas';
 import { InMemoryStore } from '@mastra/core/storage';
@@ -163,7 +164,10 @@ it.for([
           });
     }).model;
     const storage = new InMemoryStore({ id: `worker-${action}` });
-    const memory = new Memory({ options: { generateTitle: false }, storage });
+    const memory = new Memory({
+      options: { generateTitle: false, workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY },
+      storage,
+    });
     const options = {
       conversationBinding: binding,
       memory,
@@ -281,7 +285,11 @@ it.for([
     expect(JSON.stringify(firstPrompt.filter((message) => message.role === 'user'))).toContain(
       'DELEGATED_TASK_DETAIL'
     );
+    expect(
+      JSON.stringify(firstPrompt.filter((message) => message.role === 'user').at(-1))
+    ).toContain('DELEGATED_TASK_DETAIL');
     expect(childPrompts.length).toBeGreaterThan(1);
+    expect(childTools.flat()).toContain('updateWorkingMemory');
     for (const prompt of childPrompts) {
       const messages = z.array(z.object({ content: z.unknown(), role: z.string() })).parse(prompt);
       expect(JSON.stringify(messages.filter((message) => message.role === 'system'))).toContain(

@@ -15,9 +15,16 @@
  */
 import { createLogger } from '@brainstrike/logging';
 import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
+import { projectBackgroundOutcomeForModel } from '../background-result-projection';
 import type { AssistantRunEventMetadata } from '../run-events';
 import type { StreamChunk } from '../types';
+import { completedBackgroundOutcome } from './background-result-delivery';
+import type {
+  BackgroundGeneration,
+  DelegatedConversationBinding,
+} from './delegated-conversation-binding';
 import { makeRunDetailEventChunk } from './stream-run-event-chunks';
+import type { DelegationOutcomeCapture } from './subagent-delegation';
 
 const logger = createLogger('BackgroundLedger');
 
@@ -28,10 +35,13 @@ export const MAX_LEDGER_PROMPT_CHARS = 120;
 export type BackgroundLedgerState = 'cancelled' | 'failed' | 'returned' | 'running';
 
 export interface BackgroundLedgerEntry {
+  /** Compact terminal output from the same durable snapshot as the status. */
+  readonly outcome?: ReturnType<typeof projectBackgroundOutcomeForModel>;
   readonly persona: string | undefined;
   readonly prompt: string | undefined;
   readonly reason: string | undefined;
   readonly state: BackgroundLedgerState;
+  readonly taskId?: string;
   readonly toolCallId: string;
   readonly toolName: string;
 }
@@ -47,16 +57,30 @@ export interface BackgroundLedgerCounts {
 export interface BackgroundLedger {
   readonly counts: BackgroundLedgerCounts;
   readonly entries: readonly BackgroundLedgerEntry[];
+  /**
+   * The GENERATION this ledger belongs to (migration 140). Every leg of one
+   * generation publishes under this id, so a later leg's row supersedes the
+   * earlier leg's instead of standing beside it forever.
+   */
+  readonly ledgerId: string;
 }
 
 export interface BackgroundLedgerSource {
-  /** The ledger of every task the given parent runs dispatched, from the durable rows. */
-  read(runIds: ReadonlySet<string>): Promise<BackgroundLedger>;
+  /**
+   * This GENERATION's ledger, from the durable rows: every task dispatched by
+   * a native run the host mapped to the generation, plus the runs this leg
+   * observed itself — a run whose first task has not started yet is not
+   * mapped, and the leg's own observations close that window.
+   */
+  read(observedRunIds: ReadonlySet<string>): Promise<BackgroundLedger>;
 }
 
-const EMPTY_LEDGER: BackgroundLedger = {
-  counts: { cancelled: 0, failed: 0, returned: 0, running: 0, total: 0 },
-  entries: [],
+const EMPTY_COUNTS: BackgroundLedgerCounts = {
+  cancelled: 0,
+  failed: 0,
+  returned: 0,
+  running: 0,
+  total: 0,
 };
 
 /**
@@ -107,34 +131,129 @@ function countEntries(entries: readonly BackgroundLedgerEntry[]): BackgroundLedg
 }
 
 export function createBackgroundLedgerSource(params: {
+  /** This leg's generation and every native run mapped to it (migration 140). */
+  readonly generation: () => Promise<BackgroundGeneration>;
   readonly manager: Pick<BackgroundTaskManager, 'listTasks'>;
   readonly personaLabel: (toolName: string) => string | undefined;
+  /**
+   * The leg's delegation outcomes (BST-1751). Mastra answers a refusal at
+   * start INSIDE the background task it already created, so the refused call
+   * completes as a task row exactly like a returned child. No child ran: it is
+   * no invocation of this ledger (REJECTED ADMISSION IS NO INVOCATION).
+   */
+  readonly rejectedDelegations: Pick<DelegationOutcomeCapture, 'rejected'> | undefined;
+  /**
+   * The host's invocation graph (`resolveParkedInvocation`): `undefined` when
+   * an address delegated nothing. A refusal persists no invocation, so this
+   * names a refused row whichever leg dispatched it — the capture above knows
+   * only its own leg's, and a resume leg reads the rows of the run it resumes.
+   * Undefined only without a host, where no other leg can read these rows
+   * (every delegated decision needs `resolveToolAction`).
+   */
+  readonly resolveInvocation: DelegatedConversationBinding['resolveParkedInvocation'];
   readonly scope: { readonly resourceId: string; readonly threadId: string };
 }): BackgroundLedgerSource {
+  /**
+   * One answer per completed row for the life of this leg. A completed row's
+   * answer is settled by construction: the child's `inputProcessor` AWAITS
+   * `persist` before the child streams a part, and Mastra writes a task's
+   * `completed` status together with its executor result. Overlapping reads
+   * share the PENDING answer — the idle loop publishes a row per lifecycle
+   * event — and a rejected answer is dropped, so one transient host failure
+   * never becomes this leg's permanent answer for that row.
+   */
+  const refusedCompletions = new Map<string, Promise<boolean>>();
+  const isRefused = (task: BackgroundTask): Promise<boolean> => {
+    if (params.rejectedDelegations?.rejected(task.toolCallId, task.runId)) {
+      return Promise.resolve(true);
+    }
+    // A refusal always completes; a child still starting has not persisted its invocation yet.
+    const resolveInvocation = params.resolveInvocation;
+    if (task.status !== 'completed' || !resolveInvocation) {
+      return Promise.resolve(false);
+    }
+    const known = refusedCompletions.get(task.id);
+    if (known) {
+      return known;
+    }
+    const answer = resolveInvocation({
+      parentRuntimeRunId: task.runId,
+      parentThreadId: params.scope.threadId,
+      parentToolCallId: task.toolCallId,
+    }).then((invocation) => invocation === undefined);
+    // A host that cannot answer fails the read (the publisher logs
+    // `background_ledger_read_failed`, the wakeup fails loudly): never an
+    // answer, so never remembered.
+    answer.catch(() => refusedCompletions.delete(task.id));
+    refusedCompletions.set(task.id, answer);
+    return answer;
+  };
   return {
-    async read(runIds) {
+    async read(observedRunIds) {
+      const { generationRunId, nativeRunIds } = await params.generation();
+      const runIds = new Set([...nativeRunIds, ...observedRunIds]);
       if (runIds.size === 0) {
-        return EMPTY_LEDGER;
+        return { counts: EMPTY_COUNTS, entries: [], ledgerId: generationRunId };
       }
       const { tasks } = await params.manager.listTasks({
         resourceId: params.scope.resourceId,
         threadId: params.scope.threadId,
       });
-      const entries = tasks
-        .filter((task) => runIds.has(task.runId))
+      const dispatched = tasks.filter((task) => runIds.has(task.runId));
+      const refused = await Promise.all(dispatched.map(isRefused));
+      const entries = dispatched
+        .filter((_task, index) => !refused[index])
         .map(
           (task): BackgroundLedgerEntry => ({
+            ...(ledgerStateOf(task.status) === 'running'
+              ? {}
+              : {
+                  outcome: projectBackgroundOutcomeForModel(completedBackgroundOutcome(task)),
+                }),
             persona: params.personaLabel(task.toolName),
             prompt: promptOf(task),
             reason: reasonOf(task),
             state: ledgerStateOf(task.status),
+            taskId: task.id,
             toolCallId: task.toolCallId,
             toolName: task.toolName,
           })
         );
-      return { counts: countEntries(entries), entries };
+      return { counts: countEntries(entries), entries, ledgerId: generationRunId };
     },
   };
+}
+
+/**
+ * The generation port a background leg reads its ledger identity and scope
+ * from. Background work without the host port is an unrunnable configuration,
+ * never a degraded one: a leg that cannot name its generation would publish
+ * rows under an identity no other leg of the turn shares, which is the bug
+ * this port exists to end (BST-1749, PR #3198 review item 5).
+ */
+export function requireBackgroundGeneration(
+  binding: DelegatedConversationBinding | undefined
+): () => Promise<BackgroundGeneration> {
+  const read = binding?.readBackgroundGeneration;
+  if (!read) {
+    throw new Error(
+      'Background work requires the host generation port (readBackgroundGeneration, migration 140).'
+    );
+  }
+  return read;
+}
+
+/** The port mapping each native ROOT run a leg starts to that host leg. */
+export function requireNativeRootRunRecorder(
+  binding: DelegatedConversationBinding | undefined
+): (nativeRunId: string) => Promise<void> {
+  const record = binding?.recordNativeRootRun;
+  if (!record) {
+    throw new Error(
+      'Background work requires the host native-run port (recordNativeRootRun, migration 140).'
+    );
+  }
+  return record;
 }
 
 export function personaLabelFor(runtime: {
@@ -206,8 +325,8 @@ export function ledgerLabel(ledger: BackgroundLedger): string {
  * `status` is `running` while anything runs and `completed` otherwise (a
  * failure is a fact in the label, not a failed row: the turn is healthy).
  */
-export function makeBackgroundLedgerChunk(ledger: BackgroundLedger, ledgerId: string): StreamChunk {
-  const metadata: AssistantRunEventMetadata = { ledgerId, ...ledger.counts };
+export function makeBackgroundLedgerChunk(ledger: BackgroundLedger): StreamChunk {
+  const metadata: AssistantRunEventMetadata = { ledgerId: ledger.ledgerId, ...ledger.counts };
   return makeRunDetailEventChunk(
     DELEGATION_LEDGER_RUN_EVENT_KIND,
     ledger.counts.running > 0 ? 'running' : 'completed',
@@ -222,7 +341,7 @@ export interface LedgerPublisher {
   idle(): Promise<void>;
   /** Rows whose durable read has not settled yet. */
   readonly inFlight: number;
-  publish(runIds: ReadonlySet<string>, ledgerId: string): void;
+  publish(observedRunIds: ReadonlySet<string>): void;
 }
 
 /**
@@ -261,18 +380,18 @@ export function createLedgerPublisher(params: {
     get inFlight() {
       return inFlight;
     },
-    publish(runIds, ledgerId) {
+    publish(observedRunIds) {
       inFlight += 1;
       void params.source
-        .read(runIds)
+        .read(observedRunIds)
         .then((ledger) => {
-          params.enqueue(makeBackgroundLedgerChunk(ledger, ledgerId));
+          params.enqueue(makeBackgroundLedgerChunk(ledger));
         })
         .catch((error: unknown) => {
           logger.error('Background ledger read failed; no status row published for this change', {
             code: 'background_ledger_read_failed',
             error: error instanceof Error ? error.message : String(error),
-            ledgerId,
+            observedRunIds: [...observedRunIds],
           });
         })
         .finally(settleOne);

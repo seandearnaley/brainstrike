@@ -60,7 +60,8 @@ type PreparedRequestStatus = 'cancelled' | 'completed' | 'failed';
 type CompletePreparedRequest = (
   preparedRequestData: Record<string, unknown> | undefined,
   status: PreparedRequestStatus,
-  error?: string
+  error?: string,
+  hostOwnsRun?: boolean
 ) => Promise<void>;
 
 /**
@@ -147,9 +148,9 @@ export function useAssistantUsageLedger({
   // Thread attribution uses the CURRENT selection — a mid-run thread switch
   // could miss, acceptable for a transient display sum.
   const completeRequestAndSettleLiveUsage = useCallback<CompletePreparedRequest>(
-    async (preparedRequestData, status, error) => {
+    async (preparedRequestData, status, error, hostOwnsRun) => {
       try {
-        await completePreparedRequest(preparedRequestData, status, error);
+        await completePreparedRequest(preparedRequestData, status, error, hostOwnsRun);
       } finally {
         if (status !== 'completed') {
           clearThreadLiveRunUsage();

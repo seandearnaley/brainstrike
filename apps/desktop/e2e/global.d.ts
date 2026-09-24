@@ -13,6 +13,7 @@ declare global {
     agent?: {
       chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
     };
+    electronAPI?: import('../src/types/desktop-electron-api').VisibleDesktopElectronApi;
     // Shape defined ONCE in
     // @brainstrike/assistant-contract/env-bootstrap-bridge. Declared so an
     // e2e spec can stub the env bootstrap projection and drive the Settings

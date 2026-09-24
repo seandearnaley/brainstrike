@@ -112,6 +112,29 @@ describe('AssistantToolSuspendNotice', () => {
     }
   );
 
+  it("carries the pause's durable host leg into the resume echo", async () => {
+    // The marker's `runId` is the NATIVE Mastra run the resume route addresses
+    // and never matches a thread-run row; the history topology adapter anchors
+    // the suspended message on the host leg that surfaced the pause instead.
+    const user = userEvent.setup();
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          hostRunId: 'run-host-leg-1',
+          runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+        }}
+      />
+    );
+    await user.type(screen.getByRole('textbox'), 'Vancouver');
+    await user.click(screen.getByRole('button', { name: /send|answer|submit/i }));
+    await waitFor(() => expect(appendMessageMock).toHaveBeenCalled());
+    expect(lastResumeAction()).toMatchObject({
+      hostRunId: 'run-host-leg-1',
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+    });
+  });
+
   it('renders the plan overview, steps, risks, and verification', () => {
     render(<AssistantToolSuspendNotice data={planRequest} />);
     expect(screen.getByTestId('assistant-submit-plan-notice')).toBeInTheDocument();

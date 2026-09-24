@@ -16,7 +16,11 @@
  * new run proceeds; only a genuinely running durable run keeps the guard.
  * A failed probe keeps the guard (fail-safe, never silent).
  */
-import { ASSISTANT_RUN_STATUS_PATH } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_RUN_STATUS_PATH,
+  ASSISTANT_STREAM_EVENT_ID_HEADER,
+  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
+} from '@brainstrike/assistant-contract';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { writeAssistantActiveRunSession } from '../assistant-run-reattachment';
@@ -67,6 +71,153 @@ describe('useAssistantServerRunSession stale-record reclaim', () => {
     Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'assistant');
   });
 
+  it.each(['error', 'finish'] as const)(
+    'releases an admitted host run on %s without transferring terminal ownership',
+    async (event) => {
+      window.sessionStorage.clear();
+      const completePreparedRequest = vi.fn();
+      const data = { memory: { runId: 'host-owned' } };
+      const { result } = renderHook(() =>
+        useAssistantServerRunSession({
+          api: API,
+          completePreparedRequest,
+          prepareRequestData: async () => data,
+          threadKey: THREAD_KEY,
+        })
+      );
+      await act(async () => {
+        await result.current.prepareRequest();
+      });
+      act(() =>
+        result.current.onResponse(
+          new Response(null, {
+            headers: {
+              [ASSISTANT_STREAM_EVENT_ID_HEADER]: 'session:0',
+              [ASSISTANT_STREAM_MESSAGE_ID_HEADER]: 'message',
+            },
+          }),
+          'user-parent'
+        )
+      );
+      await act(async () => {
+        if (event === 'error') {
+          result.current.onError(new Error('network error'));
+        } else {
+          result.current.onFinish();
+        }
+      });
+      expect(completePreparedRequest).toHaveBeenCalledWith(
+        data,
+        event === 'error' ? 'failed' : 'completed',
+        event === 'error' ? 'network error' : undefined,
+        true
+      );
+      if (event === 'error') {
+        expect(window.sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+      }
+    }
+  );
+
+  it('keeps renderer ownership when the request fails before host admission', async () => {
+    window.sessionStorage.clear();
+    const completePreparedRequest = vi.fn();
+    const data = { memory: { runId: 'not-admitted' } };
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        completePreparedRequest,
+        prepareRequestData: async () => data,
+        threadKey: THREAD_KEY,
+      })
+    );
+    await act(async () => {
+      await result.current.prepareRequest();
+      result.current.onError(new Error('connection refused'));
+    });
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      data,
+      'failed',
+      'connection refused',
+      false
+    );
+  });
+
+  it('publishes an admitted live cursor for replay after the stream detaches', async () => {
+    window.sessionStorage.clear();
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        prepareRequestData: async () => ({ memory: { runId: 'run-live' } }),
+        threadKey: THREAD_KEY,
+      })
+    );
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    act(() => {
+      result.current.onResponse(
+        new Response(null, {
+          headers: {
+            [ASSISTANT_STREAM_EVENT_ID_HEADER]: 'session:0',
+            [ASSISTANT_STREAM_MESSAGE_ID_HEADER]: 'assistant-live',
+          },
+        }),
+        'user-parent'
+      );
+    });
+    expect(result.current.activeRunSession).toEqual({
+      assistantMessageId: 'assistant-live',
+      eventId: 'session:0',
+      parentMessageId: 'user-parent',
+      runId: 'run-live',
+    });
+    act(() => result.current.onError(new Error('socket dropped')));
+    expect(result.current.activeRunSession).toEqual(
+      JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? 'null')
+    );
+  });
+
+  it('discovers a running host stream in a replacement window with no sessionStorage cursor', async () => {
+    window.sessionStorage.clear();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe('/assistant/active-run');
+      expect(url.searchParams.get('resourceId')).toBe('resource-1');
+      expect(url.searchParams.get('threadId')).toBe(THREAD_KEY);
+      return new Response(
+        JSON.stringify({
+          activeRun: {
+            assistantMessageId: 'assistant-live',
+            eventId: 'session:0',
+            inputMessage: {
+              id: 'user-1',
+              parts: [{ text: 'first prompt', type: 'text' }],
+              role: 'user',
+            },
+            inputParentMessageId: null,
+            parentMessageId: 'user-1',
+            runId: 'run-live',
+            state: 'active',
+          },
+        }),
+        { status: 200 }
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      })
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(result.current.recoveryError).toBeUndefined();
+    expect(result.current.activeRunSession?.runId).toBe('run-live');
+    expect(result.current.discoveredRun?.inputMessage?.id).toBe('user-1');
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+  });
+
   it('retains cancelled-request authority on HTTP failure and reclaims only a terminal server run', async () => {
     window.sessionStorage.clear();
     let status = 'running';
@@ -89,7 +240,7 @@ describe('useAssistantServerRunSession stale-record reclaim', () => {
       await result.current.prepareRequest();
     });
     await act(async () => {
-      result.current.onCancel();
+      result.current.onCancel({ messages: [] });
       result.current.onError(new Error('abort'));
     });
     expect(completePreparedRequest).not.toHaveBeenCalled();

@@ -1,6 +1,8 @@
+import { DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { parseMemoryRequestContext } from '@mastra/core/memory';
 import { InMemoryStore } from '@mastra/core/storage';
-import { createTool } from '@mastra/core/tools';
+import { createTool, type ToolExecuteContext } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -57,6 +59,74 @@ function runtime(id: string) {
     storage,
   };
 }
+it('read-only specialists retain their task and tools without inherited memory-write instructions', async () => {
+  const setup = runtime('readonly-memory');
+  setup.memory = new Memory({
+    options: { generateTitle: false, workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY },
+    storage: setup.storage,
+  });
+  const childPrompts: unknown[] = [];
+  const childTools: string[][] = [];
+  const rootTools: string[][] = [];
+  let observedChild: { threadId: string; resourceId: string } | undefined;
+  const execute = vi.fn(async (_input: unknown, context?: ToolExecuteContext<unknown>) => {
+    const scope = parseMemoryRequestContext(context?.requestContext);
+    if (!(scope?.thread && scope.resourceId)) {
+      throw new Error('Missing native child memory');
+    }
+    observedChild = { resourceId: scope.resourceId, threadId: scope.thread.id };
+    return { matches: ['EVIDENCE'] };
+  });
+  modelHolder.current = scriptedAgentModel((options) => {
+    const names = options.tools?.map((tool) => tool.name) ?? [];
+    if (names.includes('agent-explore')) {
+      rootTools.push(names);
+      return hasToolResult(options, 'agent-explore')
+        ? textParts('ROOT_REPORT')
+        : toolCallParts('agent-explore', 'specialist', { prompt: 'Survey architecture only.' });
+    }
+    childPrompts.push(options.prompt);
+    childTools.push(names);
+    return hasToolResult(options, 'brainstrike_grepSearch')
+      ? textParts('ARCHITECTURE_REPORT: EVIDENCE')
+      : toolCallParts('brainstrike_grepSearch', 'inspect', {});
+  }).model;
+  const chunks = await collect(
+    await streamMastraAgent([user], {
+      ...setup,
+      personas: [persona],
+      tools: {
+        'brainstrike.grepSearch': createTool({
+          description: 'Inspect files.',
+          execute,
+          id: 'grep',
+          inputSchema: z.object({}),
+        }),
+      },
+    })
+  );
+  expect(execute, JSON.stringify(chunks)).toHaveBeenCalledTimes(1);
+  expect(childPrompts).toHaveLength(2);
+  expect(JSON.stringify(childPrompts)).toContain('Survey architecture only.');
+  expect(JSON.stringify(childPrompts)).not.toContain('WORKING_MEMORY_SYSTEM_INSTRUCTION');
+  expect(childTools.flat()).not.toContain('updateWorkingMemory');
+  expect(rootTools.flat()).toContain('updateWorkingMemory');
+  expect(JSON.stringify(chunks)).toContain('ARCHITECTURE_REPORT: EVIDENCE');
+  expect(JSON.stringify(chunks)).toContain('ROOT_REPORT');
+  expect(observedChild?.threadId).not.toBe(setup.runtime.memory.threadId);
+  expect(observedChild?.resourceId).not.toBe(setup.runtime.memory.resourceId);
+  const store = await setup.storage.getStore('memory');
+  if (!(store && observedChild)) {
+    throw new Error('Missing child storage');
+  }
+  expect(await store.getThreadById({ threadId: observedChild.threadId })).toMatchObject({
+    id: observedChild.threadId,
+    resourceId: observedChild.resourceId,
+  });
+  const saved = await store.listMessages({ perPage: false, threadId: observedChild.threadId });
+  expect(JSON.stringify(saved.messages)).toContain('ARCHITECTURE_REPORT: EVIDENCE');
+  expect(JSON.stringify(saved.messages)).not.toContain('ROOT_REPORT');
+});
 it('rejects oversized trusted child context before child inference while the parent receives its failure', async () => {
   const trustedText = '界'.repeat(23_000);
   expect(Buffer.byteLength(trustedText, 'utf8')).toBeGreaterThan(64 * 1024);

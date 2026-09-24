@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  DelegatedBudgetPort,
-  DelegatedStepReservation,
+import {
+  type DelegatedBudgetPort,
+  DelegatedOutputReservationExceededError,
+  type DelegatedStepReservation,
 } from '@brainstrike/assistant-contract';
-import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
+import type {
+  RuntimeSubagentSettings,
+  TurnSubagentLimits,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import {
   createDelegatedConversationRepository,
   type DelegatedConversationDatabase,
@@ -21,6 +25,15 @@ const treeSchema = z.object({
   maxStepOutputTokens: z.number().int().positive(),
   synthesisOutputTokens: z.number().int().positive(),
 });
+const turnLimitsSchema = z.strictObject({
+  maxChildOutputTokens: z.number().int().positive(),
+  maxChildSteps: z.number().int().positive(),
+  maxDepth: z.number().int().positive(),
+  maxInvocations: z.number().int().positive(),
+  maxStepOutputTokens: z.number().int().positive(),
+  maxTreeOutputTokens: z.number().int().positive(),
+  synthesisOutputTokens: z.number().int().positive(),
+}) satisfies z.ZodType<TurnSubagentLimits>;
 const childSchema = z.object({
   chargedOutputTokens: z.number().int().nonnegative(),
   maxSteps: z.number().int().positive(),
@@ -71,6 +84,8 @@ export function createDelegatedStepBudget(
   database: DelegatedConversationDatabase,
   hostRunId: string,
   readScope: () => Promise<Scope>,
+  /** The same resolution, `undefined` only while the leg has no run row or turn anchor. */
+  resolveScope: () => Promise<Scope | undefined>,
   subagentSettings?: RuntimeSubagentSettings
 ): DelegatedBudgetPort {
   async function transact<T>(
@@ -115,6 +130,27 @@ export function createDelegatedStepBudget(
           subagentSettings
         );
       });
+    },
+    // Runtime construction asks this before any delegation, through the scope
+    // resolution admission uses. A leg without a turn anchor (a thread with no
+    // user message) or run row has stored no limits — admission still refuses
+    // it with its identity reason if it delegates; any other identity failure
+    // (a leg on a child thread included) throws here too.
+    async readTurnLimits() {
+      const scope = await resolveScope();
+      if (!scope) {
+        return;
+      }
+      const result = await database.query(
+        `SELECT max_child_output_tokens AS "maxChildOutputTokens", max_child_steps AS "maxChildSteps",
+           max_depth AS "maxDepth", max_invocations AS "maxInvocations",
+           max_step_output_tokens AS "maxStepOutputTokens", max_output_tokens AS "maxTreeOutputTokens",
+           synthesis_output_tokens AS "synthesisOutputTokens"
+         FROM brainstrike_delegation_budgets
+         WHERE root_thread_id = $1 AND turn_message_id = $2 AND owner_resource_id = $3`,
+        [scope.rootThreadId, scope.turnMessageId, scope.ownerResourceId]
+      );
+      return result.rows.length === 0 ? undefined : turnLimitsSchema.parse(result.rows[0]);
     },
     async reserveStep(childScope) {
       return await transact(async (tx, scope) => {
@@ -223,9 +259,7 @@ export function createDelegatedStepBudget(
       });
       // Commit observed overage before rejecting model tool execution; never erase its cost.
       if (exceeded) {
-        throw new Error(
-          'Provider exceeded the delegated output reservation; tool execution rejected.'
-        );
+        throw new DelegatedOutputReservationExceededError();
       }
     },
   };

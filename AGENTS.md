@@ -1,13 +1,13 @@
 # AGENT GUIDELINES
 
-Detailed subsystem contracts live in `docs/agents/`. **Before changing one of these areas, read its doc first** — they record hard-won invariants and settled rulings (many marked "do not relitigate"). They are living documents: update the doc and its paired tests in the same change. Some local Claude Code setups may mirror these contracts through ignored `.claude/skills/`; that integration is optional and untracked, so the table below is the canonical agent-agnostic map.
+Detailed subsystem contracts live in `docs/agents/`. **Before changing one of these areas, read its doc first** — they record hard-won invariants and settled rulings (many marked "do not relitigate"). They are living documents: update the doc and its paired tests in the same change, written per `docs/agents/README.md` — rules in the contract, their history in `docs/agents/<area>/` evidence files. Some local Claude Code setups may mirror these contracts through ignored `.claude/skills/`; that integration is optional and untracked, so the table below is the canonical agent-agnostic map.
 
 Nearest `AGENTS.md` files add package-local rules; they supplement rather than
 replace this root policy. Treat `docs/agents/*.md` as living contracts,
-`docs/adr/` as settled decisions, and dated plans/research under
-`docs/superpowers/`, `docs/archive/`, or other date-stamped paths as historical
-evidence—not current behavior. Prefer code, tests, and live contracts when they
-disagree with a historical document.
+`docs/adr/` as settled decisions, and `docs/agents/<area>/` evidence files plus
+dated plans/research under `docs/superpowers/`, `docs/archive/`, or other
+date-stamped paths as historical evidence—not current behavior. Prefer code,
+tests, and live contracts when they disagree with a historical document.
 
 | Touching… | Read first |
 | --- | --- |
@@ -16,6 +16,7 @@ disagree with a historical document.
 | Message persistence & reload hydration, run notifications, context usage meter | `docs/agents/assistant-persistence.md` |
 | Providers/API keys, MCP transport selection, native tools + multi-registry, tool output budgets, MCP tool-preference persistence | `docs/agents/assistant-providers.md` |
 | MCP verification harness (`mcp-test-lab`), official conformance client/driver, conformance evidence schemas and links, MCP 2026 fleet working agreements | `docs/agents/mcp-conformance.md` (working agreements in `docs/agents/ci-quality.md`) |
+| Adding `effect` or any `@effect/*` package, writing Effect code, `@brainstrike/effect-kit`, Effect Schema at a runtime boundary | `docs/agents/effect-boundary.md` |
 | Adding any `@mastra/*` package; Mastra Server/Workspace/Browser/RequestContext; stream-mapper ownership; Mastra observability or evals | `docs/agents/mastra-boundary.md` |
 | Embedding workers, local Gemma LLM, hidden hosts — **renderer-only inference is mandatory, never Electron main** | `docs/agents/local-inference.md` |
 | DB migrations, model catalog changes, PGlite construction sites/extensions, browser first-run bootstrap, `DatabaseWorkScheduler` priorities / background-starvation bound | `docs/agents/database.md` |

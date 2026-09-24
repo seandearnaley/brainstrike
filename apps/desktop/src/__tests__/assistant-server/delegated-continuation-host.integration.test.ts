@@ -81,8 +81,8 @@ beforeEach(async () => {
   await migrate(database);
   await database.exec(`INSERT INTO mastra_threads (id,"resourceId",title,metadata,"createdAt","updatedAt") VALUES
     ('root','owner','Root','{}',NOW(),NOW()),('child','child-resource','Child','{}',NOW(),NOW()),('sibling','sibling-resource','Sibling','{}',NOW(),NOW());
-    INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id)
-    VALUES ('wake-host','owner','root','openai','test','desktop','running',NOW(),NOW(),NOW(),'new-root-user');`);
+    INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id,generation_run_id)
+    VALUES ('wake-host','owner','root','openai','test','desktop','running',NOW(),NOW(),NOW(),'new-root-user','wake-host');`);
   const graph = createDelegatedConversationRepository(database);
   await graph.registerRoot(scope);
   for (const threadId of ['child', 'sibling']) {
@@ -200,8 +200,8 @@ it('resumes an exact decision against the original durable child budget instead 
   await first.budget.settleStep(step.id, 3);
   await first.continuation.finishContinuation({ id: input.id, status: 'awaiting-approval' });
   await database.exec(`UPDATE brainstrike_assistant_thread_runs SET status='completed' WHERE id='wake-host';
-    INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id)
-    VALUES ('resume-host','owner','root','openai','test','desktop','running',NOW(),NOW(),NOW(),'new-root-user');`);
+    INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id,generation_run_id)
+    VALUES ('resume-host','owner','root','openai','test','desktop','running',NOW(),NOW(),NOW(),'new-root-user','wake-host');`);
   const resumed = createBudgetedHost(database, 'resume-host');
   const decision = {
     id: input.id,
@@ -498,8 +498,8 @@ it.each(['complete', 'approval'] as const)(
       'UPDATE brainstrike_delegated_conversations SET configuration=$1::jsonb WHERE thread_id=$2',
       [JSON.stringify({ maxSteps: 8, persona }), 'child']
     );
-    await database.exec(`INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id)
-    VALUES ('original-host','owner','root','openai','test','desktop','completed',NOW(),NOW(),NOW(),'original-user');`);
+    await database.exec(`INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id,generation_run_id)
+    VALUES ('original-host','owner','root','openai','test','desktop','completed',NOW(),NOW(),NOW(),'original-user','original-host');`);
     const graph = createDelegatedConversationRepository(database);
     await graph.createInvocation(scope, {
       hostRunId: 'original-host',

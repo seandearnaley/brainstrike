@@ -6,6 +6,8 @@
  * so the desktop preload contract test can import it without pulling any React
  * or `@brainstrike/ui` code into that test's module graph.
  */
+
+export type { ForgeBridge } from './forge-bridge';
 export {
   FORGE_BRIDGE_REQUIRED_METHODS,
   isForgeBridgeAvailable,

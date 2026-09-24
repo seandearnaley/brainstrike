@@ -10,9 +10,9 @@ import {
   setFileSizeConfig,
   WebFileSystemAdapter,
 } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { createFileNode } from '@brainstrike/test-utils';
 import { BINARY_CONTENT_MESSAGE, type IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils';
 import type {

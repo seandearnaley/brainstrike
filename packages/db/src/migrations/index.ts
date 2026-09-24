@@ -138,6 +138,11 @@ import { migration136DelegatedInputPayload } from './136-delegated-input-payload
 import { migration137ChildExecutionConfiguration } from './137-child-execution-configuration.js';
 import { migration138IndependentChildContinuationPauses } from './138-independent-child-continuation-pauses.js';
 import { migration139SwarmDiagnostics } from './139-swarm-diagnostics.js';
+import { migration140AssistantNativeRuns } from './140-assistant-native-runs.js';
+import { migration141OpenrouterInclusionaiLing30Flash } from './141-openrouter-inclusionai-ling-3-0-flash.js';
+import { migration142OpenaiAnthropicOpenrouterBedrockCatalogModels } from './142-openai-anthropic-openrouter-bedrock-catalog-models.js';
+import { migration143AgentIdentityPalettes } from './143-agent-identity-palettes.js';
+import { migration144AgentFamilyColors } from './144-agent-family-colors.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -282,6 +287,11 @@ export const migrations: Migration[] = [
   migration137ChildExecutionConfiguration,
   migration138IndependentChildContinuationPauses,
   migration139SwarmDiagnostics,
+  migration140AssistantNativeRuns,
+  migration141OpenrouterInclusionaiLing30Flash,
+  migration142OpenaiAnthropicOpenrouterBedrockCatalogModels,
+  migration143AgentIdentityPalettes,
+  migration144AgentFamilyColors,
 ];
 
 // Export base migrations (without chunks table) for test environments

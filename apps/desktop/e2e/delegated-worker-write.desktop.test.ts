@@ -225,7 +225,7 @@ async function assertWorkerWrite(
       const selectedTab = window
         .getByRole('tablist', { name: 'Workspace tabs' })
         .getByRole('tab', { selected: true });
-      await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+      await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
       await expect(selectedTab).toBeFocused();
       const firstChildName = (await selectedTab.innerText()).trim();
       for (let level = 1; level < depth; level += 1) {
@@ -235,7 +235,7 @@ async function assertWorkerWrite(
         await current.getByRole('button', { name: /Open .* conversation/ }).click();
         await expect(selectedTab).not.toHaveText(currentName);
         await expect(selectedTab).toBeFocused();
-        await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+        await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
         const nextName = (await selectedTab.innerText()).trim();
         const nextPanel = window.getByRole('tabpanel', { exact: true, name: nextName });
         await nextPanel
@@ -292,6 +292,7 @@ async function assertWorkerWrite(
         await expect(
           root.getByText('PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723', { exact: true })
         ).toBeVisible();
+        await expect(root.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
         const afterStop = provider.requestCount();
         await window.reload();
         await ensureAssistantShellVisible(window);
@@ -443,7 +444,7 @@ async function assertWorkerWrite(
             .getByRole('button', { name: /Open .* conversation/ })
             .last()
             .click();
-          await expect(selectedTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+          await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
           const secondName = (await selectedTab.innerText()).trim();
           expect(secondName).not.toBe(firstChildName);
           await expect(

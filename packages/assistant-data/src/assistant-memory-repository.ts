@@ -1,6 +1,7 @@
 import type {
   AssistantUiThreadHistoryAdapter,
   DelegatedConversationBaseline,
+  DelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
@@ -18,8 +19,9 @@ import {
 } from '@brainstrike/assistant-contract';
 import {
   isApprovalActionMessage,
-  readActionMessageRunId,
+  readActionMessageHostRunId,
 } from '@brainstrike/assistant-contract/approval-action-message';
+import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/assistant-stream-session';
 import {
   DEFAULT_THREAD_TITLE,
   DELEGATED_THREAD_DELETE_CTES,
@@ -89,17 +91,15 @@ export const ASSISTANT_THREAD_ICON_IDS = [
   'plan',
 ] as const;
 
-export const ASSISTANT_THREAD_COLOR_IDS = [
-  'blue',
-  'emerald',
-  'amber',
-  'rose',
-  'violet',
-  'slate',
-] as const;
-
 export type AssistantThreadIconId = (typeof ASSISTANT_THREAD_ICON_IDS)[number];
-export type AssistantThreadColorId = (typeof ASSISTANT_THREAD_COLOR_IDS)[number];
+export { ASSISTANT_THREAD_COLOR_IDS } from './assistant-thread-palette.js';
+
+import {
+  ASSISTANT_THREAD_COLOR_IDS,
+  type AssistantThreadColorId,
+} from './assistant-thread-palette.js';
+
+export type { AssistantThreadColorId } from './assistant-thread-palette.js';
 
 // biome-ignore assist/source/useSortedInterfaceMembers: BST-1391 Task 6 explicitly places forge fields immediately before model.
 export interface AssistantThreadMetadata {
@@ -193,6 +193,19 @@ export interface CreateAssistantThreadRunInput {
   /** Resolve the original turn from the owned durable continuation before insertion. */
   readonly childContinuation?: { readonly id: string; readonly nativeRunId: string };
   readonly completedAt?: Date | null;
+  /**
+   * The approval/resume decision this leg answers, when it answers one
+   * (BST-1749, migration 140). The GENERATION it belongs to is derived from
+   * durable state — a delegated pause through its invocation's host leg, a
+   * root-own pause through the native run the host mapped — so every leg of
+   * one generation carries the same ledger identity. A leg with no decision
+   * (an initial send, a regeneration) opens its own generation.
+   */
+  readonly decision?: {
+    readonly delegated: boolean;
+    readonly runId: string;
+    readonly toolCallId: string;
+  };
   readonly error?: string | null;
   readonly id: string;
   readonly model: string;
@@ -656,7 +669,13 @@ export interface AssistantThreadRepository {
    * BST-1163 run↔turn link, read by the history adapter's suspended-edge
    * backfill (BST-1243). Optional only for read-only/test repositories.
    */
-  getThreadRunTurnMessageId?: (runId: string, threadId: string) => Promise<string | null>;
+  /**
+   * REQUIRED, not optional: the approval/suspend echo backfill anchors a
+   * suspended message on the host leg's turn and has no fallback, so a
+   * repository without this method would throw on every live decision. Keeping
+   * it required puts that gap in the compiler's hands instead of the user's.
+   */
+  getThreadRunTurnMessageId: (runId: string, threadId: string) => Promise<string | null>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
     threadId: string,
@@ -704,6 +723,82 @@ export interface RecordAssistantMessageParentInput {
 }
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
+
+/**
+ * The generation ONE generation read names, from the rows it matched.
+ *
+ * Every predicate behind those reads is a primary key —
+ * `brainstrike_assistant_native_runs.native_run_id`, a continuation's `id`, an
+ * invocation's `(root_thread_id, parent_runtime_run_id, parent_tool_call_id)` —
+ * joined to its owner leg by `id`, so one row or none is the only possible
+ * shape. A second row means that assumption is wrong; taking `rows[0]` of an
+ * unordered result would pick a generation arbitrarily and give this leg a
+ * ledger no sibling leg of its turn shares. The read says so instead.
+ */
+export function readSoleGenerationRunId(
+  rows: readonly { readonly generationRunId: string | null }[]
+): string | null {
+  if (rows.length > 1) {
+    throw new Error(
+      `A generation read matched ${rows.length} rows; its predicate is a primary key and must match one row or none.`
+    );
+  }
+  const value = rows[0]?.generationRunId;
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/**
+ * The GENERATION a new leg belongs to (migration 140, BST-1749). An initial
+ * send or a regeneration opens its OWN; a leg that answers a decision inherits
+ * the generation of the leg whose paused run it continues — a child
+ * continuation through its receipt, a DELEGATED pause through its invocation's
+ * host leg, a ROOT-OWN pause through the native run the host mapped. NULL when
+ * nothing maps that run (a pause parked before migration 140, or a surface
+ * that maps no native runs at all): the background ledger throws there rather
+ * than guess an identity no other leg of the turn shares.
+ */
+async function resolveGenerationRunId(
+  database: Parameters<typeof createPgliteAssistantThreadRepository>[0],
+  input: CreateAssistantThreadRunInput
+): Promise<string | null> {
+  const readGeneration = async (sql: string, values: unknown[]): Promise<string | null> => {
+    const found = await database.query<{ generationRunId: string | null }>(
+      sql,
+      values as Parameters<typeof database.query>[1]
+    );
+    return readSoleGenerationRunId(found.rows);
+  };
+  if (input.childContinuation) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_delegated_continuations continuation
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = continuation.host_run_id
+        WHERE continuation.id = $1 AND continuation.owner_resource_id = $2
+          AND continuation.root_thread_id = $3`,
+      [input.childContinuation.id, input.resourceId, input.threadId]
+    );
+  }
+  if (input.decision?.delegated) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_delegated_invocations invocation
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = invocation.host_run_id
+        WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+          AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4`,
+      [input.resourceId, input.threadId, input.decision.runId, input.decision.toolCallId]
+    );
+  }
+  if (input.decision) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_assistant_native_runs mapped
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = mapped.host_run_id
+        WHERE mapped.native_run_id = $1 AND owner.resource_id = $2 AND owner.thread_id = $3`,
+      [input.decision.runId, input.resourceId, input.threadId]
+    );
+  }
+  return input.id;
+}
 const LATEST_THREAD_RUNS_BY_RESOURCE_SQL = `SELECT DISTINCT ON (thread_id)
     id,
     resource_id,
@@ -2651,6 +2746,81 @@ function toHistoryRepository(
 }
 
 /**
+ * Capture the paused assistant exactly as persisted before a continuation can
+ * add a new Mastra snapshot to its hydration group. A tool-call identity must
+ * select one durable message; chronology is never used to choose an owner.
+ */
+export async function readPausedActionReplayPrefix(input: {
+  readonly repository: AssistantThreadRepository;
+  readonly resourceId: string;
+  readonly threadId: string;
+  readonly toolCallId: string;
+  readonly nativeRunId: string;
+  readonly pauseKind: 'approval' | 'suspend';
+  readonly delegation?: DelegatedToolActionIdentity;
+  readonly pausedMessageId?: string;
+}): Promise<NonNullable<AssistantDiscoveredRun['actionReplay']>> {
+  const { repository, resourceId, threadId, toolCallId, pausedMessageId, nativeRunId, delegation } =
+    input;
+  const rows = await repository.listMessages(threadId, resourceId);
+  const history = toHistoryRepository(
+    rows,
+    await repository.listThreadRunEvents(threadId, resourceId)
+  );
+  const candidates = history.messages.filter(
+    (item) =>
+      item.message.role === 'assistant' &&
+      item.message.content.some(
+        (part) => part.type === 'tool-call' && part.toolCallId === toolCallId
+      )
+  );
+  const syntheticIdentity = delegation
+    ? getToolActionIdentityKey({ delegation, runId: nativeRunId, toolCallId })
+    : `${nativeRunId}:${toolCallId}`;
+  const syntheticApprovalId = `suspended-approval:${syntheticIdentity}`;
+  const syntheticPauseId = `suspended-pause:${syntheticIdentity}`;
+  const syntheticPauseMessageId =
+    input.pauseKind === 'approval' ? syntheticApprovalId : syntheticPauseId;
+  // A durable paused ID is an exact owner selector even when another native run
+  // reused the same tool call ID. A synthetic notice identifies the action, not
+  // the durable owner, and therefore still requires unique tool ownership.
+  const hasDurablePausedId = pausedMessageId && pausedMessageId !== syntheticPauseMessageId;
+  const matchingCandidates = hasDurablePausedId
+    ? candidates.filter((item) => item.message.id === pausedMessageId)
+    : candidates;
+  if (matchingCandidates.length !== 1) {
+    if (hasDurablePausedId && matchingCandidates.length === 0) {
+      throw new Error(
+        'Approval action paused assistant ID disagrees with persisted tool ownership.'
+      );
+    }
+    throw new Error(
+      `Approval action tool call ${toolCallId} has no unique durable assistant owner.`
+    );
+  }
+  const candidate = matchingCandidates[0];
+  if (candidate?.message.role !== 'assistant') {
+    throw new Error('Approval action paused assistant owner disappeared.');
+  }
+  const prefixContent = candidate.message.content.filter(
+    (part) =>
+      part.type === 'text' ||
+      part.type === 'reasoning' ||
+      part.type === 'tool-call' ||
+      part.type === 'data'
+  );
+  if (prefixContent.length !== candidate.message.content.length) {
+    throw new Error('Approval action prefix contains an unsupported persisted part.');
+  }
+  return {
+    pausedMessageId: candidate.message.id,
+    pausedParentMessageId: candidate.parentId,
+    prefixContent,
+    syntheticPauseMessageId,
+  };
+}
+
+/**
  * Synthetic rediscovered-pause message id prefixes. These ids exist only in
  * the hydrated UI thread (never as Mastra rows), so the topology adapter must
  * treat them as transient parents (BST-1243) — keep the prefix list and the
@@ -3022,6 +3192,7 @@ export function createPgliteAssistantThreadRepository(
         }
         turnMessageId = receipt.turnMessageId;
       }
+      const generationRunId = await resolveGenerationRunId(database, input);
       const now = new Date();
       const startedAt = input.startedAt ?? now;
       const completedAt = input.completedAt ?? null;
@@ -3059,9 +3230,10 @@ export function createPgliteAssistantThreadRepository(
             completed_at,
             created_at,
             updated_at,
-            turn_message_id
+            turn_message_id,
+            generation_run_id
           )
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)`,
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           record.id,
           record.resourceId,
@@ -3078,6 +3250,7 @@ export function createPgliteAssistantThreadRepository(
           record.createdAt,
           record.updatedAt,
           record.turnMessageId,
+          generationRunId,
         ]
       );
       return record;
@@ -3635,7 +3808,6 @@ export function createAssistantThreadHistoryAdapter({
   const transientParentByAliasId = new Map<string, string | null>();
   const hydratedParentById = new Map<string, string | null>();
   const persistedEdgeIds = new Set<string>();
-  let durableTailId: string | null = null;
 
   const resolveDurableParentId = (parentId: string | null): string | null => {
     let current = parentId;
@@ -3660,16 +3832,26 @@ export function createAssistantThreadHistoryAdapter({
 
   // The echo is transport bookkeeping with no durable row — never an edge.
   // Its parent is the SUSPENDED assistant message, whose own runEnd append
-  // never fires (suspension interrupts it), so backfill that durable edge
-  // here; otherwise the reload group keys to a snapshot row id and every
-  // descendant edge dangles. The backfill parent, in order of authority: the
-  // hydrated graph parent when the suspended message was loaded; else the
-  // suspending run's durable turn anchor (BST-1163 `turn_message_id`, stamped
-  // identically on every leg of the turn — exact even when other sends landed
-  // during the suspension or the suspended run was a regeneration branched
-  // from an older prompt); else the live session tail as a legacy last resort
-  // (runs predating the turn link). The repository upsert stays loud on
-  // conflicting topology.
+  // never fires (assistant-ui writes a `requires-action` message only through a
+  // history `update`, which this adapter deliberately does not expose), so
+  // backfill that durable edge here; otherwise the reload group keys to a
+  // snapshot row id and every descendant edge dangles.
+  //
+  // The backfill parent, in order of authority: the hydrated graph parent when
+  // the suspended message was loaded; else the DURABLE HOST LEG the pause named
+  // (`hostRunId`) and its `turn_message_id` (BST-1163 — every leg of a turn
+  // stamps the same link, so this stays exact when other sends land during the
+  // suspension and when the suspended run is a regeneration branched from an
+  // older prompt).
+  //
+  // NEVER the marker's `runId`, and never the session tail. `runId` is the
+  // NATIVE Mastra run the resume routes address: Mastra mints it
+  // (`options?.runId || generateId()`), no leg passes the host id in, and one
+  // host leg can hold several native runs (a background wake-up mints another),
+  // so it never matched a `thread_runs` row — the lookup missed on EVERY live
+  // backfill and the tail silently answered instead, guessing wrong whenever
+  // the tail was not the suspended message's own turn. A live pause always
+  // names its host leg; anything else is a producer defect and throws.
   const recordActionEchoAppend = async (
     message: unknown,
     resolvedParentId: string | null
@@ -3677,18 +3859,32 @@ export function createAssistantThreadHistoryAdapter({
     if (resolvedParentId === null || persistedEdgeIds.has(resolvedParentId)) {
       return;
     }
-    let suspendedParentId: string | null;
     if (hydratedParentById.has(resolvedParentId)) {
-      suspendedParentId = hydratedParentById.get(resolvedParentId) ?? null;
-    } else {
-      const actionRunId = readActionMessageRunId(message);
-      const turnMessageId =
-        actionRunId !== undefined && repository.getThreadRunTurnMessageId
-          ? await repository.getThreadRunTurnMessageId(actionRunId, threadId)
-          : null;
-      suspendedParentId = turnMessageId ?? durableTailId;
+      await recordParentEdge(resolvedParentId, hydratedParentById.get(resolvedParentId) ?? null);
+      return;
     }
-    await recordParentEdge(resolvedParentId, suspendedParentId);
+    const hostRunId = readActionMessageHostRunId(message);
+    if (!hostRunId) {
+      throw new Error(
+        `Assistant history cannot anchor suspended message ${resolvedParentId}: its pause named no durable host leg.`
+      );
+    }
+    const turnMessageId = await repository.getThreadRunTurnMessageId(hostRunId, threadId);
+    // An approval on a still-streaming leg aborts that leg, and its terminal
+    // runEnd append can persist the suspended message's own edge while this
+    // lookup is pending. That edge is authoritative, so session state read
+    // across the await is re-validated, never trusted (PR #3201).
+    if (persistedEdgeIds.has(resolvedParentId)) {
+      return;
+    }
+    // Truthiness, matching the `!hostRunId` guard above: a blank or absent
+    // anchor is as unusable as a missing one and must never reach an edge.
+    if (!turnMessageId) {
+      throw new Error(
+        `Assistant history cannot anchor suspended message ${resolvedParentId}: host leg ${hostRunId} records no turn message.`
+      );
+    }
+    await recordParentEdge(resolvedParentId, turnMessageId);
   };
 
   return {
@@ -3727,7 +3923,6 @@ export function createAssistantThreadHistoryAdapter({
         return;
       }
       await recordParentEdge(item.message.id, resolvedParentId);
-      durableTailId = item.message.id;
     },
     async load() {
       // Discovery and history run concurrently. The discovery fetch has a
@@ -3755,7 +3950,6 @@ export function createAssistantThreadHistoryAdapter({
       for (const hydrated of base.messages) {
         hydratedParentById.set(hydrated.message.id, hydrated.parentId);
       }
-      durableTailId = base.headId ?? null;
       const result = appendSuspendedDiscoveryError(
         appendSuspendedPauseMessages(base, discovery.approvals, discovery.suspends),
         'error' in discovery ? discovery.error : undefined,

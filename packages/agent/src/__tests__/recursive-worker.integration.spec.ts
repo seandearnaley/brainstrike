@@ -73,6 +73,7 @@ it.each([
     const binding = {
       budget: {
         admitInvocation: async () => ({ admitted: true as const }),
+        readTurnLimits: async () => undefined,
         reserveStep,
         settleStep,
       },
@@ -431,6 +432,7 @@ it('isolates step reservations for two concurrent invocations of the same Worker
     },
     budget: {
       admitInvocation: async () => ({ admitted: true as const }),
+      readTurnLimits: async () => undefined,
       reserveStep: async ({ threadId }: { threadId: string; resourceId: string }) => {
         const id = `reservation-${reservations.size}`;
         reservations.set(id, threadId);

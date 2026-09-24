@@ -55,7 +55,7 @@ const readGrant = {
 function harness(options: {
   readonly listTasks?: () => Promise<{ tasks: BackgroundTask[]; total: number }>;
   readonly recordLiveDecision?: (record: unknown) => Promise<void>;
-  readonly recordToolActionAnswer?: () => Promise<void>;
+  readonly recordToolActionAnswers?: () => Promise<void>;
 }) {
   const records: unknown[] = [];
   const resumed: string[] = [];
@@ -99,12 +99,13 @@ function harness(options: {
     } as unknown as BackgroundTaskManager,
     conversationBinding: {
       ...createDelegatedConversationBinding(async () => undefined),
+      readUnanswerableToolActionLeaves: async () => [],
       recordLiveDecision:
         options.recordLiveDecision ??
         (async (record: unknown) => {
           records.push(record);
         }),
-      recordToolActionAnswer: options.recordToolActionAnswer ?? (async () => undefined),
+      recordToolActionAnswers: options.recordToolActionAnswers ?? (async () => undefined),
       resolveParkedInvocation: async (parent: { parentToolCallId: string }) =>
         parent.parentToolCallId === 'background-child' ? scope : undefined,
       resolveToolAction: async () => [scope],
@@ -142,7 +143,7 @@ describe('armLiveDecisions remembered grant records', () => {
 
   it('records a remembered answer that failed after the parked leaf was known, and resumes nothing', async () => {
     const { channel, records, resumed } = harness({
-      recordToolActionAnswer: async () => {
+      recordToolActionAnswers: async () => {
         throw new Error('tool-action-already-consumed-or-root-busy');
       },
     });

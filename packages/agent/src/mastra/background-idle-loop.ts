@@ -1,7 +1,7 @@
 import { createLogger } from '@brainstrike/logging';
 import type { Agent } from '@mastra/core/agent';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
-import { MAX_BACKGROUND_TASK_TIMEOUT_MS } from '../pglite-mastra-memory/background-store';
+import { wasBackgroundOutcomePresented } from './active-background-results-processor';
 import {
   type BackgroundLedgerSource,
   createLedgerPublisher,
@@ -17,7 +17,12 @@ import {
   LiveDecisionUnavailableError,
 } from './live-decision-channel';
 import type { BrainstrikeAgentStreamOptions } from './runtime-assembly/stream-options';
-import { type AgentStreamOptions, readNativeStreamStatus } from './turn-attempts';
+import type { DelegationOutcomeCapture } from './subagent-delegation';
+import {
+  type AgentStreamOptions,
+  readNativeStreamStatus,
+  settleNativeStream,
+} from './turn-attempts';
 
 const logger = createLogger('BackgroundIdleLoop');
 
@@ -36,8 +41,12 @@ const logger = createLogger('BackgroundIdleLoop');
  * Mastra's loop: the leg's first turn is piped as-is, native lifecycle chunks
  * are forwarded so `projectBackgroundStream` folds them, one continuation runs
  * per batch of wakeups, and the combined stream closes once no task is running
- * and nothing is queued. A running task that stays silent past `maxIdleMs`
- * closes the stream with its work unfinished, which the projection reports.
+ * and nothing is queued. The loop judges no silence: running work keeps the
+ * leg open until its terminal. Each child's liveness belongs to its own
+ * watchdog (`background-child-watchdog.ts`), which ends a stalled child as a
+ * failed task, and the stream watchdog wrapping this combined stream judges
+ * only the parent. A second, shorter timer here closed a leg whose child was
+ * healthy but quiet, and the leg's disposal cancelled it.
  *
  * While it runs, the loop owns the leg's live decision channel: a decision
  * delivered into the leg reserves the parked tasks (which keeps the loop from
@@ -55,6 +64,15 @@ const logger = createLogger('BackgroundIdleLoop');
  * still running keep the leg open until they return (their results land in
  * the parent's history, which the resumed leg reads); the leg then closes as
  * the pause it is.
+ *
+ * A delegation REFUSED at start is not returned work (REJECTED ADMISSION IS
+ * NO INVOCATION, settled 2026-09-15). Mastra runs the delegation hook inside
+ * the background task it already created, so the refusal completes as a task
+ * row; the leg's delegation outcome capture names it, and its terminal wakes
+ * nothing. A leg woken for more invocations than one turn may admit FAILS:
+ * the next wakeup would be one more parent inference on work that never ran
+ * (the 2026-09-15 E2E ledger reached "1160 total: 1160 returned" and the root
+ * made 2337 model calls before the test timed out).
  */
 
 export const WAKING_TASK_EVENTS: ReadonlySet<string> = new Set([
@@ -152,6 +170,18 @@ export function isParentWakeup(event: TaskEvent): boolean {
   return WAKING_TASK_EVENTS.has(event.type) && event.payload.suspendedAt === undefined;
 }
 
+/** A refused delegation still completes its task (BST-1751); its leg's capture names it. */
+function isRejectedDelegation(
+  event: TaskEvent,
+  rejectedDelegations: BackgroundIdleLoopParams['rejectedDelegations']
+): boolean {
+  const toolCallId = event.payload.toolCallId;
+  return (
+    typeof toolCallId === 'string' &&
+    rejectedDelegations?.rejected(toolCallId, readTaskRunId(event)) === true
+  );
+}
+
 /** The deferral a parked parent leg records: the model is sent nothing. */
 export const PARKED_PARENT_DEFERRED_DIRECTIVE =
   'Parked parent leg closed; returned work waits in its history for the resumed leg. No model-facing wakeup text was sent.';
@@ -211,16 +241,32 @@ export interface BackgroundIdleLoopParams {
   /** The durable ledger this leg's wakeups and status rows are built from. */
   readonly ledger: BackgroundLedgerSource;
   readonly manager: BackgroundTaskManager;
-  /** Silence budget for running work before the stream closes unfinished. */
-  readonly maxIdleMs?: number | undefined;
+  /**
+   * The request's per-turn invocation limit (`subagentSettings.maxInvocations`):
+   * more distinct tasks waking the parent in one leg than a turn may admit
+   * fails the leg. Required, so no call site can fall back to a constant.
+   */
+  readonly maxInvocations: number;
   /** The leg's own options; a continuation reuses them, as Mastra's loop does. */
   readonly options: LegStreamOptions;
+  /**
+   * Maps a native ROOT run this leg starts to its host leg (migration 140):
+   * the leg's own turn is mapped by its caller, each continuation here. A
+   * later approval/resume leg derives its generation from that mapping, so a
+   * pause raised in a continuation is still traceable to this generation.
+   */
+  readonly recordNativeRootRun: (nativeRunId: string) => Promise<void>;
   /**
    * Debug-pack evidence (migration 139), the binding's `recordWakeup`: every
    * continuation's exact wakeup text is recorded before it streams, and a
    * parked leg's deferral is joined before the leg closes.
    */
   readonly recordWakeup?: ((record: DelegatedWakeupRecord) => Promise<void>) | undefined;
+  /**
+   * The capture the leg's delegation config records refusals in
+   * (`buildStreamOptions`): a refused delegation's completed task wakes no parent.
+   */
+  readonly rejectedDelegations: Pick<DelegationOutcomeCapture, 'rejected'> | undefined;
   readonly scope: { readonly threadId: string; readonly resourceId: string };
 }
 
@@ -234,6 +280,15 @@ interface NativeOutput {
 }
 
 /**
+ * A continuation THIS loop starts. Unlike the leg's first turn — which the
+ * loop only wraps — the loop owns this one, so it must also be able to settle
+ * it when it abandons it (`discardTurn`).
+ */
+type ParentContinuation = NativeOutput & {
+  consumeStream(options?: { onError?: (error: unknown) => void }): Promise<void>;
+};
+
+/**
  * Wrap a leg's first-turn output so `fullStream` spans the first turn plus
  * every host-driven continuation. Aggregate properties (`status`,
  * `messageList`, `getFullOutput()`) keep resolving against the first turn,
@@ -243,36 +298,33 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   first: Output,
   params: BackgroundIdleLoopParams
 ): Output {
-  const maxIdleMs = params.maxIdleMs ?? MAX_BACKGROUND_TASK_TIMEOUT_MS;
   const priorContext = readContextMessages(params.options);
   const running = new Set<string>();
   const settled = new Set<string>();
   const pending: TaskEvent[] = [];
   const seenTerminals = new Set<string>();
+  /**
+   * Tasks whose terminal queued a parent wakeup. Persona delegations are the
+   * only background-eligible tools, so one turn's `maxInvocations` bounds it.
+   */
+  const woken = new Set<string>();
   const isNewSuspension = createSuspensionLedger();
   const loopAbort = new AbortController();
   let processing = true;
+  let parentSucceeded = false;
   let closed = false;
   /** The parent's own pause ended a turn: the run is parked on the user. */
   let parked = false;
   /** Pauses whose remembered-grant answer is still being decided. */
   let answering = 0;
   let releaseOwner: (() => void) | undefined;
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let controller!: ReadableStreamDefaultController<unknown>;
 
-  const clearIdleTimer = () => {
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-      idleTimer = undefined;
-    }
-  };
   const close = () => {
     if (closed) {
       return;
     }
     closed = true;
-    clearIdleTimer();
     releaseOwner?.();
     loopAbort.abort();
     try {
@@ -286,7 +338,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       return;
     }
     closed = true;
-    clearIdleTimer();
     releaseOwner?.();
     loopAbort.abort();
     try {
@@ -305,20 +356,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     } catch {
       return false;
     }
-  };
-  const armIdleTimer = () => {
-    clearIdleTimer();
-    if (closed || processing || running.size === 0 || (pending.length > 0 && !parked)) {
-      return;
-    }
-    idleTimer = setTimeout(() => {
-      logger.warn('Background work went silent; closing the parent stream unfinished', {
-        code: 'background_idle_expired',
-        maxIdleMs,
-        runningTasks: [...running],
-      });
-      close();
-    }, maxIdleMs);
   };
   /** Deferral records a parked leg makes before it closes; `settle` joins them. */
   let recording = 0;
@@ -355,6 +392,20 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       }
     );
   };
+  const discardPresentedWakeups = () => {
+    if (!parentSucceeded) {
+      return;
+    }
+    // An active step may have consumed a terminal while this loop was piping it.
+    // Do not start another inference for an outcome the model already received.
+    for (let index = pending.length - 1; index >= 0; index -= 1) {
+      const event = pending[index];
+      const taskId = event ? readTaskId(event) : undefined;
+      if (taskId && wasBackgroundOutcomePresented(params.options.inputProcessors, taskId)) {
+        pending.splice(index, 1);
+      }
+    }
+  };
   const settle = () => {
     // An in-flight ledger read is joined before the leg can close: a leg
     // settling right after the last terminal would otherwise close before
@@ -363,9 +414,9 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     if (closed || processing || answering > 0 || publisher.inFlight > 0 || recording > 0) {
       return;
     }
+    discardPresentedWakeups();
     if (parked) {
       if (running.size > 0) {
-        armIdleTimer();
         return;
       }
       if (pending.length > 0) {
@@ -381,28 +432,28 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     }
     if (running.size === 0) {
       close();
-      return;
     }
-    armIdleTimer();
   };
-  /** Parent run ids that dispatched work in this leg — the ledger's scope. */
+  /**
+   * Parent run ids this leg OBSERVED. The ledger's scope is the GENERATION
+   * (migration 140); these close the window before a freshly dispatched run is
+   * mapped, they are not the identity — that would give every leg its own.
+   */
   const runIds = new Set<string>();
-  let ledgerId: string | undefined;
   const publisher = createLedgerPublisher({
     enqueue,
     onSettled: () => settle(),
     source: params.ledger,
   });
   const publishLedger = () => {
-    if (ledgerId !== undefined) {
-      publisher.publish(runIds, ledgerId);
+    if (runIds.size > 0) {
+      publisher.publish(runIds);
     }
   };
   const noteRun = (event: TaskEvent) => {
     const runId = readTaskRunId(event);
     if (runId !== undefined) {
       runIds.add(runId);
-      ledgerId ??= runId;
     }
   };
   const pipe = async (stream: ReadableChunks) => {
@@ -413,7 +464,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
         if (done) {
           return;
         }
-        clearIdleTimer();
         if (!enqueue(value)) {
           return;
         }
@@ -436,14 +486,43 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   };
   /** Pipe one parent turn; a turn that closes suspended parks the run on the user. */
   const pipeTurn = async (turn: NativeOutput) => {
+    parentSucceeded = false;
     await pipe(turn.fullStream);
+    parentSucceeded = readNativeStreamStatus(turn) === 'success';
     if (readNativeStreamStatus(turn) === 'suspended') {
       parked = true;
     }
   };
+  /**
+   * A continuation this leg built but never read to its end: its mapping was
+   * refused, or its pipe failed part-way. Mastra runs its cancel persistence
+   * and snapshot DELETEs when that stream closes, so an abandoned one floats
+   * them past the end of the turn and races the storage close (BST-1221).
+   *
+   * Settling it — not cancelling it — is the disposal that works:
+   * `MastraModelOutput.fullStream` is a fresh evented VIEW on every access and
+   * its `cancel` only detaches that view's listeners, while `consumeStream`
+   * memoises the one pump of the base stream and resolves when it has closed.
+   *
+   * The leg fails FIRST, and that is also what bounds this join: `fail` errors
+   * the stream its consumer is reading, the consumer disposes the abort context
+   * this continuation was started with, and the continuation ends. The
+   * settlement deadline is the backstop for a stream that ignores that abort.
+   */
+  const discardTurn = async (turn: ParentContinuation | undefined) => {
+    if (!turn) {
+      return;
+    }
+    await settleNativeStream(turn, {
+      abort: (reason) => loopAbort.abort(reason),
+      signal: loopAbort.signal,
+    });
+  };
   const runContinuation = async () => {
     processing = true;
     const batch = pending.splice(0, pending.length);
+    /** Set while this leg owns a continuation stream it has not finished reading. */
+    let abandoned: ParentContinuation | undefined;
     try {
       // The wakeup is the whole ledger from the DURABLE rows (WAKEUP LEDGER,
       // settled 2026-09-15), never the batch alone: a read failure fails the
@@ -467,9 +546,17 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
         _skipBgTaskWait: true,
         context: [...priorContext, { content: directive, role: 'user' }],
       } as AgentStreamOptions);
+      abandoned = continuation;
+      // A continuation is a NEW native run of the SAME generation (Mastra mints
+      // its own ids). Map it before its chunks flow: a pause raised here opens
+      // its approval leg from the user's click, and that leg derives its
+      // generation from this mapping.
+      await params.recordNativeRootRun(continuation.runId);
       await pipeTurn(continuation);
+      abandoned = undefined;
     } catch (error) {
       fail(error);
+      await discardTurn(abandoned);
       return;
     } finally {
       processing = false;
@@ -492,7 +579,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     if (!isNewSuspension(event, taskId)) {
       return true;
     }
-    clearIdleTimer();
     if (!enqueue(value)) {
       return false;
     }
@@ -515,7 +601,22 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     seenTerminals.add(terminalKey);
     settled.add(taskId);
     running.delete(taskId);
-    if (isParentWakeup(event)) {
+    if (isParentWakeup(event) && !isRejectedDelegation(event, params.rejectedDelegations)) {
+      woken.add(taskId);
+      if (woken.size > params.maxInvocations) {
+        logger.error('Background work woke the parent for more invocations than one turn admits', {
+          code: 'background_parent_wakeup_limit_exceeded',
+          invocation: describeInvocation(event),
+          limit: params.maxInvocations,
+          taskIds: [...woken],
+        });
+        fail(
+          new Error(
+            `Background work woke the parent for ${woken.size} invocations; one turn admits at most ${params.maxInvocations}, so the leg stops instead of waking the parent again.`
+          )
+        );
+        return;
+      }
       pending.push(event);
     }
     if (event.type === 'background-task-suspended' && params.channel) {
@@ -535,7 +636,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       if (closed) {
         throw new LiveDecisionUnavailableError('The leg has settled.');
       }
-      clearIdleTimer();
       for (const task of tasks) {
         running.add(task.id);
         settled.delete(task.id);

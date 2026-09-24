@@ -514,21 +514,16 @@ it.each([
             },
           };
         });
-      const originalSave = backing.memory.saveMessages.bind(backing.memory);
+      const originalSave = backing.store.saveBackgroundTaskResult.bind(backing.store);
       const deliveryFailure = new Error('Controlled parent outcome write failure');
-      const saveSpy = vi.spyOn(backing.memory, 'saveMessages').mockImplementation(async (input) => {
-        if (
-          failDelivery &&
-          input.messages.some(
-            (message) =>
-              message.threadId === scope.threadId &&
-              JSON.stringify(message.content).includes('CHILD_FINAL_EVIDENCE')
-          )
-        ) {
-          throw deliveryFailure;
-        }
-        return originalSave(input);
-      });
+      const saveSpy = vi
+        .spyOn(backing.store, 'saveBackgroundTaskResult')
+        .mockImplementation(async (input) => {
+          if (failDelivery) {
+            throw deliveryFailure;
+          }
+          return originalSave(input);
+        });
       try {
         const resumed = await createToolApprovalIteratorFromRuntime({
           action: {
@@ -629,36 +624,69 @@ it.each([
   }
 );
 
-it('reports native idle expiry while a child still owns unfinished work', async () => {
-  const fixture = await createBackgroundFixture();
-  const { database, backing, runtimeData, release, effect, discoveryOptions } = fixture;
-  // The host loop's silence budget, shortened so the running child (held on
-  // `release`) expires it; the expiry must surface, never a quiet finish.
-  const runtime = await createMastraAgentRuntime({ ...discoveryOptions, backgroundIdleMs: 1 });
+// A background child that stays quiet past every one of the PARENT's windows —
+// a silent build, a slow first token — is healthy work, not a stall. Its own
+// watchdog judges the silence by the child's own phase (here its guarded read),
+// the parent judges nothing while it is watched, and no second timer closes
+// the leg: the child returns, the parent wakes, and nothing is cancelled.
+it('keeps a leg open while a quiet background child works, then finishes normally', async () => {
+  const previousInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+  const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
+  process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '200';
+  process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '500';
+  let fixture: Awaited<ReturnType<typeof createBackgroundFixture>> | undefined;
   try {
+    fixture = await createBackgroundFixture();
+    const { backing, entered, effect, release, runtime, runtimeData, toolSignals } = fixture;
     const iterator = await createStreamIteratorFromRuntime({
       memory: backing.memory,
       messages: [
-        { id: 'idle-request', parts: [{ text: 'Read evidence', type: 'text' }], role: 'user' },
+        { id: 'quiet-request', parts: [{ text: 'Read evidence', type: 'text' }], role: 'user' },
       ],
       runtime,
       runtimeData,
     });
     const chunks: StreamChunk[] = [];
-    await expect(
-      (async () => {
-        for await (const chunk of iterator) {
-          chunks.push(chunk);
-        }
-      })()
-    ).rejects.toThrow('Background stream ended with unfinished child work');
-    expect(effect).toHaveBeenCalledTimes(1);
-    expect(chunks.filter((chunk) => chunk.type === 'message-finish')).toEqual([]);
-  } finally {
+    const consuming = (async () => {
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+    })();
+    await entered.promise;
+    // Five inter-output and two first-output windows of child silence inside
+    // its guarded read.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     release.resolve();
-    await runtime.dispose();
-    await fixture.runtime.dispose();
-    await database.close();
+    await consuming;
+    const eventKinds = chunks.flatMap((chunk) =>
+      chunk.type === 'run-event' ? [chunk.event.kind] : []
+    );
+    expect(eventKinds).not.toContain('run.stalled');
+    expect(eventKinds).not.toContain('run.failed');
+    expect(
+      chunks
+        .filter((chunk) => chunk.type === 'text-delta')
+        .map((chunk) => chunk.value)
+        .join('')
+    ).toContain('PARENT_FINAL_OUTCOME');
+    expect(effect).toHaveBeenCalledTimes(1);
+    expect(toolSignals[0]?.aborted).toBe(false);
+    const stored = await runtime.backgroundTaskManager?.listTasks({});
+    expect(stored?.tasks).toMatchObject([{ status: 'completed' }]);
+  } finally {
+    if (previousInactivity === undefined) {
+      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+    } else {
+      process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousInactivity;
+    }
+    if (previousFirstOutput === undefined) {
+      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
+    } else {
+      process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
+    }
+    fixture?.release.resolve();
+    await fixture?.runtime.dispose();
+    await fixture?.database.close();
   }
 });
 

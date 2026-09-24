@@ -214,6 +214,7 @@ export {
   projectCompactionMessagesForSummarizer,
 } from './mastra/conversation-compaction';
 export {
+  type BackgroundGeneration,
   createDelegatedConversationBinding,
   type DelegatedCancellationControl,
   type DelegatedCancellationTarget,
@@ -269,6 +270,7 @@ export {
 } from './mastra/permission-policy-request';
 export { resolveSelfApprovalDecision } from './mastra/permission-tool-gate';
 export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
+export { buildModelSettingsOption } from './mastra/runtime-assembly/stream-options';
 export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,
@@ -277,8 +279,6 @@ export {
 } from './mastra/shell-output-stream';
 export {
   createDelegationConfig,
-  MAX_CONCURRENT_DELEGATIONS,
-  MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
 export {
@@ -779,6 +779,18 @@ export {
   type StringReplaceResult,
 } from './tools/string-replace';
 export { createSubmitPlanTool, SUBMIT_PLAN_TOOL_ID } from './tools/submit-plan-tool';
+export {
+  /**
+   * The guard's REGISTRATION primitive — a mutation on a module-global
+   * registry, exported only so cross-package tests (desktop's native tool
+   * executors) can publish a deadline without reconstructing the guard.
+   * Production callers never register: `guardToolExecution` owns registration
+   * and its paired release. Tools READ the deadline via
+   * {@link resolveGuardedToolSignal}.
+   */
+  registerToolGuardDeadlineSignal,
+  resolveGuardedToolSignal,
+} from './tools/tool-guard-deadline';
 export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,

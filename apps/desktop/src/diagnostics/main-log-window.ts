@@ -54,24 +54,43 @@ const MARKERS: Record<keyof MainLogWindowCounts, RegExp> = {
   unhandledRejections: /Unhandled promise rejection/,
   wasmAllocationFailures: /Cannot allocate Wasm memory/,
 };
-const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+// Deliberately coupled to the sink's timestamp setting: the desktop main
+// logger configures pino's `isoTime`, which writes `"time":"<ISO>"`. Pino's
+// DEFAULT `timestamp: true` (epoch millis) and `includeTimestamp: false` (no
+// field) both fail this match, and `readRecordTime` then throws on the first
+// record rather than silently misplacing every line in the window.
 const TIME_FIELD = /"time":"([^"]+)"/;
 
+/**
+ * Exactly `Date#toISOString()` output — the millisecond form pino's `isoTime`
+ * stamps on every line — because `scanFile` orders instants as strings. A
+ * whole-second or shorter-fraction bound would misorder (`…00.500Z` < `…00Z`).
+ */
 function isIsoInstant(value: unknown): value is string {
-  return typeof value === 'string' && ISO_INSTANT.test(value) && !Number.isNaN(Date.parse(value));
+  // Expanded-year instants (`+275760-…`) round-trip too, but are 27 chars and
+  // sort before every line the sink writes, so the length is part of the form.
+  if (typeof value !== 'string' || value.length !== 24) {
+    return false;
+  }
+  const ms = Date.parse(value);
+  return !Number.isNaN(ms) && new Date(ms).toISOString() === value;
 }
 
-/** Throws on anything but a bounded, past, well-ordered ISO-8601 UTC window. */
+/** Throws on anything but a bounded, past, well-ordered millisecond ISO-8601 UTC window. */
 export function assertMainLogWindowRequest(value: unknown, now: number): MainLogWindowRequest {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error('Main log window request must be an object.');
   }
   const { since, until } = value as { since?: unknown; until?: unknown };
   if (!isIsoInstant(since)) {
-    throw new Error('Main log window since must be an ISO-8601 UTC instant.');
+    throw new Error(
+      'Main log window since must be a millisecond ISO-8601 UTC instant (Date#toISOString).'
+    );
   }
   if (!isIsoInstant(until)) {
-    throw new Error('Main log window until must be an ISO-8601 UTC instant.');
+    throw new Error(
+      'Main log window until must be a millisecond ISO-8601 UTC instant (Date#toISOString).'
+    );
   }
   const sinceMs = Date.parse(since);
   const untilMs = Date.parse(until);
@@ -117,8 +136,33 @@ async function candidateFiles(logFilePath: string): Promise<string[]> {
   return present;
 }
 
-function readTime(raw: string): string | null {
-  return TIME_FIELD.exec(raw)?.[1] ?? null;
+function isJsonRecord(raw: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The line's ISO time, or null for a crash-truncated line (counted, never
+ * thrown). A whole record without a time — the log written with timestamps
+ * disabled — cannot be placed in any window, and reading it as empty would
+ * hide every failure marker, so it throws.
+ *
+ * `lineNumber` is the PHYSICAL 1-based line — `scanFile` counts blank lines
+ * before it skips them — so the operator-facing message points at the line an
+ * editor or `sed -n '<n>p'` lands on, not at an Nth non-blank record.
+ */
+function readRecordTime(raw: string, lineNumber: number, filePath: string): string | null {
+  const time = TIME_FIELD.exec(raw)?.[1] ?? null;
+  if (time !== null || !isJsonRecord(raw)) {
+    return time;
+  }
+  throw new Error(
+    `Main log line ${lineNumber} of ${path.basename(filePath)} has no ISO "time" field, so the window cannot place it.`
+  );
 }
 
 class KeptLines {
@@ -154,41 +198,47 @@ async function scanFile(
 ): Promise<MainLogWindowFile> {
   let firstTime: string | null = null;
   let lastTime: string | null = null;
-  const reader = createInterface({
-    crlfDelay: Number.POSITIVE_INFINITY,
-    input: createReadStream(filePath, 'utf8'),
-  });
-  for await (const raw of reader) {
-    if (raw.trim().length === 0) {
-      continue;
-    }
-    const time = readTime(raw);
-    if (time === null) {
-      state.malformedLineCount += 1;
-      continue;
-    }
-    firstTime ??= time;
-    lastTime = time;
-    if (time < request.since || time > request.until) {
-      continue;
-    }
-    let parsed: { level?: unknown };
-    try {
-      parsed = JSON.parse(raw) as { level?: unknown };
-    } catch {
-      // A crash can truncate the last written line mid-record; count, never throw.
-      state.malformedLineCount += 1;
-      continue;
-    }
-    state.scannedLineCount += 1;
-    for (const name of Object.keys(MARKERS) as (keyof MainLogWindowCounts)[]) {
-      if (MARKERS[name].test(raw)) {
-        state.counts[name] += 1;
+  const input = createReadStream(filePath, 'utf8');
+  const reader = createInterface({ crlfDelay: Number.POSITIVE_INFINITY, input });
+  let lineNumber = 0;
+  try {
+    for await (const raw of reader) {
+      lineNumber += 1;
+      if (raw.trim().length === 0) {
+        continue;
+      }
+      const time = readRecordTime(raw, lineNumber, filePath);
+      if (time === null) {
+        // A crash can truncate the last written line mid-record; count, never throw.
+        state.malformedLineCount += 1;
+        continue;
+      }
+      firstTime ??= time;
+      lastTime = time;
+      if (time < request.since || time > request.until) {
+        continue;
+      }
+      let parsed: { level?: unknown };
+      try {
+        parsed = JSON.parse(raw) as { level?: unknown };
+      } catch {
+        // A crash can truncate the last written line mid-record; count, never throw.
+        state.malformedLineCount += 1;
+        continue;
+      }
+      state.scannedLineCount += 1;
+      for (const name of Object.keys(MARKERS) as (keyof MainLogWindowCounts)[]) {
+        if (MARKERS[name].test(raw)) {
+          state.counts[name] += 1;
+        }
+      }
+      if (typeof parsed.level === 'number' && parsed.level >= WARN_LEVEL) {
+        state.kept.push(raw);
       }
     }
-    if (typeof parsed.level === 'number' && parsed.level >= WARN_LEVEL) {
-      state.kept.push(raw);
-    }
+  } finally {
+    // Leaving the loop early closes `reader`, which never destroys its input.
+    input.destroy();
   }
   return { firstTime, lastTime, name: path.basename(filePath) };
 }

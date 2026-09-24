@@ -423,18 +423,17 @@ it('a session grant answers every parked background sibling in the same approval
     // exact text the parent then received, before that inference ran.
     // MUTATION: recording after `agent.stream` moves `promptsAtRecord` past the
     // wakeup prompt.
-    const wakeupPrompt = fixture.model.prompts.findIndex((call) =>
-      JSON.stringify(call.prompt).includes('Background invocations of this turn')
-    );
-    const lastUser = fixture.model.prompts[wakeupPrompt]?.prompt
-      .filter((message) => message.role === 'user')
-      .at(-1);
-    const sent =
-      lastUser && Array.isArray(lastUser.content)
-        ? lastUser.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
-        : undefined;
     expect(fixture.wakeups.map((row) => row.kind)).toEqual(['resume-leg']);
-    expect(fixture.wakeups[0]?.directive).toBe(sent);
+    const directive = fixture.wakeups[0]?.directive;
+    const wakeupPrompt = fixture.model.prompts.findIndex((call) =>
+      call.prompt.some(
+        (message) =>
+          message.role === 'user' &&
+          Array.isArray(message.content) &&
+          message.content.some((part) => part.type === 'text' && part.text === directive)
+      )
+    );
+    expect(wakeupPrompt).toBeGreaterThanOrEqual(0);
     expect(fixture.wakeups[0]?.promptsAtRecord).toBe(wakeupPrompt);
     expect(
       fixture.wakeups[0]?.invocations.map((entry) => [entry.outcome, entry.toolCallId]).sort()
@@ -828,13 +827,8 @@ it('the wakeup carries the whole ledger: a root that trusts it reports the final
     siblings: 2,
   });
   const { backing, runtime, runtimeData, release, hold, database, model } = fixture;
-  release.resolve();
   const chunks: StreamChunk[] = [];
   const texts: string[] = [];
-  const isWakeupPrompt = (prompt: (typeof model.prompts)[number]) =>
-    JSON.stringify(prompt.prompt.filter((message) => message.role === 'user').at(-1)).includes(
-      'Background invocations of this turn'
-    );
   try {
     for await (const chunk of await createStreamIteratorFromRuntime({
       memory: backing.memory,
@@ -845,8 +839,12 @@ it('the wakeup carries the whole ledger: a root that trusts it reports the final
       chunks.push(chunk);
       if (chunk.type === 'text-delta') {
         texts.push(chunk.value);
+        // Keep the initial parent step active until its dispatch acknowledgement.
+        if (chunk.value.includes('PARENT_USEFUL_PROGRESS')) {
+          release.resolve();
+        }
       }
-      if (model.prompts.some(isWakeupPrompt)) {
+      if (fixture.wakeups.some((record) => model.prompts.length > record.promptsAtRecord)) {
         hold.resolve();
       }
     }
@@ -855,12 +853,16 @@ it('the wakeup carries the whole ledger: a root that trusts it reports the final
     expect(text.indexOf('PARENT_FINAL_OUTCOME')).toBeGreaterThan(
       text.indexOf('PARENT_USEFUL_PROGRESS')
     );
-    const wakeups = model.prompts
-      .filter((prompt) => prompt.tools?.some((tool) => tool.name === 'agent-explore'))
-      .filter(isWakeupPrompt)
-      .map((prompt) =>
-        JSON.stringify(prompt.prompt.filter((message) => message.role === 'user').at(-1))
-      );
+    const wakeups = fixture.wakeups.map((record) => {
+      const prompt = model.prompts[record.promptsAtRecord];
+      expect(prompt).toBeDefined();
+      const received = prompt?.prompt
+        .filter((message) => message.role === 'user')
+        .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+        .find((part) => part.type === 'text' && part.text === record.directive);
+      expect(received).toBeDefined();
+      return received?.type === 'text' ? received.text : undefined;
+    });
     expect(wakeups).toHaveLength(2);
     expect(wakeups[0]).toContain('2 total: 1 returned, 0 failed, 0 cancelled, 1 still running');
     expect(wakeups[0]).toContain('Explorer): still running');
@@ -885,88 +887,106 @@ it('the wakeup carries the whole ledger: a root that trusts it reports the final
   }
 });
 
-it('a child whose synthesis is cut returns a truncated summary the root can use', async () => {
-  // GLM pack 2026-09-15: three of four Explorers exhausted 16/16 steps and the
-  // fourth's 512-token synthesis finished with `length`, which the terminal
-  // mapper turned into run.failed and a "failed; do not retry" delegation. A
-  // cut summary is partial findings: the child COMPLETES (truncated), the root
-  // reads the text plus a truncation note, and the child tab records why.
-  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
-    budget: { maxSteps: 4, synthesisOutputTokens: 2048 },
-  });
-  const { backing, runtime, runtimeData, release, database, model, effect } = fixture;
-  release.resolve();
-  try {
-    const chunks: StreamChunk[] = [];
-    for await (const chunk of await createStreamIteratorFromRuntime({
-      memory: backing.memory,
-      messages: [
-        { id: 'exhaust', parts: [{ text: 'Survey everything', type: 'text' }], role: 'user' },
-      ],
-      runtime,
-      runtimeData,
-    })) {
-      chunks.push(chunk);
-    }
-    // Three working steps, then the reserved synthesis (steps 4/4).
-    expect(effect).toHaveBeenCalledTimes(3);
-    const synthesisCall = model.prompts.find((prompt) => prompt.maxOutputTokens === 2048);
-    expect(synthesisCall).toBeDefined();
-    expect(synthesisCall?.tools ?? []).toEqual([]);
-    // No failure anywhere: not on the root, not on the child.
-    const failed = chunks.filter(
-      (chunk) =>
-        (chunk.type === 'run-event' && chunk.event.kind === 'run.failed') ||
-        (chunk.type === 'delegated-conversation-chunk' &&
-          chunk.chunk.type === 'run-event' &&
-          chunk.chunk.event.kind === 'run.failed')
-    );
-    expect(failed, JSON.stringify(failed)).toEqual([]);
-    const childEvents = chunks.flatMap((chunk) =>
-      chunk.type === 'delegated-conversation-chunk' && chunk.chunk.type === 'run-event'
-        ? [chunk.chunk.event]
-        : []
-    );
-    expect(childEvents).toContainEqual(
-      expect.objectContaining({
-        kind: 'delegation.budget.exhausted',
-        metadata: expect.objectContaining({
-          cap: 'steps',
-          limit: 4,
-          synthesisForced: true,
-          truncated: true,
-          used: 3,
-        }),
-        status: 'info',
-      })
-    );
-    expect(childEvents).toContainEqual(
-      expect.objectContaining({
-        kind: 'run.finished',
-        metadata: expect.objectContaining({ finishReason: 'length', outcome: 'truncated' }),
-      })
-    );
-    const subagentTerminal = chunks.flatMap((chunk) =>
-      chunk.type === 'run-event' && chunk.event.kind.startsWith('subagent.f') ? [chunk.event] : []
-    );
-    expect(subagentTerminal).toEqual([
-      expect.objectContaining({
-        kind: 'subagent.finished',
-        metadata: expect.objectContaining({ outcome: 'truncated' }),
-      }),
-    ]);
-    // The root's next model call sees the partial findings AND the note.
-    const parentPrompts = model.prompts.filter((prompt) =>
-      prompt.tools?.some((tool) => tool.name === 'agent-explore')
-    );
-    const last = JSON.stringify(parentPrompts.at(-1)?.prompt);
-    expect(last).toContain('PARTIAL_CHILD_FINDINGS');
-    expect(last).toContain('[Truncated summary]');
-    expect(last).not.toContain('do not retry it');
-    expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');
-  } finally {
+it.each([
+  { reported: 512, reservation: 2048 },
+  { reported: 1999, reservation: 1024 },
+])(
+  'a cut synthesis returns partial findings to the root with $reported tokens against $reservation reserved',
+  async ({ reservation, reported }) => {
+    // GLM pack 2026-09-15: three of four Explorers exhausted 16/16 steps and the
+    // fourth's 512-token synthesis finished with `length`, which the terminal
+    // mapper turned into run.failed and a "failed; do not retry" delegation. A
+    // cut summary is partial findings: the child COMPLETES (truncated), the root
+    // reads the text plus a truncation note, and the child tab records why.
+    const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+      budget: {
+        maxSteps: 4,
+        reportedSynthesisTokens: reported,
+        synthesisOutputTokens: reservation,
+      },
+    });
+    const { backing, runtime, runtimeData, release, database, model, effect } = fixture;
     release.resolve();
-    await runtime.dispose();
-    await database.close();
+    try {
+      const chunks: StreamChunk[] = [];
+      for await (const chunk of await createStreamIteratorFromRuntime({
+        memory: backing.memory,
+        messages: [
+          { id: 'exhaust', parts: [{ text: 'Survey everything', type: 'text' }], role: 'user' },
+        ],
+        runtime,
+        runtimeData,
+      })) {
+        chunks.push(chunk);
+      }
+      // Three working steps, then the reserved synthesis (steps 4/4).
+      expect(effect).toHaveBeenCalledTimes(3);
+      const synthesisCall = model.prompts.find((prompt) => prompt.maxOutputTokens === reservation);
+      expect(synthesisCall).toBeDefined();
+      expect(synthesisCall?.tools ?? []).toEqual([]);
+      // No failure anywhere: not on the root, not on the child.
+      const failed = chunks.filter(
+        (chunk) =>
+          (chunk.type === 'run-event' && chunk.event.kind === 'run.failed') ||
+          (chunk.type === 'delegated-conversation-chunk' &&
+            chunk.chunk.type === 'run-event' &&
+            chunk.chunk.event.kind === 'run.failed')
+      );
+      expect(failed, JSON.stringify(failed)).toEqual([]);
+      const childEvents = chunks.flatMap((chunk) =>
+        chunk.type === 'delegated-conversation-chunk' && chunk.chunk.type === 'run-event'
+          ? [chunk.chunk.event]
+          : []
+      );
+      expect(childEvents).toContainEqual(
+        expect.objectContaining({
+          kind: 'delegation.budget.exhausted',
+          metadata: expect.objectContaining({
+            cap: 'steps',
+            limit: 4,
+            synthesisForced: true,
+            truncated: true,
+            used: 3,
+          }),
+          status: 'info',
+        })
+      );
+      expect(childEvents).toContainEqual(
+        expect.objectContaining({
+          kind: 'run.finished',
+          metadata: expect.objectContaining({ finishReason: 'length', outcome: 'truncated' }),
+        })
+      );
+      const subagentTerminal = chunks.flatMap((chunk) =>
+        chunk.type === 'run-event' && chunk.event.kind.startsWith('subagent.f') ? [chunk.event] : []
+      );
+      expect(subagentTerminal).toEqual([
+        expect.objectContaining({
+          kind: 'subagent.finished',
+          metadata: expect.objectContaining({ outcome: 'truncated' }),
+        }),
+      ]);
+      // The root's next model call sees the partial findings AND the note.
+      const parentPrompts = model.prompts.filter((prompt) =>
+        prompt.tools?.some((tool) => tool.name === 'agent-explore')
+      );
+      const last = JSON.stringify(parentPrompts.at(-1)?.prompt);
+      expect(last).toContain('PARTIAL_CHILD_FINDINGS');
+      expect(last).toContain('[Truncated summary]');
+      if (reported > reservation) {
+        expect(last).toContain(
+          `${reported} total output tokens, exceeding the ${reservation}-token reservation`
+        );
+        expect(last).toContain(
+          'All reported tokens remain charged; no further child work is allowed.'
+        );
+      }
+      expect(last).not.toContain('do not retry it');
+      expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');
+    } finally {
+      release.resolve();
+      await runtime.dispose();
+      await database.close();
+    }
   }
-});
+);

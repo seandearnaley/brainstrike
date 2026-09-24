@@ -20,12 +20,13 @@ import type {
   LocalLlmBackendFactory,
   OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
-import { type ReactNode, use, useEffect, useMemo } from 'react';
+import { type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnsweredApprovalsProvider } from './answered-approvals-index';
 import { ApprovalRanksProvider } from './approval-presentation-context';
 import { ApprovalQueueStrip } from './approval-queue-strip';
 import { AssistantDataRendererRegistration } from './assistant-data-renderer-registration';
 import type { AssistantStreamCallbacks } from './assistant-stream-callbacks';
+import { SubagentInvocationIndexProvider } from './subagent-invocation-index';
 import { useAssistantEndpointApi } from './use-assistant-endpoint-api';
 import { useAssistantThreadRuntimeAdapters } from './use-assistant-thread-runtime-adapters';
 import '@assistant-ui/styles/index.css';
@@ -33,6 +34,7 @@ import './overrides.css';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
 import { Button, cn } from '@brainstrike/ui';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
+import { agentColorStyle } from './agent-color-style';
 import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityParts } from './assistant-activity-parts';
 import { ControlsMenu } from './assistant-controls-menu';
@@ -61,7 +63,7 @@ import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { ComposerEffortControl } from './composer-effort-control';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
-import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
+import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-picker';
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
 import { RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
@@ -74,6 +76,12 @@ export type { ComposerAttachmentsAvailability } from './composer-input';
 // source module, not the public import path.
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
 
+import {
+  isAssistantRecoveryBlocked,
+  replayRuntimeOptions,
+  requestResourceId,
+} from './assistant-run-recovery-options';
+import { AssistantRunRecoveryStatus } from './assistant-run-recovery-presentation';
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
@@ -198,6 +206,8 @@ import type {
 export interface AssistantUiPanelProps
   extends ComposerDraftCommandBridgeProps,
     AssistantStreamCallbacks {
+  /** Validated thread identity color; absent threads keep the neutral surface. */
+  agentColor?: string | undefined;
   /**
    * Composer image-attachment availability, resolved by the app-shell
    * wrapper. Absent renders no attachment affordance and registers no
@@ -212,7 +222,8 @@ export interface AssistantUiPanelProps
   completePreparedRequest?: (
     requestData: Record<string, unknown> | undefined,
     status: 'cancelled' | 'completed' | 'failed',
-    error?: string
+    error?: string,
+    hostOwnsRun?: boolean
   ) => Promise<void> | void;
   /** Full model context window size. Passed to the context meter. */
   contextWindow?: number | undefined;
@@ -259,6 +270,8 @@ export interface AssistantUiPanelProps
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
 
+  /** Enable a registry-backed model from the picker; resolves true once committed. */
+  onEnableModel?: (providerId: string, modelId: string) => Promise<boolean>;
   /**
    * Clear the persisted plan-mode preference. Called when the user APPROVES a
    * submitted plan so the resume request exits plan mode and the rebuilt server
@@ -272,7 +285,6 @@ export interface AssistantUiPanelProps
    */
   onFileMentionQueryChange?: (query: string) => void;
   onModelChange?: (compositeKey: string) => void;
-  onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
@@ -300,6 +312,18 @@ export interface AssistantUiPanelProps
    * thread-total readout and clears the sum once durable usage lands.
    */
   onStepUsage?: (step: { inputTokens: number; outputTokens: number }) => void;
+  /**
+   * A settled root Stop cancelled a pause this thread still showed, so the
+   * data-stream runtime is about to REMOUNT and re-read history. Called
+   * immediately after that bump and in the SAME React batch, while the live
+   * composer still exists, so the host can carry its draft into the new mount
+   * through its own thread-scoped channel (app-shell's composer command
+   * store) and the command reaches the replacement rather than the composer
+   * being discarded. Not called when the bump cannot take effect (this panel
+   * has since moved to another thread). The panel keeps no draft state of its
+   * own; a host that wires nothing keeps today's behaviour.
+   */
+  onStopReread?: () => void;
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
@@ -380,7 +404,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
     | ((
         requestData: Record<string, unknown> | undefined,
         status: 'cancelled' | 'completed' | 'failed',
-        error?: string
+        error?: string,
+        hostOwnsRun?: boolean
       ) => Promise<void> | void)
     | undefined;
   contextWindow?: number | undefined;
@@ -392,6 +417,7 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
+  onEnableModel: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
   onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
@@ -450,6 +476,7 @@ const LocalRuntimeChat = ({
   onProviderSettingsChange,
   selectedProvider,
   selectedModel,
+  onEnableModel,
   onModelChange,
   onRunEditActivity,
   onRunFailed,
@@ -554,6 +581,7 @@ const LocalRuntimeChat = ({
           omSegment={omSegment}
           onComposerDraftCommandApplied={onComposerDraftCommandApplied}
           onComposerTextChange={onComposerTextChange}
+          onEnableModel={onEnableModel}
           onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
@@ -597,6 +625,7 @@ const DataStreamRuntimeChat = ({
   onProviderSettingsChange,
   selectedProvider,
   selectedModel,
+  onEnableModel,
   onModelChange,
   onContextBreakdown,
   onChildRunUsage,
@@ -616,6 +645,7 @@ const DataStreamRuntimeChat = ({
   authHeaders,
   completePreparedRequest,
   historyAdapter,
+  onPausesCancelled,
   requestBodyLimitBytes,
   requestData,
   prepareRequestData,
@@ -639,10 +669,13 @@ const DataStreamRuntimeChat = ({
     | ((
         requestData: Record<string, unknown> | undefined,
         status: 'cancelled' | 'completed' | 'failed',
-        error?: string
+        error?: string,
+        hostOwnsRun?: boolean
       ) => Promise<void> | void)
     | undefined;
   historyAdapter: AssistantUiThreadHistoryAdapter | undefined;
+  /** A settled root Stop cancelled a pause this runtime still shows: re-read history. */
+  onPausesCancelled: () => void;
   requestData: Record<string, unknown> | undefined;
   prepareRequestData?:
     | ((
@@ -658,23 +691,25 @@ const DataStreamRuntimeChat = ({
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
+  const resourceId = requestResourceId(requestData);
   const serverRunSession = useAssistantServerRunSession({
     api,
     authHeaders,
     completePreparedRequest,
+    onPausesCancelled,
     prepareLocalModel,
     prepareRequestData,
+    ...(resourceId ? { resourceId } : {}),
     threadKey,
   });
+  const recoveryBlocked = isAssistantRecoveryBlocked(serverRunSession);
 
   const runtimeAdapters = useAssistantThreadRuntimeAdapters(
     historyAdapter,
     attachmentsAvailability !== undefined
   );
   const runtime = useBrainstrikeDataStreamRuntime({
-    ...(serverRunSession.activeRunSession
-      ? { activeRunSession: serverRunSession.activeRunSession }
-      : {}),
+    ...replayRuntimeOptions(serverRunSession),
     api,
     ...(authHeaders === undefined ? {} : { headers: authHeaders }),
     ...runtimeAdapters,
@@ -721,6 +756,7 @@ const DataStreamRuntimeChat = ({
     <AssistantRuntimeProvider runtime={runtime}>
       <PlanModeExitProvider onExit={planMode?.onExit}>
         <AssistantPanelErrorBoundary>
+          <AssistantRunRecoveryStatus session={serverRunSession} />
           <ChatThreadUI
             composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
@@ -729,11 +765,13 @@ const DataStreamRuntimeChat = ({
             effectiveInputBudget={effectiveInputBudget}
             fileMentions={fileMentions}
             hasGroupedProviders={hasGroupedProviders}
-            isComposerDisabled={isComposerDisabled}
+            isComposerDisabled={isComposerDisabled || recoveryBlocked}
+            isReattaching={recoveryBlocked || serverRunSession.activeRunSession !== undefined}
             localLoadingState={localLoadingState}
             omSegment={omSegment}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
             onComposerTextChange={onComposerTextChange}
+            onEnableModel={onEnableModel}
             onFileMentionQueryChange={onFileMentionQueryChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
@@ -792,6 +830,7 @@ export const ChatThreadUI = ({
   onProviderSettingsChange,
   selectedProvider,
   selectedModel,
+  onEnableModel,
   onModelChange,
   onRunEditActivity,
   onRunFailed,
@@ -811,6 +850,7 @@ export const ChatThreadUI = ({
   workspaceBar,
   planMode,
   attachmentsAvailability,
+  isReattaching = false,
   threadKey,
   toolMenu,
 }: {
@@ -832,6 +872,7 @@ export const ChatThreadUI = ({
     | undefined;
   selectedProvider: string | undefined;
   selectedModel: string | undefined;
+  onEnableModel: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onRunEditActivity?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
@@ -839,6 +880,7 @@ export const ChatThreadUI = ({
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   isComposerDisabled: boolean;
+  isReattaching?: boolean;
   hideDefaultCancel?: boolean | undefined;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
@@ -910,7 +952,7 @@ export const ChatThreadUI = ({
                 {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
                 {...(threadKey ? { threadKey } : {})}
               />
-              <FollowUpQueueBridge threadKey={threadKey} />
+              <FollowUpQueueBridge isReattaching={isReattaching} threadKey={threadKey} />
               {/* Drains a successful rewind's target prompt back into the composer
             (Amendment 2). Mounted here rather than on the message, whose own
             button is unmounted by the rewind that hides it. */}
@@ -924,11 +966,13 @@ export const ChatThreadUI = ({
                *
                * See: packages/assistant-ui/src/overrides.css
                */}
-              <ThreadMessagesRegion
-                components={THREAD_MESSAGE_COMPONENTS}
-                {...(disabledReason ? { disabledReason } : {})}
-                {...(threadKey ? { threadKey } : {})}
-              />
+              <SubagentInvocationIndexProvider key={`invocations:${threadKey}`}>
+                <ThreadMessagesRegion
+                  components={THREAD_MESSAGE_COMPONENTS}
+                  {...(disabledReason ? { disabledReason } : {})}
+                  {...(threadKey ? { threadKey } : {})}
+                />
+              </SubagentInvocationIndexProvider>
 
               {/**
                * Composer: Fixed at bottom of thread
@@ -1021,6 +1065,7 @@ export const ChatThreadUI = ({
                   {hasGroupedProviders && (
                     <ProviderModelHeader
                       groups={providerGroups}
+                      onEnableModel={onEnableModel}
                       onModelChange={onModelChange}
                       onProviderSettingsChange={onProviderSettingsChange}
                       pickerModels={pickerModels}
@@ -1045,6 +1090,7 @@ export const ChatThreadUI = ({
 export const AssistantUiPanel = ({
   onRuntimeReady,
   className,
+  agentColor,
   composerDraftCommand,
   contextWindow,
   cumulativeUsage,
@@ -1063,6 +1109,7 @@ export const AssistantUiPanel = ({
   requestData,
   requestBodyLimitBytes,
   prepareRequestData,
+  onEnableModel,
   onModelChange,
   onExitPlanMode,
   onRunEditActivity,
@@ -1093,9 +1140,39 @@ export const AssistantUiPanel = ({
   historyGeneration = 0,
   loadLocalLlmBackend,
   localChatTransport = 'local-runtime',
+  onStopReread,
   threadKey,
 }: AssistantUiPanelProps) => {
   const api = useAssistantEndpointApi();
+  // A settled root Stop that cancelled a pause the runtime still shows moves
+  // this counter, re-running hydration (and its rediscovery) like a rewind. It
+  // carries the thread it was raised FOR: this panel may have switched threads
+  // while the cancel settled, and the thread it now shows was never stopped.
+  const [stopReread, setStopReread] = useState<{
+    generation: number;
+    threadKey: string | undefined;
+  }>({ generation: 0, threadKey: undefined });
+  // Latest-ref sync in an unconditional effect (never during render): the
+  // cancel settles long after the Stop, holding the callback from that render.
+  const currentThreadKeyRef = useRef(threadKey);
+  useEffect(() => {
+    currentThreadKeyRef.current = threadKey;
+  });
+  const rereadAfterStop = useCallback(() => {
+    // A stale callback from a thread this panel has since left would bump a
+    // generation the key gate ignores, and telling the host then would queue a
+    // draft command for a thread that never remounts. Reopening that thread
+    // hydrates from the ledger anyway (PR #3214 review).
+    if (currentThreadKeyRef.current !== threadKey) {
+      return;
+    }
+    setStopReread((current) => ({ generation: current.generation + 1, threadKey }));
+    // Told after the bump and in the same batch, so the draft the host hands
+    // back reaches the NEW mount instead of the composer being discarded —
+    // the ordering Conversation Rewind's own handoff documents.
+    onStopReread?.();
+  }, [onStopReread, threadKey]);
+  const stopRereadGeneration = stopReread.threadKey === threadKey ? stopReread.generation : 0;
   useEffect(() => {
     void preloadMarkdownText();
   }, []);
@@ -1129,7 +1206,9 @@ export const AssistantUiPanel = ({
       <section
         aria-label="Assistant chat"
         className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
+        data-agent-color={agentColor}
         data-testid="chat-panel"
+        style={agentColorStyle(agentColor)}
       >
         {isLocalProvider && modelName && !localViaDataStream ? (
           <LocalRuntimeChat
@@ -1148,6 +1227,7 @@ export const AssistantUiPanel = ({
             omSegment={omSegment}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
             onComposerTextChange={onComposerTextChange}
+            onEnableModel={onEnableModel}
             onFileMentionQueryChange={onFileMentionQueryChange}
             onLoadingStateChange={handleLocalLoadingStateChange}
             onModelChange={onModelChange}
@@ -1187,10 +1267,16 @@ export const AssistantUiPanel = ({
             effectiveInputBudget={effectiveInputBudget}
             fileMentions={fileMentions}
             historyAdapter={historyAdapter}
-            // `historyGeneration` is in the key because hydration runs once per
-            // MOUNT: an out-of-band change to this thread's durable history
-            // (Conversation Rewind) has no other way to reach a mounted runtime.
-            key={threadKey ? `data-stream:${threadKey}:${historyGeneration}` : 'data-stream'}
+            // `historyGeneration` and `stopGeneration` are in the key because
+            // hydration runs once per MOUNT: an out-of-band change to this
+            // thread's durable history (Conversation Rewind) or its pauses (a
+            // root Stop cancelling paused work) has no other way to reach a
+            // mounted runtime.
+            key={
+              threadKey
+                ? `data-stream:${threadKey}:${historyGeneration}:${stopRereadGeneration}`
+                : `data-stream:${stopRereadGeneration}`
+            }
             localLoadingState={localLoadingState}
             modelName={modelName}
             omSegment={omSegment}
@@ -1199,8 +1285,10 @@ export const AssistantUiPanel = ({
             onComposerTextChange={onComposerTextChange}
             onContextBreakdown={onContextBreakdown}
             onDelegatedConversation={onDelegatedConversation}
+            onEnableModel={onEnableModel}
             onFileMentionQueryChange={onFileMentionQueryChange}
             onModelChange={onModelChange}
+            onPausesCancelled={rereadAfterStop}
             onProviderSettingsChange={onProviderSettingsChange}
             onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
@@ -1333,6 +1421,7 @@ const AssistantMessage = () => {
 
 interface ProviderModelHeaderProps {
   groups: ProviderGroupConfig[];
+  onEnableModel?: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -1347,6 +1436,7 @@ interface ProviderModelHeaderProps {
 
 const ProviderModelHeader = ({
   groups,
+  onEnableModel,
   pickerModels,
   providerSettings,
   onProviderSettingsChange,
@@ -1364,7 +1454,8 @@ const ProviderModelHeader = ({
     <div className="bs-composer-control-dock" data-testid="assistant-composer-controls">
       <div className="bs-composer-primary-controls">
         <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
-          <ComposerModelMenu
+          <ComposerModelPicker
+            onEnableModel={onEnableModel}
             onModelChange={onModelChange}
             pickerModels={pickerModels}
             providerGroups={groups}

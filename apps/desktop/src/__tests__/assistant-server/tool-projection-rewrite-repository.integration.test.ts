@@ -585,6 +585,62 @@ describe('tool projection rewrite overlay', () => {
     ).toHaveLength(20);
   });
 
+  it('matches successful persisted greps with null omitted filePaths', async () => {
+    const grepResult = {
+      candidatesTruncated: false,
+      files: Array.from({ length: 300 }, (_, index) => ({
+        firstLine: 1,
+        matchCount: 1,
+        path: `src/${String(index).padStart(3, '0')}-${'long-name-'.repeat(20)}.ts`,
+        source: 'live' as const,
+      })),
+      liveEngine: 'ripgrep' as const,
+      offset: 0,
+      outputMode: 'files' as const,
+      scanLimited: false,
+      totalFiles: 300,
+      totalMatches: 300,
+      truncated: false,
+    };
+    for (let index = 0; index < 20; index += 1) {
+      await insertMessage(
+        db,
+        {
+          id: `grep-null-scope-${index}`,
+          input: { filePaths: null, outputMode: 'files', pattern: 'null-scope-needle' },
+          result: grepResult,
+          toolName: NATIVE_TOOL_ID.grepSearch,
+        },
+        new Date(Date.UTC(2026, 7, 8, 14, index)).toISOString()
+      );
+    }
+    await insertMessage(
+      db,
+      {
+        id: 'grep-malformed-required-pattern',
+        input: { filePaths: null, outputMode: 'files', pattern: null },
+        result: grepResult,
+        toolName: NATIVE_TOOL_ID.grepSearch,
+      },
+      new Date(Date.UTC(2026, 7, 8, 14, 20)).toISOString()
+    );
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { outputMode: 'files', pattern: 'null-scope-needle' },
+        result: { ...grepResult, files: [] },
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'grep-null-scope-new',
+        toolId: NATIVE_TOOL_ID.grepSearch,
+      },
+      { getDatabase: databaseProvider, resetLoopGuards }
+    );
+
+    expect(
+      (await db.query('SELECT * FROM brainstrike_assistant_tool_projection_rewrites')).rows
+    ).toHaveLength(20);
+  });
+
   it('batches reads by projected replay size rather than larger raw JSON size', async () => {
     const markerChars = JSON.stringify({
       type: 'text',

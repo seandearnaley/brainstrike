@@ -2,6 +2,7 @@ import { ToolInputError } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyToolGuards,
+  formatToolTimeoutMessage,
   type GuardedToolError,
   guardToolExecution,
   isGuardedToolError,
@@ -187,6 +188,139 @@ describe('guardToolExecution', () => {
     expect(logger.error).toHaveBeenCalled();
     vi.useRealTimers();
   });
+
+  it('resolves the timeout per call from the call args', async () => {
+    vi.useFakeTimers();
+    const tool = guardToolExecution(
+      makeTool(() => new Promise(() => {})),
+      {
+        timeoutMs: (args) => (args[0] as { timeoutMs: number }).timeoutMs,
+        toolName: 'demo',
+      }
+    );
+    const short = tool.execute({ timeoutMs: 50 });
+    const long = tool.execute({ timeoutMs: 5000 });
+    let longSettled = false;
+    void Promise.resolve(long).then(() => {
+      longSettled = true;
+    });
+    await vi.advanceTimersByTimeAsync(60);
+    expect(((await short) as GuardedToolError).error.code).toBe('tool_timeout');
+    expect(longSettled).toBe(false);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(((await long) as GuardedToolError).error.code).toBe('tool_timeout');
+    vi.useRealTimers();
+  });
+
+  it('reports the GRANTED budget (margin invisible) and the remedy when a longer one could be asked for', async () => {
+    vi.useFakeTimers();
+    const tool = guardToolExecution(
+      makeTool(() => new Promise(() => {})),
+      {
+        declaredMaxMs: 600_000,
+        // executeCommand's default call: 120s granted, 125s guard window.
+        timeoutMs: () => ({ grantedMs: 120_000, guardMs: 125_000 }),
+        toolName: 'demo',
+      }
+    );
+    const promise = tool.execute({});
+    await vi.advanceTimersByTimeAsync(125_000);
+    const { error } = (await promise) as GuardedToolError;
+    expect(error.message).toBe(
+      'The tool did not finish within its 120s execution budget and was cancelled. Pass a larger timeoutMs (up to 600000 ms) if the work legitimately needs longer, or split it into smaller steps.'
+    );
+    vi.useRealTimers();
+  });
+
+  it('reports an explicitly requested budget below the max and still offers the remedy', async () => {
+    vi.useFakeTimers();
+    const tool = guardToolExecution(
+      makeTool(() => new Promise(() => {})),
+      {
+        declaredMaxMs: 600_000,
+        timeoutMs: () => ({ grantedMs: 300_000, guardMs: 305_000 }),
+        toolName: 'demo',
+      }
+    );
+    const promise = tool.execute({});
+    await vi.advanceTimersByTimeAsync(305_000);
+    const { error } = (await promise) as GuardedToolError;
+    expect(error.message).toBe(
+      'The tool did not finish within its 300s execution budget and was cancelled. Pass a larger timeoutMs (up to 600000 ms) if the work legitimately needs longer, or split it into smaller steps.'
+    );
+    vi.useRealTimers();
+  });
+
+  it('never advises a larger timeoutMs when the call already had the declared max', async () => {
+    vi.useFakeTimers();
+    const tool = guardToolExecution(
+      makeTool(() => new Promise(() => {})),
+      {
+        declaredMaxMs: 600_000,
+        timeoutMs: () => ({ grantedMs: 600_000, guardMs: 605_000 }),
+        toolName: 'demo',
+      }
+    );
+    const promise = tool.execute({});
+    await vi.advanceTimersByTimeAsync(605_000);
+    const { error } = (await promise) as GuardedToolError;
+    expect(error.message).toBe(
+      'The tool did not finish within its 600s execution budget and was cancelled. That is the largest budget this tool allows, so split the work into smaller steps.'
+    );
+    expect(error.message).not.toContain('larger timeoutMs');
+    vi.useRealTimers();
+  });
+
+  it('does not suggest timeoutMs for a tool that has none', async () => {
+    vi.useFakeTimers();
+    const tool = guardToolExecution(
+      makeTool(() => new Promise(() => {})),
+      { timeoutMs: 60_000, toolName: 'demo' }
+    );
+    const promise = tool.execute({});
+    await vi.advanceTimersByTimeAsync(60_000);
+    const { error } = (await promise) as GuardedToolError;
+    expect(error.message).toBe(
+      'The tool did not finish within its 60s execution budget and was cancelled. Try a smaller request or another approach.'
+    );
+    vi.useRealTimers();
+  });
+
+  it('a resolver that returns a non-positive budget fails the call loudly instead of arming a 0ms timer', async () => {
+    const tool = guardToolExecution(
+      makeTool(async () => 'ok'),
+      { timeoutMs: () => 0, toolName: 'demo' }
+    );
+    const result = (await tool.execute({})) as GuardedToolError;
+    expect(result.error.code).toBe('tool_failed');
+  });
+});
+
+describe('formatToolTimeoutMessage', () => {
+  it('never reports a 0s budget for a sub-1000ms grant (round 2, Claude D)', () => {
+    expect(formatToolTimeoutMessage(300, 600_000)).toBe(
+      'The tool did not finish within its 300 ms execution budget and was cancelled. Pass a larger timeoutMs (up to 600000 ms) if the work legitimately needs longer, or split it into smaller steps.'
+    );
+  });
+
+  it('still reports whole seconds at or above 1000ms', () => {
+    expect(formatToolTimeoutMessage(1000, undefined)).toBe(
+      'The tool did not finish within its 1s execution budget and was cancelled. Try a smaller request or another approach.'
+    );
+  });
+
+  // Rounding MISSTATES the grant: 1500ms read "2s" and 1499ms read "1s", and a
+  // model sizes its next `timeoutMs` from this number (PR review).
+  it.each([
+    [1499, '1499 ms'],
+    [1500, '1500 ms'],
+    [90_500, '90500 ms'],
+    [120_000, '120s'],
+  ])('reports a %dms grant exactly, as "%s"', (grantedMs, rendered) => {
+    expect(formatToolTimeoutMessage(grantedMs, undefined)).toBe(
+      `The tool did not finish within its ${rendered} execution budget and was cancelled. Try a smaller request or another approach.`
+    );
+  });
 });
 
 describe('applyToolGuards', () => {
@@ -203,5 +337,25 @@ describe('applyToolGuards', () => {
     expect(isGuardedToolError(aResult)).toBe(true);
     vi.useRealTimers();
     await expect(guarded.b.execute({ context: {} })).resolves.toEqual({ ok: true });
+  });
+
+  it('resolves a per-tool timeout when given a function of the tool id', async () => {
+    vi.useFakeTimers();
+    const guarded = applyToolGuards(
+      { fast: makeTool(() => new Promise(() => {})), slow: makeTool(() => new Promise(() => {})) },
+      { timeoutMs: (toolId) => (toolId === 'fast' ? 10 : 1000) }
+    );
+    const fast = guarded.fast.execute({});
+    const slow = guarded.slow.execute({});
+    let slowSettled = false;
+    void Promise.resolve(slow).then(() => {
+      slowSettled = true;
+    });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(((await fast) as GuardedToolError).error.code).toBe('tool_timeout');
+    expect(slowSettled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    await slow;
+    vi.useRealTimers();
   });
 });

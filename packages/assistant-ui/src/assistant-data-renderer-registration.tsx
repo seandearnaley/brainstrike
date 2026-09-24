@@ -7,19 +7,77 @@ import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   CHILD_RUN_USAGE_DATA_NAME,
   CONTEXT_BREAKDOWN_DATA_NAME,
+  getToolActionIdentityKey,
   SHELL_OUTPUT_DATA_NAME,
   TOOL_APPROVAL_ANSWERED_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
+import { use, useEffect, useEffectEvent, useState } from 'react';
 import { assistantDiscoveryErrorDataUI } from './assistant-discovery-error-data-ui';
 import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice } from './assistant-tool-suspend-notice';
+import {
+  type DelegatedApprovalOwner,
+  DelegatedApprovalOwnerContext,
+} from './subagent-conversation-navigation';
+import { isAssistantToolApprovalRequest } from './tool-decision-run-outcome';
 
-const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => (
-  <AssistantToolApprovalNotice data={data} />
-);
+const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => {
+  const resolveOwner = use(DelegatedApprovalOwnerContext);
+  const [resolved, setResolved] = useState<{
+    key: string;
+    owner: DelegatedApprovalOwner | undefined;
+    resolver: typeof resolveOwner;
+  } | null>(null);
+  const approval = isAssistantToolApprovalRequest(data) ? data : null;
+  const key = approval
+    ? JSON.stringify([getToolActionIdentityKey(approval), approval.delegation?.path])
+    : null;
+  const readApproval = useEffectEvent(() => approval);
+  useEffect(() => {
+    const request = readApproval();
+    if (!(request?.delegation && resolveOwner && key)) {
+      return;
+    }
+    let active = true;
+    resolveOwner(request).then(
+      (owner) => {
+        if (active) {
+          setResolved({ key, owner, resolver: resolveOwner });
+        }
+      },
+      () => {
+        if (active) {
+          setResolved({ key, owner: undefined, resolver: resolveOwner });
+        }
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [key, resolveOwner]);
+  const isCurrentResolution = resolved?.key === key && resolved.resolver === resolveOwner;
+  const owner = isCurrentResolution ? resolved.owner : undefined;
+  const colorId = approval?.delegation ? (owner?.colorId ?? 'unresolved') : undefined;
+  const ownerUnavailable =
+    approval?.delegation && (!resolveOwner || (isCurrentResolution && !resolved.owner));
+  return (
+    <>
+      {ownerUnavailable ? (
+        <div className="text-muted-foreground text-xs" role="status">
+          Approval owner unavailable: child identity could not be verified.
+        </div>
+      ) : null}
+      <AssistantToolApprovalNotice
+        colorId={colorId}
+        data={data}
+        ownerDisplayName={owner?.displayName}
+      />
+    </>
+  );
+};
 
 const assistantRunTimelineDataUI = {
   name: ASSISTANT_RUN_EVENT_DATA_NAME,

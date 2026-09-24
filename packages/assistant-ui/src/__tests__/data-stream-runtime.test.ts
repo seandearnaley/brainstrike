@@ -3,8 +3,14 @@ import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   AssistantAttachmentValidationError,
 } from '@brainstrike/assistant-contract';
-import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
-import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  TOOL_APPROVAL_DATA_NAME,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-approval';
+import {
+  TOOL_SUSPEND_DATA_NAME,
+  TOOL_SUSPEND_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import {
   AssistantMessageAccumulator,
@@ -18,6 +24,7 @@ import {
   BrainstrikeDataStreamRuntimeAdapter,
   boundResentImageHistory,
   extractTransportBodyData,
+  resolveDurableInputParentMessageId,
   selectTransportMessagesForMastraMemory,
 } from '../data-stream-runtime';
 
@@ -36,6 +43,28 @@ function message(id: string, role: ThreadMessage['role']): ThreadMessage {
     id,
     metadata: { custom: {} },
     role,
+  } as ThreadMessage;
+}
+
+function pausedActionMessage(
+  id: string,
+  kind: 'approval' | 'suspend',
+  runId: string,
+  toolCallId: string
+): ThreadMessage {
+  return {
+    ...message(id, 'assistant'),
+    content: [
+      {
+        data: {
+          runId,
+          toolCallId,
+          toolName: kind === 'approval' ? 'shell.tool' : 'brainstrike.submitPlan',
+        },
+        name: kind === 'approval' ? TOOL_APPROVAL_DATA_NAME : TOOL_SUSPEND_DATA_NAME,
+        type: 'data',
+      },
+    ],
   } as ThreadMessage;
 }
 
@@ -413,7 +442,7 @@ describe('BrainstrikeDataStreamRuntimeAdapter active-run reattachment', () => {
     };
 
     await expect(consumeReplay()).rejects.toBe(replayFailure);
-    expect(onReplayError).toHaveBeenCalledWith(replayFailure);
+    expect(onReplayError).toHaveBeenCalledWith(replayFailure, 'session-1:-1');
     expect(onError).toHaveBeenCalledWith(replayFailure);
   });
 });
@@ -441,6 +470,7 @@ describe('approval action echo exclusion (transport seam)', () => {
 
     expect(JSON.stringify(requestBody['messages'])).not.toContain('Approved shell.tool.');
     expect(JSON.stringify(requestBody['messages'])).toContain('next-user');
+    expect(requestBody['inputParentMessageId']).toBe('assistant-2');
   });
 
   it('excludes a history approval action message from a NON-memory-backed turn (full history resend)', async () => {
@@ -486,7 +516,7 @@ describe('approval action echo exclusion (transport seam)', () => {
       {
         messages: [
           message('real-user', 'user'),
-          message('assistant-1', 'assistant'),
+          pausedActionMessage('assistant-1', 'approval', 'run-echo-1', 'call-echo-1'),
           approvalActionMessage('approval-user'),
         ],
         runConfig: {
@@ -506,7 +536,60 @@ describe('approval action echo exclusion (transport seam)', () => {
     // Both resume routes read the action from runConfig and ignore messages —
     // the echo must not reach the server at all.
     expect(requestBody['messages']).toEqual([]);
+    expect(requestBody['pausedMessageId']).toBe('assistant-1');
     expect(requestBody).toHaveProperty('runConfig');
+  });
+
+  it('keeps the original approval owner when a failed continuation precedes a retry', async () => {
+    const requestBody = await captureRequestBody(
+      {
+        messages: [
+          message('real-user', 'user'),
+          pausedActionMessage('assistant-original', 'approval', 'run-echo-1', 'call-echo-1'),
+          approvalActionMessage('approval-first'),
+          message('failed-continuation', 'assistant'),
+          approvalActionMessage('approval-retry'),
+        ],
+        runConfig: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+              action: 'approve',
+              runId: 'run-echo-1',
+              toolCallId: 'call-echo-1',
+              toolName: 'shell.tool',
+            },
+          },
+        },
+      },
+      { ...MEMORY_BODY }
+    );
+
+    expect(requestBody['pausedMessageId']).toBe('assistant-original');
+  });
+
+  it('rejects an action when no assistant carries its exact paused tool identity', async () => {
+    await expect(
+      captureRequestBody(
+        {
+          messages: [
+            message('real-user', 'user'),
+            pausedActionMessage('wrong-owner', 'approval', 'other-run', 'other-call'),
+            approvalActionMessage('approval-retry'),
+          ],
+          runConfig: {
+            custom: {
+              [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+                action: 'approve',
+                runId: 'run-echo-1',
+                toolCallId: 'call-echo-1',
+                toolName: 'shell.tool',
+              },
+            },
+          },
+        },
+        { ...MEMORY_BODY }
+      )
+    ).rejects.toThrow('no unique owning paused assistant message');
   });
 
   it('excludes a history suspend action message ("Approved the plan.") — same echo class, same seam', async () => {
@@ -529,7 +612,7 @@ describe('approval action echo exclusion (transport seam)', () => {
       {
         messages: [
           message('real-user', 'user'),
-          message('assistant-1', 'assistant'),
+          pausedActionMessage('assistant-1', 'suspend', 'run-plan-1', 'call-plan-1'),
           suspendActionMessage('plan-user'),
         ],
         runConfig: {
@@ -547,6 +630,7 @@ describe('approval action echo exclusion (transport seam)', () => {
     );
 
     expect(requestBody['messages']).toEqual([]);
+    expect(requestBody['pausedMessageId']).toBe('assistant-1');
     expect(requestBody).toHaveProperty('runConfig');
   });
 
@@ -560,6 +644,55 @@ describe('approval action echo exclusion (transport seam)', () => {
     });
 
     expect(JSON.stringify(requestBody['messages'])).toContain('custom-user');
+  });
+
+  it('anchors a user after multiple synthetic pauses on the exact exported durable ancestor', async () => {
+    const graph = [
+      { message: { id: 'durable-assistant' }, parentId: 'real-user' },
+      { message: { id: 'suspended-approval:run-a:call-a' }, parentId: 'durable-assistant' },
+      {
+        message: { id: 'suspended-pause:run-b:call-b' },
+        parentId: 'suspended-approval:run-a:call-a',
+      },
+      {
+        message: { id: 'suspended-run-discovery-error:thread-1' },
+        parentId: 'suspended-pause:run-b:call-b',
+      },
+    ];
+    let requestBody: Record<string, unknown> | undefined;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        dataStreamFromLines([
+          'f:{"messageId":"msg-echo"}',
+          '0:"Done"',
+          'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+        ])
+      );
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      resolveInputParentMessageId: (parentId) =>
+        resolveDurableInputParentMessageId(parentId, graph),
+    });
+    for await (const _message of adapter.run(
+      runOptions({
+        messages: [
+          message('real-user', 'user'),
+          message('durable-assistant', 'assistant'),
+          message('suspended-approval:run-a:call-a', 'assistant'),
+          message('suspended-pause:run-b:call-b', 'assistant'),
+          message('suspended-run-discovery-error:thread-1', 'assistant'),
+          message('next-user', 'user'),
+        ],
+      })
+    )) {
+      // Consume the request.
+    }
+    expect(requestBody?.['inputParentMessageId']).toBe('durable-assistant');
+    expect(() => resolveDurableInputParentMessageId('suspended-pause:missing', graph)).toThrow(
+      'no exported parent edge'
+    );
   });
 
   it('keeps a record-but-INVALID suspend marker on the wire (it renders as a bubble, not a chip)', async () => {
@@ -1211,6 +1344,7 @@ describe('assistant-stream integration', () => {
 
     expect(Object.keys(requestBody).sort()).toEqual([
       'data',
+      'inputParentMessageId',
       'messages',
       'runConfig',
       'unstable_assistantMessageId',
@@ -1384,7 +1518,7 @@ describe('assistant-stream integration', () => {
     expect(requestHeaders?.get('authorization')).toBe('Bearer token');
     expect(requestHeaders?.get('content-type')).toBe('application/json');
     expect(requestCredentials).toBe('include');
-    expect(onResponse).toHaveBeenCalledWith(expect.any(Response));
+    expect(onResponse).toHaveBeenCalledWith(expect.any(Response), 'current-user');
     expect(onFinish).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'finished',
@@ -1399,6 +1533,7 @@ describe('assistant-stream integration', () => {
           strategy: 'mastra-memory-current-turn',
         },
       },
+      inputParentMessageId: 'old-user',
       messages: [
         {
           content: [{ text: 'current-user' }],
@@ -1430,6 +1565,33 @@ describe('assistant-stream integration', () => {
         message: 'Response body is null',
       })
     );
+  });
+
+  it('finishes a terminal provider error without reporting a transport detach', async () => {
+    const onError = vi.fn();
+    const onFinish = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-provider-error"}',
+            '3:"Provider unavailable"',
+            'd:{"finishReason":"error","usage":{"inputTokens":0,"outputTokens":0},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+      onFinish,
+    });
+
+    for await (const _message of adapter.run(runOptions())) {
+      // The provider error is a completed stream, not a failed transport.
+    }
+
+    expect(onFinish).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it('reports empty HTTP error response bodies without reading from a null stream', async () => {
@@ -1473,6 +1635,11 @@ describe('assistant-stream integration', () => {
     normalAbortController.abort(new DOMException('cancelled', 'AbortError'));
     await expect(normalRun).rejects.toThrow('cancelled');
     expect(onCancel).toHaveBeenCalledTimes(1);
+    // The run session decides from these whether a pause may have been
+    // cancelled with the turn: the prior messages plus the live message.
+    expect(onCancel).toHaveBeenCalledWith({
+      messages: [message('user', 'user'), message('message-id', 'assistant')],
+    });
 
     const detachAbortController = new AbortController();
     globalThis.fetch = createBlockingFetch();
@@ -1490,6 +1657,32 @@ describe('assistant-stream integration', () => {
     detachAbortController.abort({ detach: true });
     await expect(detachRun).rejects.toMatchObject({ detach: true });
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cancel a completed hosted run when its old signal aborts later', async () => {
+    const onCancel = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"finished"}',
+            '0:"Done"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const controller = new AbortController();
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onCancel,
+      onFinish: () => controller.abort(new DOMException('Superseded by a later run', 'AbortError')),
+    });
+
+    for await (const _message of adapter.run(runOptions({ abortSignal: controller.signal }))) {
+      // Finish and release this turn before a subsequent runtime abort.
+    }
+    expect(controller.signal.aborted).toBe(true);
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it('does not let onResponse mask HTTP status failures', async () => {

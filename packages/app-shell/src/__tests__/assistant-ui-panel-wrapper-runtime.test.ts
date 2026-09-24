@@ -1,3 +1,10 @@
+import {
+  deriveEffectiveInputBudget,
+  getLlmModelDefinition,
+  type ProviderId,
+  resolveOpenRouterOutputWindow,
+  resolveOpenRouterReasoningActive,
+} from '@brainstrike/assistant-contract';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
@@ -32,6 +39,7 @@ import {
   resolveModelNameFromComposite,
   resolveOpenRouterMetadataDisabledReason,
   resolveProviderModelSelection,
+  type SelectedModelBudgetDef,
   toRuntimeProviderModels,
 } from '../assistant-ui-panel-wrapper-runtime';
 
@@ -68,6 +76,7 @@ function createRepositoryStub(
     deleteThread: async () => {},
     getCrossRootUsage: async () => [],
     getThreadCumulativeUsage: async () => null,
+    getThreadRunTurnMessageId: async () => null,
     listLatestThreadRuns: async () => [],
     listMessages: async () => [],
     listThreadCheckpoints: vi.fn(async () => []),
@@ -1340,10 +1349,11 @@ describe('assistant runtime helpers', () => {
       })
     ).toEqual({});
     expect(
+      // BST-1804: the route's top_provider max output is 65,535.
       reconcileProviderSettingsForModel('openrouter', 'google/gemini-2.5-flash', {
-        maxOutputTokens: 65_536,
+        maxOutputTokens: 65_535,
       })
-    ).toEqual({ maxOutputTokens: 65_536 });
+    ).toEqual({ maxOutputTokens: 65_535 });
     expect(
       reconcileProviderSettingsForModel('openrouter', 'custom/unknown-model', {
         maxOutputTokens: 128_000,
@@ -1450,25 +1460,30 @@ describe('assistant runtime helpers', () => {
 });
 
 describe('buildAgentLoopSettings input-token budget', () => {
-  it('reserves the model-aware OpenRouter coding default instead of the model maximum', () => {
-    const settings = buildAgentLoopSettings(
-      undefined,
-      { contextWindow: 400_000, maxOutputTokens: 128_000 },
-      'openrouter'
-    );
+  // The reservation is the output the request sends (`buildEffectiveModelSettings`),
+  // exactly as `useOpenRouterModelMetadata` composes them.
+  function openRouterAutoLimit(model: SelectedModelBudgetDef): number | undefined {
+    const modelSettings = buildEffectiveModelSettings('openrouter', undefined, model);
+    return buildAgentLoopSettings(undefined, model, 'openrouter', modelSettings)?.inputTokenLimit;
+  }
 
+  it('reserves the model-aware OpenRouter coding default instead of the model maximum', () => {
     // The coding default is min(model output limit, 32,000). The 5% safety margin is 20,000.
-    expect(settings?.inputTokenLimit).toBe(348_000);
+    expect(openRouterAutoLimit({ contextWindow: 400_000, maxOutputTokens: 128_000 })).toBe(348_000);
   });
 
   it('caps the OpenRouter coding default to a smaller model output limit', () => {
-    const settings = buildAgentLoopSettings(
-      undefined,
-      { contextWindow: 64_000, maxOutputTokens: 16_000 },
-      'openrouter'
-    );
+    expect(openRouterAutoLimit({ contextWindow: 64_000, maxOutputTokens: 16_000 })).toBe(44_800);
+  });
 
-    expect(settings?.inputTokenLimit).toBe(44_800);
+  it('has no OpenRouter reservation of its own: throws without the output the request sends', () => {
+    expect(() =>
+      buildAgentLoopSettings(
+        undefined,
+        { contextWindow: 400_000, maxOutputTokens: 128_000 },
+        'openrouter'
+      )
+    ).toThrow(/output limit the request sends/);
   });
 
   it('reserves the configured OpenRouter output limit in the input budget', () => {
@@ -1524,6 +1539,35 @@ describe('buildAgentLoopSettings input-token budget', () => {
       /contextWindow must be a positive number/
     );
   });
+
+  // BST-1804: desktop compaction's no-`agentLoop` fallback pins itself to
+  // this SAME reproduction (conversation-compaction-input-budget.test.ts), so
+  // this is the renderer half of the pair — if either side drifts, one fails.
+  it.each([
+    ['openrouter', 'moonshotai/kimi-k3'],
+    ['openrouter', 'minimax/minimax-m3'],
+    ['openrouter', 'x-ai/grok-4.7'],
+    ['anthropic', 'claude-opus-5-5'],
+  ] as const)(
+    'derives %s/%s at default settings from the reservation the run sends',
+    (providerId, modelId) => {
+      const definition = getLlmModelDefinition(providerId as ProviderId, modelId);
+      const modelSettings = buildEffectiveModelSettings(
+        providerId,
+        undefined,
+        definition,
+        undefined,
+        modelId
+      );
+      const outputReservation =
+        providerId === 'openrouter'
+          ? resolveOpenRouterOutputWindow(definition, resolveOpenRouterReasoningActive(definition))
+          : definition.maxOutputTokens;
+      expect(
+        buildAgentLoopSettings(undefined, definition, providerId, modelSettings)?.inputTokenLimit
+      ).toBe(deriveEffectiveInputBudget(definition.contextWindow, outputReservation));
+    }
+  );
 
   it('uses conservative floor budget for dynamic local model definitions (32k context)', () => {
     // toRuntimeProviderModels sets contextWindow: 32_768, no maxOutputTokens

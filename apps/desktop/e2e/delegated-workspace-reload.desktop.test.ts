@@ -31,11 +31,15 @@ test('restores distinct child tabs and native transcripts without executing a ru
   ).toHaveCount(1);
 
   const requests = (await readAssistantMockRequests(window)) as Array<{
-    data: { memory: { resourceId: string; threadId: string } };
+    data: { memory: { resourceId: string; runId: string; threadId: string } };
   }>;
   expect(requests).toHaveLength(1);
   const memory = requests[0]?.data.memory;
-  expect(memory).toMatchObject({ resourceId: expect.any(String), threadId: expect.any(String) });
+  expect(memory).toMatchObject({
+    resourceId: expect.any(String),
+    runId: expect.any(String),
+    threadId: expect.any(String),
+  });
   if (!memory) {
     throw new Error('The root request has no native memory identity');
   }
@@ -53,6 +57,19 @@ test('restores distinct child tabs and native transcripts without executing a ru
     )?.db?.query;
     if (!query) {
       throw new Error('Native database bridge unavailable');
+    }
+    // setupAssistantMock replaces the host transport, including its replay headers.
+    // This completed-history fixture must seed the terminal write that the real
+    // admitted host owns; renderer cleanup deliberately does not perform it.
+    const completed = await query(
+      `UPDATE brainstrike_assistant_thread_runs
+       SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND resource_id = $2 AND thread_id = $3 AND status = 'running'
+       RETURNING id`,
+      [memory.runId, memory.resourceId, memory.threadId]
+    );
+    if (completed.rows.length !== 1) {
+      throw new Error('Expected the exact mock-prepared run to complete');
     }
     const result = await query(
       `SELECT id, "resourceId" AS resource FROM mastra_threads WHERE id = $1 AND "resourceId" = $2`,
@@ -83,8 +100,8 @@ test('restores distinct child tabs and native transcripts without executing a ru
     const ids: string[] = [];
     for (const [name, color, parentName] of [
       ['Cedar', 'emerald'],
-      ['Flint', 'amber'],
-      ['Wren', 'violet', 'Cedar'],
+      ['Flint', 'family:2000:730'],
+      ['Wren', 'family:1510:420', 'Cedar'],
     ]) {
       const child = `${root['id']}-${name}`;
       const resource = `${root['resource']}-${name}`;
@@ -193,9 +210,14 @@ test('restores distinct child tabs and native transcripts without executing a ru
   const flint = window.getByRole('tab', { exact: true, name: 'Flint' });
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
-  // The first SVG is the tab's identity mark; trailing controls may add icons.
-  await expect(cedar.locator('svg').first()).toHaveClass(/text-emerald-500/u);
-  await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);
+  await expect(cedar.locator('..')).toHaveAttribute('data-agent-color', 'emerald');
+  await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'family:2000:730');
+  await expect(cedar.getByTestId('workspace-agent-mark')).toHaveClass(/text-emerald-700/u);
+  await expect(flint.getByTestId('workspace-agent-mark')).toHaveClass(/bs-agent-family-mark/u);
+  const flintMarkBackground = await flint
+    .getByTestId('workspace-agent-mark')
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(flintMarkBackground).not.toBe('rgba(0, 0, 0, 0)');
   await expect(window.getByText('Cedar saved native transcript', { exact: true })).toBeVisible();
   const rootDraft = rootPanel.getByRole('textbox', { name: 'Message input' });
   await rootDraft.fill('UNSENT_PARENT_DRAFT_1724');
@@ -270,7 +292,12 @@ test('restores distinct child tabs and native transcripts without executing a ru
     .toBeLessThanOrEqual(1);
   await window.getByRole('button', { exact: true, name: 'Flint Child' }).click();
   await expect(flint).toHaveAttribute('aria-selected', 'true');
-  await expect(flint.locator('svg').first()).toHaveClass(/text-amber-500/u);
+  await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'family:2000:730');
+  await expect(flint.getByTestId('workspace-agent-mark')).toHaveClass(/bs-agent-family-mark/u);
+  await expect(flint.getByTestId('workspace-agent-mark')).toHaveCSS(
+    'background-color',
+    flintMarkBackground
+  );
   await sidebarCedar.getByRole('button', { name: /Expand/ }).click();
   const wrenRow = window.getByRole('row').filter({
     has: window.getByRole('button', { exact: true, name: 'Wren Child' }),

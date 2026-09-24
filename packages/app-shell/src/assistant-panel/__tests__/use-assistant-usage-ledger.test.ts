@@ -53,6 +53,7 @@ function createRepositoryStub(
     deleteThread: async () => {},
     getCrossRootUsage: async () => [],
     getThreadCumulativeUsage: async () => CUMULATIVE,
+    getThreadRunTurnMessageId: async () => null,
     listLatestThreadRuns: async () => [],
     listMessages: async () => [],
     listThreadCheckpoints: async () => [],

@@ -1,16 +1,21 @@
+import {
+  DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  resolveChildTaskTimeoutMs,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { Mastra } from '@mastra/core/mastra';
 import { expect, it } from 'vitest';
 import { repairBackgroundResults } from '../mastra/background-results';
 import { createPgliteMastraMemory } from '../pglite-mastra-memory';
 
-it.each(['completed', 'failed', 'timed_out'] as const)(
+it.each(['completed', 'failed', 'timed_out', 'cancelled'] as const)(
   'recovers an undelivered %s outcome without its retained parent message, exactly once',
   async (status) => {
     const database = await createEnginePglite();
     const scope = { resourceId: 'owner', threadId: 'root' };
     const backing = await createPgliteMastraMemory({
       backgroundTaskScope: scope,
+      backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
       database: {
         exec: (sql) => database.exec(sql),
         query: (sql, values) => database.query(sql, values ? [...values] : undefined),
@@ -77,7 +82,11 @@ it.each(['completed', 'failed', 'timed_out'] as const)(
       });
       if (status !== 'completed') {
         expect(JSON.stringify(invocation)).toContain(
-          status === 'timed_out' ? 'timed out' : 'without persisted error details'
+          status === 'cancelled'
+            ? 'cancelled'
+            : status === 'timed_out'
+              ? 'timed out'
+              : 'without persisted error details'
         );
       }
       expect(JSON.stringify(saved.messages)).toContain('work was not executed again');

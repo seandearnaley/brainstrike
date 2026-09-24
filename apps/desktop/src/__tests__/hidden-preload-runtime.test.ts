@@ -1,5 +1,9 @@
 import Module from 'node:module';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  databaseChunkingContract,
+  databaseEmbeddingContract,
+} from '../ipc-domains/database.contract';
 
 const { exposeInMainWorldMock, invokeMock, onMock, removeListenerMock, sendMock } = vi.hoisted(
   () => ({
@@ -79,6 +83,60 @@ describe('hidden preload runtime capability manifest', () => {
       thermalState: 'serious',
     });
     expect(invokeMock).toHaveBeenCalledWith('app:power-snapshot');
+  });
+
+  it.each([
+    ['chunking-host', databaseChunkingContract],
+    ['embedding-host', databaseEmbeddingContract],
+  ] as const)(
+    'derives the %s database capability without extra methods',
+    async (role, contract) => {
+      const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}${role}`]);
+      const electronAPI = exposed.get('electronAPI') as
+        | { db?: Record<string, (...args: unknown[]) => Promise<unknown>> }
+        | undefined;
+
+      expect(Object.keys(electronAPI?.db ?? {}).sort()).toEqual(Object.keys(contract).sort());
+      invokeMock.mockResolvedValueOnce({ rows: [] });
+      await electronAPI?.db?.['query']?.('SELECT 1');
+      expect(invokeMock).toHaveBeenLastCalledWith('db:query', 'SELECT 1');
+    }
+  );
+  it('keeps each hidden role bridge at its exact runtime key set', async () => {
+    const chunking = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}chunking-host`]);
+    const chunkingApi = chunking.get('electronAPI') as { db: object };
+    expect(Object.keys(chunkingApi).sort()).toEqual(['db']);
+    expect(Object.keys(chunkingApi.db).sort()).toEqual(['query']);
+    expect(Object.keys(chunking.get('chunkingHost') as object).sort()).toEqual([
+      'onRequest',
+      'reportResponse',
+      'reportStatus',
+    ]);
+
+    const embedding = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}embedding-host`]);
+    const embeddingApi = embedding.get('electronAPI') as {
+      db: object;
+      vectorPreferences: object;
+    };
+    expect(Object.keys(embeddingApi).sort()).toEqual(['db', 'vectorPreferences']);
+    expect(Object.keys(embeddingApi.db).sort()).toEqual([
+      'applyManagedCacheBatch',
+      'diagnostics',
+      'exec',
+      'insertChunksAndEnqueueEmbeddingJobs',
+      'invalidateManagedCacheEntriesByIdentity',
+      'query',
+      'runTransaction',
+      'schedulerSnapshot',
+      'test',
+    ]);
+    expect(Object.keys(embeddingApi.vectorPreferences).sort()).toEqual(['clear', 'read', 'write']);
+    expect(Object.keys(embedding.get('embeddingHost') as object).sort()).toEqual([
+      'onCommand',
+      'onQueryEmbeddingRequest',
+      'reportQueryEmbeddingResponse',
+      'reportStatus',
+    ]);
   });
 
   it('gives the embedding host a key-less vector preferences capability', async () => {

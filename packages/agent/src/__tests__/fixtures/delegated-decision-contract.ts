@@ -63,6 +63,8 @@ export async function assertStaleDelegatedDecision(
     return { identity, resourceId: run.resourceId, threadId: run.threadId };
   });
   const binding: DelegatedConversationBinding = {
+    // No execution runs in this contract check, so nothing is ever ended.
+    endStalledExecution: () => false,
     inputProcessor: { id: 'unused', processInput: ({ messages }) => messages },
     prepare: () => undefined,
     // Native snapshot validation here; the real host graph verifier has its own PGlite suite.

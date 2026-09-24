@@ -61,7 +61,7 @@ describe('durable delegated conversation graph (BST-1718)', () => {
       repository.createChild(scope, {
         ...child,
         // @ts-expect-error Exercise a value arriving outside the typed host API.
-        color: 'red',
+        color: 'magenta',
       })
     ).rejects.toBeInstanceOf(DelegatedConversationIdentityError);
     expect(await repository.listChildren(scope, 'root')).toEqual([]);

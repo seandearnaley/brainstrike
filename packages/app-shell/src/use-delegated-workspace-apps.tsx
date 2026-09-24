@@ -3,8 +3,10 @@ import { type DbHandle, useDbProviderError, usePGliteDatabase } from '@brainstri
 import type { WorkspaceApp } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { MessageSquare } from 'lucide-react';
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { ChildView, Failure } from './delegated-workspace-child-view';
+import { type ReactNode, useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { getDelegatedColorPresentation } from './agent-color-presentation';
+import { ChildAppSurface } from './delegated-workspace-child-app-surface';
+import { Failure } from './delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from './delegated-workspace-node';
 import { type DelegatedWorkspaceTab, readDelegatedWorkspaceTab } from './delegated-workspace-tab';
 
@@ -15,18 +17,44 @@ function asError(value: unknown): Error {
 type Entry =
   | { readonly db: DbHandle; readonly node: ChildNode }
   | { readonly db: DbHandle; readonly error: Error };
-const colors: Record<ChildNode['color'], string> = {
-  amber: 'text-amber-500',
-  blue: 'text-blue-500',
-  emerald: 'text-emerald-500',
-  rose: 'text-rose-500',
-  slate: 'text-slate-500',
-  violet: 'text-violet-500',
-};
-
 type AddressEntry =
   | { readonly id: string; readonly address: DelegatedWorkspaceTab }
   | { readonly id: string; readonly error: Error };
+
+function renderChildApp(
+  db: DbHandle | null,
+  error: Error | undefined,
+  id: string,
+  node: ChildNode | undefined
+): ReactNode {
+  if (error) {
+    return <Failure error={error} />;
+  }
+  if (!(db && node)) {
+    return (
+      <p className="p-4" role="status">
+        Loading conversation…
+      </p>
+    );
+  }
+  return <ChildAppSurface db={db} id={id} key={id} node={node} />;
+}
+
+function resolveAppEntry(
+  item: AddressEntry,
+  db: DbHandle | null,
+  dbError: Error | null,
+  entries: ReadonlyMap<string, Entry>
+): { readonly error: Error | undefined; readonly node: ChildNode | undefined } {
+  const cached = entries.get(item.id);
+  const entry = cached?.db === db ? cached : undefined;
+  const error =
+    'error' in item
+      ? item.error
+      : (dbError ?? (entry && 'error' in entry ? entry.error : undefined));
+  const node = entry && 'node' in entry ? entry.node : undefined;
+  return { error, node };
+}
 
 export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
   const openIds = useWorkspaceTabSelectionStore((state) => state.openAppIds);
@@ -91,32 +119,25 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
   return useMemo(
     () =>
       addresses.map((item): WorkspaceApp => {
-        const cached = entries.get(item.id);
-        const entry = cached?.db === db ? cached : undefined;
-        const error =
-          'error' in item
-            ? item.error
-            : (dbError ?? (entry && 'error' in entry ? entry.error : undefined));
-        const node = entry && 'node' in entry ? entry.node : undefined;
+        const { error, node } = resolveAppEntry(item, db, dbError, entries);
+        const appearance = node ? getDelegatedColorPresentation(node.color) : undefined;
         return {
-          icon: ({ className }) => (
-            <MessageSquare className={`${className ?? ''} ${node ? colors[node.color] : ''}`} />
-          ),
+          icon: ({ className }) => <MessageSquare className={className} />,
           id: item.id,
           label: node?.displayName ?? 'Child conversation',
-          render: () => {
-            if (error) {
-              return <Failure error={asError(error)} />;
-            }
-            if (!(db && node)) {
-              return (
-                <p className="p-4" role="status">
-                  Loading conversation…
-                </p>
-              );
-            }
-            return <ChildView db={db} key={item.id} node={node} />;
-          },
+          ...(appearance && node
+            ? {
+                tabAppearance: {
+                  accentClassName: appearance.accentClassName,
+                  colorId: node.color,
+                  idleClassName: appearance.idleClassName,
+                  markClassName: appearance.markClassName,
+                  selectedClassName: appearance.selectedClassName,
+                  style: appearance.style,
+                },
+              }
+            : {}),
+          render: () => renderChildApp(db, error, item.id, node),
         };
       }),
     [addresses, db, dbError, entries]

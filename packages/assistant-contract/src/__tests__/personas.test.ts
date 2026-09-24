@@ -13,7 +13,7 @@ import {
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '../personas';
 import { ASSISTANT_RUN_EVENT_KINDS, type AssistantRunEventKind } from '../run-events';
-import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '../subagent-settings';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS, SUBAGENT_SETTINGS_LIMITS } from '../subagent-settings';
 import { MAX_USER_PERSONA_MAX_STEPS } from '../user-personas';
 
 const baseDefinition = (
@@ -42,11 +42,18 @@ describe('effectiveChildStepBudget', () => {
     );
   });
 
-  it('raises the read-only built-ins to 32 declared steps and keeps the worker at 16', () => {
-    const byId = new Map(BUILT_IN_PERSONAS.map((persona) => [persona.id, persona.maxSteps]));
-    expect(byId.get('explore')).toBe(32);
-    expect(byId.get('analyze')).toBe(32);
-    expect(byId.get('worker')).toBe(16);
+  it("states the turn's tree limits from the request settings, never a constant", () => {
+    const settings = {
+      ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      maxConcurrentWork: 5,
+      maxDepth: 7,
+      maxInvocations: 11,
+      maxTreeOutputTokens: 98_765,
+    };
+    expect(delegationDescriptionForPersona({ description: 'd', maxSteps: 4 }, settings)).toContain(
+      'The root turn permits at most 7 descendant levels, 11 invocations, 5 active work ' +
+        'operations, 32768 output tokens per child and 98765 across descendants.'
+    );
   });
 });
 
@@ -239,30 +246,27 @@ describe('delegationDescriptionForPersona', () => {
     ).toContain('Delegate exploration.');
   });
 
-  it('discloses a cap for every built-in', () => {
+  it('discloses the effective cap (the setting) for every built-in', () => {
     for (const builtIn of BUILT_IN_PERSONAS) {
       expect(delegationDescriptionForPersona(builtIn, DEFAULT_RUNTIME_SUBAGENT_SETTINGS)).toContain(
-        `at most ${builtIn.maxSteps} steps`
+        `at most ${DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxChildSteps} steps`
       );
     }
   });
 
-  it('gives every built-in the budget a user persona is also allowed', () => {
-    // One step is reserved in-loop for the wrap-up summary
-    // (buildChildIterationPolicy), so the usable tool budget is maxSteps - 1.
-    // At the previous cap of 8 that left 7 tool steps for a persona whose own
-    // description invites surveying many files.
-    //
-    // No built-in sits ABOVE the user ceiling: a budget users cannot declare
-    // would make the shipped Explorer unreplicable by a user persona, and
-    // would leave MAX_USER_PERSONA_MAX_STEPS describing a limit the app itself
-    // ignores. The read-only built-ins sit AT it (32); the worker stays at 16.
+  it("lets the user's step setting govern every built-in", () => {
+    // Built-ins used to declare 32 (worker 16), so effective = min(persona,
+    // setting) silently ignored any "Max steps per subagent" above that. They
+    // now declare the host ceiling — which is also the user-persona ceiling, so
+    // a user persona can still replicate any built-in — and the setting alone
+    // decides the budget.
+    expect(MAX_USER_PERSONA_MAX_STEPS).toBe(SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max);
     for (const builtIn of BUILT_IN_PERSONAS) {
-      expect(builtIn.maxSteps).toBeLessThanOrEqual(MAX_USER_PERSONA_MAX_STEPS);
+      expect(builtIn.maxSteps).toBe(MAX_USER_PERSONA_MAX_STEPS);
+      for (const maxChildSteps of [1, 64, 250, SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max]) {
+        expect(effectiveChildStepBudget(builtIn, { maxChildSteps })).toBe(maxChildSteps);
+      }
     }
-    expect(
-      BUILT_IN_PERSONAS.some((builtIn) => builtIn.maxSteps === MAX_USER_PERSONA_MAX_STEPS)
-    ).toBe(true);
   });
 });
 

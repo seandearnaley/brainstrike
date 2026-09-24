@@ -4,6 +4,7 @@ import { cn } from '@brainstrike/ui';
 import type { ComponentProps, ReactElement } from 'react';
 import { ActiveConversationInputProvider } from './active-conversation-input';
 import type { SendActiveConversationInput } from './active-conversation-input-context';
+import { agentColorStyle } from './agent-color-style';
 import {
   type ApprovalOwnerThread,
   ApprovalOwnerThreadContext,
@@ -11,6 +12,7 @@ import {
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import { PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { type AssistantUiPanelProps, ChatThreadUI } from './assistant-ui-panel';
+import { type DecisionRoute, DecisionRouteContext } from './decision-route-context';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { RewindProvider } from './rewind-context';
@@ -27,6 +29,8 @@ export type AssistantConversationPanelProps = Partial<
     readonly onSendActiveInput?: SendActiveConversationInput | undefined;
     readonly prepareActiveInput?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
     readonly className?: string;
+    readonly agentColor?: string | undefined;
+    readonly decisionRoute?: DecisionRoute | undefined;
     readonly label: string;
     /**
      * The owning root's thread when this view is a delegated child. The host
@@ -44,6 +48,8 @@ const EMPTY: never[] = [];
 /** The main thread's complete surface, bound to an existing conversation runtime. */
 export function AssistantConversationPanel({
   className,
+  agentColor,
+  decisionRoute,
   allowIdleInput = false,
   onSendActiveInput,
   prepareActiveInput,
@@ -69,8 +75,10 @@ export function AssistantConversationPanel({
       <section
         aria-label={label}
         className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
+        data-agent-color={agentColor}
         data-testid="assistant-conversation-panel"
         data-thread-key={threadKey}
+        style={agentColorStyle(agentColor)}
       >
         <AssistantRuntimeProvider runtime={runtime}>
           <ActiveConversationInputProvider
@@ -80,28 +88,31 @@ export function AssistantConversationPanel({
           >
             <PlanModeExitProvider onExit={props.planMode?.onExit}>
               <RewindProvider value={null}>
-                <FollowUpQueueOwnershipContext value={false}>
-                  <AssistantPanelErrorBoundary>
-                    <ApprovalOwnerThreadContext value={ownerThread ?? null}>
-                      <ChatThreadUI
-                        disabledReason={undefined}
-                        fileMentions={fileMentions}
-                        hasGroupedProviders={providerGroups.length > 0}
-                        isComposerDisabled={isComposerDisabled}
-                        onFileMentionQueryChange={undefined}
-                        onModelChange={undefined}
-                        pickerModels={pickerModels}
-                        providerGroups={providerGroups}
-                        recentModels={undefined}
-                        selectedModel={undefined}
-                        selectedProvider={undefined}
-                        slashCommands={slashCommands}
-                        {...props}
-                        threadKey={threadKey}
-                      />
-                    </ApprovalOwnerThreadContext>
-                  </AssistantPanelErrorBoundary>
-                </FollowUpQueueOwnershipContext>
+                <DecisionRouteContext value={decisionRoute ?? null}>
+                  <FollowUpQueueOwnershipContext value={false}>
+                    <AssistantPanelErrorBoundary>
+                      <ApprovalOwnerThreadContext value={ownerThread ?? null}>
+                        <ChatThreadUI
+                          disabledReason={undefined}
+                          fileMentions={fileMentions}
+                          hasGroupedProviders={providerGroups.length > 0}
+                          isComposerDisabled={isComposerDisabled}
+                          onEnableModel={undefined}
+                          onFileMentionQueryChange={undefined}
+                          onModelChange={undefined}
+                          pickerModels={pickerModels}
+                          providerGroups={providerGroups}
+                          recentModels={undefined}
+                          selectedModel={undefined}
+                          selectedProvider={undefined}
+                          slashCommands={slashCommands}
+                          {...props}
+                          threadKey={threadKey}
+                        />
+                      </ApprovalOwnerThreadContext>
+                    </AssistantPanelErrorBoundary>
+                  </FollowUpQueueOwnershipContext>
+                </DecisionRouteContext>
               </RewindProvider>
             </PlanModeExitProvider>
           </ActiveConversationInputProvider>

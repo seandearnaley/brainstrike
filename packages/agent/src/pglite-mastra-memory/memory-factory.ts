@@ -19,8 +19,15 @@ import { PgliteWorkflowsStore } from './workflows-store';
 type MastraRuntimeMemoryOptions = NonNullable<AgentMemoryOption['options']>;
 type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
 
-export interface PgliteMastraMemoryOptions {
-  backgroundTaskScope?: BackgroundTaskScope;
+/**
+ * A conversation-scoped background domain always carries the host's task
+ * deadline (`resolveChildTaskTimeoutMs`); an unscoped store carries neither.
+ */
+export type BackgroundTaskOwnership =
+  | { backgroundTaskScope: BackgroundTaskScope; backgroundTaskTimeoutMs: number }
+  | { backgroundTaskScope?: undefined; backgroundTaskTimeoutMs?: undefined };
+
+export type PgliteMastraMemoryOptions = BackgroundTaskOwnership & {
   database: PgliteDatabase;
   embedder?: MastraEmbeddingModel<string> | string;
   eventSink?: AssistantRunEventSink;
@@ -31,7 +38,7 @@ export interface PgliteMastraMemoryOptions {
   runId?: string;
   /** @deprecated Use memorySettings.semanticRecall.enabled. */
   semanticRecall?: boolean;
-}
+};
 
 export interface PgliteMastraMemoryResult {
   backgroundTaskScope?: BackgroundTaskScope;
@@ -115,6 +122,7 @@ function buildMastraMemoryOptions({
 
 export async function createPgliteMastraMemory({
   backgroundTaskScope,
+  backgroundTaskTimeoutMs,
   database,
   embedder,
   eventSink,
@@ -144,6 +152,7 @@ export async function createPgliteMastraMemory({
   }
 
   const store = new PgliteMemoryStore({
+    ...(backgroundTaskScope ? { backgroundTaskScope } : {}),
     database,
     ...(eventSink ? { eventSink } : {}),
     ...(runId ? { runId } : {}),
@@ -151,7 +160,11 @@ export async function createPgliteMastraMemory({
   await store.init();
   const workflows = new PgliteWorkflowsStore({ database });
   await workflows.init();
-  const backgroundTasks = new PgliteBackgroundTasksStore(database, backgroundTaskScope);
+  const backgroundTasks = new PgliteBackgroundTasksStore(
+    database,
+    backgroundTaskScope,
+    backgroundTaskTimeoutMs
+  );
   await backgroundTasks.init();
   const storage = new MastraCompositeStore({
     domains: { backgroundTasks, memory: store, workflows },

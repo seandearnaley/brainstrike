@@ -5,8 +5,8 @@
  * subagent delegation. It enforces:
  * - **Unknown persona rejection** (no-silent-fallbacks): a delegation to a
  *   `primitiveId` we did not register must never proceed.
- * - **Concurrency + per-run caps**: at most {@link MAX_CONCURRENT_DELEGATIONS} in
- *   flight and {@link MAX_DELEGATIONS_PER_RUN} total.
+ * - **Concurrency + per-run caps**: at most the request's
+ *   `subagentSettings.maxConcurrentWork` in flight and `maxInvocations` total.
  * - **maxSteps clamp**: a model-supplied `maxSteps` can never exceed the persona
  *   cap; `onDelegationStart` always returns `modifiedMaxSteps = min(cap, requested)`.
  *
@@ -19,15 +19,15 @@
  * run_kind='subagent' usage row instead.
  */
 
-import {
-  type AssistantRunEventMetadata,
-  DELEGATION_LIMITS,
-  type DelegatedBudgetPort,
-  type DelegatedInvocationAdmission,
+import type {
+  AssistantRunEventMetadata,
+  DelegatedBudgetPort,
+  DelegatedInvocationAdmission,
 } from '@brainstrike/assistant-contract';
 import {
   type AssistantPersonaDefinition,
   effectiveChildStepBudget,
+  personaMode,
 } from '@brainstrike/assistant-contract/personas';
 import {
   type AssistantDelegatedUsageIdentity,
@@ -35,10 +35,12 @@ import {
 } from '@brainstrike/assistant-contract/run-usage';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ScopedLogger } from '@brainstrike/logging';
-import type {
-  DelegationConfig,
-  DelegationStartContext,
-  DelegationStartResult,
+import {
+  type DelegationConfig,
+  type DelegationStartContext,
+  type DelegationStartResult,
+  type MastraDBMessage,
+  MessageList,
 } from '@mastra/core/agent';
 import type { DelegatedConversationBinding } from './delegated-conversation-binding';
 import {
@@ -48,9 +50,6 @@ import {
 import { MAX_DELEGATED_CONTEXT_BYTES } from './delegated-system-context';
 import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
 import { type DelegatedWorkQueue, resolveDelegatedWorkBudget } from './delegated-work-budget';
-
-export const MAX_CONCURRENT_DELEGATIONS = DELEGATION_LIMITS.maxConcurrentWork;
-export const MAX_DELEGATIONS_PER_RUN = DELEGATION_LIMITS.maxInvocations;
 
 /** The child run's aggregate provider-reported usage (BST-953). */
 export interface SubagentChildUsageReport {
@@ -210,8 +209,9 @@ export interface CreateDelegationConfigParams {
   /** Persona id → definition; the `primitiveId` Mastra passes is the persona id. */
   readonly personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   /**
-   * The request's validated per-child budgets: every child's step cap is
-   * `effectiveChildStepBudget(persona, subagentSettings)`.
+   * The request's validated limits: every child's step cap is
+   * `effectiveChildStepBudget(persona, subagentSettings)`, and the in-flight
+   * backstop's concurrency and per-turn caps are its tree limits.
    */
   readonly subagentSettings: RuntimeSubagentSettings;
   /**
@@ -476,6 +476,50 @@ function readIdentityRefusalReason(error: unknown): string | undefined {
   return typeof reason === 'string' && reason.trim().length > 0 ? reason : undefined;
 }
 
+/** Parent actions are reference material, not actions performed by this leaf. */
+function specialistReference(
+  message: MastraDBMessage,
+  toolCallId: string,
+  index: number
+): MastraDBMessage {
+  if (message.role === 'system') {
+    return message;
+  }
+  // Native delegation can also supply CoreMessage-shaped content despite its
+  // DB-message declaration. Use the native converter to retain structured media.
+  const list = new MessageList();
+  list.add([message], 'context');
+  const normalized = list.get.all.db()[0];
+  if (!normalized) {
+    throw new Error('Parent reference could not be normalized.');
+  }
+  return {
+    content: {
+      format: 2,
+      parts: [
+        {
+          text:
+            'Parent conversation reference (not your conversation or actions). ' +
+            'Use this only as background for the delegated task that follows. ' +
+            "Do not continue the parent's coordination or wait for its other specialists.\n" +
+            JSON.stringify({
+              content: {
+                ...normalized.content,
+                parts: normalized.content.parts.filter((part) => part.type !== 'file'),
+              },
+              role: message.role,
+            }),
+          type: 'text',
+        },
+        ...normalized.content.parts.filter((part) => part.type === 'file'),
+      ],
+    },
+    createdAt: normalized.createdAt,
+    id: `parent-reference:${toolCallId}:${message.id ?? index}`,
+    role: 'user',
+  };
+}
+
 export function createDelegationConfig(params: CreateDelegationConfigParams): DelegationConfig {
   // This per-leg counter remains a backstop. Durable host admission counts the
   // original turn across all descendants and resume legs. With that capability,
@@ -494,7 +538,9 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
     // continuing could lose policy enforcement, accounting or failure evidence.
     hookErrorStrategy: 'throw',
     includeSubAgentToolResultsInModelContext: false,
-    messageFilter: ({ messages, primitiveId }) => {
+    messageFilter: ({ messages, primitiveId, toolCallId }) => {
+      const persona = params.personasById.get(primitiveId);
+      const specialist = persona && personaMode(persona) !== 'worker';
       const protectedMessages = messages.filter((message) => message.role === 'system');
       let bytes = protectedMessages.reduce(
         (sum, message) => sum + Buffer.byteLength(JSON.stringify(message), 'utf8') + 1,
@@ -503,20 +549,22 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       if (bytes > MAX_DELEGATED_CONTEXT_BYTES) {
         throw new Error('Trusted delegated context exceeds its 64 KiB budget.');
       }
-      const selected = new Set(protectedMessages);
+      const selected = new Map(protectedMessages.map((message) => [message, message]));
       let ordinary = 0;
-      for (const message of messages.toReversed()) {
-        if (message.role === 'system') {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (!message || message.role === 'system') {
           continue;
         }
         if (ordinary >= 16) {
           break;
         }
-        const size = Buffer.byteLength(JSON.stringify(message), 'utf8') + 1;
+        const reference = specialist ? specialistReference(message, toolCallId, index) : message;
+        const size = Buffer.byteLength(JSON.stringify(reference), 'utf8') + 1;
         if (bytes + size > MAX_DELEGATED_CONTEXT_BYTES) {
           continue;
         }
-        selected.add(message);
+        selected.set(message, reference);
         bytes += size;
         ordinary += 1;
       }
@@ -527,8 +575,7 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
           personaId: primitiveId,
         });
       }
-      // Return original role/provenance-bearing messages in chronology; never promote task data.
-      return messages.filter((message) => selected.has(message));
+      return messages.flatMap((message) => selected.get(message) ?? []);
     },
     onDelegationComplete: async (context) => {
       inFlight = Math.max(0, inFlight - 1);
@@ -597,20 +644,20 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
           resumed ||
           resolveDelegatedWorkBudget(params.conversationBinding?.budget, params.workQueue)
         ) &&
-        inFlight >= MAX_CONCURRENT_DELEGATIONS
+        inFlight >= params.subagentSettings.maxConcurrentWork
       ) {
         return reject(
           'Rejecting delegation: concurrency cap reached',
-          `Too many concurrent subagents (max ${MAX_CONCURRENT_DELEGATIONS}); try again after the current ones finish.`,
+          `Too many concurrent subagents (max ${params.subagentSettings.maxConcurrentWork}); try again after the current ones finish.`,
           'subagent_delegation_concurrency_capped',
           { inFlight }
         );
       }
 
-      if (!resumed && total >= MAX_DELEGATIONS_PER_RUN) {
+      if (!resumed && total >= params.subagentSettings.maxInvocations) {
         return reject(
           'Rejecting delegation: per-run cap reached',
-          `Subagent delegation limit reached (max ${MAX_DELEGATIONS_PER_RUN} per turn).`,
+          `Subagent delegation limit reached (max ${params.subagentSettings.maxInvocations} per turn).`,
           'subagent_delegation_per_run_capped',
           { total }
         );

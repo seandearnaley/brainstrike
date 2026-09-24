@@ -187,7 +187,7 @@ describe('owning root registration', () => {
       sourceId: null,
       startRun: true,
     };
-    await root.sendDecision('child', message);
+    await expect(root.sendDecision('child', message)).resolves.toBe('sent');
     expect(append).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ runConfig: { custom } })
     );
@@ -223,7 +223,8 @@ describe('owning root registration', () => {
     root.onRuntimeReady({
       thread: {
         append,
-        getState: () => ({ isRunning, messages: [], threadId: 'root' }),
+        // Runtime-local identity differs from the persisted queue owner.
+        getState: () => ({ isRunning, messages: [], threadId: 'runtime-local-root' }),
         subscribe: () => () => undefined,
       },
     });
@@ -245,7 +246,7 @@ describe('owning root registration', () => {
       sourceId: null,
       startRun: true,
     };
-    await root.sendDecision('child', message);
+    await expect(root.sendDecision('child', message)).resolves.toBe('queued');
     expect(append).not.toHaveBeenCalled();
     const queued = useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root')];
     expect(queued).toHaveLength(1);
@@ -258,7 +259,7 @@ describe('owning root registration', () => {
     // Idle root: the same decision appends at once.
     resetFollowUpQueueStore();
     isRunning = false;
-    await root.sendDecision('child', message);
+    await expect(root.sendDecision('child', message)).resolves.toBe('sent');
     expect(append).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ runConfig: { custom } })
     );
@@ -270,7 +271,7 @@ describe('owning root registration', () => {
     isRunning = true;
     const transport = vi.fn(async (_message: unknown) => 'delivered' as const);
     root.setLiveDecisionTransport(transport);
-    await root.sendDecision('child', message);
+    await expect(root.sendDecision('child', message)).resolves.toBe('delivered');
     expect(transport).toHaveBeenCalledOnce();
     expect(transport.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({ runConfig: { custom } })
@@ -280,7 +281,7 @@ describe('owning root registration', () => {
       undefined
     );
     root.setLiveDecisionTransport(async () => 'no-live-run');
-    await root.sendDecision('child', message);
+    await expect(root.sendDecision('child', message)).resolves.toBe('queued');
     expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root')]).toHaveLength(
       1
     );

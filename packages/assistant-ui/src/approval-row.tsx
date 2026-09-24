@@ -2,17 +2,18 @@ import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contra
 import { ChevronRight } from 'lucide-react';
 import { type CSSProperties, useId, useState } from 'react';
 import { verbForTool } from './activity-verbs';
+import { agentColorStyle } from './agent-color-style';
 import { ApprovalCard } from './approval-card';
 import { describeDelegationChain } from './approval-notice-status';
 import { approvalDepth } from './approval-presentation';
-import { ApprovalRails } from './approval-rails';
-import { delegationColourIndex } from './delegation-colour';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import { extractPrimaryArg } from './tool-summaries';
 import type { ApprovalNoticeState } from './use-approval-notice-state';
 
 export interface ApprovalRowProps {
   readonly approval: AssistantToolApprovalRequest;
+  readonly colorId?: string | undefined;
+  readonly ownerDisplayName?: string | undefined;
   readonly state: ApprovalNoticeState;
 }
 
@@ -34,18 +35,22 @@ function requestedAction(toolName: string): string {
  * Carries the shared notice test id so the live verifier and the reload e2e
  * keep counting every pause.
  */
-export function ApprovalRow({ approval, state }: ApprovalRowProps) {
+export function ApprovalRow({ approval, colorId, ownerDisplayName, state }: ApprovalRowProps) {
   const [expanded, setExpanded] = useState(false);
   const bodyId = useId();
   const delegation = approval.delegation;
-  const leaf = delegation?.path.at(-1);
-  const owner = delegation ? describeDelegationChain(delegation) : 'Assistant';
+  const owner = delegation
+    ? (ownerDisplayName ?? describeDelegationChain(delegation))
+    : 'Assistant';
   const verb = verbForTool(approval.toolName);
   const action = requestedAction(approval.toolName);
   const target = verb.namesTool ? undefined : extractPrimaryArg(approval.args, undefined);
   const visible = target ? `${owner} ${action} ${target.display}` : `${owner} ${action}`;
   const affordance = expanded ? 'hide approval details' : 'show approval details';
-  const style = { '--bs-approval-depth': approvalDepth(approval) } as CSSProperties;
+  const style = {
+    ...agentColorStyle(colorId),
+    '--bs-approval-depth': approvalDepth(approval),
+  } as CSSProperties;
   // The row renders a durable decision's recovery status itself, so the
   // embedded card receives a state without that display and never renders it
   // a second time. Pending-since and stale lines still reach the card.
@@ -55,10 +60,10 @@ export function ApprovalRow({ approval, state }: ApprovalRowProps) {
   return (
     <div
       className="bs-approval bs-approval-row"
+      data-agent-color={colorId}
       data-approval-presentation="row"
       data-testid="assistant-tool-approval-notice"
       style={style}
-      {...(leaf ? { 'data-delegation-colour': delegationColourIndex(leaf.parentToolCallId) } : {})}
     >
       <button
         aria-expanded={expanded}
@@ -69,7 +74,6 @@ export function ApprovalRow({ approval, state }: ApprovalRowProps) {
         type="button"
         {...(expanded ? { 'aria-controls': bodyId } : {})}
       >
-        <ApprovalRails path={delegation?.path ?? []} />
         <span className="bs-approval-row-owner" data-testid="approval-delegation-owner">
           {owner}
         </span>

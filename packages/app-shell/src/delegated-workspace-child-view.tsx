@@ -158,6 +158,34 @@ function ReadyChildView({
               isRunning={isRunning}
               label={node.displayName}
               panelProps={{
+                agentColor: node.color,
+                decisionRoute: {
+                  dispatch: async (message) => {
+                    if (typeof message === 'string') {
+                      throw new Error('A delegated decision requires structured run metadata.');
+                    }
+                    if (message.role !== undefined && message.role !== 'user') {
+                      throw new Error('A delegated decision must be a user message.');
+                    }
+                    if (!message.metadata) {
+                      throw new Error('A delegated decision requires decision metadata.');
+                    }
+                    const decision = {
+                      ...message,
+                      attachments: message.attachments ?? [],
+                      createdAt: message.createdAt ?? new Date(),
+                      metadata: message.metadata,
+                      parentId: message.parentId ?? null,
+                      role: 'user' as const,
+                      runConfig: message.runConfig,
+                      sourceId: message.sourceId ?? null,
+                    };
+                    return root.sendDecision(node.threadId, decision, () =>
+                      resolveDelegatedWorkspaceDecision(repository, node, decision)
+                    );
+                  },
+                  queueThreadKey: node.rootThreadId,
+                },
                 ownerThread,
                 workspaceBar: (
                   <DelegatedConversationToolbar insights={insights} isRunning={isRunning} />
@@ -227,11 +255,11 @@ function ReadyChildView({
                     },
                   }
                 : {})}
-              onNew={(message) =>
-                root.sendDecision(node.threadId, message, () =>
+              onNew={async (message) => {
+                await root.sendDecision(node.threadId, message, () =>
                   resolveDelegatedWorkspaceDecision(repository, node, message)
-                )
-              }
+                );
+              }}
               {...(loaded ? { persistedHistory: loaded.history } : {})}
               store={root.store}
               threadId={node.threadId}

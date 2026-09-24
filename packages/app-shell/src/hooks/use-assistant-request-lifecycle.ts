@@ -165,7 +165,8 @@ interface UseAssistantRequestLifecycleResult {
   readonly completePreparedRequest: (
     preparedRequestData: Record<string, unknown> | undefined,
     status: 'cancelled' | 'completed' | 'failed',
-    error?: string
+    error?: string,
+    hostOwnsRun?: boolean
   ) => Promise<void>;
   /**
    * The active run's request-start usage context, or null when no run is in
@@ -433,16 +434,22 @@ export function useAssistantRequestLifecycle({
     async (
       preparedRequestData: Record<string, unknown> | undefined,
       status: 'cancelled' | 'completed' | 'failed',
-      error?: string
+      error?: string,
+      hostOwnsRun = false
     ): Promise<void> => {
       const runId = extractPreparedRunId(preparedRequestData);
       if (!runId) {
         return;
       }
-      if (!assistantThreadRepository) {
-        throw new Error('Assistant run completion requires an active thread repository.');
-      }
       try {
+        // Desktop owns terminal persistence after session admission. A renderer
+        // disconnect must release its local leases without terminating that run.
+        if (hostOwnsRun) {
+          return;
+        }
+        if (!assistantThreadRepository) {
+          throw new Error('Assistant run completion requires an active thread repository.');
+        }
         await assistantThreadRepository.completeThreadRun(runId, {
           status,
           ...(error ? { error } : {}),

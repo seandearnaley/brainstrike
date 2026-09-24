@@ -9,7 +9,10 @@ import {
   ledgerStateOf,
   makeBackgroundLedgerChunk,
   personaLabelFor,
+  requireBackgroundGeneration,
+  requireNativeRootRunRecorder,
 } from '../background-ledger';
+import type { BackgroundGeneration } from '../delegated-conversation-binding';
 
 type RunEventChunk = Extract<StreamChunk, { type: 'run-event' }>;
 
@@ -37,11 +40,41 @@ function task(
 const scope = { resourceId: 'owner', threadId: 'root' };
 const personaLabel = (toolName: string) => (toolName === 'agent-explore' ? 'Explorer' : undefined);
 
-function sourceOf(tasks: BackgroundTask[]) {
+/** The host's answer for an address that dispatched a child (`resolveParkedInvocation`). */
+function invocationOf(parent: {
+  readonly parentRuntimeRunId: string;
+  readonly parentToolCallId: string;
+}) {
+  return {
+    identity: {
+      childRuntimeRunId: `${parent.parentToolCallId}-run`,
+      parentRuntimeRunId: parent.parentRuntimeRunId,
+      parentToolCallId: parent.parentToolCallId,
+      personaId: 'explore',
+    },
+    resourceId: 'owner',
+    threadId: `${parent.parentToolCallId}-thread`,
+  };
+}
+
+/** The host's generation for these rows: one run, mapped (migration 140). */
+const ROOT_GENERATION: BackgroundGeneration = {
+  generationRunId: 'root-run',
+  nativeRunIds: ['root-run'],
+};
+
+function sourceOf(tasks: BackgroundTask[], generation: BackgroundGeneration = ROOT_GENERATION) {
   const listTasks = vi.fn(async () => ({ tasks, total: tasks.length }));
   return {
     listTasks,
-    source: createBackgroundLedgerSource({ manager: { listTasks } as never, personaLabel, scope }),
+    source: createBackgroundLedgerSource({
+      generation: async () => generation,
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: undefined,
+      resolveInvocation: undefined,
+      scope,
+    }),
   };
 }
 
@@ -83,6 +116,146 @@ describe('createBackgroundLedgerSource', () => {
     expect(ledger.entries[0]?.prompt).toHaveLength(120);
   });
 
+  it('leaves out a delegation rejected at start: no child ran, so it is no invocation', async () => {
+    // BST-1751: the refused call still completes as a background task row.
+    const listTasks = vi.fn(async () => ({
+      tasks: [task('c1', 'completed'), task('c2', 'completed')],
+      total: 2,
+    }));
+    const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: {
+        rejected: (toolCallId, runId) => toolCallId === 'c2' && runId === 'root-run',
+      },
+      resolveInvocation: undefined,
+      scope,
+    });
+    const ledger = await source.read(new Set(['root-run']));
+    // MUTATION: ignoring the capture counts the refusal as returned.
+    expect(ledger.counts).toEqual({ cancelled: 0, failed: 0, returned: 1, running: 0, total: 1 });
+    expect(ledger.entries.map((entry) => entry.toolCallId)).toEqual(['c1']);
+  });
+
+  it('leaves out a completed delegation the host holds no invocation for, whichever leg dispatched it', async () => {
+    // The capture is leg-scoped: a resume leg reads the rows of the run it
+    // resumes with a capture that never saw that run's refusal. A refusal
+    // persists no invocation, so the host's graph answers for every leg.
+    const listTasks = vi.fn(async () => ({
+      tasks: [task('c1', 'completed'), task('refused', 'completed'), task('starting', 'running')],
+      total: 3,
+    }));
+    const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: undefined,
+      resolveInvocation: async (parent) =>
+        parent.parentToolCallId === 'c1' ? invocationOf(parent) : undefined,
+      scope,
+    });
+    const ledger = await source.read(new Set(['root-run']));
+    // MUTATION: ignoring the host's graph counts the refusal as returned.
+    // MUTATION: asking about a row that has not completed drops the starting
+    // child, which has not persisted its invocation yet.
+    expect(ledger.entries.map((entry) => [entry.toolCallId, entry.state])).toEqual([
+      ['c1', 'returned'],
+      ['starting', 'running'],
+    ]);
+  });
+
+  it('asks the host once per completed row: its invocation is settled before it completes', async () => {
+    const listTasks = vi.fn(async () => ({ tasks: [task('refused', 'completed')], total: 1 }));
+    const resolveInvocation = vi.fn(async () => undefined);
+    const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: undefined,
+      resolveInvocation,
+      scope,
+    });
+    await source.read(new Set(['root-run']));
+    const ledger = await source.read(new Set(['root-run']));
+    // MUTATION: without the per-leg memo every lifecycle event asks the host
+    // again for every completed row.
+    expect(resolveInvocation).toHaveBeenCalledOnce();
+    expect(resolveInvocation).toHaveBeenCalledWith({
+      parentRuntimeRunId: 'root-run',
+      parentThreadId: 'root',
+      parentToolCallId: 'refused',
+    });
+    expect(ledger.counts.total).toBe(0);
+  });
+
+  it('asks once even when two reads overlap: the leg shares one pending answer', async () => {
+    // The idle loop publishes a row per lifecycle event, so reads overlap.
+    const listTasks = vi.fn(async () => ({ tasks: [task('refused', 'completed')], total: 1 }));
+    const resolveInvocation = vi.fn(async () => undefined);
+    const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: undefined,
+      resolveInvocation,
+      scope,
+    });
+    const both = await Promise.all([
+      source.read(new Set(['root-run'])),
+      source.read(new Set(['root-run'])),
+    ]);
+    // MUTATION: memoising the settled answer instead of the pending promise
+    // asks the host twice for the same row.
+    expect(resolveInvocation).toHaveBeenCalledOnce();
+    expect(both.map((ledger) => ledger.counts.total)).toEqual([0, 0]);
+  });
+
+  it('fails the read when the host cannot answer, and asks again on the next read', async () => {
+    // NO SILENT DEGRADATION: answering "not refused" on a host error would
+    // count a refusal as returned — the defect the graph exists to answer. A
+    // failed read publishes no row (`background_ledger_read_failed`) and fails
+    // the wakeup loudly, as every ledger read failure already does.
+    const listTasks = vi.fn(async () => ({ tasks: [task('c1', 'completed')], total: 1 }));
+    const resolveInvocation = vi
+      .fn<() => Promise<undefined>>()
+      .mockRejectedValueOnce(new Error('host unavailable'))
+      .mockResolvedValue(undefined);
+    const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: undefined,
+      resolveInvocation,
+      scope,
+    });
+    // MUTATION: swallowing the error counts an unanswerable row as returned.
+    await expect(source.read(new Set(['root-run']))).rejects.toThrow('host unavailable');
+    // MUTATION: caching the rejected promise makes one transient failure the
+    // leg's permanent answer for that row.
+    await expect(source.read(new Set(['root-run']))).resolves.toMatchObject({
+      counts: { cancelled: 0, failed: 0, returned: 0, running: 0, total: 0 },
+    });
+    expect(resolveInvocation).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads the leg capture before the host: a refusal it recorded asks nothing', async () => {
+    const listTasks = vi.fn(async () => ({ tasks: [task('c2', 'completed')], total: 1 }));
+    const resolveInvocation = vi.fn(async () => undefined);
+    const source = createBackgroundLedgerSource({
+      generation: async () => ROOT_GENERATION,
+      manager: { listTasks } as never,
+      personaLabel,
+      rejectedDelegations: { rejected: (toolCallId) => toolCallId === 'c2' },
+      resolveInvocation,
+      scope,
+    });
+    expect((await source.read(new Set(['root-run']))).counts.total).toBe(0);
+    // MUTATION: asking the host first spends a durable read on a row this leg
+    // already knows it refused.
+    expect(resolveInvocation).not.toHaveBeenCalled();
+  });
+
   it('names a timed-out task as failed with the reason "timed out"', async () => {
     const { source } = sourceOf([task('c1', 'timed_out')]);
     const ledger = await source.read(new Set(['root-run']));
@@ -90,12 +263,61 @@ describe('createBackgroundLedgerSource', () => {
   });
 
   it('is empty without run ids and never queries', async () => {
-    const { listTasks, source } = sourceOf([task('c1', 'completed')]);
+    const { listTasks, source } = sourceOf([task('c1', 'completed')], {
+      generationRunId: 'root-run',
+      nativeRunIds: [],
+    });
     expect(await source.read(new Set())).toEqual({
       counts: { cancelled: 0, failed: 0, returned: 0, running: 0, total: 0 },
       entries: [],
+      ledgerId: 'root-run',
     });
     expect(listTasks).not.toHaveBeenCalled();
+  });
+
+  it('counts the whole GENERATION: the runs the host mapped, plus the ones this leg saw', async () => {
+    // The scope that makes one turn one ledger (BST-1749, review item 5): a
+    // resume leg observes only the run it resumed, so the generation's earlier
+    // runs must come from the host mapping — and a run whose first task has
+    // just been dispatched is not mapped yet, so the leg's own observation
+    // still counts. Another turn's run belongs to neither and is excluded.
+    // MUTATION: dropping either half of the union drops an invocation.
+    const { source } = sourceOf(
+      [
+        task('c1', 'completed'),
+        task('late', 'completed', { runId: 'continuation-run' }),
+        task('fresh', 'running', { runId: 'just-dispatched-run' }),
+        task('other-turn', 'completed', { runId: 'foreign-run' }),
+      ],
+      { generationRunId: 'root-run', nativeRunIds: ['root-run', 'continuation-run'] }
+    );
+    const ledger = await source.read(new Set(['just-dispatched-run']));
+    expect(ledger.ledgerId).toBe('root-run');
+    expect(ledger.entries.map((entry) => entry.toolCallId)).toEqual(['c1', 'late', 'fresh']);
+    expect(ledger.counts).toEqual({ cancelled: 0, failed: 0, returned: 2, running: 1, total: 3 });
+  });
+});
+
+describe('the host generation ports', () => {
+  it('refuse background work without them: a leg that cannot name its generation cannot run', () => {
+    // No fallback: publishing under a per-leg identity is the defect these
+    // ports exist to end, so an absent port fails loudly instead.
+    expect(() => requireBackgroundGeneration(undefined)).toThrow(/readBackgroundGeneration/);
+    expect(() => requireNativeRootRunRecorder({} as never)).toThrow(/recordNativeRootRun/);
+  });
+
+  it('hand back the host ports when the binding carries them', async () => {
+    const generation: BackgroundGeneration = { generationRunId: 'g', nativeRunIds: [] };
+    const recorded: string[] = [];
+    const binding = {
+      readBackgroundGeneration: async () => generation,
+      recordNativeRootRun: async (nativeRunId: string) => {
+        recorded.push(nativeRunId);
+      },
+    } as never;
+    expect(await requireBackgroundGeneration(binding)()).toBe(generation);
+    await requireNativeRootRunRecorder(binding)('native-run');
+    expect(recorded).toEqual(['native-run']);
   });
 });
 
@@ -166,7 +388,7 @@ describe('ledgerLabel + makeBackgroundLedgerChunk', () => {
     ]);
     const ledger = await source.read(new Set(['root-run']));
     expect(ledgerLabel(ledger)).toBe('3 of 4 specialists returned · 1 running');
-    const chunk = makeBackgroundLedgerChunk(ledger, 'root-run') as RunEventChunk;
+    const chunk = makeBackgroundLedgerChunk(ledger) as RunEventChunk;
     expect(chunk.type).toBe('run-event');
     expect(chunk.event).toMatchObject({
       kind: 'delegation.ledger',
@@ -193,7 +415,7 @@ describe('ledgerLabel + makeBackgroundLedgerChunk', () => {
       task('c3', 'cancelled'),
     ]).source.read(new Set(['root-run']));
     expect(ledgerLabel(mixed)).toBe('1 of 3 specialists returned · 1 failed · 1 cancelled');
-    const chunk = makeBackgroundLedgerChunk(mixed, 'root-run') as RunEventChunk;
+    const chunk = makeBackgroundLedgerChunk(mixed) as RunEventChunk;
     expect(chunk.event.status).toBe('completed');
     const single = await sourceOf([task('c1', 'completed')]).source.read(new Set(['root-run']));
     expect(ledgerLabel(single)).toBe('1 of 1 specialist returned');
@@ -203,7 +425,7 @@ describe('ledgerLabel + makeBackgroundLedgerChunk', () => {
     const ledger = await sourceOf([
       task('c1', 'failed', { error: { message: 'secret path /Users/x' } }),
     ]).source.read(new Set(['root-run']));
-    const chunk = makeBackgroundLedgerChunk(ledger, 'root-run') as RunEventChunk;
+    const chunk = makeBackgroundLedgerChunk(ledger) as RunEventChunk;
     expect(JSON.stringify(chunk)).not.toContain('Survey');
     expect(JSON.stringify(chunk)).not.toContain('secret path');
   });
@@ -218,6 +440,7 @@ describe('createLedgerPublisher', () => {
         return {
           counts: { cancelled: 0, failed: 0, returned: 1, running: 0, total: 1 },
           entries: [],
+          ledgerId: 'root-run',
         };
       }),
     };
@@ -231,7 +454,7 @@ describe('createLedgerPublisher', () => {
       onSettled,
       source,
     });
-    publisher.publish(new Set(['root-run']), 'root-run');
+    publisher.publish(new Set(['root-run']));
     expect(publisher.inFlight).toBe(1);
     let idle = false;
     const joined = publisher.idle().then(() => {
@@ -250,7 +473,7 @@ describe('createLedgerPublisher', () => {
     const source = { read: vi.fn(async () => Promise.reject(new Error('db gone'))) };
     const onSettled = vi.fn();
     const publisher = createLedgerPublisher({ enqueue: () => true, onSettled, source });
-    publisher.publish(new Set(['root-run']), 'root-run');
+    publisher.publish(new Set(['root-run']));
     await publisher.idle();
     expect(onSettled).toHaveBeenCalledTimes(1);
     expect(publisher.inFlight).toBe(0);

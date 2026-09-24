@@ -251,7 +251,7 @@ describe('mapMastraToolEvent', () => {
       error: {
         code: 'tool_timeout',
         message:
-          'The tool timed out before returning a result. Try a smaller request or another approach.',
+          'The tool did not finish within its 60s execution budget and was cancelled. Try a smaller request or another approach.',
         toolName: 'filesystem.search',
       },
       ok: false,

@@ -5,6 +5,8 @@ import {
 import {
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
+  isAssistantToolApprovalAnswered,
+  TOOL_APPROVAL_ANSWERED_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
 import {
@@ -33,10 +35,23 @@ export type ApprovalRunOutcomeState = 'none' | 'pending' | 'retryable' | 'comple
 
 export interface ApprovalRunOutcome {
   action: AssistantToolApprovalDecision | null;
+  /**
+   * Index of the user decision message this outcome was resolved from, or -1
+   * while the pause has no answer. Successive runs repeat the same
+   * `action`/`state` pair — a failed run, another answer, a second failed run
+   * is `retryable` twice — so this is what tells one attempt from the next.
+   * The send-failure and optimistic-lock stamps in
+   * `use-approval-notice-state.ts` rely on it.
+   */
+  decisionIndex: number;
   state: ApprovalRunOutcomeState;
 }
 
-const emptyApprovalRunOutcome: ApprovalRunOutcome = { action: null, state: 'none' };
+const emptyApprovalRunOutcome: ApprovalRunOutcome = {
+  action: null,
+  decisionIndex: -1,
+  state: 'none',
+};
 function isMatchingApprovalAction(value: unknown, approval: AssistantToolApprovalRequest): boolean {
   return isMatchingToolAction(value, approval);
 }
@@ -76,6 +91,30 @@ function getToolApprovalDecision(value: unknown): AssistantToolApprovalDecision 
   return action === 'approve' || action === 'decline' ? action : null;
 }
 
+function getLiveApprovalDecisionFromMessage(
+  message: unknown,
+  approval: AssistantToolApprovalRequest
+): AssistantToolApprovalDecision | null {
+  if (
+    !(isRecord(message) && message['role'] === 'assistant' && Array.isArray(message['content']))
+  ) {
+    return null;
+  }
+  for (const part of message['content']) {
+    if (
+      isRecord(part) &&
+      part['type'] === 'data' &&
+      part['name'] === TOOL_APPROVAL_ANSWERED_DATA_NAME &&
+      isAssistantToolApprovalAnswered(part['data']) &&
+      part['data'].reason === 'user' &&
+      isMatchingApprovalAction(part['data'], approval)
+    ) {
+      return part['data'].decision;
+    }
+  }
+  return null;
+}
+
 export function resolveApprovalRunOutcome(
   messages: readonly unknown[],
   approval: AssistantToolApprovalRequest | null
@@ -86,6 +125,7 @@ export function resolveApprovalRunOutcome(
 
   let submittedMessageIndex = -1;
   let submittedAction: AssistantToolApprovalDecision | null = null;
+  let submittedLive = false;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     const approvalAction = getToolApprovalActionFromMessage(message);
@@ -94,16 +134,28 @@ export function resolveApprovalRunOutcome(
       submittedAction = getToolApprovalDecision(approvalAction);
       break;
     }
+    const liveDecision = getLiveApprovalDecisionFromMessage(message, approval);
+    if (liveDecision !== null) {
+      submittedMessageIndex = index;
+      submittedAction = liveDecision;
+      submittedLive = true;
+      break;
+    }
   }
   if (submittedMessageIndex < 0) {
     return emptyApprovalRunOutcome;
   }
 
-  for (let index = submittedMessageIndex + 1; index < messages.length; index += 1) {
+  const decisionIndex = submittedMessageIndex;
+  for (
+    let index = submittedMessageIndex + (submittedLive ? 0 : 1);
+    index < messages.length;
+    index += 1
+  ) {
     const message = messages[index];
     const role = getMessageRole(message);
     if (role === 'user') {
-      return { action: submittedAction, state: 'pending' };
+      return { action: submittedAction, decisionIndex, state: 'pending' };
     }
     if (role !== 'assistant') {
       continue;
@@ -111,15 +163,15 @@ export function resolveApprovalRunOutcome(
 
     const status = getMessageStatus(message);
     if (status?.['type'] === 'complete') {
-      return { action: submittedAction, state: 'completed' };
+      return { action: submittedAction, decisionIndex, state: 'completed' };
     }
     if (status?.['type'] === 'incomplete') {
-      return { action: submittedAction, state: 'retryable' };
+      return { action: submittedAction, decisionIndex, state: 'retryable' };
     }
-    return { action: submittedAction, state: 'pending' };
+    return { action: submittedAction, decisionIndex, state: 'pending' };
   }
 
-  return { action: submittedAction, state: 'pending' };
+  return { action: submittedAction, decisionIndex, state: 'pending' };
 }
 
 export function isAssistantToolSuspendRequest(
@@ -168,7 +220,14 @@ function getMessageStatusType(message: unknown): string | undefined {
  *                    approval notice — a stale/failed resume must not lock forever).
  *   - `completed`  — the resumed run finished successfully; controls stay locked.
  */
-type SuspendRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
+export type SuspendRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
+
+export interface SuspendRunOutcome {
+  readonly decisionIndex: number;
+  readonly state: SuspendRunOutcomeState;
+}
+
+const emptySuspendRunOutcome: SuspendRunOutcome = { decisionIndex: -1, state: 'none' };
 
 /**
  * Scan the thread for a `user` message carrying a matching `brainstrikeToolSuspend`
@@ -176,12 +235,12 @@ type SuspendRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
  * `resolveApprovalRunOutcome`: a failed resume is `retryable` (controls unlock),
  * never permanently locked.
  */
-export function resolveSuspendRunOutcome(
+export function resolveSuspendRunOutcomeDetail(
   messages: readonly unknown[],
   request: AssistantToolSuspendRequest | null
-): SuspendRunOutcomeState {
+): SuspendRunOutcome {
   if (!request) {
-    return 'none';
+    return emptySuspendRunOutcome;
   }
   let submittedIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -195,26 +254,33 @@ export function resolveSuspendRunOutcome(
     }
   }
   if (submittedIndex < 0) {
-    return 'none';
+    return emptySuspendRunOutcome;
   }
 
   for (let index = submittedIndex + 1; index < messages.length; index += 1) {
     const message = messages[index];
     const role = getMessageRole(message);
     if (role === 'user') {
-      return 'pending';
+      return { decisionIndex: submittedIndex, state: 'pending' };
     }
     if (role !== 'assistant') {
       continue;
     }
     const statusType = getMessageStatusType(message);
     if (statusType === 'complete') {
-      return 'completed';
+      return { decisionIndex: submittedIndex, state: 'completed' };
     }
     if (statusType === 'incomplete') {
-      return 'retryable';
+      return { decisionIndex: submittedIndex, state: 'retryable' };
     }
-    return 'pending';
+    return { decisionIndex: submittedIndex, state: 'pending' };
   }
-  return 'pending';
+  return { decisionIndex: submittedIndex, state: 'pending' };
+}
+
+export function resolveSuspendRunOutcome(
+  messages: readonly unknown[],
+  request: AssistantToolSuspendRequest | null
+): SuspendRunOutcomeState {
+  return resolveSuspendRunOutcomeDetail(messages, request).state;
 }

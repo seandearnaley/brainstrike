@@ -19,7 +19,10 @@ import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data'
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
-import { ModelSelectionPage } from '@brainstrike/settings-ui/settings/models/model-selection-page';
+import {
+  ModelCatalogHeaderActions,
+  ModelSelectionPage,
+} from '@brainstrike/settings-ui/settings/models/model-selection-page';
 import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settings/providers/providers-settings-category';
 import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
 import { createSelfImprovementSignalSettingsCategory } from '@brainstrike/settings-ui/settings/system/self-improvement-signal-settings-category';
@@ -34,6 +37,7 @@ import {
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
+  createAssistantMemorySettingsCategory,
   createFactoryResetSettingsCategory,
   createHooksSettingsCategory,
   createLocalRuntimeSettingsCategory,
@@ -424,21 +428,20 @@ export default function SettingsPageContent() {
         verifyProvider: verifyProviderCredential,
       }),
       {
-        content: (
-          <ModelSelectionPage
-            assistantMemoryBackendAvailable={hasDurableAssistantUsageCapability()}
-            {...(assistantProviderKeySources
-              ? { providerKeySources: assistantProviderKeySources }
-              : {})}
-          />
-        ),
+        content: <ModelSelectionPage />,
         description:
           'Browse every catalogued model, manage local downloads, and set the model cache directory.',
+        headerActions: <ModelCatalogHeaderActions />,
         icon: Layers,
         id: 'embedding-models',
         keywords: ['embeddings', 'models', 'catalog', 'vector', 'llm', 'download', 'cache'],
+        layout: 'workspace',
         title: 'Model Catalog',
       },
+      createAssistantMemorySettingsCategory({
+        assistantMemoryBackendAvailable: hasDurableAssistantUsageCapability(),
+        ...(assistantProviderKeySources ? { providerKeySources: assistantProviderKeySources } : {}),
+      }),
       {
         content: <DesktopLoggingSettings />,
         description: 'Control renderer log verbosity and manage file logging for debugging.',

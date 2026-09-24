@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { StreamChunk } from '../index';
 import {
   AssistantDataStreamSession,
+  AssistantDataStreamSessionManager,
   assistantDataStreamSessions,
   createRandomId,
   createStatelessAssistantDataStreamResponse,
@@ -19,6 +20,76 @@ interface Encoded {
   code: string;
   value: unknown;
 }
+
+it('discovers the exact active and retained replay session by owning thread', async () => {
+  const manager = new AssistantDataStreamSessionManager(60_000);
+  const release = Promise.withResolvers<void>();
+  const session = manager.create(
+    (async function* () {
+      await release.promise;
+      yield* [];
+    })(),
+    {
+      discovery: {
+        inputMessage: { id: 'user-1', parts: [{ text: 'Hi', type: 'text' }], role: 'user' },
+        inputParentMessageId: null,
+        parentMessageId: 'user-1',
+        resourceId: 'owner-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+      },
+      messageId: 'assistant-1',
+    }
+  );
+
+  expect(manager.findLatestByScope('owner-1', 'thread-1')).toEqual({
+    assistantMessageId: 'assistant-1',
+    eventId: `${session.id}:-1`,
+    inputMessage: { id: 'user-1', parts: [{ text: 'Hi', type: 'text' }], role: 'user' },
+    inputParentMessageId: null,
+    parentMessageId: 'user-1',
+    runId: 'run-1',
+    state: 'active',
+  });
+  expect(manager.findLatestByScope('other-owner', 'thread-1')).toBeNull();
+  expect(manager.findLatestByScope('owner-1', 'other-thread')).toBeNull();
+
+  release.resolve();
+  await session.whenClosed();
+  expect(manager.findLatestByScope('owner-1', 'thread-1')?.state).toBe('closed');
+
+  const actionSession = manager.create(createAsyncStream([]), {
+    discovery: {
+      actionReplay: {
+        pausedMessageId: 'paused-assistant',
+        pausedParentMessageId: 'user-before-pause',
+        prefixContent: [{ text: 'before approval', type: 'text' }],
+        syntheticPauseMessageId: 'suspended-approval:native-run:call-1',
+      },
+      inputMessage: null,
+      inputParentMessageId: null,
+      resourceId: 'owner-action',
+      runId: 'run-action',
+      threadId: 'thread-action',
+    },
+    messageId: 'assistant-action',
+  });
+  await actionSession.whenClosed();
+  expect(manager.findLatestByScope('owner-action', 'thread-action')).toEqual({
+    actionReplay: {
+      pausedMessageId: 'paused-assistant',
+      pausedParentMessageId: 'user-before-pause',
+      prefixContent: [{ text: 'before approval', type: 'text' }],
+      syntheticPauseMessageId: 'suspended-approval:native-run:call-1',
+    },
+    assistantMessageId: 'assistant-action',
+    eventId: `${actionSession.id}:-1`,
+    inputMessage: null,
+    inputParentMessageId: null,
+    runId: 'run-action',
+    state: 'closed',
+  });
+});
 
 function assertDefined<T>(value: T | undefined, message: string): T {
   if (value === undefined) {
@@ -2262,4 +2333,49 @@ it('forwards executionContext through the LIVE approval data part (BST-1070 §2.
   expect(approvalPart).toBeDefined();
   const data = (approvalPart?.value as { data?: Record<string, unknown> })?.data;
   expect(data?.['executionContext']).toStrictEqual(executionContext);
+});
+
+it('forwards the host leg through BOTH live pause data parts (approval and suspend)', async () => {
+  // Same field-by-field rebuild hazard as executionContext above, on the field
+  // the history topology adapter anchors a suspended message with: the DURABLE
+  // host leg the pause was surfaced by. Dropping it here strands every live
+  // pause echo with no anchor (the native `runId` beside it never matches a
+  // thread-run row).
+  const chunks: StreamChunk[] = [
+    {
+      hostRunId: 'run-host-leg-1',
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+      toolCallId: 'call-approval',
+      toolName: 'brainstrike.executeCommand',
+      type: 'tool-approval-required',
+    },
+    {
+      hostRunId: 'run-host-leg-1',
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+      suspendPayload: { question: 'Which region?' },
+      toolCallId: 'call-suspend',
+      toolName: 'brainstrike.askUser',
+      type: 'tool-suspend-required',
+    },
+    { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+  ];
+
+  const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+    messageId: 'msg-live-host-leg',
+    sessionId: 'sess-live-host-leg',
+  });
+
+  const parsed = parseLines(await readResponse(session.createResponse()));
+  // Matched on the part's own `name`, never a stringified substring: both parts
+  // carry the same ids, so a substring match could select the wrong one and
+  // still pass.
+  const readPart = (name: string) => {
+    const part = parsed.find(
+      (entry) =>
+        entry.code === 'aui-data' && (entry.value as { name?: unknown } | undefined)?.name === name
+    );
+    return (part?.value as { data?: Record<string, unknown> })?.data;
+  };
+  expect(readPart('brainstrike.tool-approval')?.['hostRunId']).toBe('run-host-leg-1');
+  expect(readPart('brainstrike.tool-suspend')?.['hostRunId']).toBe('run-host-leg-1');
 });

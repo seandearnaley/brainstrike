@@ -906,10 +906,15 @@ export class DataStreamMapper {
       code: DataStreamCode.auiDataPart,
       value: { data, name: TOOL_APPROVAL_ANSWERED_DATA_NAME },
     } satisfies EncodedChunk;
-    if (this.mustDeferDataParts()) {
+    // A live grant is an interaction boundary, like an approval request. The
+    // parent may be parked after text while children resume, so waiting for its
+    // next text/tool/finish boundary leaves consumed sibling controls actionable.
+    // Do not truncate a concurrent parent tool's still-streaming arguments.
+    if (this.openArgsCallId !== null) {
       this.pendingRunEventChunks.push(encoded);
       return;
     }
+    yield* this.flushPendingRunEvents();
     yield encoded;
   }
 
@@ -953,6 +958,14 @@ export class DataStreamMapper {
 
     const data: AssistantToolApprovalRequest = {
       ...(chunk.delegation ? { delegation: chunk.delegation } : {}),
+      // The host leg the pause was streamed by (see the field-by-field warning
+      // below): the ONLY anchor the history topology adapter can resolve a
+      // suspended message's parent with — `runId` beside it is the native
+      // Mastra run, which never matches a thread-run row. Forwarded only when
+      // non-blank, so the wire stays as strict as the action guard it feeds: a
+      // blank id would reach the echo and fail `isBoundedIdentifier` there,
+      // rejecting the whole decision at the resume boundary.
+      ...(chunk.hostRunId?.trim() ? { hostRunId: chunk.hostRunId } : {}),
       runId: chunk.runId,
       toolCallId: callId,
       toolName: chunk.toolName,
@@ -1024,6 +1037,9 @@ export class DataStreamMapper {
 
     const data: AssistantToolSuspendRequest = {
       ...(chunk.delegation ? { delegation: chunk.delegation } : {}),
+      // Same host-leg anchor as the approval part above (non-blank only); this
+      // rebuild is field-by-field, so an unspread field is silently dropped.
+      ...(chunk.hostRunId?.trim() ? { hostRunId: chunk.hostRunId } : {}),
       runId: chunk.runId,
       toolCallId: callId,
       toolName: chunk.toolName,

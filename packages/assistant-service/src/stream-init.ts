@@ -304,6 +304,19 @@ function buildAgentStreamInitializationFailure<K extends AgentStreamCapabilityKi
       status: 400,
     };
   }
+  const generationRefusal = readBackgroundGenerationRefusal(error);
+  if (generationRefusal) {
+    return {
+      ok: false,
+      payload: {
+        code: generationRefusal.reason,
+        error: 'decision_refused',
+        message: generationRefusal.message,
+        stage,
+      },
+      status: 409,
+    };
+  }
   const correlationId = randomUUID();
   deps.logger.error('Failed to initialize assistant stream', { correlationId, error, stage });
   return {
@@ -316,6 +329,37 @@ function buildAgentStreamInitializationFailure<K extends AgentStreamCapabilityKi
     },
     status: 502,
   };
+}
+
+/**
+ * The cold approval path wraps host identity errors in a MastraAgentError.
+ * Carry only this bounded, host-authored upgrade refusal through the public
+ * stream response; arbitrary nested errors stay on the generic 502 path.
+ */
+function readBackgroundGenerationRefusal(
+  error: unknown
+): { readonly message: string; readonly reason: string } | undefined {
+  let candidate = error;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!(candidate instanceof Error)) {
+      return;
+    }
+    const identity = candidate as Error & {
+      readonly actionableMessage?: unknown;
+      readonly reason?: unknown;
+    };
+    if (
+      identity.name === 'DelegatedConversationIdentityError' &&
+      identity.reason === 'background-generation-unmapped' &&
+      typeof identity.actionableMessage === 'string' &&
+      identity.actionableMessage.length > 0 &&
+      identity.actionableMessage.length <= 500
+    ) {
+      return { message: identity.actionableMessage, reason: identity.reason };
+    }
+    candidate = candidate.cause;
+  }
+  return;
 }
 
 function buildWorkspaceRootResolutionFailure<K extends AgentStreamCapabilityKinds>(

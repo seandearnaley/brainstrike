@@ -1,6 +1,7 @@
 import type { Agent } from '@mastra/core/agent';
 import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { describe, expect, it, vi } from 'vitest';
+import { ActiveBackgroundResultsProcessor } from '../active-background-results-processor';
 import { withBackgroundIdleLoop } from '../background-idle-loop';
 import { createBackgroundLedgerSource } from '../background-ledger';
 import { createLiveDecisionChannel } from '../live-decision-channel';
@@ -60,18 +61,26 @@ function fakeManager(events: unknown[], onResume: (taskId: string) => void) {
     }
   };
   const ledger = createBackgroundLedgerSource({
+    // The host's generation for this leg (migration 140): the fixture's rows
+    // all belong to the one run it maps.
+    generation: async () => ({ generationRunId: 'root-run', nativeRunIds: ['root-run'] }),
     manager,
     personaLabel: () => 'Explorer',
+    rejectedDelegations: undefined,
+    resolveInvocation: undefined,
     scope: { resourceId: 'r', threadId: 't' },
   });
   return { ledger, manager, push: (event: unknown) => push?.(event), setTask };
 }
 
+/** The host port that maps each native root run this leg starts (migration 140). */
+const recordNativeRootRun = async () => {};
+
 const emptyTurn = { fullStream: new ReadableStream<unknown>({ start: (c) => c.close() }) };
 const agent = { id: 'root', stream: async () => emptyTurn } as unknown as Agent;
 
 /** A parent turn that emits `chunks` and closes with Mastra's synchronous `status`. */
-function turn(status: 'success' | 'suspended', chunks: unknown[] = []) {
+function turn(status: 'failed' | 'success' | 'suspended', chunks: unknown[] = []) {
   return {
     fullStream: new ReadableStream<unknown>({
       start(controller) {
@@ -119,7 +128,38 @@ function isLedgerRow(chunk: unknown): chunk is LedgerRow {
   return (chunk as { type: string }).type === 'run-event';
 }
 
+/** A bound no test here approaches; the wakeup-bound test passes its own. */
+const ANY_TURN_INVOCATIONS = 8;
+
 describe('withBackgroundIdleLoop', () => {
+  it('keeps a presented outcome queued when the parent request fails', async () => {
+    const { ledger, manager, push, setTask } = fakeManager([], () => {});
+    setTask('t1', 'completed');
+    const processor = new ActiveBackgroundResultsProcessor(ledger);
+    vi.spyOn(processor, 'hasPresented').mockReturnValue(true);
+    const stream = vi.fn(async () => turn('success'));
+    const failedTurn = new ReadableStream<unknown>({
+      start(controller) {
+        push(lifecycle('background-task-completed', 't1'));
+        controller.close();
+      },
+    });
+    const output = withBackgroundIdleLoop(
+      { fullStream: failedTurn, status: 'failed' },
+      {
+        agent: { id: 'root', stream } as unknown as Agent,
+        ledger,
+        manager,
+        maxInvocations: ANY_TURN_INVOCATIONS,
+        options: { inputProcessors: [processor] },
+        recordNativeRootRun,
+        rejectedDelegations: undefined,
+        scope: { resourceId: 'r', threadId: 't' },
+      }
+    );
+    await drain(output.fullStream.getReader());
+    expect(stream).toHaveBeenCalledTimes(1);
+  });
   it('ignores a repeated suspension of a resumed task and stays open until the task returns', async () => {
     const channel = createLiveDecisionChannel();
     const suspended = lifecycle('background-task-suspended', 't1', { suspendedAt: 'stamp-1' });
@@ -144,8 +184,10 @@ describe('withBackgroundIdleLoop', () => {
       channel,
       ledger,
       manager,
-      maxIdleMs: 60_000,
+      maxInvocations: ANY_TURN_INVOCATIONS,
       options: {} as never,
+      recordNativeRootRun,
+      rejectedDelegations: undefined,
       scope: { resourceId: 'r', threadId: 't' },
     });
     const reader = output.fullStream.getReader();
@@ -178,6 +220,51 @@ describe('withBackgroundIdleLoop', () => {
     expect((completed.value as { type: string }).type).toBe('background-task-completed');
   });
 
+  // The loop is not a liveness authority. Its own silence timer (a 300 s default
+  // once borrowed from the task-deadline constant) closed a leg whose child was healthy but quiet,
+  // and the leg's disposal then cancelled that child. Silence is judged once,
+  // per phase, by the stream watchdog wrapping this combined stream.
+  it('running work that stays silent keeps the leg open; only its terminal settles it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ledger, manager, push, setTask } = fakeManager([], () => {});
+      setTask('t1', 'running');
+      const stream = vi.fn(async () => turn('success'));
+      const output = withBackgroundIdleLoop(
+        turn('success', [lifecycle('background-task-started', 't1')]),
+        {
+          agent: { id: 'root', stream } as unknown as Agent,
+          ledger,
+          manager,
+          maxInvocations: ANY_TURN_INVOCATIONS,
+          options: {} as never,
+          recordNativeRootRun,
+          rejectedDelegations: undefined,
+          scope: { resourceId: 'r', threadId: 't' },
+        }
+      );
+      const reader = output.fullStream.getReader();
+      await readLifecycle(reader);
+      let settled = false;
+      const next = readLifecycle(reader).then((result) => {
+        settled = true;
+        return result;
+      });
+      // Hours of quiet: a long silent build, a slow first token on a huge context.
+      await vi.advanceTimersByTimeAsync(4 * 60 * 60 * 1000);
+      expect(settled).toBe(false);
+      setTask('t1', 'completed');
+      push(lifecycle('background-task-completed', 't1'));
+      const completed = await next;
+      expect(completed.done).toBe(false);
+      expect((completed.value as { type: string }).type).toBe('background-task-completed');
+      expect(await drain(reader)).toEqual([]);
+      expect(stream).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('treats a suspension with a NEW stamp as a new pause', async () => {
     const channel = createLiveDecisionChannel();
     const { ledger, manager, push } = fakeManager(
@@ -191,8 +278,10 @@ describe('withBackgroundIdleLoop', () => {
       channel,
       ledger,
       manager,
-      maxIdleMs: 60_000,
+      maxInvocations: ANY_TURN_INVOCATIONS,
       options: {} as never,
+      recordNativeRootRun,
+      rejectedDelegations: undefined,
       scope: { resourceId: 'r', threadId: 't' },
     });
     const reader = output.fullStream.getReader();
@@ -225,8 +314,10 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
+        recordNativeRootRun,
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -254,8 +345,10 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
+        recordNativeRootRun,
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -301,8 +394,10 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
+        recordNativeRootRun,
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -351,8 +446,10 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
+        recordNativeRootRun,
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -395,12 +492,14 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
+        recordNativeRootRun,
         recordWakeup: async (record) => {
           order.push('record');
           wakeups.push(record);
         },
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -427,6 +526,48 @@ describe('withBackgroundIdleLoop', () => {
     expect(order).toEqual(['record', 'stream']);
   });
 
+  it('maps the continuation it starts to this generation before that continuation streams', async () => {
+    // A continuation is a FRESH Mastra run of the same generation. Without the
+    // mapping a pause raised there cannot be traced back, and the approval leg
+    // it opens starts a second ledger — the defect behind PR #3198 review item
+    // 5. MUTATION: dropping the call leaves `mapped` empty.
+    const channel = createLiveDecisionChannel();
+    const { ledger, manager, push, setTask } = fakeManager([], () => {});
+    setTask('t1', 'running');
+    const mapped: string[] = [];
+    const order: string[] = [];
+    const stream = vi.fn(async () => {
+      order.push('stream');
+      return { ...turn('success'), runId: 'continuation-run' };
+    });
+    const output = withBackgroundIdleLoop(
+      turn('success', [lifecycle('background-task-started', 't1')]),
+      {
+        agent: { id: 'root', stream } as unknown as Agent,
+        channel,
+        ledger,
+        manager,
+        maxInvocations: ANY_TURN_INVOCATIONS,
+        options: {} as never,
+        recordNativeRootRun: async (nativeRunId: string) => {
+          order.push('map');
+          mapped.push(nativeRunId);
+        },
+        rejectedDelegations: undefined,
+        scope: { resourceId: 'r', threadId: 't' },
+      }
+    );
+    const reader = output.fullStream.getReader();
+    await readLifecycle(reader);
+    setTask('t1', 'completed');
+    push(lifecycle('background-task-completed', 't1'));
+    await drain(reader);
+    expect(mapped).toEqual(['continuation-run']);
+    // The mapping lands BEFORE the continuation's chunks flow, so a pause in
+    // it is already traceable when the user answers.
+    expect(order).toEqual(['stream', 'map']);
+  });
+
   it('a parked parent leg records its deferred wakeup and stays open until the record lands', async () => {
     const channel = createLiveDecisionChannel();
     const { ledger, manager, push, setTask } = fakeManager([], () => {});
@@ -443,12 +584,14 @@ describe('withBackgroundIdleLoop', () => {
         channel,
         ledger,
         manager,
-        maxIdleMs: 60_000,
+        maxInvocations: ANY_TURN_INVOCATIONS,
         options: {} as never,
+        recordNativeRootRun,
         recordWakeup: async (record) => {
           wakeups.push(record);
           await landed.promise;
         },
+        rejectedDelegations: undefined,
         scope: { resourceId: 'r', threadId: 't' },
       }
     );
@@ -490,5 +633,164 @@ describe('withBackgroundIdleLoop', () => {
         kind: 'deferred',
       },
     ]);
+  });
+
+  it('a delegation rejected at start wakes no parent turn and is no ledger entry', async () => {
+    // BST-1751: Mastra answers a refusal inside the background task it already
+    // created, so the rejected call still completes as a task row.
+    const rejectedDelegations = {
+      rejected: (toolCallId: string, runId?: string) =>
+        toolCallId === 'call-t2' && runId === 'root-run',
+    };
+    const { manager, push, setTask } = fakeManager([], () => {});
+    const ledger = createBackgroundLedgerSource({
+      generation: async () => ({ generationRunId: 'root-run', nativeRunIds: ['root-run'] }),
+      manager,
+      personaLabel: () => 'Explorer',
+      rejectedDelegations,
+      resolveInvocation: undefined,
+      scope: { resourceId: 'r', threadId: 't' },
+    });
+    setTask('t1', 'running');
+    setTask('t2', 'running');
+    const stream = vi.fn(async () => turn('success'));
+    const output = withBackgroundIdleLoop(
+      turn('success', [
+        lifecycle('background-task-started', 't1'),
+        lifecycle('background-task-started', 't2'),
+      ]),
+      {
+        agent: { id: 'root', stream } as unknown as Agent,
+        ledger,
+        manager,
+        maxInvocations: ANY_TURN_INVOCATIONS,
+        options: {} as never,
+        recordNativeRootRun,
+        rejectedDelegations,
+        scope: { resourceId: 'r', threadId: 't' },
+      }
+    );
+    const reader = output.fullStream.getReader();
+    const chunks: unknown[] = [];
+    const reading = (async () => {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          return;
+        }
+        chunks.push(value);
+      }
+    })();
+    const lifecycleTypes = () =>
+      chunks
+        .filter((chunk) => !isLedgerRow(chunk))
+        .map((chunk) => (chunk as { type: string }).type);
+    await vi.waitFor(() => expect(lifecycleTypes()).toHaveLength(2));
+    setTask('t2', 'completed');
+    push(lifecycle('background-task-completed', 't2'));
+    await vi.waitFor(() => expect(lifecycleTypes()).toHaveLength(3));
+    setTask('t1', 'completed');
+    push(lifecycle('background-task-completed', 't1'));
+    await reading;
+    // MUTATION: queueing the rejected terminal as a wakeup runs a second
+    // continuation — one parent turn per refusal, as in the 2026-09-15 E2E.
+    expect(stream).toHaveBeenCalledTimes(1);
+    const context = JSON.stringify(
+      (stream.mock.calls[0] as unknown as [unknown, { context: unknown[] }])[1].context
+    );
+    // MUTATION: a ledger source that ignores the capture reads "2 total: 2 returned".
+    expect(context).toContain('1 total: 1 returned, 0 failed, 0 cancelled, 0 still running');
+    expect(context).not.toContain('call-t2');
+    expect(chunks.filter(isLedgerRow).at(-1)?.event.label).toBe('1 of 1 specialist returned');
+  });
+
+  it.each([3, 8])(
+    "fails the leg loudly once more invocations wake the parent than the request's maxInvocations (%i)",
+    async (maxInvocations) => {
+      const { ledger, manager, push, setTask } = fakeManager([], () => {});
+      let dispatched = 0;
+      // Every parent turn dispatches a task that returns at once, as if
+      // admission were bypassed; the script stops 4 past the bound so an unbounded loop ends.
+      const dispatchingTurn = () => {
+        if (dispatched >= maxInvocations + 4) {
+          return turn('success');
+        }
+        dispatched += 1;
+        const taskId = `t${dispatched}`;
+        setTask(taskId, 'completed');
+        push(lifecycle('background-task-completed', taskId));
+        return turn('success', [lifecycle('background-task-started', taskId)]);
+      };
+      const stream = vi.fn(async () => dispatchingTurn());
+      const output = withBackgroundIdleLoop(dispatchingTurn(), {
+        agent: { id: 'root', stream } as unknown as Agent,
+        ledger,
+        manager,
+        maxInvocations,
+        options: {} as never,
+        recordNativeRootRun,
+        rejectedDelegations: undefined,
+        scope: { resourceId: 'r', threadId: 't' },
+      });
+      // MUTATION: without the bound the leg wakes the parent for every task and closes cleanly.
+      await expect(drain(output.fullStream.getReader())).rejects.toThrow(
+        `Background work woke the parent for ${maxInvocations + 1} invocations; one turn admits at most ${maxInvocations}, so the leg stops`
+      );
+      expect(stream).toHaveBeenCalledTimes(maxInvocations);
+    }
+  );
+
+  it('settles a continuation whose native run it cannot map, instead of abandoning it open', async () => {
+    // The continuation stream exists BEFORE its run is mapped (a pause raised
+    // in it derives its generation from that mapping). A refused mapping
+    // therefore fails the leg with a stream nobody reads: the loop cancels it
+    // so Mastra's own close runs, rather than leaving it open past the turn.
+    const { ledger, manager, push, setTask } = fakeManager([], () => {});
+    setTask('t1', 'completed');
+    let settled = 0;
+    const continuation = {
+      // `MastraModelOutput.consumeStream` is how an abandoned native stream is
+      // disposed: it pumps the base stream to its close (its cancel
+      // persistence and snapshot DELETEs) and memoises that one pump.
+      consumeStream: async () => {
+        settled += 1;
+      },
+      fullStream: new ReadableStream<unknown>({
+        start(controller) {
+          // Never closes on its own: only its settlement ends it.
+          controller.enqueue(lifecycle('background-task-started', 't2'));
+        },
+      }),
+      runId: 'native-continuation',
+      status: 'running' as const,
+    };
+    const firstTurn = new ReadableStream<unknown>({
+      start(controller) {
+        push(lifecycle('background-task-completed', 't1'));
+        controller.close();
+      },
+    });
+    const refusal = new Error('native-run-generation-mismatch');
+    const output = withBackgroundIdleLoop(
+      { fullStream: firstTurn, status: 'failed' },
+      {
+        agent: { id: 'root', stream: async () => continuation } as unknown as Agent,
+        ledger,
+        manager,
+        maxInvocations: ANY_TURN_INVOCATIONS,
+        options: {} as never,
+        recordNativeRootRun: async () => {
+          throw refusal;
+        },
+        rejectedDelegations: undefined,
+        scope: { resourceId: 'r', threadId: 't' },
+      }
+    );
+
+    await expect(drain(output.fullStream.getReader())).rejects.toBe(refusal);
+    // MUTATION: without the discard the refused continuation is never settled.
+    // The consumer's rejection lands BEFORE the settlement reaches
+    // `consumeStream`, so wait for it rather than racing the microtasks.
+    await vi.waitFor(() => expect(settled).toBe(1));
   });
 });

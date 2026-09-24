@@ -1,9 +1,7 @@
 import { Button } from '@brainstrike/ui';
 import { useSyncExternalStore } from 'react';
-import {
-  ASSISTANT_THREAD_COLOR_PRESENTATION,
-  ASSISTANT_THREAD_ICON_PRESENTATION,
-} from './assistant-thread-presentation';
+import { getDelegatedColorPresentation } from './agent-color-presentation';
+import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
 import { threadWorkspaceNavigation } from './thread-workspace/live-thread-workspace-navigation';
 import { useDelegatedConversationRoot } from './use-delegated-conversation-root';
@@ -21,18 +19,22 @@ function ChildRow({ row }: { readonly row: Extract<DelegatedSidebarRow, { kind: 
   );
   const status = snapshot?.update.message.status.type;
   const needsInput = snapshot ? status === 'requires-action' : row.needsInput;
+  const appearance = getDelegatedColorPresentation(row.node.color);
   return (
     <button
-      className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted"
+      className={`flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-xs ${appearance.idleClassName}`}
+      data-agent-color={row.node.color}
       onClick={() =>
         threadWorkspaceNavigation.open(row.node.ownerResourceId, row.node.rootThreadId, row.id)
       }
+      style={appearance.style}
       type="button"
     >
-      <Icon
-        aria-hidden="true"
-        className={`size-3.5 shrink-0 ${ASSISTANT_THREAD_COLOR_PRESENTATION[row.node.color].markClassName}`}
-      />
+      <span
+        className={`flex size-5 shrink-0 items-center justify-center rounded-md border ${appearance.markClassName}`}
+      >
+        <Icon aria-hidden="true" className="size-3.5" />
+      </span>
       <span className="truncate">{row.node.displayName}</span>
       {unread ? (
         <span aria-label="Unread child activity" className="shrink-0 text-xs" role="img">

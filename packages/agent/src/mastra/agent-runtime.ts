@@ -1,8 +1,10 @@
 import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import {
+  applyTurnSubagentLimits,
   parseRuntimeSubagentSettings,
   type RuntimeSubagentSettings,
+  resolveChildTaskTimeoutMs,
 } from '@brainstrike/assistant-contract/subagent-settings';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
@@ -15,10 +17,7 @@ import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
-import {
-  type BackgroundTaskScope,
-  MAX_BACKGROUND_TASK_TIMEOUT_MS,
-} from '../pglite-mastra-memory/background-store';
+import type { BackgroundTaskScope } from '../pglite-mastra-memory/background-store';
 import { isListingOnlyModel } from '../providers/listing-only-model';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import {
@@ -41,6 +40,10 @@ import {
   composeCacheAwareInstructions,
 } from './anthropic-instruction-cache';
 import type { RuntimeApprovalGate } from './approval-gate';
+import {
+  type BackgroundChildWatchdogs,
+  watchBackgroundChildren,
+} from './background-child-watchdog';
 import { requireBackgroundResultDelivery } from './background-result-delivery';
 import type { DelegatedExecutionOptions } from './build-persona-subagents';
 import type { ChildContinuationRuntimeScope } from './child-continuation-usage';
@@ -121,12 +124,6 @@ export interface MastraAgentRuntimeOptions {
    * the legacy runtime/env key resolution.
    */
   authInput?: ProviderAuthInput;
-  /**
-   * Silence budget for running background work before the parent stream
-   * closes unfinished (`withBackgroundIdleLoop`); defaults to the longest a
-   * task may run. Tests shorten it to prove the expiry is reported.
-   */
-  backgroundIdleMs?: number;
   /** Host-owned durable background scope; never client RuntimeData. */
   backgroundTaskScope?: BackgroundTaskScope;
   /** Host-admitted settings for the exact resumed child, never renderer authority. */
@@ -235,8 +232,12 @@ export interface MastraAgentRuntime {
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Fail-loud completion check for the client-provided persisted assistant id. */
   assertAssistantMessageIdPersisted?: () => void;
-  /** See `MastraAgentRuntimeOptions.backgroundIdleMs`. */
-  backgroundIdleMs?: number | undefined;
+  /**
+   * Each background child's own watchdog (`background-child-watchdog.ts`),
+   * present exactly when `backgroundTaskManager` is. The parent's stream
+   * watchdog reads it as the watch over the work that holds its stream open.
+   */
+  backgroundChildWatchdogs?: BackgroundChildWatchdogs | undefined;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
   /** Direct child legs retain the child's native default processors and admitted step cap. */
   childExecution?: { readonly maxSteps: number; readonly inputProcessors?: unknown[] };
@@ -324,8 +325,9 @@ export interface MastraAgentRuntime {
   resolvedToolResultBudget: ScaledToolResultBudget;
   rootDelegatedContextProcessor?: InputProcessor | undefined;
   /**
-   * Validated request budgets (`runtimeData.subagentSettings`, absent →
-   * defaults); the delegation config clamps every child with them.
+   * The leg's validated limits: the request's (`runtimeData.subagentSettings`,
+   * absent → defaults) with the turn's stored limits over them once its
+   * budget row exists. Every consumer reads these, never the request.
    */
   subagentSettings: RuntimeSubagentSettings;
   /** Bounded, content-free token measurements for this concrete run/tool map. */
@@ -522,7 +524,8 @@ function registerAgentWithMastra(
   agent: Agent,
   storage: MastraCompositeStore | undefined,
   assistantMessageId: string | undefined,
-  backgroundEnabled: boolean
+  backgroundEnabled: boolean,
+  taskTimeoutMs: number
 ): {
   assertAssistantMessageIdPersisted?: () => void;
   backgroundTaskManager?: BackgroundTaskManager | undefined;
@@ -538,7 +541,7 @@ function registerAgentWithMastra(
     agents: { brainstrikeAssistant: agent },
     backgroundTasks: {
       defaultRetries: { maxRetries: 0 },
-      defaultTimeoutMs: MAX_BACKGROUND_TASK_TIMEOUT_MS,
+      defaultTimeoutMs: taskTimeoutMs,
       enabled: backgroundEnabled,
       waitTimeoutMs: 0,
     },
@@ -623,12 +626,9 @@ async function buildBackgroundAgentOptions(
   if (!(scope && hasSubAgents)) {
     return {};
   }
-  const delivery = requireBackgroundResultDelivery(await storage?.getStore('backgroundTasks'));
-  // Native onResult joins SaveQueueManager.flushMessages before these public hooks.
+  requireBackgroundResultDelivery(await storage?.getStore('backgroundTasks'));
   return {
     backgroundTasks: {
-      onTaskComplete: (task) => delivery.markResultDelivered(task.id),
-      onTaskFailed: (task) => delivery.markResultDelivered(task.id),
       tools: Object.fromEntries([...personas.keys()].map((id) => [id, true])),
       waitTimeoutMs: 0,
     },
@@ -847,8 +847,12 @@ export async function createMastraAgentRuntime(
   // Subagent personas (D10): built BEFORE the instructions so guidance only
   // names personas that actually registered a delegation tool this run.
   // Validated ONCE per runtime; a malformed request field fails construction
-  // loudly rather than admitting a child under an unknown budget.
-  const subagentSettings = parseRuntimeSubagentSettings(sanitizedRuntime.subagentSettings);
+  // loudly rather than admitting a child under an unknown budget. A later leg
+  // of a turn runs under the limits its budget row stored, not its request's.
+  const subagentSettings = applyTurnSubagentLimits(
+    parseRuntimeSubagentSettings(sanitizedRuntime.subagentSettings),
+    await options.conversationBinding?.budget?.readTurnLimits()
+  );
   const delegatedExecutionOptions: DelegatedExecutionOptions = {};
   const delegatedTurnPersistence = createDelegatedTurnPersistence(memory, sanitizedRuntime.memory);
   const {
@@ -992,8 +996,10 @@ export async function createMastraAgentRuntime(
     agent,
     storage,
     runtime?.assistantMessageId,
-    Boolean(backgroundAgentOptions.backgroundTasks)
+    Boolean(backgroundAgentOptions.backgroundTasks),
+    resolveChildTaskTimeoutMs(subagentSettings)
   );
+  let backgroundChildWatchdogs: BackgroundChildWatchdogs | undefined;
   let unregisterCancellation: (() => void) | undefined;
   let unregisterDecisions: (() => void) | undefined;
   let unregisterFollowup: (() => void) | undefined;
@@ -1004,6 +1010,8 @@ export async function createMastraAgentRuntime(
     // replace an earlier error. Decision settlement remains fail-closed.
     for (const cleanup of [
       () => invalidateMcpAppAdmission?.(),
+      // Judge no child through shutdown: its cancellation is not a stall.
+      () => backgroundChildWatchdogs?.dispose(),
       () => mastra?.shutdown(),
       () => unregisterCancellation?.(),
       () => unregisterDecisions?.(),
@@ -1047,6 +1055,13 @@ export async function createMastraAgentRuntime(
     await delegatedTurnPersistence?.finalize(targets);
   };
   await initializeRuntimeLifetime(() => {
+    backgroundChildWatchdogs = watchBackgroundChildren(
+      assistantIdentityRuntime.backgroundTaskManager,
+      options,
+      agent.id,
+      toolNameMap,
+      resilienceConfig
+    );
     unregisterCancellation = options.conversationBinding?.registerCancellation?.(cancelInvocations);
     unregisterDecisions = options.conversationBinding?.registerDecisionControl?.((request) =>
       liveDecisions.deliver(request)
@@ -1066,7 +1081,7 @@ export async function createMastraAgentRuntime(
     ...assistantIdentityRuntime,
     approvalGate,
     askTools,
-    backgroundIdleMs: options.backgroundIdleMs,
+    backgroundChildWatchdogs,
     childPromptFacts,
     conversationBinding: options.conversationBinding,
     delegatedExecutionOptions,

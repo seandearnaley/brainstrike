@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type {
+  BackgroundGeneration,
   ChildContinuationHostPort,
   DelegatedConversationBinding,
   DelegatedConversationIdentity,
@@ -31,7 +32,6 @@ import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   createDelegatedContinuationRepository,
   createDelegatedConversationRepository,
-  type DelegatedConversationColor,
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
   type DelegatedConversationScope,
@@ -42,7 +42,9 @@ import {
 import { z } from 'zod';
 import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
 import { createDesktopDelegatedContinuationHost } from './delegated-continuation-host';
+import { resolveDelegatedFamilyIdentity } from './delegated-family-color';
 import { delegatedHostRunId } from './delegated-host-run-id';
+import { type DelegatedHostScope, resolveDelegatedHostScope } from './delegated-host-scope';
 import { createDelegatedStepBudget } from './delegated-step-budget';
 import {
   assertDelegationRootRunning,
@@ -91,11 +93,33 @@ async function recordSwarmDiagnostic(
 }
 
 const identityString = z.string().refine((value) => value.trim().length > 0);
-const hostScopeSchema = z.object({
-  ownerResourceId: identityString,
-  rootThreadId: identityString,
-  turnMessageId: identityString,
-});
+
+/**
+ * The ONE stopped-subtree predicate: an invocation row on any thread in
+ * `threads` carrying a cancellation request for this turn. Every site that
+ * must agree on "this subtree was stopped" builds its SQL from here — the
+ * claim guard, the answer write, and the grant's skip read — because the two
+ * drift directions are both live faults: a read NARROWER than the write
+ * restores the BST-1749 permanent refusal, and a read BROADER silently
+ * over-skips a sibling the write would have answered, leaving its task
+ * suspended with no recovery path (assistant-subagents.md).
+ *
+ * The parameter types carry the safety argument rather than this comment: a
+ * bind is a placeholder or one named column expression, so "no caller value is
+ * interpolated" is a compile error rather than a review finding (PR #3221
+ * second review).
+ */
+function stoppedSubtreeExists(bind: {
+  readonly owner: `$${number}`;
+  readonly root: `$${number}`;
+  readonly threads: `$${number}::jsonb` | 'candidate.thread_ids';
+  readonly turn: `$${number}`;
+}): string {
+  return `SELECT 1 FROM brainstrike_delegated_invocations stopped
+     JOIN jsonb_array_elements_text(${bind.threads}) target(thread_id) ON target.thread_id = stopped.thread_id
+     WHERE stopped.owner_resource_id = ${bind.owner} AND stopped.root_thread_id = ${bind.root}
+       AND stopped.turn_message_id = ${bind.turn} AND stopped.cancellation_requested_at IS NOT NULL`;
+}
 
 async function readRequiredBranchHistory(
   database: DelegatedConversationDatabase,
@@ -177,7 +201,7 @@ function toolActionKey(
 
 async function resolveActionParentThreadId(
   database: DelegatedConversationDatabase,
-  scope: z.infer<typeof hostScopeSchema>,
+  scope: DelegatedHostScope,
   action: Parameters<NonNullable<DelegatedConversationBinding['resolveToolAction']>>[0]
 ): Promise<string> {
   if (!action.continuationId) {
@@ -195,31 +219,6 @@ async function resolveActionParentThreadId(
     throw new DelegatedConversationIdentityError('continuation-ancestry-mismatch');
   }
   return continuation.threadId;
-}
-
-const DISPLAY_IDENTITIES = [
-  { color: 'blue', name: 'Cedar' },
-  { color: 'emerald', name: 'Fern' },
-  { color: 'amber', name: 'Aspen' },
-  { color: 'rose', name: 'Maple' },
-  { color: 'violet', name: 'Iris' },
-  { color: 'slate', name: 'Willow' },
-] as const satisfies readonly { color: DelegatedConversationColor; name: string }[];
-
-/** Display identity only: never derive ownership or ancestry from a native id. */
-function createDisplayIdentity(threadId: string): {
-  color: DelegatedConversationColor;
-  displayName: string;
-} {
-  const digest = createHash('sha256').update(threadId).digest();
-  const display = DISPLAY_IDENTITIES[digest.readUInt8(0) % DISPLAY_IDENTITIES.length];
-  if (!display) {
-    throw new Error('Delegated conversation display palette is empty.');
-  }
-  return {
-    color: display.color,
-    displayName: `${display.name}-${digest.toString('hex').slice(0, 6)}`,
-  };
 }
 
 /**
@@ -303,7 +302,10 @@ export function createDesktopDelegatedConversationHost(
   }>;
   resolveToolAction: NonNullable<DelegatedConversationBinding['resolveToolAction']>;
   resolveParkedInvocation: NonNullable<DelegatedConversationBinding['resolveParkedInvocation']>;
-  recordToolActionAnswer: NonNullable<DelegatedConversationBinding['recordToolActionAnswer']>;
+  recordToolActionAnswers: NonNullable<DelegatedConversationBinding['recordToolActionAnswers']>;
+  readUnanswerableToolActionLeaves: NonNullable<
+    DelegatedConversationBinding['readUnanswerableToolActionLeaves']
+  >;
   recordPromptManifest(record: PromptManifestRecord): Promise<void>;
   recordWakeup(record: WakeupRecord): Promise<void>;
   recordLiveDecision(record: LiveDecisionRecord): Promise<void>;
@@ -313,6 +315,8 @@ export function createDesktopDelegatedConversationHost(
   releaseUnexecutedToolAction: NonNullable<
     DelegatedConversationBinding['releaseUnexecutedToolAction']
   >;
+  readBackgroundGeneration(): Promise<BackgroundGeneration>;
+  recordNativeRootRun(nativeRunId: string): Promise<void>;
   persist(identity: DelegatedConversationIdentity): Promise<void>;
   persistEvent(
     identity: DelegatedRunIdentity,
@@ -326,20 +330,13 @@ export function createDesktopDelegatedConversationHost(
     throw new DelegatedConversationIdentityError();
   }
   const repository = createDelegatedConversationRepository(database);
-  const readScope = async (): Promise<z.infer<typeof hostScopeSchema>> => {
-    const result = await database.query(
-      `SELECT runs.resource_id AS "ownerResourceId", runs.thread_id AS "rootThreadId",
-        runs.turn_message_id AS "turnMessageId"
-       FROM brainstrike_assistant_thread_runs runs
-       JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
-       WHERE runs.id = $1`,
-      [hostRunId]
-    );
-    const parsed = hostScopeSchema.safeParse(result.rows[0]);
-    if (result.rows.length !== 1 || !parsed.success) {
+  const resolveScope = () => resolveDelegatedHostScope(database, hostRunId);
+  const readScope = async (): Promise<DelegatedHostScope> => {
+    const scope = await resolveScope();
+    if (!scope) {
       throw new DelegatedConversationIdentityError('host-scope-invalid');
     }
-    return parsed.data;
+    return scope;
   };
   // One immutable host leg belongs to one root. The partial unique root
   // index therefore permits at most one active claim in this binding.
@@ -444,7 +441,13 @@ export function createDesktopDelegatedConversationHost(
         ...(invocation.messageId ? { messageId: invocation.messageId } : {}),
       };
     },
-    budget: createDelegatedStepBudget(database, hostRunId, readScope, subagentSettings),
+    budget: createDelegatedStepBudget(
+      database,
+      hostRunId,
+      readScope,
+      resolveScope,
+      subagentSettings
+    ),
     async claimToolAction(action) {
       const scopes = await host.resolveToolAction(action);
       const leaf = scopes.at(-1);
@@ -471,12 +474,12 @@ export function createDesktopDelegatedConversationHost(
              WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
                AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
            )
-           AND NOT EXISTS (
-             SELECT 1 FROM brainstrike_delegated_invocations stopped
-             JOIN jsonb_array_elements_text($11::jsonb) target(thread_id) ON target.thread_id = stopped.thread_id
-             WHERE stopped.owner_resource_id = $2 AND stopped.root_thread_id = $3
-               AND stopped.turn_message_id = $10 AND stopped.cancellation_requested_at IS NOT NULL
-           )
+           AND NOT EXISTS (${stoppedSubtreeExists({
+             owner: '$2',
+             root: '$3',
+             threads: '$11::jsonb',
+             turn: '$10',
+           })})
          ON CONFLICT DO NOTHING RETURNING id`,
         [
           id,
@@ -550,8 +553,15 @@ export function createDesktopDelegatedConversationHost(
           identity.configuration,
           subagentSettings
         );
+        const displayIdentity = await resolveDelegatedFamilyIdentity(
+          tx,
+          admissionRepository,
+          scope,
+          parent,
+          identity.childThreadId
+        );
         await admissionRepository.createChild(scope, {
-          ...createDisplayIdentity(identity.childThreadId),
+          ...displayIdentity,
           configuration: identity.configuration,
           parentThreadId: identity.parentThreadId,
           resourceId: identity.childResourceId,
@@ -638,70 +648,269 @@ export function createDesktopDelegatedConversationHost(
         baselines.set(baseline.threadId, baseline);
       }
     },
+    /**
+     * This leg's GENERATION and every native ROOT run mapped to it (migration
+     * 140): the identity every leg of the generation publishes its ledger
+     * rows under, and the scope those rows count over. A leg whose generation
+     * is unset resumed a native run no host leg mapped — a pause parked
+     * before 140 — and throws rather than open an identity of its own.
+     */
+    async readBackgroundGeneration() {
+      const result = await database.query(
+        `SELECT runs.generation_run_id AS "generationRunId",
+           COALESCE((
+             SELECT jsonb_agg(mapped.native_run_id ORDER BY mapped.created_at, mapped.native_run_id)
+             FROM brainstrike_assistant_native_runs mapped
+             JOIN brainstrike_assistant_thread_runs owner ON owner.id = mapped.host_run_id
+             WHERE owner.thread_id = runs.thread_id AND owner.resource_id = runs.resource_id
+               AND owner.generation_run_id = runs.generation_run_id
+           ), '[]'::jsonb) AS "nativeRunIds"
+         FROM brainstrike_assistant_thread_runs runs
+         JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
+         WHERE runs.id = $1`,
+        [hostRunId]
+      );
+      const parsed = z
+        .object({
+          generationRunId: z.string().min(1).nullable(),
+          nativeRunIds: z.array(z.string().min(1)),
+        })
+        .safeParse(result.rows[0]);
+      if (result.rows.length !== 1 || !parsed.success) {
+        throw new DelegatedConversationIdentityError('host-scope-invalid');
+      }
+      const { generationRunId } = parsed.data;
+      if (!generationRunId) {
+        throw new DelegatedConversationIdentityError(
+          'background-generation-unmapped',
+          'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.'
+        );
+      }
+      return { generationRunId, nativeRunIds: parsed.data.nativeRunIds };
+    },
+    async readUnanswerableToolActionLeaves(candidates) {
+      if (candidates.length === 0) {
+        return [];
+      }
+      const scope = await readScope();
+      // The two per-candidate arms of `recordToolActionAnswers`' own guards,
+      // read together so the skip cannot drift from the write it predicts.
+      // ANSWERED: the enumerated durable states, not "any row" — a state added
+      // later must fail loudly on the write rather than silently over-skip a
+      // leaf that is still answerable. STOPPED: `stoppedSubtreeExists`, the
+      // SAME predicate the write refuses on, over the leaf's whole thread
+      // chain (`scope: 'child'` marks only the named child's invocation row).
+      // ONE ROW PER LEAF, and the precedence is the query's own: `DISTINCT ON`
+      // ordered by `(reason = 'stopped')` keeps `'stopped'` over `'answered'`
+      // for a leaf in both states, rather than leaving it to how the caller
+      // folds duplicates. The order names the winner instead of relying on
+      // where the two labels fall in the collation (PR #3221 reviews).
+      const unanswerable = await database.query(
+        `WITH candidate AS (
+           SELECT probe.leaf->>0 AS child_runtime_run_id, probe.leaf->>1 AS tool_call_id,
+             probe.leaf->2 AS thread_ids
+           FROM jsonb_array_elements($3::jsonb) AS probe(leaf)
+         ), unanswerable AS (
+           SELECT candidate.child_runtime_run_id, candidate.tool_call_id, 'answered' AS reason
+           FROM candidate
+           WHERE EXISTS (
+             SELECT 1 FROM brainstrike_delegated_tool_decisions AS decision
+             WHERE decision.child_runtime_run_id = candidate.child_runtime_run_id
+               AND decision.tool_call_id = candidate.tool_call_id
+               AND decision.owner_resource_id = $1 AND decision.root_thread_id = $2
+               AND decision.state IN ('claimed', 'consumed', 'interrupted')
+           )
+           UNION ALL
+           SELECT candidate.child_runtime_run_id, candidate.tool_call_id, 'stopped'
+           FROM candidate
+           WHERE EXISTS (${stoppedSubtreeExists({
+             owner: '$1',
+             root: '$2',
+             threads: 'candidate.thread_ids',
+             turn: '$4',
+           })})
+         )
+         SELECT DISTINCT ON (child_runtime_run_id, tool_call_id)
+           child_runtime_run_id AS "childRuntimeRunId", tool_call_id AS "toolCallId", reason
+         FROM unanswerable ORDER BY child_runtime_run_id, tool_call_id, (reason = 'stopped') DESC`,
+        [
+          scope.ownerResourceId,
+          scope.rootThreadId,
+          JSON.stringify(
+            candidates.map((candidate) => [
+              candidate.childRuntimeRunId,
+              candidate.toolCallId,
+              candidate.threadIds,
+            ])
+          ),
+          scope.turnMessageId,
+        ]
+      );
+      return z
+        .array(
+          z.object({
+            childRuntimeRunId: identityString,
+            reason: z.enum(['answered', 'stopped']),
+            toolCallId: identityString,
+          })
+        )
+        .parse(unanswerable.rows);
+    },
     recordLiveDecision: (record) =>
       recordSwarmDiagnostic(hostRunId, 'live-decision', () =>
         recordLiveDecision(database, hostRunId, record)
       ),
+    /**
+     * Map a native ROOT run to THIS leg (migration 140). First writer wins: an
+     * approval leg re-streams the very run it resumed, and that run belongs to
+     * the leg that started it. A run already mapped under a DIFFERENT
+     * generation is an invariant break, never a silent re-parent.
+     *
+     * NULL is an ABSENCE, never an identity (final review item 2): a leg with
+     * no generation maps nothing — `current_run` drops it, so the leg refuses
+     * with `host-scope-invalid` — and the generation comparison is `=`, which
+     * is never true of two unset generations, rather than
+     * `IS NOT DISTINCT FROM`, which would read them as one.
+     */
+    async recordNativeRootRun(nativeRunId: string) {
+      const result = await database.query(
+        `WITH current_run AS (
+           SELECT runs.id, runs.thread_id, runs.resource_id, runs.generation_run_id
+           FROM brainstrike_assistant_thread_runs runs
+           JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
+           WHERE runs.id = $2 AND runs.generation_run_id IS NOT NULL
+         ), inserted AS (
+           INSERT INTO brainstrike_assistant_native_runs (native_run_id, host_run_id)
+           SELECT $1, current_run.id FROM current_run
+           ON CONFLICT (native_run_id) DO NOTHING
+           RETURNING native_run_id
+         )
+         SELECT (SELECT count(*)::int FROM current_run) AS "legs",
+           (SELECT count(*)::int FROM inserted) AS "inserted",
+           EXISTS (
+             SELECT 1 FROM brainstrike_assistant_native_runs mapped
+             JOIN brainstrike_assistant_thread_runs owner ON owner.id = mapped.host_run_id
+             JOIN current_run ON owner.thread_id = current_run.thread_id
+               AND owner.resource_id = current_run.resource_id
+               AND owner.generation_run_id = current_run.generation_run_id
+             WHERE mapped.native_run_id = $1
+           ) AS "sameGeneration"`,
+        [nativeRunId, hostRunId]
+      );
+      const parsed = z
+        .object({
+          inserted: z.number().int(),
+          legs: z.number().int(),
+          sameGeneration: z.boolean(),
+        })
+        .safeParse(result.rows[0]);
+      if (!parsed.success || parsed.data.legs !== 1) {
+        throw new DelegatedConversationIdentityError('host-scope-invalid');
+      }
+      if (parsed.data.inserted === 0 && !parsed.data.sameGeneration) {
+        throw new DelegatedConversationIdentityError('native-run-generation-mismatch');
+      }
+    },
     recordPromptManifest: (record) =>
       recordSwarmDiagnostic(hostRunId, 'prompt-manifest', () =>
         recordPromptManifest(database, hostRunId, record)
       ),
-    async recordToolActionAnswer(action) {
-      const scopes = await host.resolveToolAction(action);
-      const leaf = scopes.at(-1);
-      if (!leaf) {
-        throw new DelegatedConversationIdentityError('tool-action-leaf-identity-required');
+    async recordToolActionAnswers(actions) {
+      if (actions.length === 0) {
+        return;
       }
-      const scope = await readScope();
-      // A policy answer is terminal the moment it is recorded: it joins the
-      // ledger as `consumed` under this leg, never as the root's active claim
-      // (one claimed decision per root is the serialization rule for USER
-      // resumes across reconstructed runtimes). The same admission guards as a
-      // claim apply, and the unique leaf key refuses a second answer.
-      const result = await database.query(
-        `INSERT INTO brainstrike_delegated_tool_decisions
-          (id, owner_resource_id, root_thread_id, parent_runtime_run_id,
-           parent_tool_call_id, child_thread_id, child_runtime_run_id,
-           tool_call_id, host_run_id, state, finished_at)
-         SELECT $1, $2, $3, $4, $5, $6, $7, $8, runs.id, 'consumed', NOW()
-         FROM brainstrike_assistant_thread_runs runs
-         JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
-         WHERE runs.id = $9 AND runs.resource_id = $2 AND runs.thread_id = $3
-           AND runs.turn_message_id = $10 AND runs.status = 'running'
-           AND NOT EXISTS (
-             SELECT 1 FROM brainstrike_assistant_thread_runs cancelled
-             WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
-               AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM brainstrike_delegated_invocations stopped
-             JOIN jsonb_array_elements_text($11::jsonb) target(thread_id) ON target.thread_id = stopped.thread_id
-             WHERE stopped.owner_resource_id = $2 AND stopped.root_thread_id = $3
-               AND stopped.turn_message_id = $10 AND stopped.cancellation_requested_at IS NOT NULL
-           )
-         ON CONFLICT DO NOTHING RETURNING id`,
-        [
-          randomUUID(),
-          scope.ownerResourceId,
-          scope.rootThreadId,
-          action.runId,
-          action.toolCallId,
-          leaf.threadId,
-          leaf.identity.childRuntimeRunId,
-          action.delegation.toolCallId,
-          hostRunId,
-          scope.turnMessageId,
-          JSON.stringify(scopes.map((target) => target.threadId)),
-        ]
-      );
-      if (result.rows.length !== 1) {
-        throw new DelegatedConversationIdentityError('tool-action-already-consumed-or-root-busy');
+      if (!database.transaction) {
+        throw new DelegatedConversationIdentityError('host-transaction-unavailable');
       }
-      // Freeze the child's history at the answer, as `prepareToolAction` does
-      // for the claimed decision, so its resumed leg starts from a boundary.
+      const [scope, answers] = await Promise.all([
+        readScope(),
+        Promise.all(
+          actions.map(async (action) => {
+            const scopes = await host.resolveToolAction(action);
+            const leaf = scopes.at(-1);
+            if (!leaf) {
+              throw new DelegatedConversationIdentityError('tool-action-leaf-identity-required');
+            }
+            return { action, leaf, scopes };
+          })
+        ),
+      ]);
+      // One batch answers each leaf at most once: a repeated leaf would refuse
+      // itself on the unique key and roll back every other answer with it.
+      const answeredLeaves = new Set<string>();
+      const threads = new Map<string, DelegatedToolActionScope>();
+      for (const { action, leaf, scopes } of answers) {
+        const key = JSON.stringify([leaf.identity.childRuntimeRunId, action.delegation.toolCallId]);
+        if (answeredLeaves.has(key)) {
+          throw new DelegatedConversationIdentityError('tool-action-answer-duplicate');
+        }
+        answeredLeaves.add(key);
+        for (const target of scopes) {
+          threads.set(target.threadId, target);
+        }
+      }
+      // Freeze each child's history at the answer, as `prepareToolAction` does
+      // for the claimed decision, so its resumed leg starts from a boundary. A
+      // parked child's history does not move, so it is read BEFORE the rows
+      // commit and kept only after: a failed read records nothing. Each thread
+      // is read once, however many answers name it.
       const captured = await Promise.all(
-        scopes.map((target) => captureHistory(target.threadId, target.resourceId, false))
+        [...threads.values()].map((target) =>
+          captureHistory(target.threadId, target.resourceId, false)
+        )
       );
+      // An answer is terminal the moment it is recorded: it joins the ledger
+      // as `consumed` under this leg, never as the root's active claim (one
+      // claimed decision per root is the serialization rule for USER resumes
+      // across reconstructed runtimes). The same admission guards as a claim
+      // apply, and the unique leaf key refuses a second answer. ALL OR NONE:
+      // a refused sibling (answered concurrently) must not leave the user's
+      // own answer consumed with nothing resumed (BST-1749 review).
+      await database.transaction(async (tx) => {
+        for (const { action, leaf, scopes } of answers) {
+          const result = await tx.query(
+            `INSERT INTO brainstrike_delegated_tool_decisions
+              (id, owner_resource_id, root_thread_id, parent_runtime_run_id,
+               parent_tool_call_id, child_thread_id, child_runtime_run_id,
+               tool_call_id, host_run_id, state, finished_at)
+             SELECT $1, $2, $3, $4, $5, $6, $7, $8, runs.id, 'consumed', NOW()
+             FROM brainstrike_assistant_thread_runs runs
+             JOIN mastra_threads root ON root.id = runs.thread_id AND root."resourceId" = runs.resource_id
+             WHERE runs.id = $9 AND runs.resource_id = $2 AND runs.thread_id = $3
+               AND runs.turn_message_id = $10 AND runs.status = 'running'
+               AND NOT EXISTS (
+                 SELECT 1 FROM brainstrike_assistant_thread_runs cancelled
+                 WHERE cancelled.resource_id = runs.resource_id AND cancelled.thread_id = runs.thread_id
+                   AND cancelled.turn_message_id = runs.turn_message_id AND cancelled.status IN ('cancelling', 'cancelled')
+               )
+               AND NOT EXISTS (${stoppedSubtreeExists({
+                 owner: '$2',
+                 root: '$3',
+                 threads: '$11::jsonb',
+                 turn: '$10',
+               })})
+             ON CONFLICT DO NOTHING RETURNING id`,
+            [
+              randomUUID(),
+              scope.ownerResourceId,
+              scope.rootThreadId,
+              action.runId,
+              action.toolCallId,
+              leaf.threadId,
+              leaf.identity.childRuntimeRunId,
+              action.delegation.toolCallId,
+              hostRunId,
+              scope.turnMessageId,
+              JSON.stringify(scopes.map((target) => target.threadId)),
+            ]
+          );
+          if (result.rows.length !== 1) {
+            throw new DelegatedConversationIdentityError(
+              'tool-action-already-consumed-or-root-busy'
+            );
+          }
+        }
+      });
       for (const baseline of captured) {
         baselines.set(baseline.threadId, baseline);
       }

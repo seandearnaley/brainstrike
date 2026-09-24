@@ -6,6 +6,7 @@ import {
   DESKTOP_NATIVE_TOOL_IDS,
   type DesktopNativeToolId,
   DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
+  deriveAgentLoopInputTokenLimit,
   deriveEffectiveInputBudget,
   findLlmModelDefinition,
   type GoogleProviderOptions,
@@ -453,6 +454,29 @@ export function resolveHostedMemoryBackendAvailable(args: {
   return args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable;
 }
 
+/**
+ * The decision a leg answers, in the shape `createThreadRun` derives its
+ * GENERATION from (migration 140, BST-1749): a delegated pause resolves
+ * through its invocation's host leg, a root-own pause through the native run
+ * the host mapped. A child-continuation decision resolves through its own
+ * receipt instead, so it contributes nothing here.
+ */
+function readGenerationDecision(
+  decision: { delegation?: unknown; runId: string; toolCallId: string } | undefined,
+  childContinuation: unknown
+): { decision?: { delegated: boolean; runId: string; toolCallId: string } } {
+  if (!decision || childContinuation) {
+    return {};
+  }
+  return {
+    decision: {
+      delegated: decision.delegation !== undefined,
+      runId: decision.runId,
+      toolCallId: decision.toolCallId,
+    },
+  };
+}
+
 export function createAssistantThreadRunPromise(args: {
   runConfig?: unknown;
   assistantThreadRepository: AssistantThreadRepository | null;
@@ -512,6 +536,9 @@ export function createAssistantThreadRunPromise(args: {
       threadId: args.selectedMemoryThreadId,
       turnMessageId,
       ...(childContinuation ? { childContinuation } : {}),
+      // The decision this leg answers, so the repository can derive the
+      // GENERATION it belongs to from durable state (migration 140).
+      ...readGenerationDecision(decision, childContinuation),
       ...(args.modelSettings ? { modelSettings: { ...args.modelSettings } } : {}),
       ...(args.providerOptions ? { providerOptions: { ...args.providerOptions } } : {}),
     })
@@ -585,8 +612,8 @@ export function buildAssistantRequestData(args: {
   selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
-   * Per-child subagent budgets (Settings → Models → Subagents). REQUIRED and
-   * sent on every request: the defaults are a real value, and the host
+   * Per-child subagent budgets (Settings → Subagents → Subagent budgets).
+   * REQUIRED and sent on every request: the defaults are a real value, and the host
    * validates whatever arrives (`parseRuntimeSubagentSettings`).
    */
   subagentSettings: RuntimeSubagentSettings;
@@ -1434,13 +1461,12 @@ export function buildAgentLoopSettings(
   const maxSteps = buildPositiveIntegerSetting(settings?.agentMaxSteps);
   let inputTokenLimit = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
   if (inputTokenLimit === undefined && selectedModelDef !== undefined) {
-    const outputReservation =
-      providerId === 'openrouter'
-        ? (buildPositiveIntegerSetting(modelSettings?.maxOutputTokens) ??
-          buildPositiveIntegerSetting(settings?.maxOutputTokens) ??
-          resolveOpenRouterCodingMaxOutputTokens(selectedModelDef.maxOutputTokens))
-        : selectedModelDef.maxOutputTokens;
-    inputTokenLimit = deriveEffectiveInputBudget(selectedModelDef.contextWindow, outputReservation);
+    inputTokenLimit = deriveAgentLoopInputTokenLimit(
+      selectedModelDef,
+      providerId,
+      buildPositiveIntegerSetting(modelSettings?.maxOutputTokens) ??
+        buildPositiveIntegerSetting(settings?.maxOutputTokens)
+    );
   }
   if (!(maxSteps || inputTokenLimit)) {
     return;
@@ -1588,7 +1614,52 @@ function buildOpenRouterOptions(
  * an unsupported effort is ABSENT, never coerced to a neighbour, and cannot
  * manufacture adaptive thinking. No declared ladder means no effort; an
  * explicit legacy thinking budget remains independently configured.
+ *
+ * BST-1706: `mandatory` (always-on thinking, e.g. Fable) short-circuits both
+ * legacy shapes — a persisted budget from another model is dropped, never
+ * forwarded, and `disabled` is never sent because the vendor rejects it. For
+ * toggleable ladder rows, cleared settings explicitly disable:
+ * `mandatory: false` is the derived license for `disabled`, retiring the old
+ * Opus-5-only id check. It is load-bearing for the rows that think when
+ * options are omitted (Opus 5, Sonnet 5) — omitting would leave them thinking
+ * while the cleared toggle reads off — and equivalent to omitting for the
+ * default-off rows. Rows without a ladder (Haiku, uncatalogued) keep the
+ * legacy omit, whose shape no flag derives.
  */
+function resolveAnthropicThinkingShape(input: {
+  budgetTokens: number | undefined;
+  effort: AssistantProviderSettings['anthropicEffort'];
+  hasLadder: boolean;
+  mandatory: boolean;
+  showReasoning: boolean;
+}): AnthropicProviderOptions['thinking'] | undefined {
+  if (input.mandatory) {
+    // BST-1804: sent at EVERY effort, Auto included. Anthropic documents that
+    // these rows think with no configuration, that `{type: "adaptive"}` needs
+    // no effort, and that `display` defaults to `omitted` on them — so an
+    // omitted `thinking` hides the show-reasoning preference, and on Opus 5.5
+    // the between-tool-call progress text it returns in thinking blocks.
+    // Auto still sends no effort: the vendor default applies.
+    return {
+      display: input.showReasoning ? 'summarized' : 'omitted',
+      type: 'adaptive',
+    };
+  }
+  if (typeof input.budgetTokens === 'number') {
+    return {
+      budgetTokens: Math.floor(input.budgetTokens),
+      type: 'enabled',
+    };
+  }
+  if (input.effort !== undefined) {
+    return {
+      display: input.showReasoning ? 'summarized' : 'omitted',
+      type: 'adaptive',
+    };
+  }
+  return input.hasLadder ? { type: 'disabled' } : undefined;
+}
+
 function buildAnthropicOptions(
   modelName: string | undefined,
   settings: AssistantProviderSettings
@@ -1604,23 +1675,19 @@ function buildAnthropicOptions(
   // An explicit budget pins the legacy `enabled` form (older models); it also
   // carries no `display`, so it is left exactly as configured. Otherwise the
   // modern adaptive form carries `display`, which defaults to `omitted`
-  // provider-side — the reason Claude runs showed no thinking at all. Only
-  // emitted alongside a chosen effort. Opus 5 thinks when options are omitted,
-  // so cleared UI settings explicitly disable it after clearing effort.
-  const thinking: AnthropicProviderOptions['thinking'] | undefined =
-    typeof settings.anthropicThinkingBudgetTokens === 'number'
-      ? {
-          budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
-          type: 'enabled',
-        }
-      : effort
-        ? {
-            display: resolveReasoningVisible(settings) ? 'summarized' : 'omitted',
-            type: 'adaptive',
-          }
-        : modelName === 'claude-opus-5'
-          ? { type: 'disabled' }
-          : undefined;
+  // provider-side — the reason Claude runs showed no thinking at all. Emitted
+  // alongside a chosen effort, and at Auto for always-on (`mandatory`) rows.
+  //
+  // Thinking-shape rules (mandatory short-circuit, explicit disable on
+  // clear) live on resolveAnthropicThinkingShape above. `hasLadder` is
+  // exactly "the row declares an `anthropicReasoning` catalog block".
+  const thinking = resolveAnthropicThinkingShape({
+    budgetTokens: settings.anthropicThinkingBudgetTokens,
+    effort,
+    hasLadder: reasoning !== undefined,
+    mandatory: reasoning?.mandatory ?? false,
+    showReasoning: resolveReasoningVisible(settings),
+  });
   return buildOptionalOptions<AnthropicProviderOptions>([
     ['effort', effort],
     ['thinking', thinking],

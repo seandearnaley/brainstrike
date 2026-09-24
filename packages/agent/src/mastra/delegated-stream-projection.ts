@@ -51,7 +51,11 @@ interface DelegatedStreamProjectionOptions<State> {
         readonly baseline?: DelegatedConversationBaseline | undefined;
       }>)
     | undefined;
-  readonly createState: (personaId: string, threadId: string) => State;
+  readonly createState: (
+    personaId: string,
+    threadId: string,
+    identity: DelegatedRunIdentity
+  ) => State;
   readonly mapPart: (
     part: unknown,
     state: State,
@@ -376,7 +380,7 @@ export function createDelegatedStreamProjection<State>(
         readMastraStreamPartString(nested, 'messageId') ?? binding.messageId
       ),
       parked: false,
-      state: options.createState(identity.personaId, requireIdentity(binding.threadId)),
+      state: options.createState(identity.personaId, requireIdentity(binding.threadId), identity),
       threadId: requireIdentity(binding.threadId),
       toolNames: new Map(),
     };

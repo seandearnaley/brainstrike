@@ -354,6 +354,21 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
     expect(result.context).toContain('[ProjectB]');
   });
 
+  it('passes the native tool abort signal to local query embedding', async () => {
+    const queryEmbedding = vi.fn(async () => QUERY_VECTOR);
+    const tools = buildDesktopAssistantTools(twoRootRuntime(), {
+      embeddingHostManager: { queryEmbedding },
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.queryEmbeddingSpace');
+    const signal = new AbortController().signal;
+
+    await executeTool(
+      { context: { embeddingSetId: 'set-1', query: 'shared marker', threshold: 0 } },
+      { abortSignal: signal }
+    );
+    expect(queryEmbedding).toHaveBeenCalledWith(expect.any(Object), { signal });
+  });
+
   it('Task: semantic search scoped by root — only the chosen root is retrieved', async () => {
     const tools = buildDesktopAssistantTools(twoRootRuntime(), {
       embeddingHostManager: { queryEmbedding: vi.fn(async () => QUERY_VECTOR) },

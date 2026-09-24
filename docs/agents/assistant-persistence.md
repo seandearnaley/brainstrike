@@ -1,3860 +1,2015 @@
 # Assistant Persistence, Notifications, Context Meter
 
-> Extracted from AGENTS.md (2026-07-12). Read before changing message persistence/hydration, run notifications, or token-budget wiring. Keep updated with the code.
+> Read before changing message persistence or reload hydration, run
+> notifications, the run-event / thread-run schema, token-budget wiring, or
+> delegated-child storage. Rules here are true now; the record behind each is in
+> `assistant-persistence/<topic>.md`.
 
 ## ASSISTANT THREAD PERSISTENCE & RELOAD HYDRATION
 
-Per-thread workspace snapshots (`brainstrike_assistant_thread_workspaces`) are
-loaded into renderer-owned live stores by
-`useThreadWorkspaceCoordinator`; those stores remain the working authority.
-Initial boot is an ordering boundary because the active thread can restore
-before PGlite is ready. While that first snapshot read is pending, store
-notifications must not persist the unhydrated singleton state over the saved
-row. The coordinator captures a boot baseline instead, then merges only fields
-that changed in the live stores after that baseline into the loaded snapshot
-before applying and immediately persisting it. This delta covers apps and
-selection, file tabs, editor mode/scroll/pane state, Explorer expansion/scroll,
-and root views. If the initial read rejects after a live edit, the coordinator
-persists the current live snapshot immediately instead of waiting for another
-notification. Editor deltas are admitted only for tabs in the loaded snapshot;
-a changed tab set is preserved atomically with its live editor map. That key
-filter is required so stale pane/editor state from another thread cannot leak
-through a boot or `A -> null -> B` transition. Ordinary thread switches never
-reuse this boot merge: they synchronously flush the outgoing live snapshot,
-then hydrate the incoming snapshot under an intent guard. The deterministic
-ordering regressions live in
-`packages/app-shell/src/thread-workspace/__tests__/use-thread-workspace-coordinator.test.tsx`.
+**Thread workspace snapshots** live in
+`brainstrike_assistant_thread_workspaces` and hydrate renderer-owned live stores
+through `useThreadWorkspaceCoordinator`; those stores stay the working authority.
 
-Desktop assistant threads also persist their operating-root capability in the
-existing `mastra_threads.metadata` JSON (no schema migration):
-`operatingRootId` is the durable DB `roots.id`; `operatingRootDisplayName` and
-`operatingRootPath` are display-only. The first data-stream request writes the
-binding before creating the run. Before that write, app-shell resolves the
-mounted adapter root's absolute path to exactly one live `roots` row; adapter
-root ids are never persisted as execution authority because reconnects may
-change them. Later requests/resumes reuse the durable id instead of reading the
-current global Main/Focused root. The app-shell metadata sanitizer and write
-boundary reject partial bindings and any present-but-invalid operating-root
-field: id and display name are required together, while path is optional.
-Checkout transitions use the same post-persistence projection in the loaded
-thread store as the repository row: setting a mode removes `checkoutBranch`,
-and setting Local additionally removes `checkoutLocalRootId`,
-`checkoutWorktreeId`, and `checkoutWorktreePath` before the patch is merged.
-The store changes only after the repository write succeeds.
-Bulk metadata updates reject every `checkout*` key: checkout transitions require
-the single-thread writer's atomic deletion projection and must never raw-merge a
-partial checkout record across threads.
-Malformed persisted ids never sanitize to "unbound" and cannot silently rebind
-the thread. Server-side native tools validate only the id against the live root
-inventory; the stored path is never an authority or fallback.
+- While the first snapshot read is pending, never persist unhydrated singleton
+  state over the saved row: capture a boot baseline, merge only fields that
+  changed after it, then apply and persist immediately.
+- Admit editor deltas only for tabs in the loaded snapshot, and preserve a
+  changed tab set atomically with its live editor map. Why: otherwise another
+  thread's pane state leaks through a boot or `A -> null -> B` transition.
+- Ordinary thread switches flush the outgoing snapshot synchronously, then
+  hydrate the incoming one under an intent guard — never the boot merge.
 
-Automatic thread titles use Mastra Memory's top-level `generateTitle: true`
-option and `Agent.generateTitleFromUserMessage`. At the terminal Mastra finish,
-the stream adapter starts that canonical title request with the active agent
-model before yielding the UI finish, then keeps the per-run Mastra instance
-alive for one bounded 30-second title lifecycle. The title model receives the
-active request's provider options and output-token cap; OpenRouter retries one
-text-empty result on that same model, never a fallback provider. Expiry aborts
-the underlying model call and marks the transactional PGlite save for rollback,
-rather than merely detaching either operation. Provider, invalid-output,
-configuration, persistence-read, and persistence-write failures are logged with
-stage-specific privacy-safe metadata while the successful main response remains
-intact. Generation remains independent of Observational Memory, its token
-threshold, and whether OM is thread- or resource-scoped. The generated title is
-persisted through `PgliteMemoryStore.saveThread`; that transactional boundary
-may replace only an empty/default/system-owned title and stamps `titleSource:
-'om'`, while the manual rename path clears the marker and always wins even if
-generation was already in flight. Title generation deliberately does not delay
-the main assistant response, so provider `message-finish` is not a reliable
-primary title-refresh signal. App-shell live-subscribes to the local
-`mastra_threads` id/title projection and re-lists the loaded resource only when
-that stable projection changes. This makes background titles visible in thread
-rows and tabs without a timer or an API round trip. The existing
-`message-finish` refresh remains intentionally separate: once per completed
-turn it updates thread recency, ordering, and latest-run details, and provides
-a best-effort recovery path if the live subscription has failed.
+**Operating-root binding** lives in `mastra_threads.metadata` (no migration):
+`operatingRootId` is the durable `roots.id`; display name and path are
+display-only.
 
-Loaded resource thread lists enforce latest-successful-start ordering per
-resource without timers. Every refresh receives a generation from that
-resource's map entry. A non-empty successful result applies unless a
-later-started successful result has already applied; a newer empty result or
-rejected read does not suppress an older successful result. Empty-result and
-stale-generation checks remain separate because they encode different
-contracts. `resetAssistantThreadStore` clears the generation map, and each
-in-flight refresh also retains its map-entry identity, so a result from before
-reset cannot publish into the reset store even if a new resource refresh later
-reuses the same numeric generation. The gated-promise regressions live in
-`packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`.
+- Resolve the adapter root's path to exactly one live `roots` row and write the
+  binding before the first run. An adapter root id is never execution authority.
+- Require id and display name together, path optional. Reject a partial or
+  invalid binding rather than sanitizing it to "unbound".
+- Route every `checkout*` transition through the single-thread writer's atomic
+  deletion projection; bulk metadata updates reject every `checkout*` key.
+- Native tools validate the id against the live root inventory; the stored path
+  is never an authority or a fallback.
 
-Hosted-provider turns are persisted by Mastra (the durable writer) into
-`mastra_messages`; the client history adapter is read-through only. Two
-contracts keep reloaded threads identical to live ones:
+Evidence: `assistant-persistence/thread-workspace-and-root-binding.md`.
+Guard: `packages/app-shell/src/thread-workspace/__tests__/use-thread-workspace-coordinator.test.tsx`.
 
-1. **Persisted dialect (Mastra v2 / `MastraMessageContentV2`):** content is
-   `{ format: 2, parts: [...] }`. Tool calls are
-   `{ type: 'tool-invocation', toolInvocation: { toolCallId, toolName, args,
-   state, result } }` parts with results INLINE — there are NO `role: 'tool'`
-   rows in this dialect (the legacy `tool-call` part + separate tool rows is
-   still supported for old data). Reasoning may arrive with a `reasoning`
-   field instead of `text` (and is often empty for encrypted provider
-   reasoning). `step-start` and `data-om-*` bookkeeping parts are not
-   renderable. Live-loop proof (real agent + real PGlite memory, no mocks):
-   packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts. Hydration
-   fixtures must mirror REAL persisted rows, never hand-written shapes — a
-   hand-written `tool-call` fixture previously kept tests green while real
-   tool history silently vanished on every reload.
-   Tool output uses a deliberate dual channel: Mastra persists
-   `toolInvocation.result`, while `toModelOutput` supplies the bounded text or
-   multimodal projection repeated into provider requests. Native tools keep the
-   raw domain result. Approval resumes seed the live stream from Mastra's exact
-   storage-backed suspended-tool snapshot before consuming resumed output. That
-   preserves the original `toolInvocation.args` when the resumed provider emits
-   only a terminal result; both the live completed card and this format-2 row
-   therefore hydrate with the same arguments. While the approval and resume
-   legs temporarily occupy separate assistant-ui messages, rendering correlates
-   their non-empty arguments by the unchanged `toolCallId`; a resumed live copy
-   exposing `{}` cannot replace the approved payload. Missing snapshot arguments
-   abort the decision before execution instead of persisting an invented empty object.
-   PostToolUse context is model-only: hook execution uses a
-   discriminated internal carrier, `transform.display` unwraps it for the live
-   UI, and `transform.transcript` unwraps it for storage. Mastra 1.51 attaches
-   the correct transcript transform metadata but still hands its raw in-memory
-   message to `MemoryStorage.saveMessages`; `PgliteMemoryStore.saveMessages`
-   therefore applies that official transcript projection again at the durable
-   boundary, returns the projected messages from `saveMessages`, and
-   independently refuses to store or return a surviving internal carrier.
-   The real-memory hook regression proves the stored invocation is the exact
-   domain result while `providerMetadata.mastra.modelOutput` retains the
-   model-only guidance. OpenAI hosted `tool_search` calls add a stricter
-   round-trip invariant: Mastra's consolidated invocation retains the `tsc_`
-   call as `toolCallId`, the distinct `tso_` output in provider metadata, and
-   `providerExecuted: true`. On reload Mastra projects the result metadata onto
-   both model parts, so the OpenAI-only request processor restores the call
-   reference from `toolCallId` and the output reference from the persisted
-   metadata at the transient provider boundary. The real PGlite integration
-   proof serializes the next turn with the production OpenAI Responses model
-   and requires each item reference exactly once; missing output metadata
-   remains a visible error, never a call-ID fallback. MCP results remain inline
-   only within the explicit temporary persistence ceilings documented in
-   `assistant-providers.md`; text-only MCP output is preview-bounded until
-   artifact settlement is wired. Never replace a native result inside
-   `execute()` merely to save prompt tokens; that destroys
-   reload/application evidence. The real-memory proof includes an oversized
-   native sentinel and replays a second turn from the same thread in
-   `packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts`;
-   it also reconstructs a fresh hosted runtime over three stored native reads
-   and proves that transient stale-history filtering removes only the oldest
-   provider-facing call scaffolding while all three raw database rows remain.
-   the live-provider proofs that raw sentinels are absent and MCP image/audio
-   remain model-native live in `mastra-tool-execution.integration.spec.ts`.
+**Automatic titles** come from Mastra's `generateTitle: true`, started at the
+terminal Mastra finish before the UI finish, inside one bounded 30-second
+lifecycle.
 
-   **Provider citation markers are normalized at this same durable boundary.**
-   OpenAI models running native web search emit citation bookkeeping inline in
-   the text stream, wrapped in private-use codepoints
-   (`U+E200 <type> U+E202 <payload> U+E201`, plus `U+E203..U+E204` hidden spans).
-   `projectMessageContentForTranscript` in
-   `packages/agent/src/pglite-mastra-memory/transcript-projection.ts` strips them
-   from BOTH `parts[].text` and
-   the flattened `content` string — the latter is the search extractor's
-   fallback for rows with no text parts (see the `CONTENT_TEXT_SQL` contract in
-   `packages/db/src/repositories/thread-search-repository.ts`). The rule itself
-   is `stripProviderCitationMarkers` in
-   `@brainstrike/assistant-contract/citation-markers`, shared with the render
-   seam so the two cannot diverge. Three constraints are load-bearing and must
-   survive any future writer:
-   - **ASSISTANT ROWS ONLY.** Providers emit these markers on assistant text.
-     Rewriting a user row is irreversible, makes a reloaded prompt differ from
-     what the user typed, and alters the history replayed to the model; it also
-     contradicts the renderer, where `UserMarkdownText` renders user-authored
-     text verbatim.
-   - **Settled-text mode.** Durable writers pass `{ unterminated: 'keep' }`.
-     The unterminated-span heuristic exists for half-arrived markers mid-stream
-     and is only safe where a later render can undo a false positive; these
-     codepoints are also Nerd Fonts glyphs, so at a write-once seam an
-     unterminated opener is treated as content, not as a truncated marker.
-   - **`text` PARTS ONLY.** `reasoning` parts are persisted verbatim and keep
-     any markers in the row. Nothing downstream reads them as prose (search
-     filters `type = 'text'`; `getCopyText()` does not join reasoning), and the
-     one consumer that renders them, `assistant-reasoning-part.tsx`, strips at
-     read. The projection is not "everything downstream is clean" — it is these
-     parts, for these readers.
-   - **WRITE-TIME ONLY.** Rows persisted before this shipped keep their markers
-     and stay that way in search until rewritten. Do not assume stored text is
-     clean; backfilling is an unperformed data migration.
+- Use the active request's provider options and output-token cap; OpenRouter
+  retries one text-empty result on that same model, never a fallback provider.
+- Expiry aborts the model call and marks the transactional PGlite save for
+  rollback; detaching either operation is not enough.
+- `PgliteMemoryStore.saveThread` may replace only an empty, default or
+  system-owned title and stamps `titleSource: 'om'`. A manual rename clears the
+  marker and always wins, even mid-generation.
+- Make background titles visible by live-subscribing to the `mastra_threads`
+  id/title projection — never a timer or a poll. The per-turn `message-finish`
+  refresh stays separate: recency, ordering, latest-run details, recovery.
+- Thread lists enforce latest-successful-start ordering per resource from a
+  generation map, without timers. A newer empty or rejected read never suppresses
+  an older successful one, and a result from before `resetAssistantThreadStore`
+  can never publish into the reset store.
 
-   Test seam: `packages/agent/src/pglite-mastra-memory/__tests__/pglite-memory-store.save-messages.spec.ts`
-   (assistant rows stripped, user rows verbatim, trailing glyph preserved).
-2. **Snapshot grouping + live-order interleaving:** observational-memory
-   sealing and per-step saves split ONE live assistant turn into several
-   `mastra_messages` rows (progressive snapshots under fresh ids, so one
-   toolCallId can appear in several rows). Hydration
-   (packages/assistant-data/src/assistant-memory-repository.ts) therefore:
-   - merges consecutive assistant rows into ONE assistant-ui message (id =
-     last row, createdAt = first row; legacy `role: 'tool'` rows don't split
-     a group),
-   - dedupes tool calls by toolCallId (first occurrence wins; later
-     result/error fields merge in),
-   - recalls the latest 80 message rows together with events from the latest
-     80 runs, partitions events by `runId`, assigns each run to the assistant
-     turn inside that run's time window, and weaves them between content parts
-     in time order. Never attach only the newest run to the newest message:
-     older turns would lose tool failure state, timings, and subagent activity
-     after reload. Tool-invocation parts carry no persisted timestamp, so each
-     is re-timed to its `tool.started` run event (matched via
-     `metadata.toolCallId`); other untimed parts anchor to their snapshot row's
-     save time. Equal-timestamp rows use Mastra's per-part `createdAt` values
-     before the row role/id fallback. A group with only run events still
-     renders.
-   - recognizes guarded tool results with the canonical
-     `@brainstrike/assistant-contract` type guard. A known guarded result
-     (`ok:false`) hydrates as a failed tool call even though Mastra persists
-     the invocation itself with `state:'result'`; the execution and replay
-     paths must never maintain independent guarded-error code lists.
+Evidence: `assistant-persistence/thread-title-generation.md`.
+Guard: `packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`.
 
-Mastra deliberately skips its normal finish writer (`executeOnFinish`) when an
-abort signal wins. Since Mastra >= 1.62 (upstream #22243; BST-1667 moved core
-to 1.64.0) that is no longer the whole story: the `MessageHistory` output
-processor persists a cancelled run's transcript through normal output
-processing (`processOutputResult` → `persistMessages` →
-`storage.saveMessages`, partial tool calls filtered), the
-`persistPartialOnAbort` opt-in is gone because cancellation persistence is no
-longer optional, and that write is NOT awaited by the aborted loop. Measured on
-the live-loop PGlite proof
-(`packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts`):
-a user Stop landing right after a tool result carries the completed tool work
-and no partial text; a watchdog abort persists the stalled attempt's partial
-text as its OWN assistant row; an approval-resume cancel persists the partial
-text. For terminal watchdog aborts and user cancellation only,
-`packages/agent/src/mastra/aborted-turn-persistence.ts` (created by
-`createRuntimeAbortedTurnPersistence` in `turn-attempts.ts`) therefore owns one
-bounded abort-finalization seam over Mastra's public live `MessageList`: it
-drains the unsaved messages, keeps the user input and every assistant message,
-REMOVES tool invocations that never completed (Mastra filters partial tool calls
-from its own write and the seam must not re-introduce one, or Stop could
-resurrect execution on the next turn), RETAINS partial text (dropping it cannot
-remove the row Mastra already wrote, and a snapshot that disagrees with the UI
-transcript is the BST-1415 failure), drops assistant messages left with only
-`step-start`, appends the model-visible
-`[Assistant turn aborted before completion.]` marker as the last text part of
-the last retained assistant message (or as a standalone assistant message when
-none remains), and awaits `Memory.saveMessages` before disposing the per-run
-runtime — including when a recovery continuation fails during construction.
-Re-saving ids Mastra already wrote is an upsert of identical content. Under
-Contract A the partial text tail is therefore RETAINED; only incomplete TOOL
-work is excluded. The awaited save is also load-bearing as a join: with
-`shouldPersist` forced false (measured 2026-09-06), Mastra's floating
-abort-time write raced the PGlite `close()` in suite teardown and wedged the
-vitest worker at 100% CPU — the BST-1320 mechanism. That save joins Mastra's
-transcript write only. Mastra's post-run snapshot cleanup (`deleteRunSnapshots`:
-two `DELETE FROM mastra_workflow_snapshot` statements) is awaited before the
-agentic loop closes ITS stream, so it is settled only for a caller that reads
-the native stream to its end; an attempt abandoned early — watchdog, Stop, or
-a consumer's `.return()` — leaves it floating past the end of the turn. Traced
-2026-09-12 (BST-1221, `mastra-memory-persistence.integration.spec.ts`): the
-second DELETE's Bind landed after `close()` had already deactivated the
-backend, trapped, and the stock PGlite loop spun the worker forever; which
-import layout the process happened to have decided the microtask order, which
-is why the wedge looked layout-dependent. The turn owner therefore joins
-Mastra's own consumption of every attempt's native stream — each
-`TurnAttempt.settleNativeStream` (`settleNativeStream` in
-`packages/agent/src/mastra/turn-attempts.ts`) awaits `consumeStream()`, which
-resolves once the base stream has closed, after that cleanup — BEFORE the
-abort seam's awaited save and before `runtime.dispose()`. The order is
-load-bearing: Mastra's cancel persistence writes inside that window, and the
-seam then captures the list Mastra finished with and appends the marker to its
-last assistant message as an upsert of Mastra's own id, so the marker is the
-last thing the model reads. Saving first puts the marker on the completed
-tool-work row while Mastra's later partial-text rows order after it (measured
-2026-09-12). By the time the join runs the attempt's abort context is disposed,
-so the stream's abort is the expected ending and is recorded at debug
-(`mastra_native_stream_settled_with_error`); a failure that surfaces only
-during settlement — a failing snapshot DELETE, a persistence error in Mastra's
-cancel write, or a `consumeStream` that rejects outright — is recorded at warn
-under the same code, never thrown a second time. The expected ending is the
-abort reason itself, an error one `cause` hop from it, or any error named
-`AbortError` — a deliberate widening: an unrelated inner abort (a tool's own
-`fetch`, say) is bucketed as expected and lands at debug, so abort-shaped
-failures do not reach warn. One failure is recorded once, but a genuine
-failure that surfaces after the abort record still reaches warn. The spec case
-"settles Mastra snapshot cleanup before a watchdog-aborted turn ends" holds each
-cleanup statement open and asserts the turn cannot end while one is pending or
-still to be issued; removing the join makes it fail. The join also made the
-watchdog-abort transcript read deterministic: a stalled attempt replaced by a
-continuation that stalls again leaves EACH attempt's partial text as its own
-Mastra row (four rows, marker on the last); the earlier three-row expectation
-had raced the second attempt's write. The same join exposed a
-second latent gap: Mastra's MessageHistory processor and per-step save read
-`readOnly` from the REQUEST memory options only, so a Memory whose DEFAULTS are
-read-only was still written on cancel (the write had previously been lost in
-the teardown race, which is the only reason the read-only-defaults case was
-green). `resolveMemoryOption` now carries the merged thread config's `readOnly`
-onto the request options, so Mastra and the seam enforce the same policy
-(`resolveMemoryOption` returns a branded `ResolvedAgentMemoryOption`; the seam
-accepts nothing else, so a hand-built option cannot fail open). The join is
-bounded: `settleNativeStream` raises the attempt's abort itself and waits at
-most `NATIVE_STREAM_SETTLE_DEADLINE_MS` (30 s) for the native stream to close;
-a stream that ignores its abort — a hung provider socket, a tool that never
-returns — must not hold disposal hostage, so past the deadline it records
-`mastra_native_stream_settle_timeout` at error level and disposal proceeds,
-with the vitest event-loop watchdog and PGlite's fail-closed trap as the
-backstops for the leaked pipeline.
+**Mastra is the durable writer.** Hosted turns persist into `mastra_messages`;
+the client history adapter is read-through only. Three contracts keep a reloaded
+thread identical to a live one.
 
-Initial, approval-resume,
-and suspended-tool resume streams share this Brainstrike-owned terminal seam;
-read-only memory streams skip it and remain write-free. If the snapshot write
-itself fails, the seam emits the structured
-`mastra_agent_aborted_turn_persist_failed` server error and preserves the turn's
-existing terminal chunks and cleanup instead of throwing after termination. A
-normally finished turn marks the seam closed before teardown, leaving Mastra's
-existing writer exactly-once. The live-loop PGlite proof covers normal
-completion, watchdog abort, user Stop, resumed streams, next-turn recall, and
-non-reexecution of completed tools; the unit proof
-(`packages/agent/src/__tests__/aborted-turn-persistence.spec.ts`, two cases)
-pins the content rule. An individual provider attempt that stalls but is
-replaced by a successful continuation is not an aborted turn and does not
-persist an abort snapshot; abort finalization runs only when the turn itself
-becomes terminal.
+1. **Persisted dialect (Mastra v2 / `MastraMessageContentV2`).** Content is
+   `{ format: 2, parts: [...] }`; tool calls are `tool-invocation` parts with
+   results INLINE and no `role: 'tool'` rows (the legacy shape is still read).
+   - Build hydration fixtures from REAL persisted rows, never hand-written
+     shapes. Why: a hand-written `tool-call` fixture once kept tests green while
+     real tool history vanished on every reload.
+   - Tool output uses a deliberate dual channel: Mastra persists
+     `toolInvocation.result` while `toModelOutput` supplies the bounded
+     projection. Native tools keep the raw domain result — never replace one
+     inside `execute()` to save prompt tokens.
+   - Seed an approval resume from Mastra's storage-backed suspended-tool
+     snapshot before consuming resumed output, and correlate both legs by
+     `toolCallId`. Missing snapshot arguments abort the decision; never persist
+     an invented empty object.
+   - `PgliteMemoryStore.saveMessages` re-applies Mastra's transcript projection
+     at the durable boundary, returns the projected messages, and refuses to
+     store or return a surviving internal carrier.
+   - Hydration recognizes guarded tool results with the canonical
+     `@brainstrike/assistant-contract` guard: an `ok:false` result hydrates as a
+     failed call even though Mastra stores `state:'result'`. Execution and replay
+     never keep independent guarded-error code lists.
+2. **Snapshot grouping and live-order interleaving.** OM sealing and per-step
+   saves split one live turn into several rows, so hydration merges consecutive
+   assistant rows into one message and dedupes tool calls by `toolCallId` (first
+   wins, later result fields merge).
+   - Recall the latest `ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT` (80) message
+     rows with events from the latest 80 runs, partition events by `runId`, and
+     assign each run to the turn inside its own time window. Attaching only the
+     newest run to the newest message loses older turns' failures, timings and
+     subagent activity.
+   - Re-time each tool-invocation part to its `tool.started` event; anchor other
+     untimed parts to their snapshot row's save time; break ties on Mastra's
+     per-part `createdAt`. A group with only run events still renders.
 
-The same terminal owner also joins delegated child snapshots (BST-1719). Native
-delegation sets `lastMessages: false`, so the child cannot rely on automatic
-MessageHistory output persistence. Capture the child's public native MessageList
-at Stop and await the native `afterToolCall` hook before re-saving that snapshot:
-saving before completion allowed a late native write to restore a tool result
-and erase the abort marker after the root had returned. All captured child saves
-settle even if one fails; the root still attempts its own snapshot and the
-existing coded abort-persistence failure reports the errors. No second transcript
-store or client-generated child prompt/message id is introduced. Child snapshots
-also finalize at a replaced watchdog attempt, independently of the root's
-successful-continuation policy, and before runtime disposal. Their content is
-frozen through the same JSON representation as the memory store, so a value
-accepted by normal storage is not rejected merely by `structuredClone`.
+**Provider citation markers are normalized at that same durable boundary** by
+`projectMessageContentForTranscript`, which strips the private-use codepoints
+from both `parts[].text` and the flattened `content` string through
+`stripProviderCitationMarkers`, shared with the render seam. Four constraints are
+load-bearing: **assistant rows only** (rewriting a user row changes the reloaded
+prompt and the replayed history); **settled-text mode**
+(`{ unterminated: 'keep' }` — these codepoints are also Nerd Fonts glyphs);
+**`text` parts only** (reasoning persists verbatim and its one renderer strips at
+read); **write-time only** (older rows keep their markers — backfilling is an
+unperformed data migration).
 
-3. **Edited-prompt branch topology:** Mastra remains the only writer of message
-   CONTENT, but its rows do not retain assistant-ui's parent graph. The client
-   history adapter therefore persists only `{messageId,parentId}` edges in
-   `brainstrike_assistant_message_parents` (migration 055) from its canonical
-   `append({message,parentId})` callback. An edge may land before Mastra saves
-   the matching content row, so `message_id`/`parent_id` intentionally have no
-   message FK. It also has no thread FK because the numbered migration runner
-   executes against a bare schema; app-shell thread deletion and factory reset
-   explicitly own cleanup. Hydration LEFT JOINs these edges and
-   uses an explicit parent (including explicit `null`) instead of chronological
-   chaining, which reconstructs edited prompts/regenerations as carousel
-   siblings after reload. Rows without an edge are legacy data and retain the
-   chronological fallback. The bounded 80-row hydration window is always a
-   closed graph: retained messages whose parent fell outside the window are
-   explicitly re-rooted. Hydration then performs a stable parent-first graph
-   traversal so assistant-ui never imports a dangling or not-yet-imported
-   parent. Mastra message creation time is immutable on same-id saves: a
-   regeneration reuses its parent user id, and moving that legacy row later
-   would invert pre-topology history.
-   Conflicting edges for the same message id throw — branch corruption is never
-   silently rewritten. Factory reset clears the companion table explicitly.
-   **DURABLE-PARENT INVARIANT (BST-1243, 4th recurrence of the
-   hydration-siblings class — enforce at the adapter, not per flow):** every
-   persisted edge must reference a durable (Mastra-persisted) message id or
-   null. Approval/suspend flows append UI-transient messages — the action
-   echo, the post-resume leg, and the synthetic rediscovered-pause notices
-   (`suspended-approval:*` / `suspended-pause:*`) — that Mastra never
-   persists; before this ruling the adapter persisted their edges verbatim
-   and the NEXT user message chained onto a ghost, so reload re-rooted it
-   into a phantom root carousel sibling (one new sibling per approval turn).
-   `createAssistantThreadHistoryAdapter` therefore keeps a per-instance
-   transient-alias map: action echoes (recognized by the SAME strict guard
-   the transport exclusion uses, now shared from
-   `@brainstrike/assistant-contract/approval-action-message`) and assistant
-   messages whose parent resolves through an alias (resume legs) are never
-   persisted and alias to their nearest durable ancestor; `load()` seeds
-   aliases for the synthetic pause ids. Because suspension prevents the
-   suspended assistant message's own runEnd history append, the echo append
-   backfills that durable edge so the reload group keys to the ALIGNED
-   assistant id rather than a snapshot row id. The backfill parent, in order
-   of authority: the hydrated graph parent when the suspended message was
-   loaded; else the suspending run's `turn_message_id` (BST-1163 — the echo
-   marker carries the runId, and every leg of a turn stamps the same link, so
-   this stays exact when other sends land during the suspension and when the
-   suspended run is a regeneration branched from an older prompt); else the
-   live session tail only as a legacy last resort for runs predating the turn
-   link. Invalid action markers remain ordinary prompts and keep their edges
-   (strict-guard symmetry with the wire). Two adjacent stances are SETTLED
-   (PR #2392 review): approving a REDISCOVERED pause anchors the follow-up at
-   the durable thread head — the resumed run's continuation rows land
-   chronologically at the end of `mastra_messages`, so re-parenting under the
-   old run's mid-thread assistant would fabricate a mid-thread branch whose
-   content hydrates at the bottom; and a regeneration taken from a
-   post-approval response (parent = the echo) is structurally
-   indistinguishable from a resume leg at this seam, so its edge is
-   deliberately not persisted — its Mastra content hydrates chronologically
-   inside the turn's group, only the carousel affordance is not
-   reconstructed (a timing-sensitive Mastra-row probe to distinguish them was
-   rejected).
-   Read-side hydration is deliberately untouched: re-rooting and the
-   conflicting-edge throw stay as-is — fix producers, never coerce at read.
-   Paired tests: packages/assistant-data
-   `assistant-approval-topology.integration.test.ts` and the desktop E2E
-   `assistant-approval-reload-linearity.desktop.test.ts`.
-   The UI transport preserves each assistant-ui user message id through the
-   generic-message conversion, and the desktop request parser preserves
-   assistant-ui's `unstable_assistantMessageId`; the stream session and Mastra
-   id generator both use those validated ids for the persisted user/visible
-   assistant pair. A normally finished stream asserts that the one-shot Mastra
-   generator consumed the assistant id through its memory message context,
-   making upstream contract drift visible instead of quietly substituting a
-   UUID. Initial turns and both approval/suspend resume paths pass a separate
-   per-call stream-id generator with the same initial id; the Mastra-global
-   generator remains reserved for the persisted memory row, so a transient
-   resume stream id cannot consume the durable identity first. If
-   observational-memory sealing creates additional snapshot rows,
-   hydration keeps the topology-bearing row's id for the combined assistant-ui
-   message. A new topology-bearing assistant id always starts a new hydration
-   group, including after an open legacy group, so consecutive regenerated
-   responses remain carousel siblings rather than being mistaken for snapshots
-   of one response.
-   This end-to-end identity alignment is what lets a later edited prompt point
-   to its durable assistant parent without correlation heuristics.
-   Desktop generation continues in the main-process data-stream session when a
-   renderer response detaches. The durable run row is updated only after that
-   session closes. Its mapper-owned terminal outcome is authoritative for
-   abnormal model finishes: an output-limit or missing-finish terminal state is
-   stored as `failed` with the bounded visible error, while only explicit
-   `POST /assistant/cancel` records `cancelled`.
-   Renderer reload reattachment is deliberately ephemeral rather than a second
-   durable run store: thread-scoped `sessionStorage` holds the server session's
-   opaque replay cursor, durable run id, and durable assistant message id only
-   while the main-process session is active. Reload hydrates persisted history
-   first, then replays that exact session through `GET /assistant/resume` into
-   the same assistant message and persisted parent; it does not create a
-   duplicate branch, another run row, or resend model input. Completion,
-   failure, Stop, a visible expired-session response, replay retry
-   exhaustion, and the stale-record reclaim below remove the ephemeral
-   record. The record is a HINT, never a second authority: before the
-   "awaiting stream reattachment" guard rejects a new run, `prepareRequest`
-   reconciles the record against the durable run row through
-   `GET /assistant/run-status` (the same authority as the BST-1244
-   Threads-panel projection) — a terminal or missing durable run reclaims
-   the record with a logged warning and the new run proceeds; only a
-   genuinely `running` durable row keeps the guard, and a failed probe keeps
-   the guard (fail-safe, never a silent reclaim). Replay failures that
-   exhaust the retry budget run the SAME durable-status reconciliation:
-   the record is released only when the run is provably over, and KEPT
-   while the durable row still says `running` — the main-process stream
-   continues after renderer detachment, so an unconditional clear would
-   let the next send start a second concurrent turn against the orphan
-   (Codex review, #2510). Keeping it cannot wedge the thread anymore: the
-   next send's reconcile heals once the run ends (2026-08-18 field
-   failure: a dev-mode renderer reload mid-stream orphaned a record whose
-   run finished seconds later, and every send until app close was
-   rejected). The
-   expired-resume 404 is logged server-side so "expired" and "never
-   attempted" are distinguishable in diagnostics. The public assistant-ui runtime temporarily creates a generated
-   streaming leaf; the client removes the hydrated durable leaf before replay,
-   remaps the history append to the durable ID, and after `runEnd` remaps the
-   generated local ID through thread `export`/`import`. Waiting for `runEnd`
-   preserves assistant-ui's final error/incomplete state before identity
-   reconciliation. This keeps Mastra's durable content identity and
-   assistant-ui's parent graph aligned without a package patch. Missing leaves
-   and leaves with descendants fail visibly.
-   While this graph is loading, `ChatThreadUI` disables every composer send
-   path using assistant-ui's `state.thread.isLoading`. The installed runtime
-   captures a new message's parent from the current in-memory tail before its
-   async append waits for history initialization; allowing a send against the
-   initial empty snapshot would therefore persist an explicit `null` edge and
-   replay a normal continuation as a root carousel revision. Draft text remains
-   intact and sending re-enables when hydration settles. The real-runtime
-   regression pin is `history-hydration-composer.behavior.test.tsx`; existing
-   repository integration cases continue to pin genuine prompt edits and
-   regenerated responses as siblings.
-   Hydration must also not YANK the viewport: `ThreadPrimitive.Viewport` keeps
-   `scrollToBottomOnInitialize={false}` and `scrollToBottomOnRunStart={false}`,
-   so reopening a thread restores where the reader was instead of jumping to
-   the newest message. Live auto-follow, the jump-to-latest affordance, and the
-   pinned-only `overflow-anchor` opt-out are the viewport store's business —
-   see assistant-runtime.md § THREAD SCROLLING. Above the virtualization
-   threshold those two props no longer describe the opening position on their
-   own: the virtualized tier has no library initialize step and anchors to the
-   newest message itself, without animation, and only when the reader was not
-   already scrolled up — same section. The stance is pinned by the BST-896 and
-   BST-897 cases in `packages/assistant-ui/src/__tests__/assistant-ui-panel-architecture.test.ts`.
+Evidence: `assistant-persistence/persisted-dialect-and-hydration.md`,
+`assistant-persistence/citation-marker-normalization.md`.
+Guard: `packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts`,
+`packages/agent/src/pglite-mastra-memory/__tests__/pglite-memory-store.save-messages.spec.ts`.
 
-Approval/suspend ACTION messages are deliberately NEVER a Mastra row: the
-"Approved <tool>." / "Approved the plan." user message the notices append is
-UI/transport bookkeeping (its `runConfig` drives the resume; its metadata
-marker drives the notice outcome locking + chip rendering). Neither resume
-path passes messages to Mastra, and the shared transport
-(`packages/assistant-ui/src/data-stream-runtime.ts` +
-`approval-action-message.ts`) excludes action-marked messages from every
-outbound payload and ships `messages: []` on the action legs. Consequences:
-the echo is absent after reload (restart-safe rediscovery owns the
-post-restart approval UI — see assistant-runtime.md PERMISSION ENGINE), and a
-regenerate-after-approval resends the previous REAL user prompt, never the
-echo. Live pin (real Agent + real PGlite): the "never persists an approval
-action echo" case in
-packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts —
-if a Mastra writer ever starts persisting the echo, extend the exclusion at
-that writer and update this section.
+**Abort finalization.** Mastra's `MessageHistory` processor persists a cancelled
+run's transcript unawaited; `packages/agent/src/mastra/aborted-turn-persistence.ts`
+owns one bounded seam on top of that, for terminal watchdog aborts and user
+cancellation only.
 
-Image attachments (composer → model → persistence → reload):
-- The composer's attachment adapter (packages/assistant-ui/src/
-  attachment-adapter.ts) accepts IMAGES ONLY and enforces the shared caps in
-  `@brainstrike/assistant-contract` assistant-attachments (allowlisted media
-  types; 5MB/image; 4/message; 10MB combined) — the SAME module the server
-  validates with, so client and server can never drift. Validation failures
-  THROW (surfaced via the `composer.attachmentAddError` alert), never a
-  silent drop/resize. The 16MB default request body limit is sized against
-  the combined cap (base64 ≈ 13.4MB + prompt headroom).
-- assistant-stream merges attachment content into the outgoing user message
-  as `{type:'file', data:<base64 data URL>, mediaType}` parts; the agent's
-  `convertAssistantUiMessages` intercepts file parts BEFORE the text walk
-  (the base64 body must never flatten into prompt text), validates them, and
-  `convertMessagesToMastra` emits an AI-SDK content ARRAY with a canonical
-  user-message ImagePart (text-only messages keep the legacy string join).
-- Mastra persists the user row with the v2 FILE dialect
-  `{type:'file', data, mimeType}` (NOTE: `mimeType`, not `mediaType`) plus a
-  flattened `content` text string and an `experimental_attachments` mirror —
-  pinned from a REAL captured row in
-  packages/agent mastra-memory-persistence.integration.spec.ts.
-- Hydration (assistant-memory-repository `toUserHistoryAttachments`) rebuilds
-  `message.attachments` from the persisted file dialect (image/* only);
-  image-only user messages survive reload. Hydrated attachments render
-  through the same user-bubble strip as live sends, and their content
-  re-merges into later outbound turns so the model keeps seeing the image.
-- Resent image history is BOUNDED on the wire: non-memory-backed transports
-  resend full history, so `boundResentImageHistory` (packages/ui
-  data-stream-runtime) caps one request's total inline images at the SAME
-  combined cap — the current turn always ships, history image bodies spend
-  the remainder newest-first, and once one image no longer fits, it and every
-  older one is replaced by a visible text note (recency-monotonic; the model
-  never sees an older image while missing a newer one). Elision is wire-only
-  and loud (`data.transportImageElision` metadata + client warn log); the
-  strict Web boundary accepts only its bounded shared-contract shape and
-  discards it before model runtime construction. The thread state and persisted
-  rows keep the image bytes, so reload hydration is untouched. Memory-backed
-  requests are already compacted to the current turn and no-op through this
-  bound. Measurement is strict for the CURRENT turn (a non-data-URL part throws
-  — the composer just made it, that is a bug) but degrades for HISTORY parts: an
-  unmeasurable old attachment is always elided with its own note
-  (`unmeasurableImageCount` in the metadata) instead of aborting the send, so one
-  malformed old row cannot block every later turn in the thread.
-- Availability gating lives in the app-shell wrapper
-  (`resolveComposerAttachmentsAvailability`), layered: (1) provider gate —
-  every HOSTED provider is eligible (desktop assistant server AND the web
-  /api/assistant route share the same image-aware conversion; the local
-  transport must not gate hosted providers), only the text-only built-in
-  local provider is excluded; failing it HIDES the affordance entirely;
-  (2) per-model vision gate — the SELECTED MODEL's `vision` capability
-  (`ModelVisionSupport = 'supported' | 'unsupported' | 'unknown'`, declared on
-  every static registry LLM entry, mirrored into the DB catalog's
-  capabilities jsonb by migration 061, and carried through
-  `LocalRuntimeNormalizedModel.capabilities.vision` for Ollama /api/show +
-  LM Studio vlm/llm discovery). 'unsupported' renders a visibly DISABLED
-  attach button whose title names the model and the reason (never a silent
-  hide); NEW adds are blocked by the disabled button and the absent paste
-  frame, but the attachment ADAPTER stays registered and the preview strip
-  stays mounted — an attachment staged under a vision model must remain
-  visible/removable after a switch to a text-only model (assistant-ui's
-  composer wipes text + staged attachments and throws an unhandled
-  "Attachments are not supported" rejection if Send runs with no adapter;
-  a sent-anyway staged image surfaces the visible provider error instead).
-  Only ABSENT availability (provider gate) registers no adapter.
-  'unknown' (runtime-discovered model without a capability signal) and an
-  unresolved definition stay optimistic — a wrong guess surfaces as a visible
-  provider error, never a silently blocked composer.
-Paired tests: assistant-attachments.test.ts (contract),
-provider-registry-vision.test.ts (static vision declarations),
-packages/local-runtime/src/__tests__/local-runtime-model-catalog.test.ts (BST-977 extraction)
-(runtime vision discovery),
-frontier-models-migration.test.ts (DB catalog vision backfill),
-assistant-messages.spec.ts + mastra-image-input.spec.ts (agent, incl. the
-live-loop prompt proof), mastra-memory-persistence.integration.spec.ts
-(persisted dialect pin), assistant-memory-repository.integration.test.ts
-(hydration), attachment-adapter.test.ts (composer adapter),
-assistant-ui-panel-wrapper-runtime.test.ts + assistant-ui-panel-wrapper.test.tsx
-(availability gate), assistant-ui-panel.test.tsx (composer render states),
-data-stream-runtime.test.ts `boundResentImageHistory` (wire history bound).
+- Keep the user input and every assistant message; REMOVE tool invocations that
+  never completed; RETAIN partial text; drop assistant messages left with only
+  `step-start`; append the model-visible abort marker as the last text part.
+- Await `Memory.saveMessages` before disposing the per-run runtime, including
+  when a recovery continuation fails during construction.
+- Order is load-bearing: `TurnAttempt.settleNativeStream` awaits
+  `consumeStream()` — which resolves after Mastra's snapshot cleanup — BEFORE the
+  seam's save and before `runtime.dispose()`.
+- Bound that join with `NATIVE_STREAM_SETTLE_DEADLINE_MS` (30 s), then record
+  `mastra_native_stream_settle_timeout` at error and proceed, so a hung provider
+  socket cannot hold disposal hostage.
+- A step failing before a built stream's first chunk joins `consumeStream()`, never `cancel`.
+- `resolveMemoryOption` carries the merged thread config's `readOnly` onto the
+  request options and returns a branded `ResolvedAgentMemoryOption`; the seam
+  accepts nothing else. Read-only memory streams skip the seam entirely.
+- A snapshot-write failure emits `mastra_agent_aborted_turn_persist_failed` and
+  preserves the turn's terminal chunks; never throw after termination. A stalled
+  attempt replaced by a successful continuation is not an aborted turn.
+- For delegated children, capture the public native `MessageList` at Stop and
+  await the native `afterToolCall` hook before re-saving. Why: saving earlier let
+  a late native write restore a tool result and erase the abort marker.
 
-Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
-the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,
-run events, and reload hydration behave exactly like hosted providers.
-Observational memory is ON by default (BST-940) at Mastra's documented
-thresholds (observation.messageTokens 30K / reflection.observationTokens 40K)
-with the `'auto'` observer target (`OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET`).
-`resolveEffectiveObservationalMemorySettings` (app-shell wrapper-runtime, memo'd
-once in the wrapper) resolves `'auto'` into CONCRETE settings consumed by
-request data, memory validation, and the OM meter alike, under the PRIVACY
-RULING (PR #2039 review — do not relitigate): the auto observer is only ever a
-Mastra-tested fast model FROM THE SELECTED CHAT PROVIDER — the party already
-receiving the conversation — never a different keyed provider (anthropic →
-claude-haiku-4-5, google → gemini-2.5-flash, openai → gpt-5.4-mini; openrouter
-carries ORDERED fallbacks — gemini-2.5-flash → gemini-3.5-flash-lite →
-deepseek-v4-flash — because its catalog seeds the preferred Gemini targets
-disabled; via the contract's pure `listAutoObservationalMemoryCandidates`,
-first catalog-eligible candidate wins). A local/keyless/web chat, or a
-candidate set the user fully disabled in the model catalog (the wrapper passes
-an `isTargetEligible` predicate over the loaded registry, same gate as the
-settings dropdown), flips `enabled → false` with an explicit unresolved reason
-surfaced as the popover's 'awaiting-observer' OM state and the Settings auto
-note. An unresolved auto must NEVER disable thread memory, and `'auto'` must
-never reach the provider/model validator (the validator also resolves
-defensively, and the desktop server resolves the sentinel again at request
-intake — `resolveServerAutoObservationalMemory` — so a raw client shipping
-'auto' can neither 502 a local stream nor conjure a cross-provider observer).
-The built-in local Gemma is deliberately NOT an auto candidate — its 8K
-runtime budget cannot observe the 30K message threshold. An EXPLICIT
-(non-auto) target keeps the original loud validation: enabling a hosted target
-without that provider's key fails visibly.
-Construction seams that receive no settings (memory factory default arg,
-desktop-server absent-field fallbacks) use
-`CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS` (observation OFF) — an
-absent settings object must never manufacture an enabled observer.
-Hosted EMBEDDERS for Mastra memory (`createEmbeddingProvider`) are wrapped in
-`asSpecV3EmbeddingModel`: current @ai-sdk embedding models declare
-specification 'v4', and @mastra/memory's embed dispatch switches on that
-literal ('v3'/'v2' → modern pipelines, anything else → a legacy v1-only
-pipeline that throws "AI SDK 4 only supports … v1"). A raw 'v4' embedder
-therefore failed EVERY observational-memory vector-retrieval cycle in the
-field (BST-940 debug bundle 2026-07-27) — the facade is load-bearing, not a
-type cast. OM cycle failures streamed as `data-om-*-failed` chunks surface as
-durable `memory.observation.failed` run events (see assistant-runtime.md).
-Pinned by the VECTOR-retrieval and observer wire cases in
+Settled: the awaited save is also the join that closes the PGlite close race.
+Evidence: `assistant-persistence/abort-finalization-join.md`.
+Guard: `packages/agent/src/__tests__/aborted-turn-persistence.spec.ts`,
 `mastra-memory-persistence.integration.spec.ts`.
-Known gap: WEB local turns still use the in-renderer LocalRuntimeChat (no
-history adapter) and remain session-only.
+
+3. **Edited-prompt branch topology.** Mastra owns message CONTENT; the history
+   adapter persists only `{messageId,parentId}` edges in
+   `brainstrike_assistant_message_parents` (migration 055), FK-less on purpose.
+   Hydration LEFT JOINs them and uses the explicit parent (including explicit
+   `null`), re-roots retained messages whose parent fell outside the 80-row
+   window, and traverses parent-first. Rows without an edge keep the
+   chronological fallback; conflicting edges for one message id THROW.
+   - **DURABLE-PARENT INVARIANT.** Every persisted edge references a
+     Mastra-persisted message id or null, enforced at the adapter rather than per
+     flow. The adapter keeps a per-instance transient-alias map: approval echoes
+     and resume legs are never persisted and alias to their nearest durable
+     ancestor, and `load()` seeds aliases for synthetic pause ids.
+   - Backfill parent authority, in order: the hydrated graph parent; else the
+     durable HOST LEG the pause named (`hostRunId`) and its `turn_message_id`.
+     There is no third fallback, and a live echo naming no host leg THROWS.
+   - **The anchor is the host leg, never the marker's `runId`.** Mastra mints
+     that id, so it never equals a `brainstrike_assistant_thread_runs` id, and one
+     host leg can hold several native runs.
+   - A CHILD-CONTINUATION pause is deliberately not stamped: its follow-up leg's
+     root message completes, so the persisted edge answers first. A REDISCOVERED
+     pause carries none. Hosted web never reaches this path.
+   - Re-check `persistedEdgeIds` after the turn-link lookup and defer to an
+     authoritative edge; re-validate adapter session state read across an await.
+     Why: an approval arriving while its root leg still streams races that leg's
+     own runEnd append.
+
+Settled: read-side hydration is untouched — re-rooting and the conflicting-edge
+throw stay; fix producers, never coerce at read. Approving a rediscovered pause
+anchors at the durable thread head, and a regeneration taken from a
+post-approval response persists no edge.
+Evidence: `assistant-persistence/durable-parent-invariant.md`.
+Guard: `packages/assistant-data/src/__tests__/assistant-approval-topology.integration.test.ts`,
+`packages/agent/src/__tests__/root-pause-run-identity.integration.spec.ts`,
+`apps/desktop/src/__tests__/assistant-server/run-persistence-direct.test.ts`,
+`apps/desktop/e2e/assistant-approval-reload-linearity.desktop.test.ts`.
+
+**Message identity and reattachment.**
+
+- Preserve each assistant-ui user message id through the generic-message
+  conversion and `unstable_assistantMessageId` through the desktop request
+  parser. A normally finished stream asserts the one-shot Mastra generator
+  consumed the assistant id, so upstream drift is visible, not substituted.
+- Give resume paths a separate per-call stream-id generator; the Mastra-global
+  generator stays reserved for the persisted memory row.
+- A new topology-bearing assistant id always starts a new hydration group, so
+  consecutive regenerations stay carousel siblings.
+- Desktop generation continues in the main-process session when a renderer
+  response detaches; after admission the renderer writes no durable terminal
+  status. The mapper-owned terminal outcome is authoritative — an output-limit or
+  missing-finish state stores `failed`, and only explicit
+  `POST /assistant/cancel` records `cancelled`.
+- Reload reattachment is ephemeral by design, and the record is a HINT, never a
+  second authority: `prepareRequest` reconciles it against the durable run row
+  through `GET /assistant/run-status`. A terminal or missing run reclaims it with
+  a warning; a `running` row keeps the guard; a FAILED probe keeps the guard.
+  Replay-retry exhaustion also reconciles; `GET /assistant/active-run` publishes `initializing` after envelope parsing and before credential work, restores exact ordinary or child-followup input and host-validated approval prefix/paused-leaf ancestry after reload, waits through initialization, and rejects unknown ancestry. Discovery is an abortable per-attempt external resource keyed by scope/retry that reads the latest auth callback; stale attempts cannot publish snapshots or mutate storage after awaited work, and status probes share their abort signal. Capture a prepared request's scope before async work; a headerless request settles only from discovery in that scope, and a scope switch remains visibly blocked until it reconciles. A durable paused ID disambiguates repeated tool-call IDs; synthetic notices still require unique persisted ownership. Approval/suspend retries select the paused owner from the exact matching action data, never an adjacent assistant.
+- Remap the generated streaming leaf to the durable id after `runEnd` through
+  thread `export`/`import`. Missing leaves and leaves with descendants fail
+  visibly.
+- Disable every composer send path while the graph loads
+  (`state.thread.isLoading`). Why: a send against the initial empty snapshot
+  persists an explicit `null` edge and replays a continuation as a root revision.
+- Hydration must not yank the viewport: keep
+  `scrollToBottomOnInitialize={false}` and `scrollToBottomOnRunStart={false}`.
+  Live auto-follow and virtualized anchoring belong to the viewport store —
+  assistant-runtime.md § THREAD SCROLLING.
+
+Evidence: `assistant-persistence/reattachment-and-message-identity.md`.
+Guard: `packages/assistant-ui/src/__tests__/history-hydration-composer.behavior.test.tsx`,
+`packages/assistant-ui/src/__tests__/assistant-ui-panel-architecture.test.ts`, `packages/assistant-ui/src/__tests__/assistant-run-session-races.test.tsx`.
+
+**Approval/suspend action messages are never a Mastra row.** The echo is
+UI/transport bookkeeping; the shared transport excludes action-marked messages
+from every outbound payload and ships `messages: []` on action legs.
+Consequences: the echo is absent after reload (restart-safe rediscovery owns the
+post-restart UI — assistant-runtime.md PERMISSION ENGINE), and
+regenerate-after-approval resends the previous real user prompt.
+Guard: the "never persists an approval action echo" case in
+`packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`.
+
+**Image attachments.**
+
+- The composer adapter accepts IMAGES ONLY and enforces the caps in
+  `@brainstrike/assistant-contract` assistant-attachments — the same module the
+  server validates with, so client and server cannot drift. Validation failures
+  THROW; never silently drop or resize.
+- `convertAssistantUiMessages` intercepts file parts BEFORE the text walk (a
+  base64 body must never flatten into prompt text) and emits a canonical
+  user-message ImagePart; text-only messages keep the legacy string join.
+- Mastra persists the user row in the v2 FILE dialect (`mimeType`, not
+  `mediaType`); hydration rebuilds `message.attachments` from it (image/* only)
+  and the content re-merges into later outbound turns.
+- `boundResentImageHistory` caps one request's inline images at the same combined
+  cap — current turn always ships, history spends the remainder newest-first, and
+  once one image no longer fits it and every older one becomes a visible text
+  note (recency-monotonic). Elision is wire-only and loud; persisted rows keep
+  the bytes. Measurement is strict for the current turn and degrades for history:
+  an unmeasurable old attachment is elided with its own note rather than aborting
+  the send.
+- Availability gating is layered: the provider gate makes every HOSTED provider
+  eligible and hides the affordance only for the text-only built-in local
+  provider; the per-model `vision` capability then renders a visibly DISABLED
+  attach button naming model and reason. Keep the adapter registered and the
+  preview strip mounted under a text-only model so a staged attachment stays
+  visible and removable. `'unknown'` stays optimistic.
+
+Evidence: `assistant-persistence/image-attachments.md`.
+Guard: `packages/assistant-contract/src/__tests__/assistant-attachments.test.ts`,
+`packages/assistant-ui/src/__tests__/attachment-adapter.test.ts`,
+`packages/ui/src/__tests__/data-stream-runtime.test.ts`.
+
+**Built-in LOCAL provider turns persist on DESKTOP**, routed through the
+assistant server's Mastra loop, so memory, run events and hydration behave like
+hosted providers. Known gap: WEB local turns remain session-only.
+
+**Observational memory** is ON by default at Mastra's documented thresholds with
+the `'auto'` observer target.
+
+- `resolveEffectiveObservationalMemorySettings` resolves `'auto'` into CONCRETE
+  settings for request data, memory validation and the OM meter alike. The auto
+  observer is only ever a Mastra-tested fast model FROM THE SELECTED CHAT
+  PROVIDER — the party already receiving the conversation — chosen by the
+  contract's pure `listAutoObservationalMemoryCandidates`.
+- A local, keyless or web chat, or a candidate set the user disabled, flips
+  `enabled → false` with an explicit unresolved reason surfaced as the popover's
+  `awaiting-observer` state. An unresolved auto must never disable thread memory,
+  and `'auto'` must never reach the provider/model validator — the desktop server
+  resolves the sentinel again at request intake.
+- Construction seams that receive no settings use
+  `CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS` (observation OFF): an
+  absent settings object must never manufacture an enabled observer.
+- Wrap hosted embedders in `asSpecV3EmbeddingModel`. Why: @mastra/memory's embed
+  dispatch switches on the spec literal and routes a raw `'v4'` embedder into a
+  v1-only pipeline that throws.
+
+Settled: the auto observer stays inside the selected chat provider (privacy
+ruling); the built-in local Gemma is not a candidate.
+Evidence: `assistant-persistence/observational-memory-auto-target.md`.
+Guard: the VECTOR-retrieval and observer wire cases in
+`mastra-memory-persistence.integration.spec.ts`.
 
 When changing message persistence or hydration, update this section and the
-paired tests in packages/agent and packages/app-shell.
+paired tests in `packages/agent` and `packages/app-shell`.
 
-MCP Task status is deliberately outside assistant message persistence. A task
-handle is not a synchronous tool result, and the renderer must not serialize
-its live status, input requests, result metadata, or control identity into a
-message part to make restart recovery appear to work. Migration 115 and the
-exact principal/server/resource/authority-epoch scope remain authoritative.
-After a restart, an opt-in host adapter must rebuild the bounded presentation
-from that durable row and mark it `restart_required`; `McpTaskStatusCard` owns only the
-controlled display and action focus. This layer adds no renderer store and no
+**MCP Task status is deliberately outside assistant message persistence.** Never
+serialize a task's live status, input requests, result metadata or control
+identity into a message part. Migration 115 and its
+principal/server/resource/authority-epoch scope remain authoritative; after a
+restart an opt-in host adapter rebuilds the bounded presentation from that row
+and marks it `restart_required`. This layer adds no renderer store and no
 fallback to stale message history.
 
 ---
 
 ## ASSISTANT RUN NOTIFICATIONS
 
-OS-level `Notification` API alerts for three run-lifecycle events plus two
-forge observations — run finished, run failed (including watchdog stalls
-surfacing as `run.failed`), tool approval required, pull request opened, and
-pull request checks finished — fired only while the app is NOT the user's
-active focus. One code path for Electron renderer AND web: the standard web
-`Notification` constructor, no Electron `Notification` module, no new IPC.
+OS `Notification` alerts for five events — run finished, run failed (watchdog
+stalls surface as `run.failed`), tool approval required, PR opened, PR checks
+finished — fired only while the app is NOT the user's active focus. One code path
+for Electron renderer and web: the standard web `Notification` constructor, no
+Electron module, no new IPC.
 
-Layers:
-1. **Preferences** (`packages/app-state/src/stores/notification-preferences-store.ts`) —
-   persisted master toggle (`masterEnabled`, default OFF) + per-event toggles
-   (`events.{runFinished,runFailed,toolApprovalRequired,prOpened,prChecks}`,
-   default ON).
-   PERSISTED via the same `createBrowserJsonStorage` pattern as sibling
-   stores. Registered in the factory-reset pipeline: like
-   `permission-policy-store`, `resetNotificationPreferencesStoreToDefaults`
-   is called directly from `factory-reset-helpers.ts`'s `clearBrowserStorage`
-   (not `registerFactoryResetSessionStore` — that seam is for stores OUTSIDE
-   the `preferences` package) so the live in-memory toggle never survives a
-   reset that does not reload the page (web path).
-2. **Decision + dispatch** (`packages/app-state/src/notifications/`) —
-   `should-notify.ts` is a PURE gate (`shouldNotify`): master on, event on,
-   `Notification.permission === 'granted'`, and the window is unfocused
-   (`document.visibilityState === 'hidden' || !document.hasFocus()`,
-   evaluated AT EVENT TIME). `notification-permission.ts` wraps
-   `Notification.permission`/`requestPermission()` — permission is requested
-   ONLY from the Settings toggle-on click (never on load), and the store
-   never persists `masterEnabled: true` when the browser denies or has not
-   granted permission. `run-notification-dispatcher.ts`
-   (`createRunNotificationDispatcher`) evaluates the gate and constructs a
-   `Notification` with privacy-safe copy. Coalescing key is `runId:kind` for
-   run finished/failed and `runId:kind:toolCallId` for `toolApprovalRequired`,
-   so a run that suspends for more than one distinct approval still alerts on
-   each. The input is a discriminated union: run events carry only
-   `runId`/`kind`/an optional `threadTitle` (plus a REQUIRED `toolCallId` on
-   the approval variant), while forge observations carry only
-   `observationKey`/`kind`/`prNumber`/an optional settled checks outcome and
-   thread title. Neither variant carries message content or tool args, and the
-   dispatcher wires `onclick` to `window.focus()`.
-3. **Settings UI** (`packages/settings-ui/src/settings/system/notification-settings-section.tsx`,
-   registered via `createNotificationSettingsCategory()` from its own
-   `notification-settings-category.tsx` — a non-component module, kept out of
-   `settings-page-content.tsx` so Fast Refresh preserves `SettingsPageContent`
-   state; imported in both `apps/web/src/app/settings/page-content.tsx` and
-   `apps/desktop/src/renderer/components/settings/page-content.tsx`) —
-   master + per-event toggles, surfaces a "blocked by your browser/OS"
-   message when permission is denied/unsupported.
-4. **Trigger source** (`packages/assistant-ui/src/run-lifecycle-notifications.ts`) —
-   pure selectors (`selectTerminalRunEvents`, `selectOpenToolApprovalRequests`)
-   scan thread messages for `run.finished`/`run.failed`
-   (`ASSISTANT_RUN_EVENT_DATA_NAME`) and tool-approval-required
-   (`TOOL_APPROVAL_DATA_NAME`) data parts. `useRunLifecycleNotifications`
-   reports each NEW one exactly once (deduped via refs) through THREE new
-   optional `AssistantUiPanelProps` callbacks — and DEFERS seeding its "seen"
-   baseline until `state.thread.isLoading` is false, so async history
-   hydration (opening/reloading an existing thread first renders an empty
-   snapshot) seeds the replayed history without firing stale notifications
-   (`onRunFinished`/`onRunFailed`/`onToolApprovalRequired`) that thread the
-   SAME 5 layers as `onUsage` (`AssistantUiPanel` → `LocalRuntimeChat`/
-   `DataStreamRuntimeChat` → `ChatThreadUI`, which mounts
-   `RunLifecycleNotificationBridge`). This package NEVER touches
-   `window.Notification` or the preferences store — it only reports raw
-   events, mirroring the `onUsage` seam.
-5. **Composition** (`packages/app-shell/src/use-assistant-run-notifications.ts`,
-   wired into `assistant-ui-panel-wrapper.tsx`) — the ONLY layer that reads
-   live `document.hasFocus()`/`visibilityState` and owns a
-   `createRunNotificationDispatcher` instance (stable for the panel's
-   lifetime, so per-run coalescing is meaningful). Hosted turns coalesce on
-   the wire `runId`; web local-runtime events carry no `runId`
-   (`createLocalRunEvent` assigns only a per-event `id`), so the hook falls
-   back to `event.id` — a stable, unique key, never a fabricated runId that
-   could collide across runs. Desktop's hidden
-   embedding/llm hosts (`embedding-host-app.tsx`, `llm-host-app.tsx`) never
-   import `AssistantUiPanel` at all, so they structurally can never notify —
-   this hook only ever runs inside the visible assistant surface.
-6. **Forge trigger source** (`packages/app-shell/src/hooks/use-forge-run-events.ts`) —
-   `forge:prUpdated` pushes from the main-process ForgeService. Not a stream
-   scan: a forge observation never appears in the message stream. Coalesced on
-   `<repoCommonDir>\0<branch>\0<headSha>:<kind>` (the `\0` separator matches
-   `forge-service.ts`'s own `cacheKey` convention), gated per thread by
-   `metadata.forgePrWatch !== false`.
-   The branch lookup this trigger source matches pushes against
-   (`useThreadBranchByRootPath`, activated on demand — see that hook's doc)
-   starts EMPTY and only resolves asynchronously; a push that arrives before
-   the first resolution is BUFFERED (a ref queue, deduped by
-   `<observationKey>\0<transition>`) rather than treated as a non-match, and
-   drained once the lookup reports `loaded` — see `ForgeBranchLookup` and
-   `isLookupReady` in `use-forge-run-events.ts` (BST-1391 M2). This closes the
-   "the very first push is lost" gap; it does not add a live-refresh path for
-   an ALREADY-OPEN thread — see the reload-visibility note below.
-   RELOAD-VISIBILITY LIMITATION (BST-1391 M4): the appended `pr.*` row is
-   durable in `brainstrike_assistant_run_events` the moment
-   `appendThreadRunEvent` resolves, but the assistant-run-timeline UI renders
-   from assistant-ui DATA PARTS on the message stream, not from a live query
-   against that table — `listThreadRunEvents` is read ONLY at thread-history
-   HYDRATION time (`createAssistantThreadHistoryAdapter`, on thread
-   open/reload), which is what turns persisted run events into synthetic data
-   parts. No existing seam re-hydrates an already-open thread's timeline
-   mid-session. This is NOT the timeline lagging behind a live
-   `thread.metadata.forgePrUrl` — `useAssistantThreadStore` is
-   REFRESH-DRIVEN (`refreshResourceThreads`), not a live query, so
-   `forgePrUrl` does not update live either. The PR chip and thread-row pill
-   stay fresh through their OWN independent live sources instead:
-   `use-thread-forge-pr.ts` reads `window.forge` directly (the chip), and
-   `use-forge-pr-cache.ts` reads a PGlite live query over
-   `brainstrike_forge_prs` (the pill, Task 5) — neither reads
-   `thread.metadata` or `listThreadRunEvents`.
-   `pr.*` row therefore does not appear in an OPEN thread's timeline until
-   that thread is reopened or the app reloads. Inventing a live-refresh path
-   for this is future work, not this task's — see Task 7's CDT checklist for
-   how this is verified rather than assumed.
+- Preferences persist a master toggle (default OFF) plus per-event toggles
+  (default ON) and reset directly from `clearBrowserStorage`, so the live
+  in-memory toggle cannot survive a reset that does not reload the page.
+- `shouldNotify` is a PURE gate: master on, event on, permission granted, window
+  unfocused — all evaluated AT EVENT TIME. Request permission ONLY from the
+  Settings toggle-on click, and never persist `masterEnabled: true` without it.
+- Coalescing keys are `runId:kind`, and `runId:kind:toolCallId` for
+  `toolApprovalRequired` so one run alerts on each distinct approval. The
+  dispatcher input is a discriminated union of ids plus an optional thread title —
+  never message content or tool args.
+- Triggers are pure selectors over thread messages; report each new event exactly
+  once and DEFER seeding the "seen" baseline until `state.thread.isLoading` is
+  false, so replayed history does not fire stale notifications.
+  `packages/assistant-ui` never touches `window.Notification` or the store.
+- `packages/app-shell/src/use-assistant-run-notifications.ts` is the only layer
+  reading live focus and owning the dispatcher. Hosted turns coalesce on the wire
+  `runId`; web local-runtime events fall back to `event.id` — never a fabricated
+  runId that could collide.
+- Forge observations come from `forge:prUpdated` pushes, not a stream scan, and
+  are gated per thread by `metadata.forgePrWatch !== false`. Buffer pushes that
+  arrive before the branch lookup resolves and drain them once it reports
+  `loaded`.
 
-When changing this flow, update this section and the paired tests
-(`packages/app-state/src/__tests__/notification-*.test.ts(x)`,
-`packages/assistant-ui/src/__tests__/run-lifecycle-notifications.test.ts`,
-`packages/assistant-ui/src/__tests__/run-lifecycle-notifications-hydration.test.tsx`,
+Known limitation: a durable `pr.*` row does not appear in an ALREADY-OPEN
+thread's timeline, because the timeline renders from data parts and
+`listThreadRunEvents` is read only at hydration. The PR chip and thread-row pill
+stay fresh through their own live sources.
+
+Evidence: `assistant-persistence/run-notification-layers.md`.
+Guard: `packages/app-state/src/__tests__/notification-*.test.ts(x)`,
+`packages/assistant-ui/src/__tests__/run-lifecycle-notifications*.test.ts(x)`,
 `packages/app-shell/src/__tests__/use-assistant-run-notifications.test.ts`,
-`packages/app-shell/src/__tests__/use-forge-run-events.test.ts`).
+`use-forge-run-events.test.ts`.
 
 ---
 
 ## FOLLOW-UP MESSAGE QUEUE (COMPOSE DURING A RUN)
 
-Report R3 v1 — the QUEUE half of mastra-code's steer/followUp pair. The
-composer input already stays enabled during a run (only Send unmounts); this
-adds a `QueueFollowUpButton` in the RUNNING branch (composer-input.tsx
-`queueControl` seam), a per-thread zustand FIFO
-(`packages/assistant-ui/src/follow-up-queue-store.ts`), removable
-"queued" chips above the composer, and a render-nothing
-`FollowUpQueueBridge` that dispatches ONE queued message per run end via
-`aui.thread().append(...)` (the same programmatic-send seam the
-approval/suspend notices use).
+A queue button in the composer's RUNNING branch, a per-thread zustand FIFO,
+removable chips, and a render-nothing bridge that dispatches ONE queued message
+per run end through `aui.thread().append(...)`.
 
-Existing-runtime inspection panes (`AssistantConversationPanel`, BST-1724)
-set `FollowUpQueueOwnershipContext` false. They neither dispatch/catch up the
-root session queue nor offer its Queue/Steer controls or chips. The runtime
-owner retains queued items unchanged; opening/reopening a view and observing
-a child finish must not start another execution. Root panels keep the default
-ownership and existing catch-up semantics. Paired regression:
-`assistant-conversation-panel.test.tsx` seeds a queue before idle/running mounts,
-then tests run-end and reopen without a send or dequeue.
+- Detect run end as the `state.thread.isRunning` true→false transition, not run
+  events. Why: it works identically for the web local runtime and fires for
+  finished, failed and cancelled runs alike; the chip's remove control is the
+  user's veto.
+- Mirror `run-lifecycle-notifications.ts`: no dispatch while
+  `state.thread.isLoading`, and a `threadKey` change reseeds the baseline.
+- FIFO one-per-run-end. A synchronous `append` throw requeues at the FRONT and
+  logs; `append` returns void, so there is no async failure channel.
+- Treat an idle, non-loading thread with a non-empty queue on a (re)mounted key
+  as a missed run end and dispatch once, so the chip's promise holds across
+  thread switches.
+- Keep the queue session-lived and registered with factory reset; a queued
+  message surviving reload would be a surprise send.
+- Existing-runtime inspection panes set `FollowUpQueueOwnershipContext` false:
+  they neither dispatch nor catch up the root session queue, and offer no
+  Queue/Steer controls or chips.
 
-Settled semantics (v1 — revisit only with the steering stage):
-- **Run-end detection is the `state.thread.isRunning` true→false transition**,
-  NOT the run-event data parts — it works identically for the web local
-  runtime (whose events carry no `runId`) and fires for finished, failed, AND
-  user-cancelled runs alike; the chip's remove control is the user's veto.
-- Hydration/thread-switch guards mirror `run-lifecycle-notifications.ts`: no
-  dispatch while `state.thread.isLoading`; a `threadKey` change reseeds the
-  transition baseline (a switch is never a run end).
-- FIFO one-per-run-end: the next queued item waits for the dispatched run to
-  end (natural steering loop). A synchronous `append` throw requeues at the
-  FRONT and logs (`append` returns void in the installed assistant-ui — there
-  is no async failure channel; a run that starts and then fails is a normal
-  `run.failed`, not a dispatch failure).
-- **Missed-run-end catch-up:** the bridge lives inside the threadKey-keyed
-  runtime subtree, so a thread switch unmounts it and a run ending off-screen
-  produces no observable transition. Once per (re)mounted key, an idle
-  non-loading thread with a non-empty queue is treated as that missed run end
-  and dispatched — the chip's promise ("sends when the current run ends")
-  holds across thread switches.
-- Session-lived, deliberately NOT persisted (a queued message surviving a
-  reload would be a surprise send); registered with factory reset in
-  app-shell's `register-factory-reset-session-stores.ts`.
-- Mid-run STEERING (injecting into the live loop at a step boundary) is the
-  explicit v2 follow-up and lives in the agent loop, not this UI seam.
-
-When changing this flow, update this section and the paired tests
-(`packages/assistant-ui/src/__tests__/follow-up-queue-store.test.ts`,
-`packages/assistant-ui/src/__tests__/follow-up-queue.behavior.test.tsx`
-— the behavior suite runs a REAL assistant-ui local runtime, no mocked state).
+Settled: mid-run STEERING belongs in the agent loop, not this UI seam.
+Evidence: `assistant-persistence/follow-up-queue.md`.
+Guard: `packages/assistant-ui/src/__tests__/follow-up-queue-store.test.ts`,
+`follow-up-queue.behavior.test.tsx`.
 
 ---
-
 
 ## CONTEXT USAGE METER (TOKEN AWARENESS)
 
-One derivation feeds three consumers per request — keep them consistent:
-`buildAgentLoopSettings(prefs, selectedModelBudgetDef)` in packages/app-shell/src/assistant-ui-panel-wrapper-runtime.ts
-produces `agentLoopSettings.inputTokenLimit` (explicit user pref wins, else
-`deriveEffectiveInputBudget(contextWindow, maxOutputTokens)` from
-packages/assistant-contract/src/context-budget.ts — throws, never clamps). That ONE number is:
-1. the Mastra `TokenLimiter` budget (`runtimeData.agentLoop.inputTokenLimit` → `buildToolLoopOptions`),
-2. the meter denominator (`effectiveInputBudget` prop on `AssistantUiPanel`),
-3. the instruction budget note (`buildContextBudgetNote`, appended per-request at Agent construction).
+**ONE DERIVATION, THREE CONSUMERS.** `buildAgentLoopSettings` produces
+`agentLoopSettings.inputTokenLimit` (explicit user pref, else
+`deriveAgentLoopInputTokenLimit` in `packages/assistant-contract/src/context-budget.ts`:
+OpenRouter reserves its request's output (required, no default), others the
+catalog max; throws, never clamps). That one number is the Mastra `TokenLimiter`
+budget, the meter denominator, and the instruction budget note. Never derive a second budget.
 
-Runtime invariants:
-- Usage store (packages/assistant-ui/src/context-usage-store.ts) is session-lived, NOT
-  persisted; key = `selectedMemoryThreadId ?? 'active'` — the writer (`handleUsage` in the app-shell
-  wrapper) and the reader (`ContextUsageMeter`, via the panel's `threadKey` prop) MUST use the same key.
-- Both turn paths report usage: hosted via the data-stream `message-finish` tap
-  (`onUsage` in data-stream-runtime.ts), local via the llm-host result (`onUsage` in
-  local-runtime-adapter.ts; `LocalLlmGenerationResult.usage` is optional at the IPC boundary — guard it).
-- Hosted multi-step finishes carry two distinct token views. Aggregate
-  `inputTokens`/`outputTokens` remain the durable billing and cost totals across
-  every provider step. `contextInputTokens`/`contextOutputTokens` carry only the
-  latest provider step and feed the transient context meter. A transport that
-  structurally has no per-step fields uses its aggregate single-step values.
-  Never display a billed cross-step sum as context occupancy.
-- The meter shows estimated (the FULL-PART conversation walk, see below) until exact usage lands;
-  provenance must never lie — wire-format usage is
-  `{inputTokens, outputTokens, contextInputTokens?, contextOutputTokens?, billedCostUsd?}`
-  (e2e mocks must use the token field names).
-- Estimator v2 (BST-940, `packages/assistant-ui/src/context-estimate.ts`):
-  `estimateConversationTokens` walks EVERY message part — text, reasoning, tool args + results
-  (per-tool attribution), attachment counts — with the shared chars/4 heuristic, memoized per
-  settled message object in a WeakMap. The v1 text-only walk read coding threads absurdly low
-  (tool output is ~90% of context) — never regress to a text-only walk. Heuristic accuracy is
-  pinned against the REAL o200k tokenizer in
-  `packages/tokenization/src/__tests__/token-counting-heuristic-accuracy.test.ts` (code ≈ +4%,
-  tool JSON ≈ −22%, repetitive prose ≤ +45%).
-- Display selection is `resolveDisplayedContextUsage` (same module): idle+exact → exact; while a
-  run streams → LIVE estimate (server breakdown baseline: system + task list + tool definitions,
-  plus the conversation walk), floored at the last exact figure (context never shrinks mid-run) and
-  flagged `est.`; before any exact usage → the estimate alone. `ThreadContextMeter` re-walks on
-  every message snapshot so the gauge moves during streaming.
-- UI shape: a compact ring row (`context-ring.tsx` donut + used/budget fraction) that triggers the
-  "Context Usage" popover (`context-usage-popover.tsx` — Cursor-style anatomy: "% full" header, a
-  segmented capacity bar over the effective input budget whose segments derive from the SAME
-  figures as the color-keyed legend rows [System instructions / Tool definitions / Task list /
-  Conversation / Attachments / Unattributed], per-tool top-5 sub-rows with an aggregated
-  remainder, a conversation split [You / Assistant / Reasoning / Tool activity + per-tool], OM
-  stats, and cumulative+cost).
-  The critical (≥90%) trimming-risk notice renders INLINE next to the ring, never inside the hover
-  popover — a warning must not hide behind hover or claim that compaction already happened. The
-  ONE-DERIVATION invariant above is unchanged:
-  `agentLoopSettings.inputTokenLimit` remains the TokenLimiter budget, the meter/ring denominator,
-  and the instruction budget note; the popover introduces no second derivation.
-- Prompt breakdown channel: the agent computes category counts at prompt
-  assembly (`packages/agent/src/mastra/prompt-breakdown.ts` — instruction-side at Agent
-  construction, message-side at stream start; tool-definition totals + per-tool figures come from
-  the run's `RunTokenDiagnostics.toolDefinitionContextBreakdown()`, tokenizer-measured when the
-  o200k counter loads, chars/4 backstop otherwise — breakdown `provenance` is
-  `'measured' | 'heuristic'` accordingly, and every displayed figure keeps its "~") and emits
-  them once per initial turn as the
-  TRANSIENT `brainstrike.context-breakdown` aui-data part
-  (`@brainstrike/assistant-contract/context-breakdown`), honoring the same text-part deferral
-  contract as run events / shell output. NOT a run-event ON PURPOSE (shell-output precedent): the
-  desktop run-event persistence tap passes non-run-event chunks through, so the breakdown is never
-  persisted — after reload the popover honestly has none until the next run. Non-measurable
-  categories are ABSENT fields, never zero-faked (memory-backed runs omit `historyMessagesTokens`
-  because the wire carries only the current turn; the popover falls back to the client heuristic
-  walk). The renderer tap (`onContextBreakdown` in the ui data-stream runtime → app-shell
-  `handleContextBreakdown`) parses via the contract guard — malformed wire payload →
-  `{ invalid: true }`, stored and SURFACED in the popover, never coerced — and records into
-  `breakdownByThread` on the same session-only usage store under the same thread-key contract as
-  `recordUsage`. The "Unattributed" row is display math only (exact `inputTokens` − displayed
-  categories, clamped ≥ 0 with a debug log) and appears only once exact usage lands. The
-  in-renderer local runtime path has no breakdown channel (capability-absent — web
-  `LocalRuntimeChat` unaffected). The data part is registered with a null renderer in
-  `AssistantDataRendererRegistration` (assistant-ui-panel.tsx, mirroring `SHELL_OUTPUT_DATA_NAME`)
-  so the transient part never surfaces as a stray element in the message flow — it is consumed only
-  by the `onContextBreakdown` tap, never rendered inline. Because a capability-absent local turn
-  can never refresh the breakdown, `handleUsage` clears the thread's stale breakdown
-  (`useContextUsageStore.getState().clearBreakdown`) whenever `hasContextBreakdownChannel`
-  (assistant-ui-panel-wrapper-runtime.ts) is false for the active provider/transport pair —
-  otherwise a later local turn on a thread that previously had a hosted turn would update exact
-  usage while the popover kept showing the earlier hosted turn's stale category rows.
-- OpenRouter finish messages must additionally carry `billedCostUsd`, sourced
-  from Mastra's official OpenRouter provider metadata. Persist it in
-  `brainstrike_assistant_run_usage.billed_cost_usd`; cumulative and cross-root
-  views use the provider amount for reported rows and registry pricing only for
-  legacy/unreported rows. Mixed groups add both portions and retain estimated
-  provenance; entirely provider-reported groups use `provider-reported`.
-  Approval/suspension pauses emit a zero-token finish without cost because
-  Mastra emits the pause before exposing that model step's `step-finish`. On
-  resume, Mastra emits the deferred pre-pause step finish and all subsequent
-  steps; the normal terminal usage tap persists their exact aggregate once.
-  MISSING cost metadata on a new OpenRouter completion records the cost as
-  UNKNOWN — the field is omitted, `billed_cost_usd` stores null, and the row
-  falls through to registry-priced/estimated provenance — with a visible
-  `provider_billed_cost_unreported` warning. It is never mislabeled as an exact
-  or zero-cost run, which is what the previous fail-visibly rule protected, and
-  it no longer destroys the completed turn: OpenRouter reports no cost at all
-  for anonymous/stealth routes (`stealth/ox-alpha`, migration 107), so the old
-  rule failed every one of those turns at the finish. MALFORMED metadata is
-  loud but equally non-fatal: it records unknown too, with
-  `provider_billed_cost_malformed` logged at ERROR rather than a throw, because
-  binning a finished answer over a telemetry field is the same bad trade
-  whatever the shape of the bad value. Absent is a fact about the route;
-  malformed is a broken contract someone should fix. Neither is ever recorded
-  as zero.
-- Thread-total headline + run-kind attribution (BST-953): every
-  `brainstrike_assistant_run_usage` row carries `run_kind`
-  (`'chat' | 'subagent' | 'compaction-summary' | 'om-observation' |
-  'om-reflection'`, migrations 077/090, sole author since BST-1651 retired the
-  repository bootstrap mirror; CHECK-constrained, default `'chat'`). TWO
-  writers, never overlapping: the renderer writes ONLY parent `'chat'` rows
-  (the `handleUsage` message-finish tap); the desktop server writes ONLY child
-  rows, from the `child-run-usage` StreamChunk
-  (`persistDesktopChildRunUsage` in apps/desktop/src/assistant-server/run-persistence.ts, a
-  DUPLICATION-NOTE mirror of `recordRunUsage`). Child sources:
-  - subagent: `onDelegationComplete`'s aggregate usage
-    (`createDelegationConfig.onChildUsage` → per-leg `DelegationUsageCapture`
-    queue drained by the stream generator). Provider-exact; model/provider =
-    persona pin ?? parent run. Bound desktop runs include native parent-run,
-    tool-call and child-thread/resource identity. The existing writer reconciles
-    one row per invocation against the original host leg (migration 128), so
-    duplicate delivery and cumulative snapshot resume do not double-count.
-    Bound authorization or write failures propagate before the UI refresh;
-    they never fall through to the legacy unattributed insert. Historical rows
-    retain NULL invocation keys. Deleting a child also NULLs only those keys,
-    preserving already-spent root totals. Numeric usage is retained on root
-    deletion as before; it is excluded from the existing transcript sidecar
-    deletion list and cleared by factory reset. See assistant-subagents.md for stream ordering
-    and the exact limits of the cumulative-usage proof.
-  - OM cycles: `data-om-observation-end` / `data-om-buffering-end` chunks
-    (`tokensObserved`/`observationTokens` and `tokensBuffered`/`bufferedTokens`)
-    mapped in `mapObservationalMemoryCycleEnd`. These are Mastra's LOCAL tokenx
-    estimates (`estimated: true`) — the UI must label OM figures "est.", and
-    attribution is ONLY the run's resolved observer target
-    (`resolveDesktopObserverUsageTarget`): never the chat model, unattributable
-    rows are dropped with a warn, and `provider === 'local'` rows are skipped
-    (unbilled — an unpriceable row would blank the whole thread cost).
-  Child rows reuse the PARENT `runId`, so the Task Ledger's per-run totals
-  include them automatically. `getThreadCumulativeUsage` groups by
-  (provider, model, run_kind) and sums cache classes UNCONDITIONALLY (the
-  savings line needs them for billed rows too); `resolveCumulativeUsageDisplay`
-  (assistant-cumulative-usage.ts) derives in/out totals, by-source subtotals,
-  and net cache savings (read discount − write premium, per-model registry
-  rates; ABSENT when any cache-bearing model lacks rates). The meter chip leads
-  with the THREAD TOTAL (+cost when priceable); the context fraction moves to
-  the ring/title/popover ("Context N% full" section). Live tick: the renderer
-  taps `run.step.finished` run events' `promptTokens`/`completionTokens`
-  (`onStepUsage` → `recordLiveStepUsage`, summed per in-flight run) and the
-  forwarded `brainstrike.child-run-usage` aui-data part (`onChildRunUsage` →
-  cumulative re-read; the server AWAITS the row before forwarding, so the
-  refresh never reads pre-write state); the live sum is CLEARED on three paths.
-  Two are settle-side — `handleUsage` (only AFTER the post-write refresh, so the
-  total never dips and jumps) and the wrapped `completePreparedRequest` on a
-  cancelled/failed terminal status (the abort-gated tap never delivers those
-  runs' finish). The third is RUN START: the wrapped `prepareRequestData`
-  resets the thread's sum synchronously before composition awaits, because
-  every clear keys off the CURRENT selection, so switching away mid-stream
-  strands the old thread's partial sum permanently — its later steps and its
-  settle-clear both land on the newly selected thread.
-  A fourth path used to sweep on thread selection; BST-1652 replaced it with a
-  READER-side gate, because a sweep is an effect and an effect fires after
-  paint. `ContextUsageMeter` gates the recorded sum on `isRunning === true ||
-  settlingRunUsageByThread[key]` and passes the gated value to the popover.
-  **The gate and the run-start reset are a required pair and neither covers the
-  other's case**: the gate hides a stranded sum while the thread is idle, and
-  the reset removes it before the next run on that thread can expose and
-  accumulate onto it. Without the reset, a new run re-opens the gate on the
-  retained tokens and the headline stays inflated with its cost suppressed for
-  the whole run.
-  The settle marker is the gate's other half, and it is not optional:
-  `isRunning` goes false at STREAM FINISH, while `handleUsage` deliberately
-  holds the live sum until the post-write refresh absorbs the row. Gating on
-  `isRunning` alone drops the whole run from the headline for that window and
-  jumps it back when the refresh lands — the same dip the write ordering exists
-  to prevent, on EVERY run rather than in an edge case. `handleUsage` claims
-  the window with `beginLiveRunUsageSettle` once past the no-sink guard —
-  without a durable write there is nothing to protect — and the release is
-  STRUCTURAL: the chain's `finally` plus a `catch` for a synchronous throw that
-  never reaches it. That is not belt-and-braces. A claim that outlives its sum
-  is strictly worse than no claim, because it holds the gate open on an idle
-  thread and the headline stays inflated until some later run on that thread
-  settles; the run-start reset is the second self-heal, since
-  `clearLiveRunUsage` drops the marker together with the sum.
-  The claim is keyed to the SELECTED thread, like every other write here
-  (`selectedMemoryThreadId ?? 'active'`), so the thread a user walked away from
-  mid-stream never enters the window — but the claim for the finishing run
-  lands on whatever thread is selected when it settles. A stranded sum on THAT
-  thread is briefly visible for the duration of the durable write, then wiped
-  by the same `clearLiveRunUsage`. A repo-backed
-  thread with no rows yet hydrates the honest ZERO baseline
-  (`EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY`) so the FIRST run's live steps
-  render as the thread total; a failed load stays null (never $0). While live
-  tokens are included, the chip suppresses the durable cost and the popover
-  qualifies it "(excl. live)" — a current total must not sit beside a lagging
-  price.
-- OM rows in the WIDER cost surfaces (settled ruling, BST-953 review): the
-  daily-spend guardrail, cross-root usage, and run-ledger analytics aggregate
-  `run_usage` without a `run_kind` predicate, so `'om-observation'`/
-  `'om-reflection'` rows flow into them priced at the observer model's
-  registry rate like any unbilled row. This is DELIBERATE: the tokens are
-  genuinely billed by the provider; Mastra's tokenx content-size figure is a
-  weaker (under-)estimate of their count, and EXCLUDING them would silently
-  under-count real spend — the worse failure for a budget guardrail. Those
-  surfaces already qualify their totals as captured-usage estimates;
-  per-source itemization outside the context meter is future work, not a
-  correctness gap. Subagent rows are provider-exact and belong in all of them.
+- The usage store is session-lived, keyed `selectedMemoryThreadId ?? 'active'`;
+  writer and reader must use the same key.
+- Both turn paths report usage: hosted through the data-stream `message-finish`
+  tap, local through the llm-host result (guard its optional usage at the IPC
+  boundary).
+- Aggregate `inputTokens`/`outputTokens` are the durable billing totals;
+  `contextInputTokens`/`contextOutputTokens` carry only the latest provider step
+  and feed the meter. Never display a billed cross-step sum as context occupancy.
+- Provenance must never lie: show the estimate until exact usage lands and flag
+  it `est.` The estimator walks EVERY message part — text, reasoning, tool args
+  and results with per-tool attribution, attachment counts — memoized per settled
+  message. Never regress to a text-only walk; tool output is most of the context.
+- `resolveDisplayedContextUsage` selects: idle + exact → exact; streaming → the
+  live estimate floored at the last exact figure, so context never shrinks
+  mid-run; before any exact usage → the estimate alone.
+- Render the critical (≥90%) trimming-risk notice INLINE beside the ring, never
+  inside the hover popover.
+- The prompt breakdown is a TRANSIENT `brainstrike.context-breakdown` aui-data
+  part, deliberately not a run event, so it is never persisted — after reload the
+  popover honestly has none. Non-measurable categories are ABSENT fields, never
+  zero-faked; a malformed payload is stored and SURFACED as `{ invalid: true }`,
+  never coerced. Register it with a null renderer, and clear a stale breakdown
+  whenever the active provider/transport pair has no breakdown channel.
+- OpenRouter finishes carry `billedCostUsd` from official provider metadata.
+  MISSING cost records UNKNOWN with a visible `provider_billed_cost_unreported`
+  warning; MALFORMED records unknown with `provider_billed_cost_malformed` at
+  ERROR. Neither is ever recorded as zero, and neither fails the finished turn.
+
+Evidence: `assistant-persistence/context-meter-derivation.md`.
+
+**Run-usage attribution.** Every `brainstrike_assistant_run_usage` row carries
+`run_kind` (`chat | subagent | compaction-summary | om-observation |
+om-reflection`; migrations 077/090, CHECK-constrained, default `chat`). TWO
+writers, never overlapping: the renderer writes only parent `chat` rows, the
+desktop server only child rows from the `child-run-usage` chunk.
+
+- Subagent rows are provider-exact and reconciled one row per invocation against
+  the original host leg (migration 128), so duplicate delivery and cumulative
+  resume cannot double-count. Bound authorization or write failures propagate;
+  never fall through to the legacy unattributed insert.
+- OM rows are Mastra's LOCAL tokenx estimates: label them "est.", attribute them
+  ONLY to the run's resolved observer target, drop unattributable rows with a
+  warn, and skip `provider === 'local'` rows.
+- Child rows reuse the PARENT `runId`, so Task Ledger per-run totals include them.
+- The meter chip leads with the THREAD TOTAL (+cost when priceable); the context
+  fraction moves to the ring, title and popover.
+- The live tick is cleared on three paths: `handleUsage` after the post-write
+  refresh, `completePreparedRequest` on a cancelled/failed terminal status, and
+  RUN START in `prepareRequestData` before composition awaits.
+- **The reader-side gate and the run-start reset are a required pair; neither
+  covers the other's case.** `ContextUsageMeter` gates the recorded sum on
+  `isRunning === true || settlingRunUsageByThread[key]`: the gate hides a
+  stranded sum while idle, the reset removes it before the next run can
+  accumulate onto it.
+- The settle marker is not optional — `isRunning` goes false at stream finish
+  while `handleUsage` holds the live sum until the post-write refresh. Claim the
+  window with `beginLiveRunUsageSettle` only past the no-sink guard and release it
+  STRUCTURALLY. A claim that outlives its sum is strictly worse than no claim.
+- A repo-backed thread with no rows hydrates the honest ZERO baseline; a failed
+  load stays null, never $0. While live tokens are included, suppress the durable
+  cost and qualify the popover "(excl. live)".
+
+Settled: OM rows flow into the daily-spend guardrail, cross-root usage and ledger
+analytics priced at the observer model's registry rate — the tokens are genuinely
+billed, and excluding them would under-count real spend.
+Evidence: `assistant-persistence/run-usage-attribution.md`.
+Guard: `packages/assistant-ui/src/__tests__/context-usage-meter.test.tsx`,
+`packages/tokenization/src/__tests__/token-counting-heuristic-accuracy.test.ts`.
 
 ---
 
-## RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP (revised 2026-09-05, BST-1651)
+## RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP
 
 `brainstrike_assistant_thread_runs` and `brainstrike_assistant_run_events` are
-created by **migration 118**, and NOTHING creates them at runtime.
+created by **migration 118**, and NOTHING creates them at runtime. This supersedes
+the 2026-07-24 ruling that they must never get a numbered migration: migration 117
+now creates Mastra's memory schema, so 118 declares both `ON DELETE CASCADE` FKs
+exactly as the retired bootstrap did. Do not restore the bootstrap.
 
-**This supersedes the 2026-07-24 ruling** that they must never get a numbered
-migration. That ruling was correct for its premise and the premise is gone: both
-tables carry `ON DELETE CASCADE` FKs to parents no migration created (the Mastra
-threads table, and the runs row itself), so the only options then were an FK-less
-migration or a runtime bootstrap. **Migration 117 now creates Mastra's memory
-schema**, so 118 declares both FKs exactly as the bootstrap did. Do not restore
-the bootstrap.
+**Desktop main has four writers**, all in
+`apps/desktop/src/assistant-server/run-persistence.ts`, all reached through
+injected handles and all gated on `if (runId)`:
+`recordDesktopAssistantRunEvent` (silent no-op on a missing parent),
+`recordDesktopAssistantHookRunOutcome` (THROWS, deliberately),
+`completeDesktopAssistantThreadRun` (silent no-op), and `reapOrphanedThreadRuns`
+(startup-only sweep). None creates a relation.
 
-### The repository PROBES; it never creates (do not relitigate)
+- Run-critical desktop reads and event writes use the foreground
+  `DatabaseWorkScheduler` lane, including the delegated host's scope reads, step
+  budget, tool-action claims, swarm diagnostics and continuation admission. Only
+  workspace snapshot capture keeps the owner handle. Why: on the owner handle the
+  host's queries reached a DB held by an 82 s maintenance statement and two
+  children failed the 30 s request timeout.
+- A run-scoped snapshot SELECT and same-id event upsert may retry once for typed
+  non-terminating saturation, emitting `run.database.retried` or stamping
+  sanitized `metadata.databaseRetry`. Arbitrary, wedged, terminating and exhausted
+  failures stay typed.
+- **`duration_ms` is INTEGER and durations round at the PRODUCER.**
+  `withRunEventDuration` is the single seam where a duration enters a run event; a
+  non-finite value drops the field. Why: forwarding `performance.now()` floats
+  made every stamped terminal tool event fail to persist (22P02).
+- **runId provenance, not startup ordering, is what makes the writers safe.**
+  `memory.runId` has exactly ONE producer, `createThreadRunId` inside
+  `createAssistantThreadRunPromise`; `buildAssistantRequestData` puts no `runId`
+  on `data.memory`; desktop has ONE physical database. Do NOT add a defensive
+  `CREATE TABLE IF NOT EXISTS` in main or an ordering handshake — both are
+  machinery for an unreachable state that would mask a broken invariant. A SECOND
+  runId producer would make it real, and must bootstrap the schema itself.
+- **Loudness is not uniform.** `observeDesktopAssistantRunEvents` rethrows on
+  flush only when the source stream did not also throw, and
+  `recordDesktopAssistantThreadRunStatus` only logs, so a failed run-status UPDATE
+  strands the row in `running`. `reapOrphanedThreadRuns` recovers those at the next
+  app start on boot-time evidence (`started_at < mainProcessStartedAt`), marking
+  them `failed` with a visible error and un-sticking the rewind gate without
+  weakening it.
+- The same sweep fails pre-boot `pending`/`running` `mastra_background_tasks` rows
+  with `ORPHANED_BACKGROUND_TASK_ERROR`; a `suspended` task is never touched,
+  `delivered_at` stays NULL, and the next turn delivers the failure once. Reaping
+  supersedes no retry path and never reruns a crashed task: the host pins
+  background retries to 0, so never add a `retry_count < max_retries` carve-out.
+  This paragraph is the canonical statement of that rule; database.md points here.
 
-`createPgliteAssistantThreadRepository` used to `exec` a ~590-line
-`CREATE TABLE IF NOT EXISTS` mirror of migrations 046-095 on first use per
-handle. The mirror was required to stay byte-identical to those migrations by
-hand, and **nothing could observe a violation**: on a migrated database the
-`IF NOT EXISTS` never fires, so a divergence stayed invisible until a user hit a
-column the two had shaped differently. Retiring it found one that had already
-shipped — `brainstrike_assistant_tool_projection_rewrites` had `kind` at ordinal
-5 on a bootstrapped database and ordinal 8 on a migrated one, because migration
-084 creates the table and 087 ADDs the column.
+Settled: `pr.opened`/`pr.checks`/`pr.merged` are the only kinds not produced by
+the agent stream and attach to the thread's most recent run (no run, no row,
+logged at `info`). Do not confuse these tables with
+`brainstrike_assistant_run_outcomes`, migration-backed since 062.
+Evidence: `assistant-persistence/run-event-schema-ownership.md`.
+Guard: `scripts/assistant-run-id-producer-guard.mjs`,
+`apps/desktop/src/__tests__/assistant-server/run-event-schema-provenance.integration.test.ts`,
+`thread-run-startup-reaper.integration.test.ts`, `delegated-host-run-lane.test.ts`.
 
-The replacement is a `to_regclass` probe over every relation the repository
-reads or writes (the explicit run tables plus every entry of
-`THREAD_DELETE_SIDECAR_TABLES`, which the thread-delete cascade references
-unconditionally), memoized per handle in the
-`assistantThreadSchemaProbePromises` WeakMap and awaited by every repository
+### The repository PROBES; it never creates
+
+`createPgliteAssistantThreadRepository` runs a `to_regclass` probe over every
+relation it reads or writes — the run tables plus every
+`THREAD_DELETE_SIDECAR_TABLES` entry — memoized per handle and awaited by every
 method. A missing relation throws `AssistantMemorySchemaMissingError` naming it.
 
-- `to_regclass` ONLY — it returns NULL for an absent relation instead of raising,
-  so one statement answers for the whole set.
+- `to_regclass` ONLY: it returns NULL for an absent relation, so one statement
+  answers for the whole set.
 - **No `IF NOT EXISTS`, no catch-and-create, no create-if-missing fallback.** A
-  missing relation means migrations did not run. Creating it quietly is exactly
-  how the divergence above was manufactured.
+  missing relation means migrations did not run.
 - A FAILED probe drops its memo so the handle re-probes; only success is cached.
-- Additive statements that used to reach old installs through the bootstrap's
-  per-init re-run now live in migration 118: `thread_runs.turn_message_id`
-  (`ADD COLUMN IF NOT EXISTS`, BST-1163), the two partial approval indexes, and
-  the `DROP INDEX IF EXISTS` of the pre-BST-1440 `…_approval_answer_idx`.
+
+Settled: the bootstrap mirror is retired and stays retired — nothing could observe
+its divergence, and it had already shipped one.
+Evidence: `assistant-persistence/schema-probe-not-create.md`.
+Guard: `packages/assistant-data/src/__tests__/assistant-memory-schema-probe.integration.test.ts`.
 
 ### 118 must CONVERGE, because every existing install already has these tables
 
-The fresh database is the easy case. The one that decides this migration is the
-install that has been running the assistant for months: the retired bootstrap
-already created both relations there, and 118 is about to run over them.
+- A bare `CREATE TABLE` errors on upgrade for every existing user, and a
+  conditional create alone preserves the drift on exactly the installs that
+  matter. The conditional create is only half the migration.
+- The other half is the additive statements — `thread_runs.turn_message_id`
+  (`ADD COLUMN IF NOT EXISTS`), the two partial approval indexes, and the
+  `DROP INDEX IF EXISTS` retiring the old answer index — which must cover every
+  difference between what a shipped bootstrap era left and what the create
+  declares.
+- That obligation is CHECKED: the upgrade-path test seeds a database as each
+  shipped era left it, runs the chain, and asserts the catalog is IDENTICAL to a
+  freshly-migrated one, columns WITH THEIR ORDINALS included. Its seeds are frozen
+  history; if a change to 118 makes it fail, the bug is the missing forward
+  statement, never the seed.
 
-- A bare `CREATE TABLE` **errors on upgrade for every existing user**. It is not
-  an option and never was.
-- A conditional `CREATE TABLE` **skips**, and by itself that is exactly the
-  silent drift this ticket deletes — preserved on precisely the installs that
-  matter. So the conditional create is only half the migration. The other half
-  is the additive statements above, which must cover every difference between
-  what a shipped bootstrap era left and what the create declares.
-
-That obligation is what makes the additive statements load-bearing rather than
-defensive noise, and it is CHECKED, not asserted:
-`assistant-run-schema-upgrade-path.test.ts` (db) seeds a database the way each
-shipped bootstrap era actually left it — pre-BST-1163 (no `turn_message_id`),
-BST-1404 (the `run_id`-shaped answer index), and the final BST-1440 shape — runs
-the chain over it, and asserts the resulting catalog is IDENTICAL to a
-freshly-migrated one: columns WITH THEIR ORDINALS, indexes, and constraints
-including the `thread_id` foreign key. Column ordinal is in the comparison
-deliberately; it is the projection the `tool_projection_rewrites` divergence
-above hid in.
-
-Its seeds are frozen history, identified by the commit that shipped them. If a
-future change to 118 makes that test fail, the bug is the missing forward
-statement — **never** the seed.
-
-Paired coverage: `assistant-memory-schema-probe.integration.test.ts`
-(assistant-data), `mastra-schema-migration-parity.test.ts` and
-`assistant-run-schema-upgrade-path.test.ts` (db).
+Evidence: `assistant-persistence/migration-118-convergence.md`.
+Guard: `packages/db/__tests__/assistant-run-schema-upgrade-path.test.ts`,
+`mastra-schema-migration-parity.test.ts`.
 
 ### Test fixtures are not a licence to reshape these tables
 
-Three suites used to stand up their own copy of the run header because the
-chain did not create it, and all three dropped the `thread_id` foreign key or
-most of the column set to keep the fixture small — a fourth schema authority,
-below the mirror the ticket set out to remove, and the reason the FK looked
-"new" when 118 landed. It is not new: the run header has carried
-`brainstrike_assistant_thread_runs_thread_id_fkey` since it first shipped
-(2026-06-20). Seed a `mastra_threads` parent row; never re-declare the table.
+Seed a `mastra_threads` parent row; never re-declare the run header. The
+`brainstrike_assistant_thread_runs_thread_id_fkey` is not new — it has shipped
+since the table did.
+Evidence: `assistant-persistence/run-table-test-fixtures.md`.
 
-Do NOT confuse these with `brainstrike_assistant_run_outcomes`, which has been
-migration-backed since 062.
-
-`pr.opened` / `pr.checks` / `pr.merged` (BST-1391) are the only run-event
-kinds not produced by the agent stream. They are appended to the thread's MOST
-RECENT run because `run_id` is `NOT NULL`; a thread with no runs gets no
-timeline row, logged at `info`. This adds no writer and no schema change.
-
-The desktop MAIN process has FOUR writers against these relations, none of
-which creates them (all in `apps/desktop/src/assistant-server/run-persistence.ts`, all reached
-through injected handles rather than a module-level import —
-`recordDesktopAssistantRunEvent` and `completeDesktopAssistantThreadRun` take a
-database PROVIDER, `recordDesktopAssistantHookRunOutcome` takes an
-already-resolved handle; the sole composition site is the `assistant-server.ts`
-root, which supplies `db-main`'s `getDatabase` — the service's `stream-init.ts` takes
-that provider on `InitializeAgentStreamParams` and forwards it (or its awaited
-result) to the writers — so every write still resolves the same main-process
-handle (BST-972 A1/A2) — and all gated on `if (runId)`):
-
-| Writer | Shape | On a missing parent row |
-| --- | --- | --- |
-| `recordDesktopAssistantRunEvent` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
-| `recordDesktopAssistantHookRunOutcome` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | THROWS (deliberate) |
-| `completeDesktopAssistantThreadRun` | `UPDATE brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
-| `reapOrphanedThreadRuns` (BST-1162, startup only) | `UPDATE … WHERE status = 'running' AND started_at < bootedAt` | 0 rows, empty sweep. A MISSING RELATION is not a case: migration 118 owns the table and `getDatabase()` resolves only after `migrate()`, so an unmigrated database raises 42P01 into main's own `catch` (BST-1651 retired the `runsTableMissing` report, which had reduced that state to an `info` line) |
-
-Run-critical desktop reads and event writes use the existing foreground `DatabaseWorkScheduler`
-lane. A run-scoped `mastra_workflow_snapshot` SELECT and same-id event upsert may retry once for
-typed, non-terminating host saturation. Snapshot retries emit `run.database.retried`; event retries
-stamp sanitized `metadata.databaseRetry`. Serial host ordering plus same-id upsert prevents duplication
-after late completion. Retries are logged; arbitrary, wedged, terminating, and exhausted failures remain typed.
-
-The delegated conversation host is built on that same run-critical handle in `mastra-memory.ts`.
-That covers `createDesktopDelegatedConversationHost`: scope reads, step budget, tool-action
-claims, swarm diagnostics and continuation admission. Only workspace snapshot capture keeps the
-owner handle.
-
-On the owner handle, the host's queries skipped the scheduler and reached a DB host held by an 82 s
-maintenance statement. Two children failed on the 30 s request timeout (live GLM run 22,
-2026-09-15). Its transactions use only `tx` inside the callback, and history capture runs after them,
-so the serial scheduler never waits on itself.
-
-Paired: `delegated-host-run-lane.test.ts`. A held lane defers the host's scope read; the owner
-handle fails it.
-
-**`duration_ms` is an INTEGER column, and durations are rounded at the
-PRODUCER.** The guard wrapper measures tool execution with `performance.now()`,
-whose deltas are fractional; forwarding the raw float made every stamped
-terminal tool event fail to persist (field regression 2026-08-23, 22P02
-"invalid input syntax for type integer") — holes in the exact timeline the
-debug bundle reads. `withRunEventDuration`
-(`packages/agent/src/mastra/tool-lifecycle-processors.ts`) is the single seam
-where a duration enters a run event and rounds there (non-finite drops the
-field). The column contract is pinned by the real-PGlite pair in
-`run-event-schema-provenance.integration.test.ts` — integer persists,
-fractional rejected — so the rounding is provably load-bearing.
-
-That is safe, and the reason is **runId provenance — NOT startup ordering**:
-
-- `memory.runId` has exactly ONE producer: `createAssistantThreadRunPromise`
-  (`assistant-ui-panel-wrapper-runtime.ts`) → `repository.createThreadRun`,
-  which awaits the schema bootstrap before it can return an id.
-- Every main-process write is gated on `if (runId)`, and `buildAssistantRequestData`
-  puts no `runId` on `data.memory`, so no stale or restored id can bypass the mint.
-- Desktop has ONE physical database: the renderer's handle is
-  `window.electronAPI.db`, whose `db:exec` resolves through the same `db-main`
-  `getDatabase()` the assistant server's composition sites inject into the
-  run-persistence writers.
-
-Therefore do NOT add a defensive `CREATE TABLE IF NOT EXISTS` in main, and do
-not add an ordering handshake: both would be machinery for an unreachable state,
-and would mask a genuinely broken invariant if provenance ever changes.
-
-**The regression that WOULD make this real** is a second runId producer — a
-server-side background run, a cron/headless run, or subagent runs persisted
-under their own ids. Any such producer must bootstrap the schema itself.
-
-**Loudness is NOT uniform — do not read the above as a blanket guarantee.** An
-un-bootstrapped write always raises PG `42P01` at the driver, but only one path
-propagates it:
-
-- `observeDesktopAssistantRunEvents` `logger.error`s every failed event and
-  rethrows on flush — but the rethrow is CONDITIONAL (in
-  `assistant-server/run-persistence.ts`): when the source stream ALSO threw, the persistence failure is
-  downgraded to a `logger.error` and only the stream error propagates.
-- `recordDesktopAssistantThreadRunStatus` (same module) wraps
-  `completeDesktopAssistantThreadRun` in a `try/catch` that only logs. A
-  `42P01` on the run-status `UPDATE` is SWALLOWED; the run row simply never
-  reaches a terminal status. Rows stranded in `'running'` this way (or by a
-  crash/quit killing both status writers) are recovered at the NEXT app
-  start by `reapOrphanedThreadRuns`
-  (`apps/desktop/src/assistant-server/thread-run-startup-reaper.ts`, wired
-  into main.ts's startup fire-and-forget sweep, BST-1162): boot-time
-  evidence (`started_at < mainProcessStartedAt` — no renderer exists before
-  whenReady, so a row this boot minted can never match) marks them `failed`
-  with a visible error, un-sticking `hasInFlightThreadRun`'s rewind gate
-  without weakening it — live runs and unknown statuses still refuse.
-  Paired test: `thread-run-startup-reaper.integration.test.ts`.
-
-Neither carve-out is a regression introduced alongside this ruling, and neither
-is currently worth runtime machinery — but they are why the provenance invariant
-carries the weight here rather than error surfacing. If provenance is ever
-broken, expect partial silence, not a clean failure. Paired test (clean-stream
-path only): `apps/desktop/src/__tests__/assistant-server/run-event-schema-provenance.integration.test.ts`.
-
-### WORKTREE LIFECYCLE KINDS (BST-1390)
+### WORKTREE LIFECYCLE KINDS
 
 `worktree.created`, `worktree.archived` and `worktree.setup` are additive
-`ASSISTANT_RUN_EVENT_KINDS` members, emitted by `worktree-run-events.ts` through
-the SAME `recordDesktopAssistantRunEvent` writer (exported for this purpose —
-do not add a second INSERT) and therefore under the same documented `if (runId)`
-gate as every other main-process writer.
+`ASSISTANT_RUN_EVENT_KINDS` members emitted by `worktree-run-events.ts` through
+the SAME `recordDesktopAssistantRunEvent` writer — do not add a second INSERT —
+under the same `if (runId)` gate.
 
-They are emitted ONLY for an operation that happens inside a run. A worktree
-created from the Mode chip before the thread's first request has no
-`brainstrike_assistant_thread_runs` row to reference (`run_id` is `NOT NULL`
-with an FK), and NO orphan row is invented for it: the create sheet reports the
-outcome inline, a toast confirms it, and `brainstrike_worktrees` is the durable
-record. Writing the same fact into both tables would be a second source of
-truth — the argument that kept `tool.approval.resolved` out of the contract.
+- Emit them ONLY for an operation inside a run. A worktree created before the
+  thread's first request gets NO orphan row: the sheet reports inline and
+  `brainstrike_worktrees` is the durable record.
+- All three are `NEVER_RUNNING`, so none declares a terminal. A kind missing from
+  `ASSISTANT_RUN_EVENT_KINDS` is REJECTED by `readAssistantRunEvent`, so the
+  contract entry is the first thing to add.
+- `worktree.created` carries `metadata.via` with a CLOSED vocabulary
+  (`app | tool | adopt | shell`) from exactly three sites. Derive `app` vs `tool`
+  from the ledger row's `createdBy` through the ONE `emitWorktreeCreateEvents`
+  emitter, so the timeline can never disagree with `brainstrike_worktrees`.
+- Correlate shell creates from the `executeCommand` TOOL RESULT, never the
+  git-metadata watcher; the correlator is fire-and-forget and can never delay or
+  fail the tool call. Report a shell `git worktree remove` as a VANISHED ledger
+  row, never archived.
 
-All three are `NEVER_RUNNING` (status `info`, or `failed` for a failed setup),
-so none declares a terminal. `AssistantRunTimeline` needs no change: it renders
-`label`/`detail`/`status` and derives only a `lifecycle` colour from the kind
-prefix (via `classifyRunEvent` in `tool-visual-classification.ts`, which falls
-through to `'lifecycle'` for any kind that isn't `memory.*`/`tool.*`). A kind
-missing from `ASSISTANT_RUN_EVENT_KINDS` is REJECTED by `readAssistantRunEvent`
-and the row disappears — which is why the contract entry is the first thing to
-add.
+Settled: no new kind for a second create path — it would need its own
+pairing-contract row and a second label vocabulary for the same fact.
+Evidence: `assistant-persistence/worktree-lifecycle-kinds.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/worktree-run-events.test.ts`.
 
-`worktree.created` carries a `metadata.via` discriminator with a CLOSED
-vocabulary (BST-1392), emitted by exactly three sites in
-`worktree-run-events.ts`: `'app'` and `'tool'` (`emitWorktreeCreateEvents`,
-`worktree-service.ts`'s single `create()`), `'adopt'`
-(`emitWorktreeAdoptedEvent`), and `'shell'` (`emitWorktreeShellCreatedEvent`,
-the correlator). No new run-event kind was added for any of these: a second
-kind would need its own pairing-contract row and a second label vocabulary for
-the same fact. `'app'` vs `'tool'` is not a second writer's opinion — the Mode
-chip's IPC handler and the `brainstrike.manageWorktree` tool executor both
-flow through the ONE `emitWorktreeCreateEvents` emitter, which derives the
-breadcrumb from the ledger row's `createdBy` (`'user'` → `'app'`, `'agent'` →
-`'tool'`), so the timeline can never disagree with `brainstrike_worktrees`
-about who created a worktree. Paired test:
-`apps/desktop/src/__tests__/assistant-server/worktree-run-events.test.ts`.
+### MCP DISCOVERY SKIP KIND
 
-Correlation reads the `executeCommand` TOOL RESULT, never the git-metadata
-watcher. `GitInventoryInvalidation` carries `{ gitCommonDir, repositoryRoot }`
-with no worktree path, no create-vs-remove discrimination, and a 300–2000 ms
-coalescing window — attributing that to a run would be a temporal guess. The
-correlator is fire-and-forget: it runs after the result exists and can never
-delay or fail the tool call.
+`mcp.tools.unavailable` records that a configured MCP server contributed ZERO
+tools to a run. It comes from the AGENT STREAM on the initial-turn seam, not a
+main-process writer, and reaches persistence through the ordinary run-event chunk
+path.
 
-A `git worktree remove` run in a shell is reported as a VANISHED ledger row,
-never archived: an archive carries a restorable snapshot and a shell removal
-produced none. The ghost row's "missing on disk — restore it or archive it"
-is the honest surface.
+- Status is always `'failed'`, never `'running'` (`NEVER_RUNNING`).
+- Membership in `isAlwaysVisibleRunEvent` is LOAD-BEARING: run-event rows are
+  hidden unless background activity or Developer detail is on, so a contract-only
+  addition would report nothing to the user it exists for. Nothing else cards this
+  fact, and carrying no `toolCallId` it needs no card-suppression exemption.
+- Emission scope is fresh turns ONLY; resume legs re-run discovery and re-emit
+  nothing.
 
-### MCP DISCOVERY SKIP KIND (BST-1602)
+Evidence: `assistant-persistence/mcp-discovery-skip-kind.md`.
+Guard: `packages/agent/src/__tests__/mcp-discovery-run-events.spec.ts`,
+`packages/assistant-ui/src/__tests__/assistant-run-event-pairing-contract.test.ts`.
 
-`mcp.tools.unavailable` is an additive `ASSISTANT_RUN_EVENT_KINDS` member
-recording that a configured MCP server contributed ZERO tools to a run —
-discovery lost its 5s timeout race, or that server's `listTools` failed. Unlike
-the worktree kinds it is emitted by the AGENT STREAM, not a main-process writer:
-`prependMcpDiscoverySkipChunks` yields it from
-`createStreamIteratorFromRuntime`, the initial-turn seam, so it reaches
-persistence through the ordinary run-event chunk path.
+### PROVIDER CALL-WARNING KIND
 
-Status is always `'failed'` and never `'running'`, so it declares no terminal
-and can never leave a row spinning. It is filed under `NEVER_RUNNING` in
-`assistant-run-event-pairing-contract.test.ts`; that guard's own comment notes
-it can force a kind to be CLASSIFIED but cannot check the classification against
-the emitter, so `packages/agent/src/__tests__/mcp-discovery-run-events.spec.ts`
-asserts the emitted status directly.
+`provider.request.warned` records that the provider did not carry a request out as
+written — AI SDK adapters drop a rejected setting and list it on `warnings`
+instead of returning 400, so a user-set `temperature` is simply ignored.
 
-It is in `isAlwaysVisibleRunEvent`, and that membership is LOAD-BEARING rather
-than incidental. Run-event rows are hidden unless background activity /
-Developer detail is on, so a kind added to the contract alone would still report
-nothing to the user it exists for — reproducing the silent degradation it was
-added to end. It passes that allowlist's "does anything else card this?" test
-cleanly: the tool never entered the run's map, so nothing cards it, and the
-"Tool execution failed." card the user does see belongs to the model's follow-up
-call on the missing tool and names the wrong cause. Carrying no `toolCallId` it
-needs no exemption from the card-suppression rule.
+- It is NOT a prelude: `drainProviderCallWarningChunks` drains it per part, so the
+  row lands as the adapter opens its stream and never after the finish chunk.
+- Status is always `'failed'` (`NEVER_RUNNING`), and it is in
+  `isAlwaysVisibleRunEvent` — LOAD-BEARING, because the turn completes normally
+  and this row is the only evidence the setting was dropped.
+- ONE row per DISTINCT bounded warning across supervisor and persona calls; a
+  distinct pinned model retains its own. Bound and redact provider-controlled
+  fields before the sink retains them, and again at presentation. Exceptional
+  termination drains captured warnings before propagating the original failure.
 
-`AssistantRunTimeline` needs no change: it renders `label`/`detail`/`status` and
-derives only a lifecycle colour from the kind prefix via `classifyRunEvent`,
-which falls through to `'lifecycle'` for any kind that is not `memory.*` /
-`tool.*`. As always, a kind missing from `ASSISTANT_RUN_EVENT_KINDS` is REJECTED
-by `readAssistantRunEvent` and the row disappears, which is why the contract
-entry is the first thing to add.
+Evidence: `assistant-persistence/provider-call-warning-kind.md`.
+Guard: `packages/agent/src/mastra/__tests__/provider-warning-run-events.spec.ts`.
+The capture-side contract is in `docs/agents/assistant-providers.md`.
 
-Emission scope is fresh turns ONLY. The approval- and suspend-resume legs call
-`runTurnAttempts` directly, so although a resume rebuilds the runtime and
-re-runs discovery, it re-emits nothing. See
-`docs/agents/assistant-providers.md` for the discovery-side contract.
+### DELEGATION LEDGER KIND
 
-### PROVIDER CALL-WARNING KIND (BST-1701)
+`delegation.ledger` is the user-facing status of a fan-out ("3 of 4 specialists
+returned · 1 running"), published on every background task lifecycle change and
+before every parent wakeup, built from DURABLE task rows — never in-memory sets.
 
-`provider.request.warned` is an additive `ASSISTANT_RUN_EVENT_KINDS` member
-recording that the provider did NOT carry a request out as written — every AI
-SDK adapter answers a setting the model rejects by DROPPING it and listing it on
-the call's `warnings` array instead of returning 400, so a user-set
-`temperature` from the Prompt Workbench is simply ignored on a model that
-refuses one.
+- **The ledger is scoped to a GENERATION** — the send or regeneration that opened
+  it — not a parent run, because one turn spans several native parent runs and
+  run-scoping left an initial leg's row never superseded. Migration 140 carries
+  that identity (`generation_run_id` plus `brainstrike_assistant_native_runs`). A
+  regeneration is its own generation, which is why `turn_message_id` cannot be it.
+- Shape: a FRESH `id` per row, the same `metadata.ledgerId`, and the counts.
+  Content-free by construction — prompts and failure reasons stay in the
+  model-facing wakeup.
+- `status` is `'running'` while anything runs and `'completed'` otherwise. A
+  failed specialist is a count in the label, never `run.failed`.
+- Rendering is LATEST-ROW-WINS and the lookup is RUN-AGNOSTIC: live parts carry no
+  `runId` while hydrated parts do, and the resume leg publishing the final row is
+  a different host run from the leg that published the stale one.
+- The publisher joins in-flight reads before a leg closes, so the final row is
+  never lost to a fast close. Classified SELF_SUPERSEDING; in
+  `isAlwaysVisibleRunEvent` (LOAD-BEARING).
 
-Rows identify the configured provider/model in the detail prefix and metadata.
-Identical warnings deduplicate per model within a run; a distinct pinned model
-retains its own warning. Origin fields use the same bounded redaction contract.
+Settled: one row updated in place is not available — the aui data part carries no
+`id`, and a repeated id would give every copy the first copy's plan.
+Evidence: `assistant-persistence/delegation-ledger-kind.md`.
+Guard: `packages/assistant-ui/src/__tests__/assistant-run-event-ledger.test.ts`.
 
-Like `mcp.tools.unavailable` it comes from the AGENT STREAM, not a main-process
-writer, and reaches persistence through the ordinary run-event chunk path. It is
-NOT a prelude: a call warning does not exist until the request has gone out, so
-`streamAttemptChunks` drains it per part
-(`drainProviderCallWarningChunks`), which lands the row as soon as the adapter
-opens its stream and never after the finish chunk that stops the consumer
-pulling. Status is always `'failed'`, never `'running'`, so it declares no
-terminal and cannot leave a row spinning; it is filed under `NEVER_RUNNING` in
-`assistant-run-event-pairing-contract.test.ts`, and the emitted status is
-asserted directly by
-`packages/agent/src/mastra/__tests__/provider-warning-run-events.spec.ts`.
+### DELEGATION BUDGET EXHAUSTED KIND
 
-It is in `isAlwaysVisibleRunEvent`, LOAD-BEARING for the same reason: the turn
-completes normally, so there is no failed tool, no error bubble and no card of
-any kind — this row is the only evidence the setting was dropped, and a row
-hidden at default detail would leave the silent degradation exactly as it was
-found.
+`delegation.budget.exhausted` is the breadcrumb that a delegated child's durable
+budget forced its reserved summary step.
 
-One row per DISTINCT bounded warning: the same rejection recurs on every step of a
-multi-step turn (it is a property of the request), and the sink dedupes it to
-one fact, one row across supervisor and persona calls. Provider-controlled
-fields are bounded/redacted before the sink retains them, and metadata and
-no-detail prose are bounded at presentation too. Exceptional termination drains
-captured warnings before propagating the original failure (BST-1745).
-The capture-side contract — including why the warnings are
-read at the MODEL rather than off a Mastra chunk — is in
-`docs/agents/assistant-providers.md`.
+- `projectSynthesisOutcome` turns the transient synthesis part into ONE run event
+  on the owning CHILD conversation — the single published, unfinished child on
+  that native thread. None or several is a contract break that THROWS, never a
+  dropped row.
+- `status` is always `'info'`: nothing runs, nothing pairs, and the child still
+  completes. It is deliberately neither a `.started` pair nor `run.failed`.
+- `metadata` carries ids and counts only (cap, limit, used, `synthesisForced`,
+  `truncated`, reserved and reported output tokens, parent call and persona ids).
+  In `isAlwaysVisibleRunEvent` (LOAD-BEARING).
 
-### DELEGATION LEDGER KIND (settled 2026-09-15)
+Evidence: `assistant-persistence/delegation-budget-exhausted-kind.md`.
+Guard: `packages/agent/src/__tests__/delegated-stream-projection.spec.ts`,
+`packages/assistant-ui/src/__tests__/run-events.test.ts`.
+Contract: `docs/agents/assistant-subagents.md` ("Child budgets are USER SETTINGS").
 
-`delegation.ledger` is the user-facing status of a fan-out: "3 of 4
-specialists returned · 1 running". The host idle loop
-(`background-idle-loop.ts`) and the resume stream (`background-resume.ts`)
-publish one row on EVERY background task lifecycle change and before every
-parent wakeup, built by `makeBackgroundLedgerChunk` (`background-ledger.ts`)
-from the DURABLE task rows (`manager.listTasks` filtered to the parent run
-ids the leg observed), never from in-memory sets alone.
+### PERMISSION GATE RESOLVED KIND AND PER-STEP FINISH REASON
 
-Shape: a FRESH `id` per row and the same `metadata.ledgerId` (the parent run
-that dispatched the work) plus the counts (`returned`, `failed`,
-`cancelled`, `running`, `total`); `label` is the sentence, `detail` lists
-"<persona> <state>" per invocation. Content-free by construction: the
-delegation prompt and a failure's reason are workspace text and stay in the
-model-facing wakeup (the sanitizer would also drop a `prompt` key). `status`
-is `'running'` while anything runs and `'completed'` otherwise; a failed
-specialist is a count in the label, never `run.failed` (the turn is healthy
-and `data-stream-mapper` derives `thread_runs.error` from that kind).
+`permission.gate.resolved` records the permission gate a leg's Agent was BUILT
+with, emitted ONCE per fresh root leg on the stream prelude and only when a policy
+snapshot gated the run (`MastraAgentRuntime.permissionGate` is a REQUIRED
+`PermissionGateSummary | null`). Resume legs pass `preludeChunks: []` and persona
+children re-gate, so neither emits one.
 
-It reaches persistence through the ordinary run-event chunk path
-(`processMastraStreamPart` passes a host-published `run-event` through, the
-desktop writer upserts by id). Rendering is LATEST-ROW-WINS: the render plan
-hides every earlier row of the same `ledgerId` (`isSupersededLedgerRow` and
-the indexed `ledgerId` scope in `assistant-run-event-derivation.ts`), in the
-same message or a later one, so a live thread shows one row that updates in
-place and a reloaded thread shows the final state. The lookup is
-RUN-AGNOSTIC (`isRunAgnosticScopeKind`): live parts carry no `runId` but
-hydrated parts do, and the resume leg that publishes the final row is a
-different host run from the initial leg that published the stale one — a
-run-scoped index would keep "2 of 4 · 2 running" visible after reload
-(paired: "supersedes across host runs on reload" in
-`assistant-run-event-ledger.test.ts`). Why not one row updated in place: the
-aui data part carries no `id` (`handleRunEvent`), and the batched derivation
-keys statuses by event id, so a repeated id would give every copy the first
-copy's plan. The publisher joins in-flight reads before a leg closes
-(`createLedgerPublisher.idle`) so the "4 of 4" row is never lost to a fast
-close. Classified SELF_SUPERSEDING in
-`assistant-run-event-pairing-contract.test.ts` (no terminal list); in
-`isAlwaysVisibleRunEvent` (LOAD-BEARING — hidden at default detail it would
-report the status to nobody). A settled message whose newest ledger row is
-still `running` (a parked root that closed with a child parked) reads
-`interrupted` until the next leg's row supersedes it; the pending card on
-the thread says why.
+- Metadata carries the policy snapshot, session grants, `yolo`, `defaultRisk`,
+  override count, and the kept-ask / denied / storage-omitted tool sets. No key
+  may contain `session`: `sanitizeAssistantRunEventMetadata` drops such keys at
+  publication and at storage.
+- Status `'completed'`, never `'running'` (`NEVER_RUNNING`). Deliberately NOT in
+  `isAlwaysVisibleRunEvent`: it explains why an approval card appeared, and the
+  card is the user-facing surface.
+- `run.step.finished` metadata carries the step's own `finishReason`, added at
+  that mint and NOT in `makeStepMetadata`. Why: the shared helper also feeds
+  `run.started`, `run.steered` and the steered `run.finished`, which must not
+  report the step's `tool-calls` while its finish chunk reports `stop`. The
+  no-value sentinel `'absent'` is never written.
 
-### DELEGATION BUDGET EXHAUSTED KIND (settled 2026-09-15)
+Evidence: `assistant-persistence/permission-gate-resolved-kind.md`.
+Guard: `packages/agent/src/mastra/__tests__/permission-gate-run-events.spec.ts`,
+`permission-gate-prelude.spec.ts`, `step-finish-reason-run-events.spec.ts`.
 
-`delegation.budget.exhausted` is the breadcrumb that a delegated child's
-durable budget forced its reserved summary step; without it the child tab shows
-silence where the user needs "ran out of steps". The budget processor streams a
-transient `data-brainstrike-delegated-synthesis` part on the synthesis step;
-`delegated-stream-projection.ts` (`projectSynthesisOutcome`) turns it into ONE
-run event on the owning CHILD conversation — the single published, unfinished
-child on that native thread; none or several is a contract break that throws,
-never a dropped row — and `persistDelegatedRunEvent` stores it like every
-delegated run event, so the debug pack's `runEvents` section carries it.
-
-Shape: `status` is always `'info'` — nothing runs, nothing pairs, and the child
-still completes — so it is classified never-running in
-`assistant-run-event-pairing-contract.test.ts`, and it is deliberately neither a
-`.started` pair nor `run.failed`. `label` states the cap and the numbers
-("Subagent step budget exhausted (31 of 32); summary reserved and truncated");
-`metadata` carries `cap` (`steps` / `child-output` / `tree-output`), `limit`,
-`used` (in that cap's unit), `synthesisForced` (always `true` on this path),
-`truncated` (whether the model then cut the summary), `reservedOutputTokens`,
-`parentToolCallId`, `personaId`, and `outputTokens` when the provider reported
-it — ids and counts only. In `isAlwaysVisibleRunEvent`, LOAD-BEARING for the
-reason spelled out on `mcp.tools.unavailable`: hidden at default detail it would
-report the exhaustion to nobody. Paired: `run-events.test.ts`,
-`assistant-run-timeline.test.tsx`, `delegated-stream-projection.spec.ts`
-("projects a synthesis part") and the harness row "a child whose synthesis is
-cut returns a truncated summary the root can use"
-(`background-worker-policy.integration.spec.ts`). Contract:
-docs/agents/assistant-subagents.md ("Child budgets are USER SETTINGS").
-
-### PERMISSION GATE RESOLVED KIND AND PER-STEP FINISH REASON (2026-09-15)
-
-`permission.gate.resolved` is an additive `ASSISTANT_RUN_EVENT_KINDS` member:
-the permission gate a leg's Agent was BUILT with. It is emitted ONCE per fresh
-root leg on the stream prelude beside `mcp.tools.unavailable`
-(`makePermissionGateResolvedChunks` in `permission-gate-run-events.ts`, prelude
-in `attempt-legs.ts`), and only when a policy snapshot gated the run:
-`MastraAgentRuntime.permissionGate` is a REQUIRED `PermissionGateSummary | null`,
-where null means no policy. Resume legs pass `preludeChunks: []` and persona
-children re-gate inside `buildPersonaSubAgents`, so neither emits one.
-
-Metadata: `policies`, `grantedCategories` (the snapshot's session grants),
-`yolo`, `defaultRisk` (null when unset), `overrideCount`, `askTools` (the KEPT
-ask set the live gate suspends), `deniedTools`, and `omittedAskTools` (ask tools
-the storage fail-safe dropped because nothing could resume an approval). No key
-may contain `session`: `sanitizeAssistantRunEventMetadata` drops such keys at
-publication and at storage. Status `'completed'`, never `'running'`
-(`NEVER_RUNNING`). Deliberately NOT in `isAlwaysVisibleRunEvent`: it explains why
-an approval card appeared, and the card is the user-facing surface. Paired:
-`permission-gate-run-events.spec.ts` (shape, detail, sanitizer survival),
-`permission-gate-prelude.spec.ts` (real runtime assembly: gated turn,
-storage-less omission, no policy), `permission-tool-gate.spec.ts` (denied
-tools), `run-events.test.ts` and `assistant-run-timeline.test.tsx`.
-
-`run.step.finished` metadata carries the step's own `finishReason`
-(`readFinishReason` over Mastra's `payload.stepResult.reason`), so a
-`length`-cut step is visible without waiting for the terminal event. It is added
-at the `run.step.finished` mint (`makeStepFinishedMetadata`), NOT in
-`makeStepMetadata`: that helper also feeds `run.started`, `run.step.started`,
-`run.steered`, the steered `run.finished` and the stream-termination rows, and a
-steered `run.finished` must not report the step's `tool-calls` while its finish
-chunk reports `stop`. The reader's no-value sentinel `'absent'` is never
-written. Paired: `step-metadata-finish-reason.spec.ts` and
-`step-finish-reason-run-events.spec.ts` (including the steered turn).
-
-### SWARM DIAGNOSTICS TABLES (migration 139)
+### SWARM DIAGNOSTICS TABLES
 
 `brainstrike_assistant_prompt_manifests`, `brainstrike_delegated_wakeups` and
-`brainstrike_delegated_live_decisions` are append-only debug-pack evidence. The
-runtime never reads them and they are never runtime authority. The desktop host
-writes them through `DelegatedConversationBinding.recordPromptManifest`,
-`recordWakeup` and `recordLiveDecision` (`delegated-conversation-host.ts` over
-`swarm-diagnostics-records.ts`); `createLiveDecisionLog` records the
-`/assistant/decide` outcomes only the endpoint sees. Writers cap text
-(`PROMPT_MANIFEST_LIMITS`, `WAKEUP_DIRECTIVE_MAX_CHARS`) and key-redact every
-jsonb value with `redactSensitiveLogValue` before insert; the pack scrubs value
-shapes at export. The host logs a failed or run-missing write with a code
-(`swarm_diagnostic_record_failed`, `swarm_diagnostic_record_run_missing`,
-`live_decision_log_failed`, `live_decision_log_run_missing`) and resolves, so a
-database failure never fails the leg: the same policy as run-event persistence.
+`brainstrike_delegated_live_decisions` (migration 139) are append-only debug-pack
+evidence. The runtime never reads them and they are never runtime authority.
 
-All three reference the ROOT host run with `ON DELETE CASCADE`. A
-`child-first-step` manifest is named by the DISPATCHING thread, and its
-`native_run_id` / `parent_tool_call_id` equal the invocation's
-`parent_runtime_run_id` / `parent_tool_call_id`; `thread-debug-snapshot.ts` joins
-it into a child's subtree through that invocation.
-`brainstrike_delegated_continuations` remains the HUMAN wake-admission ledger:
-never write a model wakeup into it. Storage, reset and deletion ownership:
-docs/agents/database.md ("Swarm diagnostics evidence"). Paired:
-`swarm-diagnostics-records.integration.test.ts`,
-`delegated-conversation-host.integration.test.ts`, `live-decision-log.test.ts`,
-`thread-debug-snapshot.integration.test.ts` and `thread-debug-pack.test.ts`.
+- Writers cap text and key-redact every jsonb value with `redactSensitiveLogValue`
+  before insert; the pack scrubs value shapes at export.
+- A failed or run-missing write is logged with a code and resolves: a database
+  failure never fails the leg, the same policy as run-event persistence.
+- All three reference the ROOT host run with `ON DELETE CASCADE`. A
+  `child-first-step` manifest is named by the DISPATCHING thread and joins into a
+  child's subtree through the invocation.
+- `brainstrike_delegated_continuations` remains the HUMAN wake-admission ledger:
+  never write a model wakeup into it.
 
-### Threads-panel active-run projection (BST-1244)
+Storage, reset and deletion ownership: `docs/agents/database.md` ("Swarm
+diagnostics evidence").
+Evidence: `assistant-persistence/swarm-diagnostics-tables.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/swarm-diagnostics-records.integration.test.ts`,
+`live-decision-log.test.ts`, `thread-debug-snapshot.integration.test.ts`.
 
-The Threads panel derives its running indicators directly from
-`brainstrike_assistant_thread_runs` through ONE resource-scoped PGlite live
-query (`packages/app-shell/src/use-active-assistant-thread-ids.ts`). It does not
-own a second activity store, poll, or subscribe once per row. The query selects
-the distinct thread ids whose durable status is `running`; the virtualized row
-surface only performs `Set.has(thread.id)` for visible rows.
+### Threads-panel active-run projection
 
-This makes all existing lifecycle writers authoritative for the indicator:
-renderer-created runs appear after their durable insert; completed, failed, and
-cancelled runs clear after their terminal update; thread deletion clears via
-the existing cascade; and startup orphan sweeps clear pre-boot crash rows
-through the same status transition. Desktop runs the sweep in main before the
-renderer can create work. Web has no surviving run owner across reloads, so the
-Threads-panel projection runs the shared boot-time predicate after schema
-bootstrap and before starting its live query. It uses the navigation time
-origin, not hook mount time, so opening or remounting the panel cannot classify
-a current-page long run as an orphan. Desktop skips the renderer sweep because
-its main-process stream can survive a renderer reload and reattach.
+The panel derives running indicators from `brainstrike_assistant_thread_runs`
+through ONE resource-scoped PGlite live query
+(`packages/app-shell/src/use-active-assistant-thread-ids.ts`). No second activity
+store, no polling, no per-row subscription; the virtualized surface only does
+`Set.has(thread.id)`, which makes every existing lifecycle writer authoritative.
 
-Once schema bootstrap has succeeded for a database handle, the subscription
-stays enabled across transient thread-list loading states (including thread
-creation) and only resets when the handle changes. Sweep, subscription, or
-row-shape failures clear possibly stale indicators and render an explicit
-unavailable state instead of silently presenting every thread as idle. The
-spinner is a labelled graphic rather than a live region, avoiding repeated
-screen-reader announcements as virtualized rows mount, and keeps a static
-active treatment under reduced motion.
+- Web runs the shared boot-time predicate after schema bootstrap and before
+  starting the live query, using the navigation time origin rather than hook mount
+  time, so remounting cannot classify a current-page long run as an orphan.
+  Desktop skips the renderer sweep: its main-process stream survives a reload.
+- Keep the subscription enabled across transient thread-list loading states; reset
+  only when the handle changes.
+- Sweep, subscription or row-shape failures clear possibly stale indicators and
+  render an explicit unavailable state — never silently present every thread as
+  idle.
+- The spinner is a labelled graphic, not a live region, and keeps a static active
+  treatment under reduced motion.
 
-Paired coverage: `packages/app-shell/src/__tests__/threads-panel.test.tsx` and
-the concurrent-run case in `apps/web/e2e/assistant-ui-panel.test.ts`.
+Evidence: `assistant-persistence/threads-panel-active-run-projection.md`.
+Guard: `packages/app-shell/src/__tests__/threads-panel.test.tsx`, the
+concurrent-run case in `apps/web/e2e/assistant-ui-panel.test.ts`.
 
-### Threads-panel awaiting-approval projection (BST-1404)
+### Threads-panel awaiting-approval projection
 
-The panel's second — and last — live query,
-`packages/app-shell/src/hooks/use-threads-awaiting-approval.ts`, answers "which
-threads are parked on a tool approval the user has not answered", under the same
-BST-1244 discipline: one resource-scoped subscription for the whole list, no
-second activity store, no polling, no per-thread round trip. This is the reason
-the durable `tool.approval.requested` row exists at all; rediscovering a pause
-from the Mastra suspended-workflow snapshot is per-thread and cannot answer a
-list-wide question.
+`packages/app-shell/src/hooks/use-threads-awaiting-approval.ts` is the panel's
+second and last live query, under the same one-subscription discipline. This is
+why the durable `tool.approval.requested` row exists: rediscovering a pause from
+the Mastra snapshot is per-thread and cannot answer a list-wide question.
 
-Three rulings the SQL depends on (do not relitigate):
-
-- **Resolution is paired on `metadata->>'toolCallId'`, run-agnostically.** The
-  approval-resume leg mints its OWN runId and `thread_runs` row, so the
-  `tool.started` / `tool.completed` / `tool.failed` / `tool.resume.unsupported`
-  that answers a pause carries a DIFFERENT `run_id` than the pause. `sequence`
-  is per-run and meaningless across the two legs, so ordering is never expressed
-  as a comparison. A pause row with a NULL `toolCallId` is excluded — nothing
-  could ever answer it, and `NULL = NULL` inside the `NOT EXISTS` would pin the
+- **Resolution pairs on `metadata->>'toolCallId'`, run-agnostically.** The resume
+  leg mints its own run, so the answering event carries a different `run_id`, and
+  `sequence` is per-run and meaningless across legs. A pause row with a NULL
+  `toolCallId` is excluded; `NULL = NULL` inside the `NOT EXISTS` would pin the
   badge forever.
-- **An answer must OCCUR AFTER the pause it answers, and that comparison is the
-  whole ordering guard.** Mastra's approval gate runs INSIDE `toolCallStep`,
-  i.e. after the model's `tool-call` part has already streamed; that part maps
-  to `status: 'start'` (`packages/agent/src/mastra/tool-event-mapper.ts`) and so
-  to a `tool.started` run event carrying the SAME `toolCallId`, emitted BEFORE
-  the pause row. The observed live order is
-  `['tool.started', 'tool.approval.requested']`, pinned against the real
-  `@mastra/core` approval loop in
-  `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`.
-  Pairing `tool.started` on `toolCallId` alone therefore let every pause answer
-  ITSELF, and the "needs you" glyph never lit for anyone. The guard is
-  `AND answer.occurred_at > requested.occurred_at`. `sequence` could not serve
-  (it is per-run, so it is meaningless across the two legs), but `occurred_at`
-  is wall-clock from one process and IS comparable across them. A tie fails the
-  comparison and so counts as NOT an answer — the safe direction, because it
-  keeps an obligation lit rather than silently dropping one. The three terminal
-  kinds could not be emitted by the pausing leg anyway, so the guard only ever
-  binds on `tool.started`.
+- **An answer must OCCUR AFTER the pause it answers** —
+  `AND answer.occurred_at > requested.occurred_at` is the whole ordering guard,
+  because Mastra's gate runs inside `toolCallStep` after the `tool-call` part
+  streamed, so a `tool.started` with the same `toolCallId` precedes the pause row.
+  A tie fails the comparison and counts as NOT an answer: the safe direction. A
+  `run_id`-shaped exclusion is wrong whenever one step holds two gated calls.
+- **The query does NOT read `thread_runs.status`.** A leg that pauses finishes
+  `completed` while the obligation outlives it, so filtering on `running` would
+  make the projection permanently EMPTY. For the same reason it needs no web
+  startup-reap gating; it is gated on `schemaReady` alone.
+- `tool.started` counts as a resolution HERE and deliberately not in
+  `assistant-run-event-derivation.ts`: the timeline asks whether the pause reached
+  a terminal state, the panel asks whether the user still has to answer.
+- Both sides of the anti-join are served by two PARTIAL indexes on
+  `brainstrike_assistant_run_events`, living in migration 118 and nowhere else.
+  Why: every pre-existing index leads with `thread_id` or `run_id`, so without
+  these the query full-scanned the largest assistant table twice per notify.
 
-  IT USED TO BE `run_id`-SHAPED (`AND NOT (answer.kind = 'tool.started' AND
-  answer.run_id = requested.run_id)`), on the reasoning that the runs already
-  carry the ordering: a call's pre-pause start shares its pause's run, and only
-  a post-approve start is on a different one. **That premise is false whenever
-  one step holds TWO gated calls**, and it was corrected in BST-1440's review.
-  `foreach(toolCallStep)` is sequential, so Mastra pauses on A alone while B's
-  `tool-call` part has ALREADY streamed: leg 1 emits `tool.started` for BOTH,
-  and B does not reach its own gate — or its own pause row — until leg 2. B's
-  pre-pause start is therefore on a DIFFERENT run than B's pause, the same-run
-  exclusion never fired for it, and B's own pre-pause start answered B's pause:
-  the glyph went dark while the user was still genuinely being asked about B.
-  The producer shape is pinned by "PAUSES ONE CALL AT A TIME" in the approval
-  spec above; the projection outcome by "keeps the thread lit when a SECOND
-  gated call pauses on the resume leg" in
-  `packages/app-shell/src/__tests__/use-threads-awaiting-approval.integration.test.ts`.
-  The defect PREDATES BST-1440 — under the older producer it merely surfaced
-  later, once `tool.completed` cleared the first pause, which that lane also
-  pins.
+Settled: all three rulings; do not relitigate.
+Evidence: `assistant-persistence/threads-panel-approval-projection.md`.
+Guard: `packages/app-shell/src/__tests__/use-threads-awaiting-approval.test.ts`
+(query text) and `use-threads-awaiting-approval.integration.test.ts` (real PGlite
+outcome over production-writer rows).
 
-  THE RE-YIELD IS REAL, and only became so in BST-1440. Mastra never replays a
-  resumed step's `tool-call` part (`approveToolCall` delegates to
-  `resumeStream`, which re-executes `toolCallStep` with `messages: []`; the one
-  `tool-call` replay inside that step is gated on a background-task manager
-  Brainstrike does not register — @mastra/core 1.59). `makeResumedStartChunks`
-  (`packages/agent/src/mastra/agent-streaming.ts`) therefore SYNTHESISES the
-  start chunk for every pending call of the resumed step, and routes it through
-  `makeToolLifecycleRunEventChunk` — the same single seam the mainline
-  `tool-call` part reaches through `mapGenericToolEvent`, so the `tool.started`
-  run event cannot ship on one path and not the other. Before that it shipped
-  only on the mainline, this exclusion clause was dead weight, and the glyph
-  cleared when the approved tool FINISHED rather than when the user answered —
-  masking the truthful Running state for the whole execution. The resume-leg
-  emission is pinned against the live approval loop in
-  `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`;
-  the projection outcome is pinned in
-  `packages/app-shell/src/__tests__/use-threads-awaiting-approval.integration.test.ts`.
-- **The query does NOT read `thread_runs.status`.** A leg that pauses for
-  approval finishes with `finishReason: 'tool-calls'`, which every terminal
-  writer records as `status = 'completed'`, while the user's obligation and the
-  suspended Mastra snapshot both outlive that row. Filtering on
-  `status = 'running'` would make this projection permanently EMPTY. For the
-  same reason it needs no web startup-reap gating (unlike the active-run
-  projection above): the reap only corrects stale `running` rows, and this query
-  reads none. It is gated on `schemaReady` alone — which since BST-1651 means
-  the thread repository's schema probe has passed, not that a renderer
-  bootstrap has created `brainstrike_assistant_run_events`. Migration 118
-  creates that table.
+### RUN ERROR PROVIDER FORENSICS
 
-Note that `tool.started` counts as a resolution HERE and deliberately does not
-in `assistant-run-event-derivation.ts`: the timeline asks whether the pause row
-has reached a terminal state (a still-executing tool has not), while the panel
-asks whether the user still has to answer (a tool that started was approved).
+`brainstrike_assistant_run_errors` (migration 076) is the durable
+one-row-per-run provider failure summary, deliberately separate from the run-event
+timeline: `run_events` describes lifecycle presentation, `run_errors` retains
+terminal classification and bounded provider response evidence.
 
-Both sides of that anti-join are served by two PARTIAL indexes on
-`brainstrike_assistant_run_events` — `…_approval_pause_idx`
-`(resource_id, thread_id) WHERE kind = 'tool.approval.requested'` and
-`…_approval_answer_at_idx`
-`(resource_id, thread_id, (metadata->>'toolCallId'), occurred_at)` over the four
-answer kinds (`occurred_at` trails so the postdating comparison above stays on
-the index). Every pre-existing index on that table leads with `thread_id` or
-`run_id`, so without these the query full-scanned the largest assistant table
-twice on every `run_events` notify. They live in **migration 118** and nowhere
-else, alongside the `DROP INDEX IF EXISTS` that retires the pre-BST-1440
-`run_id`-shaped answer index — `CREATE INDEX IF NOT EXISTS` keys off the NAME,
-so an install carrying the old one is upgraded by that DROP and the renamed
-CREATE, which is the same upgrade path as 118's `turn_message_id` ADD COLUMN.
+- The table is FK-less and stays that way; the parent link is enforced in code.
+  `AssistantRunErrorRepository.record` derives `thread_id` and `resource_id` from
+  the durable parent run — callers provide neither — and a missing parent returns
+  no row and THROWS.
+- A conflict on `run_id` returns the existing row only while the parent still
+  exists, so independent terminal writers are first-terminal-wins and can never
+  overwrite the original classification. An already-stored orphan is not accepted
+  as a successful duplicate.
+- Desktop catches that loud failure at the stream integration boundary and records
+  it with run and event ids. It MUST remain observable and MUST NOT replace the
+  original provider-failure stream.
+- The row has NO `attempts` field: current Mastra error processors expose neither
+  the complete attempt sequence nor the actual rate-limit wait. The application
+  boundary owns content bounds and the response-header allowlist; the database
+  independently CHECKs JSON shape and HTTP status.
+- With no FK, lifecycle is explicit: thread deletion removes run errors before
+  their parent runs, and all three table-enumerating reset paths clear the table
+  before Mastra threads.
 
-Paired coverage: `packages/app-shell/src/__tests__/use-threads-awaiting-approval.test.ts`
-(query text) and `…/use-threads-awaiting-approval.integration.test.ts` (real
-PGlite: the SELECT's OUTCOME over rows seeded through the production repository
-writers, including the cross-run resolution, the per-thread/per-resource
-scoping, and the paused-run-row-is-`completed` case that a status-correlated
-query would fail — a substring assertion cannot catch that class of error).
-
-### RUN ERROR PROVIDER FORENSICS (Flight Recorder P3)
-
-`brainstrike_assistant_run_errors` is the durable one-row-per-run provider
-failure summary (migration 076, registered in both runners and sole author
-since BST-1651 retired the bootstrap mirror). It is deliberately
-separate from both the run-event timeline and app-wide diagnostic events:
-`run_events` describes lifecycle presentation, while `run_errors` retains the
-terminal classification and bounded provider response evidence needed for
-forensics.
-
-The table is FK-less, a shape inherited from when the parent was created at
-runtime and NOT revisited by BST-1651. Migration 118 now creates
-`brainstrike_assistant_thread_runs`, so an FK has become expressible — but none
-is declared, and nothing is scheduled to declare one. The parent link is
-enforced in code, not by the schema, and the paragraph below is that
-enforcement; do not read the FK's absence as an oversight. The canonical
-`AssistantRunErrorRepository.record` therefore derives `thread_id` and
-`resource_id` from the durable renderer-minted parent run; callers provide
-neither. A missing parent returns no row and THROWS. A conflict on `run_id`
-returns the existing row only while the parent still exists, so independent
-terminal writers are first-terminal-wins and can never overwrite the original
-classification. An already-stored orphan is not accepted as a successful
-duplicate.
-
-Desktop catches that loud repository failure at the stream integration boundary
-and records `Failed to persist assistant provider failure forensics` with the
-run and event ids. The failure MUST remain observable, but it MUST NOT replace
-the original provider-failure stream (for example when a thread is deleted
-mid-run). The run-event timeline write immediately before it retains its
-existing flush semantics.
-
-The row contains `code`, nullable `message`, nullable array-shaped
-`cause_chain`, nullable `http_status`, nullable `provider_request_id`, nullable
-object-shaped allowlisted `response_headers`, and `occurred_at`. It has NO
-`attempts` field: current Mastra error processors expose neither the complete
-attempt sequence nor the actual rate-limit wait, so an attempts array would be
-fabricated/incomplete data. The application extraction boundary owns content
-bounds and the literal response-header allowlist; the database independently
-CHECKs JSON shape and HTTP status.
-
-With no FK, lifecycle is explicit: `deleteThread` / `deleteThreads` remove run
-errors before their parent runs, and all three table-enumerating reset paths
-(desktop `db:clearAll`, renderer direct clear, renderer factory-reset purge)
-clear the table before Mastra threads. Paired tests:
-`packages/db/__tests__/migration-076-assistant-run-errors.test.ts`,
-`packages/db/__tests__/assistant-run-error-repository.test.ts`,
-the thread-deletion cases in
-`packages/assistant-data/src/__tests__/assistant-memory-repository.integration.test.ts`,
-and the desktop/renderer clear integration suites.
+Evidence: `assistant-persistence/run-error-forensics.md`.
+Guard: `packages/db/__tests__/migration-076-assistant-run-errors.test.ts`,
+`assistant-run-error-repository.test.ts`.
 
 ---
 
-## SYNC-THE-MIND OP-LOG SEAM (BST-993)
+## SYNC-THE-MIND OP-LOG SEAM
 
-Per the 2026-07-28 BST-911 ruling, future sync covers the "mind" —
-threads/memory/prompts — never vectors/HNSW. The groundwork laid here is a
-tombstone seam, deliberately nothing more (no engine choice, no write-path op
-emission — that is engine territory):
+Future sync covers the "mind" — threads, memory, prompts — never vectors or HNSW.
+What exists is a tombstone seam and deliberately nothing more: no engine choice,
+no write-path op emission.
 
-- **Where state lives:** `brainstrike_mind_ops` (migration 079 in BOTH
-  runners; migration-owned since BST-1651 retired the repository's bootstrap
-  mirror). Append-only:
-  `seq BIGSERIAL` is the lamport-ish local order; `entity_kind` ∈
-  {`thread`, `prompt_item`} and `op` = `delete` are CHECK-constrained on
-  purpose — widening the vocabulary is a conscious migration, never a drift
-  channel. Thread tombstones capture `resource_id` from the delete's own
-  RETURNING — the workspace scope is unrecoverable once the thread row is
-  gone, and a per-resource sync engine could never partition the log after
-  the fact (nullable: prompt items are global). Sidecar-not-ALTER: Mastra
-  owns the `mastra_*` schema and its lazy tables have no evolution
-  mechanism.
-- **Tombstones derive FROM the log.** No `deleted_at` columns anywhere: rows
-  still physically disappear, so the thread-search orphan GC's anti-join and
-  the readonly sandbox role's visibility rules are untouched.
-- **One cascade spec.** `THREAD_DELETE_SIDECAR_TABLES` (assistant contract,
-  `mastra-memory-schema`) is the ordered thread-delete cascade over the
-  Brainstrike sidecars. All THREE delete implementations derive from it: the
-  single-thread CTE, the bulk CTE (previously drifted in both stage-set and
-  order), and the Mastra `MemoryStorage.deleteThread` override (previously
-  deleted only the three Mastra tables). The single-thread CTE now owns the
-  placements stage itself instead of relying on the panel's separate
-  `clearThreadPlacement` round trip.
-- **Ops record actual deletions.** Each path inserts one `thread` op per
-  thread row it actually deleted (idempotent deletes emit nothing; a rejected
-  bulk delete emits nothing). `PromptItemRepository.delete` emits
-  `prompt_item` ops the same way. The standalone Mastra store probes the
-  app-owned sidecars with `to_regclass` (a bare store legitimately lacks
-  them and has no seam to feed); on a migrated database every probe passes.
-- **Delegated branches:** all three paths use `DELEGATED_THREAD_DELETE_CTES`
-  to include descendant native threads and their sidecars. It validates the
-  complete live ancestry and descendants before selecting any deletion target;
-  a changed owner/resource rejects the whole command. Parent/sibling threads
-  outside a selected subtree survive. Artifact bytes match either root read
-  ownership or native execution identity; both thread-search index/state tables
-  and saved workspaces are deleted in the same cascade. Run/event rows cascade
-  through native foreign keys. Numeric usage remains historical spend, not
-  saved transcript data. Queued workspace saves require the still-existing
-  exact native owner. Rejected outgoing saves evict the snapshot cache; a
-  still-active save failure reaches navigation with its exact resource/thread
-  identity. It invalidates only that owner's readiness and reports a matching
-  pending navigation error. A late rejection from an unmounted coordinator
-  cannot invalidate a different owner's ready workspace or pending navigation.
-  Other write failures remain errors. Overlapping bulk
-  requests emit each tombstone once. The desktop
-  `delegated-thread-deletion.integration.test.ts` exercises all three real-PGlite
-  paths, including rejected deletions.
-- **Reset:** registered in the reset registry — the op-log is cleared with
-  the mind it describes on all three clear paths.
+- **State:** `brainstrike_mind_ops` (migration 079), append-only. `entity_kind ∈
+  {thread, prompt_item}` and `op = delete` are CHECK-constrained on purpose —
+  widening the vocabulary is a conscious migration, never a drift channel. Thread
+  tombstones capture `resource_id` from the delete's own RETURNING, because the
+  workspace scope is unrecoverable once the row is gone.
+- **Tombstones derive FROM the log.** No `deleted_at` columns anywhere: rows still
+  physically disappear, so the search orphan GC's anti-join and the read-only
+  sandbox role's visibility rules are untouched.
+- **One cascade spec.** `THREAD_DELETE_SIDECAR_TABLES` is the ordered thread-delete
+  cascade, and all THREE delete implementations derive from it — the single-thread
+  CTE (which also owns the placements stage), the bulk CTE, and the Mastra
+  `MemoryStorage.deleteThread` override.
+- **Ops record actual deletions:** one `thread` op per row actually deleted;
+  idempotent and rejected deletes emit nothing. The standalone Mastra store probes
+  the app-owned sidecars with `to_regclass`.
+- **Delegated branches** use `DELEGATED_THREAD_DELETE_CTES`, which validate the
+  complete live ancestry and descendants before selecting any target; a changed
+  owner or resource rejects the whole command. Parent and sibling threads outside
+  a selected subtree survive, numeric usage remains historical spend, and
+  overlapping bulk requests emit each tombstone once.
+- **Reset:** registered in the reset registry, so the op-log is cleared with the
+  mind it describes on all three clear paths.
 
-Paired tests: `migration-079-mind-ops-log.test.ts`, the tombstone cases in
-`assistant-memory-repository.integration.test.ts`,
-`pglite-memory-store.integration.spec.ts`, and
-`prompt-item-repository.test.ts`.
+Evidence: `assistant-persistence/mind-ops-log.md`.
+Guard: `packages/db/__tests__/migration-079-mind-ops-log.test.ts`,
+`apps/desktop/src/__tests__/assistant-server/delegated-thread-deletion.integration.test.ts`.
 
-## STALE TOOL-PROJECTION REWRITE OVERLAYS (BST-1192, LAYER 1)
+## STALE TOOL-PROJECTION REWRITE OVERLAYS
 
-Desktop native workspace inspection history is compacted at the transient
-provider-request boundary without mutating Mastra-owned message content.
+Desktop workspace inspection history is compacted at the transient
+provider-request boundary without mutating Mastra-owned content.
 
-- **Where state lives:**
-  `brainstrike_assistant_tool_projection_rewrites` (migration 084 plus the
-  migration-087 `kind` extension, sole authors since BST-1651 retired the
-  bootstrap mirror — that mirror declared `kind` inline, so a bootstrapped
-  database had it at ordinal 5 where a migrated one has it at ordinal 8; no FKs
-  because migrations run without Mastra's lazy tables). `tool_call_id` is the
-  primary key; `thread_id` owns cleanup; `rewrite_id` groups one committed
-  batch for diagnostics; `superseded_by_tool_call_id` is the live-evidence
-  guard; `marker_text` is the exact compact replay; `original_chars` records
-  the decoded model-projection character count (BST-1195 ruler) used for
-  diagnostics. The table is registered in the reset registry and the shared
-  thread-delete sidecar cascade.
-- **Detection and batching are desktop-local and restart-safe.** After a
-  successful `readWorkspaceFile` or `grepSearch`, and after a successful
-  `writeWorkspaceFile` or `stringReplaceWorkspaceFile`, desktop scans the
-  thread's visible persisted tool invocations and excludes calls already in
-  the overlay. Resolved-file identity is canonical `rootId` plus workspace path
-  (root-name fallback exists only for legacy persisted results that predate
-  `rootId`). Overlapping reads supersede earlier reads; either supported edit
-  supersedes all earlier reads of that file; an identical normalized grep
-  pattern/scope supersedes the earlier grep. Persisted unchanged-read dedup
-  stubs are neither candidates nor superseders. Read markers name a later read
-  only when one exists; edit-superseded markers direct the model to re-read, and
-  multi-root markers use the same unambiguous root-label rule as the live read
-  projector. No in-memory pending queue exists. Reclaimable size is measured in
-  DECODED characters (BST-1195's `decodedWorkspaceTextModelOutputChars` ruler —
-  code points in the projected model-facing text plus the fixed envelope
-  reserve, never `JSON.stringify(...).length`), matching the SAME ruler the
-  live `readWorkspaceFile`/`grepSearch` projectors self-fit against, so the
-  64 KiB batch threshold below reflects the actual model-facing saving rather
-  than an inflated JSON-escaped approximation. It is still an honest character
-  approximation, never token-exactness. Predicate matching is cheap; model
-  projections are built once, only for a winning pair. One transaction commits
-  the whole pending batch only at 65,536 reclaimable decoded characters or
-  more; below threshold it writes nothing. Detection/commit is post-success
-  optimization bookkeeping: any failure is logged and the already successful
-  tool result remains successful. Malformed persisted records warn ONCE per
-  process, not once per scan (BST-1248): a module-scope memo keyed by
-  `tool_call_id` dedupes the WARN ONLY — every scan still re-parses, because
-  `read`/`grepKey` feed supersession detection in both directions and a
-  record that fails one consumer's stricter contract must keep acting as the
-  superseder of other, valid records (gating the parse silently lost their
-  reclamation; review-caught, pinned by the A/X/L geometry test). Before the
-  memo, one bad record re-warned on every subsequent tool call in the thread
-  (139 duplicates from a single record in the 2026-08 audit). The first
-  encounter always warns; distinct records warn independently; past a
-  distinct-record ceiling ONE summary warning
-  (`tool_projection_rewrite_malformed_history_suppressed`) announces
-  suppression instead of an eviction cliff
-  (`tool-projection-rewrite-repository.test.ts` pins all of it). Candidate
-  size is measured from the PERSISTED model output
-  (`providerMetadata.mastra.modelOutput`, the same source recency pruning
-  reads), never by re-projecting the raw result (BST-1249): re-projection
-  re-applies the DEFAULT domain budget, smaller than the loop-guard/scaled
-  budget some runtimes used, so legitimately-large historical reads threw
-  RangeError and were mislabeled malformed on every scan — the 2026-08
-  audit's three "malformed" records were exactly this. Only legacy rows
-  without a persisted model output re-project, under the CEILING scaled
-  budget.
-- **Replay rewriting is surgical and transient.** The agent-side Mastra input
-  processor receives the fully built AI-SDK prompt and replaces only matching
-  `tool-result.output` values with text markers. It runs before provider-history
-  compatibility and the final contiguous token limiter. An absent desktop
-  lookup capability omits the processor; an empty lookup or inert diff returns
-  `undefined` and preserves the golden path.
-- **Rewind self-heals without undo state.** Before applying X's overlay
-  (`superseded_by_tool_call_id = Y`), the processor verifies that Y is still
-  present somewhere in the CURRENT prompt. Mastra's five rewind-aware read
-  paths have already removed tombstoned messages by this point. If rewind hid
-  Y, X replays its original durable content; no stored invocation result was
-  ever overwritten, so there is no content-loss or rollback log.
-- **A committed batch resets loop guards for the same thread scope.** Desktop
-  calls `resetToolCallLoopGuards(readStateScope(runtimeData))` only after a
-  transaction inserted overlay rows. This prevents an unchanged-read dedup
-  stub from referring to evidence the new batch will collapse. Below-threshold
-  scans do not reset the guards.
+- **State:** `brainstrike_assistant_tool_projection_rewrites` (migrations 084 +
+  087), `tool_call_id` PK, `thread_id` owning cleanup,
+  `superseded_by_tool_call_id` the live-evidence guard, `marker_text` the exact
+  compact replay. Registered in the reset registry and the sidecar cascade.
+- **Detection is desktop-local, post-success and restart-safe.** After a
+  successful read, grep, write or string-replace, scan the thread's visible
+  persisted invocations and exclude calls already in the overlay. Identity is
+  canonical `rootId` plus workspace path. Either supported edit supersedes all
+  earlier reads of that file; an identical normalized grep pattern/scope
+  supersedes the earlier grep (`filePaths: null` means omitted). Dedup stubs are neither candidates nor superseders,
+  and no in-memory pending queue exists.
+- Measure reclaimable size in DECODED characters — the same ruler the live
+  projectors self-fit against, never `JSON.stringify(...).length`. Commit the whole
+  pending batch in one transaction only at 65,536 reclaimable decoded characters
+  or more; below threshold write nothing. Any failure is logged and the successful
+  tool result stays successful.
+- Measure candidate size from the PERSISTED model output
+  (`providerMetadata.mastra.modelOutput`), never by re-projecting the raw result.
+  Why: re-projection re-applies the smaller DEFAULT domain budget, so
+  legitimately-large historical reads threw and were mislabeled malformed. Only
+  legacy rows without a persisted model output re-project.
+- Warn ONCE per process per malformed record, not once per scan, and keep
+  re-parsing every scan — a record failing one consumer's stricter contract must
+  still act as the superseder of valid records. Past a distinct-record ceiling emit
+  ONE summary warning rather than an eviction cliff.
+- **Replay rewriting is surgical and transient.** The Mastra input processor
+  replaces only matching `tool-result.output` values with text markers, before
+  provider-history compatibility and the final token limiter. An absent lookup
+  capability omits the processor; an empty lookup or inert diff preserves the
+  golden path.
+- **Rewind self-heals without undo state:** verify the superseder is still present
+  in the CURRENT (already tombstone-filtered) prompt; if rewind hid it, replay the
+  original durable content. No stored result was ever overwritten.
+- Reset loop guards for the thread scope ONLY after a transaction inserted rows.
 
-## RECENCY-WINDOW TOOL-PROJECTION PRUNING (BST-1200, LAYER 2)
+Evidence: `assistant-persistence/tool-projection-supersession.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/tool-projection-rewrite-repository.test.ts`.
 
-Layer 2 reuses Layer 1's transient overlay and never mutates Mastra message
-content.
+## RECENCY-WINDOW TOOL-PROJECTION PRUNING
 
-- **State and replay kind:** migration 087 adds CHECK-constrained
-  `kind IN ('supersession', 'prune')`, makes
-  `superseded_by_tool_call_id` nullable, and ties the two with a second CHECK:
-  supersession requires a non-null superseder; prune requires NULL. Existing
-  rows backfill to `supersession`. The processor keeps Layer 1's
-  current-prompt superseder-presence gate only for supersession rows. A prune
-  row applies whenever its own call remains in the already-tombstone-filtered
-  prompt; rewinding unrelated later messages does not make age-selected
-  evidence fresh again. Migration 087's `down` deletes every `kind = 'prune'`
-  row before restoring the migration-084 `NOT NULL` on
-  `superseded_by_tool_call_id` — those rows are a rebuildable transient
-  overlay, so dropping them on rollback is correct, and without the delete
-  `SET NOT NULL` fails outright once any prune row exists.
-- **Deterministic selection:** desktop measures each persisted
-  `providerMetadata.mastra.modelOutput` projection with
-  `decodedPersistedModelOutputChars` — `decodedTextModelOutputChars` for
-  `type: 'text'`/`type: 'content'` shapes, and the same ruler applied to the
-  `toJsonSafe`-serialized value for `type: 'json'` shapes (the artifact
-  reader's `buildModelPage()` and artifact settlement's
-  `createArtifactOutputs()` both persist `json`, and artifact spill is
-  precisely the large-output path pruning targets — treating it as malformed
-  would silently disable pruning on exactly the threads with the most to
-  reclaim). Only a genuinely unknown shape throws. An invocation persisted
-  before `providerMetadata.mastra.modelOutput` existed (`modelOutput ===
-  undefined`) is skipped from the size walk entirely, matching how
-  `projection-safe-tool-call-filter.ts`/`projection-aware-token-limiter.ts`
-  already treat absence as normal — never a pass-aborting throw.
-  `TOOL_PROJECTION_PRUNE_PROTECT_WINDOW_TOKENS` (40,000) protects whole
-  invocations overlapping the newest window, derived as 160,000 decoded chars
-  through `APPROX_CHARS_PER_TOKEN = 4`. `TOOL_PROJECTION_PRUNE_MIN_RECLAIM_TOKENS`
-  (20,000) gates the sum of decoded full-result-minus-marker savings, likewise
-  derived as 80,000 chars. Below the floor the pass writes nothing. Repeated
-  Mastra snapshot copies of one `toolCallId` keep their latest projection and
-  count once. Eligibility is an explicit ALLOWLIST of read-only, cheap-to-
-  re-run native tools (`grepSearch`, `readWorkspaceFile`, `globWorkspace`,
-  `hybridSearch`, `queryEmbeddingSpace`, `querySelf`, `queryDiagnostics`,
-  `listWorkspaceContext`, `readWorkspaceDirectory`, `findWorkspaceSymbol`,
-  `lspInspect`, `webSearch`, `webExtract`, `readToolOutputArtifact`,
-  `skill_search`, `inspectCommandSessions`) — never a denylist — so every new
-  or future native tool is exempt by default. Mutating/interactive tools
-  (`writeWorkspaceFile`, `executeCommand`, `runPython`, `runSkillScript`,
-  `askUser`, `manageCanvas`, `manageTaskList`, …) are ineligible: re-running
-  one is either not idempotent (a mutation repeats) or not what the marker
-  implies (`askUser`/`submitPlan` suspend for a NEW answer), and their
-  projections are tiny, so the reclaim is near zero against a real downside.
-  `skill` and `skill_read` stay unconditionally exempt (their output IS the
-  working skill body a later turn may still need); `skill_search` differs —
-  its output is a disposable search-result list, so it is allowlisted like
-  `grepSearch`. This allowlist is deliberately narrower than and NOT derived
-  from `tool-risk.ts`'s `'read'` risk bucket, which several exempt tools
-  (`askUser`, `submitPlan`, `manageTaskList`, `manageCanvas`) also resolve to
-  for the unrelated reason that they don't mutate workspace/fs state.
-- **Current turn is an explicit persisted boundary:** the scan uses the latest
-  visible persisted user message, matching the runtime's last-real-user turn
-  anchor. Assistant rows after that anchor are current-turn rows, and every
-  tool-call id they carry or reference is ineligible even if an earlier
-  snapshot repeats it. With no visible user anchor, every assistant row is
-  conservatively current. Current-turn results still participate in the
-  newest-window size walk, but can never become candidates.
-- **Markers are generic and visible:** one line names the canonical native tool
-  id, a 12-hex SHA-256 digest of `stableNormalizedArgsKey(args)`, and directs
-  the model to re-run the tool. Raw invocation args/results stay byte-identical
-  in `mastra_messages`.
-- **Trigger and commit:** the scan runs after successful executions at Layer
-  1's existing four decoration points (`grepSearch`, `readWorkspaceFile`,
-  `stringReplaceWorkspaceFile`, `writeWorkspaceFile`). This keeps one
-  deterministic post-success path and fixed-count SQL reads; it adds no job,
-  queue, LLM call, or per-invocation query. One transaction inserts the batch
-  with `ON CONFLICT (tool_call_id) DO NOTHING`, so replay scans cannot
-  double-prune. Only an actually inserted prune batch resets
-  `resetToolCallLoopGuards(readStateScope(runtimeData))`, preventing dedup stubs
-  from pointing at newly collapsed evidence, and emits the structured
-  `tool_projection_prune_batch_committed` log with row and reclaimed-char
-  totals.
+Layer 2 reuses Layer 1's transient overlay and never mutates Mastra content.
 
-## CONVERSATION REWIND TOMBSTONES (BST-1115)
+- **State:** migration 087 adds CHECK-constrained
+  `kind IN ('supersession', 'prune')` tied to `superseded_by_tool_call_id`
+  (supersession requires one, prune requires NULL); existing rows backfill to
+  `supersession`. A prune row applies whenever its own call remains in the
+  tombstone-filtered prompt; rewinding unrelated later messages does not make
+  age-selected evidence fresh. Migration 087's `down` deletes prune rows before
+  restoring `NOT NULL`.
+- **Selection is deterministic.** `decodedPersistedModelOutputChars` handles
+  `text`/`content` and `toJsonSafe`-serialized `json` shapes — artifact spill is
+  precisely the large output pruning targets. Only a genuinely unknown shape
+  throws, and an invocation persisted before `modelOutput` existed is skipped from
+  the size walk, never a pass-aborting throw.
+- `TOOL_PROJECTION_PRUNE_PROTECT_WINDOW_TOKENS` (40,000) protects whole
+  invocations overlapping the newest window and
+  `TOOL_PROJECTION_PRUNE_MIN_RECLAIM_TOKENS` (20,000) gates the reclaim sum, both
+  derived through `APPROX_CHARS_PER_TOKEN = 4`. Below the floor the pass writes
+  nothing; repeated snapshot copies of one `toolCallId` count once.
+- **Eligibility is an explicit ALLOWLIST of read-only, cheap-to-re-run native
+  tools — never a denylist** — so every new tool is exempt by default. Mutating or
+  interactive tools are ineligible: re-running one is either not idempotent or not
+  what the marker implies, and their projections are tiny. `skill` and
+  `skill_read` stay unconditionally exempt; `skill_search` is allowlisted. The list
+  is deliberately narrower than and NOT derived from `tool-risk.ts`'s `'read'`
+  bucket.
+- **Current turn is an explicit persisted boundary:** anchor on the latest visible
+  persisted user message. Assistant rows after it are current-turn and ineligible
+  even if an earlier snapshot repeats the id; with no visible anchor every
+  assistant row is conservatively current. Current-turn results still count in the
+  size walk.
+- Markers name the canonical tool id, a 12-hex digest of the normalized args key,
+  and direct the model to re-run. Raw args and results stay byte-identical in
+  `mastra_messages`.
+- Commit at Layer 1's four decoration points with
+  `ON CONFLICT (tool_call_id) DO NOTHING`, so replay scans cannot double-prune. It
+  adds no job, queue, LLM call or per-invocation query. Only an actually inserted
+  batch resets loop guards and emits `tool_projection_prune_batch_committed`.
 
-Soft rewind hides a contiguous suffix of a thread without destroying it, so a
-one-level redo is exact and the messages only die when the next user message
-finalizes the rewind.
+Evidence: `assistant-persistence/tool-projection-pruning.md`.
 
-- **Where state lives:** `brainstrike_assistant_message_tombstones` (migration
-  080 in BOTH runners, sole author since BST-1651 retired the bootstrap
-  mirror; no FKs — migration 055 message-parents precedent). Columns:
-  `message_id` (PRIMARY KEY), `thread_id`, `rewind_id` (NOT NULL),
-  `revert_id` (NULLABLE), `tombstoned_at`. Indexed on `(thread_id)` for the
-  read-path anti-join and `(rewind_id)` for batch redo. Registered in
-  `THREAD_DELETE_SIDECAR_TABLES` (all three thread-delete cascades derive from
-  it) and in the reset registry.
-- **Two batch ids, because rewind has a scope choice.** `applyRewind` takes
-  `mode: 'conversation-only' | 'conversation-and-files'`. `rewind_id` is the
-  tombstone batch identity and the redo key, present in BOTH modes;
-  `revert_id` links the paired file restore (since W7 T3: the `pre-revert`
-  snapshot ledger rows recorded under `run_id = revert_id`) and is NULL
-  for `conversation-only`, which performs no file revert at all. One shared
-  column would force either a fabricated revert id or a nullable redo key —
-  and a nullable redo key is how a batch gets lost.
-- **`message_id` is the primary key on purpose.** A message is tombstoned at
-  most once, by exactly one batch — that is what makes "delete the newest
-  `rewind_id` batch" an exact inverse. A second rewind re-covering an already
-  hidden message keeps the ORIGINAL batch's row (`ON CONFLICT DO NOTHING`), so
-  undoing the newer rewind cannot resurrect what the older one hid.
-- **THE FILE-REVERT RANGE PREFERS THE STORED RUN↔TURN LINK** (BST-1163):
-  `brainstrike_assistant_thread_runs.turn_message_id` (nullable; created by
-  MIGRATION 118, whose `ADD COLUMN IF NOT EXISTS` is the upgrade path for
-  installs that predate BST-1163) records the user message whose turn each run
-  belongs to. Because the chain guarantees the column, the main-process
-  `information_schema` COLUMN probe that used to guard every read of it was
-  retired by BST-1651 — `resolveRewindRunRange` and `resolveRewindMessageForRun`
-  now reference `turn_message_id` unconditionally, and NULL-link rows are
-  handled by the query's own `CASE`, not by a schema branch. It is
-  stamped at `createThreadRun` — the transport resolves the per-leg turn
-  anchor (`resolveTurnAnchorMessageId` in `data-stream-runtime.ts`: the last
-  REAL user message, approval action echoes excluded) and threads it through
-  `prepareRequest`/`prepareRequestData`, so initial sends AND
-  approval/suspend resume legs stamp the SAME id. `resolveRewindRunRange`
-  puts a linked run in range exactly when its turn message is at-or-after
-  the target in the message total order, and `resolveRewindMessageForRun`
-  answers a linked run's own turn message exactly (closing the documented
-  mid-turn under-coverage). NULL-link rows (pre-link, or a link whose
-  message a finalized rewind deleted) keep the `completed_at` fallback
-  below. Paired tests: `rewind-turn-link.integration.test.ts` +
-  `assistant-thread-run-turn-link.integration.test.ts`.
+## CONVERSATION REWIND TOMBSTONES
 
-  **THE FALLBACK ANCHORS THE TARGET MESSAGE AGAINST `completed_at`**
-  (`resolveRewindRunRange`): a run is in range when it had not yet finished at
-  the moment the target message was sent. **A TURN IS NOT ONE RUN** — every
-  tool-approval / askUser resume mints another `brainstrike_assistant_thread_runs`
-  row through `prepareRequestData` -> `createThreadRun`, while the turn's
-  assistant message row is persisted at the START of the turn and upserted in
-  place as it streams on. The original rule anchored on the message PRECEDING
-  the target and compared `started_at`, which swept the previous turn's resume
-  runs into the revert; the 2026-08-05 live smoke reverted a run that started 81
-  seconds BEFORE the message rewound to, and because that run's capture was a
-  `created` row the revert DELETED the user's file. `completed_at` also settles
-  the boundary the old rule was built around: a run row is minted milliseconds
-  BEFORE its own user message is persisted, so `started_at` cannot order them,
-  but the run always ends later. NULL `completed_at` counts as in range and is
-  unreachable from `applyRewind` (`hasInFlightThreadRun` refuses first).
-  **Run -> message round-trips through the stored link** for every post-link
-  row; only NULL-link fallback rows retain the old mid-turn under-coverage
-  (`resolveRewindMessageForRun` maps such a resume run to the next turn's
-  message — the safe direction, and the modal shows the resolved range).
-- **A REWIND IS INVISIBLE WITHOUT A RE-HYDRATION BUMP.** Every read path below
-  excludes tombstoned messages, but the live assistant thread is not a read
-  path — it is assistant-ui in-memory state, hydrated ONCE by
-  `ThreadHistoryAdapter.load()` when the runtime mounts. The 2026-08-05 live
-  smoke applied a rewind, wrote its tombstones, reverted its files, and the user
-  watched an unchanged conversation over a Changes surface still listing the
-  reverted files. `useRewindStore.generation` (app-shell) is the fix: bumped on
-  a successful apply AND a successful redo, forwarded as the panel's
-  `historyGeneration` prop into the data-stream runtime's `key`, and read by
-  `useChangeset` as a load input. A bump remounts the runtime, which re-runs
-  hydration against the filtered query, and re-resolves the changeset view.
-  **Discarding the live thread's in-memory state is the point**, not collateral:
-  post-rewind the durable state IS the truth. It is deliberately NOT folded into
-  `threadKey` — per-thread state (follow-up queue, `ActiveThreadKeyContext`,
-  viewport pinnedness) is keyed by that and must survive a rewind, including the
-  composer text the rewind just repopulated. The modal bumps BEFORE handing text
-  to `useRewindComposerStore`, because `RewindComposerBridge` lives inside the
-  remounted runtime and it is the new instance that must drain it.
-- **RESTORES DELETE FILES, SO THEY MUST PRUNE DIRECTORIES.** A turn that
-  scaffolds a project creates directories no ledger row (and no snapshot tree
-  entry) names. The 2026-08-05 smoke round 2 rewound a scaffolded React app
-  and got every file unlinked over an intact folder tree. The rule survived
-  the W7 engine swap in `pruneEmptyAncestorDirectories`
-  (`snapshot-restore-plan.ts`, shared by the rewind restore plan and the
-  checkpoint undo's `restorePathsFromSnapshot`): after deleting a
-  restore-plan-absent path, walk UP from its parent removing each now-empty
-  directory, stopping at the first `rmdir` refusal (ENOTEMPTY = something the
-  run did not create) and unconditionally at the workspace root. Failures are
-  swallowed: the file is already gone and a leftover directory must not
-  report a successful restore as failed. KNOWN LIMITATION, accepted: an
-  intentionally-empty pre-existing directory on the created file's exact path
-  is indistinguishable from a scaffolded one and will be pruned.
-- **CAPTURE SCOPE: SHELL SIDE EFFECTS ARE COVERED NOW.** The W7 snapshot
-  engine captures everything between turn boundaries — assistant-tool edits
-  AND shell side effects (`npm install`'s `package-lock.json`, a build's
-  `dist/`) — so the old `REWIND_SHELL_CAPTURE_QUALIFIER` copy ("files created
-  by shell commands aren't restored") became UNTRUE and was DELETED in T4
-  with its `rewind-copy.ts` module; `rewind-confirm-dialog.test.tsx` pins its
-  ABSENCE. The honest states that remain are the ones that still occur:
-  "this turn predates workspace snapshots" (conversation-only rewind,
-  `REWIND_TURN_PREDATES_SNAPSHOTS_MESSAGE` in `rewind-snapshot-engine.ts`,
-  reused as the checkpoint-undo unavailability reason) and per-turn
-  capture-failed refusals.
-- **Mastra stays the writer of message content.** Nothing here alters a
-  `mastra_*` table; hiding is an anti-join in Brainstrike-owned reads, and the
-  finalizing hard delete goes through Mastra's own `deleteMessages` storage
-  API. **FIVE read paths apply the exclusion — they are separate seams, and
-  four of them do NOT share a WHERE clause with the first:**
-  1. `PgliteMemoryStore.listMessagesWhere` — `listMessages` /
-     `listMessagesByResourceId`. Exclusion sits in the shared `where[]`, so
-     the COUNT and the page query agree and `total`/`hasMore` describe the
-     VISIBLE set. Observational memory reads messages ONLY through these two
-     entry points, so this one clause covers all of OM.
-  2. `PgliteMemoryStore.findMessageRowById` — semantic recall's include
-     TARGETS. Recall reaches messages via `listMessages({ include })`, which
-     never passes its targets through the main WHERE clause. A hidden target
-     resolves to null and `appendIncludedMessages` skips the whole item, so it
-     contributes no neighbour window either.
-  3. `PgliteMemoryStore.listAdjacentThreadMessageRows` — the include NEIGHBOUR
-     window. **TRUNCATES at a tombstone; it does NOT skip over one.**
-     `withPreviousMessages: 2` means "the two messages immediately before the
-     hit". Filtering hidden rows out of the WHERE clause would silently
-     redefine that as "the two nearest VISIBLE messages" — reaching further
-     back than asked, splicing two never-adjacent turns into one window and
-     inflating the token budget the recall config was tuned against. The rows
-     are flagged in place and cut at the first hidden one: less context, never
-     fabricated context.
-  4. `assistant-data assistant-memory-repository.listMessages` — the renderer
-     hydration window. The exclusion is INSIDE the windowing subquery so it
-     applies before `limitLatest`: the window is the latest N VISIBLE
-     messages. This query is also what a reload runs, which is why a rewind
-     survives a restart with no renderer-side state at all.
-  5. `db thread-search-repository` — Explorer search, `fullTextSearch` and
-     `searchSimilar`. A message hidden from its thread must not surface as a
-     hit that navigates nowhere. **Applied to the SEARCH ARMS only**, never to
-     `sync` / `refreshActiveThreads` / `getCoverage`: the index row and its
-     embedding deliberately stay put so redo restores visibility instantly
-     instead of owing a re-embed, and because the sync membership fast path
-     compares `COUNT(*) FROM mastra_messages` against the index count —
-     skipping tombstoned rows on insert would hold those counts permanently
-     unequal AND the orphan GC (which keys off a MISSING source row) would
-     never converge. Finalization deletes the message through Mastra and the
-     GC reaps the index row on its own.
-- **Sidecar presence is PROBED in `PgliteMemoryStore`, not assumed.** That
-  class's `initialize()` creates only the Mastra schema, so a standalone store
-  legitimately lacks the table (same reason `deleteThread` probes its cascade
-  tables). `to_regclass` answers, and the result is latched TRUE only —
-  caching "absent" would leave a store built before migrations ran ignoring
-  every rewind for the life of the process. The app-shell repository and the
-  db repository both assume the table: they run against a bootstrapped /
-  migrated database by construction.
-- **KNOWN LIMITATION — OM residue (accepted; do not try to fix).**
-  Observations the observer ALREADY distilled from a message survive that
-  message being tombstoned, so the model can still carry a summary of a hidden
-  turn. Mastra exposes no partial un-observe — only `clearObservationalMemory`,
-  which would discard the whole thread's memory to erase one turn. Do NOT
-  scrub observation text; that is guesswork over prose the observer wrote.
-- **FINALIZATION — where it runs, and what triggers it (W5 T4b).**
-  `finalizeThreadRewinds` lists a thread's tombstones, hard-deletes those
-  messages through `PgliteMemoryStore.deleteMessages`, and drops the sidecar
-  rows. It lives in MAIN because everything it touches does: the store is
-  constructed in `assistant-server/mastra-memory.ts` (main), the sidecar is
-  written only by `assistant-server/rewind-repository.ts` (main), and the
-  renderer holds no store instance at all — a renderer-side finalization could
-  only reach `mastra_messages` with raw SQL, which is exactly the second-writer
-  the read-path rules above forbid. `createRewindFinalizationDeps` builds a
-  BARE `PgliteMemoryStore` over the main database rather than a full
-  `createPgliteMastraMemory`, which throws without an embedder under some
-  memory settings; `deleteMessages` needs only the database handle.
-  - **The trigger is renderer-side, over `changes:finalizeRewinds`.** A
-    USER-AUTHORED message starting a NEW run — the conjunction of the composer
-    submit and the run-creation seam. See the RUN-CREATION SEAM section in
-    `assistant-runtime.md` for why one signal alone is wrong in both directions.
-  - **The delete runs FIRST and its failure PROPAGATES**, so a thread whose
-    messages could not be removed keeps its tombstones and stays hidden.
-    Dropping the sidecar rows anyway would resurrect a rewound conversation
-    silently. The CALLER never blocks the send on it: the failure is logged and
-    toasted, and the next send retries.
-  - **Idempotent and serialized per thread.** A thread with nothing outstanding
-    answers `finalized: false` and writes nothing, so a double fire is free.
-    `withThreadRewindLock` serializes finalization against `redoRewind`,
-    because they are the two ways a batch stops existing and both are one click
-    away from each other. Redo re-reads its batch INSIDE the lock so it can
-    LOSE: a redo racing a committed finalization returns the typed
-    `rewind-not-found` refusal before touching a file, instead of reverting the
-    files and reporting success over an empty restore set.
-- **No `mind_ops` row, by ruling.** `brainstrike_mind_ops.entity_kind` is
-  CHECK-constrained to {`thread`, `prompt_item`} and widening that vocabulary
-  is a conscious migration for when a sync engine is actually chosen (BST-993,
-  above) — a tombstone is not a deletion at all, and the finalizing message
-  delete follows the existing precedent that per-message deletes emit no op.
+Soft rewind hides a contiguous suffix without destroying it, so one-level redo is
+exact and the messages die only when the next user message finalizes.
 
-Paired tests: `migration-080-assistant-message-tombstones.test.ts` (both
-runners, indexes, the at-most-once invariant, the conversation-only NULL
-`revert_id` shape, the NOT NULL `rewind_id`, reset registration),
-`pglite-memory-store-tombstones.integration.spec.ts` (one case per store seam,
-the window-truncation contract, redo, reload, and the presence-probe latch),
-the `soft-rewind tombstone hydration` cases plus the thread-delete cascade case
-in `assistant-memory-repository.integration.test.ts`, the `soft-rewind
-tombstones` cases in `search-thread-message-index.test.ts`, and the clear/reset
-sentinels in `clear-data.integration.test.tsx` and
-`ipc-handlers-db-clear-all.integration.test.ts`. Finalization adds the
-`finalizeThreadRewinds` and `redoRewind vs finalizeThreadRewinds` cases in
-`rewind-service.integration.test.ts` (idempotency, double-fire, the redo race
-in either order), the `changes:finalizeRewinds` cases in
-`rewind-ipc-handlers.integration.test.ts`, and the two renderer-trigger suites
-named in `assistant-runtime.md`.
+- **State:** `brainstrike_assistant_message_tombstones` (migration 080, FK-less):
+  `message_id` PK, `thread_id`, `rewind_id` NOT NULL, `revert_id` NULLABLE,
+  `tombstoned_at`; indexed on `(thread_id)` for the read anti-join and
+  `(rewind_id)` for batch redo. In `THREAD_DELETE_SIDECAR_TABLES` and the reset
+  registry.
+- **Two batch ids, because rewind has a scope choice.** `rewind_id` is the batch
+  identity and redo key in BOTH modes; `revert_id` links the paired file restore
+  and is NULL for `conversation-only`. One shared column would force a fabricated
+  revert id or a nullable redo key — and a nullable redo key is how a batch gets
+  lost.
+- **`message_id` is the primary key on purpose:** a message is tombstoned at most
+  once by exactly one batch, which is what makes "delete the newest batch" an exact
+  inverse. A re-covering rewind keeps the ORIGINAL row.
+- **Prefer the stored run↔turn link for the file-revert range.**
+  `thread_runs.turn_message_id` (nullable, created by MIGRATION 118) records the
+  user message whose turn each run belongs to, stamped at `createThreadRun` from
+  the last REAL user message (echoes excluded), so initial sends and both resume
+  paths stamp the SAME id. Because the chain guarantees the column, reference it
+  unconditionally — no `information_schema` probe.
+- **The fallback anchors the target message against `completed_at`:** a run is in
+  range when it had not yet finished when the target was sent. A TURN IS NOT ONE
+  RUN. Why: the old `started_at` rule swept the previous turn's resume runs into
+  the revert and once DELETED a user's file; a run row is minted milliseconds
+  before its own user message, so `started_at` cannot order them. NULL
+  `completed_at` counts as in range and is unreachable from `applyRewind`.
+- **A rewind is invisible without a re-hydration bump.** Bump
+  `useRewindStore.generation` on a successful apply AND redo, forward it as the
+  panel's `historyGeneration` into the runtime `key`, and read it in
+  `useChangeset`. Discarding the live thread's in-memory state is the point.
+  Deliberately NOT folded into `threadKey`: per-thread state must survive a
+  rewind. The modal bumps BEFORE handing text to `useRewindComposerStore`.
+- **Restores delete files, so they must prune directories.**
+  `pruneEmptyAncestorDirectories` walks up from a deleted path removing now-empty
+  directories, stopping at the first `rmdir` refusal and unconditionally at the
+  workspace root; failures are swallowed. Known accepted limitation: an
+  intentionally-empty pre-existing directory on a created file's path is pruned.
+- **Capture scope covers shell side effects now**, so the old "files created by
+  shell commands aren't restored" copy is UNTRUE, deleted, and its absence pinned.
+  The honest remaining states are "this turn predates workspace snapshots" and
+  per-turn capture-failed refusals.
+- **Mastra stays the writer of message content.** Nothing alters a `mastra_*`
+  table; hiding is an anti-join in Brainstrike-owned reads and the finalizing hard
+  delete goes through Mastra's own `deleteMessages`. **FIVE read paths apply the
+  exclusion and four do not share a WHERE clause with the first:**
+  `listMessagesWhere` (covers all of OM), `findMessageRowById` (recall include
+  targets), `listAdjacentThreadMessageRows` (the neighbour window — TRUNCATES at a
+  tombstone, never skips over one), the renderer hydration window (inside the
+  windowing subquery, so the window is the latest N VISIBLE messages), and
+  `thread-search-repository`'s SEARCH ARMS only — never `sync`,
+  `refreshActiveThreads` or `getCoverage`, so redo restores visibility without
+  owing a re-embed and the membership fast path and orphan GC still converge.
+- **Probe sidecar presence in `PgliteMemoryStore`, never assume it**, and latch the
+  `to_regclass` result TRUE only; caching "absent" would leave a store built before
+  migrations ran ignoring every rewind for the process lifetime.
+- **Finalization runs in MAIN** over a BARE `PgliteMemoryStore`, because the store,
+  the sidecar writer and the delete all live there and a renderer-side
+  finalization could only reach `mastra_messages` with raw SQL. Its trigger is
+  renderer-side over `changes:finalizeRewinds`: a USER-AUTHORED message starting a
+  NEW run.
+- The delete runs FIRST and its failure PROPAGATES, so a thread whose messages
+  could not be removed keeps its tombstones and stays hidden. The caller never
+  blocks the send: log, toast, retry on the next send.
+- Finalization is idempotent and serialized per thread with `withThreadRewindLock`;
+  redo re-reads its batch INSIDE the lock so it can LOSE, returning
+  `rewind-not-found` before touching a file.
 
-## AGENTIC CONVERSATION COMPACTION (BST-1200, MILESTONE 2)
+Settled: OM residue survives a tombstone and is accepted — Mastra exposes no
+partial un-observe, and scrubbing observation text is guesswork. No `mind_ops` row,
+by ruling: a tombstone is not a deletion.
+Evidence: `assistant-persistence/rewind-tombstones.md`.
+Guard: `packages/db/__tests__/migration-080-assistant-message-tombstones.test.ts`,
+`packages/agent/src/pglite-mastra-memory/__tests__/pglite-memory-store-tombstones.integration.spec.ts`,
+`apps/desktop/src/__tests__/assistant-server/rewind-service.integration.test.ts`,
+`rewind-ipc-handlers.integration.test.ts`.
 
-Milestone 2 adds a durable, visible compaction pass on top of Milestone 1's
-transient recency pruning (Layer 2, above). Where Layer 1/2 rewrite individual
-tool-result projections without ever touching Mastra message content,
-Milestone 2 introduces a durable **compaction summary message** and a
-**message-range overlay** that excludes already-summarized raw messages from
-the provider prompt — while leaving every raw message physically unchanged in
-`mastra_messages` and fully visible in thread history/scrollback.
+## AGENTIC CONVERSATION COMPACTION
 
-- **Trigger:** before each request, the previous run's durable prompt baseline
-  (`systemInstructionsTokens + taskListTokens + toolDefinitionsTokens`) is
-  added to the current conversation-message estimate and checked against 90%
-  of the same `deriveEffectiveInputBudget` denominator the context-usage meter
-  (BST-940) uses. Milestone 1's recency
-  pruning runs first (it already fires at its own trigger points); compaction
-  only proceeds if usage is STILL ≥ 90% of the effective input budget after
-  pruning has had a chance to reclaim. Target is ~70% of the same budget. Both
-  percentages are computed against the identical
-  `agentLoopSettings.inputTokenLimit` denominator the meter uses, so a
-  90%-trigger accounts for the same prompt categories the streaming ring adds.
-  No previous calibration row, or a failed lookup, uses baseline 0 with an
-  observable debug log and therefore preserves the pre-091 first-turn
-  behavior. A baseline already at/above the 70% target warns and no-ops the
-  agentic path for that turn to avoid repeated pruning toward an unreachable
-  target; deterministic provider-overflow recovery remains available.
-  BST-1707 made the denominator claim above TRUE in code:
-  `resolveCompactionInputBudget` (apps/desktop/src/assistant-server/conversation-compaction.ts)
-  now RETURNS `runtimeData.agentLoop.inputTokenLimit` whenever the run carries
-  one, instead of re-deriving a second budget from the catalog's hard
-  `maxOutputTokens`. The two disagreed wherever the request path reserves less
-  output than the model's maximum — OpenRouter caps its reservation at
-  `OPENROUTER_CODING_MAX_OUTPUT_TOKENS` (32,000), so 49 of 57 OpenRouter rows
-  compacted against a budget SMALLER than the run's (`meta/muse-spark-1.3`:
-  52,429 vs the run's 964,147), and `moonshotai/kimi-k3`
-  (contextWindow === maxOutputTokens) made the derivation THROW — swallowed by
-  `runConversationCompactionBeforeStream`, so that recommended coding model
-  silently got no pre-request compaction at all. Never re-derive a second
-  budget here: one derivation, three consumers. The catalog derivation stays
-  ONLY as the fallback for runs that carry no `agentLoop`; a PRESENT but
-  unusable `inputTokenLimit` throws rather than quietly resolving to a
-  different number (the desktop assistant HTTP path does not sanitize
-  `agentLoop`). Paired test:
-  `apps/desktop/src/__tests__/assistant-server/conversation-compaction-input-budget.test.ts`.
-- **Persistence — no new enum, a metadata marker (matches the
-  `approval-action-message.ts` precedent):** the summary is an ordinary
-  `role: 'assistant'` Mastra message whose `metadata.custom` carries a
-  well-known key (`brainstrikeCompactionSummary`), validated by a strict guard
-  mirroring `ACTION_MARKER_GUARD_BY_KEY`. The payload records `{ rewriteId,
-  fallbackKind: 'agentic' | 'deterministic', firstCompactedMessageId,
-  lastCompactedMessageId, droppedSummaryLine?, createdAt }`. Migration 088 adds
-  `brainstrike_assistant_compaction_ranges` (FK-less, thread-scoped, mirrors
-  084/087's shape): `compaction_message_id` PK, `thread_id`,
-  `compacted_message_ids jsonb`, `kind CHECK IN ('agentic','deterministic')`,
-  `created_at`. The exact ordered ID set is stored because persisted message
-  IDs are opaque client-supplied strings or UUIDv4 values, not sortable range
-  keys. Registered in BOTH migration runners (numbered `index.ts` + drizzle
-  `customMigrations` in `migrate.ts`) — the renderer-lazy bootstrap SQL this
-  originally also had to mirror was retired by BST-1651, so migrations are now
-  the only registration — plus `THREAD_DELETE_SIDECAR_TABLES` and the
-  factory-reset registry (thread-scoped, FK-less state must be wired into both
-  per `docs/agents/database.md` / `platform-contracts.md`).
-- **Message-list exclusion, not deletion — extends the Layer 1/2 overlay
-  pattern instead of building a parallel mechanism:** a new
-  `CompactionOverlayProcessor` implements `Processor.processInputStep`, where
-  Mastra still exposes the current ID-bearing `MastraDBMessage[]`. It is wired
-  into the SAME per-call `inputProcessors` pipeline adjacent to
-  `ToolProjectionRewriteProcessor`. Hook-kind ordering is fixed by Mastra:
-  compaction's `processInputStep` runs upstream of prompt conversion and Layer
-  1/2's `processLLMRequest`, so Layer 1/2 rewrites only whatever messages
-  compaction left standing. For the thread's active compaction rows,
-  it excises current messages whose IDs occur in `compacted_message_ids` —
-  except protected-set messages from that exact set (skill activations,
-  plan/submitPlan tool-call messages, pinned messages, prior compaction
-  summaries, hook-injected system context adjacent to the current user turn),
-  which are never excised. Protection is closed to a fixed point over shared
-  tool-call ids, so a call and its result can never straddle the compaction
-  boundary even when one message carries parts for multiple calls. The summary message itself is already
-  in the message list as an ordinary message and supplies the condensed
-  content; raw `mastra_messages` rows are never mutated or deleted.
-- **Rewind interplay — the load-bearing design decision, settled by directly
-  extending Layer 1's existing "rewind self-heals without undo state" rule to
-  message-granularity:** `CompactionOverlayProcessor` treats a compaction row as
-  active ONLY IF its `compaction_message_id` is still present (not tombstoned)
-  in the current, already-tombstone-filtered `args.messages` — exactly how Layer
-  1 gates a supersession row on the superseding tool-call id's presence.
-  Consequences, with no additional coupling code anywhere in the
-  tombstone/rewind machinery itself:
-  - **Rewind to a point at or after the summary message:** the summary stays
-    live (not tombstoned); the compacted range stays excised. No change in
-    behavior.
-  - **Rewind to a point before the summary message** (whether the target is the
-    raw-message boundary, a message strictly inside the compacted range, or
-    earlier still): the tombstone suffix-hide already hides the summary message
-    along with everything chronologically after the rewind target, by Mastra's
-    existing five rewind-aware read paths. The compaction row's
-    `compaction_message_id` is therefore no longer present in the
-    tombstone-filtered message list, so `CompactionOverlayProcessor` treats the
-    whole compaction as inactive and stops excising — the raw messages in the
-    (never-touched) compacted range flow through untouched, exactly as if
-    compaction had never run. This is "free" self-healing: no resurrection
-    logic, no special-cased branch in `finalizeThreadRewinds`/the anti-join,
-    because the raw content was never destroyed in the first place.
-  - **Redo (un-rewind) before finalize:** since the summary message is a normal
-    tombstoned row like any other, redo un-hides it through the same `rewind_id`
-    batch mechanism Layer 1 already relies on — no special case.
-  - **Finalize (`finalizeThreadRewinds` hard-deletes on the next user
-    message):** if a compaction summary is among the hard-deleted rows, its
-    `brainstrike_assistant_compaction_ranges` row becomes orphaned (FK-less, so
-    no cascade). `CompactionOverlayProcessor`'s active-row lookup already
-    re-derives liveness from message presence every request, so an orphaned row
-    is simply inert forever after — matching the "rebuildable transient
-    overlay" ruling Layer 2's migration 087 `down` already established for
-    prune rows. No cleanup job is required for correctness (it may be added
-    later as pure housekeeping, out of scope here).
-- **Reload/hydration:** the summary message hydrates through the existing
-  80-row windowing path in `assistant-memory-repository.ts` like any other
-  assistant row — no special-case hydration logic. Its producer also writes a
-  `brainstrike_assistant_message_parents` row with `parent_id = NULL`, so it
-  starts a new topology group instead of merging into the preceding assistant
-  turn on reload. The renderer recognizes
-  `metadata.custom.brainstrikeCompactionSummary` and renders a labeled
-  divider/card (not a chat bubble), following the `approval-action-message.ts`
-  render-seam precedent, so raw pre-compaction turns remain visible on
-  scrollback while the model-facing prompt excludes them.
-- **Agentic summary generation:** runs on the thread's current chat provider;
-  its cost is metered through the normal provider-usage path
-  (provider-reported usage only — no new accounting authority). The
-  summarizer's OWN input is built by walking the already-processed prompt (post
-  Layer-1/2 rewrite, i.e., PROJECTED tool-result text), never raw
-  `mastra_messages` content, so a summarizer call can never re-inflate the very
-  budget it exists to shrink. Output follows the fixed section schema Goal /
-  State / Decisions / Next / Files touched.
-- **Deterministic fallback:** triggers off the PR #2244 local-vs-provider
-  classification (`mastra_agent_stream_provider_error` carrying an
-  OpenRouter-canonical token-limit / context-length-exceeded signal, or
-  equivalent providers' overflow errors) — never off a second LLM call. It
-  commits the identical message+overlay shape with `fallbackKind:
-  'deterministic'`, marker-based truncation of the oldest eligible turns, and
-  an honest one-line index of what was dropped (counts/date-range, not a
-  synthesized narrative) so the message body itself states plainly that no
-  summarization model ran.
-- **Guard/dedup reset:** a committed compaction batch (agentic or
-  deterministic) calls
-  `resetToolCallLoopGuards(readStateScope(runtimeData))` and
-  `resetFileReadState`, identical to Layer 1/2's commit path, since a compaction
-  batch collapses evidence a loop guard or read-dedup stub may still be
-  pointing at.
+A durable, visible compaction pass on top of recency pruning: a **compaction
+summary message** plus a **message-range overlay** that excludes summarized raw
+messages from the provider prompt, leaving every raw message unchanged in
+`mastra_messages` and visible in scrollback.
 
-### Trigger and prune-first mechanics (BST-1200 M2, chunk 2)
+- **Trigger:** add the previous run's durable prompt baseline to the current
+  message estimate and check against 90% of the same `deriveAgentLoopInputTokenLimit`
+  denominator the meter uses; target ~70%. Recency pruning runs first and
+  compaction proceeds only if usage is STILL ≥ 90% after it. No calibration row or
+  a failed lookup uses baseline 0 with a debug log; a baseline already at or above
+  the target warns and no-ops the agentic path for that turn.
+- **`resolveCompactionInputBudget` RETURNS `runtimeData.agentLoop.inputTokenLimit`
+  whenever the run carries one.** Never re-derive a second budget here. A run with
+  no `agentLoop` calls the SAME `deriveAgentLoopInputTokenLimit`, fed the output
+  `buildModelSettingsOption` sends; a PRESENT but unusable `inputTokenLimit` THROWS
+  rather than quietly resolving to a different number.
+- **Persistence is a metadata marker, not a new enum:** an ordinary
+  `role: 'assistant'` message whose `metadata.custom` carries
+  `brainstrikeCompactionSummary`, validated by a strict guard. Migration 088 adds
+  `brainstrike_assistant_compaction_ranges` (FK-less, thread-scoped) storing the
+  exact ordered id set, because persisted ids are opaque, not sortable range keys.
+  Registered in both runners plus `THREAD_DELETE_SIDECAR_TABLES` and factory reset.
+- **Exclusion, not deletion.** `CompactionOverlayProcessor` implements
+  `processInputStep` in the same per-call `inputProcessors` pipeline as
+  `ToolProjectionRewriteProcessor`; Mastra fixes the ordering, so compaction runs
+  upstream of prompt conversion and Layer 1/2's `processLLMRequest`. It excises ids
+  in `compacted_message_ids` except protected messages (skill activations, plan
+  tool-call messages, pinned messages, prior summaries, adjacent hook-injected
+  system context). Protection is closed to a fixed point over shared tool-call ids,
+  so a call and its result can never straddle the boundary.
+- **Rewind interplay is free self-healing:** a compaction row is active ONLY IF its
+  `compaction_message_id` is still present in the already-tombstone-filtered
+  messages. A rewind before the summary makes the whole compaction inactive and the
+  raw range flows through untouched; redo un-hides the summary through the ordinary
+  batch; a finalized delete leaves an inert orphan row needing no cleanup job.
+- **Reload:** the summary hydrates through the ordinary 80-row window, and its
+  producer writes a `message_parents` row with `parent_id = NULL` so it starts a new
+  topology group. The renderer renders it as a labeled divider/card, not a bubble.
+- **Agentic generation** runs on the thread's current chat provider, metered
+  through the normal provider-usage path. Build the summarizer's input by walking
+  the already-processed prompt, never raw `mastra_messages` content, so a
+  summarizer call cannot re-inflate the budget it exists to shrink. Output follows
+  the fixed Goal / State / Decisions / Next / Files touched schema.
+- **Deterministic fallback** triggers off the local-vs-provider overflow
+  classification, never a second LLM call, and commits the identical
+  message+overlay shape with an honest one-line index of what was dropped (counts
+  and date range, never a synthesized narrative).
+- A committed batch resets loop guards and `resetFileReadState`, since it collapses
+  evidence a guard or dedup stub may point at.
 
-`initializeAgentStream` runs the compaction capability after the
-`UserPromptSubmit` gate has proceeded and before `resolveInitialAgentStream`
-constructs the real user turn. The denominator is resolved for the selected
-provider/model from the static catalog as
-`deriveEffectiveInputBudget(contextWindow, maxOutputTokens)`; a runtime-
-discovered model may use only the already-resolved positive
-`agentLoop.inputTokenLimit`, never a guessed window. The numerator walks the
-current tombstone-filtered durable messages plus request messages not yet
-persisted and applies active compaction ranges with
-`filterMessagesByCompactionRanges`. The common-case first threshold estimate
-walks those raw messages without materializing the deep projection clone; only
-after that estimate reaches 90% does the prune-first path load Layer 1/2
-rewrites, project the messages, and recompute provider-visible usage. The
-counter includes text, reasoning, tool arguments/results, bounded attachment
-markers, and legacy flattened string content. This server-side persisted-message
-walker is a second implementation of the BST-940 renderer heuristic because
-the renderer walker depends on assistant-ui message utilities; it should move
-to a shared dialect-aware package if those message shapes converge.
+Evidence: `assistant-persistence/compaction-design.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/conversation-compaction-input-budget.test.ts`.
 
-Below `previousPromptBaseline + messageTokens < 0.90 * effectiveInputBudget`
-the trigger is a strict no-op: no recency scan or write. At or above it,
-desktop calls the extracted
-`runRecencyPruneScan({ threadId, runtimeData })`, then re-reads both rewrite
-overlays and messages and recomputes provider-visible usage. If pruning brought
-usage below 90% after the same baseline is added, the turn proceeds. Otherwise
-compaction commits candidates outside `selectProtectedMessageIds` and aims to
-leave message-side usage at
-`max(1024, 0.70 * effectiveInputBudget - previousPromptBaseline)`; protected
-messages can make that target unreachable and are never sacrificed. The fixed
-1024-token floor prevents deterministic pruning from erasing useful recent
-state merely because baseline prompt content consumes most of a small model's
-target.
+### Trigger and prune-first mechanics
+
+- The capability runs after the `UserPromptSubmit` gate and before
+  `resolveInitialAgentStream` constructs the real user turn.
+- Resolve the denominator from the static catalog; a runtime-discovered model may
+  use only an already-resolved positive `agentLoop.inputTokenLimit`, never a
+  guessed window.
+- The first threshold estimate walks raw messages without materializing the deep
+  projection clone; only past 90% load the rewrites, project, and recompute
+  provider-visible usage. Below the threshold the trigger is a strict no-op: no
+  recency scan, no write.
+- If pruning brings usage below 90% the turn proceeds; otherwise compaction commits
+  candidates outside `selectProtectedMessageIds` and aims for
+  `max(1024, 0.70 * budget - baseline)`. Protected messages can make that target
+  unreachable and are never sacrificed, and the 1024 floor stops deterministic
+  pruning erasing recent state on a small model.
+
+Known duplication: this server-side walker is a second implementation of the
+renderer heuristic because the renderer's depends on assistant-ui message
+utilities. Move it to a shared dialect-aware package if those shapes converge.
+Evidence: `assistant-persistence/compaction-trigger-mechanics.md`.
 
 ### Agentic summary call, projection, persistence, and metering
 
-`projectCompactionMessages` is the plain-data counterpart of
-`ToolProjectionRewriteProcessor`: prune markers always replace the stored
-result, while supersession markers apply only when their superseder remains in
-the provider-visible message set. Candidate selection happens after existing
-compaction ranges are removed, and the summarizer prompt is serialized from
-those already-projected candidates. Neither `toolInvocation.result` nor
-`providerMetadata.mastra.modelOutput` can retain a rewritten raw result.
+- `projectCompactionMessages` is the plain-data counterpart of
+  `ToolProjectionRewriteProcessor`: prune markers always replace the stored result,
+  supersession markers only while their superseder is provider-visible. Neither
+  `toolInvocation.result` nor `providerMetadata.mastra.modelOutput` may retain a
+  rewritten raw result.
+- The auxiliary call uses `createMastraAgentRuntime` with the current trusted
+  provider/model transport and no memory, MCP, tools, personas, permissions, hooks,
+  task list or compaction callbacks, then one `Agent.generate()`.
+- The first occurrence of all five headers must appear in order; content may begin
+  on the header line, and later duplicate header-shaped prose does not invalidate a
+  complete summary. A missing or out-of-order section is a schema failure that
+  routes to deterministic fallback.
+- Provider-reported `totalUsage` is REQUIRED; estimates never enter this
+  cost-accounting path. Emit it as a `child-run-usage` chunk with
+  `source: 'compaction-summary'` under the parent `runId` (migration 090 widens the
+  `run_kind` CHECK).
+- On success save the format-2 assistant message, record it as a new root topology
+  group, then call `recordCompactionRange` with the exact ordered ids. Only schema
+  failure or a stable summarizer context-overflow code reuses the computed
+  candidate set for a deterministic commit; abort, rate limit, auth, network and
+  unclassified failures leave history intact and return a no-op.
 
-The auxiliary call uses `createMastraAgentRuntime` with the current trusted
-provider/model transport but no memory, MCP, tools, personas, permissions,
-hooks, task list, or compaction callbacks, then invokes the installed Mastra
-`Agent.generate()` once with the fixed Goal / State / Decisions / Next / Files
-touched instruction. The first occurrence of all five headers must appear in
-order; content may begin on the header line after a colon, and later duplicate
-header-shaped prose does not invalidate an otherwise complete summary. A
-missing or out-of-order section is a schema failure and causes deterministic
-fallback. Provider-reported `totalUsage` is required. Its
-`AssistantChildRunUsage` is emitted as a `child-run-usage` chunk with
-`source: 'compaction-summary'`, passes through
-`persistDesktopChildRunUsage`, and is inserted under the parent `runId`.
-Migration 090 and the renderer bootstrap widen the `run_kind` CHECK for that
-value; estimates never enter this cost-accounting path.
+Evidence: `assistant-persistence/compaction-summary-call.md`.
 
-On success, desktop saves an ordinary format-2 assistant Mastra message with
-the fixed-section text and `brainstrikeCompactionSummary` payload, records that
-message as a new root topology group, then calls `recordCompactionRange` with
-the exact ordered candidate ids. Only schema validation failure or a stable
-summarizer-side context-overflow code reuses the already-computed
-candidate/protected set and commits a deterministic summary-shaped message.
-Abort, rate limit, authentication, network, and other unclassified failures
-leave history intact and return a no-op so a later turn can retry naturally.
-Failures of the whole best-effort pre-request compaction facility do not prevent
-construction of the user's real turn — and, since BST-1737, are no longer
-invisible when they happen. See the next section.
+### SWALLOWED-COMPACTION BREADCRUMB KIND
 
-### SWALLOWED-COMPACTION BREADCRUMB KIND (BST-1737)
+`compaction.failed` records that `runConversationCompactionBeforeStream`
+(`packages/assistant-service/src/stream-init-compaction.ts`) caught a throw, so
+THIS turn reached the provider uncompacted and over budget. The catch is correct
+and stays — a compaction failure must never kill the user's turn — but it must not
+degrade in silence.
 
-`compaction.failed` is an additive `ASSISTANT_RUN_EVENT_KINDS` member recording
-that `runConversationCompactionBeforeStream`
-(packages/assistant-service/src/stream-init-compaction.ts) caught a throw from
-the pre-request pass, so THIS turn reached the provider uncompacted and over
-budget. The catch itself is correct and stays: a compaction failure must never
-kill the user's turn. What it must not do is degrade in silence — that is the
-`AGENTS.md` no-silent-degradation rule, and the silence is what let BST-1707's
-live defect (`moonshotai/kimi-k3`'s budget derivation throwing on EVERY turn of
-a recommended coding model) survive from `2966627ff` until someone read the
-arithmetic.
+- Status is always `'failed'`, never `'running'` (`NEVER_RUNNING`), and
+  deliberately NOT `run.failed`: the turn is healthy, and `data-stream-mapper`
+  derives `thread_runs.error` from `run.failed`.
+- In `isAlwaysVisibleRunEvent`, LOAD-BEARING: nothing else cards this fact, and the
+  user's only other symptom is a later overflow error naming an unrelated cause.
+- **ONE KIND, REASON IN THE ROW.** No `compaction.budget.failed` taxonomy: a
+  hand-maintained classifier would need extending for every new throw and would
+  bucket the next one into "other". The reason travels in `detail` and
+  `metadata.reason`, redacted and bounded by `boundRunEventReason` — whose
+  credential patterns match any `scheme://`, not just `https?://`, because
+  compaction failures quote driver URLs. The row does NOT carry the resolved
+  budget: the class where one would be most informative is the class where none was
+  resolved.
+- **ONCE PER (THREAD, REASON), not per turn**, because most of what reaches this
+  catch is sticky and an unlatched row would grow one always-visible entry per turn
+  forever. The latch keys on the reason, never the thread alone, so it cannot hide
+  a DIFFERENT failure; the `warn` log is NOT latched.
+- **The key is the SHAPE of the throw, and the set is capped.**
+  `compactionFailureKey` digests the UNTRUNCATED message through
+  `redactRunEventReason` with volatile tokens masked, and
+  `MAX_TRACKED_COMPACTION_FAILURES` (512) caps the set with drop-oldest eviction.
+  Both halves are required: the cap alone leaves the per-turn row noise, the
+  shaping alone leaves unbounded growth.
+- Mask exactly two volatile classes — canonical UUIDs and ISO-8601 timestamps.
+  SHORT DIGIT RUNS ARE DELIBERATELY NOT VOLATILE: `ollama/llama3.2` and
+  `ollama/llama3.3` are different failures. Do not widen these patterns.
+- Drop-oldest, not LRU: the fast path only READS the set and first-seen order is
+  already exact; eviction costs a repeat row, never a silence. The idempotency
+  guard in `latchCompactionFailure` is load-bearing: at the cap, a commit that
+  added nothing would evict an unrelated thread's entry.
+- **NO THREAD ID, NO LATCH.** Such a turn always mints and its `markReported` is a
+  no-op; one shared bucket would let a single row permanently silence a different
+  conversation.
+- The key is LENGTH-FRAMED (`<threadId.length>:<threadId><reason>`), not
+  NUL-delimited. Why: a NUL reproduced in review text made the review publication
+  fail at two heads, and `lint:no-raw-nul-bytes` cannot catch it because the source
+  held the escape.
+- **THE LATCH ARMS ON DELIVERY, NEVER ON MINT.** `compactionFailureChunk` reads the
+  key and returns the chunk bound to a `markReported` commit, called after the
+  consumer has taken it. The pairing is one value, so the row cannot be emitted
+  without arming nor the latch armed without emitting. Delivery is not proof of
+  persistence or of rendering.
+- A CANCELLED turn mints nothing: `run.cancelled` already reports it. The
+  breadcrumb rides the SAME stream prelude as the compaction summary's
+  `child-run-usage` chunk, so there is no second seam to keep in sync.
 
-WHAT CAN STILL REACH THAT CATCH, verified against `runPreRequestCompaction`
-after BST-1707 landed (apps/desktop/src/assistant-server/conversation-compaction.ts):
-
-- All three `resolveCompactionInputBudget` throws — missing run provider/model;
-  a present-but-unusable `agentLoop.inputTokenLimit` (BST-1707's new throw,
-  reachable because the desktop assistant HTTP path does not sanitize
-  `agentLoop`; only the IPC tool path's `sanitizeAgentLoop` does); and
-  `Unknown compaction input budget for <provider>/<model>.` for a run carrying
-  no `agentLoop` whose model is not in the catalog (dynamic ollama/lmstudio,
-  raw clients).
-- The two trusted-lookup guards: `Conversation compaction requires the trusted
-  compaction overlay lookup.` (via `loadMessages`, so on the unprojected AND
-  projected loads) and `... the trusted tool projection lookup.` (via
-  `loadProjectedState`).
-- A `memoryStore.listMessages` rejection inside `loadMessages`, and a
-  `runRecencyPruneScan` DB failure.
-- Everything on the DETERMINISTIC COMMIT path, which runs outside the agentic
-  try/catch on the baseline-dominates branch and again inside the agentic catch
-  as the fallback: `Compaction candidate <id> has no valid creation time.`,
-  `memoryStore.saveMessages`, `Assistant message <id> has conflicting branch
-  topology.`, and `recordCompactionRange` DB errors.
-
-Two entries in BST-1737's own enumeration do NOT survive that reading and are
-recorded here so they are not re-added:
-
-- `AgenticCompactionSummarySchemaError` does not reach this catch.
-  `isNonRetryableSummarizerFailure` returns true for it, so the pass handles it
-  internally and routes to the deterministic fallback; it only reaches the outer
-  catch indirectly, if that fallback's commit then throws.
-- Prompt-baseline lookup failures do not reach it either. The inner
-  `resolvePromptBaselineTokens` wrapper catches them, logs
-  `conversation_compaction_baseline_corrupt` /
-  `conversation_compaction_baseline_lookup_failed`, and returns zero.
-  `usageForSummary`'s "requires the run provider and model" throw is likewise
-  unreachable from here: `resolveCompactionInputBudget` already demanded both
-  before any summarizer ran.
-
-SURFACE AND SHAPE. Modelled on `mcp.tools.unavailable` (see that section above),
-which was filed for the same class of problem. Status is always `'failed'`,
-never `'running'` — the pass has already finished, by throwing, when the row is
-minted — so it declares no terminal and can never leave a row spinning. Filed
-under `NEVER_RUNNING` in `assistant-run-event-pairing-contract.test.ts`; that
-guard can force a kind to be CLASSIFIED but cannot check the classification
-against the emitter, so `stream-init-compaction.test.ts` asserts the emitted
-status directly. Deliberately NOT `run.failed`: the turn is healthy and
-completes, and `data-stream-mapper` derives `thread_runs.error` from
-`run.failed`, so that spelling would persist a degraded turn as a failed one.
-
-It is in `isAlwaysVisibleRunEvent`, and that membership is LOAD-BEARING for the
-reason spelled out on `mcp.tools.unavailable`: run-event rows are hidden unless
-background activity / Developer detail is on, so a kind added to the contract
-alone would still report nothing to the user it exists for. Nothing else cards
-this fact — the user's only other symptom is a later provider context-overflow
-error naming an unrelated cause, or quietly degraded output.
-
-ONE KIND, REASON IN THE ROW. There is no `compaction.budget.failed` /
-`compaction.schema.failed` taxonomy. The discriminating fact is already written
-at each throw site and travels in `detail` and `metadata.reason`; a
-hand-maintained classifier would have to be extended for every new throw and
-would bucket the next unanticipated one into "other" — re-creating exactly the
-defect this kind exists to end. The reason is redacted and length-bounded by
-`boundRunEventReason` (`@brainstrike/assistant-contract/run-events`) before it
-becomes durable metadata or a rendered row; that helper is BST-1602's
-`boundMcpDiscoveryReason`, promoted so the two callers share ONE copy of the
-credential-stripping regexes. Promotion WIDENED that helper's input, and the
-patterns had to widen with it: BST-1602's only caller was MCP discovery, whose
-transports are HTTP, so the userinfo and query patterns were anchored to
-`https?://`. Compaction failures reach `memoryStore` reads/writes,
-`runRecencyPruneScan`, and `recordCompactionRange`, whose driver errors quote
-`postgres://user:pass@host/db` — which both anchored patterns passed straight
-through into durable metadata and an always-visible row. They now match any
-`scheme://`, pinned by `postgres`/`postgresql`/`redis`/`mongodb+srv` cases in
-`run-events.test.ts`; an HTTPS URL merely *named* like a database (the original
-`https://user:hunter2@db.test/x?token=sk-live` fixture) does not exercise this
-and must not be mistaken for coverage of it. The row does NOT carry the resolved budget: the
-failure class where a budget would be most informative is precisely the one
-where no budget was ever resolved.
-
-ONCE PER (THREAD, REASON), not per turn. Most of what reaches this catch is
-sticky — an unknown model, a malformed `agentLoop`, a missing overlay lookup —
-and fails identically on every turn, so an unlatched row would grow one
-identical always-visible entry per turn forever, push real content out of the
-timeline, and train the user to ignore it. The latch keys on the reason and
-never on the thread alone, so it can never hide a DIFFERENT failure; the `warn`
-log is NOT latched, so per-turn operator evidence is never lost. The latch is an
-in-memory `Set` with no persistence, mirroring
-`warnedBaselineExceedsTargetThreadIds` in `conversation-compaction.ts`: a
-restart re-arms it. It is keyed on the reason's SHAPE and capped since
-BST-1744 — see the next section, which supersedes #3119's "no eviction".
-
-THE KEY IS THE SHAPE OF THE THROW, AND THE SET IS CAPPED (BST-1744; raised by
-the Claude review of #3119 and deliberately deferred there). #3119 keyed on the
-whole bounded reason, which defeated the latch outright for the two reachable
-throws that embed a per-message id — `Compaction candidate <id> has no valid
-creation time.` and `Assistant message <id> has conflicting branch topology.` —
-and for any driver error quoting a per-row identifier. A new reason every turn
-is a new key every turn, so the row was never deduplicated and the `Set` grew
-one entry per failing turn. The opposite edge was real too, and reproduced by
-the test that now pins it: because the key used the ALREADY-TRUNCATED reason,
-two failures agreeing on their first 199 characters collapsed onto one entry and
-the first silenced the second.
-
-BOTH HALVES, NOT EITHER ONE. Neither candidate closes this alone, which is why
-the ruling took both:
-
-- `compactionFailureKey` digests the SHAPE of the untruncated message — volatile
-  tokens masked, then sha256. Shaping alone cannot be proven complete:
-  `mastra_messages.id` is free-form `TEXT` (migration 117), so an id in a shape
-  the patterns do not recognise still mints a fresh key every turn.
-- `MAX_TRACKED_COMPACTION_FAILURES` caps the set at 512 with drop-oldest
-  eviction. The cap alone would have bounded memory while leaving the per-turn
-  row noise — the timeline noise this latch exists to prevent — fully in place.
-
-THE MASKING IS NOT THE CLASSIFIER THIS KIND REFUSED. ONE KIND, REASON IN THE ROW
-(above) rejected a hand-maintained taxonomy because it would need extending for
-every new throw and would bucket the next unanticipated one into "other". The
-shaping has neither property: there is no registry of known throws, and an
-unrecognised throw keys on its own text rather than being bucketed anywhere. Its
-failure direction is UNDER-merging — at worst an extra visible row — never
-over-merging across distinct throws, which would be a silence. The row still
-renders the FULL unnormalized reason, id included: normalization is KEY-ONLY.
-State the limit of that precisely, because #3138's first draft overstated it:
-the user keeps the id of the FIRST message wedged in a given shape. A second
-message wedged the same way deduplicates against it and never reaches a row, so
-its id survives only in the unlatched `warn`. That is the deliberate price of
-not minting a row per turn, not an oversight.
-
-TWO VOLATILE TOKEN CLASSES, BOTH EVIDENCE-BACKED: canonical UUIDs (both
-id-bearing throws take theirs from `randomUUID`) and ISO-8601 timestamps (the
-compaction fixture in `run-events.test.ts` quotes a creation time, and a driver
-error that does so changes on every turn). SHORT DIGIT RUNS ARE DELIBERATELY NOT
-VOLATILE: `ollama/llama3.2` and `ollama/llama3.3` are DIFFERENT failures, and a
-blanket digit mask would let the first permanently silence the second — the one
-thing this latch must never do. Do not widen these patterns to chase a residue
-the cap already bounds.
-
-THE KEY IS BUILT FROM THE UNTRUNCATED MESSAGE, through `redactRunEventReason` —
-`boundRunEventReason` minus the bounding, split out by BST-1744 so there is
-still exactly ONE copy of the credential patterns and ONE extraction. #3138's
-first pass skipped redaction altogether, reasoning that the key never leaves the
-in-memory `Set`; the Claude review of that PR showed the reasoning was aimed at
-the wrong target. It is a fair objection to COPYING the patterns and no
-objection at all to REUSING them, and redaction is not secrecy here — it is part
-of the SHAPE. A message quoting a rotating secret (a provider auth error, a
-signed URL, a session id) otherwise mints a fresh key on every rotation: this
-ticket's own defect, relocated from ids to credentials, and no less reachable
-than the timestamp case. Sharing one extraction also keeps the key describing
-the same text the row renders; a second `value instanceof Error ? …` would be
-free to drift the moment either side grew a case, and a drifted key merges or
-splits rows the user sees differently. Both are pinned — "deduplicates a reason
-whose only variable part is a rotating credential" and "keys a non-Error throw
-from the same text the row renders".
-Hashing is what makes an untruncated key affordable: a fixed-width digest turns
-the cap into a real BYTE bound rather than a bare entry count. Length framing is
-retained even though a fixed-width digest is already self-delimiting — it costs
-nothing, and it keeps the ruling below and its test intact.
-
-DROP-OLDEST, NOT LRU. The dedupe fast path only READS the set, so recency would
-have to be written on every suppressed turn, and first-seen order is already
-exact because a key the set holds is never re-added. Eviction costs the evicted
-failure ONE more visible row if it recurs — a repeat row, never a silence, the
-same direction every other ruling on this latch picks. NAME WHO DOES THE
-EVICTING: the keys are per-thread but the cap and the eviction order are
-process-GLOBAL, so a single thread wedged on an unmasked id is the noisy
-neighbour — within 512 such turns it clears every OTHER thread's entry and each
-of them re-reports once. That cost is bounded and is a repeat row rather than a
-silence, so it is accepted. A per-thread sub-cap was considered and rejected: it
-needs its own eviction policy, and it would let one thread's many distinct
-failures evict each other, trading a bounded repeat row for a possible silence.
-The idempotency guard in
-`latchCompactionFailure` is load-bearing rather than a fast path: `markReported`
-is documented idempotent, and THE LATCH ARMS ON DELIVERY (below) accepts two
-turns committing the same key; at the cap, a commit that added nothing would
-otherwise evict an unrelated thread's entry.
-
-Pinned by `stream-init-compaction.test.ts` ("BST-1744: the key is the SHAPE of
-the throw, not its literal text"). Every guard is mutation-proven: removing
-either masking pattern, widening the masking to all digit runs, keying on the
-bounded reason, removing the eviction, and removing the idempotency guard each
-fail exactly the intended test and no other.
-
-NO THREAD ID, NO LATCH. `runtime.memory?.threadId` can be absent, and keying
-every unidentified turn under one shared bucket would let a single delivered row
-permanently silence a DIFFERENT conversation failing the same way — precisely
-the invariant the reason-keying exists to protect, broken where the latch knows
-least. Such a turn therefore always mints, and its `markReported` is a no-op
-(`NEVER_LATCHED`).
-
-THE KEY IS LENGTH-FRAMED, NOT DELIMITED. `<threadId.length>:<threadId><reason>`
-is unambiguous for any pair without needing a character that cannot occur in
-either. It was a NUL separator until #3119's own Claude review quoted that line
-and reproduced the separator as a real NUL character in its review text:
-`scripts/claude-review.mjs` publishes the disposition with
-`execFileSync('gh', […, '--body', body])`, Node refuses an argv string
-containing a NUL, and the review gate went red at two different heads
-(`a53612d266`, `9b66bfd7fb`) with the review itself complete and validated —
-"Publication failed: The argument 'args[6]' must be a string without null
-bytes." `lint:no-raw-nul-bytes` does not catch this: the source held the ESCAPE,
-which is legal, and the raw byte only appeared two systems downstream. A key
-that never leaves an in-memory `Set` must not carry a byte the rest of the
-toolchain cannot transport, and the comment on it names the byte rather than
-spelling the escape for the same reason. The framing is pinned by a test whose
-thread ids and reasons concatenate identically ("keeps a thread/reason boundary
-that bare concatenation would collapse").
-
-THE LATCH ARMS ON DELIVERY, NEVER ON MINT (Codex review of #3119). Minting
-happens while the outcome is still being CONSTRUCTED — `initializeAgentStream`
-then awaits `resolveInitialAgentStream` and only afterwards wraps the prelude.
-Adding the key at mint time meant a rejection in that await, or a returned
-stream nobody consumes, produced a row that reached neither `observe()` nor
-persistence while every later turn with the same thread and reason stayed
-silent for the life of the process — this ticket's own defect, reborn inside its
-fix, and invisible. So `compactionFailureChunk` READS the key and returns the
-chunk bound to a `markReported` commit; `prependStreamChunks` calls it after the
-consumer has taken the chunk and come back for the next one. The pairing is one
-value (`PreRequestCompactionFailureBreadcrumb`), not two sibling fields, so the
-row cannot be emitted without arming the latch nor the latch armed without
-emitting the row. The accepted cost: two turns that fail identically before
-either prelude is consumed both mint a row, which is honest — both turns really
-were sent uncompacted — and is the only direction that cannot suppress a row
-nobody ever saw. Delivery is NOT proof of persistence or of rendering: a wrapper
-further out could still drop the chunk, and the latch would arm anyway. It
-closes by far the widest part of that window, and what remains costs one
-thread's repeated row rather than a permanent process-wide silence — do not read
-"delivered" here as "durable". Pinned by `stream-init-compaction.test.ts` ("does NOT latch a
-breadcrumb the stream never delivered", "leaves the latch UNcommitted for a
-stream that is never consumed"), and the once-per-(thread, reason) test now has
-to deliver the first row before the second turn is deduplicated against it.
-
-A CANCELLED TURN MINTS NOTHING. When `input.signal.aborted`, the warn still
-fires but no row is minted and the latch is untouched: `run.cancelled` already
-reports a cancelled turn, and a "compaction unavailable" row would be a false
-alarm on every cancellation landing mid-pass.
-
-EMISSION PATH. The breadcrumb rides the SAME stream prelude the compaction
-summary's `child-run-usage` chunk already rides
-(`withCompactionPreludeChunks`, failure chunk first), so it reaches the
-`observe()` wrapper — and therefore run-event persistence and the timeline —
-through the ordinary run-event chunk path, with no second seam to keep in sync.
+Settled: every guard here is mutation-proven — removing a masking pattern, widening
+to all digit runs, keying on the bounded reason, removing eviction, or removing the
+idempotency guard each fails exactly one intended test.
+Evidence: `assistant-persistence/compaction-failure-breadcrumb.md`.
+Guard: `packages/assistant-service/src/__tests__/stream-init-compaction.test.ts`,
+`packages/assistant-ui/src/__tests__/run-events.test.ts`.
 
 ### Context-overflow recovery scope
 
-The live Mastra `'error'` part checks only the stable
-`context_length_exceeded`, `max_tokens_exceeded`, and
-`token_limit_exceeded` codes. Before `makeProviderErrorTermination`, it awaits
-the desktop recovery callback, which makes no model call, drops the oldest
-eligible provider-visible messages until the 70% target is met (or all
-eligible messages are exhausted), saves the deterministic summary message,
-and commits `recordCompactionRange(kind: 'deterministic')`. Its visible text
-and `droppedSummaryLine` are the same literal count/date-range index and state
-that no summarization model ran. The terminal error then tells the user that
-deterministic compaction was applied and to resend or continue.
+- The live Mastra `'error'` part checks only the stable `context_length_exceeded`,
+  `max_tokens_exceeded` and `token_limit_exceeded` codes, and awaits the desktop
+  recovery callback before `makeProviderErrorTermination`. Recovery makes NO model
+  call: it drops the oldest eligible provider-visible messages to the 70% target,
+  saves the deterministic summary, and commits
+  `recordCompactionRange(kind: 'deterministic')`. The terminal error then tells the
+  user deterministic compaction was applied.
+- **Do not auto-retry the same turn.** There is no outer retry owner above
+  `streamMastraAgent`; a safe one needs a bounded wrapper that cannot overlap
+  Mastra's `StreamErrorRetryProcessor`, cannot loop on deterministic overflow, and
+  leaves every non-overflow error terminal. Recovery creates headroom for the next
+  request only.
+- The renderer seam is `AssistantMessage` recognizing the strict durable marker
+  before its ordinary bubble path and mounting `CompactionSummaryCard`.
 
-Milestone 2 does **not** retry the same turn automatically. There is no outer
-retry owner above `streamMastraAgent` / `createStreamIteratorFromRuntime`; a
-safe implementation needs a separate bounded wrapper that cannot overlap
-Mastra's `StreamErrorRetryProcessor`, cannot loop on deterministic overflow,
-and leaves every non-overflow error terminal. Until that architecture is
-implemented, recovery creates headroom only for the next request.
+Evidence: `assistant-persistence/context-overflow-recovery.md`.
+Guard: `apps/desktop/e2e/assistant-compaction.desktop.test.ts` (mocked endpoint: it
+proves the renderer transport, divider and durable reload, not a native recall).
 
-The renderer seam closes in `packages/assistant-ui/src/assistant-ui-panel.tsx`:
-`AssistantMessage` recognizes the strict durable marker before its ordinary
-bubble path and mounts `CompactionSummaryCard` from
-`compaction-summary-card.tsx`. Desktop coverage lives in
-`apps/desktop/e2e/assistant-compaction.desktop.test.ts`; its fixed format-2
-history fixture verifies both the visible divider and a normal follow-up turn
-in the same thread, then the complete summary after a second reload. Select the
-hydrated target thread before configuring its mock provider. The captured
-memory-backed POST contains only the new user turn plus the exact durable thread
-ID and `mastra-memory-current-turn` metadata; it must not replay the summary.
-This test uses a mocked assistant endpoint: it proves the real renderer transport,
-shared divider and durable reload behavior, not a native Mastra recall/model run.
+## CANVAS DOCUMENT VERSIONS
 
-## CANVAS DOCUMENT VERSIONS (BST-1173)
+Persisted Canvas HTML is application-owned local-first state in
+`brainstrike_canvas_versions` (migration 082). Rows sharing `canvas_id` form one
+document and the greatest integer `version` is current.
 
-Persisted Canvas HTML is application-owned, local-first state in
-`brainstrike_canvas_versions` (migration 082 in BOTH runners, sole author since
-BST-1651 retired the bootstrap mirror). Rows sharing `canvas_id` form one
-document and the greatest integer `version` is current. Row ids and canvas ids
-are app-side uuidv7 values; timestamps are read as `created_at::text`; and
-`created_by` is CHECK-constrained to `assistant | user` and validated again on
-repository reads. There are no foreign keys because the numbered runner uses a
-bare schema.
+- Ids are app-side uuidv7, timestamps read as `created_at::text`, and `created_by`
+  is CHECK-constrained to `assistant | user` and validated again on repository
+  reads. No FKs — the numbered runner uses a bare schema.
+- `THREAD_DELETE_SIDECAR_TABLES` owns cleanup for all three thread-delete
+  implementations; the reset registry owns all three clear paths.
+- Every update or rewrite writes a NEW version. Exact updates require `oldString`
+  to occur once: zero and multiple matches return `no_match` and
+  `ambiguous_match`, and a missing canvas returns `not_found`. Stored-vocabulary
+  drift throws visibly as corruption.
+- `brainstrike.manageCanvas` exposes `create`, `update`, `rewrite`, `list`, and
+  runtime thread/resource identity is mandatory. `create` requires content: an
+  empty document returns `empty_document` with a hint and writes no version 1.
+- The panel's selected canvas is `focusedCanvasId` on the Changes navigation store;
+  reset clears it.
 
-`THREAD_DELETE_SIDECAR_TABLES` owns Canvas cleanup for all three thread-delete
-implementations, while the reset registry owns all three table-enumerating
-clear paths. The desktop repository creates version 1, reads/list latest rows,
-and writes a new version for every update or rewrite. Exact updates require
-`oldString` to occur once: zero and multiple matches return `no_match` and
-`ambiguous_match` structured failures, respectively; missing canvases return
-`not_found`. Stored-vocabulary drift throws visibly as corruption.
+Evidence: `assistant-persistence/canvas-document-versions.md`.
+Guard: `packages/db/__tests__/migration-082-canvas-documents.test.ts`,
+`canvas-repository.test.ts`, `manage-canvas-tool.test.ts`.
 
-`brainstrike.manageCanvas` exposes `create`, `update`, `rewrite`, and `list` to
-the assistant. Runtime thread/resource identity is mandatory and missing
-identity returns a structured failure. `create` requires content: an empty
-document (`isEmptyCanvasDocument`) returns `empty_document` with a hint and
-writes no version 1 — see the settled ruling in
-`docs/agents/assistant-providers.md`. The Canvas panel's selected canvas is
-`focusedCanvasId` on the Changes navigation store (written by its picker and
-by the `canvas://<canvasId>` chip on the tool card); reset clears it.
+## TOOL-CALL TOKEN TELEMETRY
 
-Paired tests: `migration-082-canvas-documents.test.ts`,
-`canvas-repository.test.ts`, `canvas-document-content.test.ts`,
-`manage-canvas-tool.test.ts`, the Canvas sidecar
-case in `assistant-memory-repository.integration.test.ts`, and the reset
-registry/clear sentinels.
+`brainstrike_tool_call_telemetry` (migration 083) stores one row per observed final
+model projection: tool id, serialized model-facing characters, truncation flags,
+and search-only zero-match/pagination booleans, drained at run end into the desktop
+persistence capability.
 
-## TOOL-CALL TOKEN TELEMETRY (BST-1190)
+- The writer derives `thread_id` from the renderer-created run row with
+  `INSERT ... SELECT`, warns without failing the turn on a missing run or write
+  failure, and never accepts raw input/output fields.
+- Subagent tool calls attribute under the PARENT run through the SAME
+  `RunTokenDiagnostics` instance but a distinct telemetry-only method,
+  `recordSubagentToolOutput`. The two intentionally diverge: `recordModelOutput`
+  also feeds the run's projection aggregate reconciled against the per-leg prompt
+  SUM across steps, and a subagent tool output never enters the parent's prompt, so
+  routing it there would inflate that aggregate with no matching prompt change.
+  Both feed the same telemetry array, so samples ride the existing drain with no
+  new chunk type.
+- Measurement-fidelity caveat: the persona tool map is built pre-settlement while
+  the primary map is post-settlement, so a parent call is measured against its
+  settled artifact page while a child call of the same tool is measured against the
+  unsettled inline projection. Both land keyed only by `tool_id`, so the shipped
+  `token-spend-by-tool` lens blends them.
+- The table is FK-less; `THREAD_DELETE_SIDECAR_TABLES` removes thread rows and the
+  reset registry owns all three table-enumerating paths.
 
-`brainstrike_tool_call_telemetry` (migration 083 in BOTH runners) stores one
-row per observed final model projection. The model-output observer accumulates
-tool id, actual serialized model-facing characters, generic/typed truncation,
-and search-only zero-match/pagination booleans; a run-end internal stream chunk
-hands those samples to the desktop main-process persistence capability. The
-writer derives `thread_id` from the renderer-created run row with
-`INSERT ... SELECT`, warns without failing the turn on a missing run or write
-failure, and never accepts raw input/output fields. The renderer lazy-bootstrap
-mirrors migration 083 byte-for-byte because its thread-delete CTE references
-every registered sidecar unconditionally, even though it never writes rows.
+Known gap: there is no origin discriminator beyond `toolId`; a per-persona
+breakdown needs a migration and is deliberate future work.
+Evidence: `assistant-persistence/tool-call-token-telemetry.md`.
 
-Subagent/persona-delegated tool calls attribute to this same table under the
-PARENT run's `run_id`/`thread_id` (BST-1196): `agent-runtime.ts` projects the
-child tool map through the SAME `RunTokenDiagnostics` INSTANCE as the primary
-tool map, but via a distinct telemetry-only method,
-`recordSubagentToolOutput` (`token-measurement.ts`), NOT the primary map's
-`recordModelOutput`. The two intentionally diverge: `recordModelOutput` also
-feeds the run's `#projection` aggregate (`modelVisibleProjection*` in
-`toLogFields`), which reconciles against `promptTokensSummedAcrossSteps`
-(logged name; the lifecycle field is `providerReportedPromptTokens`, the
-per-leg SUM across steps — spend, not a single request's context size, which
-is `latestStepPromptTokens`; the 2026-08-23 "context explosion" was this sum
-misread as one request). A subagent tool output never
-enters the parent's prompt (only the delegation's final result does), so
-routing it through `recordModelOutput` would inflate that aggregate for every
-delegating run without a matching change in the prompt sum.
-`recordSubagentToolOutput` pushes only the `ToolCallTelemetrySample`, leaving
-`#projection` untouched. Both methods feed the SAME `#toolCallTelemetry`
-array, so samples from either path ride the existing run-end
-`tool-call-telemetry` drain with no new `StreamChunk` type or schema change.
-The table currently has NO origin discriminator beyond each sample's
-`toolId`; a per-persona/per-origin breakdown would require a migration and
-remains deliberate future work, not implemented.
+## TOKEN-ESTIMATE CALIBRATION PAIRS
 
-Measurement-fidelity caveat: the persona/subagent tool map is built from
-`guardedTools` (pre-`settleRuntimeToolOutputs`), while the primary tool map is
-built from `artifactSettledTools` (post-settlement) — see
-`runtime-assembly/tool-pipeline.ts`. When a `runId` is present (desktop,
-`stream-init.ts`), a parent call of a large-result tool like
-`brainstrike.grepSearch` is measured against its settled, durable-artifact
-page, while a CHILD call of the same tool on a comparably large result is
-measured against the unsettled inline projection (bounded by
-`MAX_MODEL_TOOL_RESULT_CHAR_BUDGET`). Both land in
-`brainstrike_tool_call_telemetry` keyed only by `tool_id`, so the shipped
-`token-spend-by-tool` lens's `avg_model_facing_chars` and
-`truncation_hit_rate` blend settled and unsettled samples for that tool with
-no way to separate them. This is a caveat on top of (not a substitute for)
-the missing origin discriminator above.
+`brainstrike_token_estimate_calibration` (migration 086 plus additive 089 and 091)
+stores one attributable run-end pair per completed run with at least one measured
+tool output: the chars/4 estimate and `final_step_prompt_tokens`.
 
-The table is FK-less because numbered migrations cannot depend on lazy Mastra
-parents. `THREAD_DELETE_SIDECAR_TABLES` removes thread rows; the reset registry
-owns all three table-enumerating reset paths. The shipped
-`token-spend-by-tool` lens aggregates calls, characters, truncation, zero-match,
-and the deliberate follow-up/first-page proxy without storing a search-session
-correlation key.
+- The internal chunk is consumed by the desktop persistence wrapper and never
+  reaches the renderer. The writer derives `thread_id` through `INSERT ... SELECT`,
+  warns without failing the turn, and stores only ids, token counts,
+  model/provider strings and a timestamp.
+- Migrations 089 and 091 add nullable positive resolved domain/transport budget
+  columns and `prompt_baseline_tokens`. Historical rows stay NULL rather than
+  receiving a guessed tier or value.
+- The numerator is model-visible tool-output projections plus tool definitions,
+  each counted once; the denominator is the latest step's prompt count, which
+  already contains every prior tool output once — not the cross-step billing total.
+- The ratio is reconciliation evidence, not permission to tune
+  `APPROX_CHARS_PER_TOKEN`.
+- The table is FK-less and part of the schema PROBE. Scheduled maintenance prunes
+  rows after 60 days on both idle and active passes, and the idle pass runs
+  `VACUUM (ANALYZE)`.
+- The checked-in `estimator-calibration.sql` lens groups by model and both resolved
+  budget columns; NULL groups expose legacy pre-089 samples honestly.
 
-## TOKEN-ESTIMATE CALIBRATION PAIRS (BST-1205)
-
-`brainstrike_token_estimate_calibration` (migration 086 plus additive migrations
-089 and 091 in BOTH runners)
-stores one attributable run-end pair: the chars/4 estimate measured by
-`RunTokenDiagnostics` and `final_step_prompt_tokens`, the single most recent
-step's prompt-token count. The internal `token-estimate-calibration` stream
-chunk is consumed by the desktop main-process persistence wrapper and never
-reaches the renderer. The writer uses `INSERT ... SELECT` through
-`brainstrike_assistant_thread_runs` to derive `thread_id` from `run_id`, warns
-without failing the assistant turn on a missing run or failed write, and stores
-only ids, token counts, model/provider strings, and a timestamp. Migration 089
-adds nullable positive `resolved_domain_budget_tokens` and
-`resolved_transport_budget_tokens`: new runtime-produced samples populate both,
-while historical rows remain NULL rather than receiving a guessed tier.
-Migration 091 adds nullable positive `prompt_baseline_tokens`, the same run's
-system-instructions + task-list + tool-definition total used by the next turn's
-baseline-aware compaction trigger. Historical rows and continuation chunks
-without a prompt breakdown remain NULL rather than receiving a guessed value.
-
-The numerator is `modelVisibleProjectionBackstopTokens +
-(toolDefinitionBackstopTokens ?? 0)`: chars/4 over model-visible tool-output
-projections plus tool definitions, each counted once. The denominator is the
-latest step's prompt count, which already contains every prior tool output once
-via Mastra's resend behavior—not the cross-step accumulated billing total. Both
-figures are comparable over the same final-prompt-content basis;
-conversation/system-prompt text outside tool outputs and definitions is excluded
-from both. Only completed runs with at least one measured tool output persist.
-The ratio remains reconciliation evidence, not permission to tune
-`APPROX_CHARS_PER_TOKEN`.
-
-The table is FK-less because numbered migrations cannot depend on the lazy
-assistant parents. The repository's thread-delete CTE references every sidecar
-unconditionally, which is why the table is part of the schema PROBE (BST-1651);
-`THREAD_DELETE_SIDECAR_TABLES` removes thread-owned rows, and the reset registry
-owns all table-enumerating fresh-start paths. Scheduled database maintenance
-prunes rows after 60 days on both idle and active-queue passes, using the
-occurred-at-leading index created in migration 086; the idle pass also runs
-`VACUUM (ANALYZE)` for the table.
-
-The checked-in `estimator-calibration.sql` lens groups an inclusive time window
-by model and both resolved budget-token columns, then returns sample count plus
-min/median/max/average estimate-to-final-step ratios. NULL groups expose legacy
-pre-089 samples honestly. It excludes zero estimates defensively and counts only positive
-denominators, matching runs that actually exercised the estimator. Paired
-proofs are the emission cases in `packages/agent/src/__tests__/mastra-streaming.spec.ts`,
-the real-PGlite desktop persistence integration test, the migration/reset and
-scheduled-maintenance tests in `packages/db/__tests__`, and
-`search-lens-estimator-calibration.test.ts`, which parses and executes the
-checked-in lens rather than an inlined copy.
+Evidence: `assistant-persistence/token-estimate-calibration.md`.
+Guard: `packages/db/__tests__/search-lens-estimator-calibration.test.ts` (parses and
+executes the checked-in lens, not an inlined copy).
 
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 
-Per-run cost/outcome analytics over tables the assistant already writes.
+Per-run cost and outcome analytics over tables the assistant already writes.
 
-- **Experiment treatments (BST-1250, recursive self-improvement phase 2A):**
-  `brainstrike_assistant_run_treatments` (migration 093, sole author since
-  BST-1651 retired the bootstrap mirror; no FKs; retained on
-  thread delete like run_outcomes, cleared on factory reset via the db reset
-  registry; sole index is `(created_at)` — the lens's only predicate). One
-  row per hosted run, `run_id` PK. Normal legs record DETACHED (`void`) from
-  the injector seam (`self-improvement-signal-context.ts`) — the ONE place
-  that knows whether BST-1241 injection actually happened and its exact text
-  (`signal_content_hash` = SHA-256; null when nothing injected); the write
-  never blocks prompt assembly, and the recorder logs its own failures.
-  Approval/resume continuation legs mint their own runId but return BEFORE
-  the injectors, so `stream-init` fires the optional
-  `runPersistence.recordContinuationRunTreatment` capability for them —
-  without it those legs carry outcome labels with no treatment row, a
-  systematically biased gap. `injection_status`
-  (`injected | preference_off | no_waste | query_failed | continuation`)
-  keeps the non-injection reasons apart: an ENROLLED run whose signal query
-  failed is NOT control evidence; `signal_injected` is derived and
-  CHECK-pinned to `status = 'injected'`. `experiment_id`/`variant` come from
-  the strictly-parsed renderer `experimentAssignment` (both fields required
-  on the wire; malformed → warn + un-enrolled, never coerced) and stay NULL
-  when un-enrolled. The renderer producer (BST-1251, phase 2B) is the
-  experiment-assignment preference store + settings section; it attaches the
-  pair only when both fields are set, so a half-filled preference stays
-  un-enrolled instead of tripping the strict parse.
-  `ON CONFLICT (run_id) DO NOTHING` — the first treatment wins. Do NOT infer
-  treatment from date windows or the current preference value — this record
-  exists because both are unsound. Queryable via the
-  `experiment-outcome-correlation` lens (groups by injection_status; LEFT
-  JOINs outcomes so unlabeled runs stay visible). Paired tests:
-  `self-improvement-signal-context.test.ts` ("run treatment recording"),
-  `run-treatment-persistence.integration.test.ts`,
-  `search-lens-experiment-outcome-correlation.test.ts`.
+- **Experiment treatments:** `brainstrike_assistant_run_treatments` (migration 093,
+  no FKs, retained on thread delete, cleared by factory reset). One row per hosted
+  run, `run_id` PK, recorded DETACHED from the injector seam — the one place that
+  knows whether injection happened and its exact text — so the write never blocks
+  prompt assembly. Continuation legs mint their own runId and return before the
+  injectors, so `recordContinuationRunTreatment` covers them; otherwise they carry
+  outcome labels with no treatment row, a systematically biased gap.
+  `injection_status` keeps the non-injection reasons apart and `signal_injected`
+  is derived and CHECK-pinned. A malformed experiment assignment warns and stays
+  un-enrolled, never coerced. `ON CONFLICT (run_id) DO NOTHING` — first treatment
+  wins. Do NOT infer treatment from date windows or the current preference value;
+  this record exists because both are unsound.
+- **Outcome labels:** `brainstrike_assistant_run_outcomes` (migration 062, no FKs).
+  At most ONE label per run, upserted on `run_id`, with provenance
+  `user | edit_revert | hook` and `detail` bounded at 2000 chars (oversized THROWS,
+  never silently truncated). A later user verdict replaces a derived label; a hook
+  label never overwrites a user verdict (`source <> 'user'`, enforced by both
+  writers). The hook write is awaited in front of the stream's `message-finish`
+  yield so a finishing run cannot lose it.
+- **User verdicts** mount on every assistant message and render once per run, on
+  the leg carrying the terminal `run.finished` part. `run.failed` legs are excluded
+  in v1 and web local-runtime events without a runId are skipped. Verdicts gate on
+  the repository's optional `recordRunOutcome` (present wherever the PGlite repo
+  exists, including web), not the desktop checkpoint bridge. A rejected save shows
+  a visible retry, never a silent drop. Write-only in v1.
+- **Ledger read model:** `getRunLedger(resourceId, {limitLatest})` aggregates each
+  `thread_runs` row with summed usage tokens, exact billed cost (ABSENT — never a
+  fabricated 0 — when unreported), top-level `tool.completed`/`tool.failed` counts,
+  edit-checkpoint totals and reverted counts, computed `durationMs`, and the
+  outcome label. `RUN_LEDGER_AGGREGATION_SQL` + `mapRunLedgerRow` are the exported
+  single source of truth, and the strict mapper THROWS on malformed aggregates.
+- **Ledger panel** renders inside the Cost Tracking settings category,
+  renderer-direct over a PGlite live query (limit 50), gated on
+  `hasDurableAssistantUsageCapability()` like the sibling panel. Honest cost: exact
+  renders as-is, a registry-priced remainder is "est.", unpriced models read "cost
+  unavailable", zero-usage runs read "no usage recorded" — NEVER a fabricated $0.
+  Malformed aggregates and query failures surface as a visible error with retry,
+  never an empty-but-fine panel.
+- **Budget guardrails:** caps (`dailyCapUsd`, `perRunCapUsd`, both null = off)
+  persist with STRICT set validation (finite > 0 or null, else THROW) and reset
+  with factory reset. Spend is DERIVED, never stored: `DAILY_SPEND_AGGREGATION_SQL`
+  sums a ROLLING `NOW() - INTERVAL '24 hours'` window — deliberately timezone-free,
+  so ALL copy says "last 24h", never "today" — binding each SQL param exactly once.
+  Exclude unpriced-model tokens from the total and surface them as an explicit
+  "+N unpriced" marker, never a fabricated price.
+- Over-cap rules are no silent block and no silent allow: while
+  `overCap && !overridden`, BOTH send paths are disabled and a visible notice names
+  the numbers with an explicit session "Send anyway"; an active override is stated;
+  Stop/Cancel is never gated. If the spend query fails the guardrail DEACTIVATES
+  and logs an error — v1 fails open, because blocking on a broken analytics query
+  is a silent block with no honest number to show. `perRunCapUsd` is DISPLAY-ONLY.
+- **Subagent budgets** use strict `parseRuntimeSubagentSettings` (invalid THROWS
+  and lands nothing; an invalid persisted payload sanitizes to defaults) and ship
+  on every request as `runtimeData.subagentSettings` — see
+  `docs/agents/assistant-subagents.md`.
 
-- **Outcome labels:** `brainstrike_assistant_run_outcomes` (migration 062, sole
-  author since BST-1651 retired the bootstrap mirror; no FKs, purged
-  on factory reset via db-ipc `OptionalRelationTable`). At most ONE label per
-  run (`verdict` succeeded/failed/mixed, upserted on run_id) with provenance
-  `source` (`user` | `edit_revert` | `hook`) and bounded `detail` (2000 chars,
-  oversized THROWS — never silently truncated). Writer: `recordRunOutcome`
-  (app-shell repository). A later user verdict deliberately replaces a derived
-  `edit_revert` or `hook` label. `edit_revert` labels are derived in
-  `use-edit-checkpoints.ts` after a successful revert (see
-  workspace-context.md § Edit Checkpoint Journal). `hook` labels come from the
-  Stop-hook run-verdict protocol (a Stop hook prints one strict
-  `{"brainstrikeRunVerdict":…}` JSON line; see assistant-runtime.md
-  § TOOL-LIFECYCLE HOOKS), recorded MAIN-PROCESS-side by
-  `recordDesktopAssistantHookRunOutcome` (apps/desktop assistant-server/run-persistence.ts) —
-  an upsert byte-consistent with `recordRunOutcome` (documented duplication,
-  same precedent as the bootstrap SQL) that derives thread/resource ids from
-  the runs row and carries the SQL precedence guard `source <> 'user'`: a hook
-  label never overwrites an explicit user verdict (both writers enforce it —
-  the repository applies the same guard for `source: 'hook'`), while a later
-  user verdict still upserts over a hook label. The write is awaited in front
-  of the stream's `message-finish` yield so a finishing run cannot lose it to
-  terminal bookkeeping.
-- **User verdicts (👍/👎):** `RunVerdictControl` (packages/ui
-  `run-verdict-control.tsx`) mounts on every assistant message and renders once
-  per run — on the message leg carrying the terminal `run.finished` run-event
-  data part (works for edit-less runs; `run.failed` legs are deliberately
-  excluded in v1, and web local-runtime events without a runId are skipped).
-  The capability seam is `RunVerdictProvider`/`useRunVerdictContext`
-  (`run-verdict-context.tsx`) — PARALLEL to EditCheckpointContext by design:
-  verdicts gate on the repository's optional `recordRunOutcome` (present
-  wherever the PGlite repo exists, including web), not the desktop checkpoint
-  bridge. App-shell binds it via `useRunVerdictBinding`
-  (`hooks/use-run-verdict.ts`, source `'user'`, upserts over derived labels);
-  a rejected save shows a visible retry, never a silent drop. Write-only in
-  v1 (no read-back of a stored label after reload — the ledger remains the
-  authoritative view). The wrapper line-budget bump and the panel
-  owned-module assertions live in `assistant-contract-boundary.test.ts` and
-  `assistant-ui-panel-architecture.test.ts`.
-- **Ledger read model:** `getRunLedger(resourceId, {limitLatest})` aggregates
-  each `thread_runs` row with SUM'd run_usage tokens + exact billed cost
-  (absent — never a fabricated 0 — when unreported), top-level
-  `tool.completed`/`tool.failed` counts (subagent.tool.* excluded in v1),
-  edit-checkpoint totals + reverted counts, computed `durationMs`, and the
-  outcome label. `RUN_LEDGER_AGGREGATION_SQL` + `mapRunLedgerRow` are the
-  exported single source of truth (same convention as
-  `CROSS_ROOT_USAGE_AGGREGATION_SQL`); the strict mapper THROWS on malformed
-  aggregates. Both are optional on `AssistantThreadRepository` (read-only/test
-  repositories) and required on `BulkAssistantThreadRepository`.
-
-- **Ledger panel:** the Task Ledger renders inside the existing **Cost
-  Tracking settings category** (`createCostTrackingSettingsCategory` in
-  `packages/app-shell/src/cost-tracking/index.tsx`, consumed by both apps'
-  settings page-content), stacked below `CostAggregationPanel`. Data is
-  renderer-direct (Path A): `use-run-ledger.ts` is a PGlite live query over the
-  shared `RUN_LEDGER_AGGREGATION_SQL` + `mapRunLedgerRow` pair (limit 50), and
-  `use-ledger-analytics.ts` fetches `getLedgerCostTrend` (day bucket) +
-  `getModelComparison` with a manual refresh. Both gate on
-  `hasDurableAssistantUsageCapability()` exactly like the sibling cost panel
-  (web renders an honest session-only state). Honest-cost rules: exact
-  provider-reported cost renders as-is; a registry-priced remainder is marked
-  "est."; unpriced models read "cost unavailable" and zero-usage runs read
-  "no usage recorded" — NEVER a fabricated $0; malformed aggregates and query
-  failures surface as a visible error state with retry, never an
-  empty-but-fine panel.
-
-- **Budget guardrails (v1):** user-set spend caps over the ledger's own data.
-  State ownership: the caps (`dailyCapUsd`, `perRunCapUsd`, both null = off by
-  default) are persisted in
-  `packages/app-state/src/stores/assistant-budget-preferences-store.ts`
-  (STRICT set validation — finite > 0 or null, else THROW; factory-reset via
-  `resetAssistantBudgetPreferencesStoreToDefaults`), edited in the Cost
-  Tracking settings category (`budget-settings-panel.tsx`, blank = off,
-  invalid input shows a visible validation message — never coerced). Spend is
-  derived, never stored: `DAILY_SPEND_AGGREGATION_SQL` (+ strict
-  `mapDailySpendUsageRow` / pure `resolveDailySpendSummary` in
-  `cost-tracking/daily-spend.ts`, live-queried by `use-daily-spend.ts` under
-  the durable-usage capability gate) sums run_usage over a ROLLING
-  `created_at >= NOW() - INTERVAL '24 hours'` window — deliberately
-  timezone-free, so ALL UI copy says "last 24h", never "today"; it binds each
-  SQL param exactly once (PGlite live format() constraint, see
-  RUN_LEDGER_AGGREGATION_SQL). Honesty: exact billed cost + registry-priced
-  remainder; unpriced-model tokens are EXCLUDED from the total and surfaced as
-  an explicit "+N unpriced" marker — never a fabricated price. App-shell binds
-  cap + spend (`hooks/use-budget-guardrail.ts`) into the packages/ui context
-  seam (`budget-guardrail-context.tsx`, provider mounted in the wrapper beside
-  RunVerdictProvider); the composer chip/notice/gate live in
-  `budget-guardrail-control.tsx`. Over-cap rules — no silent block, no silent
-  allow: while `overCap && !overridden`, BOTH send paths (composer input+Send,
-  edit-composer resend) are disabled and a visible notice states "Last-24h
-  budget cap reached — $X of $Y" with an explicit "Send anyway" session
-  override; an active override is stated next to the chip; Stop/Cancel is
-  never gated. If the spend query fails the guardrail deactivates (null
-  binding) and the failure is logged as an error — v1 deliberately fails open
-  because blocking on a broken analytics query would be a silent block with no
-  honest number to show. `perRunCapUsd` is DISPLAY-ONLY: the ledger panel
-  badges runs whose exact-or-priced cost exceeds it (`isRunOverCap`; unpriced
-  or zero-usage runs are never flagged on a fabricated number).
-- **Subagent budgets:** `packages/app-state/src/stores/assistant-subagent-preferences-store.ts`
-  (strict set validation through `parseRuntimeSubagentSettings` — an invalid
-  value THROWS and lands nothing; hydration sanitizes an invalid persisted
-  payload to the defaults; factory reset via
-  `resetAssistantSubagentPreferencesStoreToDefaults`), edited in Settings →
-  Models → Subagents (`subagent-settings-section.tsx`, the parser's message is
-  shown under the field — never coerced), sent on every request as
-  `runtimeData.subagentSettings`; see docs/agents/assistant-subagents.md.
-
-When changing this flow, update this section and the paired tests
-(`packages/db/__tests__/migration-062-assistant-run-outcomes.test.ts`,
+Evidence: `assistant-persistence/task-ledger.md`.
+Guard: `packages/db/__tests__/migration-062-assistant-run-outcomes.test.ts`,
 `packages/assistant-data/src/__tests__/run-ledger-row.test.ts`, the run-outcome and
-run-ledger cases in `assistant-memory-repository.integration.test.ts`
-(including the hook-over-user precedence case), the
-outcome-labeling suite in `use-edit-checkpoints.test.ts`, the hook-verdict
-suites in `apps/desktop/src/__tests__/assistant-server/`
-(`hooks/run-verdict.test.ts`, the verdict cases in
-`hooks/server-composition.integration.test.ts`,
-`hook-run-outcome.integration.test.ts`), the panel suites
-in `packages/app-shell/src/cost-tracking/__tests__/` — `task-ledger-panel`,
-`use-run-ledger`, `use-ledger-analytics`, and the budget-guardrail suites:
-`daily-spend` / `use-daily-spend` / `budget-settings-panel` there,
-`use-budget-guardrail` + `daily-spend.integration` in
-`packages/app-shell/src/__tests__/`, `budget-guardrail-control` in
-`packages/ui/src/__tests__/`, and `assistant-budget-preferences-store` +
-`factory-reset-assistant-budget-preferences` in
-`packages/app-state/src/__tests__/`).
+run-ledger cases in `assistant-memory-repository.integration.test.ts`,
+`apps/desktop/src/__tests__/assistant-server/hook-run-outcome.integration.test.ts`,
+and the panel and budget-guardrail suites under
+`packages/app-shell/src/cost-tracking/__tests__/`.
 
 ---
 
-
 ## THREAD GROUPS (FOLDERS) IN THE THREADS PANEL
 
-User-defined groups organize the Threads panel: rank-ordered group sections, an
-**Ungrouped** section always last, drag-and-drop (Pragmatic drag and drop), and
-a Group by / Sort by view-options popover. Plan/rationale:
-`docs/thread-groups-plan-2026-07-12.md`.
+User-defined groups organize the panel: rank-ordered sections, an **Ungrouped**
+section always last, drag-and-drop, and a Group by / Sort by popover.
 
 Where state lives (do not relitigate):
-- Groups: `brainstrike_assistant_thread_groups`; thread membership + manual
-  order: `brainstrike_assistant_thread_placements` (migration 054; migration
-  056 adds nullable validated folder `color` and independent `flat_rank`, seeded
-  from the legacy `rank` so existing custom order survives the split; both are
-  registered in both migration runners). Membership deliberately does NOT
-  live in `mastra_threads.metadata`: grouping, folder color, and manual order
-  are Brainstrike-owned presentation state while Mastra owns that schema.
-- Thread icon/color metadata updates preserve conversational `updatedAt`; visual
-  curation must never reshuffle a recency-sorted collection.
-- Placements have no FK to `mastra_threads`: a placement whose thread is gone is
-  inert (the panel joins by id). Bulk thread deletion removes placements and all
-  owned thread rows in one guarded CTE; an unknown id mutates nothing. Deleting
-  a group nulls its placements' `group_id` and removes the group in one CTE after
-  staged UI confirmation, returning its threads to Ungrouped without partial
-  state or discarding their independent flat-list ranks; the loaded store mirrors
-  that transition by retaining each placement with `groupId: null`.
-- `rank` columns are `fractional-indexing` keys (`generateKeyBetween`); a
-  positional drop rewrites the destination section's ranks wholesale
-  (`applyThreadOrder` → `setThreadPlacements`, a SINGLE multi-row upsert so the
-  batch is atomic without the optional `DbHandle.transaction`; `reorderGroups` →
-  `setGroupRanks` likewise) and silently switches Sort by → Custom so the drag
-  is honored, never ignored. In Custom sort, unranked (new) threads render first
-  by recency.
-- View prefs (`groupBy`, independent `flatSortBy` / `groupedSortBy` /
-  `folderSortBy`, collapsed) persist via zustand `persist`
-  (`brainstrike-assistant-thread-groups-v1`, state version 3); the store
-  registers a session resetter in `register-factory-reset-session-stores.ts`.
-  `threadFilters` (needs-you / running / unseen) lives in the SAME store but is
-  session-only: it is deliberately excluded from `partialize` and cleared by
-  `reset()`. A malformed persisted blob still throws
-  (`requirePersistedGroupBy` / `requirePersistedSort` /
-  `requirePersistedFolderSort`) rather than being coerced.
-- `groupBy: 'folder'` (BST-1403) groups threads by the folder they work in: the
-  thread's primary root, `metadata.operatingRootId` (a durable `roots.id`;
-  `operatingRootDisplayName`/`operatingRootPath` are display-only and never an
-  identity). This is NOT a custom group — `buildThreadListSections` returns a
-  `{ kind: 'folders' }` view whose sections carry a `ThreadListSectionHeader`
-  discriminated union (`group` | `folder` | `unassigned`) and a `section.id`
-  (`group.id`, `folder:${rootId}`, `folder-unassigned` — the sentinel is
-  HYPHENATED on purpose, so it can never collide with a `folder:` id built from
-  a root whose id is literally `unassigned`). Folder display rows are supplied
-  BY THE CALLER as `folderRowsByRootId` (one `roots` query for the whole panel —
-  `assistant-data` stays DB-free), and folder mode cannot arrive without them:
-  `BuildThreadListSectionsInput` is a union discriminated on `groupBy`, so the
-  compiler — not a runtime throw — requires the folder arm to carry
-  `folderRowsByRootId` and `folderSortBy`, and the other arm to carry `groups`,
-  `placements`, and `sortBy`. A thread whose root id is missing, blank, or has
-  no display row lands
-  in the trailing "No folder" section, which is omitted when empty; the pure
-  builder never logs, the calling hook does.
-- The caller is `use-thread-folder-rows.ts` (BST-1404): ONE batched
-  `roots WHERE id = ANY($1)` per distinct id set, value-keyed on the sorted
-  deduped list, and a `logger.warn` ONCE per id that has no `roots` row. It is
-  deliberately NOT a live query — `reconcileRoots` never modifies a matched
-  row's `id`/`kind`/`path`/`display_name` and disconnecting a root flips
-  `status` rather than deleting the row, so the columns it reads are immutable
-  and there is no live-ness to subscribe to. A newly connected folder reaches
-  the panel through the INPUT instead (binding a thread to it changes that
-  thread's `operatingRootId`, hence the id set, hence the query). Its `rootIds`
-  are THREAD-DERIVED, so **a mounted folder with no threads produces no
-  section**: a folder section is a view over threads, not a mirror of the mount
-  list, and unlike a user-created group there is no durable object whose
-  emptiness must stay visible. A failed `roots` query is reported as
-  `error`, NOT as an empty resolved map: an empty map with `loading: false`
-  renders every thread under "No folder", which is the same silent degrade the
-  run-state indicators above already refuse. Its `rowsByRootId` carries the RAW
-  `roots.path`, while the branch map below is keyed by NORMALIZED path — a
-  consumer joining the two must normalize first or the chip silently never
-  appears.
-- Unseen/needs-attention badges come from `use-unseen-thread-ids.ts` (BST-1404):
-  a pure `deriveUnseenThreadIds` (terminal `latestRun` completed after the
-  thread's watermark, active thread excluded, `failedUnseen ⊂ unseen`; a
-  terminal run with NO `completedAt` is excluded rather than given a substitute
-  timestamp) plus `useMarkActiveThreadViewed`, which stamps the watermark on the
-  way in AND out of a thread and again whenever the active thread's run reaches a
-  new `completedAt` while it is still active — so a run finishing in the
-  foreground can never later read as unseen. Folder branch chips come from
-  `use-thread-branch-by-root-path.ts`: ONE `useGitInventory()` GATED on
-  `enabled` (`active: enabled`, `deferInitialLoad: !enabled`) because one load is a full
-  repo/worktree scan across every workspace root (BST-1116 W6 finding 4) and the
-  chips exist only in folders grouping — entering that grouping is the gesture,
-  so this is a deferral, not a silent disable; the flip itself performs the
-  load. Leaving folder grouping makes the hook inactive, so later push
-  invalidations do not pay for full inventory scans; re-entering performs a
-  fresh load. THREE KEYED LOOKUPS are available to `resolveThreadBranch`
-  (`threads-panel.tsx`). FIRST `byRootId`, keyed by DB `roots.id` — the same id
-  space as `metadata.operatingRootId` — holding only ids that appear in the
-  `containment` of EXACTLY ONE worktree. A present durable id is authoritative:
-  an id-only miss checks `byRootIdAndPath` for the SAME durable id plus the
-  thread's exact normalized worktree path. This restores a root checkout when
-  its root also contains a nested agent worktree without borrowing a branch
-  from a replacement root mounted at the same display path. THEN, only for a
-  legacy thread with no durable id, `byRootPath` uses the exact normalized
-  worktree path as the fallback. A root that merely contains several
-  repositories remains absent from `byRootId`; it gets a chip only when the
-  durable id plus exact path identifies one of its claimed worktrees. BARE
-  worktrees are omitted from all three maps: they carry no checkout,
-  hence no branch, and a mapped bare entry (`branch: null, detached: false`)
-  would render as an icon-only chip with no text (they therefore do not make a
-  root's containment ambiguous either).
-  Desktop only; web reports `available: false` and renders no chip.
-  WHY THE ID JOIN EXISTS (BST-1406 → fixed in BST-1404/1405):
-  `normalizeRootPathForLookup` trims and strips trailing separators — it does
-  NOT resolve symlinks, and it cannot: `roots.path` keeps the path the folder
-  was MOUNTED through while git reports the REALPATH. A root mounted through a
-  symlink (the macOS `/var` → `/private/var` tmpdir is the reproducer) matched
-  nothing by path, so its rows got no branch badge while the composer's branch
-  chip — which asks git with that path as cwd instead of joining on it — still
-  showed one. Same root, two answers. `containment` is computed in MAIN against
-  realpath'd root paths, so the id join is immune to that skew.
-- Folder grouping's SURFACE (BST-1405) is the same treegrid: folder sections are
-  real expandable parents whose node id IS `section.id`
-  (`folder:${rootId}` / `folder-unassigned`), so one id addresses the row, its
-  disclosure limit, its collapsed flag and its membership
-  (`getThreadPanelMemberSectionId` / `getThreadPanelCollapseId` in
-  `thread-panel-visible-rows.ts`; a section id this module did not mint throws
-  rather than becoming an unreachable node). `ThreadPanelVisibleRow` group rows
-  carry a `header` — `group` | `ungrouped` | `folder` | `unassigned` — because
-  the custom-groups **Ungrouped** section and the folder view's **No folder**
-  section are different facts and must not collapse into one. Sort is
-  `folderSortBy` (Recency/Name; **Custom is not offered** — a folder section has
-  nowhere to persist a drag) and `setSortBy` THROWS if called in folder mode.
-  There is NO drag shell and no `move-to-group`/`remove-from-group` row action
-  in folder mode, and `resolveThreadsPanelDrop` answers `none` for a folders
-  view before any resolver runs (the drop monitor is global, so this is a
-  reachable input, not a dead branch); the header's tooltip says why —
-  re-binding is the composer's folder chip. The header's one action is **New
-  thread here**: `createThread` then ONE `updateThreadMetadata` carrying the
-  whole binding (`operatingRootDisplayName` + `operatingRootId`, plus
-  `operatingRootPath` only when the root has one — the repository rejects a
-  partial triple). A create failure reports clean failure. If creation succeeds
-  but metadata binding fails, the thread is preserved in **No folder** and the
-  destructive toast reports explicit partial success plus guidance to open the
-  thread and select the intended folder; it is never deleted to make the toast
-  look atomic. Panel chrome stays TWO rows: the
-  `Show only` filters (Running / Needs you / Unseen) live INSIDE the view-options
-  popover, they are a UNION not an intersection, they light the trigger's dot
-  like any other non-default view, and when they empty the list the panel names
-  THEM (`threads-filtered-empty-card`) instead of claiming there are no threads.
-  In folder grouping an unresolved or failed folder map replaces the treegrid
-  (`threads-folders-loading-card` / `threads-folders-error-card`) rather than
-  filing every thread under "No folder".
-- Run state gets ONE badge slot per row, not three: `thread-row-status-glyph.tsx`
-  owns the priority `needs-you > running > failed-unseen > done-unseen` as a
-  pure function (a thread parked on an approval is also "running"; a failed run
-  is also "unseen"). Every glyph carries an `aria-label` naming its thread, and
-  the running state keeps the original spinner testid and `motion-reduce`
-  behavior.
-- ONE LIVE QUERY PER SIGNAL, NEVER PER ROW. The active-run projection
-  (`use-active-assistant-thread-ids.ts`) has two siblings — the awaiting-approval
-  projection (`use-threads-awaiting-approval.ts`, one resource-scoped live query
-  over `brainstrike_assistant_run_events`) and the unseen watermark
-  (`use-unseen-thread-ids.ts`, pure over threads already loaded, plus one
-  batched `roots` read for folder rows). Each one reports its own failure and
-  the panel renders that failure explicitly — `thread-activity-error`,
-  `thread-approvals-error`, and the folder cards above — rather than presenting
-  the resulting empty set as "every thread is idle / unblocked / in no folder".
-- The per-thread viewed watermark `lastViewedAtByThreadId` (epoch ms) lives in
-  `assistant-thread-store.ts` (`brainstrike-assistant-threads-v1`, state
-  version 4, partialized; `migrate` fills ONLY that key and `unseenBaselineAt`
-  for older blobs and passes the rest through — the threads blob has never been
-  validated on load and must not start being silently repaired).
-  `markThreadViewed` is idempotent and monotonic (never lowers an existing
-  watermark); thread deletion prunes it and `resetAssistantThreadStore` clears
-  it. Selection/tab actions do NOT mark implicitly — the panel decides when a
-  thread counts as seen.
-- `unseenBaselineAt` (epoch ms, persisted in the same slice) is the FLOOR under
-  that watermark, and `deriveUnseenThreadIds` compares against
-  `max(watermark, baseline)`. Without it an empty watermark record reads as "the
-  user has never seen anything", so a fresh install — and the first launch after
-  this shipped — would dot EVERY thread whose latest run ever completed, on the
-  one signal that is supposed to mean "this finished while you were away". It is
-  stamped at store creation, again by the v3 -> v4 migrate (the v3 blob carries
-  no thread ids and no run timestamps, so per-thread watermarks CANNOT be seeded
-  from it), and re-stamped by `resetAssistantThreadStore`. It is only ever
-  raised, never lowered, and never inferred from a run.
-- Folder sections mint persisted collapse keys (`folder:${rootId}`) in
-  `collapsedGroupIds`, so `pruneFolderCollapseIds` in
-  `assistant-thread-groups-store.ts` is the symmetric half of the group-key
-  prune `deleteGroup` does. Call it ONLY with a live root set you actually know
-  — the panel calls it from RESOLVED folder rows, because an empty folder map is
-  also what loading, a failed `roots` query and every non-folder grouping mode
-  look like, and pruning on that would wipe every folder's collapse state. Group
-  keys and the `folder-unassigned` sentinel are never touched.
-- The Threads panel uses shared `TreeTable` as its only scroll owner. Folder
-  rows are real expandable treegrid parents with Left/Right keyboard behavior.
-  Disclosed section rows are virtualized and capped at 50 initially, with an
-  explicit 50-row Show more action; folder selection still targets the complete
-  section, while Select visible targets only disclosed threads.
-- Panel chrome is TWO rows, not three: `ThreadsPanelToolbar` (heading + live
-  disclosed count + select-visible toggle + view options / new group / new
-  thread) then the search row. The count and the toggle describe the treegrid,
-  so they render only when `resolveThreadPanelContentState` says the treegrid —
-  not a state card — is on screen AND search is idle. Search results replace the
-  tree in a hidden subtree that also contains the bulk-action overlay, so a live
-  toggle there would select threads with no feedback and no way to clear.
-- E2E (BST-1406): `apps/desktop/e2e/threads-panel-folders.desktop.test.ts`
-  (one `@smoke` test in the PR lane, one regression sibling) and
-  `apps/web/e2e/threads-panel-folders.test.ts` (`@web-smoke`). Threads are
-  SEEDED as `mastra_threads` rows through the renderer's `electronAPI.db`
-  bridge (`e2e/utils/seed-threads.ts`) because the binding is written at the
-  FIRST REQUEST, so the product gestures that mint a bound thread — "New thread
-  here", and the workspace bar's "Make primary" (`use-workspace-bar.ts` writes
-  the same three `operatingRoot*` metadata keys as `persistThreadRootBinding`;
-  see `docs/agents/workspace-context.md` § workspace bar) — each need a folder
-  section that only a bound thread can produce.
-  The seed reads the DURABLE `roots.id` back from the database rather than
-  reusing the adapter root id, and the desktop fixture `realpath`s its temp
-  repo: `roots.path` keeps whatever path was mounted while git reports the
-  resolved one. Resolving the fixture keeps its path projection coincident with
-  the checkout, while the unit suite separately grades the authoritative
-  containment-id join and the legacy path-only fallback. The web
-  spec additionally pins that `window.changes` does not exist there at all —
-  the structural reason the badge is desktop-only, which still holds for a
-  bound thread. Both specs also pin the EMPTY-resource bootstrap thread
-  (`loadResourceThreadsForGeneration` creates one when `listThreads` is empty):
-  it has never made a request, so it belongs in "No folder".
 
-Layers: repository `assistant-thread-groups-repository.ts` → store
-`assistant-thread-groups-store.ts` → pure view-model `thread-list-sections.ts`
-(grouping/sorting; `buildThreadMembership` is the single source of effective
-membership; `getGroupMemberIds` answers section membership and weakly caches
-the projected ids by immutable `ThreadListView`, indexing sections once but
-projecting each group's ids only when its virtualized row is requested, so
-selection-only rerenders do not rescan sections or reallocate visible groups'
-id arrays and first paint does not project offscreen groups) → panel state
-`use-thread-panel-selection.ts` (disclosure limits + bulk selection, owned by
-`ThreadsPanel` so the toolbar and the treegrid read one source of truth rather
-than two copies) → body arbitration `thread-panel-content-state.ts` (pure: tree
-or which state card, read by BOTH the body and the toolbar so they cannot
-disagree; it also owns `hasActiveThreadFilters`) → view surface
-`threads-panel-view-options.tsx` (the one popover: grouping, sorting, filters) → drop resolution `threads-panel-dnd.ts` (pure intent reducer) →
-element wiring `threads-panel-dnd-elements.tsx`.
+- Groups in `brainstrike_assistant_thread_groups`; membership and manual order in
+  `brainstrike_assistant_thread_placements` (migration 054; 056 adds nullable
+  validated `color` and an independent `flat_rank`). Membership deliberately does
+  NOT live in `mastra_threads.metadata`: grouping, colour and order are
+  Brainstrike-owned presentation state.
+- Placements have no FK to `mastra_threads`, so a placement whose thread is gone is
+  inert. Bulk deletion removes placements and owned rows in one guarded CTE and an
+  unknown id mutates nothing; deleting a group nulls its placements' `group_id` in
+  one CTE after staged confirmation, preserving each thread's flat rank.
+- Thread icon/colour updates preserve conversational `updatedAt`: visual curation
+  must never reshuffle a recency-sorted collection.
+- `rank` columns are `fractional-indexing` keys; a positional drop rewrites the
+  destination section's ranks wholesale in a SINGLE multi-row upsert and silently
+  switches Sort by → Custom so the drag is honored, never ignored.
+- View prefs persist via zustand `persist`
+  (`brainstrike-assistant-thread-groups-v1`, state version 3) with a registered
+  session resetter. `threadFilters` lives in the same store but is session-only:
+  excluded from `partialize`, cleared by `reset()`. A malformed persisted blob
+  still THROWS rather than being coerced.
+- **`groupBy: 'folder'`** groups by `metadata.operatingRootId` (display name and
+  path are never identity). It is NOT a custom group: `buildThreadListSections`
+  returns a `{ kind: 'folders' }` view whose section ids are `folder:${rootId}` or
+  the HYPHENATED `folder-unassigned` sentinel, which can never collide with a root
+  literally named `unassigned`. `BuildThreadListSectionsInput` is a union
+  discriminated on `groupBy`, so the COMPILER — not a runtime throw — requires each
+  arm's inputs, and folder rows are supplied BY THE CALLER.
+- `use-thread-folder-rows.ts` runs ONE batched `roots WHERE id = ANY($1)` per
+  distinct id set, warning ONCE per id with no row. It is deliberately NOT a live
+  query: the columns it reads are immutable, and a newly connected folder reaches
+  the panel through the INPUT. Its `rootIds` are THREAD-DERIVED, so a mounted
+  folder with no threads produces no section. A failed query reports `error`, NOT
+  an empty resolved map — an empty map with `loading: false` files every thread
+  under "No folder". Its rows carry the RAW `roots.path` while the branch map is
+  keyed by NORMALIZED path; a consumer joining them must normalize first.
+- Unseen badges derive from a pure `deriveUnseenThreadIds` (terminal `latestRun`
+  completed after the thread's watermark, active thread excluded,
+  `failedUnseen ⊂ unseen`; a terminal run with NO `completedAt` is excluded rather
+  than given a substitute timestamp) plus `useMarkActiveThreadViewed`, which stamps
+  on the way in AND out and again when the active thread's run reaches a new
+  `completedAt`, so a foreground finish can never later read as unseen.
+- Folder branch chips come from ONE `useGitInventory()` GATED on `enabled`, because
+  one load is a full repo/worktree scan across every root and the chips exist only
+  in folder grouping — entering it is the gesture, so this is a deferral, not a
+  silent disable. THREE KEYED LOOKUPS resolve a branch: FIRST `byRootId` (durable
+  `roots.id`, only ids in exactly one worktree's containment); an id-only miss
+  checks `byRootIdAndPath` for the same id plus the thread's exact normalized
+  worktree path; THEN, only for a legacy thread with no durable id, `byRootPath`.
+  BARE worktrees are omitted from all three. Desktop only. Why the id join exists:
+  `normalizeRootPathForLookup` cannot resolve symlinks — `roots.path` keeps the
+  mounted path while git reports the realpath — and `containment` is computed in
+  MAIN against realpath'd paths.
+- Folder sections are real expandable treegrid parents whose node id IS
+  `section.id`, so one id addresses the row, its disclosure limit, its collapsed
+  flag and its membership; a section id the module did not mint THROWS rather than
+  becoming an unreachable node. `ThreadPanelVisibleRow` group rows carry a `header`
+  discriminator because **Ungrouped** and **No folder** are different facts.
+- Folder sort is `folderSortBy` (Recency/Name); **Custom is not offered** — a folder
+  section has nowhere to persist a drag — and `setSortBy` THROWS in folder mode.
+  There is no drag shell and no move/remove row action, and
+  `resolveThreadsPanelDrop` answers `none` for a folders view before any resolver
+  runs. The header's one action is **New thread here**: `createThread` then ONE
+  `updateThreadMetadata` carrying the whole binding. If creation succeeds but
+  binding fails, the thread is preserved in **No folder** with an explicit
+  partial-success toast — never deleted to make the toast look atomic.
+- Run state gets ONE badge slot per row, priority
+  `needs-you > running > failed-unseen > done-unseen`, as a pure function. Every
+  glyph carries an `aria-label` naming its thread.
+- **ONE LIVE QUERY PER SIGNAL, NEVER PER ROW.** Active-run, awaiting-approval and
+  unseen each report their own failure and the panel renders it explicitly, rather
+  than presenting the empty set as "every thread is idle / unblocked / in no
+  folder".
+- The per-thread watermark lives in `assistant-thread-store.ts` (state version 4,
+  partialized; `migrate` fills ONLY that key and `unseenBaselineAt` and passes the
+  rest through — the threads blob has never been validated on load and must not
+  start being silently repaired). `markThreadViewed` is idempotent and monotonic;
+  selection and tab actions do NOT mark implicitly.
+- `unseenBaselineAt` is the FLOOR under that watermark, compared as
+  `max(watermark, baseline)`. Without it a fresh install would dot EVERY thread
+  whose latest run ever completed. It is stamped at store creation, by the v3→v4
+  migrate and by `resetAssistantThreadStore`; only ever raised, never inferred.
+- Call `pruneFolderCollapseIds` ONLY with a live root set you actually know — the
+  panel calls it from RESOLVED folder rows. Why: an empty folder map is also what
+  loading, a failed query and every non-folder mode look like.
+- Panel chrome stays TWO rows: toolbar then search. The count and select-visible
+  toggle describe the treegrid, so they render only when
+  `resolveThreadPanelContentState` says the treegrid is on screen AND search is
+  idle. Search results replace the tree in a hidden subtree containing the bulk
+  overlay, so a live toggle there would select threads with no feedback.
+- `Show only` filters live INSIDE the view-options popover, are a UNION not an
+  intersection, light the trigger's dot, and when they empty the list the panel
+  names THEM rather than claiming there are no threads. In folder grouping an
+  unresolved or failed folder map replaces the treegrid with its own card.
+- The panel uses shared `TreeTable` as its only scroll owner; disclosed rows are
+  virtualized and capped at 50 with an explicit 50-row Show more. Keyboard/a11y
+  fallback for every drag is the row context-menu Move/Remove.
 
-Cost of that ownership: a checkbox toggle or Show more now re-renders all of
-`ThreadsPanel` rather than only `ThreadPanelTree`. `buildThreadPanelVisibleRows`
-is memoized on the same deps, so this is render breadth, not recomputation —
-fine at user-paced click rates, worth revisiting if the panel grows. Semantic color presentation is
-owned once in `assistant-thread-presentation.ts` and shared by rows, folders,
-and tabs. Keyboard/a11y fallback for
-every drag operation: row context-menu "Move to <group>" / "Remove from Group".
+Layers: repository → store → pure view-model `thread-list-sections.ts` → panel
+state `use-thread-panel-selection.ts` → body arbitration
+`thread-panel-content-state.ts` (read by BOTH body and toolbar so they cannot
+disagree) → view surface `threads-panel-view-options.tsx` → pure drop reducer
+`threads-panel-dnd.ts` → element wiring. Cost of that ownership: a checkbox toggle
+re-renders all of `ThreadsPanel`, but `buildThreadPanelVisibleRows` is memoized on
+the same deps — render breadth, not recomputation.
 
-Paired tests for folder grouping: the `ThreadsPanel folders` suite in
-`threads-panel.test.tsx` (whose `usePGliteLiveQuery` double routes rows BY
-`cacheKey` — the two projections have identical `{ threadId }` row shapes and an
-order-based double would feed one the other's rows), plus the folders cases in
-`thread-panel-visible-rows.test.ts`, `threads-panel-dnd.test.ts` and
-`thread-panel-content-state.test.ts`.
-
-Paired tests: `migration-054-assistant-thread-groups.test.ts` and
-`migration-056-assistant-thread-group-presentation.test.ts` (packages/db),
-`assistant-thread-groups-repository.test.ts`, `assistant-thread-groups-store.test.ts`,
-`thread-list-sections.test.ts`, `threads-panel-dnd.test.ts`, and the
-`ThreadsPanel groups` suite in `threads-panel.test.tsx`.
+Evidence: `assistant-persistence/thread-groups-and-folders.md`.
+Guard: `packages/db/__tests__/migration-054-assistant-thread-groups.test.ts`,
+`migration-056-assistant-thread-group-presentation.test.ts`,
+`packages/app-shell/src/__tests__/threads-panel.test.tsx` (its `usePGliteLiveQuery`
+double routes rows BY `cacheKey`; the two projections share a row shape),
+`thread-panel-visible-rows.test.ts`, `threads-panel-dnd.test.ts`,
+`thread-panel-content-state.test.ts`,
+`apps/desktop/e2e/threads-panel-folders.desktop.test.ts`,
+`apps/web/e2e/threads-panel-folders.test.ts`.
 
 ## TOOL OUTPUT ARTIFACT PERSISTENCE
 
 Migration 068 and `ToolOutputArtifactRepository` own complete oversized tool
 outputs; migration 129 adds native execution-thread identity to deduplication
-within the same root resource/thread/run. Existing artifacts backfill their root
-thread without changing references, bytes or expiry. A child cursor is readable
-through the root-owned reader capability, never by supplying execution identity
-as read authority. Exact same-execution replay remains byte-immutable. Native
-sibling tests cover reused tool-call IDs, complete model paging, reconstructed
-engine reads and hydrated child envelopes.
+within the same root resource/thread/run.
 
-The table stores results independently of Mastra message rows:
-
-- `brainstrike_assistant_tool_output_artifacts.content` is `BYTEA`, populated
-  from exact UTF-8 bytes through hex text + PostgreSQL `decode`; this preserves
-  U+0000 and avoids typed-array realm drift across browser workers and Electron
-  IPC.
-- The public id is an opaque uuidv7 token. Every read also requires the active
-  `resource_id` and `thread_id`; a wrong scope is indistinguishable from a
-  missing artifact. `run_id`, `execution_thread_id` and `tool_call_id` retain
-  execution provenance,
-  with one stored result per scoped tool call.
-- Range reads are byte-addressed and capped by the shared 8000-byte page
-  maximum. The repository returns bytes; the future reader/resolver owns
-  UTF-8-boundary adjustment and signed/opaque cursor validation.
-- Thread deletion clears artifacts when either their owning root or native execution
-  thread is in the deleted subtree; unrelated and sibling execution artifacts remain.
-- Retention is seven days. `purgeExpired` deletes an explicitly bounded batch
-  in oldest-first order. Expired reads return metadata without content.
-- Storage, reads, and purge failures use a typed visible error. Settlement must
-  finish the complete write before publishing an artifact envelope; it must
-  never substitute a reference after a failed write.
-- Exact replay of `(resource, thread, run, execution thread, tool call)` returns
-  the existing
-  reference only when format and complete bytes match. A different replay
-  returns no row and surfaces as a typed storage conflict; settlement never
-  overwrites prior evidence.
-- There are deliberately no Mastra FKs because the numbered migration runner
-  operates on a bare schema. Both direct-PGlite reset paths and desktop
+- `content` is `BYTEA`, populated from exact UTF-8 bytes through hex text and
+  `decode`. Why: this preserves U+0000 and avoids typed-array realm drift across
+  browser workers and Electron IPC.
+- The public id is an opaque uuidv7 token, and every read also requires the active
+  `resource_id` and `thread_id`; a wrong scope is indistinguishable from a missing
+  artifact. A child cursor is readable through the root-owned reader capability,
+  never by supplying execution identity as read authority.
+- Range reads are byte-addressed and capped by the shared 8000-byte page maximum.
+  The repository returns bytes; the reader owns UTF-8 boundary adjustment and
+  cursor validation.
+- Thread deletion clears artifacts when either the owning root or the native
+  execution thread is in the deleted subtree; sibling execution artifacts remain.
+- Retention is seven days; `purgeExpired` deletes an explicitly bounded
+  oldest-first batch, and expired reads return metadata without content.
+- Settlement must finish the complete write before publishing an envelope and must
+  never substitute a reference after a failed write. Exact replay of
+  `(resource, thread, run, execution thread, tool call)` returns the existing
+  reference only when format and complete bytes match; a different replay is a
+  typed storage conflict, and settlement never overwrites prior evidence.
+- There are deliberately no Mastra FKs. Both direct-PGlite reset paths and desktop
   `db:clearAll` delete artifacts explicitly; only a pre-068 missing relation is
   tolerated.
+- Desktop injects a trusted request-scoped adapter when resource, thread and
+  server-owned run ids are all present. The settlement wrapper persists complete
+  non-media native/MCP results above 12,000 UTF-8 bytes, caps one artifact at
+  16 MiB, and publishes a preview envelope only after coherent metadata returns.
+  MCP image/audio stays inline; hosts without the adapter retain the temporary MCP
+  text/JSON inline ceiling.
+- Per-tool serialized-character thresholds may be stricter: desktop sets
+  `brainstrike.webExtract` to 2400 characters so small extracts stay inline while
+  larger content is committed as one exact JSON artifact first.
 
-The desktop assistant now injects a trusted, request-scoped repository adapter
-when resource, thread, and server-owned run ids are all present. The agent's
-central settlement wrapper persists complete non-media native/MCP results above
-12,000 UTF-8 bytes, caps one artifact at 16 MiB, and publishes a preview
-envelope only after the repository returns coherent metadata. Display and
-transcript store that envelope; a private in-process carrier lets model
-projection consume the original result. MCP image/audio remains inline for
-display/transcript rendering and keeps its media plus metadata ceilings in both
-host modes. Hosts without the adapter additionally retain the temporary MCP
-text/JSON inline ceiling. The artifact reader remains a separate later slice.
-The wrapper also accepts stricter per-tool serialized-character thresholds.
-Desktop sets `brainstrike.webExtract` to 2400 characters so complete small
-extracts stay inline while larger page content, exact URLs, and failure reasons
-are committed as one exact JSON artifact before any compact model view is
-published. When that stored JSON fits one model page, display keeps the complete
-raw result and the model page reports completion without an EOF cursor.
-Paired tests:
-`migration-068-tool-output-artifacts.test.ts`,
+Evidence: `assistant-persistence/tool-output-artifacts.md`.
+Guard: `packages/db/__tests__/migration-068-tool-output-artifacts.test.ts`,
 `tool-output-artifact-repository.test.ts`,
-`tool-output-artifact-settlement.spec.ts`,
-`mastra-tool-execution.integration.spec.ts`,
-the desktop `assistant-server/run-persistence-http.integration.test.ts` and
-`assistant-server/agent-stream-init-and-memory.integration.test.ts` (the
-pre-BST-1028 `assistant-server.integration.test.ts` split),
-`factory-reset.test.tsx`, and the desktop `ipc-handlers-db.test.ts`.
+`packages/agent/src/mastra/__tests__/tool-output-artifact-settlement.spec.ts`.
 
 ## THREADS PANEL HYBRID SEARCH
 
-Hybrid (lexical + semantic + title) search over threads, rendered at the top
-of the Threads panel. Mastra has no cross-thread content search
-(`listThreads` filters metadata only; `semanticRecall` is vector-only,
-per-thread, retrieval-for-context), so this is Brainstrike-owned derived
-state under the SAME ownership ruling as thread groups: never ALTER the
-Mastra tables.
+Hybrid lexical + semantic + title search over threads. Mastra has no cross-thread
+content search, so this is Brainstrike-owned derived state under the same ownership
+ruling as thread groups: never ALTER the Mastra tables.
 
 Where state lives (do not relitigate):
-- Index: `brainstrike_thread_message_index` (migration 067; one row PER
-  mastra message, no FKs — orphans are inert via query-time joins and swept
-  by the bounded sync GC). `content_text` is bounded plain text extracted
-  IN SQL from the Mastra v2 content JSONB (text parts only — tool payloads
-  are never indexed; non-conversational roles keep '' so the anti-join sync
-  still sees them as processed). `content_hash` = md5 of the RAW content
-  JSONB: the sync upsert's `IS DISTINCT FROM` CAS detects progressive
-  same-id saves and resets the row's embedding to pending. The tsvector is
-  a STORED generated column (034 precedent) + GIN; deliberately NO
-  pg_textsearch BM25 index (the 065/066 durability-gate burden is not
-  re-paid for a second hot-write table; ts_rank_cd orders the lexical arm).
-- Semantic arm HNSW tuning (BST-576): `searchSimilar` runs its filtered ANN
-  SELECT inside ONE transaction with `SET LOCAL hnsw.ef_search` +
-  `iterative_scan='strict_order'` (`SET LOCAL` outside a transaction is a
-  silent no-op → pgvector default ef_search=40, the #1141 filtered-ANN
-  under-return class). Path order in `runVectorSearchInTransaction`: desktop
-  runs the `ThreadSearchDatabase.runTransaction` atomic IPC primitive; web
-  (ScheduledDbHandle) and raw PGlite handles run the callback-style
-  `transaction`, which holds the single connection's lock so concurrent
-  scheduled work (the controller's embedding-backlog writes run alongside
-  searches) cannot interleave inside the open transaction; the raw
-  BEGIN/COMMIT-over-`query` fallback remains only for legacy/mock seams.
-  Paired tests: the mock-db describe in
-  `packages/db/__tests__/search-thread-message-index.test.ts`.
-- Embeddings: per-message inline `vector(384)` column (typed to the
-  singleton profile; a partial HNSW index serves the semantic arm) with the
-  singleton `brainstrike_thread_search_profiles` row — the prompt-library
-  (051) pattern, NOT the file-collection `embedding_sets` lifecycle, and NOT
-  the hidden-host job_queue: embedding runs in the visible renderer through
-  the registered embedding queue factory + shared `SearchEmbedderProvider`,
-  drained in bounded sequential resource-scoped passes. Writes are
-  double-CAS'd: content hash (stale text) AND profile model key (a
-  mid-flight same-dimension model swap must not land a cross-space vector).
-  The source hash covers role + raw content, since extraction depends on
-  both.
-- Sync: `ThreadSearchRepository.sync()` — a row-count membership fast path
-  (idle searches pay two COUNTs, not anti-join scans; a same-count
-  delete+insert pair defers one pass and heals on the next divergence),
-  bounded anti-join inserts, a PER-THREAD refresh
-  (`brainstrike_thread_search_state`: threads strictly newer than their own
-  recorded activity, plus a trailing 2-minute live window for same-id
-  progressive saves — never a global watermark, which could let one busy
-  thread push a quiet thread's pending change out of the refresh window
-  forever), and bounded orphan GC. Runs per search pass behind a 5s TTL and
-  an in-flight guard (concurrent searches share one sync); every statement
-  is bounded (single-PGlite-connection contract).
-- Fusion: `ThreadSearchService` (packages/db/src/search/thread-search-service.ts)
-  is the thread-native binding of the SHARED generic RRF core (`rrf.ts`) —
-  `HybridSearchService` stays FileChunk-bound on purpose; do not fake chunk
-  shapes to reuse it. Two levels: message arms (FTS + vector) fuse per
-  message id, then content-ranked threads fuse with trigram-ranked title
-  matches (title+content beats equal content-only; title-only threads still
-  surface). Titles are matched live off `mastra_threads` (few + mutable),
-  never copied into the index.
-- UI/state: session-only `thread-search-store.ts` (app-shell) with the
-  workspace-search generation contract (monotonic token gates every async
-  completion; `clearResults` keeps the typed query, `clearSearch` is the
-  full Esc/✕ dismiss). Like workspace-search, `setQuery` deliberately does
-  NOT bump the generation — the debounced auto-search owns that transition,
-  so the previous query's results may render for ≤ debounce+search time
-  (settled; keep the two stores' contracts aligned).
-  `use-thread-search-controller.ts` owns debounce (250ms, 2-char minimum),
-  sync, the embedding backlog drain, and semantic honesty: an unproducible
-  query embedding runs lexical-only WITH a visible `unavailable` reason
-  (failure cached 60s so searches never stall behind a repeatedly-failing
-  model init; a success recorded after a stale attempt started wins), plus
-  coverage progress AND embedding-failure counts — never a silent downgrade
-  or a silently shrinking semantic corpus.
-  `ThreadsPanelSearch` renders ts_headline `<mark>` tokens as elements and
-  everything else as plain text (persisted content is never HTML), with
-  aria-activedescendant keyboard nav. While searching, the tree is hidden
-  (not unmounted) so disclosure/selection state survives dismissal.
-- Delegated search scope (BST-1725): lexical, semantic, title and embedding-coverage reads walk the durable child graph from native roots owned by the requested resource. Every child edge checks owner/root identity and the native resource, including intermediate ancestors. Child native resource IDs remain unchanged; search does not broaden ordinary memory authorization. Activation rechecks the selected native message and rejects tombstoned/deleted/foreign hits visibly.
-- Explicit child search navigation uses the ordinary history mapper with an exclusive `(createdAt, id)` cursor. Each older-page read is capped at 80 and scoped to the same native thread/resource; ordinary opening still loads only the latest 80. A cancelled or superseded navigation stops paging. Hydrated assistant groups retain `brainstrikeNativeMessageIds` so raw search IDs select their actual rendered group. Older context supplements the host baseline; the host keeps its current head and live decision state. Navigation intent lives in the existing factory-reset-registered session search store, never in a new persistent store.
-- Cleanup: panel thread deletion clears index rows eagerly (like
-  placements); missed paths self-heal via sync GC. Factory reset clears
-  `brainstrike_thread_message_index` + `_state` on BOTH the desktop
-  db:clearAll path and the web DbProvider paths; the search profile row is
-  configuration and survives (prompt-profile precedent). The session store
-  registers in `register-factory-reset-session-stores.ts`.
 
-Paired tests: `migration-067-thread-search-index.test.ts`,
-`search-thread-message-index.test.ts`, `delegated-thread-search.test.ts`, `search-thread-search-service.test.ts`
-(packages/db); `thread-search-store.test.ts`, `thread-search-embedding.test.ts`,
-`use-thread-search-controller.test.ts`, `threads-panel-search.test.tsx`,
-`delegated-child-reload.integration.test.tsx`
-(packages/app-shell).
+- **Index:** `brainstrike_thread_message_index` (migration 067; one row per Mastra
+  message, no FKs — orphans are inert and swept by the bounded GC). `content_text`
+  is bounded plain text extracted IN SQL from the v2 content JSONB, text parts
+  only; non-conversational roles keep `''` so the anti-join still sees them
+  processed. `content_hash` is md5 of the RAW JSONB, so the sync upsert's
+  `IS DISTINCT FROM` CAS detects progressive same-id saves and resets the embedding
+  to pending. The tsvector is a STORED generated column + GIN; deliberately NO
+  pg_textsearch BM25 index on a second hot-write table.
+- **Semantic arm:** `searchSimilar` runs its filtered ANN SELECT inside ONE
+  transaction with `SET LOCAL hnsw.ef_search` and `iterative_scan='strict_order'`.
+  Why: `SET LOCAL` outside a transaction is a silent no-op, leaving the pgvector
+  default and the filtered-ANN under-return class. Desktop uses the atomic IPC
+  primitive; web and raw handles use the callback-style `transaction`, which holds
+  the single connection's lock so concurrent scheduled work cannot interleave.
+- **Embeddings:** per-message inline `vector(384)` typed to the singleton profile
+  with a partial HNSW index — the prompt-library pattern, NOT the `embedding_sets`
+  lifecycle and NOT the hidden-host job queue. Embedding runs in the visible
+  renderer in bounded sequential resource-scoped passes. Writes are double-CAS'd on
+  content hash AND profile model key, so a mid-flight same-dimension model swap
+  cannot land a cross-space vector.
+- **Sync:** a row-count membership fast path, bounded anti-join inserts, a
+  PER-THREAD refresh with a trailing 2-minute live window (never a global
+  watermark, which could starve a quiet thread forever), and bounded orphan GC.
+  Runs per search pass behind a 5s TTL and an in-flight guard; every statement is
+  bounded.
+- **Fusion:** `ThreadSearchService` is the thread-native binding of the shared
+  generic RRF core. `HybridSearchService` stays FileChunk-bound on purpose — do not
+  fake chunk shapes to reuse it. Two levels: message arms fuse per message id, then
+  content-ranked threads fuse with trigram-ranked title matches. Titles are matched
+  live off `mastra_threads`, never copied into the index.
+- **UI/state:** session-only `thread-search-store.ts` with the workspace-search
+  generation contract (a monotonic token gates every async completion;
+  `clearResults` keeps the typed query, `clearSearch` is the full dismiss).
+  `setQuery` deliberately does NOT bump the generation — the debounced auto-search
+  owns that transition; keep the two stores aligned. The controller owns a 250ms
+  debounce with a 2-char minimum, sync, the backlog drain, and semantic honesty: an
+  unproducible query embedding runs lexical-only WITH a visible `unavailable`
+  reason (failure cached 60s), plus coverage progress and embedding-failure counts
+  — never a silent downgrade.
+- Render ts_headline `<mark>` tokens as elements and everything else as plain text;
+  persisted content is never HTML. While searching, hide the tree rather than
+  unmounting it so disclosure and selection survive dismissal.
+- **Delegated scope:** lexical, semantic, title and coverage reads walk the durable
+  child graph from native roots owned by the requested resource, checking
+  owner/root identity and the native resource on every edge including intermediate
+  ancestors. Search does not broaden ordinary memory authorization, and activation
+  rechecks the selected native message, rejecting tombstoned, deleted or foreign
+  hits visibly.
+- Explicit child navigation uses the ordinary history mapper with an exclusive
+  `(createdAt, id)` cursor, each older page capped at 80 and scoped to the same
+  native thread/resource. Hydrated assistant groups retain
+  `brainstrikeNativeMessageIds` so raw search ids select their rendered group.
+  Navigation intent lives in the existing factory-reset-registered session store.
+- **Cleanup:** panel deletion clears index rows eagerly and missed paths self-heal
+  via sync GC. Factory reset clears the index and `_state` on both paths; the
+  search profile row is configuration and survives.
+
+Evidence: `assistant-persistence/threads-panel-hybrid-search.md`.
+Guard: `packages/db/__tests__/migration-067-thread-search-index.test.ts`,
+`search-thread-message-index.test.ts`, `delegated-thread-search.test.ts`,
+`search-thread-search-service.test.ts`,
+`packages/app-shell/src/__tests__/use-thread-search-controller.test.ts`,
+`threads-panel-search.test.tsx`, `delegated-child-reload.integration.test.tsx`.
 
 ## ASSISTANT THREAD TABS
 
 Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
-`reorderThreadTabs` persists the complete ordered id list atomically. The tab
-controller uses the WAI-ARIA automatic-activation pattern with roving tab focus,
-Home/End, Delete, and `Alt+Shift+Left/Right` reorder controls. Pointer drag uses
-Pragmatic drag and drop plus edge auto-scroll; context-menu Move Left / Move
-Right provides the non-drag alternative. Panels remain mounted while inactive
-so runtime state is not discarded. Open tabs project BOTH the icon and color
-from the current loaded thread after every `useAssistantThreadStore` transition:
-`assistant-thread-presentation.ts` owns the exhaustive icon registry, the
-Message default for absent icon metadata, and the canonical color surfaces.
-The Threads panel rows, customization pickers, group icon choices, and tabs
-consume those shared contracts rather than declaring local glyph maps or
-palettes. A successful metadata write updates the one loaded thread object, so
-an open tab reflects customization without a PGlite re-read, timer, global
-invalidation, or assistant-panel remount; a failed write performs no store
-transition and remains visibly failed in the panel. `listThreads` returns the
-thread row plus its latest-run badge data in ONE SQL snapshot; splitting those
-reads permits a metadata write to interleave before a stale title refresh lands
-in the store. Historical run model ids remain plain persisted evidence: ids
-known to `MODEL_ID_MIGRATIONS` render as `Unavailable · <raw id>` in both the
-row badge and expanded details, while unrecognized ids remain visible verbatim
-instead of disappearing or being rewritten to the current replacement. The
-refresh captures each loaded metadata object before its read;
-if an immutable metadata transition lands while that read is in flight, the
-refresh preserves the current metadata while still applying refreshed titles,
-run badges, and ordering. That store-side ordering guard closes the stale
-metadata overwrite, while the single SQL statement removes the intra-read
-inconsistency and one local database round trip. Neither path uses polling or
-retries.
-The persisted store contains tab/selection ids but not `mastra_threads` rows.
-After restore, `loadStateByResourceId` therefore remains `idle`/`loading` until
-`ensureResourceThreads` hydrates the selected row and its metadata. Composer
-sends stay disabled during both states even when no workspace root is focused,
-and root-binding resolution/persistence also rejects a selected id whose row is
-not loaded; that transient absence is never interpreted as an unbound thread
-eligible for the current Main root. A terminal database initialization error
-always outranks the transient loading reason so a failed capability cannot
-remain disguised as pending hydration.
+`reorderThreadTabs` persists the complete ordered id list atomically.
 
-The non-reloading Database Explorer **Clear Database** path deletes
-`mastra_threads`, so its app-shell composition must synchronously reset the
-thread store and thread-groups store immediately after the database clear
-succeeds and before collection reloads begin. `DatabaseDemoPanel` requires and
-preflights that post-clear callback; capability absence blocks the clear
-visibly instead of leaving persisted selection pointed at a deleted thread.
-`resetAssistantThreadStore` clears every persisted selection/tab/draft map,
-every loaded thread map, and the resource-load promise registry. Both thread
-stores invalidate in-flight hydration generations during reset so a stale
-completion cannot repopulate deleted rows into the live mirrors.
+- The controller uses the WAI-ARIA automatic-activation pattern with roving tab
+  focus, Home/End, Delete and `Alt+Shift+Left/Right`; pointer drag adds edge
+  auto-scroll and the context menu provides the non-drag alternative. Panels stay
+  mounted while inactive so runtime state is not discarded.
+- `assistant-thread-presentation.ts` owns the exhaustive icon registry, the Message
+  default and the canonical colour surfaces. Rows, pickers, group icon choices and
+  tabs consume those shared contracts rather than local glyph maps.
+- Each tree cell mounts one `ThreadRow` owning its transient edit/customize/delete
+  state, keyed by thread id: a same-thread parent rerender preserves an in-progress
+  rename, while a virtual cell changing identity remounts. None of that ephemeral
+  state enters the persisted store.
+- A successful metadata write updates the one loaded thread object, so an open tab
+  reflects customization without a re-read, timer, global invalidation or panel
+  remount; a failed write performs no store transition and stays visibly failed.
+- `listThreads` returns the thread row plus its latest-run badge data in ONE SQL
+  snapshot. Why: splitting the reads lets a metadata write interleave before a
+  stale title refresh lands. The refresh captures each loaded metadata object
+  before its read, so an immutable metadata transition landing mid-read preserves
+  current metadata while still applying refreshed titles, badges and ordering.
+  Neither path polls or retries.
+- Historical run model ids stay plain persisted evidence: ids known to
+  `MODEL_ID_MIGRATIONS` render as `Unavailable · <raw id>`, and unrecognized ids
+  remain visible verbatim rather than being rewritten to a replacement.
+- The persisted store holds tab/selection ids, not `mastra_threads` rows, so
+  `loadStateByResourceId` stays `idle`/`loading` after restore until
+  `ensureResourceThreads` hydrates. Composer sends stay disabled during both
+  states, and root-binding resolution rejects a selected id whose row is not loaded
+  — that transient absence is never an unbound thread. A terminal database
+  initialization error always outranks the transient loading reason.
+- The non-reloading **Clear Database** path deletes `mastra_threads`, so its
+  composition must synchronously reset the thread and thread-groups stores
+  immediately after the clear succeeds and before collection reloads.
+  `DatabaseDemoPanel` requires and preflights that callback; capability absence
+  blocks the clear visibly. Both stores invalidate in-flight hydration generations
+  during reset.
 
-Paired tests: `assistant-thread-store.test.ts`,
-`database-tab-chunk.test.tsx`, `database-demo-panel.test.tsx`,
-`assistant-thread-tabs-dnd.test.ts`, `assistant-thread-tabs-dnd-elements.test.tsx`,
-`assistant-thread-tabs-workspace.test.tsx`,
-`assistant-ui-panel-wrapper-runtime.test.ts`, and
-`use-assistant-thread-root-binding.test.ts`; the live customize-and-reload browser
-contract is `apps/web/e2e/assistant-ui-panel.test.ts`.
+Evidence: `assistant-persistence/assistant-thread-tabs.md`.
+Guard: `packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`,
+`packages/app-shell/src/__tests__/database-demo-panel.test.tsx`,
+`assistant-thread-tabs-dnd.test.ts`, `use-assistant-thread-root-binding.test.ts`;
+the live customize-and-reload contract is `apps/web/e2e/assistant-ui-panel.test.ts`.
 
 ---
 
-## Delegated conversation identity storage (BST-1718 foundation)
+## Delegated conversation identity storage
 
 `@brainstrike/db` exposes `createDelegatedConversationRepository` over a minimal
-query interface for trusted host use. Register the real root, then bind each
-actual native child thread beneath its immediate parent. Write inputs must come
-from the host's observed native delegation context, never model-supplied ids or
-renderer requests. A native resource id is execution scope, not user authority.
+query interface for trusted host use. Register the real root, then bind each actual
+native child thread beneath its immediate parent.
 
-Every read and child creation walks the persisted graph outward from the live,
-authorized root and verifies each native thread/resource pair. A grandchild
-whose intermediate ancestor changes native scope is inaccessible even if the
-grandchild's own row still matches. The authenticated host supplies root owner
-and root id; these query methods are not unauthenticated endpoints. Missing
-legacy graph nodes return no identity and do not fabricate transcripts or
-ancestry from compact tool results.
+- Write inputs come from the host's observed native delegation context — never
+  model-supplied ids or renderer requests. A native resource id is execution scope,
+  not user authority.
+- Every read and child creation walks the persisted graph outward from the live,
+  authorized root and verifies each native thread/resource pair. A grandchild whose
+  intermediate ancestor changes native scope is inaccessible even if its own row
+  matches. Missing legacy graph nodes return no identity and never fabricate
+  transcripts or ancestry from compact tool results.
+- Nodes are immutable: duplicate creation with the same configuration is
+  idempotent, conflicting ownership/ancestry/configuration is an error, and two
+  calls to one persona use distinct native thread ids.
+- Display name and colour are host-assigned identity snapshots. Workspace binding
+  is captured at child creation; existing children retain it after the root's
+  workspace changes.
 
-Nodes are immutable: duplicate creation with the same configuration is
-idempotent, conflicting ownership/ancestry/configuration is an error, and two
-calls to one persona use distinct native thread ids. Display name/color are
-host-assigned identity snapshots; this foundation does not yet implement their
-UI or rename controls. Workspace binding is captured when the child is created;
-existing children and their descendants retain that binding after the root's
-workspace changes. See `database.md` for migration/reset/deletion semantics.
+Migration, reset and deletion semantics: `docs/agents/database.md`.
+Evidence: `assistant-persistence/delegated-conversation-storage.md`.
 
-This storage foundation does not change production runtime behavior or usage
-writers. Migration 127 now provides invocation/run binding records (see database.md).
-BST-1718 still needs lifecycle and exact usage reconciliation, authenticated
-host wiring, resume hydration, and complete native branch deletion. Full child message persistence/rendering remains BST-1719.
-
-### Scoped child stream hydration (BST-1719 delivery layer)
+### Scoped child stream hydration
 
 Native Mastra memory remains the sole child transcript writer. The desktop run
 event observer routes scoped child lifecycle events through the delegated
 repository's atomic authorization/header/event mutation into the existing
-thread-run/run-event tables. A native invocation plus current root host leg
-gets its own opaque child host-run id; the root turn id is not a child user
-message id, so the nullable child header field stays unset. Usage remains in
-the existing root-attributed writer and is not duplicated for these headers.
+thread-run and run-event tables.
 
-Child lifecycle persistence is deliberately awaited before publication. It
-revalidates the invocation and makes the published event durable; an exhausted
-write or identity failure propagates through the root error path. The root's
-queued writer also fails at final flush, rather than tolerating lost events.
-This child path introduces database backpressure at lifecycle boundaries;
-ordinary text/reasoning deltas do not perform database round trips. Native
-memory's transcript ownership does not make lifecycle authorization optional.
+- A native invocation plus current root host leg gets its own opaque child host-run
+  id; the root turn id is not a child user message id, so the nullable child header
+  field stays unset. Usage stays in the root-attributed writer.
+- A terminal authorized event atomically settles prior running headers of the same
+  invocation to the same outcome. The match requires child resource/thread plus
+  native parent run, tool call, child run and persona, so it cannot close a
+  different invocation in the same thread. No duplicate terminal event is minted,
+  existing terminal headers are immutable, and a rejected current event cannot
+  settle prior headers.
+- Child lifecycle persistence is deliberately AWAITED before publication: it
+  revalidates the invocation and makes the published event durable, and an
+  exhausted write or identity failure propagates through the root error path. The
+  root's queued writer also fails at final flush rather than tolerating lost
+  events. Ordinary text and reasoning deltas perform no database round trips.
+- The shared history adapter assigns events by observed native row id BEFORE the
+  legacy run-window heuristic, so several resume legs can share one assistant
+  group; an observed message outside the loaded window is never assigned to a
+  different turn.
+- **Anchor a scoped `tool.started` after its persisted tool part**, keyed by
+  observed native message id and tool-call id — millisecond timestamps cannot
+  establish that boundary, and timestamp weaving alone moved the event ahead of
+  text, reasoning and the tool start. The anchor BLOCKS the event queue so later
+  journal entries cannot overtake it. `tool.completed` and `tool.failed` also wait
+  for their own tool part, including with no matching start — a lower bound, not a
+  replacement timestamp.
+- Tool-call deduplication is scoped to ONE assistant group: snapshot rows of that
+  turn merge, while later turns and regenerated siblings keep their own same-id
+  parts. A cancelled call whose unfinished tool part was removed still retains its
+  journal events; hydration never invents the missing part or drops its failure
+  history.
+- On snapshot resume, atomic invocation binding returns the latest previously
+  observed message id from the event journal, restricted to the exact native run,
+  parent call and persona; projection uses it until Mastra supplies the current
+  one. A missing identity fails BEFORE child projection state is registered.
 
-Events retain observed native message identity in sanitized metadata. The
-shared history adapter assigns these events by row id before applying the
-legacy run-window heuristic, permitting several resume legs in one assistant
-group. An observed message outside the loaded window is never assigned to a
-different turn. The normal session buffer replays encoded scoped frames without
-remapping; the normal assistant-stream decoder consumes child frames.
+Evidence: `assistant-persistence/scoped-child-stream-hydration.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/delegated-stream-parity.integration.test.ts`,
+`delegated-runtime.integration.test.ts`,
+`delegated-conversation-host.integration.test.ts`,
+`delegated-conversation-insights.integration.test.ts`,
+`delegated-deadlines.integration.test.ts`,
+`packages/agent/src/__tests__/data-stream-session.spec.ts`.
+These do not claim packaged UI parity or cancelled-child transcript durability.
 
-For a scoped child's `tool.started` event, the observed native message id and
-tool-call id anchor the event **after** its persisted tool part, matching the
-shared live encoder. Millisecond timestamps cannot establish this boundary:
-text, reasoning and a tool start can share the same time, and timestamp weaving
-alone moved the event ahead of all three. The shared hydrator preserves content
-and journal order while waiting for that specific tool boundary: the anchor
-blocks the event queue, so later journal entries cannot overtake it. Exact native
-row-to-group assignment happens before tool anchoring, including when different
-turns reuse a tool-call id. A final tool part releases its queued events through
-the existing trailing flush. Tool-call deduplication is scoped to one assistant
-group: snapshot rows of that turn still merge, while later turns and regenerated
-siblings retain their own same-id tool parts. Legacy events keep their existing
-time-based placement. A cancelled call whose unfinished
-tool part was removed still retains its journal events; hydration never invents
-that missing tool part or drops its failure history.
+### Tool input live/reload parity
 
-Scoped `tool.completed` and `tool.failed` events also wait until their own tool
-part has been emitted, including when the loaded journal contains no matching
-start. This is a lower bound, not a replacement timestamp: terminal events
-still wait for their recorded time so text emitted while a tool ran remains
-before its completion. Journal order is preserved for following legacy events.
-The paired history tests cover both terminal kinds with tied timestamps and
-no start, mixed legacy events, and text emitted during tool execution.
+Native Mastra storage already retains complete child tool arguments. The transport
+must emit them through the normal decoder's argument-delta path before closing a
+started tool; the completion frame alone does not populate that part. No duplicate
+content writer or new durable store is introduced.
+Guard: `delegated-stream-parity.integration.test.ts`, which establishes the
+observed native message id against the actual saved row and compares
+text/reasoning/tool input/result content and order before and after engine
+reconstruction.
 
-`delegated-stream-parity.integration.test.ts` compares text, reasoning, tool
-name/id/input/result and every lifecycle data payload in order from the real
-native desktop stream with the current and reconstructed memory engine. The deterministic hydration tests cover tied
-timestamps, two distinct tool boundaries, native grouping with reused tool ids,
-a final tool event tail and a removed cancelled tool part. Decoder-private
-fields and ephemeral tool runtime fields are outside that parity assertion.
-This proves the tested normal turn; changed native ids across resume and full
-receiver/replay remain separate BST-1719 acceptance.
+### Renderer receiver and native transcript ownership
 
-The host returns sanitized metadata to the live stream as well as storage.
-On snapshot resume, a parent wrapper can precede its own native message id.
-Atomic invocation binding returns its latest previously observed message id
-from the existing event journal, restricted to the exact native run, parent
-call and persona. Projection uses that id until Mastra supplies the current
-one. A missing identity fails before child projection state is registered;
-termination never invents a transcript id or silently drops an event.
+- The optional `onDelegatedConversation` callback receives full, ephemeral child
+  snapshots through the ordinary decoder and accumulator, keyed by native
+  invocation across observed message changes. Full replay replaces snapshots;
+  native memory remains the sole transcript writer. Missing terminals and unseeded
+  or mismatched replay openings fail visibly.
+- Receiver completion uses the same `deferMessageFinishUntilFlush` transform as the
+  parent; both final part streams and descendant receivers settle before a complete
+  snapshot publishes. Producer failures and cancellations still emit their required
+  `d` finish frame — an error frame alone is a truncated stream, not a valid child
+  terminal.
+- Cleanup preserves the primary transport/envelope/abort failure and logs secondary
+  settlement failures once; the receiver retains its FIRST observed failure if
+  decoding or descendant settlement later fails.
+- Consumer presence selects receiver installation at run start; an installed
+  receiver reads the latest committed callback on each update, including
+  replacement during an active run.
 
-Paired proofs: desktop `delegated-runtime.integration.test.ts` (real native
-transcript, shared hydration and engine reconstruction),
-`delegated-conversation-host.integration.test.ts` (host ownership, pins,
-idempotency and resumed event grouping), and agent `data-stream-session.spec.ts`
-(decoder and byte-identical replay). These do not claim packaged UI parity or
-cancelled child transcript durability; those scenarios remain tracked.
+Lifecycle and remaining acceptance scope: `assistant-runtime.md`.
 
-### Tool input live/reload parity (BST-1719)
+### Child continuation row identity
 
-Native Mastra storage already retained complete child tool arguments. The
-transport must emit them through the normal decoder's argument-delta path
-before closing a started tool; the completion frame alone does not populate
-that part. `delegated-stream-parity.integration.test.ts` uses the real desktop
-memory, host event observer, native loop, transport encoder, installed decoder
-and shared history adapter. It establishes the observed native message id
-against the actual saved row and compares text/reasoning/tool input/result
-content and order before/after engine reconstruction. There is no duplicate
-content writer or new durable store. Full event placement, changed native ids
-on resume and receiver reattachment remain separate BST-1719 acceptance work.
+- Child output processors preserve the final native response boundary before Mastra
+  re-adds response rows during finish. Why: otherwise an earlier approved tool row
+  merges into the newly rotated continuation id. PGlite remains the native content
+  store; no text-equality deduplication is introduced.
+- Native `toolInvocation.state: output-denied` hydrates to the shared
+  `DeclinedToolCallResult` through `createDeclinedToolCallResult`, preserving
+  arguments and the approval reason. It is terminal without an error flag, matching
+  live `tool-output-denied`; a missing `result` in the native row does not mean the
+  declined call is still pending. Existing pending/result/error rows are unchanged.
 
-### Renderer receiver and native transcript ownership (BST-1719)
+Native API and verification scope: `assistant-subagents.md`.
 
-The optional panel/runtime `onDelegatedConversation` callback receives full,
-ephemeral child snapshots through the ordinary decoder and accumulator, keyed
-by native invocation across observed message changes. Full replay replaces
-snapshots; native memory remains the sole transcript writer. Missing terminals
-and unseeded/mismatched replay openings fail visibly. Child error isolation,
-recursive descendants, cancellation and upstream-fault settlement are covered
-at the public runtime adapter; the desktop native fixture now tests that adapter
-against the reconstructed persisted transcript. See the renderer receiver
-contract in `assistant-runtime.md` for lifecycle and remaining acceptance scope.
-Child tabs/rendering and durable graph association remain BST-1724 work.
+### Hydrated delegated pause identity
 
-Receiver completion uses the same `deferMessageFinishUntilFlush` transform as the
-parent. Both final part streams and descendant receivers settle before a complete
-snapshot is published. Producer failures/cancellations still emit their required
-`d` finish frame; an error frame alone is a truncated stream, not a valid child
-terminal. Cleanup preserves the primary transport/envelope/abort failure and logs
-secondary settlement failures once. Consumer presence selects receiver installation
-at run start; an installed receiver reads the latest committed callback on each
-update, including callback replacement during an active run.
+Synthetic rediscovered approvals and questions preserve their exact delegated leaf
+path in the normal data part, and their transient message ids use the native leaf
+run/call rather than the reused root delegation alias. Repeated discovery of the
+same leaf is stable; a subsequent leaf pause produces a different id and cannot
+retain an earlier card's answered state. Both still chain onto the durable history
+head through the existing transient-parent topology adapter, and ordinary root
+pause ids are unchanged.
 
-The receiver also retains its first observed failure if decoding or descendant
-settlement subsequently fails; the competing observer/decoder regression pins
-this through the public runtime adapter.
+### Decision discovery failures remain visible
 
-### Child continuation row identity (BST-1719)
+- A failed, timed-out or malformed suspended-decision response is an explicit
+  recovery state, never a successful empty list. Valid entries in a partly
+  malformed response remain visible alongside the error, and an absent optional
+  `suspends` array retains the additive protocol contract.
+- Hydration keeps durable history and appends a transient
+  `suspended-run-discovery-error` notice. It is neither a native tool action nor a
+  failed model response, so regeneration and copy controls must not appear on it.
+  Its transient parent alias chains the next real message to durable history; it
+  adds no persistence store and no native message row. A successful later hydration
+  removes it.
+- The request deadline starts after endpoint and auth resolution and covers the
+  fetch and the response body. A malformed notice payload renders an explicit
+  invalid recovery status beside the saved conversation; it must not throw during
+  render and replace the thread with an error boundary.
+- The current recovery action is to reopen the thread. A future persistent child
+  runtime host must provide explicit history refresh rather than equating closing
+  an inspection view with resetting its runtime.
 
-Child output processors preserve the final native response boundary before
-Mastra re-adds response rows during finish. This prevents an earlier approved
-tool row from being merged into the newly rotated continuation ID. PGlite remains
-the native content store; no text-equality deduplication or additional content
-writer is introduced. The reconstructed parent/child/grandchild resume fixture
-compares both live legs against history and retains intentionally repeated text.
-See `assistant-subagents.md` for the native API and verification scope.
+### Durable delegated decision recovery display
 
-Native `toolInvocation.state: output-denied` hydrates to the shared
-`DeclinedToolCallResult`, preserving arguments and the approval reason. It is
-terminal without an error flag, matching live `tool-output-denied`; a missing
-`result` in the native row does not mean the declined call is still pending.
-Both live and hydrated paths use `createDeclinedToolCallResult` from the
-browser-safe approval contract. Existing pending/result/error rows retain their
-original behavior.
+- Rediscovered pause data retains the host's optional durable `decisionState`
+  through the existing transient notice hydration path, creating no content rows
+  and no durable parent edges. Reload refreshes status; it never resumes a
+  workflow. The shared cards preserve tool/plan/question content and disable
+  resubmission of claimed, consumed or interrupted decisions. Unknown present
+  states fail wire validation, and missing snapshots still produce the visible
+  discovery error.
+- Delegated live views receive an immutable pre-leg history baseline from the
+  admitted desktop host. The host and the ordinary renderer repository call the
+  SAME `@brainstrike/db` `readAssistantHistoryMessages` /
+  `readAssistantHistoryRunEvents` readers, so rewind filtering, topology and
+  hydration bounds cannot diverge. The stream baseline never writes or replaces
+  native message rows.
 
-### Hydrated delegated pause identity (BST-1720)
+Host authority and paired proofs: `assistant-subagents.md`, "Durable delegated
+decision recovery display" and "Child history boundary for a live stream leg".
 
-Synthetic rediscovered approvals and questions preserve their exact delegated
-leaf path in the normal data part. Their transient message IDs use the native
-leaf run/call rather than the reused root delegation alias. Repeated discovery
-of the same leaf is stable; a subsequent leaf pause produces a different ID
-and cannot retain an earlier card's answered state. Both still chain onto the
-durable history head through the existing transient-parent topology adapter.
-Ordinary root pause IDs are unchanged. The history repository regression covers
-successive leaves, repeated discovery and the preserved parent edge.
-
-
-### Decision discovery failures remain visible (BST-1720)
-
-A failed or timed-out suspended-decision request and a malformed response are
-explicit recovery states, not successful empty lists. Valid entries in a partly
-malformed response remain visible alongside the error. An absent optional
-`suspends` array retains the established additive protocol contract.
-
-Hydration keeps durable history and appends a transient `suspended-run-discovery-error`
-data notice. It is neither a native tool action nor a failed model response:
-regeneration/copy controls must not appear on it. Its transient parent alias
-chains the next real message to durable history; it does not add a persistence
-store or a native message row. A successful later hydration removes the notice.
-The current recovery action is to reopen the thread. A future persistent child
-runtime host must provide explicit history refresh rather than equating closing
-an inspection view with resetting its runtime.
-
-The request deadline starts after endpoint and auth resolution and covers the
-fetch and response body. A malformed notice payload renders an explicit invalid
-recovery status beside the saved conversation; it must not throw during render
-and replace the thread with an error boundary.
-
-The real assistant-ui activity renderer and topology adapter have paired tests;
-Electron coverage exercises a failed discovery and successful renderer reload
-with saved content retained and zero model requests. The discovery endpoint is
-controlled by that E2E fixture; this is not native process-restart evidence.
-
-
-### Durable delegated decision recovery display (BST-1720)
-
-Rediscovered pause data retains the host's optional durable `decisionState`
-through the existing transient notice hydration path. It creates no message
-content rows or durable parent edges. Reload refreshes status; it never resumes
-a workflow. The shared cards preserve tool/plan/question content and disable
-resubmission of claimed, consumed or interrupted decisions. Unknown present
-states fail wire validation. See assistant-subagents.md, “Durable delegated
-decision recovery display”, for the host authority and paired database/renderer
-proof. Missing snapshots still produce the visible discovery error.
-
-Delegated live views receive an immutable pre-leg history baseline from the
-admitted desktop host. The host and the ordinary renderer repository call the
-same `@brainstrike/db` `readAssistantHistoryMessages` /
-`readAssistantHistoryRunEvents` readers,
-so rewind filtering, topology and hydration bounds cannot diverge. The stream
-baseline never writes or replaces native message rows. See
-`assistant-subagents.md`, "Child history boundary for a live stream leg", for
-the admission, replay and identical-text invariants and native proofs.
-
-### Workspace tabs and cancellation publication (BST-1720/BST-1725)
+### Workspace tabs and cancellation publication
 
 The shared workspace coordinator publishes app open/close/selection immediately;
-viewport/editor changes retain the existing debounce. Reload must not discard a
-new delegated tab while an unrelated scroll timer is pending. Existing native
-workspace persistence owns this state; no child-specific persistence is added.
-Thread-run cancellation is monotonic in both renderer and server terminal
+viewport and editor changes retain the existing debounce, so a reload must not
+discard a new delegated tab while an unrelated scroll timer is pending. Existing
+native workspace persistence owns this state; no child-specific persistence is
+added. Thread-run cancellation is monotonic in both renderer and server terminal
 writers, so a late completion cannot reopen a cancelled turn's child decisions.
 
 ### Explicit cancellation publication
 
-Desktop cancellation first marks all authoritative same-owner/root/turn legs
-`cancelling`, which is nonterminal and blocks new delegated decision admission.
-It aborts registered legs and awaits their owner teardown before acknowledging
-cancellation, including the gap after a terminal write but before unregister.
-A live leg owns its normal turn-end capture; waiting work has no remaining
-stream, so cancellation closes
-only a snapshot bracket whose first run belongs to those authoritative legs,
-including after process restart. Only then does waiting work become `cancelled`.
-The renderer does not preempt the server-owned cancellation with an optimistic
-terminal database write. Both completion writers preserve cancelling/cancelled
-authority against every stream terminal report, including cancelled. Only the
-cancel endpoint finalizes cancelling rows after owner teardown; stream writers
-never cascade terminal cancellation into sibling legs. Startup reaping retains a
-crashed cancellation as cancelled with the existing orphan diagnostic; it never
-restores admission or fabricates the lost turn-end capture. Reattachment treats
-cancelling as in-flight. The text status column needs no schema migration.
+- Desktop cancellation first marks all authoritative same-owner/root/turn legs
+  `cancelling`, which is nonterminal and blocks new delegated decision admission.
+  It aborts registered legs and awaits owner teardown before acknowledging,
+  including the gap after a terminal write but before unregister. Only then does
+  waiting work become `cancelled`.
+- A live leg owns its normal turn-end capture; cancellation closes only a snapshot
+  bracket whose first run belongs to those authoritative legs, including after
+  process restart.
+- The renderer does not preempt the server-owned cancellation with an optimistic
+  terminal write. Both completion writers preserve cancelling/cancelled authority
+  against every stream terminal report, including `cancelled`. Only the cancel
+  endpoint finalizes cancelling rows; stream writers never cascade terminal
+  cancellation into sibling legs.
+- Startup reaping retains a crashed cancellation as cancelled with the existing
+  orphan diagnostic; it never restores admission or fabricates the lost turn-end
+  capture. Reattachment and worktree archive both treat cancelling as active.
+- A renderer Stop latches cancellation on its prepared request before issuing HTTP,
+  so a racing abort or error cannot publish `failed` over the server-owned request.
+  The local completion callback runs only after acknowledgement. A failed POST does
+  not fabricate a terminal result; a later send reconciles the latched request
+  against actual durable status and stays blocked while running or cancelling.
 
-A renderer Stop latches cancellation on its prepared request before issuing HTTP,
-so a racing abort/error cannot publish failed over the server-owned request.
-The local completion callback runs only after cancellation acknowledgement. A
-failed POST does not fabricate a terminal result; a later send reconciles the
-latched request against actual durable status and remains blocked while running
-or cancelling. Worktree archive also treats cancelling as active.
-
-### Cross-root child navigation (BST-1725)
+### Cross-root child navigation
 
 A sidebar child action activates its owning root before opening the workspace app.
 `ThreadWorkspaceNavigation` holds only a session navigation intent; the existing
-workspace coordinator owns hydration and persistence. It drains that intent after
-cached or asynchronous incoming hydration completes, so the outgoing root never
-captures another root's child tab. A newer root switch discards the intent. Read
-failure shows an explicit error; another user click may retry that read. No run is
-started, no alternate snapshot store is introduced, and reload uses the ordinary
-thread workspace record. Coordinator regressions cover delayed, superseded and
-failed reads; the Electron workspace fixture checks both roots' actual saved tabs.
+workspace coordinator owns hydration and persistence and drains that intent after
+incoming hydration completes, so the outgoing root never captures another root's
+child tab. A newer root switch discards the intent, and a read failure shows an
+explicit error a further click may retry. No run is started and no alternate
+snapshot store is introduced.
 
-
-### Durable native background outcomes (BST-1723)
+### Durable native background outcomes
 
 Migration 133 registers `mastra_background_tasks` with the native PGlite adapter;
-the table participates in database clear and factory reset. Task scope is the
-root resource/thread, not a renderer tab. Updates use expected-status comparison
-so competing lifecycle transitions cannot overwrite each other.
+the table participates in database clear and factory reset. Task scope is the root
+resource/thread, not a renderer tab, and updates use expected-status comparison so
+competing transitions cannot overwrite each other.
 
-Completed, failed and timed-out outcomes are reconciled before inference. The
-native task row carries `delivered_at`, separate from native status, so transcript
-retention cannot make an already delivered task poison every subsequent turn.
-Native completion hooks acknowledge only after native `onResult` flushes memory;
-resumed/repaired outcomes acknowledge only after the host message write succeeds.
-A failed acknowledgement remains recoverable and never re-executes the effect.
-Exactly one retained matching invocation is updated; ambiguous matches fail.
-Delegated `subagent.*` history events carrying their originating turn attach only to
-that turn's exact tool call. An absent retained call does not redirect the event to
-another turn by run or reused call ID; ambiguous ownership fails visibly. Ordinary
-event kinds retain their existing assignment path. Native outcome repair below is
-the explicit recovery path for removed invocation messages.
-If retention removed the invocation, the task's durable input and outcome create
-a deterministic recovery message that visibly explains the missing original and
-that no work was rerun. Missing failure details and timeouts get explicit error
-text, including uncertainty about external effects. Result/error and cleared
-pending-decision metadata are saved together. Recovery scans every undelivered
-page before acknowledging, so acknowledgements cannot shift pagination and skip
-a task. `background-outcome-recovery.integration.spec.ts` covers lost messages,
-all three terminal outcomes, repeat repair and delivery acknowledgement reload. Native resuspension joins the workflow snapshot before exposing a
-new resumable decision. Native reconstructed-runtime recovery is tested separately
-from the actual desktop process-restart pending-approval case; it is not evidence
-of completed-undelivered recovery through every host restart boundary.
+- Reconcile completed, failed, timed-out and cancelled outcomes at the PGlite
+  message commit boundary before inference. Cancellation clears the dispatch
+  acknowledgement and projects an explicit cancellation error into the parent
+  invocation and model input; the native task stays `cancelled` and running
+  siblings are unchanged.
+- The row carries `delivered_at`, separate from native status. Every ordinary save
+  naming a retained task overlays its authoritative terminal outcome even after
+  delivery, so a stale native snapshot cannot restore the dispatch acknowledgement.
+- **The message write and the delivery acknowledgement share one transaction:
+  either both commit or neither does.** Child completion and repair use the memory
+  store's task-only operation, which locks the terminal task and reads current
+  parent rows in that transaction instead of writing a recalled whole-message
+  snapshot, so a callback cannot erase newer parent text or metadata.
+- Progressive snapshots may repeat one tool call under fresh message ids; update
+  every matching row while preserving each row's ordinary content. Duplicate
+  matching invocation parts inside one row, a mismatched call/task pair, a foreign
+  owner, or a missing retained task fails BEFORE acknowledgement.
+- Delegated `subagent.*` history events carrying their originating turn attach only
+  to that turn's exact tool call. An absent retained call never redirects the event
+  by run or reused call id; ambiguous ownership fails visibly. Assignment may use a
+  retained assistant row's explicit durable `parentId` equal to the originating
+  user message even when that user row is outside the hydration window — exact
+  topology evidence, not a nearest-turn heuristic.
+- If retention removed every invocation, the task's durable input and outcome
+  create a deterministic recovery message that visibly explains the missing
+  original and that NO work was rerun. Missing failure details and timeouts get
+  explicit error text, including uncertainty about external effects.
+- Result/error, compact provider projection, cleared pending-decision metadata and
+  delivery acknowledgement are saved together. The raw result stays UI/history
+  evidence while `providerMetadata.mastra.modelOutput` carries only the child's
+  text summary; the paused-run overlay uses the same projection.
+- Recovery snapshots every undelivered page before acknowledging, so
+  acknowledgements cannot shift pagination and skip a task. Native resuspension
+  joins the workflow snapshot before exposing a new resumable decision.
+- Native Mastra signal messages with `content.metadata.signal.type === 'user'` are
+  human history turns: render their format-2 parts, split assistant groups at the
+  human input, and retain normal branch topology. Notification and state signals
+  must not be reclassified as human messages.
 
-Delegated background notices can create multiple topology-bearing assistant rows
-within one user turn. History run-event reads retain the originating user message
-from the owning run. Delegation events bind to their exact tool call within that
-turn, before chronological assignment; they cannot attach to a reused call ID in
-another turn. The normal shared workspace resolver then opens the persisted child
-from that native invocation. The owning-turn hydration regression and the real
-Electron stopped-child close/reload/reopen case cover both producer and consumer.
+Installed Mastra 1.64 public APIs and source remain the compatibility authority.
+Evidence: `assistant-persistence/durable-native-background-outcomes.md`.
+Guard: `packages/agent/src/__tests__/background-outcome-recovery.integration.spec.ts`,
+`pglite-background-result-reconciliation.integration.spec.ts`,
+`pglite-background-store.integration.spec.ts`.
+Native reconstructed-runtime recovery is tested separately from the desktop
+process-restart pending-approval case and is not evidence of completed-undelivered
+recovery through every host restart boundary.
 
-Delegated event assignment may use a retained assistant row's explicit durable
-`parentId` equal to the originating user message even when that user row is outside
-the hydration window. This is exact topology evidence, not a call-id-only or
-nearest-turn heuristic; reused call IDs under another user cannot claim the event.
+### Active child human input
 
-Native Mastra signal messages with `content.metadata.signal.type === 'user'` are
-human history turns. Render their format-2 `parts`, split assistant groups at the
-human input, and retain normal branch topology. Notification/state signals must
-not be reclassified as human messages.
+The active native child owns input consumption.
 
-### Active child human input (BST-1723)
+- Persist the canonical Mastra user signal BEFORE `sendSignal`, scope the client
+  request id to the child's native resource and thread, and serialize requests per
+  child owner. Store a pending receipt before native acceptance and a delivered
+  receipt after it.
+- An identical delivered request is acknowledged without another enqueue; changed
+  content under the same id is REJECTED. A pending receipt after an interrupted
+  acknowledgement is ambiguous and must NEVER be automatically replayed into a
+  writable child. Definitive native non-delivery removes the signal from native
+  memory, so a later continuation cannot recall rejected input.
+- Child frames use vendor `2` out-of-band data so parent text and tool-argument
+  controllers stay open; decode legacy `aui-data` child frames for stored replay.
+  Accepted `data-user-message` signals route by the previously observed exact
+  invocation identity, and a child human-input marker splits only that child's
+  shared runtime.
+- Native memory remains the durable transcript writer: the child composer never
+  launches a second runtime, queues a root turn, or reconstructs a background task
+  on disconnect.
+- Endpoint status vocabulary: definitive non-delivery (409) for a missing or
+  retired host owner and for rejected serialized admission once any saved signal
+  has been removed; initial foreign-owner/scope checks stay 404; uncertain
+  acceptance stays 503. Failed signal cleanup preserves both rejection and cleanup
+  errors and remains an explicit 503 — it cannot claim rejected text is absent from
+  future recall.
+- Reload preserves the receipt in user-message custom metadata: pending input shows
+  an unconfirmed-delivery notice, delivered input shows its accepted state, and
+  neither dispatches work from hydration. Human input retains the native creation
+  timestamp through live projection and reload.
+- The same request id survives an unconfirmed acknowledgement even if the user
+  edits the draft; replacing it requires the explicit Discard draft action. Stop
+  waiting aborts only the acknowledgement transport — it does not stop the child or
+  retract an accepted instruction. Ignore a late response from an abandoned wait
+  and permit only an explicit same-id retry until discard. Blank transport failures
+  become an explicit unconfirmed-delivery receipt.
+- A selected conversation-key switch remounts provider state, isolating its
+  retained receipt and any late acknowledgement from the new conversation.
 
-The active native child owns input consumption. Persist its canonical Mastra user
-signal before `sendSignal`, scope the client request id to its native resource and
-thread, and serialize requests per child owner. Store a pending receipt before
-native acceptance and a delivered receipt after it. An identical delivered request
-is acknowledged without another enqueue; changed content under the same id is
-rejected. A pending receipt after an interrupted acknowledgement is ambiguous and
-must never be automatically replayed into a writable child. Definitive native
-non-delivery removes the signal from native memory, so a later continuation
-cannot recall rejected input. An unconfirmed draft can be explicitly discarded
-before composing a new request; ordinary repeats keep their original id. The native production
-fixture injects receipt-write failure and proves a later explicit request remains
-usable without duplicating the earlier signal.
+Idle input uses the separate managed continuation contract in
+`assistant-subagents.md`; the original delegation invocation remains immutable.
+Evidence: `assistant-persistence/active-child-human-input.md`.
+Guard: `packages/agent/src/__tests__/background-worker-stream.integration.spec.ts`,
+`delegated-live-wire.spec.ts`,
+`packages/app-shell/src/__tests__/delegated-conversation-receiver.test.ts`,
+`assistant-conversation-panel.test.tsx`,
+`apps/desktop/e2e/delegated-child-control.desktop.test.ts`.
 
-Child frames use vendor `2` out-of-band data, so parent text and tool argument
-controllers stay open while child views update. Decode legacy `aui-data` child
-frames for stored replay too. Accepted native `data-user-message` signals route by
-the previously observed exact invocation identity. A child human-input marker
-splits only that child's shared runtime into assistant/user/assistant rows. Native
-memory remains the durable transcript writer; the child composer never launches a
-second runtime, queues a root turn or reconstructs a background task on disconnect.
-The child input endpoint returns definitive non-delivery (409) for a missing or
-retired host owner. Rejected serialized admission checks also become definitive
-non-delivery with their original cause once any saved signal has been removed.
-Failed signal cleanup preserves both rejection and cleanup errors and remains an
-explicit 503; it cannot claim that rejected text is absent from future recall.
-Initial foreign-owner/scope checks remain 404 and uncertain acceptance remains 503.
-Reload
-preserves the receipt in user-message custom metadata: pending input shows an
-unconfirmed-delivery notice, while delivered input shows its accepted state.
-Neither state dispatches work from hydration. Human input retains the native
-creation timestamp through live projection and reload.
+### Search navigation correction boundaries
 
-Production evidence: `background-worker-stream.integration.spec.ts`,
-`delegated-live-wire.spec.ts`, `delegated-conversation-receiver.test.ts`,
-`delegated-conversation-runtime.test.tsx`, and the active child composer case in
-`delegated-child-control.desktop.test.ts` (live send, parent result, reload with no
-additional model request). Idle input uses the separate managed continuation contract
-in assistant-subagents.md: a fresh root host run owns a durable continuation receipt,
-a distinct native child message ID and exact decision routing. The original
-delegation invocation remains immutable.
+- Targeted history pages recheck that the selected native message remains visible
+  in the same thread/resource before each 80-row read. Deleted or tombstoned hits
+  end navigation visibly; they do not replace an otherwise usable child transcript
+  with a history failure.
+- Legacy null message resources use the native thread's resource consistently at
+  search admission, cursor lookup and hydration; foreign explicit resources stay
+  rejected.
+- Extended search history adds only older non-overlapping groups. The host keeps
+  its head and overlapping group content while their native source ids are unioned
+  for exact match focus; ordinary live children do not run this merge. Title labels
+  resolve in one owned-graph query per result set, and no arbitrary depth cap hides
+  valid old hits.
+- A delegated search extension is scoped to the host run that owned its history
+  read, and a newly admitted host baseline replaces it, so deleted or rewound
+  messages from an earlier read cannot reappear. Compaction alone keeps raw
+  messages in durable scrollback; its provider overlay does not delete them.
 
-Active child input retains the same request ID after an unconfirmed acknowledgement,
-even if the user edits the draft. Replacing that request requires the explicit
-Discard draft action. Stop waiting aborts only the acknowledgement transport;
-it does not stop the child or retract an already accepted instruction. The UI
-retains the request ID and reports unconfirmed delivery, ignores a late response
-from the abandoned wait, and permits only an explicit same-ID retry until discard.
-`assistant-conversation-panel.test.tsx` pins changed-draft refusal, late acknowledgement
-isolation, same-ID retry, and attachment-enabled focus preservation. Pending feedback
-and Stop waiting / Discard draft controls survive running-to-idle and transport-owner
-removal without replaying through `onNew`. While the original wait is still active,
-a successful acknowledgement arriving after idle clears only an unchanged draft.
-Blank transport failures become an explicit unconfirmed-delivery receipt, with
-Discard draft still available. The Vitest browser cases load compiled styles and
-prove idle Send/Enter remain blocked; geometry and hit tests keep the receipt
-controls reachable at narrow and wide widths. Attachment paste uses the same
-admission gate without remounting the input frame or losing focus. A selected
-conversation-key switch remounts provider state, isolating its retained receipt
-and any late acknowledgement from the new conversation.
+### Admitted child persona configuration on resume
 
-### Search navigation correction boundaries (BST-1725)
+- Read admitted child persona configuration from the existing delegated
+  conversation record when a decision resumes. Reload discovery still uses inert
+  identity-only Agents; execution reconstructs each admitted depth's profile before
+  reading or resuming native snapshots.
+- Missing or malformed configuration is FATAL, not permission to use a changed live
+  profile. The effective invocation step budget and admitted tool ids are retained,
+  and current host permissions remain a ceiling. The native snapshot owns original
+  task/system context and workflow progress.
+- No new persistent store is introduced, so the existing delegated graph
+  factory-reset registration stays authoritative.
+- Compatibility: old children with missing or unsupported configuration, or an
+  unexpanded wildcard catalog, cannot reconstruct their admitted permissions.
+  Retain their pending native snapshot, never replay it, and answer HTTP 409
+  instructing the user to start a new delegation. A mismatched persona identity
+  gets a distinct integrity error. Only fixed classified messages cross the HTTP
+  boundary — never stored instructions or provider/credential error text.
 
-Targeted history pages recheck that the selected native message remains visible
-in the same thread/resource before each 80-row read. Deleted or tombstoned hits
-end navigation visibly; they do not replace an otherwise usable child transcript
-with a history failure. Legacy null message resources use the native thread's
-resource consistently at search admission, cursor lookup and hydration. Foreign
-explicit resources remain rejected. Extended search history adds only older
-non-overlapping groups; the host owns its head and overlapping group content,
-while their native source IDs are unioned for exact match focus. Ordinary live
-children do not run this search-only merge. Title labels are resolved in one
-owned-graph query per result set. No arbitrary depth cap hides valid old hits.
-
-A delegated search extension is scoped to the host run that owned its history
-read. A newly admitted host baseline replaces that extension, so deleted or
-rewound messages from an earlier read cannot reappear. Compaction alone keeps
-raw messages in durable scrollback; its provider overlay does not delete them.
-
-### Admitted child persona configuration on resume (BST-1727)
-
-Admitted child persona configuration is read from the existing delegated
-conversation record when a decision resumes. Reload discovery still uses inert
-identity-only Agents; execution reconstructs each admitted depth's profile before
-reading/resuming native snapshots. Missing or malformed configuration is fatal,
-not permission to use a changed live profile. The effective invocation step budget
-and admitted tool IDs are retained; current host permissions remain a ceiling.
-The native snapshot remains the owner of original task/system context and workflow
-progress. No new persistent store is introduced, so the existing delegated graph
-factory-reset registration remains authoritative. See assistant-subagents.md's
-admitted configuration boundary and its native/host regression tests.
-
-Compatibility: old children with missing/unsupported configuration or an unexpanded
-wildcard catalog cannot reconstruct their admitted permissions. Their pending
-native snapshot is retained and never replayed; the HTTP 409 response instructs
-the user to start a new delegation. A mismatched persona identity receives a
-distinct integrity error. Only fixed classified messages cross the HTTP boundary,
-never stored instructions or provider/credential error text.
+See `assistant-subagents.md`'s admitted configuration boundary.
 
 ### Child scope usage read projection
 
-`readDelegatedConversationInsights` joins the existing authorized delegated graph
-with usage's native invocation key or continuation receipt, including each stored
-row once. It returns direct and inclusive subtree captured usage without changing
-any writer, root rollup, retention rule or schema. The selected child's latest
-run header provides its actual recorded model/provider; stored profile constraints
-are parsed by the same browser-safe contract used by native resume. Reads reject
-foreign/deleted owners and broken native ancestry. Missing usage remains null,
-and a model without pricing stays unpriced through the ordinary cumulative usage
-resolver. Real migrated database tests cover siblings, grandchildren, repeated
-finish reports, continuation usage, reported costs/cache classes and changed
-native ownership. Mounted toolbar tests reuse the main usage renderer and prove
-that selecting another child does not retain the previous child's totals.
+`readDelegatedConversationInsights` joins the authorized delegated graph with
+usage's native invocation key or continuation receipt, including each stored row
+once. It returns direct and inclusive subtree captured usage WITHOUT changing any
+writer, root rollup, retention rule or schema.
+
+- The selected child's latest run header provides its actual recorded
+  model/provider; stored profile constraints parse through the same browser-safe
+  contract native resume uses.
+- Reject foreign or deleted owners and broken native ancestry. Missing usage stays
+  null, and a model without pricing stays unpriced through the ordinary cumulative
+  usage resolver.
+- Selecting another child must not retain the previous child's totals.
+
+### Rejected delegated usage evidence
+
+`assistant_delegated_usage_write_failed` records the attempted delegation identity
+(native parent run/call, child thread/resource), persona, model and provider
+alongside the host run and error. No prompt or tool payload is logged. The write
+remains fail-closed and the failed usage chunk is NOT forwarded. This evidence
+distinguishes attribution mismatches without weakening the repository's identity
+checks; it does not itself fix a rejected write.
+Guard: `apps/desktop/src/__tests__/assistant-server/run-persistence-direct.test.ts`.

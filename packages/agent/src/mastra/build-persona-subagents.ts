@@ -16,7 +16,6 @@
 
 import {
   AdmittedChildConfigurationError,
-  DELEGATION_LIMITS,
   deriveEffectiveInputBudget,
   intersectChildPermissionCeilings,
   NATIVE_TOOL_ID,
@@ -34,6 +33,7 @@ import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { type MastraMemory, parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
+import { Memory } from '@mastra/memory';
 import {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
@@ -627,6 +627,25 @@ export function resolveChildToolCallConcurrency(approvalResumeLeg: boolean | und
   return { limit: approvalResumeLeg ? 1 : MAX_CHILD_TOOL_CALL_CONCURRENCY, strategy: 'called' };
 }
 
+function specialistMemory(
+  memory: NonNullable<BuildPersonaSubAgentsParams['memory']>,
+  persona: AssistantPersonaDefinition
+) {
+  if (
+    personaMode(persona) === 'worker' ||
+    memory.getMergedThreadConfig().workingMemory?.enabled !== true
+  ) {
+    return memory;
+  }
+  return new Memory({
+    ...(memory.embedder ? { embedder: memory.embedder } : {}),
+    ...(memory.embedderOptions ? { embedderOptions: memory.embedderOptions } : {}),
+    ...(memory.vector ? { vector: memory.vector } : {}),
+    options: { ...memory.getMergedThreadConfig(), workingMemory: { enabled: false } },
+    storage: memory.storage,
+  });
+}
+
 async function createConfiguredChild({
   params,
   persona,
@@ -682,6 +701,11 @@ async function createConfiguredChild({
     persona
   );
 
+  const childInputProcessors = [
+    ...(childProcessors.inputProcessors ?? []),
+    ...(workerSurface?.inputProcessors ?? []),
+  ];
+
   // The child agent id MUST equal the persona id: Mastra sets
   // `DelegationStartContext.primitiveId = agent.id`, and the delegation caps
   // (subagent-delegation.ts) resolve the persona by that id.
@@ -700,7 +724,7 @@ async function createConfiguredChild({
   const childModelName = persona.model?.modelId ?? params.modelName;
   let descendants: Promise<PersonaSubAgentBuildResult> | undefined;
   return new Agent({
-    ...(params.memory ? { memory: params.memory } : {}),
+    ...(params.memory ? { memory: specialistMemory(params.memory, persona) } : {}),
     // Recursion is a WORKER capability. Read-only personas (Explorer, Analyst,
     // user profiles without `mode: worker`) are leaves: a research child that
     // can delegate delegates to more research children, ignores "do not
@@ -713,7 +737,7 @@ async function createConfiguredChild({
     !params.planModeActive &&
     params.conversationBinding?.budget &&
     params.delegatedExecutionOptions &&
-    depth + (params.delegatedDepthOffset ?? 0) < DELEGATION_LIMITS.maxDepth
+    depth + (params.delegatedDepthOffset ?? 0) < params.subagentSettings.maxDepth
       ? {
           agents: async () => {
             descendants ??= buildPersonaSubAgents({
@@ -740,16 +764,16 @@ async function createConfiguredChild({
         params.conversationBinding?.budget,
         params.delegatedExecutionOptions?.workQueue
       );
+      const childSignal = requestContext
+        ? params.conversationBinding?.getAbortSignal?.(requestContext)
+        : undefined;
       const work = durable
         ? createDelegatedWorkBudget(
             durable.budget,
             durable.queue,
-            params.delegatedExecutionOptions?.abortSignal,
+            childSignal ?? params.delegatedExecutionOptions?.abortSignal,
             params.delegatedExecutionOptions?.synthesisOutcomes
           )
-        : undefined;
-      const childSignal = requestContext
-        ? params.conversationBinding?.getAbortSignal?.(requestContext)
         : undefined;
       return {
         ...(childSignal ? { abortSignal: childSignal } : {}),
@@ -774,11 +798,7 @@ async function createConfiguredChild({
         ...(work
           ? {
               errorProcessors: [work.processor, ...(childErrorProcessors ?? [])],
-              inputProcessors: [
-                ...(childProcessors.inputProcessors ?? []),
-                ...(workerSurface?.inputProcessors ?? []),
-                work.processor,
-              ],
+              inputProcessors: [...childInputProcessors, work.processor],
               onError: () => work.release(),
               onFinish: () => work.release(),
               outputProcessors: [...(childProcessors.outputProcessors ?? []), work.processor],
@@ -851,7 +871,9 @@ export async function buildPersonaSubAgents(
   params: BuildPersonaSubAgentsParams
 ): Promise<PersonaSubAgentBuildResult> {
   if (params.delegatedExecutionOptions) {
-    params.delegatedExecutionOptions.workQueue ??= new DelegatedWorkQueue();
+    params.delegatedExecutionOptions.workQueue ??= new DelegatedWorkQueue(
+      params.subagentSettings.maxConcurrentWork
+    );
     params.delegatedExecutionOptions.synthesisOutcomes ??= createDelegatedSynthesisOutcomes();
   }
   const canSuspend = canSuspendPersonaTools(params);

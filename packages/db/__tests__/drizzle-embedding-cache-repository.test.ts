@@ -654,7 +654,7 @@ describe('createEmbeddingCacheRepository promotion (BST-989)', () => {
       expect(repo).not.toBeInstanceOf(DrizzleEmbeddingCacheRepository);
 
       // The marker is POSITIVE (statement-list runTransaction identifies the
-      // bridge), not the absence of `transaction`: ElectronDatabaseAPI's
+      // bridge), not the absence of `transaction`: DesktopDatabaseBridge's
       // optional callback-transaction member invites a future preload to add
       // one, and that must still not flip desktop into drizzle-over-IPC
       // (review #2166). Driven through the REAL createDbHandle because it

@@ -21,14 +21,33 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { parseCliArgs } from '../verify-eslint-warning-baselines.mjs';
+
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const read = (relative) => readFileSync(path.join(repoRoot, relative), 'utf8');
+const FULL_TREE_ESLINT_INVOCATION = /\bpnpm run lint:eslint(?=\s*(?:&&|$))/u;
 
 test('lint:eslint invokes the per-rule verifier, not a bare --max-warnings', () => {
   const { scripts } = JSON.parse(read('package.json'));
   assert.match(
+    scripts['lint:ci'],
+    FULL_TREE_ESLINT_INVOCATION,
+    'the required Static lint command must retain the full-repository ESLint verdict'
+  );
+  for (const narrowedInvocation of [
+    'pnpm run lint:eslint:bounded',
+    'pnpm run lint:eslint.bounded',
+    'pnpm run lint:eslint --repo-root fixture',
+  ]) {
+    assert.doesNotMatch(
+      narrowedInvocation,
+      FULL_TREE_ESLINT_INVOCATION,
+      'the owner-chain assertion must reject a renamed or argument-narrowed script'
+    );
+  }
+  assert.equal(
     scripts['lint:eslint'],
-    /verify-eslint-warning-baselines\.mjs/,
+    'node scripts/verify-eslint-warning-baselines.mjs',
     'lint:eslint must run the per-rule verifier; a bare `eslint --max-warnings=N` ' +
       'lets independent rule families trade headroom invisibly'
   );
@@ -36,6 +55,23 @@ test('lint:eslint invokes the per-rule verifier, not a bare --max-warnings', () 
     scripts['lint:eslint'],
     /--max-warnings/,
     'the scalar ceiling is superseded by eslint-warning-baseline.json'
+  );
+});
+
+test('verifier CLI rejects ambiguous or unsupported control arguments', () => {
+  assert.deepEqual(parseCliArgs(['--repo-root', 'fixture', '--write-baseline']), {
+    repoRoot: path.resolve('fixture'),
+    writeBaseline: true,
+  });
+  assert.throws(() => parseCliArgs(['--unknown']), /unsupported argument --unknown/u);
+  assert.throws(() => parseCliArgs(['--repo-root']), /--repo-root requires a path/u);
+  assert.throws(
+    () => parseCliArgs(['--repo-root', 'one', '--repo-root', 'two']),
+    /duplicate --repo-root/u
+  );
+  assert.throws(
+    () => parseCliArgs(['--write-baseline', '--write-baseline']),
+    /duplicate --write-baseline/u
   );
 });
 

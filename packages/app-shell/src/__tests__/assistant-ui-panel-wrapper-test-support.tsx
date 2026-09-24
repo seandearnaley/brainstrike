@@ -24,8 +24,9 @@ import { __resetConfiguredAssistantProvidersForTests } from '../hooks/use-config
 export const NATIVE_TOOL_COUNT = WEB_NATIVE_TOOL_IDS.length;
 export const delegatedPanelCallbacks: {
   onDelegatedConversation: AssistantUiPanelProps['onDelegatedConversation'];
+  onEnableModel: AssistantUiPanelProps['onEnableModel'];
   onRuntimeReady: AssistantUiPanelProps['onRuntimeReady'];
-} = { onDelegatedConversation: undefined, onRuntimeReady: undefined };
+} = { onDelegatedConversation: undefined, onEnableModel: undefined, onRuntimeReady: undefined };
 
 const { hasDesktopLlmHostMock } = vi.hoisted(() => ({
   hasDesktopLlmHostMock: vi.fn((): boolean => false),
@@ -510,6 +511,27 @@ const { mockDb } = vi.hoisted(() => ({
   },
 }));
 
+const { toastSpy } = vi.hoisted(() => ({
+  toastSpy: vi.fn(),
+}));
+
+export { toastSpy };
+
+vi.mock('@brainstrike/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/ui')>()),
+  useToast: () => ({ dismiss: vi.fn(), toast: toastSpy, toasts: [] }),
+}));
+
+const { toggleModelEnabledMock } = vi.hoisted(() => ({
+  toggleModelEnabledMock: vi.fn(async () => true),
+}));
+
+export { toggleModelEnabledMock };
+
+vi.mock('@brainstrike/settings-ui/settings/models/use-model-toggle', () => ({
+  useModelToggle: () => ({ busyModelIds: new Set<string>(), toggle: toggleModelEnabledMock }),
+}));
+
 // Mock the DB hook
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
@@ -751,8 +773,8 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     providerGroups = [],
     selectedProvider,
     selectedModel,
+    onEnableModel,
     onModelChange,
-    onModelToggle,
     onProviderSettingsChange,
     onProviderSettingsValidationChange,
     onThreadRunStart,
@@ -770,6 +792,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     toolMenu,
     onComposerDraftCommandApplied,
     onComposerTextChange,
+    onStopReread,
     attachmentsAvailability,
     historyGeneration,
   }: {
@@ -787,8 +810,8 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     }>;
     selectedProvider?: string;
     selectedModel?: string;
+    onEnableModel?: AssistantUiPanelProps['onEnableModel'];
     onModelChange?: (compositeKey: string) => void;
-    onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
     onProviderSettingsChange?: (providerId: string, updates: Record<string, unknown>) => void;
     onProviderSettingsValidationChange?: (reason: string | undefined) => void;
     onThreadRunStart?: () => void;
@@ -824,14 +847,15 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     };
     onComposerDraftCommandApplied?: (commandId: string) => void;
     onComposerTextChange?: (text: string) => void;
+    onStopReread?: () => void;
     attachmentsAvailability?: { state: 'enabled' } | { reason: string; state: 'disabled' };
   }) => {
     delegatedPanelCallbacks.onDelegatedConversation = onDelegatedConversation;
     delegatedPanelCallbacks.onRuntimeReady = onRuntimeReady;
+    delegatedPanelCallbacks.onEnableModel = onEnableModel;
     const providers = providerGroups?.flatMap((group) => group.providers) ?? [];
     const currentProvider = providers.find((p) => p.id === selectedProvider);
     const enabledModels = currentProvider?.models.filter((m) => m.enabled) ?? [];
-    const allModels = currentProvider?.models ?? [];
 
     // Extract model name from composite key (format: "provider::model")
     const extractModelName = (compositeKey: string | undefined) => {
@@ -866,6 +890,14 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
         >
           Report composer text
         </button>
+        {/* The real panel re-reads history by remounting its runtime; the mock
+            exposes the host callback that remount fires so the wrapper's draft
+            carry is assertable. */}
+        <button data-testid="trigger-stop-reread" onClick={() => onStopReread?.()} type="button">
+          Trigger stop re-read
+        </button>
+        <div data-testid="composer-draft-command-text">{composerDraftCommand?.text ?? ''}</div>
+        <div data-testid="composer-draft-command-mode">{composerDraftCommand?.mode ?? ''}</div>
         <button
           data-testid="trigger-run-finished"
           onClick={() => onRunFinished?.({ kind: 'run.finished', runId: 'run-live' })}
@@ -983,22 +1015,6 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
           ))}
         </select>
 
-        <div data-testid="model-toggles">
-          {allModels.map((model) => (
-            <label htmlFor={`toggle-${currentProvider?.id ?? 'none'}-${model.id}`} key={model.id}>
-              <input
-                checked={model.enabled}
-                data-testid={`model-toggle-${currentProvider?.id ?? 'none'}-${model.id}`}
-                id={`toggle-${currentProvider?.id ?? 'none'}-${model.id}`}
-                onChange={(event) =>
-                  onModelToggle?.(currentProvider?.id ?? '', model.id, event.target.checked)
-                }
-                type="checkbox"
-              />
-              {model.id}
-            </label>
-          ))}
-        </div>
         <button data-testid="submit-thread-run" onClick={onThreadRunStart} type="button">
           Submit
         </button>
@@ -1104,6 +1120,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
   // panel never renders the copy-debug-bundle button, so the debug-bundle
   // context is never read.
   DebugBundleProvider: ({ children }: { children: ReactNode }) => children,
+  DelegatedApprovalOwnerContext: (await import('react')).createContext(null),
   // Passthrough double for the real context provider — these tests render the
   // mocked AssistantUiPanel, so the checkpoint context is never read; the
   // provider just needs to mount its children without error.
@@ -1122,6 +1139,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
   >(null),
   SubagentConversationPresentationContext: (await import('react')).createContext(null),
   SubagentInvocationResolverContext: (await import('react')).createContext(null),
+  SubagentLiveInvocationContext: (await import('react')).createContext(null),
   ThreadMessageNavigationContext: (await import('react')).createContext(null),
   ToolApprovalGrantProvider: ({ children }: { children: ReactNode }) => children,
   // The wrapper reads the usage store both as a hook (selector at render time)
@@ -1155,6 +1173,9 @@ function resetTestEnabledModels() {
 }
 
 beforeEach(() => {
+  toastSpy.mockClear();
+  toggleModelEnabledMock.mockClear();
+  toggleModelEnabledMock.mockResolvedValue(true);
   resetTestEnabledModels();
   __resetConfiguredAssistantProvidersForTests();
   __resetAssistantPreferencesStoreForTests();

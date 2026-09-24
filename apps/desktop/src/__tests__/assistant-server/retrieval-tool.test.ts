@@ -132,13 +132,13 @@ vi.mock('@brainstrike/db/react', () => ({
 
 vi.mock('@brainstrike/embeddings/provider-core', () => ({
   CohereEmbeddingProvider: class {
-    embed() {
-      return embedMock();
+    embed(input: unknown) {
+      return embedMock(input);
     }
   },
   GoogleEmbeddingProvider: class {
-    embed() {
-      return embedMock();
+    embed(input: unknown) {
+      return embedMock(input);
     }
   },
   hostedProviderRequiresApiKey: (provider: string) => !['ollama', 'lmstudio'].includes(provider),
@@ -146,15 +146,15 @@ vi.mock('@brainstrike/embeddings/provider-core', () => ({
     ['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'].includes(provider),
   isLocalProviderType: (provider: string) => ['local', 'transformers'].includes(provider),
   OpenAIEmbeddingProvider: class {
-    embed() {
-      return embedMock();
+    embed(input: unknown) {
+      return embedMock(input);
     }
   },
   parseProviderModelKey: (modelKey: string) => ({ provider: modelKey.split(':')[0] }),
   resolveHostedProviderApiKey: resolveHostedProviderApiKeyMock,
   VoyageEmbeddingProvider: class {
-    embed() {
-      return embedMock();
+    embed(input: unknown) {
+      return embedMock(input);
     }
   },
 }));
@@ -624,6 +624,70 @@ describe('retrieval-tool', () => {
     });
     expect(embedMock).not.toHaveBeenCalled();
     expect(searchSimilarMock).toHaveBeenCalledWith([0.125, 0.75], expect.anything());
+  });
+
+  it('passes tool cancellation to the hosted embedding provider', async () => {
+    const signal = new AbortController().signal;
+    await runQueryEmbeddingSpace(
+      { embeddingSetId: 'set-1', query: 'hello' },
+      undefined,
+      {},
+      signal
+    );
+    expect(embedMock).toHaveBeenCalledWith({
+      modelId: 'text-embedding-3-small',
+      signal,
+      text: 'hello',
+    });
+  });
+
+  it('does not query the local host when the tool was already aborted', async () => {
+    const controller = new AbortController();
+    const reason = new Error('tool stopped');
+    controller.abort(reason);
+    const queryEmbeddingMock = vi.fn();
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [{ dimensions: 2, modelId: 'local-model', modelKey: 'local::local-model' }],
+        };
+      }
+      return { rows: [] };
+    });
+    await expect(
+      runQueryEmbeddingSpace(
+        { embeddingSetId: 'set-1', query: 'hello' },
+        undefined,
+        { embeddingHostManager: { queryEmbedding: queryEmbeddingMock } },
+        controller.signal
+      )
+    ).rejects.toBe(reason);
+    expect(queryEmbeddingMock).not.toHaveBeenCalled();
+  });
+
+  it('reports local host timeout stage without logging the query', async () => {
+    const queryEmbeddingMock = vi
+      .fn()
+      .mockRejectedValue(new Error('Embedding host request timed out'));
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [{ dimensions: 2, modelId: 'local-model', modelKey: 'local::local-model' }],
+        };
+      }
+      return { rows: [] };
+    });
+
+    await expect(
+      runQueryEmbeddingSpace({ embeddingSetId: 'set-1', query: 'private query text' }, undefined, {
+        embeddingHostManager: { queryEmbedding: queryEmbeddingMock },
+      })
+    ).rejects.toThrow('Unable to retrieve context right now');
+    expect(loggerWarn).toHaveBeenCalledWith(
+      'Query embedding interrupted',
+      expect.objectContaining({ provider: 'local', stage: 'local-host', timedOut: true })
+    );
+    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('private query text');
   });
 
   it('surfaces a safe error when local embedding host is unavailable', async () => {

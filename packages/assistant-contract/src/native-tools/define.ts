@@ -109,6 +109,23 @@ export interface NativeToolNameResolver {
   readonly self: string;
 }
 
+/**
+ * How long one execution of this tool may run (BST-1777).
+ *
+ * Declared ONLY by tools whose input schema carries a model-settable
+ * `timeoutMs`. It is the single source for three things that used to be
+ * restated by hand and drifted: the executor's default/ceiling, the per-tool
+ * execution guard's per-call budget, and the stream watchdog's
+ * `tool-executing` backstop. A tool that declares none is bounded by the
+ * global guard default (`BRAINSTRIKE_TOOL_TIMEOUT_MS`).
+ */
+export interface NativeToolExecutionBudget {
+  /** Budget when the call omits `timeoutMs`. */
+  readonly defaultMs: number;
+  /** Largest `timeoutMs` the input schema accepts. */
+  readonly maxMs: number;
+}
+
 interface NativeToolDefinitionBase<Id extends string, In extends z.ZodType> {
   /** Load-ordering/UI taxonomy, prompt-budget estimate, approval flag, and explicit risk bucket. */
   readonly defaults: NativeToolDefaultMetadata;
@@ -132,6 +149,8 @@ interface NativeToolDefinitionBase<Id extends string, In extends z.ZodType> {
    * `toToolSchemaDisplay` throws for a key that names no parameter.
    */
   readonly display?: Readonly<Record<string, string>>;
+  /** Execution budget for tools with a model-settable `timeoutMs` (see the type). */
+  readonly executionBudget?: NativeToolExecutionBudget;
   /** Settled-history posture for the two projection processors (see the type). */
   readonly history?: NativeToolHistoryPosture;
   readonly id: Id;
@@ -194,6 +213,30 @@ export class InvalidNativeToolDefinitionError extends Error {
   }
 }
 
+function assertExecutionBudget(definition: NativeToolDefinition): void {
+  const budget = definition.executionBudget;
+  if (budget === undefined) {
+    return;
+  }
+  for (const [name, value] of [
+    ['defaultMs', budget.defaultMs],
+    ['maxMs', budget.maxMs],
+  ] as const) {
+    if (!(Number.isSafeInteger(value) && value > 0)) {
+      throw new InvalidNativeToolDefinitionError(
+        definition.id,
+        `executionBudget.${name} must be a positive integer (ms), received ${String(value)}`
+      );
+    }
+  }
+  if (budget.defaultMs > budget.maxMs) {
+    throw new InvalidNativeToolDefinitionError(
+      definition.id,
+      `executionBudget.defaultMs (${budget.defaultMs}) exceeds maxMs (${budget.maxMs})`
+    );
+  }
+}
+
 /**
  * Declare one native tool. Returns the definition unchanged (literal types
  * preserved via the `const` type parameter) after the fail-loud checks:
@@ -205,11 +248,13 @@ export class InvalidNativeToolDefinitionError extends Error {
  * - a desktop tool must list the `desktop` surface, and `local` implies `desktop`;
  * - a deferred desktop tool must declare a `discovery.family` (otherwise it is
  *   behind `search_tools` with no advertised capability).
+ * - a declared executionBudget must be two positive integers with defaultMs <= maxMs.
  */
 export function defineNativeTool<const Definition extends NativeToolDefinition>(
   definition: Definition
 ): Definition {
   resolveToolRiskCategory(definition.defaults);
+  assertExecutionBudget(definition);
   if (definition.defaults.loadingTier === 'critical') {
     if (definition.discovery !== undefined) {
       throw new InvalidNativeToolDefinitionError(

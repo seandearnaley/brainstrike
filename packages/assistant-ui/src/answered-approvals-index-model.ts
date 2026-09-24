@@ -42,8 +42,8 @@ import { isAssistantToolApprovalRequest } from './tool-decision-run-outcome';
  * `tool-approval-answered` on the root leg only, while the child view renders
  * its own copy of the same leaf approval, so a child index that scans only
  * its own thread left a granted read "Pending" with live buttons in every
- * child tab. Only answers are folded in; requests, prompts and the user's own
- * decisions stay the view's own.
+ * child tab. Root answers and user decisions are folded in because child
+ * decisions are dispatched by that root; requests and prompts stay view-local.
  */
 export interface IndexedApprovalRequest {
   /** A durable decision state rode on the part (rediscovered, already admitted). */

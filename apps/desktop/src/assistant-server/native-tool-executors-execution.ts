@@ -14,6 +14,7 @@ import {
   type QuerySelfInput,
   type RunSkillScriptInput,
   readToolExecutionThreadId,
+  resolveGuardedToolSignal,
   resolveRequestPermissionPolicy,
   resolveSelfApprovalDecision,
 } from '@brainstrike/agent';
@@ -76,7 +77,7 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
         return await runExecuteCommandWithShellCorrelation(
           resolvedInput,
           runtimeData,
-          { signal: options?.abortSignal, ...(stream ? { stream } : {}) },
+          { signal: resolveGuardedToolSignal(options), ...(stream ? { stream } : {}) },
           dependencies
         );
       } catch (error) {
@@ -114,7 +115,7 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
           return await runSkillScript(resolvedInput, runtimeData, skillScriptResolver, {
             resolvePythonExecutable:
               dependencies.resolvePythonExecutable ?? resolveDesktopPythonExecutable,
-            signal: options?.abortSignal,
+            signal: resolveGuardedToolSignal(options),
             ...(stream ? { stream } : {}),
           });
         } catch (error) {

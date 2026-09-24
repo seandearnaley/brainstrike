@@ -344,16 +344,6 @@
       }
     },
     {
-      "includes": ["**/tailwind.config.js", "**/tailwind.config.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "useNamingConvention": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": ["**/vitest.setup.ts", "**/vitest.setup.tsx"],
       "linter": {
         "rules": {
@@ -477,7 +467,6 @@
         "packages/db-explorer/src/__tests__/use-database-demo-data.test.ts",
         "packages/db-explorer/src/hooks/__tests__/use-semantic-search-executor.test.ts",
         "packages/db-explorer/src/use-database-demo-data.ts",
-        "packages/db/__tests__/drizzle-file-chunk-repository.test.ts",
         "packages/db/__tests__/file-chunk-repository.test.ts",
         "packages/db/__tests__/managed-cache-batch.test.ts",
         "packages/db/src/database-work-scheduler.ts",

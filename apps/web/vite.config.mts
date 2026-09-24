@@ -34,8 +34,8 @@ const reactTransformExclude = [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/];
 
 // Keep config concise; avoid noisy debug printing in dev
 
-// The Tailwind CSS content paths are now managed by `tailwind.config.js`.
-// The @tailwindcss/vite plugin will automatically pick it up.
+// Tailwind CSS v4 is configured CSS-first in the stylesheets; there is no
+// tailwind.config.js (removed in BST-1734).
 
 const {
   createCspQualifiedEvalWarningFilter,
@@ -196,7 +196,7 @@ export default defineConfig({
       // Ensure consistent development transforms for React Compiler
       jsxRuntime: 'automatic',
     }),
-    tailwindcss(), // Automatically finds and uses the root tailwind.config.js
+    tailwindcss(),
     viteStaticCopy({
       targets: [
         // PGlite WASM (existing). Conditionally included via spread so the

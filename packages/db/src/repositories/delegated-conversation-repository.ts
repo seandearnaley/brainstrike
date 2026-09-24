@@ -1,4 +1,9 @@
 import {
+  AGENT_SEMANTIC_COLOR_IDS,
+  type AgentColor,
+  isAgentColor,
+} from '@brainstrike/types/agent-color';
+import {
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
   type DelegatedConversationScope,
@@ -27,7 +32,8 @@ interface JsonObject {
   readonly [key: string]: JsonValue;
 }
 
-export type DelegatedConversationColor = 'blue' | 'emerald' | 'amber' | 'rose' | 'violet' | 'slate';
+export const DELEGATED_CONVERSATION_COLOR_IDS = AGENT_SEMANTIC_COLOR_IDS;
+export type DelegatedConversationColor = AgentColor;
 
 export interface CreateDelegatedChild {
   readonly color: DelegatedConversationColor;
@@ -111,6 +117,7 @@ export interface DelegatedConversationRepository {
     scope: DelegatedConversationScope,
     parentThreadId: string
   ): Promise<DelegatedConversationNode[]>;
+  listDescendants(scope: DelegatedConversationScope): Promise<DelegatedConversationNode[]>;
   recordInvocationEvent(
     scope: DelegatedConversationScope,
     identity: DelegatedRunIdentity,
@@ -140,14 +147,7 @@ function requireTokenCount(value: number): number {
 }
 
 function requireColor(value: unknown): DelegatedConversationColor {
-  if (
-    value === 'blue' ||
-    value === 'emerald' ||
-    value === 'amber' ||
-    value === 'rose' ||
-    value === 'violet' ||
-    value === 'slate'
-  ) {
+  if (isAgentColor(value)) {
     return value;
   }
   throw new DelegatedConversationIdentityError();
@@ -481,6 +481,15 @@ export function createDelegatedConversationRepository(
       );
       return result.rows.map(readNode);
     },
+    async listDescendants(scope: DelegatedConversationScope): Promise<DelegatedConversationNode[]> {
+      await requireOwner(scope);
+      const result = await database.query(
+        `${AUTHORIZED_GRAPH} SELECT * FROM owned_nodes WHERE parent_thread_id IS NOT NULL
+        ORDER BY created_at, thread_id`,
+        scopeParameters(scope)
+      );
+      return result.rows.map(readNode);
+    },
     async recordInvocationEvent(scope, identity, currentHostRunId, event) {
       const terminalStatus =
         event.kind === 'run.finished'
@@ -534,7 +543,7 @@ export function createDelegatedConversationRepository(
             AND stored.runtime_kind = EXCLUDED.runtime_kind
             AND ($18::text IS NULL OR stored.status = 'running' OR stored.status = $18)
           RETURNING *
-        ) INSERT INTO brainstrike_assistant_run_events AS stored
+        ), event_write AS (INSERT INTO brainstrike_assistant_run_events AS stored
           (id, run_id, resource_id, thread_id, sequence, kind, status, label, detail,
            metadata, occurred_at, duration_ms, created_at, updated_at)
           SELECT $9, id, resource_id, thread_id, $10::integer, $11, $12, $13, $14,
@@ -547,7 +556,25 @@ export function createDelegatedConversationRepository(
             AND stored.metadata IS NOT DISTINCT FROM EXCLUDED.metadata
             AND stored.occurred_at = EXCLUDED.occurred_at
             AND stored.duration_ms IS NOT DISTINCT FROM EXCLUDED.duration_ms
-          RETURNING id`,
+          RETURNING id
+        ), settled_prior_legs AS (
+          UPDATE brainstrike_assistant_thread_runs prior_run
+          SET status = $18, completed_at = $16::timestamptz, updated_at = NOW()
+          FROM authorized child
+          WHERE $18::text IS NOT NULL AND EXISTS (SELECT 1 FROM event_write)
+            AND prior_run.id <> $8 AND prior_run.status = 'running'
+            AND prior_run.thread_id = child.thread_id AND prior_run.resource_id = child.resource_id
+            AND EXISTS (
+              SELECT 1 FROM brainstrike_assistant_run_events prior_event
+              WHERE prior_event.run_id = prior_run.id
+                AND prior_event.thread_id = child.thread_id AND prior_event.resource_id = child.resource_id
+                AND prior_event.metadata->>'parentRuntimeRunId' = $3
+                AND prior_event.metadata->>'parentToolCallId' = $4
+                AND prior_event.metadata->>'childRuntimeRunId' = $5
+                AND prior_event.metadata->>'personaId' = $6
+            )
+          RETURNING prior_run.id
+        ) SELECT id FROM event_write`,
         [
           ...invocationParameters(scope, identity),
           requireString(identity.childRuntimeRunId),

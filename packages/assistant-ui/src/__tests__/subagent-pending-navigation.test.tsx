@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import type { ThreadMessageLike } from '@assistant-ui/react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   SubagentConversationNavigationContext,
   SubagentConversationPresentationContext,
   SubagentInvocationResolverContext,
+  SubagentLiveInvocationContext,
 } from '../subagent-conversation-navigation';
 import { Harness } from './assistant-activity-timeline-fixtures';
 
@@ -47,6 +48,80 @@ function message(id: string, runs: string[]): ThreadMessageLike {
   };
 }
 afterEach(cleanup);
+it('shows a persisted child callsign and color from an authorized live publication before tool completion', async () => {
+  let childThreadId: string | undefined;
+  const listeners = new Set<() => void>();
+  const source = {
+    getThreadId: vi.fn((identity: { parentRuntimeRunId: string; parentToolCallId: string }) => {
+      expect(identity).toEqual({ parentRuntimeRunId: 'run-one', parentToolCallId: 'reused-call' });
+      return childThreadId;
+    }),
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const presentation = vi.fn(async () => ({
+    colorId: 'orange',
+    displayName: 'Cedar',
+    markClassName: 'bg-orange-500',
+  }));
+  const { container } = render(
+    <SubagentLiveInvocationContext value={source}>
+      <SubagentConversationPresentationContext value={presentation}>
+        <Harness adapter={adapter} initialMessages={[message('pending', ['run-one'])]} />
+      </SubagentConversationPresentationContext>
+    </SubagentLiveInvocationContext>
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByTestId('assistant-activity-summary'));
+  expect(screen.queryByText('Delegating to Cedar')).not.toBeInTheDocument();
+  act(() => {
+    childThreadId = 'child-run-one';
+    for (const listener of listeners) {
+      listener();
+    }
+  });
+  expect(await screen.findByText('Delegating to Cedar')).toBeVisible();
+  expect(container.querySelector('.bs-subagent-card')).toHaveAttribute(
+    'data-agent-color',
+    'orange'
+  );
+  expect(presentation).toHaveBeenCalledWith('child-run-one');
+});
+it('keeps a later result address that conflicts with the live invocation visible', async () => {
+  const presentation = vi.fn(async () => ({
+    colorId: 'orange',
+    displayName: 'Cedar',
+    markClassName: 'bg-orange-500',
+  }));
+  const settled: ThreadMessageLike = {
+    ...message('settled', ['run-one']),
+    content: [
+      {
+        args: {},
+        argsText: '{}',
+        result: { subAgentThreadId: 'other-child', text: 'Completed' },
+        toolCallId: 'reused-call',
+        toolName: 'agent-worker',
+        type: 'tool-call',
+      },
+      invocation('run-one'),
+    ],
+  };
+  render(
+    <SubagentLiveInvocationContext
+      value={{ getThreadId: () => 'child-run-one', subscribe: () => () => undefined }}
+    >
+      <SubagentConversationPresentationContext value={presentation}>
+        <Harness adapter={adapter} initialMessages={[settled]} />
+      </SubagentConversationPresentationContext>
+    </SubagentLiveInvocationContext>
+  );
+  await userEvent.setup().click(await screen.findByTestId('assistant-activity-summary'));
+  expect(await screen.findByText('Conflicting child conversation addresses.')).toBeVisible();
+  expect(presentation).not.toHaveBeenCalled();
+});
 it('opens the exact pending invocation when two turns reuse a native tool-call ID', async () => {
   const resolve = vi.fn(
     async ({ parentRuntimeRunId }: { parentRuntimeRunId: string }) => `child-${parentRuntimeRunId}`
@@ -91,13 +166,56 @@ it('opens the exact pending invocation when two turns reuse a native tool-call I
     parentToolCallId: 'reused-call',
   });
 });
-it('renders a contradictory invocation as a local navigation error without losing the conversation', async () => {
+
+it('keeps a rejected pending lookup visible and lets the user retry it', async () => {
+  const resolve = vi
+    .fn<({ parentRuntimeRunId }: { parentRuntimeRunId: string }) => Promise<string>>()
+    .mockRejectedValueOnce(new Error('The child invocation is not attached yet.'))
+    .mockResolvedValueOnce('child-run-one');
+  const open = vi.fn();
   render(
-    <Harness adapter={adapter} initialMessages={[message('conflict', ['run-one', 'run-two'])]} />
+    <SubagentConversationNavigationContext value={open}>
+      <SubagentInvocationResolverContext value={resolve}>
+        <Harness adapter={adapter} initialMessages={[message('pending', ['run-one'])]} />
+      </SubagentInvocationResolverContext>
+    </SubagentConversationNavigationContext>
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByTestId('assistant-activity-summary'));
+  const button = await screen.findByRole('button', { name: 'Open Worker conversation' });
+
+  await user.click(button);
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'The child invocation is not attached yet.'
+  );
+  expect(open).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole('button', { name: 'Open Worker conversation' }));
+  expect(resolve).toHaveBeenCalledTimes(2);
+  expect(open).toHaveBeenCalledWith('child-run-one', button);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+it('renders a contradictory invocation as a local navigation error without losing the conversation', async () => {
+  const open = vi.fn();
+  const resolve = vi.fn(async () => 'must-not-open');
+  render(
+    <SubagentConversationNavigationContext value={open}>
+      <SubagentInvocationResolverContext value={resolve}>
+        <Harness
+          adapter={adapter}
+          initialMessages={[message('conflict', ['run-one', 'run-two'])]}
+        />
+      </SubagentInvocationResolverContext>
+    </SubagentConversationNavigationContext>
   );
   const user = userEvent.setup();
   await user.click(await screen.findByTestId('assistant-activity-summary'));
   expect(await screen.findByText('Conflicting native invocation addresses.')).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: 'Open Worker conversation' })
+  ).not.toBeInTheDocument();
+  expect(resolve).not.toHaveBeenCalled();
+  expect(open).not.toHaveBeenCalled();
   expect(screen.getByRole('textbox', { name: 'Message' })).toBeVisible();
 });
 

@@ -61,7 +61,8 @@ const EMPTY_MEMORY_THREADS = [] as const;
 
 type AssistantThreadState = ReturnType<typeof useAssistantThreadStore.getState>;
 interface AssistantPanelThreadScope {
-  readonly delegatedPanelBinding: ReturnType<typeof useDelegatedPanelBinding>;
+  readonly delegatedPanelBinding: ReturnType<typeof useDelegatedPanelBinding> &
+    Pick<AssistantUiPanelProps, 'agentColor'>;
   readonly ensureResourceThreads: AssistantThreadState['ensureResourceThreads'];
   readonly memoryLoadState: AssistantThreadState['loadStateByResourceId'][string];
   readonly memoryResourceId: string;
@@ -98,8 +99,16 @@ export function useAssistantPanelThreadScope(
     providerSettings,
     planMode
   );
+  const agentColor = useMemo(
+    () => memoryThreads.find((thread) => thread.id === selectedMemoryThreadId)?.metadata?.color,
+    [memoryThreads, selectedMemoryThreadId]
+  );
+  const coloredDelegatedPanelBinding = useMemo(
+    () => ({ ...delegatedPanelBinding, agentColor }),
+    [delegatedPanelBinding, agentColor]
+  );
   return {
-    delegatedPanelBinding,
+    delegatedPanelBinding: coloredDelegatedPanelBinding,
     ensureResourceThreads,
     memoryLoadState,
     memoryResourceId,

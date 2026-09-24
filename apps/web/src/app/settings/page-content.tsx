@@ -19,7 +19,10 @@ import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
-import { ModelSelectionPage } from '@brainstrike/settings-ui/settings/models/model-selection-page';
+import {
+  ModelCatalogHeaderActions,
+  ModelSelectionPage,
+} from '@brainstrike/settings-ui/settings/models/model-selection-page';
 import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settings/providers/providers-settings-category';
 import {
   LoggingSettingsSection,
@@ -32,6 +35,7 @@ import {
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
+  createAssistantMemorySettingsCategory,
   createFactoryResetSettingsCategory,
   createLocalRuntimeSettingsCategory,
   createPermissionSettingsCategory,
@@ -82,14 +86,6 @@ function getNativeToolsAsDisplayMetadata(
  */
 function getToolDescription(toolId: string): string {
   return getNativeToolDescription(toolId) ?? `Native tool: ${toolId}`;
-}
-
-function ModelSelectionCategory() {
-  return (
-    <div className="space-y-4">
-      <ModelSelectionPage assistantMemoryBackendAvailable={hasDurableAssistantUsageCapability()} />
-    </div>
-  );
 }
 
 // Factory Reset category provided via createFactoryResetSettingsCategory()
@@ -191,13 +187,18 @@ export default function SettingsPageContent() {
       // capability check lives inside the component — never a platform test.
       createProvidersSettingsCategory({ verifyProvider: verifyProviderCredential }),
       {
-        content: <ModelSelectionCategory />,
+        content: <ModelSelectionPage />,
         description: 'Browse every catalogued model and enable the ones you want.',
+        headerActions: <ModelCatalogHeaderActions />,
         icon: Layers,
         id: 'models',
         keywords: ['models', 'catalog', 'llm', 'embedding', 'vector'],
+        layout: 'workspace',
         title: 'Model Catalog',
       },
+      createAssistantMemorySettingsCategory({
+        assistantMemoryBackendAvailable: hasDurableAssistantUsageCapability(),
+      }),
       {
         content: (
           <LoggingSettingsSection

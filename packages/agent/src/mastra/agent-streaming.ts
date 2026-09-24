@@ -56,7 +56,12 @@ import {
 import { getDefaultModel } from '../providers/provider-factory';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
-import { withInactivityTimeout } from '../stream/with-inactivity-timeout';
+import {
+  type HeldWorkWatch,
+  type StreamInactivityOptions,
+  type StreamStalledError,
+  withInactivityTimeout,
+} from '../stream/with-inactivity-timeout';
 import { withToolCallInputTimeout } from '../stream/with-tool-call-input-timeout';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
@@ -82,6 +87,7 @@ import {
   validateToolApprovalAction,
   validateToolResumeAction,
 } from './attempt-legs';
+import { describeChildExecutionEnd } from './background-child-watchdog';
 import { readTaskEvent } from './background-idle-loop';
 import { projectBackgroundStream } from './background-stream';
 import {
@@ -108,6 +114,11 @@ import {
   resolveTripwire,
   truncateStreamDetail,
 } from './mastra-chunk-decoding';
+import {
+  createMastraStreamPartRouter,
+  hasExecutionGuardBehindToolCall,
+  resolveMastraProducerOptions,
+} from './mastra-watchdog-options';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
 import { buildRootLegPromptManifest } from './prompt-manifest-root-leg';
@@ -174,7 +185,7 @@ type DynamicMastraChunkType =
   | `data-${string}`
   | `workflow-execution-event-${string}`;
 type MastraChunkTypeMustStayLiteral = string extends ChunkType['type'] ? never : unknown;
-type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
+export type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
 type MastraStaticChunkDisposition = 'ignored' | 'mapped' | 'normalized';
 
 /**
@@ -1063,82 +1074,74 @@ function* makeResumedStartChunks(
 }
 
 /**
- * Name a raw Mastra part for the stall diagnostic. Knowing WHAT the provider
- * last sent before going quiet (`reasoning-delta` vs `tool-call-delta` vs
- * `step-start`) is the difference between diagnosing a stall from a debug
- * bundle and reconstructing it by inference (BST-1408).
+ * The ids of every call that will EXECUTE on a resume leg (BST-1777 final
+ * review, I1) — the approved call itself, plus its siblings (the suspended
+ * step's other pending, non-gated work; see {@link ResumedApprovalToolCall}).
+ * Mastra never replays the step's `tool-call` part on a resume leg, so
+ * without this the watchdog has no `started` boundary to observe and measures
+ * the whole execution against the provider's own silence budget instead of
+ * the tool-executing backstop.
+ *
+ * Filtered through the SAME allow-list rule as
+ * {@link createMastraToolExecutionPartKindReader} (a call this excludes rides
+ * the ordinary provider windows and stays recoverable, which is correct for
+ * it): a resumed call can never be provider-executed (a provider-executed
+ * tool has no local `execute` and therefore no suspend point to resume
+ * from), so this is really just the guarded-name membership check —
+ * `registeredToolName` must be a key of `guardedToolNames`.
  */
-function describeMastraStreamPartType(part: unknown): string | undefined {
-  if (typeof part !== 'object' || part === null) {
-    return;
-  }
-  const type = (part as { type?: unknown }).type;
-  // Bounded through the shared diagnostic formatter: the value is provider
-  // data, and a stall breadcrumb must not carry an unbounded string.
-  return typeof type === 'string' ? formatDiagnosticChunkType(type) : undefined;
+function collectResumedGuardedToolCallIds(
+  resumed: ResumedApprovalToolCall,
+  guardedToolNames: ReadonlySet<string>
+): readonly string[] {
+  const calls: readonly ResumedToolCallStart[] = [resumed, ...resumed.siblings];
+  return calls
+    .filter((call) =>
+      hasExecutionGuardBehindToolCall(call.registeredToolName, false, guardedToolNames)
+    )
+    .map((call) => call.toolCallId);
 }
 
 /**
- * Mastra part types the FRAMEWORK emits at stream/step open, before the
- * provider is asked for anything.
+ * The Mastra-specific `withInactivityTimeout` options for one leg, including
+ * this leg's seed (absent on a fresh turn) — split out so
+ * `streamAttemptChunks` calls this once rather than carrying the branch
+ * itself (`exactOptionalPropertyTypes` forbids an explicit `undefined` on
+ * `initialToolCallIds`, so the branch has to live in a function that can omit
+ * the key entirely).
  *
- * Measured through the real loop (review of #2586): `start` lands at t+0ms and
- * `step-start` ~7ms later, while the provider's first real part follows
- * hundreds of milliseconds afterwards — and a fresh `step-start` opens every
- * subsequent step too. Counting these as "the provider started" would end the
- * wide first-output window within milliseconds and measure every real
- * time-to-first-token against the tight inter-output one, which is precisely
- * the failure this split exists to prevent.
- *
- * Deliberately a CLOSED list of scaffolding rather than an allowlist of output
- * kinds: a Mastra release that adds a new provider part type must default to
- * "this is output" (tightening the window on a part we know arrived from the
- * provider), never to "this is free" (silently widening it forever).
+ * @internal exported for tests
  */
-const MASTRA_SCAFFOLDING_PART_TYPES: ReadonlySet<string> = new Set(['start', 'step-start']);
-
-function isMastraProviderOutputPart(part: unknown): boolean {
-  const type = describeMastraStreamPartType(part);
-  return type === undefined || !MASTRA_SCAFFOLDING_PART_TYPES.has(type);
+export function resolveMastraInactivityOptions(
+  resumedApprovalToolCall: ResumedApprovalToolCall | undefined,
+  guardedToolNames: ReadonlySet<string>,
+  onTimeout: (error: StreamStalledError) => void,
+  heldWork: HeldWorkWatch | undefined
+): StreamInactivityOptions<unknown> {
+  return {
+    ...resolveMastraProducerOptions(guardedToolNames),
+    ...(heldWork ? { heldWork } : {}),
+    ...(resumedApprovalToolCall
+      ? {
+          initialToolCallIds: collectResumedGuardedToolCallIds(
+            resumedApprovalToolCall,
+            guardedToolNames
+          ),
+        }
+      : {}),
+    onTimeout,
+    routePart: createMastraStreamPartRouter(),
+  };
 }
 
 /**
- * Mastra part types that carry REASONING rather than an answer.
- *
- * These are unambiguously provider output — they must never be mistaken for
- * framework scaffolding — but they are the model THINKING, so the silence
- * around them is measured against the wide reasoning window instead of the
- * tight inter-output one (see `StreamStallPhase` in
- * ../stream/with-inactivity-timeout.ts).
- *
- * CONTENT vs MARKER is load-bearing. A thinking delta ENTERS the reasoning
- * phase; block bookkeeping only PRESERVES the phase already in effect.
- * Providers exist that emit `text-start` BEFORE `reasoning-end`, so treating
- * the end marker as content would widen the window back out exactly as the
- * answer began. Preserving keeps a not-yet-answering stream wide (the gap
- * between `reasoning-end` and the first `text-delta` is still "has it begun
- * answering?") and an already-answering stream tight.
- *
- * Typed as `StaticMastraChunkType`, the union DERIVED FROM MASTRA'S OWN
- * `ChunkType['type']` that `MASTRA_STATIC_CHUNK_DISPOSITIONS` is checked
- * against. A Mastra release that renames one of these fails to compile here
- * rather than silently dropping a type out of the set and re-arming the tight
- * window against high-effort reasoning — the exact regression this prevents.
+ * The child's ONE failed terminal when its execution ended on its own: its
+ * native deadline, or its own watchdog judging it stalled (with the stall's
+ * breadcrumb). Selected Stop is a cancellation and never reaches here.
  */
-const MASTRA_REASONING_PART_KINDS = {
-  'reasoning-delta': 'content',
-  'reasoning-end': 'marker',
-  'reasoning-signature': 'marker',
-  'reasoning-start': 'content',
-  'redacted-reasoning': 'content',
-} as const satisfies Partial<Record<StaticMastraChunkType, 'content' | 'marker'>>;
-
-function readMastraReasoningPartKind(part: unknown): 'content' | 'marker' | undefined {
-  const type = describeMastraStreamPartType(part);
-  if (type === undefined || !Object.hasOwn(MASTRA_REASONING_PART_KINDS, type)) {
-    return;
-  }
-  return MASTRA_REASONING_PART_KINDS[type as keyof typeof MASTRA_REASONING_PART_KINDS];
+function makeExecutionEndTermination(state: ToolLifecycleState, reason: unknown): StreamChunk[] {
+  const { detail, metadata } = describeChildExecutionEnd(reason);
+  return makeDelegatedStreamTermination(state, false, detail, metadata);
 }
 
 export function createAttemptDelegatedProjection({
@@ -1168,7 +1171,7 @@ export function createAttemptDelegatedProjection({
 } {
   const delegatedProjection = createDelegatedStreamProjection({
     authorize: runtime.conversationBinding?.bindRun,
-    createState: (personaId, threadId) => {
+    createState: (personaId, threadId, identity) => {
       const provider =
         runtime.personasById.get(personaId)?.model?.provider ?? runtimeData?.provider;
       // Children own their execution scope and must not consume parent steering.
@@ -1186,17 +1189,29 @@ export function createAttemptDelegatedProjection({
       if (synthesisOutcomes) {
         childState.synthesisOutcomes = synthesisOutcomes;
       }
-      return childState;
+      return {
+        ...childState,
+        cancellationSignal: runtime.conversationBinding?.getInvocationAbortSignal?.(identity),
+        get executionSignal() {
+          return runtime.conversationBinding?.getExecutionAbortSignal?.(identity);
+        },
+      };
     },
     mapPart: async (childPart, state, childToolNames) => {
-      const result = await processMastraStreamPart(
-        childPart,
-        childToolNames,
-        state,
-        sanitizedNameMap,
-        runtime.askTools,
-        runtime.delegationToolPersonas
-      );
+      const executionSignal = state.executionSignal;
+      const result =
+        state.cancellationSignal?.aborted || runtimeData?.signal?.aborted
+          ? { chunks: makeDelegatedStreamTermination(state, true), finished: true }
+          : executionSignal?.aborted
+            ? { chunks: makeExecutionEndTermination(state, executionSignal.reason), finished: true }
+            : await processMastraStreamPart(
+                childPart,
+                childToolNames,
+                state,
+                sanitizedNameMap,
+                runtime.askTools,
+                runtime.delegationToolPersonas
+              );
       return {
         chunks: result.chunks.map((chunk) => {
           if (
@@ -1215,7 +1230,12 @@ export function createAttemptDelegatedProjection({
   });
   const settle = () =>
     delegatedProjection?.finalize((state) =>
-      makeDelegatedStreamTermination(state, Boolean(runtimeData?.signal?.aborted)).map((chunk) => {
+      (state.cancellationSignal?.aborted || runtimeData?.signal?.aborted
+        ? makeDelegatedStreamTermination(state, true)
+        : state.executionSignal?.aborted
+          ? makeExecutionEndTermination(state, state.executionSignal.reason)
+          : makeDelegatedStreamTermination(state, false)
+      ).map((chunk) => {
         if (
           chunk.type === 'delegated-conversation-chunk' ||
           chunk.type === 'child-continuation-chunk'
@@ -1601,13 +1621,14 @@ export async function* streamAttemptChunks({
         firstOutputMs: runtime.resilienceConfig.streamFirstOutputMs,
         interOutputMs: runtime.resilienceConfig.streamInactivityMs,
         reasoningGapMs: runtime.resilienceConfig.streamReasoningGapMs,
+        toolExecutingMs: runtime.resilienceConfig.toolExecutingMs,
       },
-      {
-        countsAsProviderOutput: isMastraProviderOutputPart,
-        describePart: describeMastraStreamPartType,
-        onTimeout: (error) => streamAbortContext.abort(error),
-        reasoningPartKind: readMastraReasoningPartKind,
-      }
+      resolveMastraInactivityOptions(
+        resumedApprovalToolCall,
+        new Set(runtime.toolNameMap.keys()),
+        (error) => streamAbortContext.abort(error),
+        runtime.backgroundChildWatchdogs
+      )
     );
     const projectedSource = projectBackgroundStream(
       source,

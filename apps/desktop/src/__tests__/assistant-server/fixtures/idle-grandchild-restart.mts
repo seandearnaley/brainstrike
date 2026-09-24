@@ -18,6 +18,10 @@ import {
 } from '@brainstrike/agent/test-fixtures/scripted-agent-model';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
+import {
+  DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  resolveChildTaskTimeoutMs,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import { createDelegatedConversationRepository, migrate } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { z } from 'zod';
@@ -51,8 +55,10 @@ await migrate(database);
 const graph = createDelegatedConversationRepository(database);
 async function createHostRun(id: string, turnMessageId = input.id): Promise<void> {
   await database.query(
-    `INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id)
-    VALUES ($1,'owner','root','openai','gpt-5.4','desktop','running',NOW(),NOW(),NOW(),$2)`,
+    // A human wake of an idle child opens its OWN generation (migration 140),
+    // exactly as `createThreadRun` stamps a leg that answers no decision.
+    `INSERT INTO brainstrike_assistant_thread_runs(id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at,turn_message_id,generation_run_id)
+    VALUES ($1,'owner','root','openai','gpt-5.4','desktop','running',NOW(),NOW(),NOW(),$2,$1)`,
     [id, turnMessageId]
   );
 }
@@ -114,6 +120,7 @@ await createHostRun(phase, phase === 'initial' ? input.id : selectedInput.id);
 async function createBacking(runId: string) {
   const memory = await createPgliteMastraMemory({
     backgroundTaskScope: { resourceId: 'owner', threadId: 'root' },
+    backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
     database: {
       exec: (sql) => database.exec(sql),
       query: (sql, values) => database.query(sql, values ? [...values] : undefined),
@@ -143,6 +150,10 @@ async function createBacking(runId: string) {
     continuation: host.continuation,
     finishToolActions: host.finishToolActions,
     prepareToolAction: host.prepareToolAction,
+    // The REAL generation ports (migration 140), as `getDesktopMastraMemory`
+    // wires them in production: background work without them cannot run.
+    readBackgroundGeneration: host.readBackgroundGeneration,
+    recordNativeRootRun: host.recordNativeRootRun,
     releaseUnexecutedToolAction: host.releaseUnexecutedToolAction,
     resolveToolAction: host.resolveToolAction,
   };

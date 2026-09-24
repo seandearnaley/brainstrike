@@ -5,6 +5,7 @@ import {
   type DatabaseWorkSchedulerSnapshot,
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
+  getDesktopDatabaseBridge,
   type IDatabase,
 } from '@brainstrike/db';
 import type {
@@ -114,8 +115,7 @@ function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSo
     return scheduler;
   }
 
-  const schedulerSnapshot =
-    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  const schedulerSnapshot = getDesktopDatabaseBridge()?.schedulerSnapshot;
   if (!schedulerSnapshot) {
     throw new Error('Desktop embedding worker requires database QoS scheduler snapshots.');
   }
@@ -160,7 +160,9 @@ function createCachedSnapshotReader<TSnapshot>(
     cachedSnapshot = null;
     cachedAt = 0;
     pendingSnapshot = Promise.resolve()
-      .then(readSnapshot)
+      // Not `.then(readSnapshot)`: that forwards `undefined` as an argument, and
+      // IPC-backed readers reject any arity their contract does not declare.
+      .then(() => readSnapshot())
       .then((snapshot) => {
         cachedSnapshot = snapshot;
         cachedAt = now();

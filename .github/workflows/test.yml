@@ -195,7 +195,8 @@ jobs:
     # execution dominated recent runs (8m + 12m). Three native Vitest shards
     # preserve every file and one worker per VM without making PGlite suites
     # compete on the same host. The remaining UI packages keep their own row.
-    # DB retains its two native shards. Rest owns every other affected package.
+    # DB and Agent retain two native shards each. Rest owns every other
+    # affected package.
     # scripts/__tests__/unit-shard-partition.test.mjs verifies complete,
     # disjoint coverage; Unit below remains the required fan-in.
     timeout-minutes: 30
@@ -212,6 +213,16 @@ jobs:
             partition: db
             pr_filters: --filter="@brainstrike/db"
             push_filters: --filter="@brainstrike/db"
+            vitest_shard: 2/2
+          - shard: agent-1
+            partition: agent
+            pr_filters: --filter="@brainstrike/agent"
+            push_filters: --filter="@brainstrike/agent"
+            vitest_shard: 1/2
+          - shard: agent-2
+            partition: agent
+            pr_filters: --filter="@brainstrike/agent"
+            push_filters: --filter="@brainstrike/agent"
             vitest_shard: 2/2
           - shard: desktop-1
             partition: desktop
@@ -243,6 +254,7 @@ jobs:
             partition: rest
             pr_filters: >-
               --filter="!@brainstrike/db"
+              --filter="!@brainstrike/agent"
               --filter="!@brainstrike/desktop"
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
@@ -250,6 +262,7 @@ jobs:
             vitest_shard: ''
             push_filters: >-
               --filter="!@brainstrike/db"
+              --filter="!@brainstrike/agent"
               --filter="!@brainstrike/desktop"
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
@@ -409,6 +422,8 @@ jobs:
         env:
           TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
           TURBO_SCM_HEAD: ${{ github.sha }}
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -429,6 +444,8 @@ jobs:
           # fence-host-gate.ts. Deliberately NOT set in the coverage lanes,
           # which install nothing and keep the loud-skip behaviour.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -457,6 +474,8 @@ jobs:
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
         env:
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -470,6 +489,8 @@ jobs:
         env:
           # See the pull-request integration step above.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -658,10 +679,10 @@ jobs:
       # rare — key misses happen on every Node patch bump and on LRU eviction,
       # and run 34353973428 was exactly a `Cache not found for input keys` run.
       #
-      # Restore is prefix-only because `.nvmrc` pins a major (`24`) and the
-      # exact version is not known until setup-node runs inside the composite
-      # below; the save step keys on that resolved version, so a patch bump
-      # writes a NEW entry instead of hitting a stale key forever.
+      # Restore is prefix-only: the save key is this `.nvmrc`-hash prefix plus
+      # the version setup-node resolves inside the composite below, which is
+      # not known yet here. `.nvmrc` pins an exact version, not a major, so a
+      # Node bump changes the prefix itself and can never hit a stale entry.
       - name: Restore node-gyp headers
         uses: actions/cache/restore@v5
         with:
@@ -1283,7 +1304,7 @@ jobs:
   # Persistent E2E breakage is still caught within 24h by the scheduled
   # notifiers in web-e2e.yml / desktop-e2e.yml.
   #
-  # `browser-tests`, affected `native-windows`, and `native-electron` also run
+  # `browser-tests`, `native-windows`, and `native-electron` also run
   # on pushes to `main` and are also NOT notified — not on flakiness grounds,
   # but because none of them is a required check. A red one of those does not
   # block anyone else's branch, so it is not this job's class of problem.
@@ -1348,7 +1369,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # NO `2>/dev/null || true` HERE, unlike the four sibling notifiers.
+          # No notifier (this one or its four siblings) uses `2>/dev/null || true`.
           # That idiom swallows the expected "label already exists" AND a real
           # failure (token not elevated, API 5xx, org label restrictions)
           # indistinguishably. The label does not exist until the first red

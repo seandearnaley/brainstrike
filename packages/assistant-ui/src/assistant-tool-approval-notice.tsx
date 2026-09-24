@@ -8,7 +8,10 @@ import { isAssistantToolApprovalRequest } from './tool-decision-run-outcome';
 import { useApprovalNoticeState } from './use-approval-notice-state';
 
 interface AssistantToolApprovalNoticeProps {
+  /** Durable owner color; omitted approvals inherit the current panel color. */
+  colorId?: string | undefined;
   data: unknown;
+  ownerDisplayName?: string | undefined;
 }
 
 /**
@@ -17,21 +20,55 @@ interface AssistantToolApprovalNoticeProps {
  * identity so a re-used part slot never inherits another pause's state.
  * Live and rediscovered approvals share this component.
  */
-export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
+export function AssistantToolApprovalNotice({
+  data,
+  colorId,
+  ownerDisplayName,
+}: AssistantToolApprovalNoticeProps) {
   if (!isAssistantToolApprovalRequest(data)) {
     return null;
   }
-  return <ToolApprovalNotice approval={data} key={getToolActionIdentityKey(data)} />;
+  return (
+    <ToolApprovalNotice
+      approval={data}
+      colorId={colorId}
+      key={getToolActionIdentityKey(data)}
+      ownerDisplayName={ownerDisplayName}
+    />
+  );
 }
 
-function ToolApprovalNotice({ approval }: { approval: AssistantToolApprovalRequest }) {
+function ToolApprovalNotice({
+  approval,
+  colorId,
+  ownerDisplayName,
+}: {
+  approval: AssistantToolApprovalRequest;
+  colorId?: string | undefined;
+  ownerDisplayName?: string | undefined;
+}) {
   const state = useApprovalNoticeState(approval);
   const pendingRank = useApprovalRank(getToolActionIdentityKey(approval));
   const presentation = resolveApprovalPresentation({ answered: state.answered, pendingRank });
   if (presentation.mode === 'row') {
-    return <ApprovalRow approval={approval} state={state} />;
+    return (
+      <ApprovalRow
+        approval={approval}
+        colorId={colorId}
+        ownerDisplayName={ownerDisplayName}
+        state={state}
+      />
+    );
   }
-  return <ApprovalCard approval={approval} presentation="card" state={state} />;
+  return (
+    <ApprovalCard
+      approval={approval}
+      colorId={colorId}
+      ownerDisplayName={ownerDisplayName}
+      presentation="card"
+      state={state}
+    />
+  );
 }
 
 AssistantToolApprovalNotice.displayName = 'AssistantToolApprovalNotice';

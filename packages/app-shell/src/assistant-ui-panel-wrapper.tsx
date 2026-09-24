@@ -61,7 +61,6 @@ import type {
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { AssistantDecisionProviders } from './assistant-decision-providers';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
 import { subscribeAssistantToolUpdates } from './assistant-panel/tool-update-subscriptions';
@@ -93,7 +92,6 @@ import {
   getEnabledBuiltInLocalRegistryModelIds,
   getRuntimeProviderLlmModels,
   getToolDescription,
-  isLocalRuntimeProvider,
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
   resolveAdvertisedNativeToolIds,
@@ -123,6 +121,7 @@ import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { useEnableModel } from './hooks/use-enable-model';
 import { useForgeBranchLookupActivation, useForgeRunEvents } from './hooks/use-forge-run-events';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
@@ -134,6 +133,7 @@ import { useAssistantRunControls } from './use-assistant-run-controls';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
+import { useComposerDraftChannel } from './use-composer-draft-channel';
 import { useAssistantPanelThreadScope } from './use-delegated-conversation-root';
 import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
@@ -218,7 +218,6 @@ export function AssistantUiPanelWrapper({
   const registryHasLoaded = useModelRegistryStore((state) => state.hasLoaded);
   const downloadedModels = useModelRegistryStore((state) => state.downloadedModels);
   const registryError = useModelRegistryStore((state) => state.error);
-  const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
@@ -735,29 +734,7 @@ export function AssistantUiPanelWrapper({
       memoryResourceId,
       selectedMemoryThreadId,
     });
-  const composerDraftCommand = useAssistantComposerCommandStore((state) =>
-    selectedMemoryThreadId ? state.commandsByThreadId[selectedMemoryThreadId]?.[0] : undefined
-  );
-  const acknowledgeComposerCommand = useAssistantComposerCommandStore((state) => state.acknowledge);
-  const recordComposerDraft = useAssistantComposerCommandStore((state) => state.recordDraft);
-  const handleComposerCommandApplied = useCallback(
-    (commandId: string) => {
-      if (!composerDraftCommand || composerDraftCommand.id !== commandId) {
-        throw new Error(`Cannot acknowledge unknown composer command: ${commandId}`);
-      }
-      acknowledgeComposerCommand(composerDraftCommand.threadId, commandId);
-    },
-    [acknowledgeComposerCommand, composerDraftCommand]
-  );
-  const handleComposerTextChange = useCallback(
-    (text: string) => {
-      if (!selectedMemoryThreadId) {
-        throw new Error('Cannot record composer text without an active assistant thread.');
-      }
-      recordComposerDraft(selectedMemoryThreadId, text);
-    },
-    [recordComposerDraft, selectedMemoryThreadId]
-  );
+  const composerDraft = useComposerDraftChannel(selectedMemoryThreadId);
   const hostedMemoryBackendAvailable = resolveHostedMemoryBackendAvailable({
     desktopAssistantBackendAvailable,
     selectedProvider,
@@ -1061,23 +1038,7 @@ export function AssistantUiPanelWrapper({
     setThreadDraftRuntime,
   });
 
-  const handleModelToggle = useCallback(
-    (providerId: string, modelId: string, enabled: boolean) => {
-      if (!isSupportedProvider(providerId)) {
-        return;
-      }
-
-      if (isLocalRuntimeProvider(providerId)) {
-        return;
-      }
-
-      // Always use database as the source of truth for model enabled state
-      if (db) {
-        void toggleModelInDb(db, modelId, enabled);
-      }
-    },
-    [db, toggleModelInDb]
-  );
+  const handleEnableModel = useEnableModel();
 
   const handleProviderSettingsChange = useCallback(
     (providerId: string, updates: AssistantProviderSettingsUpdate) => {
@@ -1402,7 +1363,7 @@ export function AssistantUiPanelWrapper({
               <BudgetGuardrailProvider value={budgetGuardrailBinding}>
                 <AssistantUiPanel
                   {...delegatedPanelBinding}
-                  composerDraftCommand={composerDraftCommand}
+                  composerDraftCommand={composerDraft.command}
                   {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                   {...(steerActiveRun ? { onSteerActiveRun: steerActiveRun } : {})}
                   completePreparedRequest={completeRequestAndSettleLiveUsage}
@@ -1413,8 +1374,9 @@ export function AssistantUiPanelWrapper({
                   openRouterModelMetadataLookup={openRouterMetadata.lookup}
                   {...(selectedMemoryThreadId
                     ? {
-                        onComposerDraftCommandApplied: handleComposerCommandApplied,
-                        onComposerTextChange: handleComposerTextChange,
+                        onComposerDraftCommandApplied: composerDraft.onApplied,
+                        onComposerTextChange: composerDraft.onTextChange,
+                        onStopReread: composerDraft.onStopReread,
                       }
                     : {})}
                   onChildRunUsage={handleChildRunUsage}
@@ -1463,8 +1425,8 @@ export function AssistantUiPanelWrapper({
                   {...(selectedProvider ? { selectedProvider } : {})}
                   {...(currentModel ? { selectedModel: currentModel } : {})}
                   disabled={!isProviderReady || Boolean(disabledReason)}
+                  onEnableModel={handleEnableModel}
                   onModelChange={handleModelChange}
-                  onModelToggle={handleModelToggle}
                   {...(panelNotice ? { disabledReason: panelNotice } : {})}
                   {...(planModeAvailable
                     ? {

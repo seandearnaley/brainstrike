@@ -41,7 +41,7 @@ export async function readDelegatedResetState(
       };
       const state: Record<string, unknown[]> = {};
       for (const [table, column, key] of tables) {
-        const result = await query(
+        const result = await query<{ row: unknown }>(
           `SELECT to_jsonb(probe) AS row FROM ${table} probe WHERE ${column} = ANY($1::text[]) ORDER BY to_jsonb(probe)::text`,
           [keys[key]]
         );

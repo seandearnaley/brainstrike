@@ -99,6 +99,35 @@ describe('BrainstrikeDataStreamRuntimeAdapter — transport error path', () => {
     expect((calledWithError as Error).message).toMatch(/Status 500/);
   });
 
+  it('preserves the actionable background-generation refusal for the message error UI', async () => {
+    const recovery =
+      'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 'background-generation-unmapped',
+            error: 'decision_refused',
+            message: recovery,
+            stage: 'stream_construction',
+          }),
+          { status: 409 }
+        )
+      )
+    );
+    const onError = vi.fn();
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://localhost/api/assistant',
+      onError,
+    });
+
+    await expect(consumeRun(adapter)).rejects.toThrow(recovery);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining(recovery) })
+    );
+  });
+
   it('throws when fetch itself rejects (network-level failure)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     const onError = vi.fn();

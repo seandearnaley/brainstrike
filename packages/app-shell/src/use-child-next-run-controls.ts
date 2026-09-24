@@ -26,6 +26,7 @@ import {
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
+import { useEnableModel } from './hooks/use-enable-model';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 
 interface Inputs {
@@ -88,6 +89,7 @@ export function useChildNextRunControls({
   persona,
   isRunning,
 }: Inputs) {
+  const onEnableModel = useEnableModel();
   const [modelOverride, setModelOverride] = useState<string>();
   const [settingsOverrides, setSettingsOverrides] = useState<AssistantProviderSettingsMap>({});
   const [disabledTools, setDisabledTools] = useState<readonly string[]>([]);
@@ -191,6 +193,7 @@ export function useChildNextRunControls({
     ]
   );
   const panelProps: Partial<AssistantConversationPanelProps> = {
+    onEnableModel,
     onModelChange,
     onProviderSettingsChange,
     openRouterModelMetadataLookup: metadata.lookup,

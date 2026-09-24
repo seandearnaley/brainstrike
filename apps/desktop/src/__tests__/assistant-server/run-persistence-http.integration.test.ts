@@ -220,8 +220,8 @@ describe('run persistence through the HTTP path', () => {
     });
 
     expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
-      expect.arrayContaining(['run-output-limit', 'failed', terminalError])
+      expect.stringContaining("SET status = 'failed', error = $2"),
+      ['run-output-limit', terminalError]
     );
   });
 
@@ -805,8 +805,8 @@ describe('run persistence through the HTTP path', () => {
       })
     );
     expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
-      expect.arrayContaining(['run-source-error', 'failed', 'agent stream failed'])
+      expect.stringContaining("SET status = 'failed', error = $2"),
+      ['run-source-error', 'agent stream failed']
     );
   });
 
@@ -843,8 +843,8 @@ describe('run persistence through the HTTP path', () => {
 
     expect(response.status).toBe(500);
     expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
-      expect.arrayContaining(['run-failed', 'failed', 'stream pipeline failed'])
+      expect.stringContaining("SET status = 'failed', error = $2"),
+      ['run-failed', 'stream pipeline failed']
     );
   });
 
