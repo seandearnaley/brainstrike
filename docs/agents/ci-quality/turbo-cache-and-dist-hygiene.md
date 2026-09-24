@@ -119,3 +119,17 @@ before every snapshot-producing build launders dist before archiving. The
 wiring contract, pruner behavior, entrypoint controls, and the `turbo.jsonc`
 `global.inputs` hash entry for the pruner (editing it must invalidate
 cached builds) are guarded by `scripts/__tests__/prune-stale-dist.test.mjs`.
+
+## No `--force` rebuilds inside type-check (2026-09-24, BST-1818)
+
+Supports `ci-quality.md` § "Stale-dist pruning before non-cleaning tsc builds".
+`apps/web`'s `type-check` began with `tsc --build --force`, which re-emits
+every referenced project's `dist/*.d.ts` while desktop's and app-shell's
+type-checks read those declarations through `dist` path mappings in the same
+turbo run. Three Static runs failed with TS2305/TS2306 in packages their PRs
+never touched: desktop against assistant-wire/agent (run 36051350910) and
+app-state (36058820844), app-shell against assistant-contract (36056096383).
+Every project web references keeps its `tsBuildInfoFile` at
+`./dist/.tsbuildinfo`, so prune and turbo restore move it with the outputs and
+a plain `tsc --build` cannot trust a buildinfo whose `dist` is gone. After a
+turbo build it rewrote nothing (1.4 s).
