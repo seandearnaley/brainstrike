@@ -206,6 +206,42 @@ async function fetchDiscoveredRun(args: {
   }
 }
 
+async function reconcileHeaderlessAdmission(args: {
+  readonly authHeaders?: (() => Promise<Record<string, string>>) | undefined;
+  readonly baseUrl: string;
+  readonly pending: {
+    readonly request: {
+      readonly data: Record<string, unknown> | undefined;
+      cancelRequested?: boolean;
+      hostOwnsRun?: boolean;
+    };
+  } | null;
+  readonly currentRequest: object | null;
+  readonly run: AssistantDiscoveredRun | null;
+  readonly signal: AbortSignal;
+}): Promise<AssistantDiscoveredRun | null> {
+  const { pending, run } = args;
+  if (!(pending && pending.request === args.currentRequest && run)) {
+    return run;
+  }
+  if (run.runId !== readPreparedRunId(pending.request.data)) {
+    throw new Error('Assistant run discovery returned a different run after transport loss.');
+  }
+  pending.request.hostOwnsRun = true;
+  if (!pending.request.cancelRequested) {
+    return run;
+  }
+  if (run.state === 'active') {
+    await requestAssistantRunCancel({
+      authHeaders: args.authHeaders,
+      baseUrl: args.baseUrl,
+      runId: run.runId,
+    });
+  }
+  args.signal.throwIfAborted();
+  return null;
+}
+
 async function reconcileClosedDiscoveredRun(
   run: AssistantDiscoveredRun | null,
   context: DiscoveryReconciliation
@@ -331,16 +367,20 @@ export function useAssistantServerRunSession({
   }));
   const activeRunSession =
     activeSessionState.scope === sessionScope ? activeSessionState.record : initialActiveRunSession;
-  const replayEligible =
-    activeSessionState.scope === sessionScope
-      ? activeSessionState.replayEligible
-      : initialActiveRunSession !== undefined;
   const activeRunSessionRef = useRef<AssistantActiveRunSession | undefined>(activeRunSession);
   const preparedRequestRef = useRef<{
     readonly data: Record<string, unknown> | undefined;
     cancelRequested?: boolean;
     hostOwnsRun?: boolean;
   } | null>(null);
+  const pendingNoHeaderFailureRef = useRef<{
+    readonly error: Error;
+    readonly request: NonNullable<typeof preparedRequestRef.current>;
+  } | null>(null);
+  const replayEligible =
+    activeSessionState.scope === sessionScope
+      ? activeSessionState.replayEligible
+      : initialActiveRunSession !== undefined;
   const completePreparedRequestRef = useRef(completePreparedRequest);
   const replayRetryCountRef = useRef(0);
   const [replayRetryToken, setReplayRetryToken] = useState(0);
@@ -402,6 +442,14 @@ export function useAssistantServerRunSession({
         threadKey,
       });
       controller.signal.throwIfAborted();
+      run = await reconcileHeaderlessAdmission({
+        authHeaders,
+        baseUrl: desktopAssistantBaseUrl,
+        currentRequest: preparedRequestRef.current,
+        pending: pendingNoHeaderFailureRef.current,
+        run,
+        signal: controller.signal,
+      });
       run = await reconcileClosedDiscoveredRun(run, reconciliation);
       const reconciled = run
         ? await adoptDiscoveredRun(run, reconciliation)
@@ -484,6 +532,27 @@ export function useAssistantServerRunSession({
     },
     []
   );
+
+  useEffect(() => {
+    const pending = pendingNoHeaderFailureRef.current;
+    if (!(pending && discovery.key === discoveryAttemptKey && discovery.status === 'ready')) {
+      return;
+    }
+    if (preparedRequestRef.current === pending.request) {
+      pendingNoHeaderFailureRef.current = null;
+      if (pending.request.cancelRequested) {
+        preparedRequestRef.current = null;
+        void completePreparedRequestRef.current?.(
+          pending.request.data,
+          'cancelled',
+          undefined,
+          pending.request.hostOwnsRun === true
+        );
+        return;
+      }
+      void completeLatestPreparedRequest('failed', pending.error.message);
+    }
+  }, [completeLatestPreparedRequest, discovery.key, discovery.status, discoveryAttemptKey]);
 
   const reconcilePendingCancellation = useCallback(async (): Promise<void> => {
     const pendingCancellation = preparedRequestRef.current;
@@ -623,10 +692,16 @@ export function useAssistantServerRunSession({
       const record = activeRunSessionRef.current;
       if (record) {
         setActiveSessionState({ record, replayEligible: true, scope: sessionScope });
+      } else if (preparedRequestRef.current && discoveryKey) {
+        // The host may have admitted the POST before the renderer lost its
+        // response headers. Discover that exact thread before releasing a send.
+        pendingNoHeaderFailureRef.current = { error, request: preparedRequestRef.current };
+        setRecoveryRetryToken((current) => current + 1);
+        return;
       }
       void completeLatestPreparedRequest('failed', error.message);
     },
-    [completeLatestPreparedRequest, sessionScope]
+    [completeLatestPreparedRequest, discoveryKey, sessionScope]
   );
 
   const onFinish = useCallback((): void => {

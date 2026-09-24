@@ -346,6 +346,211 @@ describe('assistant run session asynchronous reconciliation', () => {
     expect(result.current.recoveryError).toBeUndefined();
   });
 
+  it('rediscovers an admitted run when the POST fails before response headers arrive', async () => {
+    window.sessionStorage.clear();
+    const afterPostFailure = deferredResponse();
+    let discoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        expect(new URL(String(input)).pathname).toBe('/assistant/active-run');
+        discoveries += 1;
+        return discoveries === 1
+          ? Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
+          : afterPostFailure.promise;
+      })
+    );
+    const completePreparedRequest = vi.fn();
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        completePreparedRequest,
+        prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      })
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    act(() => result.current.onError(new TypeError('Network connection lost')));
+
+    expect(result.current.isRecovering).toBe(true);
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+    await waitFor(() => expect(discoveries).toBe(2));
+    await act(async () =>
+      afterPostFailure.resolve(
+        new Response(JSON.stringify({ activeRun: ACTIVE_NEW_RUN }), { status: 200 })
+      )
+    );
+    await waitFor(() => expect(result.current.activeRunSession?.runId).toBe(NEW_RUN_ID));
+    expect(result.current.replayEligible).toBe(true);
+    await waitFor(() =>
+      expect(completePreparedRequest).toHaveBeenCalledWith(
+        { memory: { runId: NEW_RUN_ID } },
+        'failed',
+        'Network connection lost',
+        true
+      )
+    );
+  });
+
+  it('fails a pre-admission run only after discovery proves no host session exists', async () => {
+    window.sessionStorage.clear();
+    const afterPostFailure = deferredResponse();
+    let discoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        expect(new URL(String(input)).pathname).toBe('/assistant/active-run');
+        discoveries += 1;
+        return discoveries === 1
+          ? Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
+          : afterPostFailure.promise;
+      })
+    );
+    const completePreparedRequest = vi.fn();
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        completePreparedRequest,
+        prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      })
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    act(() => result.current.onError(new TypeError('POST failed')));
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+    await act(async () =>
+      afterPostFailure.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
+    );
+
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(result.current.activeRunSession).toBeUndefined();
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      { memory: { runId: NEW_RUN_ID } },
+      'failed',
+      'POST failed',
+      false
+    );
+  });
+
+  it('settles Stop after a headerless failure when discovery proves the host never admitted it', async () => {
+    window.sessionStorage.clear();
+    const afterPostFailure = deferredResponse();
+    let discoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/assistant/cancel') {
+          return Promise.resolve(new Response(null, { status: 404 }));
+        }
+        expect(pathname).toBe('/assistant/active-run');
+        discoveries += 1;
+        return discoveries === 1
+          ? Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
+          : afterPostFailure.promise;
+      })
+    );
+    const completePreparedRequest = vi.fn();
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        completePreparedRequest,
+        prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      })
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    act(() => {
+      result.current.onCancel({ messages: [] });
+      result.current.onError(new TypeError('POST failed'));
+    });
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+    await act(async () =>
+      afterPostFailure.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
+    );
+
+    await waitFor(() =>
+      expect(completePreparedRequest).toHaveBeenCalledWith(
+        { memory: { runId: NEW_RUN_ID } },
+        'cancelled',
+        undefined,
+        false
+      )
+    );
+    await expect(result.current.prepareRequest()).resolves.toEqual({
+      memory: { runId: NEW_RUN_ID },
+    });
+  });
+
+  it('retries Stop when a headerless POST is discovered after the first cancel missed admission', async () => {
+    window.sessionStorage.clear();
+    const afterPostFailure = deferredResponse();
+    let discoveries = 0;
+    let cancels = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/assistant/cancel') {
+          cancels += 1;
+          return Promise.resolve(new Response(null, { status: cancels === 1 ? 404 : 200 }));
+        }
+        expect(pathname).toBe('/assistant/active-run');
+        discoveries += 1;
+        return discoveries === 1
+          ? Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
+          : afterPostFailure.promise;
+      })
+    );
+    const completePreparedRequest = vi.fn();
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        completePreparedRequest,
+        prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      })
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    act(() => {
+      result.current.onCancel({ messages: [] });
+      result.current.onError(new TypeError('POST failed'));
+    });
+    await act(async () =>
+      afterPostFailure.resolve(
+        new Response(JSON.stringify({ activeRun: ACTIVE_NEW_RUN }), { status: 200 })
+      )
+    );
+
+    await waitFor(() => expect(cancels).toBe(2));
+    await waitFor(() =>
+      expect(completePreparedRequest).toHaveBeenCalledWith(
+        { memory: { runId: NEW_RUN_ID } },
+        'cancelled',
+        undefined,
+        true
+      )
+    );
+    expect(result.current.activeRunSession).toBeUndefined();
+    expect(result.current.replayEligible).toBe(false);
+  });
+
   it('replaces a terminal stored hint with the host active run in the same thread', async () => {
     vi.stubGlobal(
       'fetch',

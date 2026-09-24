@@ -152,6 +152,12 @@ describe('action replay prefix', () => {
         toolCallId: 'call-1',
       })
     ).rejects.toThrow('disagrees');
+    await db.query(
+      `INSERT INTO brainstrike_assistant_message_parents
+       (thread_id, resource_id, message_id, parent_id)
+       VALUES ($1, 'workspace-a', 'assistant-a', 'user-a')`,
+      [thread.id]
+    );
 
     await insertMessage(
       db,
@@ -181,8 +187,24 @@ describe('action replay prefix', () => {
       [toolPart('call-1')],
       '2026-08-10T17:00:04Z'
     );
+    expect(
+      (
+        await readPausedActionReplayPrefix({
+          ...common,
+          pausedMessageId: 'assistant-a',
+          toolCallId: 'call-1',
+        })
+      ).pausedMessageId
+    ).toBe('assistant-a');
     await expect(readPausedActionReplayPrefix({ ...common, toolCallId: 'call-1' })).rejects.toThrow(
       'no unique durable assistant owner'
     );
+    await expect(
+      readPausedActionReplayPrefix({
+        ...common,
+        pausedMessageId: 'suspended-approval:run-1:call-1',
+        toolCallId: 'call-1',
+      })
+    ).rejects.toThrow('no unique durable assistant owner');
   });
 });

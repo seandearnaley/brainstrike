@@ -24,6 +24,7 @@ import {
   BrainstrikeDataStreamRuntimeAdapter,
   boundResentImageHistory,
   extractTransportBodyData,
+  resolveDurableInputParentMessageId,
   selectTransportMessagesForMastraMemory,
 } from '../data-stream-runtime';
 
@@ -643,6 +644,55 @@ describe('approval action echo exclusion (transport seam)', () => {
     });
 
     expect(JSON.stringify(requestBody['messages'])).toContain('custom-user');
+  });
+
+  it('anchors a user after multiple synthetic pauses on the exact exported durable ancestor', async () => {
+    const graph = [
+      { message: { id: 'durable-assistant' }, parentId: 'real-user' },
+      { message: { id: 'suspended-approval:run-a:call-a' }, parentId: 'durable-assistant' },
+      {
+        message: { id: 'suspended-pause:run-b:call-b' },
+        parentId: 'suspended-approval:run-a:call-a',
+      },
+      {
+        message: { id: 'suspended-run-discovery-error:thread-1' },
+        parentId: 'suspended-pause:run-b:call-b',
+      },
+    ];
+    let requestBody: Record<string, unknown> | undefined;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        dataStreamFromLines([
+          'f:{"messageId":"msg-echo"}',
+          '0:"Done"',
+          'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+        ])
+      );
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      resolveInputParentMessageId: (parentId) =>
+        resolveDurableInputParentMessageId(parentId, graph),
+    });
+    for await (const _message of adapter.run(
+      runOptions({
+        messages: [
+          message('real-user', 'user'),
+          message('durable-assistant', 'assistant'),
+          message('suspended-approval:run-a:call-a', 'assistant'),
+          message('suspended-pause:run-b:call-b', 'assistant'),
+          message('suspended-run-discovery-error:thread-1', 'assistant'),
+          message('next-user', 'user'),
+        ],
+      })
+    )) {
+      // Consume the request.
+    }
+    expect(requestBody?.['inputParentMessageId']).toBe('durable-assistant');
+    expect(() => resolveDurableInputParentMessageId('suspended-pause:missing', graph)).toThrow(
+      'no exported parent edge'
+    );
   });
 
   it('keeps a record-but-INVALID suspend marker on the wire (it renders as a bubble, not a chip)', async () => {

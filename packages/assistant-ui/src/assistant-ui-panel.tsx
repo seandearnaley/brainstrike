@@ -76,6 +76,12 @@ export type { ComposerAttachmentsAvailability } from './composer-input';
 // source module, not the public import path.
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
 
+import {
+  isAssistantRecoveryBlocked,
+  replayRuntimeOptions,
+  requestResourceId,
+} from './assistant-run-recovery-options';
+import { AssistantRunRecoveryStatus } from './assistant-run-recovery-presentation';
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
@@ -605,31 +611,6 @@ const LocalRuntimeChat = ({
  * Inner component for data stream runtime (server-side hosted providers).
  * Uses useDataStreamRuntime for API-based inference.
  */
-function requestResourceId(requestData: Record<string, unknown> | undefined): string | undefined {
-  const memory = requestData?.['memory'];
-  if (!(memory && typeof memory === 'object' && !Array.isArray(memory))) {
-    return;
-  }
-  const resourceId = (memory as Record<string, unknown>)['resourceId'];
-  return typeof resourceId === 'string' ? resourceId : undefined;
-}
-
-function isAssistantRecoveryBlocked(session: {
-  readonly isRecovering: boolean;
-  readonly recoveryError: Error | undefined;
-}): boolean {
-  return session.isRecovering || Boolean(session.recoveryError);
-}
-
-function replayRuntimeOptions(session: ReturnType<typeof useAssistantServerRunSession>) {
-  return {
-    ...(session.activeRunSession && session.replayEligible && !isAssistantRecoveryBlocked(session)
-      ? { activeRunSession: session.activeRunSession }
-      : {}),
-    ...(session.discoveredRun ? { discoveredRun: session.discoveredRun } : {}),
-  };
-}
-
 const DataStreamRuntimeChat = ({
   onRuntimeReady,
   composerDraftCommand,
@@ -775,32 +756,7 @@ const DataStreamRuntimeChat = ({
     <AssistantRuntimeProvider runtime={runtime}>
       <PlanModeExitProvider onExit={planMode?.onExit}>
         <AssistantPanelErrorBoundary>
-          {serverRunSession.isRecovering ? (
-            <div
-              aria-live="polite"
-              className="px-4 py-2 text-muted-foreground text-sm"
-              role="status"
-            >
-              Reconnecting to the assistant run…
-            </div>
-          ) : null}
-          {serverRunSession.recoveryError ? (
-            <div
-              className="mx-4 my-2 rounded-md border border-destructive/50 p-3 text-sm"
-              role="alert"
-            >
-              <span>
-                Could not reconnect to the assistant run: {serverRunSession.recoveryError.message}
-              </span>
-              <button
-                className="ml-3 underline"
-                onClick={serverRunSession.retryRecovery}
-                type="button"
-              >
-                Retry
-              </button>
-            </div>
-          ) : null}
+          <AssistantRunRecoveryStatus session={serverRunSession} />
           <ChatThreadUI
             composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}

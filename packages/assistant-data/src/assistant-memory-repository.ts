@@ -2774,15 +2774,6 @@ export async function readPausedActionReplayPrefix(input: {
         (part) => part.type === 'tool-call' && part.toolCallId === toolCallId
       )
   );
-  if (candidates.length !== 1) {
-    throw new Error(
-      `Approval action tool call ${toolCallId} has no unique durable assistant owner.`
-    );
-  }
-  const candidate = candidates[0];
-  if (candidate?.message.role !== 'assistant') {
-    throw new Error('Approval action paused assistant owner disappeared.');
-  }
   const syntheticIdentity = delegation
     ? getToolActionIdentityKey({ delegation, runId: nativeRunId, toolCallId })
     : `${nativeRunId}:${toolCallId}`;
@@ -2790,12 +2781,26 @@ export async function readPausedActionReplayPrefix(input: {
   const syntheticPauseId = `suspended-pause:${syntheticIdentity}`;
   const syntheticPauseMessageId =
     input.pauseKind === 'approval' ? syntheticApprovalId : syntheticPauseId;
-  if (
-    pausedMessageId &&
-    pausedMessageId !== candidate.message.id &&
-    pausedMessageId !== syntheticPauseMessageId
-  ) {
-    throw new Error('Approval action paused assistant ID disagrees with persisted tool ownership.');
+  // A durable paused ID is an exact owner selector even when another native run
+  // reused the same tool call ID. A synthetic notice identifies the action, not
+  // the durable owner, and therefore still requires unique tool ownership.
+  const hasDurablePausedId = pausedMessageId && pausedMessageId !== syntheticPauseMessageId;
+  const matchingCandidates = hasDurablePausedId
+    ? candidates.filter((item) => item.message.id === pausedMessageId)
+    : candidates;
+  if (matchingCandidates.length !== 1) {
+    if (hasDurablePausedId && matchingCandidates.length === 0) {
+      throw new Error(
+        'Approval action paused assistant ID disagrees with persisted tool ownership.'
+      );
+    }
+    throw new Error(
+      `Approval action tool call ${toolCallId} has no unique durable assistant owner.`
+    );
+  }
+  const candidate = matchingCandidates[0];
+  if (candidate?.message.role !== 'assistant') {
+    throw new Error('Approval action paused assistant owner disappeared.');
   }
   const prefixContent = candidate.message.content.filter(
     (part) =>

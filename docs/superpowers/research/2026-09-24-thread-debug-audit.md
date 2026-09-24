@@ -141,3 +141,34 @@ Post-review validation passed: 168 focused tests, all 53 topological build/type-
 tasks, full-tree ESLint at the unchanged baseline, Biome, and all 8 contract-budget
 checks. Both real-host reload regressions and the delegated approval-after-reload
 Electron smoke test passed. Remote checks and exact-head re-review are pending.
+
+
+## Targeted re-review findings
+
+The targeted review found three additional lifecycle gaps: a lost response before
+headers did not trigger discovery and could incorrectly terminalize a host-owned
+run; repeated tool-call IDs rejected an otherwise exact durable paused owner; and
+an ordinary message following a synthetic pause notice sent a transient parent
+that disagreed with durable history. These remain within the incident's recovery
+and ancestry scope. The images-only attachment contract makes the suggested PDF
+recovery case unreachable through validated composer/request transport.
+
+The second CI run exposed a stale assistant-data export assertion for the replay
+helper subpath. The package's full 236-test unit suite passes with that assertion
+updated. The re-review budget is exhausted; a further external review requires
+a scope checkpoint under the current CI contract.
+
+The recovery fix defers local completion until discovery establishes whether the
+host admitted the request. Stop-before-admission covers both no-run settlement
+and retrying cancellation of a subsequently discovered run before replay. The
+input producer resolves transient notice parents through the exact exported
+thread graph; missing edges and cycles fail visibly. Durable paused IDs select
+the exact persisted owner when tool-call IDs repeat; synthetic or absent IDs
+still reject ambiguous ownership.
+
+Final second-batch validation: 2,307 unit tests across assistant-ui/data/service/wire,
+the focused data integration regression, 52 topological build/type-check tasks,
+full-tree ESLint at its unchanged baseline, Biome, and eight contract-budget tests
+pass. The full UI suite exposed the panel size guard; extraction into separate
+component/helper modules restored its existing limit and Fast Refresh boundary.
+Both real-host reload tests and delegated approval-after-reload smoke pass.
