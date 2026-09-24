@@ -13,7 +13,7 @@
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { Schema, SchemaTransformation } from 'effect';
 
-export const MCP_TASK_STATUSES = [
+const MCP_TASK_STATUSES = [
   'cancelled',
   'completed',
   'failed',
@@ -69,7 +69,7 @@ function isJsonObject(value: unknown): value is JsonObject {
 }
 
 /** Non-empty text of at most `maxBytes` UTF-8 bytes. */
-export function mcpTaskText(field: string, maxBytes: number) {
+function mcpTaskText(field: string, maxBytes: number) {
   const message = `MCP task ${field} must contain 1-${maxBytes} UTF-8 bytes.`;
   return Schema.String.annotate({ message }).check(
     Schema.makeFilter((value: string) => value.length > 0 && utf8ByteLength(value) <= maxBytes, {
@@ -210,11 +210,6 @@ const mcpTaskAuthorityRow = Schema.Struct({
   runtime_id: mcpTaskText('runtimeId', 512),
   server_id: mcpTaskText('serverId', 512),
 }).annotate({ message: 'MCP task authority row must be an object.' });
-
-/** A decoded `brainstrike_mcp_tasks` row: column names, domain types. */
-export type McpTaskRowFields = typeof mcpTaskRow.Type;
-/** A decoded `brainstrike_mcp_task_authorities` row. */
-export type McpTaskAuthorityRowFields = typeof mcpTaskAuthorityRow.Type;
 
 export const decodeMcpTaskRow = makeThrowingDecoder(mcpTaskRow);
 export const decodeMcpTaskAuthorityRow = makeThrowingDecoder(mcpTaskAuthorityRow);
