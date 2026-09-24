@@ -277,7 +277,7 @@ store persists each thread's own model and provider settings.
   provider-wide effort rather than mapping it to a nearest level.
 - Effort/level selection and the primary Thinking toggle live in the
   always-visible `ComposerEffortControl` chip whose trigger doubles as the
-  readout; the Controls menu's "Output & Limits" keeps runtime limits, max
+  readout; the Controls panel's "Output & Limits" keeps runtime limits, max
   output, the shared reasoning-output summary, the Anthropic numeric budget and
   the Google include-thoughts toggle. Moved controls emit byte-identical
   settings updates.

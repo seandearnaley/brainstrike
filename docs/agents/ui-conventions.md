@@ -412,17 +412,17 @@ When changing this scale, update this section and `layers.test.ts` together.
 
 ## FLOATING LAYER ANCHORING
 
-Stacking decides what a popup paints *over*; this is what it is *measured
-against*. Radix positions Select/Popover/DropdownMenu/ContextMenu with Floating
-UI, which measures the trigger via `getBoundingClientRect()` and publishes
-`--radix-popper-anchor-width`/`-height` (Select re-namespaces these to
-`--radix-select-trigger-*`).
+Radix measures popup anchors through `getBoundingClientRect()`, including active
+transforms; its optimized positioning retains that opening measurement. The
+measurement history lives in `ui-conventions/popup-anchor-transform.md`.
 
-**A transform on a trigger corrupts every popup it opens.**
-`getBoundingClientRect()` includes transforms, `ResizeObserver` does not fire for
-them, and Radix's default `updatePositionStrategy` is `optimized` — so the popup
-keeps whatever the trigger measured at the instant it opened. That instant is
-POINTERDOWN, while the trigger is still `:active`.
+- Composer Controls is a viewport-bounded Popover with normal form navigation,
+  expandable tool groups and search; long tool descriptions are on-demand help.
+- Output & Limits keeps draft commit/refusal behavior when closing or collapsing;
+  fields and computed values must fit at narrow widths without horizontal scroll.
+  Evidence: `ui-conventions/assistant-controls.md`.
+  Guard: `assistant-controls-menu-drafts.browser.test.tsx`,
+  `assistant-controls-rendered.browser.test.tsx`.
 
 - Keep the `:not([data-state="open"])` clause on the `.kinetic-depress:active`
   rule in `packages/ui/src/globals.css`, which suppresses the press effect while

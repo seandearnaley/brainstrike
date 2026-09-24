@@ -18,6 +18,28 @@ afterEach(() => {
 });
 
 describe('ProviderSettingsPanel number fields', () => {
+  it('explains each limit and associates guidance with its numeric control', () => {
+    render(
+      <ProviderSettingsPanel
+        providerId="openai"
+        settings={{ agentInputTokenLimit: 32_000, agentMaxSteps: 8 }}
+      />
+    );
+
+    expect(screen.getByRole('spinbutton', { name: 'Max agent steps' })).toHaveAccessibleDescription(
+      /model steps.*default.*100/i
+    );
+    expect(
+      screen.getByRole('spinbutton', { name: 'Input token limit' })
+    ).toHaveAccessibleDescription(/input tokens.*step/i);
+    expect(screen.getByRole('spinbutton', { name: 'Memory messages' })).toHaveAccessibleDescription(
+      /recent messages.*0.*off/i
+    );
+    expect(
+      screen.getByRole('spinbutton', { name: 'Output token limit' })
+    ).toHaveAccessibleDescription(/output tokens.*step.*auto/i);
+  });
+
   it('stores a typed step limit once, on blur — clearing it to retype never switches it off', async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();

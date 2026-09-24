@@ -1592,7 +1592,7 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     expect(screen.getByText('Agent context')).toBeInTheDocument();
-    expect(screen.getByText('Output tokens / step')).toBeInTheDocument();
+    expect(screen.getByText('Output tokens per step')).toBeInTheDocument();
     expect(screen.queryByText('Gemma thinking')).not.toBeInTheDocument();
     expect(screen.queryByText('Enable thinking')).not.toBeInTheDocument();
   });
@@ -1753,6 +1753,25 @@ describe('AssistantUiPanel model picker', () => {
 
     expect(screen.getByText(/Auto requests 32,000.*964,147 effective input/)).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveValue('32000');
+    expect(
+      screen.getByRole('spinbutton', { name: 'Output token limit' })
+    ).toHaveAccessibleDescription(/Auto requests 32,000 tokens for this model/);
+  });
+
+  it('describes the actual OpenRouter Auto reservation while a custom output cap is selected', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="moonshotai/kimi-k3"
+        onSettingsChange={vi.fn()}
+        providerId="openrouter"
+        settings={{ maxOutputTokens: 1024, reasoningEffort: 'none' }}
+      />
+    );
+
+    expect(
+      screen.getByRole('spinbutton', { name: 'Output token limit' })
+    ).toHaveAccessibleDescription(/Auto requests 32,000 tokens for this model/);
+    expect(screen.getByText(/1,024 configured output/)).toBeInTheDocument();
   });
 
   it('shows and applies live OpenRouter model limits with provenance', () => {
