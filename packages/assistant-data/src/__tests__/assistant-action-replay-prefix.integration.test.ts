@@ -103,6 +103,41 @@ describe('action replay prefix', () => {
     expect(first.pausedMessageId).toBe('assistant-a');
     expect(first.pausedParentMessageId).toBe('user-a');
     expect(first.syntheticPauseMessageId).toBe('suspended-approval:run-1:call-1');
+    const delegated = await readPausedActionReplayPrefix({
+      delegation: {
+        path: [
+          {
+            childRuntimeRunId: 'child-run',
+            parentRuntimeRunId: 'parent-run',
+            parentToolCallId: 'call-2',
+            personaId: 'explore',
+          },
+        ],
+        toolCallId: 'leaf-call',
+      },
+      nativeRunId: 'parent-run',
+      pausedMessageId: 'suspended-approval:["child-run","leaf-call"]',
+      pauseKind: 'approval',
+      repository,
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+      toolCallId: 'call-2',
+    });
+    expect(delegated.pausedMessageId).toBe('assistant-a');
+    expect(delegated.syntheticPauseMessageId).toBe('suspended-approval:["child-run","leaf-call"]');
+    await db.query(
+      `DELETE FROM brainstrike_assistant_message_parents WHERE thread_id = $1 AND message_id = 'assistant-a'`,
+      [thread.id]
+    );
+    expect(
+      (
+        await readPausedActionReplayPrefix({
+          ...common,
+          pausedMessageId: 'assistant-a',
+          toolCallId: 'call-1',
+        })
+      ).pausedParentMessageId
+    ).toBe('user-a');
     await expect(
       readPausedActionReplayPrefix({
         ...common,

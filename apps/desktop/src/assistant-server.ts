@@ -4,6 +4,7 @@ import {
   type AwsCredentialIdentityProvider,
   assistantDataStreamSessions,
   createAwsCredentialChain,
+  type ParsedAssistantRequestEnvelope,
   type RuntimeData,
   resolveAwsCredentialChain,
 } from '@brainstrike/agent';
@@ -654,36 +655,34 @@ function discoveredInputMessage(message: AgentMessage): AssistantActiveRunInputM
   };
 }
 
-function discoveryForRequest(input: {
+export function discoveryForRequest(input: {
   readonly runId: string | undefined;
   readonly threadId: string | undefined;
   readonly resourceId: string | undefined;
   readonly finalInputMessage: AgentMessage | undefined;
   readonly inputParentMessageId: string | null | undefined;
-  readonly isActionLeg: boolean;
+  readonly isToolDecisionLeg: boolean;
 }): NonNullable<Parameters<typeof runAssistantTurn>[0]['discovery']> | undefined {
-  const { runId, threadId, resourceId, finalInputMessage, inputParentMessageId, isActionLeg } =
-    input;
-  const hasUserInput = !isActionLeg && finalInputMessage?.role === 'user';
+  const {
+    runId,
+    threadId,
+    resourceId,
+    finalInputMessage,
+    inputParentMessageId,
+    isToolDecisionLeg,
+  } = input;
+  const hasUserInput = !isToolDecisionLeg && finalInputMessage?.role === 'user';
   if (!(runId && threadId && resourceId) || (hasUserInput && inputParentMessageId === undefined)) {
     return;
   }
   return {
     resourceId,
     threadId,
-    ...(isActionLeg || !finalInputMessage ? {} : { parentMessageId: finalInputMessage.id }),
+    ...(isToolDecisionLeg || !finalInputMessage ? {} : { parentMessageId: finalInputMessage.id }),
     inputMessage:
       hasUserInput && finalInputMessage ? discoveredInputMessage(finalInputMessage) : null,
     inputParentMessageId: hasUserInput ? (inputParentMessageId ?? null) : null,
   };
-}
-
-function registerInitializingDiscovery(
-  discovery: ReturnType<typeof discoveryForRequest>
-): () => void {
-  return discovery
-    ? registerInitializingAssistantRun(discovery.resourceId, discovery.threadId)
-    : () => {};
 }
 
 async function handleAssistantPost(
@@ -691,10 +690,48 @@ async function handleAssistantPost(
   res: http.ServerResponse,
   options: AssistantServerOptions
 ): Promise<void> {
+  let releaseInitializing = (): void => {};
+  const registerParsedRequest = (
+    payload: ParsedAssistantRequestEnvelope
+  ): ParsedAssistantRequestEnvelope => {
+    const memory = payload.data?.memory;
+    if (
+      typeof memory?.resourceId === 'string' &&
+      memory.resourceId.trim() &&
+      memory.resourceId.length <= 512 &&
+      typeof memory.threadId === 'string' &&
+      memory.threadId.trim() &&
+      memory.threadId.length <= 512 &&
+      typeof memory.runId === 'string' &&
+      memory.runId.trim()
+    ) {
+      releaseInitializing = registerInitializingAssistantRun(memory.resourceId, memory.threadId);
+    }
+    return payload;
+  };
+  try {
+    await handleAssistantPostOwned(req, res, options, registerParsedRequest, () =>
+      releaseInitializing()
+    );
+  } finally {
+    releaseInitializing();
+  }
+}
+
+async function handleAssistantPostOwned(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  options: AssistantServerOptions,
+  registerParsedRequest: (
+    payload: ParsedAssistantRequestEnvelope
+  ) => ParsedAssistantRequestEnvelope,
+  releaseInitializing: () => void
+): Promise<void> {
   const prepared = await prepareAssistantPostRequest({
     // BST-1353: desktop main is the ONLY host that can resolve local AWS
     // profiles, so it is the only one that supplies the chain builder.
     awsCredentialChain: createAwsCredentialChain,
+    filterPayload: registerParsedRequest,
     logger,
     readBody: () => readRequestBody(req, { maxBodyBytes: assistantRequestBodyLimitBytes }),
     resolveProviderCredential,
@@ -733,12 +770,11 @@ async function handleAssistantPost(
   const discovery = discoveryForRequest({
     finalInputMessage,
     inputParentMessageId,
-    isActionLeg: Boolean(toolApprovalAction || toolResumeAction || childFollowupAction),
+    isToolDecisionLeg: Boolean(toolApprovalAction || toolResumeAction),
     resourceId: runtimeData.memory?.resourceId,
     runId,
     threadId,
   });
-  const releaseInitializing = registerInitializingDiscovery(discovery);
 
   // W7 T2 (BST-1164): shadow-git turn boundaries on the run-persistence seam.
   // Only a persisted run (runId + threadId) with the snapshot deps wired

@@ -12,11 +12,20 @@ import {
   AssistantAttachmentValidationError,
   type AssistantDiscoveredRun,
   dataUrlByteLength,
+  isMatchingToolAction,
   type RuntimeTransportImageElision,
 } from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract/run-events';
 import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
+import {
+  readToolApprovalRunConfigAction,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-approval';
+import {
+  readToolResumeRunConfigAction,
+  TOOL_SUSPEND_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { createAssistantRequestEnvelope } from '@brainstrike/assistant-wire';
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
@@ -913,17 +922,28 @@ function resolveOutboundTransportMessages(
   return excludeApprovalActionMessages(messages);
 }
 
-function requirePausedMessageId(messages: readonly ThreadMessage[]): string {
-  const actionEcho = messages.at(-1);
-  const pausedMessage = messages.at(-2);
-  if (
-    !isApprovalActionMessage(actionEcho) ||
-    pausedMessage?.role !== 'assistant' ||
-    !pausedMessage.id.trim()
-  ) {
-    throw new Error('Assistant action has no owning paused assistant message.');
+function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: unknown): string {
+  const approval = readToolApprovalRunConfigAction(runConfig);
+  const resume = readToolResumeRunConfigAction(runConfig);
+  const approvalAction = approval && 'action' in approval ? approval.action : undefined;
+  const resumeAction = resume && 'action' in resume ? resume.action : undefined;
+  const action = approvalAction ?? resumeAction;
+  const dataName = approvalAction ? TOOL_APPROVAL_DATA_NAME : TOOL_SUSPEND_DATA_NAME;
+  if (!action) {
+    throw new Error('Assistant action has no valid paused tool identity.');
   }
-  return pausedMessage.id;
+  const owners = messages.filter(
+    (message) =>
+      message.role === 'assistant' &&
+      message.content.some(
+        (part) =>
+          part.type === 'data' && part.name === dataName && isMatchingToolAction(part.data, action)
+      )
+  );
+  if (owners.length !== 1 || !owners[0]?.id.trim()) {
+    throw new Error('Assistant action has no unique owning paused assistant message.');
+  }
+  return owners[0].id;
 }
 
 /**
@@ -1402,7 +1422,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         inputParentMessageId: outboundMessages.at(-2)?.id ?? null,
         messages: imageBound.messages,
         ...(isActionRunConfig(runConfig)
-          ? { pausedMessageId: requirePausedMessageId(messages) }
+          ? { pausedMessageId: requirePausedMessageId(messages, runConfig) }
           : {}),
         ...(runConfig === undefined ? {} : { runConfig }),
       });

@@ -147,8 +147,8 @@ export interface PrepareAssistantPostRequestParams {
    * here — every hook throw (including one that happens to be a class this
    * module maps for its own parse phase) is rethrown to the caller wrapped in
    * AssistantFilterPayloadError, and the transport unwraps `cause` and owns
-   * the wire shape (NO SILENT FALLBACKS, in both directions). Desktop passes
-   * no hook and is byte-for-byte unchanged.
+   * the wire shape (NO SILENT FALLBACKS, in both directions). Desktop uses an
+   * identity hook to register the initializing thread before credential work.
    */
   readonly filterPayload?: (
     payload: ParsedAssistantRequestEnvelope

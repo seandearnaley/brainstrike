@@ -315,6 +315,37 @@ describe('assistant run session asynchronous reconciliation', () => {
     );
   });
 
+  it('restarts discovery when a status probe loses its session identity', async () => {
+    const oldStatus = deferredResponse();
+    let discoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/assistant/active-run') {
+          discoveries += 1;
+          return Promise.resolve(
+            new Response(JSON.stringify({ activeRun: discoveries === 1 ? ACTIVE_NEW_RUN : null }), {
+              status: 200,
+            })
+          );
+        }
+        expect(url.pathname).toBe(ASSISTANT_RUN_STATUS_PATH);
+        return oldStatus.promise;
+      })
+    );
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({ api: API, resourceId: 'resource-1', threadKey: THREAD_KEY })
+    );
+    await waitFor(() => expect(discoveries).toBe(1));
+    act(() => result.current.onFinish());
+    await act(async () => oldStatus.resolve(terminalStatus()));
+
+    await waitFor(() => expect(discoveries).toBe(2));
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(result.current.recoveryError).toBeUndefined();
+  });
+
   it('replaces a terminal stored hint with the host active run in the same thread', async () => {
     vi.stubGlobal(
       'fetch',

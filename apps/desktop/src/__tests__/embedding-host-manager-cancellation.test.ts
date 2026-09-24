@@ -45,6 +45,39 @@ const QUERY = {
 describe('EmbeddingHostManager query cancellation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    lifecycle.ensureStarted.mockImplementation(async () => lifecycle.getStatus());
+  });
+
+  it('aborts a query while the shared embedding host is still starting', async () => {
+    const startup = Promise.withResolvers<ReturnType<typeof lifecycle.getStatus>>();
+    lifecycle.ensureStarted.mockReturnValueOnce(startup.promise);
+    const manager = new EmbeddingHostManager();
+    const controller = new AbortController();
+    const reason = new Error('tool stopped during host startup');
+    const query = manager.queryEmbedding(QUERY, { signal: controller.signal });
+
+    controller.abort(reason);
+    await expect(query).rejects.toBe(reason);
+    expect(windowMock.webContents.send).not.toHaveBeenCalled();
+
+    startup.resolve(lifecycle.getStatus());
+    await Promise.resolve();
+    expect(windowMock.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('observes a late shared-host startup failure after its query caller aborts', async () => {
+    const startup = Promise.withResolvers<ReturnType<typeof lifecycle.getStatus>>();
+    lifecycle.ensureStarted.mockReturnValueOnce(startup.promise);
+    const manager = new EmbeddingHostManager();
+    const controller = new AbortController();
+    const reason = new Error('tool stopped during host startup');
+    const query = manager.queryEmbedding(QUERY, { signal: controller.signal });
+
+    controller.abort(reason);
+    await expect(query).rejects.toBe(reason);
+    startup.reject(new Error('shared host failed later'));
+    await Promise.resolve();
+    expect(windowMock.webContents.send).not.toHaveBeenCalled();
   });
 
   it('rejects an already-aborted query without starting the host', async () => {
@@ -68,9 +101,7 @@ describe('EmbeddingHostManager query cancellation', () => {
       (error: unknown) => error
     );
     await lifecycle.ensureStarted.mock.results[0]?.value;
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    await vi.waitFor(() => expect(manager.getPlatformStatus().pendingRequestCount).toBe(1));
 
     controller.abort(reason);
     await expect(observedRejection).resolves.toBe(reason);

@@ -110,5 +110,34 @@ Final local validation:
 
 The new desktop test first exposed an additional fresh-run replay race and
 the approval synthetic-descendant conflict; both are now covered. An action
-with no uniquely persisted owner or durable parent edge fails explicitly.
+with no uniquely persisted owner fails explicitly. Legacy parent edges use the
+existing canonical chronological history projection.
 These results validate the local branch, not remote CI or deployment.
+
+
+## PR review remediation
+
+The initial review exposed four further recovery gaps: discovery started after
+credential preparation, child follow-ups omitted their user ancestry, approval
+retries assumed the paused owner was the preceding message, and a stale async
+discovery result could leave recovery pending. The fixes register initialization
+before credential resolution with cleanup on every exit, retain child follow-up
+ancestry, match the exact paused tool identity, and retry stale probes. Legacy
+approval history uses the existing canonical parent projection.
+
+Embedding callers now stop waiting immediately if cancelled during shared host
+startup; the host startup itself continues. The request-envelope assertion includes
+the new ancestry fields. Recovery state derivation removes two newly introduced
+ESLint warnings without changing the warning baseline.
+
+Other review claims were checked against the implementation: terminal provider
+errors finish the stream rather than invoking transport retry; parent capture
+precedes compaction; delegated approval actions already carry parent native
+coordinates; admitted user parts are text/file only; the HTTP boundary catches
+discovery errors. Recovery intentionally retains its bounded timeout and visible
+Retry action. No catch-all fallback was added.
+
+Post-review validation passed: 168 focused tests, all 53 topological build/type-check
+tasks, full-tree ESLint at the unchanged baseline, Biome, and all 8 contract-budget
+checks. Both real-host reload regressions and the delegated approval-after-reload
+Electron smoke test passed. Remote checks and exact-head re-review are pending.

@@ -40,6 +40,35 @@ const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
 const EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS = 3000;
 const EMBEDDING_HOST_STOP_TIMEOUT_MS = 10_000;
 
+function waitForHostStartup(
+  startup: Promise<EmbeddingHostStatus>,
+  signal?: AbortSignal
+): Promise<EmbeddingHostStatus> {
+  if (!signal) {
+    return startup;
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener('abort', onAbort);
+      reject(signal.reason);
+    };
+    void startup.then(
+      (status) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(status);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      }
+    );
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+    }
+  });
+}
+
 export interface EmbeddingHostManagerOptions {
   readonly platform?: NodeJS.Platform;
 }
@@ -309,7 +338,10 @@ export class EmbeddingHostManager {
   ): Promise<number[]> {
     options?.signal?.throwIfAborted();
     this.assertNotDisposed('queryEmbedding');
-    const status = await this.ensureStarted({ waitForRunning: true });
+    const status = await waitForHostStartup(
+      this.ensureStarted({ waitForRunning: true }),
+      options?.signal
+    );
     options?.signal?.throwIfAborted();
     if (status.state !== 'running') {
       throw new Error(

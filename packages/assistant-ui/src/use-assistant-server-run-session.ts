@@ -323,18 +323,16 @@ export function useAssistantServerRunSession({
     () => (threadKey && resumeApi ? readAssistantActiveRunSession(threadKey) : undefined),
     [resumeApi, threadKey]
   );
+  const sessionScope = useMemo(() => ({}), [resumeApi, threadKey]);
   const [activeSessionState, setActiveSessionState] = useState(() => ({
     record: initialActiveRunSession,
     replayEligible: initialActiveRunSession !== undefined,
-    resumeApi,
-    threadKey,
+    scope: sessionScope,
   }));
   const activeRunSession =
-    activeSessionState.threadKey === threadKey && activeSessionState.resumeApi === resumeApi
-      ? activeSessionState.record
-      : initialActiveRunSession;
+    activeSessionState.scope === sessionScope ? activeSessionState.record : initialActiveRunSession;
   const replayEligible =
-    activeSessionState.threadKey === threadKey && activeSessionState.resumeApi === resumeApi
+    activeSessionState.scope === sessionScope
       ? activeSessionState.replayEligible
       : initialActiveRunSession !== undefined;
   const activeRunSessionRef = useRef<AssistantActiveRunSession | undefined>(activeRunSession);
@@ -351,42 +349,47 @@ export function useAssistantServerRunSession({
     desktopAssistantBaseUrl && resourceId && threadKey
       ? `${desktopAssistantBaseUrl}:${resourceId}:${threadKey}`
       : undefined;
+  const discoveryAttemptKey =
+    discoveryKey === undefined ? undefined : JSON.stringify([discoveryKey, recoveryRetryToken]);
   const [discovery, setDiscovery] = useState<{
     key: string | undefined;
     status: 'pending' | 'ready' | 'error';
     run?: AssistantDiscoveredRun | undefined;
     error?: Error | undefined;
-  }>(() => ({ key: discoveryKey, status: discoveryKey ? 'pending' : 'ready' }));
+  }>(() => ({ key: discoveryAttemptKey, status: discoveryKey ? 'pending' : 'ready' }));
   const isRecovering =
-    Boolean(discoveryKey) && (discovery.key !== discoveryKey || discovery.status === 'pending');
-  const recoveryError = discovery.key === discoveryKey ? discovery.error : undefined;
+    Boolean(discoveryKey) &&
+    (discovery.key !== discoveryAttemptKey || discovery.status === 'pending');
+  const recoveryError = discovery.key === discoveryAttemptKey ? discovery.error : undefined;
   const discoveredRun =
-    discovery.key === discoveryKey && discovery.run?.runId === activeRunSession?.runId
+    discovery.key === discoveryAttemptKey && discovery.run?.runId === activeRunSession?.runId
       ? discovery.run
       : undefined;
 
   useEffect(() => {
+    activeRunSessionRef.current = initialActiveRunSession;
+  }, [initialActiveRunSession, sessionScope]);
+
+  useEffect(() => {
     if (!(discoveryKey && desktopAssistantBaseUrl && resourceId && threadKey)) {
-      setDiscovery({ key: undefined, status: 'ready' });
       return;
     }
     const controller = new AbortController();
     let cancelled = false;
     const storedAtDiscoveryStart = activeRunSessionRef.current;
-    setDiscovery({ key: discoveryKey, status: 'pending' });
     const reconciliation: DiscoveryReconciliation = {
       authHeaders,
       baseUrl: desktopAssistantBaseUrl,
       clearSession: () => {
         clearAssistantActiveRunSession(threadKey);
         activeRunSessionRef.current = undefined;
-        setActiveSessionState({ record: undefined, replayEligible: false, resumeApi, threadKey });
+        setActiveSessionState({ record: undefined, replayEligible: false, scope: sessionScope });
       },
       currentSession: () => activeRunSessionRef.current,
       replaceSession: (record) => {
         writeAssistantActiveRunSession(threadKey, record);
         activeRunSessionRef.current = record;
-        setActiveSessionState({ record, replayEligible: true, resumeApi, threadKey });
+        setActiveSessionState({ record, replayEligible: true, scope: sessionScope });
       },
       signal: controller.signal,
     };
@@ -404,10 +407,12 @@ export function useAssistantServerRunSession({
         ? await adoptDiscoveredRun(run, reconciliation)
         : await releaseMissingDiscoveredRun(storedAtDiscoveryStart, reconciliation);
       if (!reconciled) {
+        controller.signal.throwIfAborted();
+        setRecoveryRetryToken((current) => current + 1);
         return;
       }
       controller.signal.throwIfAborted();
-      setDiscovery({ key: discoveryKey, status: 'ready', ...(run ? { run } : {}) });
+      setDiscovery({ key: discoveryAttemptKey, status: 'ready', ...(run ? { run } : {}) });
     })();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutTask = new Promise<never>((_resolve, reject) => {
@@ -421,7 +426,7 @@ export function useAssistantServerRunSession({
         if (!cancelled) {
           const recoveryError = error instanceof Error ? error : new Error(String(error));
           assistantEndpointLogger.error('Assistant run discovery failed', { error: recoveryError });
-          setDiscovery({ error: recoveryError, key: discoveryKey, status: 'error' });
+          setDiscovery({ error: recoveryError, key: discoveryAttemptKey, status: 'error' });
         }
       })
       .finally(() => {
@@ -439,26 +444,17 @@ export function useAssistantServerRunSession({
   }, [
     authHeaders,
     desktopAssistantBaseUrl,
+    discoveryAttemptKey,
     discoveryKey,
-    recoveryRetryToken,
     resourceId,
     resumeApi,
+    sessionScope,
     threadKey,
   ]);
 
   const retryRecovery = useCallback((): void => {
     setRecoveryRetryToken((current) => current + 1);
   }, []);
-
-  useEffect(() => {
-    activeRunSessionRef.current = initialActiveRunSession;
-    setActiveSessionState({
-      record: initialActiveRunSession,
-      replayEligible: initialActiveRunSession !== undefined,
-      resumeApi,
-      threadKey,
-    });
-  }, [initialActiveRunSession, resumeApi, threadKey]);
 
   useEffect(() => {
     completePreparedRequestRef.current = completePreparedRequest;
@@ -469,8 +465,8 @@ export function useAssistantServerRunSession({
       clearAssistantActiveRunSession(threadKey);
     }
     activeRunSessionRef.current = undefined;
-    setActiveSessionState({ record: undefined, replayEligible: false, resumeApi, threadKey });
-  }, [resumeApi, threadKey]);
+    setActiveSessionState({ record: undefined, replayEligible: false, scope: sessionScope });
+  }, [resumeApi, sessionScope, threadKey]);
 
   const completeLatestPreparedRequest = useCallback(
     async (status: PreparedRequestStatus, error?: string): Promise<void> => {
@@ -626,11 +622,11 @@ export function useAssistantServerRunSession({
     (error: Error): void => {
       const record = activeRunSessionRef.current;
       if (record) {
-        setActiveSessionState({ record, replayEligible: true, resumeApi, threadKey });
+        setActiveSessionState({ record, replayEligible: true, scope: sessionScope });
       }
       void completeLatestPreparedRequest('failed', error.message);
     },
-    [completeLatestPreparedRequest, resumeApi, threadKey]
+    [completeLatestPreparedRequest, sessionScope]
   );
 
   const onFinish = useCallback((): void => {
@@ -709,9 +705,9 @@ export function useAssistantServerRunSession({
       writeAssistantActiveRunSession(threadKey, record);
       activeRunSessionRef.current = record;
       replayRetryCountRef.current = 0;
-      setActiveSessionState({ record, replayEligible: false, resumeApi, threadKey });
+      setActiveSessionState({ record, replayEligible: false, scope: sessionScope });
     },
-    [resumeApi, threadKey]
+    [resumeApi, sessionScope, threadKey]
   );
 
   return {

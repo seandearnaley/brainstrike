@@ -199,7 +199,7 @@ Guard: `packages/assistant-data/src/__tests__/assistant-approval-topology.integr
   second authority: `prepareRequest` reconciles it against the durable run row
   through `GET /assistant/run-status`. A terminal or missing run reclaims it with
   a warning; a `running` row keeps the guard; a FAILED probe keeps the guard.
-  Replay-retry exhaustion also reconciles; `GET /assistant/active-run` restores exact unsaved input and host-validated approval prefix/paused-leaf ancestry after reload, waits through `initializing: true`, and rejects unknown ancestry.
+  Replay-retry exhaustion also reconciles; `GET /assistant/active-run` publishes `initializing` after envelope parsing and before credential work, restores exact ordinary or child-followup input and host-validated approval prefix/paused-leaf ancestry after reload, waits through initialization, and rejects unknown ancestry.
 - Remap the generated streaming leaf to the durable id after `runEnd` through
   thread `export`/`import`. Missing leaves and leaves with descendants fail
   visibly.

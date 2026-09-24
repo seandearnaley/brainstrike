@@ -1,6 +1,7 @@
 import type {
   AssistantUiThreadHistoryAdapter,
   DelegatedConversationBaseline,
+  DelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
@@ -2756,7 +2757,7 @@ export async function readPausedActionReplayPrefix(input: {
   readonly toolCallId: string;
   readonly nativeRunId: string;
   readonly pauseKind: 'approval' | 'suspend';
-  readonly delegation?: import('@brainstrike/assistant-contract').DelegatedToolActionIdentity;
+  readonly delegation?: DelegatedToolActionIdentity;
   readonly pausedMessageId?: string;
 }): Promise<NonNullable<AssistantDiscoveredRun['actionReplay']>> {
   const { repository, resourceId, threadId, toolCallId, pausedMessageId, nativeRunId, delegation } =
@@ -2795,12 +2796,6 @@ export async function readPausedActionReplayPrefix(input: {
     pausedMessageId !== syntheticPauseMessageId
   ) {
     throw new Error('Approval action paused assistant ID disagrees with persisted tool ownership.');
-  }
-  const anchored = rows.some(
-    (row) => row.id === candidate.message.id && row.parentId !== undefined
-  );
-  if (!anchored) {
-    throw new Error('Approval action paused assistant has no durable parent edge.');
   }
   const prefixContent = candidate.message.content.filter(
     (part) =>

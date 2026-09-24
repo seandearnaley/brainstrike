@@ -3,8 +3,14 @@ import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   AssistantAttachmentValidationError,
 } from '@brainstrike/assistant-contract';
-import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
-import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  TOOL_APPROVAL_DATA_NAME,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-approval';
+import {
+  TOOL_SUSPEND_DATA_NAME,
+  TOOL_SUSPEND_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import {
   AssistantMessageAccumulator,
@@ -36,6 +42,28 @@ function message(id: string, role: ThreadMessage['role']): ThreadMessage {
     id,
     metadata: { custom: {} },
     role,
+  } as ThreadMessage;
+}
+
+function pausedActionMessage(
+  id: string,
+  kind: 'approval' | 'suspend',
+  runId: string,
+  toolCallId: string
+): ThreadMessage {
+  return {
+    ...message(id, 'assistant'),
+    content: [
+      {
+        data: {
+          runId,
+          toolCallId,
+          toolName: kind === 'approval' ? 'shell.tool' : 'brainstrike.submitPlan',
+        },
+        name: kind === 'approval' ? TOOL_APPROVAL_DATA_NAME : TOOL_SUSPEND_DATA_NAME,
+        type: 'data',
+      },
+    ],
   } as ThreadMessage;
 }
 
@@ -441,6 +469,7 @@ describe('approval action echo exclusion (transport seam)', () => {
 
     expect(JSON.stringify(requestBody['messages'])).not.toContain('Approved shell.tool.');
     expect(JSON.stringify(requestBody['messages'])).toContain('next-user');
+    expect(requestBody['inputParentMessageId']).toBe('assistant-2');
   });
 
   it('excludes a history approval action message from a NON-memory-backed turn (full history resend)', async () => {
@@ -486,7 +515,7 @@ describe('approval action echo exclusion (transport seam)', () => {
       {
         messages: [
           message('real-user', 'user'),
-          message('assistant-1', 'assistant'),
+          pausedActionMessage('assistant-1', 'approval', 'run-echo-1', 'call-echo-1'),
           approvalActionMessage('approval-user'),
         ],
         runConfig: {
@@ -510,6 +539,58 @@ describe('approval action echo exclusion (transport seam)', () => {
     expect(requestBody).toHaveProperty('runConfig');
   });
 
+  it('keeps the original approval owner when a failed continuation precedes a retry', async () => {
+    const requestBody = await captureRequestBody(
+      {
+        messages: [
+          message('real-user', 'user'),
+          pausedActionMessage('assistant-original', 'approval', 'run-echo-1', 'call-echo-1'),
+          approvalActionMessage('approval-first'),
+          message('failed-continuation', 'assistant'),
+          approvalActionMessage('approval-retry'),
+        ],
+        runConfig: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+              action: 'approve',
+              runId: 'run-echo-1',
+              toolCallId: 'call-echo-1',
+              toolName: 'shell.tool',
+            },
+          },
+        },
+      },
+      { ...MEMORY_BODY }
+    );
+
+    expect(requestBody['pausedMessageId']).toBe('assistant-original');
+  });
+
+  it('rejects an action when no assistant carries its exact paused tool identity', async () => {
+    await expect(
+      captureRequestBody(
+        {
+          messages: [
+            message('real-user', 'user'),
+            pausedActionMessage('wrong-owner', 'approval', 'other-run', 'other-call'),
+            approvalActionMessage('approval-retry'),
+          ],
+          runConfig: {
+            custom: {
+              [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+                action: 'approve',
+                runId: 'run-echo-1',
+                toolCallId: 'call-echo-1',
+                toolName: 'shell.tool',
+              },
+            },
+          },
+        },
+        { ...MEMORY_BODY }
+      )
+    ).rejects.toThrow('no unique owning paused assistant message');
+  });
+
   it('excludes a history suspend action message ("Approved the plan.") — same echo class, same seam', async () => {
     const requestBody = await captureRequestBody({
       messages: [
@@ -530,7 +611,7 @@ describe('approval action echo exclusion (transport seam)', () => {
       {
         messages: [
           message('real-user', 'user'),
-          message('assistant-1', 'assistant'),
+          pausedActionMessage('assistant-1', 'suspend', 'run-plan-1', 'call-plan-1'),
           suspendActionMessage('plan-user'),
         ],
         runConfig: {
@@ -1434,6 +1515,33 @@ describe('assistant-stream integration', () => {
         message: 'Response body is null',
       })
     );
+  });
+
+  it('finishes a terminal provider error without reporting a transport detach', async () => {
+    const onError = vi.fn();
+    const onFinish = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-provider-error"}',
+            '3:"Provider unavailable"',
+            'd:{"finishReason":"error","usage":{"inputTokens":0,"outputTokens":0},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+      onFinish,
+    });
+
+    for await (const _message of adapter.run(runOptions())) {
+      // The provider error is a completed stream, not a failed transport.
+    }
+
+    expect(onFinish).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it('reports empty HTTP error response bodies without reading from a null stream', async () => {
