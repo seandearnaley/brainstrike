@@ -560,16 +560,14 @@ Guard: `activity-step-row.browser.test.tsx`.
   step-row grammar for the collapsed form, with geometry owned by `overrides.css`
   (`.bs-approval*`), never utilities. Name the row's toggle by its visible
   content with the affordance trailing, the same Label-in-Name rule as step rows.
-- Delegation identity is a colour rail from the eight `--bs-delegation-N` tokens
-  (`packages/ui/src/globals.css`), picked by a stable FNV-1a hash of the
-  delegation call id (`delegation-colour.ts`) so a reloaded thread keeps its
-  colours. Colour is never the only signal: persona chain text and status chip
-  text always accompany a rail, and a root pause has no rail at all.
-- Nesting is `--bs-approval-depth` plus one rail per ancestor edge; it never
-  re-parents DOM. The OUTERMOST surface owns it — a card embedded by an expanded
-  row (`presentation="embedded"`) carries no `.bs-approval` class, depth,
-  delegation colour or rails, because the depth property inherits and would
-  indent twice.
+- A standalone approval card or row uses its owner's validated durable `colorId`
+  (named or family token). Family tokens set `--agent-accent-light` and
+  `--agent-accent-dark`; an omitted color inherits the current panel accent.
+  Persona chain, status glyphs and text remain visible for every hue.
+- Nesting is `--bs-approval-depth`, with no hash rails or left stripes. The OUTERMOST surface
+  owns depth and color — a card embedded by an expanded row
+  (`presentation="embedded"`) carries no `.bs-approval` class, depth or
+  separate color identity, because depth and accent inherit from the row.
 
 Evidence: `ui-conventions/approval-surface-geometry.md`.
 Guard: `approval-row.browser.test.tsx`.
@@ -578,7 +576,7 @@ Guard: `approval-row.browser.test.tsx`.
 
 ## Delegated conversation navigation
 
-- Child cards/tabs use callsigns and independently chosen colors; persisted
+- Child colors branch from parent hue with sibling-aware shade separation;
   identities survive host retries. Breadcrumbs follow native owner/root/parent
   bindings; returning focuses the source button or canonical destination tab.
 - Root filters/sort and folders choose the visible roots; child rows stay beneath

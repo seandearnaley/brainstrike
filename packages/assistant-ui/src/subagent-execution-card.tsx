@@ -17,6 +17,7 @@ import {
 import type { StepGlyphState } from './activity-step-icons';
 import { StepRowHeader } from './activity-step-row';
 import { toolStepStateFor } from './activity-trace-model';
+import { agentColorStyle } from './agent-color-style';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import type { SubagentConversationPresentation } from './subagent-conversation-navigation';
@@ -60,8 +61,8 @@ type ToolResult = SubagentCardProps['result'];
  * `· Failed` label of its own: the row's glyph names the state (`role="img"`)
  * and the verb says what happened. A delegation is the one step whose subject
  * is a persona rather than the assistant, so the verb names it — "Delegating
- * to Explorer" while the child runs (and while the call waits at an approval
- * gate: it has not started either way), then "Explorer finished" / "Explorer
+ * to Explorer" while the call waits at an approval gate, then "Explorer is
+ * working" once the child runs, and "Explorer finished" / "Explorer
  * gave no answer" / "Explorer stopped" / "Explorer failed" once it settles.
  *
  * Keyed by `StepGlyphState`, not by a private display union, so the type
@@ -75,7 +76,7 @@ const STEP_VERB: Record<StepGlyphState, (label: string) => string> = {
   failed: (label) => `${label} failed`,
   'no-answer': (label) => `${label} gave no answer`,
   rejected: (label) => `${label} delegation rejected`,
-  running: (label) => `Delegating to ${label}`,
+  running: (label) => `${label} is working`,
   truncated: (label) => `${label} finished with a truncated summary`,
   waiting: (label) => `Delegating to ${label}`,
 };
@@ -238,6 +239,7 @@ export const SubagentExecutionCard = ({
     <div
       className="bs-subagent-card my-1 rounded-md border border-border bg-muted/30 text-sm"
       data-agent-color={presentation?.colorId}
+      style={agentColorStyle(presentation?.colorId)}
     >
       <StepRowHeader
         family="delegate"

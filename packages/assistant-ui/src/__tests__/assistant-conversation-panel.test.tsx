@@ -111,6 +111,23 @@ describe('shared conversation panel', () => {
     );
   });
 
+  it('sets validated family scheme accents on the child conversation', () => {
+    render(
+      <TooltipProvider>
+        <Conversation
+          agentColor="family:1375:540"
+          id="Cedar"
+          messages={[]}
+          onNew={async () => {}}
+        />
+      </TooltipProvider>
+    );
+    const panel = screen.getByTestId('assistant-conversation-panel');
+    expect(panel).toHaveAttribute('data-agent-color', 'family:1375:540');
+    expect(panel.style.getPropertyValue('--agent-accent-light')).toMatch(/^oklch\(/);
+    expect(panel.style.getPropertyValue('--agent-accent-dark')).toMatch(/^oklch\(/);
+  });
+
   it.each(['pending', 'delivered'])(
     'shows the persisted %s child input acknowledgement',
     (state) => {

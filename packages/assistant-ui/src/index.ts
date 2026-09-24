@@ -112,10 +112,13 @@ export {
 } from './run-verdict-context';
 export type { SlashCommand } from './slash-commands';
 export {
+  type DelegatedApprovalOwner,
+  DelegatedApprovalOwnerContext,
   SubagentConversationNavigationContext,
   type SubagentConversationPresentation,
   SubagentConversationPresentationContext,
   SubagentInvocationResolverContext,
+  SubagentLiveInvocationContext,
 } from './subagent-conversation-navigation';
 export {
   type ThreadMessageNavigation,

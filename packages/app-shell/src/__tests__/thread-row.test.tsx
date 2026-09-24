@@ -210,6 +210,7 @@ describe('ThreadRow', () => {
     expect(within(customizer).getByTestId('thread-color-palette-studio')).toBeVisible();
     expect(within(customizer).getByTestId('thread-color-palette-voltage')).toBeVisible();
     expect(within(customizer).getByTestId('thread-color-palette-afterglow')).toBeVisible();
+    expect(within(customizer).getByTestId('thread-color-family-preview')).toBeVisible();
     await user.click(within(customizer).getByRole('button', { name: 'Use Cyan color' }));
 
     expect(onUpdateThreadMetadata).toHaveBeenCalledWith(THREAD.id, { color: 'cyan' });

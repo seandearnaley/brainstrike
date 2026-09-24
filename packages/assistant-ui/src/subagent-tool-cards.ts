@@ -4,12 +4,13 @@ import {
   delegationToolNameForPersona,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
-import { createElement, useMemo } from 'react';
+import { createElement, use, useCallback, useMemo, useSyncExternalStore } from 'react';
 import {
   readSubagentConversationAddress,
   readSubagentInvocationRun,
   type SubagentConversationAddress,
   type SubagentInvocationRun,
+  SubagentLiveInvocationContext,
 } from './subagent-conversation-navigation';
 import { SubagentExecutionCard } from './subagent-execution-card';
 import { useSubagentInvocationSnapshot } from './use-subagent-invocation-snapshot';
@@ -30,6 +31,7 @@ import { useSubagentPresentation } from './use-subagent-presentation';
  * full retained thread on every store update.
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
+  const liveInvocations = use(SubagentLiveInvocationContext);
   const invocationJson = useAuiState((state) =>
     JSON.stringify(readSubagentInvocationRun(state.message.parts, props.toolCallId))
   );
@@ -42,10 +44,33 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
       readSubagentConversationAddress(state.message.parts, props.toolCallId, props.result)
     )
   );
-  const address = useMemo(
+  const persistedAddress = useMemo(
     () => JSON.parse(addressJson) as SubagentConversationAddress,
     [addressJson]
   );
+  const getLiveThreadId = useCallback(
+    () =>
+      invocation.kind === 'available'
+        ? liveInvocations?.getThreadId({
+            parentRuntimeRunId: invocation.parentRuntimeRunId,
+            parentToolCallId: props.toolCallId,
+          })
+        : undefined,
+    [invocation, liveInvocations, props.toolCallId]
+  );
+  const liveThreadId = useSyncExternalStore(
+    liveInvocations?.subscribe ?? emptySubscribe,
+    getLiveThreadId,
+    getLiveThreadId
+  );
+  const address: SubagentConversationAddress =
+    persistedAddress.kind === 'available' &&
+    liveThreadId &&
+    persistedAddress.threadId !== liveThreadId
+      ? { error: 'Conflicting child conversation addresses.', kind: 'invalid' }
+      : persistedAddress.kind === 'unavailable' && liveThreadId
+        ? { kind: 'available', threadId: liveThreadId }
+        : persistedAddress;
   const { entry: presentation, reload } = useSubagentPresentation(
     address.kind === 'available' ? address.threadId : undefined
   );
@@ -72,6 +97,8 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     toolName: props.toolName,
   });
 };
+
+const emptySubscribe = () => () => undefined;
 
 /**
  * `agent-<personaId>` delegation tool name → SubagentExecutionCardConnected,

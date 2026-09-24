@@ -5,10 +5,8 @@ import type { DbHandle } from '@brainstrike/db/react';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { Breadcrumbs } from '@brainstrike/ui';
 import { use, useEffect, useState } from 'react';
-import {
-  ASSISTANT_THREAD_COLOR_PRESENTATION,
-  ASSISTANT_THREAD_ICON_PRESENTATION,
-} from './assistant-thread-presentation';
+import { getDelegatedColorPresentation } from './agent-color-presentation';
+import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
 import { loadDelegatedConversationAncestry } from './delegated-conversation-ancestry';
 import type { ChildNode } from './delegated-workspace-node';
 
@@ -59,11 +57,12 @@ export function DelegatedConversationBreadcrumbs({
     };
   }, [db, node]);
   const current = ancestry?.db === db && ancestry.node === node ? ancestry : undefined;
-  const appearance = ASSISTANT_THREAD_COLOR_PRESENTATION[node.color];
+  const appearance = getDelegatedColorPresentation(node.color);
   return (
     <header
       className={`shrink-0 space-y-2 border-b px-4 py-3 ${appearance.idleClassName}`}
       data-agent-color={node.color}
+      style={appearance.style}
     >
       {current ? (
         'error' in current ? (

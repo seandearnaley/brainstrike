@@ -1,6 +1,7 @@
 // Import the actual classes
 import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from './errors.js';
 
+export * from './agent-color.js';
 export * from './assistant-provider-settings.js';
 export * from './assistant-selection.js';
 export * from './changeset.js';

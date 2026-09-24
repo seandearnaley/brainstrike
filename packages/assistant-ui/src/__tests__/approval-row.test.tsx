@@ -10,7 +10,6 @@ import { ActiveThreadKeyContext } from '../active-thread-key-context';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { ApprovalRanksProvider } from '../approval-presentation-context';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
-import { delegationColourIndex } from '../delegation-colour';
 import { resetFollowUpQueueStore } from '../follow-up-queue-store';
 import { expandApprovalRow } from './approval-row-helpers';
 
@@ -78,13 +77,22 @@ function pushMessage(message: unknown): void {
   threadMessagesMock.current = [...threadMessagesMock.current, message];
 }
 
-function renderNotices(approvals: readonly AssistantToolApprovalRequest[]) {
+function renderNotices(
+  approvals: readonly AssistantToolApprovalRequest[],
+  colorId?: string,
+  ownerDisplayName?: string
+) {
   return render(
     <ActiveThreadKeyContext.Provider value="thread-1">
       <AnsweredApprovalsProvider>
         <ApprovalRanksProvider>
           {approvals.map((approval) => (
-            <AssistantToolApprovalNotice data={approval} key={approval.delegation?.toolCallId} />
+            <AssistantToolApprovalNotice
+              colorId={colorId}
+              data={approval}
+              key={approval.delegation?.toolCallId}
+              ownerDisplayName={ownerDisplayName}
+            />
           ))}
         </ApprovalRanksProvider>
       </AnsweredApprovalsProvider>
@@ -168,13 +176,11 @@ describe('approval presentation: card vs row', () => {
       id: 'm1',
       role: 'assistant',
     });
-    renderNotices([answered]);
+    renderNotices([answered], 'rose');
     const row = screen.getByTestId('assistant-tool-approval-notice');
     expect(row).toHaveAttribute('data-approval-presentation', 'row');
-    expect(row).toHaveAttribute(
-      'data-delegation-colour',
-      String(delegationColourIndex('delegate-1'))
-    );
+    expect(row).toHaveAttribute('data-agent-color', 'rose');
+    expect(row).not.toHaveAttribute('data-delegation-colour');
     expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Explorer');
     // `verbForTool('brainstrike.readWorkspaceDirectory').done` is "Listed"
     // (`activity-verbs.ts`); the row lower-cases it as the requested action.
@@ -184,6 +190,38 @@ describe('approval presentation: card vs row', () => {
     expect(
       screen.getByRole('button', { name: /^Explorer listed apps\/desktop, show approval details$/ })
     ).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('uses one authorized callsign in the row label and standalone card', () => {
+    const pending = readApproval('leaf-1', [rootEdge, grandchildEdge]);
+    pushMessage({ content: [requestPart(pending)], id: 'm1', role: 'assistant' });
+    const view = renderNotices([pending], 'violet', 'Aster');
+    const card = screen.getByTestId('assistant-tool-approval-notice');
+    expect(card).toHaveAttribute('data-approval-presentation', 'card');
+    expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Aster');
+    expect(screen.getByTestId('approval-delegation-owner')).toHaveAttribute(
+      'title',
+      expect.stringContaining('Explorer')
+    );
+
+    pushMessage({
+      content: [requestPart(pending), answeredPart(pending, 'user')],
+      id: 'm2',
+      role: 'assistant',
+    });
+    view.rerender(
+      <ActiveThreadKeyContext.Provider value="thread-1">
+        <AnsweredApprovalsProvider>
+          <ApprovalRanksProvider>
+            <AssistantToolApprovalNotice colorId="violet" data={pending} ownerDisplayName="Aster" />
+          </ApprovalRanksProvider>
+        </AnsweredApprovalsProvider>
+      </ActiveThreadKeyContext.Provider>
+    );
+    const row = screen.getByTestId('assistant-tool-approval-notice');
+    expect(row).toHaveAttribute('data-approval-presentation', 'row');
+    expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Aster');
+    expect(screen.getByRole('button', { name: /^Aster listed apps\/desktop/ })).toBeVisible();
   });
 
   it('expands a row into the locked full card and collapses it again', async () => {
@@ -244,26 +282,20 @@ describe('approval presentation: card vs row', () => {
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Declined');
   });
 
-  it('nests a grandchild under its ancestor: depth 2, two rails, the persona chain', () => {
+  it('nests a grandchild under its ancestor: depth 2 and the persona chain', () => {
     const nested = readApproval('leaf-deep', [rootEdge, grandchildEdge]);
     pushMessage({ content: [requestPart(nested)], id: 'm1', role: 'assistant' });
-    renderNotices([nested]);
+    renderNotices([nested], 'cyan');
     const card = screen.getByTestId('assistant-tool-approval-notice');
     expect(card).toHaveAttribute('data-approval-presentation', 'card');
     expect(card.style.getPropertyValue('--bs-approval-depth')).toBe('2');
-    expect(card).toHaveAttribute(
-      'data-delegation-colour',
-      String(delegationColourIndex('delegate-1-1'))
-    );
-    const rails = card.querySelectorAll('.bs-approval-rail');
-    expect([...rails].map((rail) => rail.getAttribute('data-delegation-colour'))).toEqual([
-      String(delegationColourIndex('delegate-1')),
-      String(delegationColourIndex('delegate-1-1')),
-    ]);
+    expect(card).toHaveAttribute('data-agent-color', 'cyan');
+    expect(card).not.toHaveAttribute('data-delegation-colour');
+    expect(card.querySelectorAll('.bs-approval-rail')).toHaveLength(0);
     expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Explorer › Analyst');
   });
 
-  it('an expanded nested row owns the nesting: the embedded card adds no depth, colour or rails', async () => {
+  it('an expanded nested row owns the nesting: the embedded card adds no depth or color identity', async () => {
     const user = userEvent.setup();
     const nested = readApproval('leaf-deep', [rootEdge, grandchildEdge]);
     pushMessage({
@@ -271,16 +303,16 @@ describe('approval presentation: card vs row', () => {
       id: 'm1',
       role: 'assistant',
     });
-    renderNotices([nested]);
+    renderNotices([nested], 'violet');
     const row = screen.getByTestId('assistant-tool-approval-notice');
     expect(row).toHaveAttribute('data-approval-presentation', 'row');
     await expandApprovalRow(user);
     const card = screen.getByTestId('approval-row-card');
     expect(row).toContainElement(card);
     expect(card.style.getPropertyValue('--bs-approval-depth')).toBe('');
-    expect(card).not.toHaveAttribute('data-delegation-colour');
-    // One rail per ancestor edge for the whole row, never a second set inside the card.
-    expect(row.querySelectorAll('.bs-approval-rail')).toHaveLength(2);
+    expect(row).toHaveAttribute('data-agent-color', 'violet');
+    expect(card).not.toHaveAttribute('data-agent-color');
+    expect(row.querySelectorAll('.bs-approval-rail')).toHaveLength(0);
   });
 
   it('a root pause (no delegation) is depth 0 with no rail and reads as the assistant', () => {
@@ -300,6 +332,7 @@ describe('approval presentation: card vs row', () => {
     const row = screen.getByTestId('assistant-tool-approval-notice');
     expect(row).toHaveAttribute('data-approval-presentation', 'row');
     expect(row.style.getPropertyValue('--bs-approval-depth')).toBe('0');
+    expect(row).not.toHaveAttribute('data-agent-color');
     expect(row).not.toHaveAttribute('data-delegation-colour');
     expect(row.querySelectorAll('.bs-approval-rail')).toHaveLength(0);
     expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Assistant');

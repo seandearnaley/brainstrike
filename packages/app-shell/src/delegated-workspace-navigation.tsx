@@ -1,17 +1,21 @@
+import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import {
+  DelegatedApprovalOwnerContext,
   SubagentConversationNavigationContext,
   SubagentConversationPresentationContext,
   SubagentInvocationResolverContext,
+  SubagentLiveInvocationContext,
 } from '@brainstrike/assistant-ui';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { type ReactNode, useCallback } from 'react';
-import { ASSISTANT_THREAD_COLOR_PRESENTATION } from './assistant-thread-presentation';
+import { type ReactNode, useCallback, useMemo } from 'react';
+import { getDelegatedColorPresentation } from './agent-color-presentation';
 import type { DelegatedConversationRoot } from './delegated-conversation-owner';
 import { loadDelegatedWorkspaceNode } from './delegated-workspace-node';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
+import { type ApprovalOwner, resolveApprovalOwner } from './resolve-approval-owner';
 import { ThreadSearchMessageNavigation } from './thread-search-message-navigation';
 import { useDelegatedConversationRoot } from './use-delegated-conversation-root';
 
@@ -36,6 +40,42 @@ export function DelegatedWorkspaceNavigation({
 }) {
   const root = useDelegatedConversationRoot(ownerResourceId, rootThreadId);
   const db = usePGliteDatabase();
+  const liveInvocations = useMemo(() => {
+    if (!root) {
+      return null;
+    }
+    let snapshot: ReturnType<typeof root.store.getSnapshot> | undefined;
+    let threads = new Map<string, string>();
+    const refresh = () => {
+      const current = root.store.getSnapshot();
+      if (current === snapshot) {
+        return;
+      }
+      snapshot = current;
+      threads = new Map();
+      for (const [threadId, child] of current) {
+        const identity = child.update.identity;
+        if (identity) {
+          threads.set(
+            JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]),
+            threadId
+          );
+        }
+      }
+    };
+    return {
+      getThreadId: (identity: {
+        parentRuntimeRunId: string;
+        parentToolCallId: string;
+      }): string | undefined => {
+        refresh();
+        return threads.get(
+          JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId])
+        );
+      },
+      subscribe: root.store.subscribe,
+    };
+  }, [root]);
   const resolveInvocation = useCallback(
     async (identity: { parentRuntimeRunId: string; parentToolCallId: string }): Promise<string> => {
       if (!(db && rootThreadId)) {
@@ -68,8 +108,22 @@ export function DelegatedWorkspaceNavigation({
       return {
         colorId: node.color,
         displayName: node.displayName,
-        markClassName: ASSISTANT_THREAD_COLOR_PRESENTATION[node.color].markClassName,
+        markClassName: getDelegatedColorPresentation(node.color).markClassName,
       };
+    },
+    [db, ownerResourceId, rootThreadId, currentThreadId]
+  );
+  const approvalOwner = useCallback(
+    async (approval: AssistantToolApprovalRequest): Promise<ApprovalOwner | undefined> => {
+      if (!(db && rootThreadId)) {
+        return undefined;
+      }
+      return resolveApprovalOwner(
+        createDelegatedConversationRepository(db),
+        { ownerResourceId, rootThreadId },
+        currentThreadId ?? rootThreadId,
+        approval
+      );
     },
     [db, ownerResourceId, rootThreadId, currentThreadId]
   );
@@ -118,17 +172,21 @@ export function DelegatedWorkspaceNavigation({
   );
   return (
     <SubagentConversationNavigationContext value={root ? open : null}>
-      <SubagentConversationPresentationContext value={db && root ? presentation : null}>
-        <SubagentInvocationResolverContext value={db && root ? resolveInvocation : null}>
-          <ThreadSearchMessageNavigation
-            isLoading={isSearchHistoryLoading ?? false}
-            ownerResourceId={ownerResourceId}
-            threadId={currentThreadId ?? rootThreadId}
-          >
-            {children}
-          </ThreadSearchMessageNavigation>
-        </SubagentInvocationResolverContext>
-      </SubagentConversationPresentationContext>
+      <DelegatedApprovalOwnerContext value={db && root ? approvalOwner : null}>
+        <SubagentConversationPresentationContext value={db && root ? presentation : null}>
+          <SubagentInvocationResolverContext value={db && root ? resolveInvocation : null}>
+            <SubagentLiveInvocationContext value={liveInvocations}>
+              <ThreadSearchMessageNavigation
+                isLoading={isSearchHistoryLoading ?? false}
+                ownerResourceId={ownerResourceId}
+                threadId={currentThreadId ?? rootThreadId}
+              >
+                {children}
+              </ThreadSearchMessageNavigation>
+            </SubagentLiveInvocationContext>
+          </SubagentInvocationResolverContext>
+        </SubagentConversationPresentationContext>
+      </DelegatedApprovalOwnerContext>
     </SubagentConversationNavigationContext>
   );
 }

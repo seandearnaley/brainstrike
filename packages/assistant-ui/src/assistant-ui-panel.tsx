@@ -34,6 +34,7 @@ import './overrides.css';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
 import { Button, cn } from '@brainstrike/ui';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
+import { agentColorStyle } from './agent-color-style';
 import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityParts } from './assistant-activity-parts';
 import { ControlsMenu } from './assistant-controls-menu';
@@ -1196,6 +1197,7 @@ export const AssistantUiPanel = ({
         className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
         data-agent-color={agentColor}
         data-testid="chat-panel"
+        style={agentColorStyle(agentColor)}
       >
         {isLocalProvider && modelName && !localViaDataStream ? (
           <LocalRuntimeChat

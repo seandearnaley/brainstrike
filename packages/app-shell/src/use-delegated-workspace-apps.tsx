@@ -4,7 +4,7 @@ import type { WorkspaceApp } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { MessageSquare } from 'lucide-react';
 import { type ReactNode, useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { ASSISTANT_THREAD_COLOR_PRESENTATION } from './assistant-thread-presentation';
+import { getDelegatedColorPresentation } from './agent-color-presentation';
 import { ChildAppSurface } from './delegated-workspace-child-app-surface';
 import { Failure } from './delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from './delegated-workspace-node';
@@ -120,7 +120,7 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
     () =>
       addresses.map((item): WorkspaceApp => {
         const { error, node } = resolveAppEntry(item, db, dbError, entries);
-        const appearance = node ? ASSISTANT_THREAD_COLOR_PRESENTATION[node.color] : undefined;
+        const appearance = node ? getDelegatedColorPresentation(node.color) : undefined;
         return {
           icon: ({ className }) => <MessageSquare className={className} />,
           id: item.id,
@@ -131,7 +131,9 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
                   accentClassName: appearance.accentClassName,
                   colorId: node.color,
                   idleClassName: appearance.idleClassName,
+                  markClassName: appearance.markClassName,
                   selectedClassName: appearance.selectedClassName,
+                  style: appearance.style,
                 },
               }
             : {}),

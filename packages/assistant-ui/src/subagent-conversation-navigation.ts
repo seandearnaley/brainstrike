@@ -2,6 +2,7 @@ import {
   DELEGATED_CONVERSATION_DATA_NAME,
   readAssistantRunEventDataPart,
 } from '@brainstrike/assistant-contract';
+import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { createContext } from 'react';
 
 export const SubagentConversationNavigationContext = createContext<
@@ -16,6 +17,24 @@ export interface SubagentConversationPresentation {
 export const SubagentConversationPresentationContext = createContext<
   ((threadId: string) => Promise<SubagentConversationPresentation>) | null
 >(null);
+
+/** Host-authorized display identity for an approval's exact delegated owner. */
+export interface DelegatedApprovalOwner {
+  readonly colorId: string;
+  readonly displayName: string;
+}
+export const DelegatedApprovalOwnerContext = createContext<
+  ((approval: AssistantToolApprovalRequest) => Promise<DelegatedApprovalOwner | undefined>) | null
+>(null);
+
+/** Host-authorized live child publications, keyed by the owning native invocation. */
+export interface SubagentLiveInvocationSource {
+  readonly getThreadId: (identity: SubagentInvocationAddress) => string | undefined;
+  readonly subscribe: (listener: () => void) => () => void;
+}
+export const SubagentLiveInvocationContext = createContext<SubagentLiveInvocationSource | null>(
+  null
+);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);

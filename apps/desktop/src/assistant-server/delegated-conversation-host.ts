@@ -42,7 +42,7 @@ import {
 import { z } from 'zod';
 import { assertDelegatedConversationAdmission } from './delegated-cancellation-admission';
 import { createDesktopDelegatedContinuationHost } from './delegated-continuation-host';
-import { createDelegatedDisplayIdentity } from './delegated-display-identity';
+import { resolveDelegatedFamilyIdentity } from './delegated-family-color';
 import { delegatedHostRunId } from './delegated-host-run-id';
 import { type DelegatedHostScope, resolveDelegatedHostScope } from './delegated-host-scope';
 import { createDelegatedStepBudget } from './delegated-step-budget';
@@ -553,17 +553,13 @@ export function createDesktopDelegatedConversationHost(
           identity.configuration,
           subagentSettings
         );
-        const existingChild = await admissionRepository.get(scope, identity.childThreadId);
-        let displayIdentity: ReturnType<typeof createDelegatedDisplayIdentity>;
-        if (existingChild) {
-          const { color, displayName } = existingChild;
-          if (!(color && displayName)) {
-            throw new DelegatedConversationIdentityError('child-display-identity-missing');
-          }
-          displayIdentity = { color, displayName };
-        } else {
-          displayIdentity = createDelegatedDisplayIdentity(identity.childThreadId);
-        }
+        const displayIdentity = await resolveDelegatedFamilyIdentity(
+          tx,
+          admissionRepository,
+          scope,
+          parent,
+          identity.childThreadId
+        );
         await admissionRepository.createChild(scope, {
           ...displayIdentity,
           configuration: identity.configuration,

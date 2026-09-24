@@ -89,29 +89,15 @@ export const ASSISTANT_THREAD_ICON_IDS = [
   'plan',
 ] as const;
 
-export const ASSISTANT_THREAD_COLOR_IDS = [
-  'blue',
-  'emerald',
-  'amber',
-  'rose',
-  'violet',
-  'slate',
-  'cyan',
-  'lime',
-  'orange',
-  'fuchsia',
-  'indigo',
-  'red',
-  'teal',
-  'green',
-  'yellow',
-  'pink',
-  'purple',
-  'zinc',
-] as const;
-
 export type AssistantThreadIconId = (typeof ASSISTANT_THREAD_ICON_IDS)[number];
-export type AssistantThreadColorId = (typeof ASSISTANT_THREAD_COLOR_IDS)[number];
+export { ASSISTANT_THREAD_COLOR_IDS } from './assistant-thread-palette.js';
+
+import {
+  ASSISTANT_THREAD_COLOR_IDS,
+  type AssistantThreadColorId,
+} from './assistant-thread-palette.js';
+
+export type { AssistantThreadColorId } from './assistant-thread-palette.js';
 
 // biome-ignore assist/source/useSortedInterfaceMembers: BST-1391 Task 6 explicitly places forge fields immediately before model.
 export interface AssistantThreadMetadata {
