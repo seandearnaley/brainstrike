@@ -275,9 +275,10 @@ describe('assistant run session asynchronous reconciliation', () => {
     const newThreadKey = 'thread-run-race-new';
     const newStorageKey = `brainstrike.assistant.active-run:${newThreadKey}`;
     let oldProbeStarted = false;
+    let oldProbeSignal: AbortSignal | undefined;
     vi.stubGlobal(
       'fetch',
-      vi.fn((input: RequestInfo | URL) => {
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input));
         if (url.pathname === '/assistant/active-run') {
           return Promise.resolve(
@@ -286,6 +287,7 @@ describe('assistant run session asynchronous reconciliation', () => {
         }
         expect(url.pathname).toBe(ASSISTANT_RUN_STATUS_PATH);
         oldProbeStarted = true;
+        oldProbeSignal = init?.signal ?? undefined;
         return oldThreadStatus.promise;
       })
     );
@@ -302,6 +304,7 @@ describe('assistant run session asynchronous reconciliation', () => {
     await waitFor(() => expect(oldProbeStarted).toBe(true));
 
     rerender({ threadKey: newThreadKey });
+    expect(oldProbeSignal?.aborted).toBe(true);
     await waitFor(() => expect(result.current.isRecovering).toBe(false));
     await act(async () => {
       await result.current.prepareRequest();
@@ -396,6 +399,135 @@ describe('assistant run session asynchronous reconciliation', () => {
     );
   });
 
+  it('ignores a retained closed prior run after a headerless failure of a new POST', async () => {
+    window.sessionStorage.clear();
+    let discoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === ASSISTANT_RUN_STATUS_PATH) {
+          return Promise.resolve(terminalStatus(OLD_RUN_ID));
+        }
+        expect(url.pathname).toBe('/assistant/active-run');
+        discoveries += 1;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              activeRun:
+                discoveries === 1
+                  ? null
+                  : { ...ACTIVE_NEW_RUN, runId: OLD_RUN_ID, state: 'closed' },
+            }),
+            { status: 200 }
+          )
+        );
+      })
+    );
+    const completePreparedRequest = vi.fn();
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        completePreparedRequest,
+        prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      })
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    act(() => result.current.onError(new TypeError('POST failed')));
+
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(result.current.recoveryError).toBeUndefined();
+    expect(result.current.activeRunSession).toBeUndefined();
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      { memory: { runId: NEW_RUN_ID } },
+      'failed',
+      'POST failed',
+      false
+    );
+  });
+
+  it('does not arm replay when same-run discovery resolves after a live response', async () => {
+    window.sessionStorage.clear();
+    const lateDiscovery = deferredResponse();
+    let discoveries = 0;
+    const discoveryAuth: (string | null)[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        expect(new URL(String(input)).pathname).toBe('/assistant/active-run');
+        discoveryAuth.push(new Headers(init?.headers).get('authorization'));
+        discoveries += 1;
+        return discoveries === 1
+          ? Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
+          : lateDiscovery.promise;
+      })
+    );
+    const firstAuthHeaders = async () => ({ authorization: 'Bearer first' });
+    const { result, rerender } = renderHook(
+      ({ authHeaders }) =>
+        useAssistantServerRunSession({
+          api: API,
+          authHeaders,
+          prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+          resourceId: 'resource-1',
+          threadKey: THREAD_KEY,
+        }),
+      { initialProps: { authHeaders: firstAuthHeaders } }
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    rerender({ authHeaders: async () => ({ authorization: 'Bearer second' }) });
+    await act(async () => Promise.resolve());
+    expect(discoveries).toBe(1);
+    act(() => result.current.retryRecovery());
+    await waitFor(() => expect(discoveries).toBe(2));
+    expect(discoveryAuth).toEqual(['Bearer first', 'Bearer second']);
+    act(() => admitNewRun(result.current.onResponse));
+    expect(result.current.replayEligible).toBe(false);
+    await act(async () =>
+      lateDiscovery.resolve(
+        new Response(JSON.stringify({ activeRun: ACTIVE_NEW_RUN }), { status: 200 })
+      )
+    );
+
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(result.current.activeRunSession?.runId).toBe(NEW_RUN_ID);
+    expect(result.current.replayEligible).toBe(false);
+  });
+
+  it('does not restart discovery on each inline auth callback render', async () => {
+    window.sessionStorage.clear();
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const stableAfterGuard = async () => ({ authorization: 'Bearer test' });
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      // Bound the old feedback loop so a regression fails rather than hangs.
+      const authHeaders =
+        renders < 9 ? async () => ({ authorization: 'Bearer test' }) : stableAfterGuard;
+      return useAssistantServerRunSession({
+        api: API,
+        authHeaders,
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      });
+    });
+
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(renders).toBeLessThan(9);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('fails a pre-admission run only after discovery proves no host session exists', async () => {
     window.sessionStorage.clear();
     const afterPostFailure = deferredResponse();
@@ -438,6 +570,128 @@ describe('assistant run session asynchronous reconciliation', () => {
       'POST failed',
       false
     );
+  });
+
+  it('does not settle a headerless request from another resource scope', async () => {
+    window.sessionStorage.clear();
+    const originalScopeDiscovery = deferredResponse();
+    let firstResourceDiscoveries = 0;
+    let secondResourceDiscoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        expect(url.pathname).toBe('/assistant/active-run');
+        if (url.searchParams.get('resourceId') === 'resource-first') {
+          firstResourceDiscoveries += 1;
+          return firstResourceDiscoveries === 2
+            ? originalScopeDiscovery.promise
+            : Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }));
+        }
+        expect(url.searchParams.get('resourceId')).toBe('resource-second');
+        secondResourceDiscoveries += 1;
+        return Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }));
+      })
+    );
+    const completePreparedRequest = vi.fn();
+    const initialProps: { resourceId: string | undefined } = { resourceId: 'resource-first' };
+    const { result, rerender } = renderHook(
+      ({ resourceId }) =>
+        useAssistantServerRunSession({
+          api: API,
+          completePreparedRequest,
+          prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+          resourceId,
+          threadKey: THREAD_KEY,
+        }),
+      { initialProps }
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => result.current.prepareRequest());
+    act(() => result.current.onError(new TypeError('POST failed')));
+    await waitFor(() => expect(firstResourceDiscoveries).toBe(2));
+
+    rerender({ resourceId: 'resource-second' });
+    await waitFor(() => expect(result.current.recoveryError?.message).toContain('resource scope'));
+    expect(secondResourceDiscoveries).toBe(0);
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+    await expect(result.current.prepareRequest()).rejects.toThrow('resource scope');
+
+    rerender({ resourceId: undefined });
+    await waitFor(() => expect(result.current.recoveryError?.message).toContain('resource scope'));
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+    await expect(result.current.prepareRequest()).rejects.toThrow('resource scope');
+
+    rerender({ resourceId: 'resource-first' });
+    await waitFor(() => expect(firstResourceDiscoveries).toBe(3));
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(result.current.recoveryError).toBeUndefined();
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      { memory: { runId: NEW_RUN_ID } },
+      'failed',
+      'POST failed',
+      false
+    );
+    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
+
+    await act(async () =>
+      originalScopeDiscovery.resolve(
+        new Response(JSON.stringify({ activeRun: ACTIVE_NEW_RUN }), { status: 200 })
+      )
+    );
+    expect(result.current.activeRunSession).toBeUndefined();
+  });
+
+  it('keeps the prepared scope when the transport error arrives after a resource switch', async () => {
+    window.sessionStorage.clear();
+    let firstResourceDiscoveries = 0;
+    let secondResourceDiscoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        expect(url.pathname).toBe('/assistant/active-run');
+        if (url.searchParams.get('resourceId') === 'resource-first') {
+          firstResourceDiscoveries += 1;
+        } else {
+          expect(url.searchParams.get('resourceId')).toBe('resource-second');
+          secondResourceDiscoveries += 1;
+        }
+        return Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }));
+      })
+    );
+    const completePreparedRequest = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ resourceId }) =>
+        useAssistantServerRunSession({
+          api: API,
+          completePreparedRequest,
+          prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+          resourceId,
+          threadKey: THREAD_KEY,
+        }),
+      { initialProps: { resourceId: 'resource-first' } }
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => result.current.prepareRequest());
+
+    rerender({ resourceId: 'resource-second' });
+    await waitFor(() => expect(result.current.recoveryError?.message).toContain('resource scope'));
+    act(() => result.current.onError(new TypeError('POST failed')));
+    await waitFor(() => expect(result.current.recoveryError?.message).toContain('resource scope'));
+    expect(secondResourceDiscoveries).toBe(0);
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+
+    rerender({ resourceId: 'resource-first' });
+    await waitFor(() => expect(firstResourceDiscoveries).toBe(2));
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      { memory: { runId: NEW_RUN_ID } },
+      'failed',
+      'POST failed',
+      false
+    );
+    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
   });
 
   it('settles Stop after a headerless failure when discovery proves the host never admitted it', async () => {
@@ -549,6 +803,53 @@ describe('assistant run session asynchronous reconciliation', () => {
     );
     expect(result.current.activeRunSession).toBeUndefined();
     expect(result.current.replayEligible).toBe(false);
+  });
+
+  it('does not adopt a discovery after cancellation completes in a disposed attempt', async () => {
+    window.sessionStorage.clear();
+    const lateCancel = deferredResponse();
+    let discoveries = 0;
+    let cancels = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/assistant/cancel') {
+          cancels += 1;
+          return cancels === 1
+            ? Promise.resolve(new Response(null, { status: 404 }))
+            : lateCancel.promise;
+        }
+        expect(pathname).toBe('/assistant/active-run');
+        discoveries += 1;
+        return Promise.resolve(
+          new Response(JSON.stringify({ activeRun: discoveries === 1 ? null : ACTIVE_NEW_RUN }), {
+            status: 200,
+          })
+        );
+      })
+    );
+    const { result, unmount } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      })
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    act(() => {
+      result.current.onCancel({ messages: [] });
+      result.current.onError(new TypeError('POST failed'));
+    });
+    await waitFor(() => expect(cancels).toBe(2));
+    unmount();
+    await act(async () => lateCancel.resolve(new Response(null, { status: 200 })));
+
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it('replaces a terminal stored hint with the host active run in the same thread', async () => {
