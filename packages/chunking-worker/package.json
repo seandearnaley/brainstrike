@@ -7,10 +7,12 @@
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
+    "effect": "catalog:",
     "web-tree-sitter": "^0.25.10"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "oxc-parser": "catalog:",
@@ -41,7 +43,7 @@
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest --watch",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && effect-tsgo diagnostics --project tsconfig.json --strict",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "sideEffects": false,

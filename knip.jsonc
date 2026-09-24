@@ -121,6 +121,7 @@
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
+        "@effect/language-service", // Effect language-service plugin name, not a package; see packages/effect-kit
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/renderer/styles.css (knip does not parse CSS)
         "xvfb-maybe", // Script binary in test:e2e* (invoked through scripts/run-env.mjs, which knip cannot resolve) + desktop-e2e.yml
@@ -502,7 +503,9 @@
       ],
       "ignoreDependencies": [
         // Bundled via tsup.config.ts noExternal; wasm subpath declared in src/types/wasm.d.ts
-        "tiktoken"
+        "tiktoken",
+        // Effect language-service plugin name, not a package; see packages/effect-kit.
+        "@effect/language-service"
       ],
       "typescript": {
         "config": "tsconfig.json"
