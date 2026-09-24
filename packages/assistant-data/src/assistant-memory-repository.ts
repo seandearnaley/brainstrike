@@ -20,6 +20,7 @@ import {
   isApprovalActionMessage,
   readActionMessageHostRunId,
 } from '@brainstrike/assistant-contract/approval-action-message';
+import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/assistant-stream-session';
 import {
   DEFAULT_THREAD_TITLE,
   DELEGATED_THREAD_DELETE_CTES,
@@ -2740,6 +2741,82 @@ function toHistoryRepository(
   return {
     headId,
     messages: orderHistoryGraphForImport(repositoryMessages),
+  };
+}
+
+/**
+ * Capture the paused assistant exactly as persisted before a continuation can
+ * add a new Mastra snapshot to its hydration group. A tool-call identity must
+ * select one durable message; chronology is never used to choose an owner.
+ */
+export async function readPausedActionReplayPrefix(input: {
+  readonly repository: AssistantThreadRepository;
+  readonly resourceId: string;
+  readonly threadId: string;
+  readonly toolCallId: string;
+  readonly nativeRunId: string;
+  readonly pauseKind: 'approval' | 'suspend';
+  readonly delegation?: import('@brainstrike/assistant-contract').DelegatedToolActionIdentity;
+  readonly pausedMessageId?: string;
+}): Promise<NonNullable<AssistantDiscoveredRun['actionReplay']>> {
+  const { repository, resourceId, threadId, toolCallId, pausedMessageId, nativeRunId, delegation } =
+    input;
+  const rows = await repository.listMessages(threadId, resourceId);
+  const history = toHistoryRepository(
+    rows,
+    await repository.listThreadRunEvents(threadId, resourceId)
+  );
+  const candidates = history.messages.filter(
+    (item) =>
+      item.message.role === 'assistant' &&
+      item.message.content.some(
+        (part) => part.type === 'tool-call' && part.toolCallId === toolCallId
+      )
+  );
+  if (candidates.length !== 1) {
+    throw new Error(
+      `Approval action tool call ${toolCallId} has no unique durable assistant owner.`
+    );
+  }
+  const candidate = candidates[0];
+  if (candidate?.message.role !== 'assistant') {
+    throw new Error('Approval action paused assistant owner disappeared.');
+  }
+  const syntheticIdentity = delegation
+    ? getToolActionIdentityKey({ delegation, runId: nativeRunId, toolCallId })
+    : `${nativeRunId}:${toolCallId}`;
+  const syntheticApprovalId = `suspended-approval:${syntheticIdentity}`;
+  const syntheticPauseId = `suspended-pause:${syntheticIdentity}`;
+  const syntheticPauseMessageId =
+    input.pauseKind === 'approval' ? syntheticApprovalId : syntheticPauseId;
+  if (
+    pausedMessageId &&
+    pausedMessageId !== candidate.message.id &&
+    pausedMessageId !== syntheticPauseMessageId
+  ) {
+    throw new Error('Approval action paused assistant ID disagrees with persisted tool ownership.');
+  }
+  const anchored = rows.some(
+    (row) => row.id === candidate.message.id && row.parentId !== undefined
+  );
+  if (!anchored) {
+    throw new Error('Approval action paused assistant has no durable parent edge.');
+  }
+  const prefixContent = candidate.message.content.filter(
+    (part) =>
+      part.type === 'text' ||
+      part.type === 'reasoning' ||
+      part.type === 'tool-call' ||
+      part.type === 'data'
+  );
+  if (prefixContent.length !== candidate.message.content.length) {
+    throw new Error('Approval action prefix contains an unsupported persisted part.');
+  }
+  return {
+    pausedMessageId: candidate.message.id,
+    pausedParentMessageId: candidate.parentId,
+    prefixContent,
+    syntheticPauseMessageId,
   };
 }
 

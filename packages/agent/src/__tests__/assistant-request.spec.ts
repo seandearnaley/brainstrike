@@ -157,6 +157,7 @@ describe('assistant request helpers', () => {
     const payload = parseAssistantRequestPayloadText(
       JSON.stringify({
         data: { memory: { resourceId: 'workspace', threadId: 'thread' } },
+        inputParentMessageId: null,
         messages: [{ content: [{ text: 'hello', type: 'text' }], role: 'user' }],
         runConfig: { maxTokens: 128 },
         unstable_assistantMessageId: 'assistant-client-id',
@@ -166,9 +167,18 @@ describe('assistant request helpers', () => {
     expect(payload).toMatchObject({
       assistantMessageId: 'assistant-client-id',
       data: { memory: { resourceId: 'workspace', threadId: 'thread' } },
+      inputParentMessageId: null,
       rawMessages: [{ role: 'user' }],
       runConfig: { maxTokens: 128 },
     });
+  });
+
+  it.each([42, '', {}, []])('rejects invalid input parent identity %s', (value) => {
+    expect(() =>
+      parseAssistantRequestPayloadText(
+        JSON.stringify({ inputParentMessageId: value, messages: [] })
+      )
+    ).toThrow('Assistant input parent message ID must be a valid ID or null.');
   });
 
   it('rejects a non-array messages field instead of silently dropping it', () => {

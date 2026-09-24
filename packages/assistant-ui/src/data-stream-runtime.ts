@@ -10,6 +10,7 @@ import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   type AssistantActiveRunSession,
   AssistantAttachmentValidationError,
+  type AssistantDiscoveredRun,
   dataUrlByteLength,
   type RuntimeTransportImageElision,
 } from '@brainstrike/assistant-contract';
@@ -79,6 +80,7 @@ export interface CancelledAssistantRun {
 
 export type BrainstrikeDataStreamRuntimeOptions = {
   activeRunSession?: AssistantActiveRunSession;
+  discoveredRun?: AssistantDiscoveredRun;
   api: string;
   body?:
     | ((
@@ -104,8 +106,8 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
   /** Reports replay-only failures so the active session can schedule a bounded retry. */
-  onReplayError?: (error: Error) => void;
-  onResponse?: (response: Response) => Promise<void> | void;
+  onReplayError?: (error: Error, eventId: string) => void;
+  onResponse?: (response: Response, parentMessageId?: string | null) => Promise<void> | void;
   /**
    * Visible local-model warmup that runs before the bounded request-input
    * phase. It has no absolute deadline because it may download model files,
@@ -911,6 +913,19 @@ function resolveOutboundTransportMessages(
   return excludeApprovalActionMessages(messages);
 }
 
+function requirePausedMessageId(messages: readonly ThreadMessage[]): string {
+  const actionEcho = messages.at(-1);
+  const pausedMessage = messages.at(-2);
+  if (
+    !isApprovalActionMessage(actionEcho) ||
+    pausedMessage?.role !== 'assistant' ||
+    !pausedMessage.id.trim()
+  ) {
+    throw new Error('Assistant action has no owning paused assistant message.');
+  }
+  return pausedMessage.id;
+}
+
 /**
  * Pass-through tap that intercepts "message-finish" chunks to surface provider
  * token usage. The DataStreamDecoder outputs AssistantStreamChunk
@@ -1191,7 +1206,9 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       context,
       unstable_getMessage,
     }: Pick<ChatModelRunOptions, 'abortSignal' | 'context' | 'unstable_getMessage'>,
-    notifyResponse: boolean
+    notifyResponse: boolean,
+    releaseCancelHandler?: () => void,
+    replayParentMessageId?: string | null
   ) {
     let terminalFinishFlushed = false;
     if (!response.ok) {
@@ -1203,11 +1220,12 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       throw new Error('Response body is null');
     }
     if (notifyResponse) {
-      await this.options.onResponse?.(response);
+      await this.options.onResponse?.(response, replayParentMessageId);
     }
 
     const markTerminalFlushed = (): void => {
       terminalFinishFlushed = true;
+      releaseCancelHandler?.();
     };
     const delegatedReceiver = this.options.onDelegatedConversation
       ? createDelegatedConversationTap(
@@ -1260,27 +1278,25 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
   private registerCancelHandler(
     abortSignal: AbortSignal,
     readCancelledMessages: () => readonly ThreadMessage[]
-  ): void {
-    abortSignal.addEventListener(
-      'abort',
-      () => {
-        if ((abortSignal.reason as { detach?: unknown } | undefined)?.detach) {
-          return;
-        }
-        // Reading the live message can throw (a runtime torn down under the
-        // abort). The cancel path itself must still run: this file's rule is
-        // that hook failures never break the stream, and an empty set only
-        // means "nothing here looks stale", which is the safe direction.
-        let messages: readonly ThreadMessage[] = [];
-        try {
-          messages = readCancelledMessages();
-        } catch (error: unknown) {
-          logger.warn('Could not read the cancelled thread for the Stop notice', { error });
-        }
-        this.options.onCancel?.({ messages });
-      },
-      { once: true }
-    );
+  ): () => void {
+    const onAbort = (): void => {
+      if ((abortSignal.reason as { detach?: unknown } | undefined)?.detach) {
+        return;
+      }
+      // Reading the live message can throw (a runtime torn down under the
+      // abort). The cancel path itself must still run: this file's rule is
+      // that hook failures never break the stream, and an empty set only
+      // means "nothing here looks stale", which is the safe direction.
+      let messages: readonly ThreadMessage[] = [];
+      try {
+        messages = readCancelledMessages();
+      } catch (error: unknown) {
+        logger.warn('Could not read the cancelled thread for the Stop notice', { error });
+      }
+      this.options.onCancel?.({ messages });
+    };
+    abortSignal.addEventListener('abort', onAbort, { once: true });
+    return () => abortSignal.removeEventListener('abort', onAbort);
   }
 
   async *resume(
@@ -1294,7 +1310,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     }
   ) {
     const { abortSignal } = runOptions;
-    this.registerCancelHandler(abortSignal, () => [
+    const releaseCancelHandler = this.registerCancelHandler(abortSignal, () => [
       ...runOptions.messages,
       runOptions.unstable_getMessage(),
     ]);
@@ -1321,12 +1337,14 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
           `Status 404: ${await readBoundedHttpErrorResponseText(response)}`
         );
       }
-      yield* this.consumeResponse(response, runOptions, false);
+      yield* this.consumeResponse(response, runOptions, false, releaseCancelHandler);
     } catch (error: unknown) {
       const replayError = error instanceof Error ? error : new Error(String(error));
-      this.options.onReplayError?.(replayError);
+      this.options.onReplayError?.(replayError, eventId);
       this.reportError(error);
       throw error;
+    } finally {
+      releaseCancelHandler();
     }
   }
 
@@ -1338,7 +1356,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     unstable_assistantMessageId,
     unstable_getMessage,
   }: ChatModelRunOptions) {
-    this.registerCancelHandler(abortSignal, () => [...messages, unstable_getMessage()]);
+    const releaseCancelHandler = this.registerCancelHandler(abortSignal, () => [
+      ...messages,
+      unstable_getMessage(),
+    ]);
 
     try {
       const requestPreparationTimeoutMs =
@@ -1378,7 +1399,11 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       const requestBody = createAssistantRequestEnvelope({
         ...(unstable_assistantMessageId ? { assistantMessageId: unstable_assistantMessageId } : {}),
         ...(Object.hasOwn(bodyData, 'data') ? { data: bodyData['data'] } : {}),
+        inputParentMessageId: outboundMessages.at(-2)?.id ?? null,
         messages: imageBound.messages,
+        ...(isActionRunConfig(runConfig)
+          ? { pausedMessageId: requirePausedMessageId(messages) }
+          : {}),
         ...(runConfig === undefined ? {} : { runConfig }),
       });
       const serializedRequestBody = JSON.stringify(requestBody);
@@ -1403,12 +1428,16 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
           // biome-ignore lint/style/useNamingConvention: assistant-ui runtime field.
           unstable_getMessage,
         },
-        true
+        true,
+        releaseCancelHandler,
+        isActionRunConfig(runConfig) ? undefined : (outboundMessages.at(-1)?.id ?? null)
       );
     } catch (error: unknown) {
       throwIfRunAbortedBeforeTerminalCompletion(abortSignal, false);
       this.reportError(error);
       throw error;
+    } finally {
+      releaseCancelHandler();
     }
   }
 }
@@ -1464,6 +1493,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
 export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRuntimeOptions) {
   const {
     activeRunSession,
+    discoveredRun,
     adapters,
     api,
     body,
@@ -1557,6 +1587,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     [activeRunSession, chatModelAdapter, resumeApi]
   );
   useAssistantRunReattachment({
+    discoveredRun,
     identityRef: replayIdentity,
     record: activeRunSession,
     replayRetryToken,

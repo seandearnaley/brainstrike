@@ -208,6 +208,29 @@ describe('auth token gate', () => {
     expect(data.error).toBe('unauthorized');
   });
 
+  it('authenticates active-run discovery before exposing a thread session', async () => {
+    const url = '/assistant/active-run?resourceId=workspace&threadId=thread-1';
+    const rejected = await runRequest(
+      { headers: { origin: desktopRendererOrigin }, method: 'GET', url },
+      withToken
+    );
+    expect(rejected.status).toBe(401);
+
+    const accepted = await runRequest(
+      {
+        headers: {
+          origin: desktopRendererOrigin,
+          'x-brainstrike-assistant-token': AUTH_TOKEN,
+        },
+        method: 'GET',
+        url,
+      },
+      withToken
+    );
+    expect(accepted.status).toBe(200);
+    expect(JSON.parse(accepted.body)).toEqual({ activeRun: null });
+  });
+
   it('rejects requests with a wrong token with 401', async () => {
     const response = await runRequest(
       {

@@ -67,6 +67,20 @@ export class EmbeddingHostManager {
       EmbeddingHostQueryEmbeddingRequest,
       EmbeddingHostQueryEmbeddingResponseReport
     >({
+      onTimeout: (_request, context) => {
+        logger.warn('Embedding host query timed out', {
+          pendingCount: context.pendingCount,
+          provider: 'local',
+          stage: 'host-response',
+          timeoutMs: context.timeoutMs,
+        });
+        return {
+          error: new Error(
+            `Embedding host request ${context.requestId} timed out after ${context.timeoutMs}ms.`
+          ),
+          policy: 'abandon',
+        };
+      },
       requestId: (request) => request.requestId,
       responseId: (report) => report.requestId,
       role: 'Embedding host',
@@ -289,9 +303,14 @@ export class EmbeddingHostManager {
     }
   }
 
-  async queryEmbedding(payload: EmbeddingHostQueryEmbeddingPayload): Promise<number[]> {
+  async queryEmbedding(
+    payload: EmbeddingHostQueryEmbeddingPayload,
+    options?: { signal?: AbortSignal }
+  ): Promise<number[]> {
+    options?.signal?.throwIfAborted();
     this.assertNotDisposed('queryEmbedding');
     const status = await this.ensureStarted({ waitForRunning: true });
+    options?.signal?.throwIfAborted();
     if (status.state !== 'running') {
       throw new Error(
         status.lastError ?? 'Embedding host is not running and cannot generate query embeddings.'
@@ -306,7 +325,7 @@ export class EmbeddingHostManager {
     }
 
     const request = createEmbeddingHostQueryEmbeddingRequest(status.runtimeId, payload);
-    const report = await this.queryRequests.request(request);
+    const report = await this.queryRequests.request(request, options);
     if (report.type === 'error') {
       throw deserializeRuntimeError(report.payload);
     }

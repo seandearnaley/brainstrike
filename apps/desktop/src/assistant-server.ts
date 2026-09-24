@@ -1,5 +1,6 @@
 import http from 'node:http';
 import {
+  type AgentMessage,
   type AwsCredentialIdentityProvider,
   assistantDataStreamSessions,
   createAwsCredentialChain,
@@ -7,6 +8,11 @@ import {
   resolveAwsCredentialChain,
 } from '@brainstrike/agent';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
+import type { AssistantActiveRunInputMessage } from '@brainstrike/assistant-contract/assistant-stream-session';
+import {
+  createPgliteAssistantThreadRepository,
+  readPausedActionReplayPrefix,
+} from '@brainstrike/assistant-data/assistant-memory-repository';
 import {
   respondAssistantRejection,
   respondJson,
@@ -24,6 +30,10 @@ import {
   initializeAgentStream,
 } from '@brainstrike/assistant-service/stream-init';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
+import {
+  handleActiveRunDiscoveryRequest,
+  registerInitializingAssistantRun,
+} from './assistant-server/active-run-discovery';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import {
   type AssistantServerAuth,
@@ -357,6 +367,10 @@ export async function handleAssistantRequest(
   }
 
   const route = resolveAssistantRoute(req);
+  if (route === 'active-run') {
+    handleActiveRunDiscoveryRequest(req, res);
+    return;
+  }
   if (route === 'status') {
     await handleAssistantStatus(res, options);
     return;
@@ -613,6 +627,65 @@ function buildDesktopToolDependencies(
   };
 }
 
+function discoveredInputMessage(message: AgentMessage): AssistantActiveRunInputMessage {
+  if (
+    message.role !== 'user' ||
+    message.parts.some((part) => part.type !== 'text' && part.type !== 'file')
+  ) {
+    throw new Error('Only a validated user input can be discovered for assistant replay.');
+  }
+  return {
+    id: message.id,
+    parts: message.parts.map((part) => {
+      if (part.type === 'text') {
+        return { text: part.text, type: 'text' as const };
+      }
+      if (part.type === 'file') {
+        return {
+          data: part.data,
+          mediaType: part.mediaType,
+          type: 'file' as const,
+          ...(part.filename ? { filename: part.filename } : {}),
+        };
+      }
+      throw new Error('Assistant replay input contains an unsupported part.');
+    }),
+    role: 'user',
+  };
+}
+
+function discoveryForRequest(input: {
+  readonly runId: string | undefined;
+  readonly threadId: string | undefined;
+  readonly resourceId: string | undefined;
+  readonly finalInputMessage: AgentMessage | undefined;
+  readonly inputParentMessageId: string | null | undefined;
+  readonly isActionLeg: boolean;
+}): NonNullable<Parameters<typeof runAssistantTurn>[0]['discovery']> | undefined {
+  const { runId, threadId, resourceId, finalInputMessage, inputParentMessageId, isActionLeg } =
+    input;
+  const hasUserInput = !isActionLeg && finalInputMessage?.role === 'user';
+  if (!(runId && threadId && resourceId) || (hasUserInput && inputParentMessageId === undefined)) {
+    return;
+  }
+  return {
+    resourceId,
+    threadId,
+    ...(isActionLeg || !finalInputMessage ? {} : { parentMessageId: finalInputMessage.id }),
+    inputMessage:
+      hasUserInput && finalInputMessage ? discoveredInputMessage(finalInputMessage) : null,
+    inputParentMessageId: hasUserInput ? (inputParentMessageId ?? null) : null,
+  };
+}
+
+function registerInitializingDiscovery(
+  discovery: ReturnType<typeof discoveryForRequest>
+): () => void {
+  return discovery
+    ? registerInitializingAssistantRun(discovery.resourceId, discovery.threadId)
+    : () => {};
+}
+
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -633,6 +706,9 @@ async function handleAssistantPost(
   const {
     assistantMessageId,
     credential,
+    finalInputMessage,
+    inputParentMessageId,
+    pausedMessageId,
     messages,
     runtimeData,
     apiKey,
@@ -654,6 +730,15 @@ async function handleAssistantPost(
   const executionAbortController = new AbortController();
   const runId = runtimeData.memory?.runId;
   const threadId = runtimeData.memory?.threadId;
+  const discovery = discoveryForRequest({
+    finalInputMessage,
+    inputParentMessageId,
+    isActionLeg: Boolean(toolApprovalAction || toolResumeAction || childFollowupAction),
+    resourceId: runtimeData.memory?.resourceId,
+    runId,
+    threadId,
+  });
+  const releaseInitializing = registerInitializingDiscovery(discovery);
 
   // W7 T2 (BST-1164): shadow-git turn boundaries on the run-persistence seam.
   // Only a persisted run (runId + threadId) with the snapshot deps wired
@@ -730,6 +815,28 @@ async function handleAssistantPost(
       authInput,
       ...(childFollowupAction ? { childFollowupAction } : {}),
       executionSignal: executionAbortController.signal,
+      ...(discovery ? { discovery } : {}),
+      ...(discovery && (toolApprovalAction || toolResumeAction)
+        ? {
+            resolveDiscovery: async () => {
+              const action = toolApprovalAction ?? toolResumeAction;
+              if (!action) {
+                return discovery;
+              }
+              const actionReplay = await readPausedActionReplayPrefix({
+                nativeRunId: action.runId,
+                pauseKind: toolApprovalAction ? 'approval' : 'suspend',
+                repository: createPgliteAssistantThreadRepository(await getDatabase()),
+                resourceId: discovery.resourceId,
+                threadId: discovery.threadId,
+                toolCallId: action.toolCallId,
+                ...(action.delegation ? { delegation: action.delegation } : {}),
+                ...(pausedMessageId ? { pausedMessageId } : {}),
+              });
+              return { ...discovery, actionReplay };
+            },
+          }
+        : {}),
       initializeStream: async (core) => {
         // runAssistantTurn admits this root only after its previous owner settles.
         await beginOwnedTurnLeg();
@@ -805,6 +912,7 @@ async function handleAssistantPost(
       toolApprovalAction,
       toolResumeAction,
     });
+    releaseInitializing();
     if (!turn.ok) {
       respondJson(res, turn.status, turn.payload);
       return;
@@ -829,6 +937,7 @@ async function handleAssistantPost(
       signal: executionAbortController.signal,
     });
   } finally {
+    releaseInitializing();
     if (runId && registeredSteerableRun) {
       unregisterSteerableRun(runId);
     }

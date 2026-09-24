@@ -199,7 +199,7 @@ Guard: `packages/assistant-data/src/__tests__/assistant-approval-topology.integr
   second authority: `prepareRequest` reconciles it against the durable run row
   through `GET /assistant/run-status`. A terminal or missing run reclaims it with
   a warning; a `running` row keeps the guard; a FAILED probe keeps the guard.
-  Replay-retry exhaustion runs the same reconciliation.
+  Replay-retry exhaustion also reconciles; `GET /assistant/active-run` restores exact unsaved input and host-validated approval prefix/paused-leaf ancestry after reload, waits through `initializing: true`, and rejects unknown ancestry.
 - Remap the generated streaming leaf to the durable id after `runEnd` through
   thread `export`/`import`. Missing leaves and leaves with descendants fail
   visibly.
@@ -857,7 +857,7 @@ provider-request boundary without mutating Mastra-owned content.
   persisted invocations and exclude calls already in the overlay. Identity is
   canonical `rootId` plus workspace path. Either supported edit supersedes all
   earlier reads of that file; an identical normalized grep pattern/scope
-  supersedes the earlier grep. Dedup stubs are neither candidates nor superseders,
+  supersedes the earlier grep (`filePaths: null` means omitted). Dedup stubs are neither candidates nor superseders,
   and no in-memory pending queue exists.
 - Measure reclaimable size in DECODED characters — the same ruler the live
   projectors self-fit against, never `JSON.stringify(...).length`. Commit the whole

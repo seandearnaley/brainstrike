@@ -439,10 +439,10 @@ function buildBrowserPaneInstruction(names: ModelFacingToolNames): string {
   return `The app has an embedded browser pane the user can see. ${names.browserNavigate} opens a URL in it (creates a tab when none is open) and waits for the load; then SEE the live page with ${names.browserReadPage} (compact accessibility tree, [ref=eN] handles on interactive elements — prefer this) or ${names.browserGetPageText} (plain text). These read the pane's ACTIVE tab.`;
 }
 
-/** The persona shape the delegation guidance needs (ids/labels/descriptions only). */
+/** The persona shape the delegation guidance needs. */
 export type DelegationPersonaSummary = Pick<
   AssistantPersonaDefinition,
-  'description' | 'id' | 'label'
+  'description' | 'id' | 'label' | 'mode'
 >;
 
 export interface BuildDefaultInstructionsOptions {
@@ -485,10 +485,18 @@ function buildDelegationInstruction(
   const toolList = personas
     .map((persona) => `${persona.label} (agent-${persona.id}): ${persona.description}`)
     .join('; ');
+  const readOnlyPersonas = personas.filter((persona) => persona.mode !== 'worker');
+  const workerPersonas = personas.filter((persona) => persona.mode === 'worker');
+  const readOnlyGuidance = readOnlyPersonas.length
+    ? `${readOnlyPersonas.map((persona) => persona.label).join(', ')} ${readOnlyPersonas.length === 1 ? 'is' : 'are'} read-only; use ${readOnlyPersonas.length === 1 ? 'it' : 'them'} for broad exploration or independent research, never for mutations. `
+    : '';
+  const workerGuidance = workerPersonas.length
+    ? `Delegate implementation and verification to ${workerPersonas.map((persona) => persona.label).join(', ')} when the user asks for agent work; ${workerPersonas.length === 1 ? 'it' : 'they'} can use only the tools and permissions admitted by the host. `
+    : '';
   const execution = backgroundDelegation
     ? ' Subagents run as background workers; launch independent subagents together and keep working while they run, but do not produce a deliverable that depends on their findings (a report, a canvas, a summary) until every subagent has returned. Do not set `_background.enabled` to false and do not set `_background.maxRetries` or `_background.timeoutMs`: execution mode, retries and timeouts are owned by the host. When a subagent is suspended, it is waiting for the user to approve one of its tool calls; the approval controls are already shown to the user, so say which subagent is waiting for approval and stop — never ask the user for "resume input" and never try to resume it yourself.'
     : '';
-  return `You can delegate to read-only subagents by calling their delegation tools: ${toolList}. Delegate when a sub-task needs broad multi-file exploration or independent research the user asked for, and pass a self-contained prompt describing exactly what you need back. Do NOT delegate a single lookup you can do yourself with one tool call, and NEVER delegate mutations (subagents are read-only). Each subagent runs its own tools and returns a written summary you must incorporate into your answer.${execution}`;
+  return `You can delegate by calling these persona tools: ${toolList}. ${readOnlyGuidance}${workerGuidance}Pass a self-contained prompt describing exactly what you need back. Do NOT delegate a single lookup you can do yourself with one tool call. Each subagent returns a written summary you must incorporate into your answer.${execution}`;
 }
 
 function buildAskUserInstruction(names: ModelFacingToolNames): string {

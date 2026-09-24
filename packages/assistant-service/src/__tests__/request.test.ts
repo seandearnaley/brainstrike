@@ -80,6 +80,25 @@ async function prepare(body: string): Promise<PrepareAssistantPostRequestResult>
   });
 }
 
+it('retains the exact accepted user input and parent edge for live replay discovery', async () => {
+  const result = await prepare(
+    JSON.stringify({
+      data: { provider: 'openai' },
+      inputParentMessageId: 'prior-assistant',
+      messages: [{ content: [{ text: 'Continue', type: 'text' }], id: 'new-user', role: 'user' }],
+    })
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.request.inputParentMessageId).toBe('prior-assistant');
+    expect(result.request.finalInputMessage).toMatchObject({
+      id: 'new-user',
+      parts: [{ text: 'Continue', type: 'text' }],
+      role: 'user',
+    });
+  }
+});
+
 describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
   it('runs AFTER envelope parsing: the hook receives the parsed payload', async () => {
     const seen: unknown[] = [];

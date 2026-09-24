@@ -1647,8 +1647,8 @@ The assistant's search verbs, in the order the default instructions present them
    only when an unfiltered scan hit its candidate cap; over-reporting is as wrong
    as silence. Default `outputMode: 'files'` is the cheap survey, `'content'`
    returns line matches, and both page by `offset`.
-2. `brainstrike.queryEmbeddingSpace` — semantic search when exact wording is
-   unknown.
+2. `brainstrike.queryEmbeddingSpace` — semantic search when exact wording is unknown.
+   Semantic/hybrid embedding requests propagate tool aborts as failures, never empty results.
 3. `brainstrike.hybridSearch` — vector + full-text RRF fusion reusing the SAME
    `HybridSearchService` as the UI, with `queryEmbeddingSpace`'s explicit-input
    scoping semantics (it does not inherit the implicit UI selection and takes no

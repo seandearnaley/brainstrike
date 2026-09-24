@@ -413,7 +413,7 @@ describe('BrainstrikeDataStreamRuntimeAdapter active-run reattachment', () => {
     };
 
     await expect(consumeReplay()).rejects.toBe(replayFailure);
-    expect(onReplayError).toHaveBeenCalledWith(replayFailure);
+    expect(onReplayError).toHaveBeenCalledWith(replayFailure, 'session-1:-1');
     expect(onError).toHaveBeenCalledWith(replayFailure);
   });
 });
@@ -506,6 +506,7 @@ describe('approval action echo exclusion (transport seam)', () => {
     // Both resume routes read the action from runConfig and ignore messages —
     // the echo must not reach the server at all.
     expect(requestBody['messages']).toEqual([]);
+    expect(requestBody['pausedMessageId']).toBe('assistant-1');
     expect(requestBody).toHaveProperty('runConfig');
   });
 
@@ -547,6 +548,7 @@ describe('approval action echo exclusion (transport seam)', () => {
     );
 
     expect(requestBody['messages']).toEqual([]);
+    expect(requestBody['pausedMessageId']).toBe('assistant-1');
     expect(requestBody).toHaveProperty('runConfig');
   });
 
@@ -1211,6 +1213,7 @@ describe('assistant-stream integration', () => {
 
     expect(Object.keys(requestBody).sort()).toEqual([
       'data',
+      'inputParentMessageId',
       'messages',
       'runConfig',
       'unstable_assistantMessageId',
@@ -1384,7 +1387,7 @@ describe('assistant-stream integration', () => {
     expect(requestHeaders?.get('authorization')).toBe('Bearer token');
     expect(requestHeaders?.get('content-type')).toBe('application/json');
     expect(requestCredentials).toBe('include');
-    expect(onResponse).toHaveBeenCalledWith(expect.any(Response));
+    expect(onResponse).toHaveBeenCalledWith(expect.any(Response), 'current-user');
     expect(onFinish).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'finished',
@@ -1399,6 +1402,7 @@ describe('assistant-stream integration', () => {
           strategy: 'mastra-memory-current-turn',
         },
       },
+      inputParentMessageId: 'old-user',
       messages: [
         {
           content: [{ text: 'current-user' }],
@@ -1495,6 +1499,32 @@ describe('assistant-stream integration', () => {
     detachAbortController.abort({ detach: true });
     await expect(detachRun).rejects.toMatchObject({ detach: true });
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cancel a completed hosted run when its old signal aborts later', async () => {
+    const onCancel = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"finished"}',
+            '0:"Done"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const controller = new AbortController();
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onCancel,
+      onFinish: () => controller.abort(new DOMException('Superseded by a later run', 'AbortError')),
+    });
+
+    for await (const _message of adapter.run(runOptions({ abortSignal: controller.signal }))) {
+      // Finish and release this turn before a subsequent runtime abort.
+    }
+    expect(controller.signal.aborted).toBe(true);
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it('does not let onResponse mask HTTP status failures', async () => {

@@ -605,6 +605,31 @@ const LocalRuntimeChat = ({
  * Inner component for data stream runtime (server-side hosted providers).
  * Uses useDataStreamRuntime for API-based inference.
  */
+function requestResourceId(requestData: Record<string, unknown> | undefined): string | undefined {
+  const memory = requestData?.['memory'];
+  if (!(memory && typeof memory === 'object' && !Array.isArray(memory))) {
+    return;
+  }
+  const resourceId = (memory as Record<string, unknown>)['resourceId'];
+  return typeof resourceId === 'string' ? resourceId : undefined;
+}
+
+function isAssistantRecoveryBlocked(session: {
+  readonly isRecovering: boolean;
+  readonly recoveryError: Error | undefined;
+}): boolean {
+  return session.isRecovering || Boolean(session.recoveryError);
+}
+
+function replayRuntimeOptions(session: ReturnType<typeof useAssistantServerRunSession>) {
+  return {
+    ...(session.activeRunSession && session.replayEligible && !isAssistantRecoveryBlocked(session)
+      ? { activeRunSession: session.activeRunSession }
+      : {}),
+    ...(session.discoveredRun ? { discoveredRun: session.discoveredRun } : {}),
+  };
+}
+
 const DataStreamRuntimeChat = ({
   onRuntimeReady,
   composerDraftCommand,
@@ -685,6 +710,7 @@ const DataStreamRuntimeChat = ({
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
+  const resourceId = requestResourceId(requestData);
   const serverRunSession = useAssistantServerRunSession({
     api,
     authHeaders,
@@ -692,17 +718,17 @@ const DataStreamRuntimeChat = ({
     onPausesCancelled,
     prepareLocalModel,
     prepareRequestData,
+    ...(resourceId ? { resourceId } : {}),
     threadKey,
   });
+  const recoveryBlocked = isAssistantRecoveryBlocked(serverRunSession);
 
   const runtimeAdapters = useAssistantThreadRuntimeAdapters(
     historyAdapter,
     attachmentsAvailability !== undefined
   );
   const runtime = useBrainstrikeDataStreamRuntime({
-    ...(serverRunSession.activeRunSession
-      ? { activeRunSession: serverRunSession.activeRunSession }
-      : {}),
+    ...replayRuntimeOptions(serverRunSession),
     api,
     ...(authHeaders === undefined ? {} : { headers: authHeaders }),
     ...runtimeAdapters,
@@ -749,6 +775,32 @@ const DataStreamRuntimeChat = ({
     <AssistantRuntimeProvider runtime={runtime}>
       <PlanModeExitProvider onExit={planMode?.onExit}>
         <AssistantPanelErrorBoundary>
+          {serverRunSession.isRecovering ? (
+            <div
+              aria-live="polite"
+              className="px-4 py-2 text-muted-foreground text-sm"
+              role="status"
+            >
+              Reconnecting to the assistant run…
+            </div>
+          ) : null}
+          {serverRunSession.recoveryError ? (
+            <div
+              className="mx-4 my-2 rounded-md border border-destructive/50 p-3 text-sm"
+              role="alert"
+            >
+              <span>
+                Could not reconnect to the assistant run: {serverRunSession.recoveryError.message}
+              </span>
+              <button
+                className="ml-3 underline"
+                onClick={serverRunSession.retryRecovery}
+                type="button"
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
           <ChatThreadUI
             composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
@@ -757,7 +809,8 @@ const DataStreamRuntimeChat = ({
             effectiveInputBudget={effectiveInputBudget}
             fileMentions={fileMentions}
             hasGroupedProviders={hasGroupedProviders}
-            isComposerDisabled={isComposerDisabled}
+            isComposerDisabled={isComposerDisabled || recoveryBlocked}
+            isReattaching={recoveryBlocked || serverRunSession.activeRunSession !== undefined}
             localLoadingState={localLoadingState}
             omSegment={omSegment}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
@@ -841,6 +894,7 @@ export const ChatThreadUI = ({
   workspaceBar,
   planMode,
   attachmentsAvailability,
+  isReattaching = false,
   threadKey,
   toolMenu,
 }: {
@@ -870,6 +924,7 @@ export const ChatThreadUI = ({
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   isComposerDisabled: boolean;
+  isReattaching?: boolean;
   hideDefaultCancel?: boolean | undefined;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
@@ -941,7 +996,7 @@ export const ChatThreadUI = ({
                 {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
                 {...(threadKey ? { threadKey } : {})}
               />
-              <FollowUpQueueBridge threadKey={threadKey} />
+              <FollowUpQueueBridge isReattaching={isReattaching} threadKey={threadKey} />
               {/* Drains a successful rewind's target prompt back into the composer
             (Amendment 2). Mounted here rather than on the message, whose own
             button is unmounted by the rewind that hides it. */}

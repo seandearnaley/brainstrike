@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { StreamChunk } from '../index';
 import {
   AssistantDataStreamSession,
+  AssistantDataStreamSessionManager,
   assistantDataStreamSessions,
   createRandomId,
   createStatelessAssistantDataStreamResponse,
@@ -19,6 +20,76 @@ interface Encoded {
   code: string;
   value: unknown;
 }
+
+it('discovers the exact active and retained replay session by owning thread', async () => {
+  const manager = new AssistantDataStreamSessionManager(60_000);
+  const release = Promise.withResolvers<void>();
+  const session = manager.create(
+    (async function* () {
+      await release.promise;
+      yield* [];
+    })(),
+    {
+      discovery: {
+        inputMessage: { id: 'user-1', parts: [{ text: 'Hi', type: 'text' }], role: 'user' },
+        inputParentMessageId: null,
+        parentMessageId: 'user-1',
+        resourceId: 'owner-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+      },
+      messageId: 'assistant-1',
+    }
+  );
+
+  expect(manager.findLatestByScope('owner-1', 'thread-1')).toEqual({
+    assistantMessageId: 'assistant-1',
+    eventId: `${session.id}:-1`,
+    inputMessage: { id: 'user-1', parts: [{ text: 'Hi', type: 'text' }], role: 'user' },
+    inputParentMessageId: null,
+    parentMessageId: 'user-1',
+    runId: 'run-1',
+    state: 'active',
+  });
+  expect(manager.findLatestByScope('other-owner', 'thread-1')).toBeNull();
+  expect(manager.findLatestByScope('owner-1', 'other-thread')).toBeNull();
+
+  release.resolve();
+  await session.whenClosed();
+  expect(manager.findLatestByScope('owner-1', 'thread-1')?.state).toBe('closed');
+
+  const actionSession = manager.create(createAsyncStream([]), {
+    discovery: {
+      actionReplay: {
+        pausedMessageId: 'paused-assistant',
+        pausedParentMessageId: 'user-before-pause',
+        prefixContent: [{ text: 'before approval', type: 'text' }],
+        syntheticPauseMessageId: 'suspended-approval:native-run:call-1',
+      },
+      inputMessage: null,
+      inputParentMessageId: null,
+      resourceId: 'owner-action',
+      runId: 'run-action',
+      threadId: 'thread-action',
+    },
+    messageId: 'assistant-action',
+  });
+  await actionSession.whenClosed();
+  expect(manager.findLatestByScope('owner-action', 'thread-action')).toEqual({
+    actionReplay: {
+      pausedMessageId: 'paused-assistant',
+      pausedParentMessageId: 'user-before-pause',
+      prefixContent: [{ text: 'before approval', type: 'text' }],
+      syntheticPauseMessageId: 'suspended-approval:native-run:call-1',
+    },
+    assistantMessageId: 'assistant-action',
+    eventId: `${actionSession.id}:-1`,
+    inputMessage: null,
+    inputParentMessageId: null,
+    runId: 'run-action',
+    state: 'closed',
+  });
+});
 
 function assertDefined<T>(value: T | undefined, message: string): T {
   if (value === undefined) {
