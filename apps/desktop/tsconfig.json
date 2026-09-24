@@ -76,6 +76,9 @@
       "@brainstrike/types": [
         "../../packages/types/src"
       ],
+      "@brainstrike/effect-kit": [
+        "../../packages/effect-kit/src/index.ts"
+      ],
       "@brainstrike/logging": [
         "../../packages/logging/src/index.ts"
       ],
@@ -218,6 +221,9 @@
     },
     {
       "path": "../../packages/platform-utils"
+    },
+    {
+      "path": "../../packages/effect-kit"
     },
     {
       "path": "../../packages/logging"

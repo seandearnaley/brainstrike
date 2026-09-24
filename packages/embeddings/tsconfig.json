@@ -39,6 +39,9 @@
       "path": "../types"
     },
     {
+      "path": "../effect-kit"
+    },
+    {
       "path": "../logging"
     },
     {

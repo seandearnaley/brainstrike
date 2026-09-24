@@ -461,6 +461,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../../packages/effect-kit
       '@brainstrike/embedding-worker':
         specifier: workspace:*
         version: link:../../packages/embedding-worker
@@ -1673,6 +1676,9 @@ importers:
       '@babel/parser':
         specifier: ^8.0.4
         version: 8.0.4
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
@@ -2053,6 +2059,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
       '@brainstrike/embedding-worker':
         specifier: workspace:*
         version: link:../embedding-worker

@@ -62,6 +62,7 @@
     "@brainstrike/assistant-ui": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
+    "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",

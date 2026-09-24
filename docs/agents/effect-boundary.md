@@ -46,6 +46,20 @@ Guard: `apps/desktop/src/__tests__/preload-sandbox-imports.test.ts`.
 Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`,
 `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
+### Shared helpers
+
+- Bound a Promise with `runWithTimeout`, never `Promise.race(work, timer)`: it
+  clears its timer when the work settles and aborts the task's signal at the
+  deadline.
+- `createConcurrencyLimiter` bounds concurrency, not order: a task arriving
+  while a permit is momentarily free starts ahead of waiters not yet woken. Code
+  that relies on FIFO admission (the snapshot and worktree mutexes) keeps its own
+  promise chain.
+
+Evidence: `effect-boundary/phase-one-pilots.md`.
+Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`,
+`timeout.test.ts`.
+
 ### Effect diagnostics
 
 - A package that depends on `effect` adds the `@effect/language-service` plugin
