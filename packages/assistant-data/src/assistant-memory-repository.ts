@@ -1,6 +1,7 @@
 import type {
   AssistantUiThreadHistoryAdapter,
   DelegatedConversationBaseline,
+  DelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
@@ -20,6 +21,7 @@ import {
   isApprovalActionMessage,
   readActionMessageHostRunId,
 } from '@brainstrike/assistant-contract/approval-action-message';
+import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/assistant-stream-session';
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   DEFAULT_THREAD_TITLE,
@@ -2742,6 +2744,81 @@ function toHistoryRepository(
   return {
     headId,
     messages: orderHistoryGraphForImport(repositoryMessages),
+  };
+}
+
+/**
+ * Capture the paused assistant exactly as persisted before a continuation can
+ * add a new Mastra snapshot to its hydration group. A tool-call identity must
+ * select one durable message; chronology is never used to choose an owner.
+ */
+export async function readPausedActionReplayPrefix(input: {
+  readonly repository: AssistantThreadRepository;
+  readonly resourceId: string;
+  readonly threadId: string;
+  readonly toolCallId: string;
+  readonly nativeRunId: string;
+  readonly pauseKind: 'approval' | 'suspend';
+  readonly delegation?: DelegatedToolActionIdentity;
+  readonly pausedMessageId?: string;
+}): Promise<NonNullable<AssistantDiscoveredRun['actionReplay']>> {
+  const { repository, resourceId, threadId, toolCallId, pausedMessageId, nativeRunId, delegation } =
+    input;
+  const rows = await repository.listMessages(threadId, resourceId);
+  const history = toHistoryRepository(
+    rows,
+    await repository.listThreadRunEvents(threadId, resourceId)
+  );
+  const candidates = history.messages.filter(
+    (item) =>
+      item.message.role === 'assistant' &&
+      item.message.content.some(
+        (part) => part.type === 'tool-call' && part.toolCallId === toolCallId
+      )
+  );
+  const syntheticIdentity = delegation
+    ? getToolActionIdentityKey({ delegation, runId: nativeRunId, toolCallId })
+    : `${nativeRunId}:${toolCallId}`;
+  const syntheticApprovalId = `suspended-approval:${syntheticIdentity}`;
+  const syntheticPauseId = `suspended-pause:${syntheticIdentity}`;
+  const syntheticPauseMessageId =
+    input.pauseKind === 'approval' ? syntheticApprovalId : syntheticPauseId;
+  // A durable paused ID is an exact owner selector even when another native run
+  // reused the same tool call ID. A synthetic notice identifies the action, not
+  // the durable owner, and therefore still requires unique tool ownership.
+  const hasDurablePausedId = pausedMessageId && pausedMessageId !== syntheticPauseMessageId;
+  const matchingCandidates = hasDurablePausedId
+    ? candidates.filter((item) => item.message.id === pausedMessageId)
+    : candidates;
+  if (matchingCandidates.length !== 1) {
+    if (hasDurablePausedId && matchingCandidates.length === 0) {
+      throw new Error(
+        'Approval action paused assistant ID disagrees with persisted tool ownership.'
+      );
+    }
+    throw new Error(
+      `Approval action tool call ${toolCallId} has no unique durable assistant owner.`
+    );
+  }
+  const candidate = matchingCandidates[0];
+  if (candidate?.message.role !== 'assistant') {
+    throw new Error('Approval action paused assistant owner disappeared.');
+  }
+  const prefixContent = candidate.message.content.filter(
+    (part) =>
+      part.type === 'text' ||
+      part.type === 'reasoning' ||
+      part.type === 'tool-call' ||
+      part.type === 'data'
+  );
+  if (prefixContent.length !== candidate.message.content.length) {
+    throw new Error('Approval action prefix contains an unsupported persisted part.');
+  }
+  return {
+    pausedMessageId: candidate.message.id,
+    pausedParentMessageId: candidate.parentId,
+    prefixContent,
+    syntheticPauseMessageId,
   };
 }
 

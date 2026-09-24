@@ -95,7 +95,8 @@ describe('useAssistantServerRunSession stale-record reclaim', () => {
               [ASSISTANT_STREAM_EVENT_ID_HEADER]: 'session:0',
               [ASSISTANT_STREAM_MESSAGE_ID_HEADER]: 'message',
             },
-          })
+          }),
+          'user-parent'
         )
       );
       await act(async () => {
@@ -139,6 +140,82 @@ describe('useAssistantServerRunSession stale-record reclaim', () => {
       'connection refused',
       false
     );
+  });
+
+  it('publishes an admitted live cursor for replay after the stream detaches', async () => {
+    window.sessionStorage.clear();
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        prepareRequestData: async () => ({ memory: { runId: 'run-live' } }),
+        threadKey: THREAD_KEY,
+      })
+    );
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    act(() => {
+      result.current.onResponse(
+        new Response(null, {
+          headers: {
+            [ASSISTANT_STREAM_EVENT_ID_HEADER]: 'session:0',
+            [ASSISTANT_STREAM_MESSAGE_ID_HEADER]: 'assistant-live',
+          },
+        }),
+        'user-parent'
+      );
+    });
+    expect(result.current.activeRunSession).toEqual({
+      assistantMessageId: 'assistant-live',
+      eventId: 'session:0',
+      parentMessageId: 'user-parent',
+      runId: 'run-live',
+    });
+    act(() => result.current.onError(new Error('socket dropped')));
+    expect(result.current.activeRunSession).toEqual(
+      JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? 'null')
+    );
+  });
+
+  it('discovers a running host stream in a replacement window with no sessionStorage cursor', async () => {
+    window.sessionStorage.clear();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe('/assistant/active-run');
+      expect(url.searchParams.get('resourceId')).toBe('resource-1');
+      expect(url.searchParams.get('threadId')).toBe(THREAD_KEY);
+      return new Response(
+        JSON.stringify({
+          activeRun: {
+            assistantMessageId: 'assistant-live',
+            eventId: 'session:0',
+            inputMessage: {
+              id: 'user-1',
+              parts: [{ text: 'first prompt', type: 'text' }],
+              role: 'user',
+            },
+            inputParentMessageId: null,
+            parentMessageId: 'user-1',
+            runId: 'run-live',
+            state: 'active',
+          },
+        }),
+        { status: 200 }
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      })
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(result.current.recoveryError).toBeUndefined();
+    expect(result.current.activeRunSession?.runId).toBe('run-live');
+    expect(result.current.discoveredRun?.inputMessage?.id).toBe('user-1');
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
   });
 
   it('retains cancelled-request authority on HTTP failure and reclaims only a terminal server run', async () => {

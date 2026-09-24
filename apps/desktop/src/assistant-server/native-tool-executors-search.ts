@@ -39,6 +39,7 @@ import {
   logToolFailure,
   parseToolExecuteInput,
   resolveToolExecuteInputCandidate,
+  type ToolExecuteContext,
   type ToolExecuteInput,
 } from './tool-execute-support';
 import { projectWebExtractModelOutput } from './web-extract-model-projection';
@@ -212,12 +213,20 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
     runtimeData,
   }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.queryEmbeddingSpace],
-    execute: async (input: ToolExecuteInput<QueryEmbeddingSpaceInput>) => {
+    execute: async (
+      input: ToolExecuteInput<QueryEmbeddingSpaceInput>,
+      context?: ToolExecuteContext
+    ) => {
       const resolvedInput = resolveQueryEmbeddingSpaceInput(input);
       try {
-        return await runQueryEmbeddingSpace(resolvedInput, runtimeData, {
-          embeddingHostManager: dependencies.embeddingHostManager,
-        });
+        return await runQueryEmbeddingSpace(
+          resolvedInput,
+          runtimeData,
+          {
+            embeddingHostManager: dependencies.embeddingHostManager,
+          },
+          context?.abortSignal
+        );
       } catch (error) {
         logToolFailure('queryEmbeddingSpace failed', error, resolvedInput);
         throw error;
@@ -234,15 +243,20 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
     runtimeData,
   }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.hybridSearch],
-    execute: async (input: ToolExecuteInput<HybridSearchInput>) => {
+    execute: async (input: ToolExecuteInput<HybridSearchInput>, context?: ToolExecuteContext) => {
       const resolvedInput = parseToolExecuteInput(
         NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch],
         input
       );
       try {
-        return await runHybridSearch(resolvedInput, runtimeData, {
-          embeddingHostManager: dependencies.embeddingHostManager,
-        });
+        return await runHybridSearch(
+          resolvedInput,
+          runtimeData,
+          {
+            embeddingHostManager: dependencies.embeddingHostManager,
+          },
+          context?.abortSignal
+        );
       } catch (error) {
         logToolFailure('hybridSearch failed', error, resolvedInput);
         throw error;

@@ -27,6 +27,8 @@ export interface ScriptedToolCall {
 }
 
 export interface ModelProviderScript {
+  /** Hold a final response at the external-provider boundary for reload tests. */
+  readonly beforeFinalText?: Promise<void>;
   /** Hold a streaming tool finish at a deterministic external-provider boundary. */
   readonly beforeToolFinish?: Promise<void>;
   /**
@@ -392,6 +394,7 @@ export async function startModelProviderShim(
           return;
         }
         if ('finalText' in turn) {
+          await selectedScript.beforeFinalText;
           writeStreamingFinalText(response, turn.finalText);
           return;
         }

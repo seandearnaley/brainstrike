@@ -158,19 +158,19 @@ Evidence: `local-inference/embedding-queue-load-verification.md`.
 
 - The hidden host runs BOTH background indexing and assistant query embeddings; a
   foreground query never shares the GPU with background indexing.
-- `createForegroundEmbeddingGate()` gates the worker's
-  `waitForBackgroundPermit('embedding claim')`. Gate the CLAIM permit only, never
-  completion, to keep draining deadlock-free. The query handler drains the in-flight
-  batch through `waitForWorkerIdle` before generating, via
-  `runCoordinatedQueryEmbedding`; `composeClaimPermit` and one gate per host runtime
-  wire the two together.
-- The pure gate suite controls polling and reopen time with fake timers and restores
-  timer state after every case. Never substitute a wall-clock sleep for a debounce
-  assertion.
+- `createForegroundEmbeddingGate()` gates `waitForBackgroundPermit('embedding claim')`:
+  gate CLAIM only, never completion, to keep draining deadlock-free. Before generation,
+  `runCoordinatedQueryEmbedding` drains the in-flight batch through `waitForWorkerIdle`;
+  `composeClaimPermit` and one gate per host runtime wire the two together.
+- Gate tests control polling/reopen with fake timers and restore timers after each case.
+  Never substitute a wall-clock sleep for a debounce assertion.
 - Foreground DB-pressure permits age scheduler quiet/latency windows from the
-  scheduler's monotonic snapshot timestamps; the claim path's bounded starvation bypass
-  uses `performance.now()` in the hidden renderer. Wall-clock corrections must not
-  extend either wait.
+  scheduler's monotonic snapshots; the claim starvation bypass uses renderer
+  `performance.now()`. Wall-clock corrections must not extend either wait.
+- Retrieval/hybrid signals reach hosted embeddings and the hidden-host request channel.
+  Local cancellation releases pending requests and ignores late replies;
+  running renderer inference has no cancel command.
+  Timeout/interruption logs include provider, stage, elapsed time; never query text, endpoints, credentials, or vectors.
 
 Evidence: `local-inference/foreground-query-coordination.md`.
 
