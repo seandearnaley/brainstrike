@@ -24,7 +24,8 @@ const DIAGNOSTICS_COMMAND = 'effect-tsgo diagnostics --project tsconfig.test.jso
 const LANGUAGE_SERVICE_PLUGIN = '@effect/language-service';
 // The one package allowed to run effects: it IS the Promise boundary.
 const RUNNER_OWNER_PREFIX = 'packages/effect-kit/src/';
-const RAW_RUNNER_METHOD = /^run(?:Promise|PromiseExit|Sync|SyncExit|Fork|Callback)$/u;
+// Every v4 runner, `...With` variants included: runPromise, runSyncExitWith, ...
+const RAW_RUNNER_METHOD = /^run[A-Z]/u;
 const isEffectPackage = (name) => name === 'effect' || name.startsWith('@effect/');
 const isEffectModule = (specifier) => specifier === 'effect' || specifier.startsWith('effect/');
 
@@ -66,13 +67,24 @@ const effectConsumers = () =>
 /**
  * Reads one module's use of `effect` from its AST, so an aliased import
  * (`import { Effect as Fx }`, `import * as E`) cannot slip past a text match
- * and an unrelated `runtime.runPromise` is not mistaken for one.
+ * and an unrelated `runtime.runPromise` is not mistaken for one. A runner counts
+ * wherever it is referenced (`pipe(program, Effect.runPromise)`,
+ * `Effect['runSync']`, `const { runFork } = Effect`), not only where called.
+ * Dynamic imports and re-exports of `effect` are reported separately: either
+ * would hand a runner to code this scan cannot follow.
  */
 function analyzeEffectUsage(fileName, sourceText) {
   const sourceFile = ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, true);
   const effectLocals = new Set();
   const namespaceLocals = new Set();
-  const usage = { importsEffect: false, managedRuntime: false, runnerCalls: [], unstable: [] };
+  const usage = {
+    dynamicImports: [],
+    importsEffect: false,
+    managedRuntime: false,
+    reexports: [],
+    runnerUses: [],
+    unstable: [],
+  };
   for (const statement of sourceFile.statements) {
     const specifier = statement.moduleSpecifier;
     if (!(specifier && ts.isStringLiteral(specifier) && isEffectModule(specifier.text))) {
@@ -81,6 +93,9 @@ function analyzeEffectUsage(fileName, sourceText) {
     usage.importsEffect = true;
     if (specifier.text.startsWith('effect/unstable')) {
       usage.unstable.push(specifier.text);
+    }
+    if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
+      usage.reexports.push(specifier.text);
     }
     const clause = ts.isImportDeclaration(statement) ? statement.importClause : undefined;
     if (!clause || clause.isTypeOnly || !clause.namedBindings) {
@@ -119,12 +134,41 @@ function analyzeEffectUsage(fileName, sourceText) {
       usage.managedRuntime = true;
     }
     if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      RAW_RUNNER_METHOD.test(node.expression.name.text) &&
-      isEffectNamespace(node.expression.expression)
+      ts.isPropertyAccessExpression(node) &&
+      RAW_RUNNER_METHOD.test(node.name.text) &&
+      isEffectNamespace(node.expression)
     ) {
-      usage.runnerCalls.push(node.expression.getText(sourceFile));
+      usage.runnerUses.push(node.getText(sourceFile));
+    }
+    if (
+      ts.isElementAccessExpression(node) &&
+      ts.isStringLiteralLike(node.argumentExpression) &&
+      RAW_RUNNER_METHOD.test(node.argumentExpression.text) &&
+      isEffectNamespace(node.expression)
+    ) {
+      usage.runnerUses.push(node.getText(sourceFile));
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name) &&
+      node.initializer &&
+      isEffectNamespace(node.initializer)
+    ) {
+      for (const element of node.name.elements) {
+        const property = element.propertyName ?? element.name;
+        if (ts.isIdentifier(property) && RAW_RUNNER_METHOD.test(property.text)) {
+          usage.runnerUses.push(`${node.initializer.getText(sourceFile)}.${property.text}`);
+        }
+      }
+    }
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments[0] &&
+      ts.isStringLiteralLike(node.arguments[0]) &&
+      isEffectModule(node.arguments[0].text)
+    ) {
+      usage.dynamicImports.push(node.arguments[0].text);
     }
     ts.forEachChild(node, visit);
   };
@@ -197,11 +241,17 @@ test('production code imports no effect/unstable module and runs effects only in
       failures.push(`${file} imports ${specifier}; the contract must change first`);
     }
     if (file.startsWith(RUNNER_OWNER_PREFIX)) {
-      ownerRunnerCalls += usage.runnerCalls.length;
+      ownerRunnerCalls += usage.runnerUses.length;
       continue;
     }
-    for (const call of usage.runnerCalls) {
-      failures.push(`${file} calls ${call}; use runAtPromiseBoundary from @brainstrike/effect-kit`);
+    for (const use of usage.runnerUses) {
+      failures.push(`${file} uses ${use}; use runAtPromiseBoundary from @brainstrike/effect-kit`);
+    }
+    for (const specifier of usage.dynamicImports) {
+      failures.push(`${file} imports ${specifier} dynamically; import it statically`);
+    }
+    for (const specifier of usage.reexports) {
+      failures.push(`${file} re-exports ${specifier}; import effect where it is used`);
     }
     if (usage.managedRuntime) {
       failures.push(
@@ -215,7 +265,7 @@ test('production code imports no effect/unstable module and runs effects only in
 });
 
 test('the effect usage detector fires on known violations and ignores look-alikes', () => {
-  const runnerCalls = (source) => analyzeEffectUsage('probe.ts', source).runnerCalls;
+  const runnerCalls = (source) => analyzeEffectUsage('probe.ts', source).runnerUses;
   assert.deepEqual(
     runnerCalls("import { Effect } from 'effect';\nawait Effect.runPromise(program, { signal });"),
     ['Effect.runPromise']
@@ -231,6 +281,37 @@ test('the effect usage detector fires on known violations and ignores look-alike
     []
   );
   assert.deepEqual(runnerCalls('const Effect = local;\nEffect.runPromise(program);'), []);
+  assert.deepEqual(
+    runnerCalls(
+      [
+        "import { Effect } from 'effect';",
+        'Effect.runPromiseWith(services)(program);',
+        'program.pipe(Effect.runPromise);',
+        "Effect['runSyncExit'](program);",
+        'const { runFork, succeed } = Effect;',
+        'const { runCallbackWith: callback } = Effect;',
+      ].join('\n')
+    ),
+    [
+      'Effect.runPromiseWith',
+      'Effect.runPromise',
+      "Effect['runSyncExit']",
+      'Effect.runFork',
+      'Effect.runCallbackWith',
+    ]
+  );
+  assert.deepEqual(runnerCalls("import { Effect } from 'effect';\nEffect.runtime;"), []);
+  assert.deepEqual(
+    analyzeEffectUsage('probe.ts', "const { Effect } = await import('effect');").dynamicImports,
+    ['effect']
+  );
+  assert.deepEqual(
+    analyzeEffectUsage(
+      'probe.ts',
+      "export { Effect } from 'effect';\nexport type { Schema } from 'effect';"
+    ).reexports,
+    ['effect']
+  );
   assert.equal(
     analyzeEffectUsage('probe.ts', "import { ManagedRuntime } from 'effect';").managedRuntime,
     true
