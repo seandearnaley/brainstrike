@@ -71,6 +71,22 @@ afterEach(() => {
 });
 
 describe('delegated workspace app registration', () => {
+  it('carries a saved family accent into the tab without a finite palette lookup', async () => {
+    mocks.get.mockResolvedValue({ ...node, color: 'family:1734:680' });
+    useWorkspaceTabSelectionStore.getState().openApp(delegatedWorkspaceTabId(address));
+    const { result } = renderHook(useDelegatedWorkspaceApps);
+    await waitFor(() => expect(result.current[0]?.label).toBe('Cedar'));
+    expect(result.current[0]?.tabAppearance).toMatchObject({
+      colorId: 'family:1734:680',
+      markClassName: 'bs-agent-family-mark',
+      selectedClassName: 'bs-agent-family bs-agent-family-selected',
+      style: {
+        '--agent-accent-dark': expect.stringContaining('173.4'),
+        '--agent-accent-light': expect.stringContaining('173.4'),
+      },
+    });
+  });
+
   it('returns to the owning root without manufacturing a child tab for it', async () => {
     useWorkspaceTabSelectionStore.getState().hydrate([], { kind: 'empty' });
     function ReturnToRoot() {

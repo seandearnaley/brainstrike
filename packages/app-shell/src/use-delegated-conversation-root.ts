@@ -99,12 +99,16 @@ export function useAssistantPanelThreadScope(
     providerSettings,
     planMode
   );
+  const agentColor = useMemo(
+    () => memoryThreads.find((thread) => thread.id === selectedMemoryThreadId)?.metadata?.color,
+    [memoryThreads, selectedMemoryThreadId]
+  );
+  const coloredDelegatedPanelBinding = useMemo(
+    () => ({ ...delegatedPanelBinding, agentColor }),
+    [delegatedPanelBinding, agentColor]
+  );
   return {
-    delegatedPanelBinding: {
-      ...delegatedPanelBinding,
-      agentColor: memoryThreads.find((thread) => thread.id === selectedMemoryThreadId)?.metadata
-        ?.color,
-    },
+    delegatedPanelBinding: coloredDelegatedPanelBinding,
     ensureResourceThreads,
     memoryLoadState,
     memoryResourceId,

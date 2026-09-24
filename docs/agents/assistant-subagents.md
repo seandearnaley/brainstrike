@@ -950,10 +950,10 @@ Evidence: `assistant-subagents/child-view-binding.md`.
   omit `finishReason` even after a provider failure, so the mapper uses the
   authoritative HOOK outcome rather than labelling the tool-result completed.
   Other ancestors may still complete after handling the failure.
-- Delegation cards resolve durable names and colors through the owning workspace
-  repository, validating the actual parent rather than persona identity, with
-  task text from the delegation tool input. Missing or contradictory authorized
-  identity is a visible local error, never a fabricated child name.
+- Delegation cards use tool-input task text and authorized live publications
+  keyed by parent run/tool call, never retaining child stream in parent message.
+  Owning workspace repository validates actual parent and supplies durable
+  name/color; missing or contradictory live/result identity is a visible error.
 - A child-open request made before the workspace repository is available fails
   visibly and clears its session intent; boot hydration cannot replay it.
 

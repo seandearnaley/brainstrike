@@ -4,6 +4,7 @@ import { cn } from '@brainstrike/ui';
 import type { ComponentProps, ReactElement } from 'react';
 import { ActiveConversationInputProvider } from './active-conversation-input';
 import type { SendActiveConversationInput } from './active-conversation-input-context';
+import { agentColorStyle } from './agent-color-style';
 import {
   type ApprovalOwnerThread,
   ApprovalOwnerThreadContext,
@@ -77,6 +78,7 @@ export function AssistantConversationPanel({
         data-agent-color={agentColor}
         data-testid="assistant-conversation-panel"
         data-thread-key={threadKey}
+        style={agentColorStyle(agentColor)}
       >
         <AssistantRuntimeProvider runtime={runtime}>
           <ActiveConversationInputProvider

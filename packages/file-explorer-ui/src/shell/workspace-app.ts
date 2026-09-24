@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from 'react';
+import type { ComponentType, CSSProperties, ReactNode } from 'react';
 
 /**
  * A WorkspaceApp is a closable SINGLETON surface that lives in the workspace tab
@@ -30,7 +30,9 @@ export interface WorkspaceApp {
     readonly accentClassName: string;
     readonly colorId: string;
     readonly idleClassName: string;
+    readonly markClassName?: string;
     readonly selectedClassName: string;
+    readonly style?: CSSProperties;
   };
 }
 

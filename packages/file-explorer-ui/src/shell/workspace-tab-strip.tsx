@@ -515,6 +515,7 @@ const AppTabButton = memo<AppTabButtonProps>(function AppTabButton({
       )}
       data-agent-color={app.tabAppearance?.colorId}
       role="presentation"
+      style={app.tabAppearance?.style}
     >
       <button
         aria-controls={`workspace-app-panel-${app.id}`}
@@ -530,11 +531,17 @@ const AppTabButton = memo<AppTabButtonProps>(function AppTabButton({
       >
         {app.tabAppearance ? (
           <span
-            aria-hidden="true"
-            className={`h-4 w-0.5 rounded-full ${app.tabAppearance.accentClassName}`}
-          />
-        ) : null}
-        <Icon className="h-3.5 w-3.5" />
+            className={cn(
+              'flex h-5 w-5 items-center justify-center rounded border',
+              app.tabAppearance.markClassName ?? app.tabAppearance.accentClassName
+            )}
+            data-testid="workspace-agent-mark"
+          >
+            <Icon className="h-3.5 w-3.5" />
+          </span>
+        ) : (
+          <Icon className="h-3.5 w-3.5" />
+        )}
         <span>{app.label}</span>
       </button>
       <Button

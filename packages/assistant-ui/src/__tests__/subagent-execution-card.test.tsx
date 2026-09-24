@@ -73,6 +73,24 @@ describe('SubagentExecutionCard', () => {
       'orange'
     );
   });
+  it('derives scheme accents for a family-colored delegation card', () => {
+    const { container } = renderCard({
+      presentation: {
+        colorId: 'family:1375:540',
+        displayName: 'Aspen',
+        markClassName: 'bs-agent-family-mark',
+      },
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    const card = container.querySelector('.bs-subagent-card');
+    expect(card).toHaveAttribute('data-agent-color', 'family:1375:540');
+    expect((card as HTMLElement).style.getPropertyValue('--agent-accent-light')).toMatch(
+      /^oklch\(/
+    );
+  });
   it('shows a delegation that ran but never answered as "No answer", not Completed', () => {
     // BST-1410. The delegation tool call succeeds even when the child exhausts
     // its step cap mid-tool-loop and writes nothing, so `status.type` alone
@@ -145,7 +163,7 @@ describe('SubagentExecutionCard', () => {
       toolCallId: 'delegation-1',
       toolName: 'agent-analyze',
     });
-    expect(screen.getByText('Delegating to Analyst')).toBeTruthy();
+    expect(screen.getByText('Analyst is working')).toBeTruthy();
     expect(screen.getByRole('img', { name: 'Running' })).toBeTruthy();
     expect(screen.getByText('· 0 tool calls')).toBeTruthy();
     // No child rows yet: nothing to expand, so the row is not a button.
@@ -224,7 +242,7 @@ describe('SubagentExecutionCard', () => {
       toolCallId: 'delegation-1',
       toolName: 'agent-explore',
     });
-    expect(screen.getByText('Delegating to Explorer')).toBeTruthy();
+    expect(screen.getByText('Explorer is working')).toBeTruthy();
     // The header count reflects the in-flight child tool, NOT zero.
     expect(screen.getByText('· 1 tool call')).toBeTruthy();
     fireEvent.click(screen.getByRole('button'));
@@ -376,7 +394,7 @@ describe('SubagentExecutionCard non-interactive row name', () => {
       },
       'standard'
     );
-    const row = screen.getByRole('group', { name: /^Delegating to Analyst$/ });
+    const row = screen.getByRole('group', { name: /^Analyst is working$/ });
     expect(row).toBeInTheDocument();
     // The chip is present as row text — proving "fixed" (chip renders,
     // excluded from the name) rather than "not rendered" (chip absent,

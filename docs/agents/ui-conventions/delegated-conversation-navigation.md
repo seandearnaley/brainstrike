@@ -29,3 +29,22 @@ Extracted verbatim from the pre-distillation contract.
 - Free-form steering remains BST-1723 acceptance, not claimed by this slice.
 
 Paired acceptance: `delegated-workspace-reload.desktop.test.ts`, `delegated-worker-write.desktop.test.ts`, `delegated-sidebar-lifecycle.test.tsx`, `delegated-sidebar-rows.test.ts`, `delegated-conversation-ancestry.test.ts`, and `delegated-conversation-store.test.ts`.
+
+
+## Continuous family accents (2026-09-24)
+
+New child identities use persisted `family:hue:shade` tokens instead of cycling
+through the named root swatches. Admission chooses a nearby hue and shade with
+separation from the parent and saved siblings; deeper branches use a tighter
+hue range. Existing agents retain their identity when more agents arrive or a
+root is recolored. The root picker previews new branches without adding palette
+configuration. Callsigns, indentation and status remain independent cues.
+
+Navigation uses `getDelegatedColorPresentation`; panels, cards and approvals
+resolve the same validated token into light and dark OKLCH variables. Compact
+icon tiles replace decorative navigation stripes. Main text retains the theme
+foreground, with restrained accent washes on surfaces.
+
+Guards: `packages/types/__tests__/agent-color.test.ts`,
+`packages/app-shell/src/__tests__/delegated-workspace-apps.test.tsx`,
+`packages/app-shell/src/__tests__/thread-color-family-preview.test.tsx`.

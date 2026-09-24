@@ -2,7 +2,7 @@ import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
 import { act, fireEvent, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LayoutGrid } from 'lucide-react';
-import { useEffect } from 'react';
+import { type CSSProperties, useEffect } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseTabManagerReturn } from '../hooks/use-tab-manager';
 import { useWorkspaceTabs } from '../shell/use-workspace-tabs';
@@ -129,6 +129,37 @@ describe('workspace tabs — apps, launcher, selection', () => {
     expect(tabs[0]).toHaveAccessibleName(/files/i);
     expect(tabs[1]).toHaveAccessibleName(/changes/i);
     expect(tabs[2]).toHaveAccessibleName(/canvas/i);
+  });
+
+  it('paints a dynamic conversation tab through its validated style and compact icon tile', async () => {
+    useWorkspaceTabSelectionStore.getState().openApp('changes');
+    renderWorkspace([
+      FILES_APP,
+      {
+        ...CHANGES_APP,
+        tabAppearance: {
+          accentClassName: 'bg-green-500',
+          colorId: 'family:1375:540',
+          idleClassName: 'bs-agent-family-idle',
+          markClassName: 'bs-agent-family-mark',
+          selectedClassName: 'bs-agent-family-selected',
+          style: {
+            '--agent-accent-dark': 'oklch(0.760 0.131 137.5)',
+            '--agent-accent-light': 'oklch(0.520 0.160 137.5)',
+          } as CSSProperties,
+        },
+      },
+    ]);
+    const tab = await screen.findByTestId('workspace-app-tab-changes');
+    const surface = tab.parentElement;
+    expect(surface).toHaveAttribute('data-agent-color', 'family:1375:540');
+    expect(surface).toHaveClass('bs-agent-family-selected');
+    expect((surface as HTMLElement).style.getPropertyValue('--agent-accent-light')).toMatch(
+      /^oklch\(/
+    );
+    expect(screen.getByTestId('workspace-agent-mark')).toContainElement(tab.querySelector('svg'));
+    expect(screen.getByTestId('workspace-agent-mark')).toHaveClass('bs-agent-family-mark');
+    expect(tab.querySelector('.w-0\\.5')).toBeNull();
   });
 
   it('does not render tabs for registered apps that are not open', async () => {

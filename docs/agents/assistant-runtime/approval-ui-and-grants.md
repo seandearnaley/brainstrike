@@ -433,3 +433,14 @@ The record below is the contract text as it stood before the
    Per-tool DENY still wins in both cases: a denied tool never enters the gated
    map, so it never reaches the resume gate. A non-empty `askTools` always gates
    exactly the ask set regardless of posture.
+
+## 2026-09-23 approval owner color
+
+The previous delegation-call hash selected up to eight rail colors independently
+of the owner's durable agent color. Approval cards also had a fixed amber
+surface. The current presentation uses the durable owner `colorId` on the
+standalone card or row and inherits the panel color for root approvals. The
+existing status icon and status text continue to communicate the decision;
+no hash rails or colored left stripe remain. The depth indent and standalone
+approval-part placement are unchanged. See `approval-row.browser.test.tsx` for
+theme and nesting guards.

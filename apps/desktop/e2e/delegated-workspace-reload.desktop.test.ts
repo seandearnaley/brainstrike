@@ -100,8 +100,8 @@ test('restores distinct child tabs and native transcripts without executing a ru
     const ids: string[] = [];
     for (const [name, color, parentName] of [
       ['Cedar', 'emerald'],
-      ['Flint', 'amber'],
-      ['Wren', 'violet', 'Cedar'],
+      ['Flint', 'family:2000:730'],
+      ['Wren', 'family:1510:420', 'Cedar'],
     ]) {
       const child = `${root['id']}-${name}`;
       const resource = `${root['resource']}-${name}`;
@@ -211,9 +211,13 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
   await expect(cedar.locator('..')).toHaveAttribute('data-agent-color', 'emerald');
-  await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'amber');
-  await expect(cedar.locator('span[aria-hidden="true"]').first()).toHaveClass(/bg-emerald-500/u);
-  await expect(flint.locator('span[aria-hidden="true"]').first()).toHaveClass(/bg-amber-500/u);
+  await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'family:2000:730');
+  await expect(cedar.getByTestId('workspace-agent-mark')).toHaveClass(/text-emerald-700/u);
+  await expect(flint.getByTestId('workspace-agent-mark')).toHaveClass(/bs-agent-family-mark/u);
+  const flintMarkBackground = await flint
+    .getByTestId('workspace-agent-mark')
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(flintMarkBackground).not.toBe('rgba(0, 0, 0, 0)');
   await expect(window.getByText('Cedar saved native transcript', { exact: true })).toBeVisible();
   const rootDraft = rootPanel.getByRole('textbox', { name: 'Message input' });
   await rootDraft.fill('UNSENT_PARENT_DRAFT_1724');
@@ -288,8 +292,12 @@ test('restores distinct child tabs and native transcripts without executing a ru
     .toBeLessThanOrEqual(1);
   await window.getByRole('button', { exact: true, name: 'Flint Child' }).click();
   await expect(flint).toHaveAttribute('aria-selected', 'true');
-  await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'amber');
-  await expect(flint.locator('span[aria-hidden="true"]').first()).toHaveClass(/bg-amber-500/u);
+  await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'family:2000:730');
+  await expect(flint.getByTestId('workspace-agent-mark')).toHaveClass(/bs-agent-family-mark/u);
+  await expect(flint.getByTestId('workspace-agent-mark')).toHaveCSS(
+    'background-color',
+    flintMarkBackground
+  );
   await sidebarCedar.getByRole('button', { name: /Expand/ }).click();
   const wrenRow = window.getByRole('row').filter({
     has: window.getByRole('button', { exact: true, name: 'Wren Child' }),

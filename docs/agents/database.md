@@ -358,9 +358,9 @@ Guard: `packages/db/__tests__/delegated-invocations.integration.test.ts`.
 
 ## ASSISTANT THREAD GROUP PRESENTATION
 
-- Thread group structure and presentation are local-first Brainstrike state in
-  `brainstrike_assistant_thread_groups`, not Mastra metadata. Migration 143 widens
-  group/child colors; keep SQL checks and repository unions aligned at read/write.
+- Thread groups live in `brainstrike_assistant_thread_groups`, not Mastra metadata.
+  Migration 143 keeps 18 semantic colors; 144 adds canonical family child tokens.
+  Match SQL and types; admit colors tree-wide once. Evidence: `database/agent-family-colors.md`.
 - Every schema change here — a presentation column, a sidecar, a constraint replacement
   — is added to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
   Renderer repositories only probe schema readiness and never create or alter tables or

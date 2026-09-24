@@ -48,6 +48,7 @@ import {
   type ThreadRowStatusState,
 } from './assistant-thread-presentation';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
+import { ThreadColorFamilyPreview } from './thread-color-family-preview';
 import { ThreadExpandedDetails, ThreadMetadataBadges } from './thread-row-metadata';
 import { ThreadRowStatusGlyph } from './thread-row-status-glyph';
 import { ThreadRowDndShell } from './threads-panel-dnd-elements';
@@ -732,7 +733,7 @@ function ThreadRowDisplay({
               align="end"
               className={
                 customizing
-                  ? 'w-64 max-w-[calc(var(--radix-popover-content-available-width)-0.5rem)] p-3'
+                  ? 'max-h-[calc(var(--radix-popover-content-available-height)-1rem)] w-64 max-w-[calc(var(--radix-popover-content-available-width)-0.5rem)] overflow-y-auto p-3'
                   : 'w-48 p-1.5'
               }
               collisionPadding={8}
@@ -953,6 +954,7 @@ function ThreadCustomizationPanel({
               </div>
             ))}
           </div>
+          <ThreadColorFamilyPreview rootColor={getThreadColorId(thread)} />
         </div>
       </div>
       {metadataError ? <p className="text-[11px] text-destructive">{metadataError}</p> : null}

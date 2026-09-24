@@ -1710,10 +1710,10 @@ Previews and grants:
   stale lines stay in the card beside the actionable controls. The choice is pure
   (`approval-presentation.ts`) and the rank is computed ONCE per thread change by
   `ApprovalRanksProvider` from the SAME incremental index.
-- Delegation identity is a colour rail hashed from the delegation call id, one
-  rail per ancestor edge plus a depth indent — NOT DOM re-parenting: approval
-  parts stay standalone in the assistant message. Both forms carry
-  `data-testid="assistant-tool-approval-notice"` and
+- Delegated approvals use the owner's durable `colorId` for the standalone card
+  or row, with depth indentation and persona chain text. A missing color uses the
+  current panel accent. Approval parts stay standalone in the assistant message.
+  Both forms carry `data-testid="assistant-tool-approval-notice"` and
   `data-approval-presentation="card|row"`; `approval-delegation-owner` names the
   persona chain. The notice file is a chooser; `use-approval-notice-state.ts` owns
   outcome/lock/submit logic and `approval-preview.tsx` the structured previews.

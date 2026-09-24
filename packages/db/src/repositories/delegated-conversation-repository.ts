@@ -1,3 +1,4 @@
+import { type AgentColor, isAgentColor } from '@brainstrike/types/agent-color';
 import {
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
@@ -47,8 +48,7 @@ export const DELEGATED_CONVERSATION_COLOR_IDS = [
   'purple',
   'zinc',
 ] as const;
-export type DelegatedConversationColor = (typeof DELEGATED_CONVERSATION_COLOR_IDS)[number];
-const DELEGATED_CONVERSATION_COLOR_ID_SET = new Set<string>(DELEGATED_CONVERSATION_COLOR_IDS);
+export type DelegatedConversationColor = AgentColor;
 
 export interface CreateDelegatedChild {
   readonly color: DelegatedConversationColor;
@@ -132,6 +132,7 @@ export interface DelegatedConversationRepository {
     scope: DelegatedConversationScope,
     parentThreadId: string
   ): Promise<DelegatedConversationNode[]>;
+  listDescendants(scope: DelegatedConversationScope): Promise<DelegatedConversationNode[]>;
   recordInvocationEvent(
     scope: DelegatedConversationScope,
     identity: DelegatedRunIdentity,
@@ -161,8 +162,8 @@ function requireTokenCount(value: number): number {
 }
 
 function requireColor(value: unknown): DelegatedConversationColor {
-  if (typeof value === 'string' && DELEGATED_CONVERSATION_COLOR_ID_SET.has(value)) {
-    return value as DelegatedConversationColor;
+  if (isAgentColor(value)) {
+    return value;
   }
   throw new DelegatedConversationIdentityError();
 }
@@ -492,6 +493,15 @@ export function createDelegatedConversationRepository(
         `${AUTHORIZED_GRAPH} SELECT * FROM owned_nodes WHERE parent_thread_id = $3
         ORDER BY created_at, thread_id`,
         [...scopeParameters(scope), requireString(parentThreadId)]
+      );
+      return result.rows.map(readNode);
+    },
+    async listDescendants(scope: DelegatedConversationScope): Promise<DelegatedConversationNode[]> {
+      await requireOwner(scope);
+      const result = await database.query(
+        `${AUTHORIZED_GRAPH} SELECT * FROM owned_nodes WHERE parent_thread_id IS NOT NULL
+        ORDER BY created_at, thread_id`,
+        scopeParameters(scope)
       );
       return result.rows.map(readNode);
     },
