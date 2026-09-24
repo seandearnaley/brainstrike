@@ -55,3 +55,48 @@ each move found, and what stayed hand-written (2026-09-24, effect
   was needed: a query that returns rows needs no count field at all.
 - No production caller read either return value, which is why nothing failed.
   The tests now pin the counts on both transports.
+
+## Worker messages: the chunking worker
+
+- `packages/chunking-worker/src/message-validation.ts` keeps its three exported
+  guards but implements them as `Schema.is` over `Schema.Struct` definitions.
+  The port keeps the worker's leniency, now pinned by tests: extra keys pass,
+  an optional key present as `undefined` passes (`Schema.optional`, never
+  `optionalKey`), and `content` is only required to be a string. A stricter
+  guard would turn a benign sender change into a terminal `__init__` failure.
+- `guardFor(schema)<Interface>()` is a compile-time drift check between the
+  schemas and the hand-written interfaces in `shared.d.ts`. It was falsified
+  both ways: retyping `ChunkRequest.id` as `number` failed the build, and so did
+  adding a key to the interface alone. The first draft
+  (`Interface extends S['Type']` only) missed the second case.
+- Review then found the check one-directional: an interface NARROWER than the
+  schema still passed, so the guard could admit values its interface excludes.
+  Adding the reverse check (`S['Type']` minus `readonly` must fit the interface)
+  failed all three interfaces on the existing code: every optional
+  `ChunkingRequestOptions` field accepts an explicit `undefined` (the pinned
+  leniency), which `exactOptionalPropertyTypes` excluded from the interface. The
+  interface now says `| undefined`; every dependent type-checks unchanged.
+  Making `maxTokens` required, or dropping `| undefined` from `overlap`, now
+  fails the build.
+- Not moved: the embedding-worker protocol asserts in `indexing-contract`
+  (about 85 exact-message test assertions, and telemetry rejects failure
+  reasons over 240 characters, which a multi-line schema message could exceed)
+  and the `worker-runtime` envelope asserts (exact messages asserted across
+  desktop host tests). Each needs its own message-compatibility plan.
+
+## IPC: the secrets handlers
+
+- The `*.contract.ts` IPC modules cannot import `effect`: `preload.ts` reaches
+  all sixteen, and both the build (`preload-bundle-contract.mjs`) and the
+  import-graph test reject a bare package. Contract `parseArgs` therefore stays
+  hand-written; Schema validation lives in main-only handler modules.
+- `ipc-secrets.ts` registered nine channels directly, and five of them took
+  renderer arguments typed only by annotation (`provider: string`). A
+  non-string or empty provider reached the secrets store as a key. The handlers
+  now decode their argument tuple (`ipc-secrets-args.ts`): exact arity, as a
+  contract `parseArgs` asserts, and a provider id of 1-256 characters with no
+  control characters. A malformed list throws, like `parseArgs`. The
+  `saveCredential` payload stays `unknown` there, because `setCredential`'s guard
+  is its single validator.
+- `apps/desktop` became an Effect package with this change; its diagnostics run
+  on `tsconfig.test.json` (567 files, 0 findings).

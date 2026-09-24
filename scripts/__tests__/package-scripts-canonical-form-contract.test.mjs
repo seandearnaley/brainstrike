@@ -127,7 +127,7 @@ const TYPE_CHECK_ALLOWLIST = new Map([
   ],
   [
     '@brainstrike/desktop',
-    'app — splits main + test + e2e type-checks via `pnpm type-check:main && pnpm type-check:test && pnpm type-check:e2e`',
+    'app — splits main + test + e2e type-checks via `pnpm type-check:main && pnpm type-check:test && pnpm type-check:e2e`, then the Effect diagnostics',
   ],
 ]);
 
