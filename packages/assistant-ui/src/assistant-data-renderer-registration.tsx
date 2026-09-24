@@ -29,6 +29,7 @@ const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => {
   const [resolved, setResolved] = useState<{
     key: string;
     owner: DelegatedApprovalOwner | undefined;
+    resolver: typeof resolveOwner;
   } | null>(null);
   const approval = isAssistantToolApprovalRequest(data) ? data : null;
   const key = approval
@@ -44,12 +45,12 @@ const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => {
     resolveOwner(request).then(
       (owner) => {
         if (active) {
-          setResolved({ key, owner });
+          setResolved({ key, owner, resolver: resolveOwner });
         }
       },
       () => {
         if (active) {
-          setResolved({ key, owner: undefined });
+          setResolved({ key, owner: undefined, resolver: resolveOwner });
         }
       }
     );
@@ -57,10 +58,11 @@ const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => {
       active = false;
     };
   }, [key, resolveOwner]);
-  const owner = resolved?.key === key ? resolved.owner : undefined;
+  const isCurrentResolution = resolved?.key === key && resolved.resolver === resolveOwner;
+  const owner = isCurrentResolution ? resolved.owner : undefined;
   const colorId = approval?.delegation ? (owner?.colorId ?? 'unresolved') : undefined;
   const ownerUnavailable =
-    approval?.delegation && (!resolveOwner || (resolved?.key === key && !resolved.owner));
+    approval?.delegation && (!resolveOwner || (isCurrentResolution && !resolved.owner));
   return (
     <>
       {ownerUnavailable ? (

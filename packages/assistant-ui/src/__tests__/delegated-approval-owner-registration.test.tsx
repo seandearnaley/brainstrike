@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract';
 import '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentType } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AssistantDataRendererRegistration } from '../assistant-data-renderer-registration';
@@ -133,4 +133,61 @@ it('reuses equivalent approval data and rechecks changed ancestry', async () => 
     })
   );
   await waitFor(() => expect(resolve).toHaveBeenCalledTimes(2));
+});
+
+it('drops a saved owner immediately when the resolver changes or disappears', async () => {
+  const first = vi.fn(async () => ({ colorId: 'violet', displayName: 'Aster' }));
+  let finishSecond: ((owner: { colorId: string; displayName: string }) => void) | undefined;
+  const second = vi.fn(
+    () =>
+      new Promise<{ colorId: string; displayName: string }>((resolve) => {
+        finishSecond = resolve;
+      })
+  );
+  const view = (resolver: typeof first | typeof second | null) => (
+    <DelegatedApprovalOwnerContext value={resolver}>
+      <AssistantDataRendererRegistration />
+      <ApprovalPart />
+    </DelegatedApprovalOwnerContext>
+  );
+  const { rerender } = render(view(first));
+  await waitFor(() => expect(screen.getByTestId('approval')).toHaveTextContent('Aster'));
+
+  rerender(view(second));
+  expect(screen.getByTestId('approval')).toHaveAttribute('data-agent-color', 'unresolved');
+  expect(screen.getByTestId('approval')).toBeEmptyDOMElement();
+  await waitFor(() => expect(second).toHaveBeenCalledOnce());
+  finishSecond?.({ colorId: 'rose', displayName: 'Briar' });
+  await waitFor(() => expect(screen.getByTestId('approval')).toHaveTextContent('Briar'));
+
+  rerender(view(null));
+  expect(screen.getByTestId('approval')).toHaveAttribute('data-agent-color', 'unresolved');
+  expect(screen.getByTestId('approval')).toBeEmptyDOMElement();
+  expect(screen.getByRole('status')).toHaveTextContent('child identity could not be verified');
+});
+
+it('ignores a late result from a replaced resolver', async () => {
+  let finishFirst: ((owner: { colorId: string; displayName: string }) => void) | undefined;
+  const first = vi.fn(
+    () =>
+      new Promise<{ colorId: string; displayName: string }>((resolve) => {
+        finishFirst = resolve;
+      })
+  );
+  const second = vi.fn(async () => ({ colorId: 'rose', displayName: 'Briar' }));
+  const view = (resolver: typeof first | typeof second) => (
+    <DelegatedApprovalOwnerContext value={resolver}>
+      <AssistantDataRendererRegistration />
+      <ApprovalPart />
+    </DelegatedApprovalOwnerContext>
+  );
+  const { rerender } = render(view(first));
+  await waitFor(() => expect(first).toHaveBeenCalledOnce());
+  rerender(view(second));
+  await waitFor(() => expect(screen.getByTestId('approval')).toHaveTextContent('Briar'));
+  await act(async () => {
+    finishFirst?.({ colorId: 'violet', displayName: 'Aster' });
+  });
+  expect(screen.getByTestId('approval')).toHaveAttribute('data-agent-color', 'rose');
+  expect(screen.getByTestId('approval')).not.toHaveTextContent('Aster');
 });
