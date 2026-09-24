@@ -127,9 +127,9 @@ bespoke `subagent` tool.
   `effectiveChildStepBudget`, and both places a description reaches a model call
   it. Built-ins declare the host ceiling (`MAX_USER_PERSONA_MAX_STEPS`), so the
   user's `maxChildSteps` setting governs and a persona can only lower it.
-- **Personas report PROVENANCE and never author the deliverable.** Child
-  instructions require `path:line` for code and an explicit marker when a fact
-  came from documentation or a comment.
+- **Read-only personas report PROVENANCE; Workers may author a delegated
+  deliverable.** Supervisor guidance reflects each admitted mode. Read-only
+  child instructions cite `path:line` and mark documentation/comment claims.
 - **User-defined personas:** markdown with frontmatter, parsed fail-closed by
   `user-personas.ts`, scanned FLAT by
   `apps/desktop/src/assistant-server/user-personas-loader.ts` from

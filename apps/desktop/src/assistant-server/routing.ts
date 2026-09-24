@@ -1,5 +1,6 @@
 import type http from 'node:http';
 import {
+  ASSISTANT_ACTIVE_RUN_PATH,
   ASSISTANT_RUN_STATUS_PATH,
   ASSISTANT_STREAM_RESUME_PATH,
 } from '@brainstrike/assistant-contract';
@@ -17,6 +18,7 @@ export function readLastEventId(req: http.IncomingMessage): string | undefined {
 }
 
 const GET_ROUTES: ReadonlyMap<string, AssistantRoute> = new Map([
+  [ASSISTANT_ACTIVE_RUN_PATH, 'active-run'],
   ['/assistant/status', 'status'],
   ['/status', 'status'],
   ['/assistant/openrouter-model', 'openrouter-model'],

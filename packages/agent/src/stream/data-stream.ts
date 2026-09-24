@@ -1,3 +1,4 @@
+import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/assistant-stream-session';
 import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
 import type { StreamChunk } from '../types';
@@ -12,6 +13,15 @@ import { SessionSubscription } from './session-subscription';
 
 export interface AssistantDataStreamSessionOptions {
   cleanupDelayMs?: number;
+  discovery?: {
+    readonly resourceId: string;
+    readonly threadId: string;
+    readonly runId: string;
+    readonly parentMessageId?: string | null;
+    readonly inputMessage: AssistantDiscoveredRun['inputMessage'];
+    readonly inputParentMessageId: string | null;
+    readonly actionReplay?: AssistantDiscoveredRun['actionReplay'];
+  };
   messageId?: string;
   outputLimitContext?: OutputLimitContext;
   sessionId?: string;
@@ -35,6 +45,7 @@ function debugLog(stage: string, payload: unknown): void {
 export class AssistantDataStreamSession {
   readonly id: string;
   readonly messageId: string;
+  readonly discovery: AssistantDataStreamSessionOptions['discovery'];
   private readonly events: StoredChunk[] = [];
   private readonly listeners = new Set<SessionSubscription>();
   private readonly mapper: DataStreamMapper;
@@ -53,6 +64,7 @@ export class AssistantDataStreamSession {
     const resolved = options ?? {};
     this.id = resolved.sessionId ?? createRandomId('sess');
     this.messageId = resolved.messageId ?? createRandomId('msg');
+    this.discovery = resolved.discovery;
     this.cleanupDelayMs = resolved.cleanupDelayMs ?? DEFAULT_CLEANUP_DELAY_MS;
     this.closedPromise = new Promise<void>((resolve) => {
       this.resolveClosed = resolve;
@@ -223,6 +235,35 @@ export class AssistantDataStreamSessionManager {
       return;
     }
     return this.sessions.get(parsed.sessionId);
+  }
+
+  /** Exact-scope replay discovery across renderer reloads before message hydration. */
+  findLatestByScope(resourceId: string, threadId: string): AssistantDiscoveredRun | null {
+    const matching = [...this.sessions.values()].filter(
+      (session) =>
+        session.discovery?.resourceId === resourceId && session.discovery.threadId === threadId
+    );
+    const active = matching.filter((candidate) => !candidate.isClosed());
+    if (active.length > 1) {
+      throw new Error('Multiple active assistant sessions own the same thread.');
+    }
+    const session = active[0] ?? matching.at(-1);
+    const discovery = session?.discovery;
+    if (!(session && discovery)) {
+      return null;
+    }
+    return {
+      assistantMessageId: session.messageId,
+      eventId: `${session.id}:-1`,
+      ...(discovery.parentMessageId === undefined
+        ? {}
+        : { parentMessageId: discovery.parentMessageId }),
+      inputMessage: discovery.inputMessage,
+      inputParentMessageId: discovery.inputParentMessageId,
+      ...(discovery.actionReplay ? { actionReplay: discovery.actionReplay } : {}),
+      runId: discovery.runId,
+      state: session.isClosed() ? 'closed' : 'active',
+    };
   }
 
   create(

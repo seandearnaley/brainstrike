@@ -777,15 +777,15 @@ Completion, title generation and replay:
 - Each desktop response exposes an opaque absolute replay cursor in
   `X-Brainstrike-Assistant-Event-Id` and the durable message identity in
   `X-Brainstrike-Assistant-Message-Id`. While the run is active the renderer
-  stores only `{assistantMessageId, eventId, runId}` in thread-scoped
-  `sessionStorage`, then reconnects after hydration with `GET /assistant/resume`
-  plus `Last-Event-ID`; it never composes a second model request.
+  stores the cursor, run ID, assistant message ID and exact runtime parent in thread-scoped
+  `sessionStorage` and live runtime state; only bootstrap or transport failure reconnects with
+  `GET /assistant/resume` plus `Last-Event-ID`, never a second model request.
 - Replay reuses the durable assistant message ID and its persisted parent rather
   than appending a duplicate. Remove the hydrated durable leaf before replay,
   reconcile the history append to the durable ID, and map the temporary local ID
   back through the public thread `export`/`import` API after assistant-ui's
   `runEnd`. Do not patch assistant-ui internals to add a message-ID input. A
-  missing durable leaf, or a leaf with descendants, is a visible replay error,
+  missing exact host admission anchor, or a leaf with descendants, is a visible replay error,
   never a guessed parent.
 - Give transient replay failures at most two automatic retries; a missing or
   expired session is a visible 404 that clears the stale renderer record.

@@ -80,7 +80,56 @@ async function prepare(body: string): Promise<PrepareAssistantPostRequestResult>
   });
 }
 
+it('retains the exact accepted user input and parent edge for live replay discovery', async () => {
+  const result = await prepare(
+    JSON.stringify({
+      data: { provider: 'openai' },
+      inputParentMessageId: 'prior-assistant',
+      messages: [{ content: [{ text: 'Continue', type: 'text' }], id: 'new-user', role: 'user' }],
+    })
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.request.inputParentMessageId).toBe('prior-assistant');
+    expect(result.request.finalInputMessage).toMatchObject({
+      id: 'new-user',
+      parts: [{ text: 'Continue', type: 'text' }],
+      role: 'user',
+    });
+  }
+});
+
 describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
+  it('publishes parsed scope before slow credential resolution begins', async () => {
+    const credential =
+      Promise.withResolvers<Awaited<ReturnType<typeof resolveProviderCredential>>>();
+    let scopeRegistered = false;
+    resolveProviderCredential.mockImplementationOnce(async () => {
+      expect(scopeRegistered).toBe(true);
+      return credential.promise;
+    });
+    const pending = prepareAssistantPostRequest({
+      filterPayload: (payload) => {
+        expect(payload.data?.memory).toMatchObject({
+          resourceId: 'workspace',
+          threadId: 'thread-1',
+        });
+        scopeRegistered = true;
+        return payload;
+      },
+      logger,
+      readBody: async () =>
+        JSON.stringify({
+          data: { memory: { resourceId: 'workspace', threadId: 'thread-1' }, provider: 'openai' },
+          messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+        }),
+      resolveProviderCredential,
+    });
+    await vi.waitFor(() => expect(resolveProviderCredential).toHaveBeenCalled());
+    expect(scopeRegistered).toBe(true);
+    credential.resolve({ key: 'test-api-key', source: 'env', type: 'api_key' });
+    await pending;
+  });
   it('runs AFTER envelope parsing: the hook receives the parsed payload', async () => {
     const seen: unknown[] = [];
     await prepareAssistantPostRequest({

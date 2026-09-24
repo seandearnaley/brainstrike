@@ -34,6 +34,10 @@
     "./assistant-thread-run-reaper": {
       "types": "./dist/assistant-thread-run-reaper.d.ts",
       "import": "./dist/assistant-thread-run-reaper.js"
+    },
+    "./assistant-memory-repository": {
+      "types": "./dist/assistant-memory-repository.d.ts",
+      "import": "./dist/assistant-memory-repository.js"
     }
   },
   "files": [
