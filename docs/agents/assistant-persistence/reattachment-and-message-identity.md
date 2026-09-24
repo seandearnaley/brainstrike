@@ -126,3 +126,15 @@ for terminal status before a headerless new POST is deemed conflicting; a live
 same-run response is not reclassified as replay by a late discovery result.
 The races are pinned by `assistant-run-discovery-resource.test.ts` and
 `assistant-run-session-races.test.tsx`.
+
+The review of PR #3302 found that an inline `authHeaders` callback could
+recreate the discovery resource on every render. Starting each replacement
+published an identical pending snapshot, producing a render loop even though
+the thread and explicit retry had not changed. Discovery now keys its resource
+only to that semantic attempt, reads the latest auth callback when the attempt
+starts, and avoids notifying subscribers for an unchanged pending snapshot.
+Status probes within discovery use the same abort signal as the active-run
+request, so disposal stops in-flight work as well as fencing later state
+changes. The bounded inline-callback and pending-notification regressions are
+in `assistant-run-session-races.test.tsx` and
+`assistant-run-discovery-resource.test.ts`.

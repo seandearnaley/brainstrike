@@ -12,6 +12,21 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 describe('assistant run discovery resource', () => {
   afterEach(() => vi.useRealTimers());
 
+  it('does not republish an unchanged pending snapshot when an attempt starts', () => {
+    const resource = new AssistantRunDiscoveryResource<string>('pending', '');
+    const listener = vi.fn();
+    const stopListening = resource.subscribe(listener);
+    const stop = resource.start({
+      execute: async () => new Promise<never>(() => undefined),
+      onRetry: vi.fn(),
+      timeoutMs: 1000,
+    });
+
+    expect(listener).not.toHaveBeenCalled();
+    stop();
+    stopListening();
+  });
+
   it('keeps immutable cached snapshots and ignores a disposed attempt', async () => {
     const first = deferred<{ type: 'ready'; value: string }>();
     const resource = new AssistantRunDiscoveryResource<string>('pending', '');
@@ -40,17 +55,15 @@ describe('assistant run discovery resource', () => {
   it('times out a hung admission and restarts after StrictMode cleanup', async () => {
     vi.useFakeTimers();
     const resource = new AssistantRunDiscoveryResource<string>('pending', '');
-    const firstSignal = vi.fn();
+    const firstExecute = vi.fn(async () => new Promise<never>(() => undefined));
     const stop = resource.start({
-      execute: async (signal) => {
-        firstSignal.mockImplementation(() => signal.aborted);
-        return new Promise<never>(() => undefined);
-      },
+      execute: firstExecute,
       onRetry: vi.fn(),
       timeoutMs: 30_000,
     });
     stop();
-    expect(firstSignal).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(firstExecute).not.toHaveBeenCalled();
     resource.start({
       execute: async () => new Promise<never>(() => undefined),
       onRetry: vi.fn(),

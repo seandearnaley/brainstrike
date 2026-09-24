@@ -45,7 +45,9 @@ export class AssistantRunDiscoveryResource<T> {
     const controller = new AbortController();
     this.abortController = controller;
     const generation = ++this.generation;
-    this.publish({ status: 'pending' });
+    if (this.snapshot.status !== 'pending') {
+      this.publish({ status: 'pending' });
+    }
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {

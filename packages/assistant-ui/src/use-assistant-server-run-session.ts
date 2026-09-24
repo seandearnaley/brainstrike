@@ -139,12 +139,14 @@ async function isStoredRunSessionStale(args: {
   readonly authHeaders?: (() => Promise<Record<string, string>>) | undefined;
   readonly baseUrl: string;
   readonly runId: string;
+  readonly signal?: AbortSignal;
 }): Promise<boolean> {
   try {
     const headers = new Headers((await args.authHeaders?.()) ?? {});
+    args.signal?.throwIfAborted();
     const response = await fetch(
       `${args.baseUrl}${ASSISTANT_RUN_STATUS_PATH}?runId=${encodeURIComponent(args.runId)}`,
-      { headers, method: 'GET' }
+      { headers, method: 'GET', ...(args.signal ? { signal: args.signal } : {}) }
     );
     if (!response.ok) {
       assistantEndpointLogger.warn('Assistant run-status probe returned a non-OK response', {
@@ -162,6 +164,7 @@ async function isStoredRunSessionStale(args: {
     }
     return payload.status !== 'running' && payload.status !== 'cancelling';
   } catch (error: unknown) {
+    args.signal?.throwIfAborted();
     assistantEndpointLogger.warn('Assistant run-status probe failed; keeping reattachment guard', {
       error,
       runId: args.runId,
@@ -243,6 +246,7 @@ async function reconcileHeaderlessAdmission(args: {
         authHeaders: args.authHeaders,
         baseUrl: args.baseUrl,
         runId: run.runId,
+        signal: args.signal,
       });
       args.signal.throwIfAborted();
       if (settled) {
@@ -277,6 +281,7 @@ async function reconcileClosedDiscoveredRun(
     authHeaders: context.authHeaders,
     baseUrl: context.baseUrl,
     runId: run.runId,
+    signal: context.signal,
   });
   context.signal.throwIfAborted();
   if (!settled) {
@@ -302,6 +307,7 @@ async function adoptDiscoveredRun(
       authHeaders: context.authHeaders,
       baseUrl: context.baseUrl,
       runId: stored.runId,
+      signal: context.signal,
     });
     context.signal.throwIfAborted();
     if (context.currentSession() !== stored) {
@@ -336,6 +342,7 @@ async function releaseMissingDiscoveredRun(
     authHeaders: context.authHeaders,
     baseUrl: context.baseUrl,
     runId: storedAtDiscoveryStart.runId,
+    signal: context.signal,
   });
   context.signal.throwIfAborted();
   if (context.currentSession() !== storedAtDiscoveryStart) {
@@ -349,8 +356,6 @@ async function releaseMissingDiscoveredRun(
 }
 
 async function executeAssistantRunDiscoveryAttempt(args: {
-  readonly authHeaders?: (() => Promise<Record<string, string>>) | undefined;
-  readonly baseUrl: string;
   readonly context: DiscoveryReconciliation;
   readonly readCurrentRequest: () => PreparedRequest | null;
   readonly readPendingNoHeaderFailure: () => PendingNoHeaderFailure | null;
@@ -360,16 +365,16 @@ async function executeAssistantRunDiscoveryAttempt(args: {
 }): Promise<AssistantRunDiscoveryOutcome<AssistantDiscoveredRun | null>> {
   const { context } = args;
   let run = await fetchDiscoveredRun({
-    authHeaders: args.authHeaders,
-    baseUrl: args.baseUrl,
+    authHeaders: context.authHeaders,
+    baseUrl: context.baseUrl,
     resourceId: args.resourceId,
     signal: context.signal,
     threadKey: args.threadKey,
   });
   context.signal.throwIfAborted();
   run = await reconcileHeaderlessAdmission({
-    authHeaders: args.authHeaders,
-    baseUrl: args.baseUrl,
+    authHeaders: context.authHeaders,
+    baseUrl: context.baseUrl,
     currentRequest: args.readCurrentRequest(),
     pending: args.readPendingNoHeaderFailure(),
     run,
@@ -440,6 +445,7 @@ export function useAssistantServerRunSession({
   const liveRunIdRef = useRef<string | undefined>(undefined);
   const preparedRequestRef = useRef<PreparedRequest | null>(null);
   const pendingNoHeaderFailureRef = useRef<PendingNoHeaderFailure | null>(null);
+  const discoveryAuthHeadersRef = useRef(authHeaders);
   const replayEligible =
     activeSessionState.scope === sessionScope
       ? activeSessionState.replayEligible
@@ -457,10 +463,10 @@ export function useAssistantServerRunSession({
   const discoveryResource = useMemo(
     () =>
       new AssistantRunDiscoveryResource<AssistantDiscoveredRun | null>(
-        discoveryKey ? 'pending' : 'ready',
+        discoveryAttemptKey ? 'pending' : 'ready',
         null
       ),
-    [authHeaders, desktopAssistantBaseUrl, discoveryAttemptKey, discoveryKey, resourceId, threadKey]
+    [discoveryAttemptKey]
   );
   const discovery = useSyncExternalStore(
     discoveryResource.subscribe,
@@ -480,6 +486,10 @@ export function useAssistantServerRunSession({
   }, [initialActiveRunSession, sessionScope]);
 
   useEffect(() => {
+    discoveryAuthHeadersRef.current = authHeaders;
+  }, [authHeaders]);
+
+  useEffect(() => {
     if (!(discoveryKey && desktopAssistantBaseUrl && resourceId && threadKey)) {
       return;
     }
@@ -487,10 +497,8 @@ export function useAssistantServerRunSession({
     return discoveryResource.start({
       execute: (signal) =>
         executeAssistantRunDiscoveryAttempt({
-          authHeaders,
-          baseUrl: desktopAssistantBaseUrl,
           context: {
-            authHeaders,
+            authHeaders: discoveryAuthHeadersRef.current,
             baseUrl: desktopAssistantBaseUrl,
             clearSession: () => {
               clearAssistantActiveRunSession(threadKey);
@@ -523,7 +531,6 @@ export function useAssistantServerRunSession({
       timeoutMs: 30_000,
     });
   }, [
-    authHeaders,
     desktopAssistantBaseUrl,
     discoveryKey,
     discoveryResource,

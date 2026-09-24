@@ -275,9 +275,10 @@ describe('assistant run session asynchronous reconciliation', () => {
     const newThreadKey = 'thread-run-race-new';
     const newStorageKey = `brainstrike.assistant.active-run:${newThreadKey}`;
     let oldProbeStarted = false;
+    let oldProbeSignal: AbortSignal | undefined;
     vi.stubGlobal(
       'fetch',
-      vi.fn((input: RequestInfo | URL) => {
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input));
         if (url.pathname === '/assistant/active-run') {
           return Promise.resolve(
@@ -286,6 +287,7 @@ describe('assistant run session asynchronous reconciliation', () => {
         }
         expect(url.pathname).toBe(ASSISTANT_RUN_STATUS_PATH);
         oldProbeStarted = true;
+        oldProbeSignal = init?.signal ?? undefined;
         return oldThreadStatus.promise;
       })
     );
@@ -302,6 +304,7 @@ describe('assistant run session asynchronous reconciliation', () => {
     await waitFor(() => expect(oldProbeStarted).toBe(true));
 
     rerender({ threadKey: newThreadKey });
+    expect(oldProbeSignal?.aborted).toBe(true);
     await waitFor(() => expect(result.current.isRecovering).toBe(false));
     await act(async () => {
       await result.current.prepareRequest();
@@ -452,10 +455,12 @@ describe('assistant run session asynchronous reconciliation', () => {
     window.sessionStorage.clear();
     const lateDiscovery = deferredResponse();
     let discoveries = 0;
+    const discoveryAuth: (string | null)[] = [];
     vi.stubGlobal(
       'fetch',
-      vi.fn((input: RequestInfo | URL) => {
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         expect(new URL(String(input)).pathname).toBe('/assistant/active-run');
+        discoveryAuth.push(new Headers(init?.headers).get('authorization'));
         discoveries += 1;
         return discoveries === 1
           ? Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
@@ -479,7 +484,10 @@ describe('assistant run session asynchronous reconciliation', () => {
       await result.current.prepareRequest();
     });
     rerender({ authHeaders: async () => ({ authorization: 'Bearer second' }) });
+    expect(discoveries).toBe(1);
+    act(() => result.current.retryRecovery());
     await waitFor(() => expect(discoveries).toBe(2));
+    expect(discoveryAuth).toEqual(['Bearer first', 'Bearer second']);
     act(() => admitNewRun(result.current.onResponse));
     expect(result.current.replayEligible).toBe(false);
     await act(async () =>
@@ -491,6 +499,32 @@ describe('assistant run session asynchronous reconciliation', () => {
     await waitFor(() => expect(result.current.isRecovering).toBe(false));
     expect(result.current.activeRunSession?.runId).toBe(NEW_RUN_ID);
     expect(result.current.replayEligible).toBe(false);
+  });
+
+  it('does not restart discovery on each inline auth callback render', async () => {
+    window.sessionStorage.clear();
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const stableAfterGuard = async () => ({ authorization: 'Bearer test' });
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      // Bound the old feedback loop so a regression fails rather than hangs.
+      const authHeaders =
+        renders < 9 ? async () => ({ authorization: 'Bearer test' }) : stableAfterGuard;
+      return useAssistantServerRunSession({
+        api: API,
+        authHeaders,
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      });
+    });
+
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(renders).toBeLessThan(9);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('fails a pre-admission run only after discovery proves no host session exists', async () => {
