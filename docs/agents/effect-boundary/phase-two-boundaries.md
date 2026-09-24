@@ -69,6 +69,15 @@ each move found, and what stayed hand-written (2026-09-24, effect
   both ways: retyping `ChunkRequest.id` as `number` failed the build, and so did
   adding a key to the interface alone. The first draft
   (`Interface extends S['Type']` only) missed the second case.
+- Review then found the check one-directional: an interface NARROWER than the
+  schema still passed, so the guard could admit values its interface excludes.
+  Adding the reverse check (`S['Type']` minus `readonly` must fit the interface)
+  failed all three interfaces on the existing code: every optional
+  `ChunkingRequestOptions` field accepts an explicit `undefined` (the pinned
+  leniency), which `exactOptionalPropertyTypes` excluded from the interface. The
+  interface now says `| undefined`; every dependent type-checks unchanged.
+  Making `maxTokens` required, or dropping `| undefined` from `overlap`, now
+  fails the build.
 - Not moved: the embedding-worker protocol asserts in `indexing-contract`
   (about 85 exact-message test assertions, and telemetry rejects failure
   reasons over 240 characters, which a multi-line schema message could exceed)
