@@ -243,15 +243,18 @@ export class ElectronFileChunkRepository implements IFileChunkRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.query('DELETE FROM file_chunks WHERE id = $1', [id]);
-    return (result as unknown as { rowCount: number }).rowCount > 0;
+    // Count RETURNING rows: the DB host protocol surfaces only `rows`, so the
+    // `rowCount` this used to read was always `undefined` here.
+    const result = await this.db.query('DELETE FROM file_chunks WHERE id = $1 RETURNING id', [id]);
+    return result.rows.length > 0;
   }
 
   async deleteByFileRecordId(fileRecordId: string): Promise<number> {
-    const result = await this.db.query('DELETE FROM file_chunks WHERE file_record_id = $1', [
-      fileRecordId,
-    ]);
-    return (result as unknown as { rowCount: number }).rowCount;
+    const result = await this.db.query(
+      'DELETE FROM file_chunks WHERE file_record_id = $1 RETURNING id',
+      [fileRecordId]
+    );
+    return result.rows.length;
   }
 
   async searchSimilar(

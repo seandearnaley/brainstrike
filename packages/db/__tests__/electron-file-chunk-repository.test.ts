@@ -93,6 +93,19 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining('WHERE id = $1'), ['chunk-1']);
   });
 
+  it('counts deleted chunks from RETURNING rows, since the DB host sends no row count', async () => {
+    // The desktop DB host protocol surfaces only `rows`; a `rowCount` field
+    // never arrives, which is what the old cast silently read as `undefined`.
+    query.mockResolvedValueOnce({ rows: [{ id: 'chunk-1' }, { id: 'chunk-2' }] });
+    query.mockResolvedValueOnce({ rows: [{ id: 'chunk-1' }] });
+    query.mockResolvedValueOnce({ rows: [] });
+
+    await expect(repo.deleteByFileRecordId('file-1')).resolves.toBe(2);
+    await expect(repo.delete('chunk-1')).resolves.toBe(true);
+    await expect(repo.delete('chunk-missing')).resolves.toBe(false);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('RETURNING id'), ['file-1']);
+  });
+
   it('returns null when findById misses', async () => {
     query.mockResolvedValueOnce({ rows: [] });
 

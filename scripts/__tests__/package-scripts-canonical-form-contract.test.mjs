@@ -72,6 +72,7 @@ const CANONICAL_TYPE_CHECK_FORMS = [
   // dedicated diagnostics mode (docs/agents/effect-boundary.md § "Effect
   // diagnostics"; scripts/__tests__/effect-boundary-contract.test.mjs).
   'tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict',
+  'tsc --noEmit && effect-tsgo diagnostics --project tsconfig.json --strict',
 ];
 
 /**

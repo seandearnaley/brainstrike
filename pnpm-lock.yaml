@@ -1767,6 +1767,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
@@ -1797,6 +1800,9 @@ importers:
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.2(@electric-sql/pglite@0.5.8)(@opentelemetry/api@1.9.1)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -1810,6 +1816,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.45.0
       '@stryker-mutator/api':
         specifier: 'catalog:'
         version: 10.0.0
