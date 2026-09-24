@@ -1,33 +1,26 @@
+import {
+  decodeMcpTaskAuthorityRow,
+  decodeMcpTaskBlockedDiagnostic,
+  decodeMcpTaskClock,
+  decodeMcpTaskInputMetadata,
+  decodeMcpTaskResultMetadata,
+  decodeMcpTaskRow,
+  decodeMcpTaskStatus,
+  decodeMcpTaskStatusMessage,
+  type JsonObject,
+  type McpTaskBlockedDiagnostic,
+  type McpTaskStatus,
+} from './mcp-task-row-schema';
+
 const TABLE = 'brainstrike_mcp_tasks';
 const AUTHORITY_TABLE = 'brainstrike_mcp_task_authorities';
 export const MCP_TASK_METADATA_MAX_BYTES = 65_536;
 const MAX_BLOCKED_DIAGNOSTIC_BYTES = 4096;
 const TEXT_ENCODER = new TextEncoder();
-const MCP_TASK_STATUSES = [
-  'cancelled',
-  'completed',
-  'failed',
-  'input_required',
-  'working',
-] as const;
-type McpTaskStatus = (typeof MCP_TASK_STATUSES)[number];
 const TERMINAL_STATUSES = new Set<McpTaskStatus>(['cancelled', 'completed', 'failed']);
 export const MAX_ACTIVE_MCP_TASKS_PER_SCOPE = 256;
 
-type JsonValue = boolean | null | number | string | JsonValue[] | JsonObject;
-export interface JsonObject {
-  readonly [key: string]: JsonValue;
-}
-export type { McpTaskStatus };
-
-export interface McpTaskBlockedDiagnostic extends JsonObject {
-  readonly actualBytes: number;
-  readonly code: 'mcp_task_state_too_large';
-  readonly field: 'inputMetadata' | 'resultMetadata';
-  readonly maxBytes: number;
-  readonly remoteStatus: McpTaskStatus;
-  readonly sha256: string;
-}
+export type { JsonObject, McpTaskBlockedDiagnostic, McpTaskStatus };
 
 export interface McpTaskAuthorityInput {
   readonly connectionGeneration: number;
@@ -74,32 +67,6 @@ export interface CreateMcpTaskInput extends McpTaskIdentity, UpdateMcpTaskInput 
 
 export interface McpTaskDatabase {
   query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
-}
-
-interface McpTaskRow {
-  authority_epoch: unknown;
-  blocked_diagnostic: unknown;
-  created_at: unknown;
-  history: unknown;
-  input_metadata: unknown;
-  principal_id: unknown;
-  resource: unknown;
-  result_metadata: unknown;
-  server_id: unknown;
-  status: unknown;
-  status_message: unknown;
-  task_id: unknown;
-  terminal_at: unknown;
-  updated_at: unknown;
-}
-
-interface McpTaskAuthorityRow {
-  authority_epoch: unknown;
-  connection_generation: unknown;
-  principal_id: unknown;
-  resource: unknown;
-  runtime_id: unknown;
-  server_id: unknown;
 }
 
 export class McpTaskMetadataTooLargeError extends TypeError {
@@ -166,92 +133,20 @@ function requireUuid(value: unknown, field: string): string {
   return text;
 }
 
-function requireStatus(value: unknown): McpTaskStatus {
-  if (typeof value !== 'string' || !MCP_TASK_STATUSES.includes(value as McpTaskStatus)) {
-    throw new TypeError('MCP task status is invalid.');
-  }
-  return value as McpTaskStatus;
-}
-
-function requireInstant(value: unknown, field: string): Date {
-  const instant = value instanceof Date ? new Date(value) : new Date(String(value));
-  if (!Number.isFinite(instant.getTime())) {
-    throw new TypeError(`MCP task ${field} must be a valid timestamp.`);
-  }
-  return instant;
-}
-
-function requireJsonValue(value: unknown): value is JsonValue {
-  if (value === null || typeof value === 'boolean' || typeof value === 'string') {
-    return true;
-  }
-  if (typeof value === 'number') {
-    return Number.isFinite(value);
-  }
-  if (Array.isArray(value)) {
-    return value.every(requireJsonValue);
-  }
-  return (
-    isRecord(value) &&
-    [null, Object.prototype].includes(Object.getPrototypeOf(value)) &&
-    Object.values(value).every(requireJsonValue)
-  );
-}
-
-function requireMetadata(value: unknown, field: string): JsonObject | null {
-  if (value === null) {
-    return null;
-  }
-  if (!(isRecord(value) && requireJsonValue(value))) {
-    throw new TypeError(`MCP task ${field} must be a JSON object or null.`);
-  }
-  return value;
-}
-
+/** Decodes a blocked diagnostic (row column or caller input) into a frozen copy. */
 function requireBlockedDiagnostic(value: unknown): McpTaskBlockedDiagnostic | null {
-  const diagnostic = requireMetadata(value, 'blockedDiagnostic');
+  const diagnostic = decodeMcpTaskBlockedDiagnostic(value);
   if (diagnostic === null) {
     return null;
   }
-  const expectedKeys = ['actualBytes', 'code', 'field', 'maxBytes', 'remoteStatus', 'sha256'];
-  if (Object.keys(diagnostic).sort().join(',') !== expectedKeys.join(',')) {
-    throw new TypeError('MCP task blockedDiagnostic fields are invalid.');
-  }
-  const actualBytes = diagnostic['actualBytes'];
-  const field = diagnostic['field'];
-  const maxBytes = diagnostic['maxBytes'];
-  const sha256 = diagnostic['sha256'];
-  if (
-    diagnostic['code'] !== 'mcp_task_state_too_large' ||
-    // The diagnostic records the budget in force when the row was written, so
-    // it validates structurally rather than against today's constant.
-    !(Number.isSafeInteger(maxBytes) && Number(maxBytes) > 0) ||
-    !(Number.isSafeInteger(actualBytes) && Number(actualBytes) > Number(maxBytes)) ||
-    !(field === 'inputMetadata' || field === 'resultMetadata') ||
-    typeof sha256 !== 'string' ||
-    !/^[0-9a-f]{64}$/u.test(sha256)
-  ) {
-    throw new TypeError('MCP task blockedDiagnostic values are invalid.');
-  }
-  const remoteStatus = requireStatus(diagnostic['remoteStatus']);
   return Object.freeze({
-    actualBytes: Number(actualBytes),
-    code: 'mcp_task_state_too_large',
-    field,
-    maxBytes: Number(maxBytes),
-    remoteStatus,
-    sha256,
+    actualBytes: diagnostic.actualBytes,
+    code: diagnostic.code,
+    field: diagnostic.field,
+    maxBytes: diagnostic.maxBytes,
+    remoteStatus: diagnostic.remoteStatus,
+    sha256: diagnostic.sha256,
   });
-}
-
-function requireNullableText(value: unknown): string | null {
-  if (value === null) {
-    return null;
-  }
-  if (typeof value !== 'string' || TEXT_ENCODER.encode(value).length > 4096) {
-    throw new TypeError('MCP task statusMessage must contain 0-4096 UTF-8 bytes.');
-  }
-  return value;
 }
 
 function requireAuthorityInput(input: McpTaskAuthorityInput): void {
@@ -279,38 +174,25 @@ function serializeMetadata(value: JsonObject | null): string | null {
 }
 
 function mapRow(value: unknown): McpTaskRecord {
-  if (!isRecord(value)) {
-    throw new TypeError('MCP task row must be an object.');
-  }
-  const row = value as unknown as McpTaskRow;
-  const status = requireStatus(row.status);
-  if (!Array.isArray(row.history) || row.history.length === 0 || row.history.length > 32) {
-    throw new TypeError('MCP task history must contain 1-32 entries.');
-  }
-  const history = row.history.map((entry) => {
-    if (!isRecord(entry)) {
-      throw new TypeError('MCP task history entry must be an object.');
-    }
-    return {
-      at: requireInstant(entry['at'], 'history.at'),
-      status: requireStatus(entry['status']),
-    };
-  });
+  // Column shapes and per-field rules come from the schema; the invariants
+  // below span fields, so they read the decoded record.
+  const row = decodeMcpTaskRow(value);
+  const status = row.status;
   const record: McpTaskRecord = {
-    authorityEpoch: requireUuid(row.authority_epoch, 'authorityEpoch'),
+    authorityEpoch: row.authority_epoch,
     blockedDiagnostic: requireBlockedDiagnostic(row.blocked_diagnostic),
-    createdAt: requireInstant(row.created_at, 'createdAt'),
-    history,
-    inputMetadata: requireMetadata(row.input_metadata, 'inputMetadata'),
-    principalId: requireText(row.principal_id, 'principalId', 512),
-    resource: requireText(row.resource, 'resource', 2048),
-    resultMetadata: requireMetadata(row.result_metadata, 'resultMetadata'),
-    serverId: requireText(row.server_id, 'serverId', 512),
+    createdAt: row.created_at,
+    history: row.history,
+    inputMetadata: row.input_metadata,
+    principalId: row.principal_id,
+    resource: row.resource,
+    resultMetadata: row.result_metadata,
+    serverId: row.server_id,
     status,
-    statusMessage: requireNullableText(row.status_message),
-    taskId: requireText(row.task_id, 'taskId', 1024),
-    terminalAt: row.terminal_at === null ? null : requireInstant(row.terminal_at, 'terminalAt'),
-    updatedAt: requireInstant(row.updated_at, 'updatedAt'),
+    statusMessage: row.status_message,
+    taskId: row.task_id,
+    terminalAt: row.terminal_at,
+    updatedAt: row.updated_at,
   };
   requireIdentity(record);
   if (
@@ -351,17 +233,14 @@ function assertHistoryConsistency(record: McpTaskRecord): void {
 }
 
 function mapAuthorityRow(value: unknown): McpTaskAuthorityLease {
-  if (!isRecord(value)) {
-    throw new TypeError('MCP task authority row must be an object.');
-  }
-  const row = value as unknown as McpTaskAuthorityRow;
+  const row = decodeMcpTaskAuthorityRow(value);
   const lease: McpTaskAuthorityLease = {
-    authorityEpoch: requireUuid(row.authority_epoch, 'authorityEpoch'),
-    connectionGeneration: Number(row.connection_generation),
-    principalId: requireText(row.principal_id, 'principalId', 512),
-    resource: requireText(row.resource, 'resource', 2048),
-    runtimeId: requireText(row.runtime_id, 'runtimeId', 512),
-    serverId: requireText(row.server_id, 'serverId', 512),
+    authorityEpoch: row.authority_epoch,
+    connectionGeneration: row.connection_generation,
+    principalId: row.principal_id,
+    resource: row.resource,
+    runtimeId: row.runtime_id,
+    serverId: row.server_id,
   };
   requireAuthorityLease(lease);
   return Object.freeze(lease);
@@ -443,7 +322,7 @@ export class McpTaskRepository {
 
   async openAuthority(input: McpTaskAuthorityInput): Promise<McpTaskAuthorityLease> {
     requireAuthorityInput(input);
-    const at = requireInstant(this.now(), 'clock').toISOString();
+    const at = decodeMcpTaskClock(this.now()).toISOString();
     const result = await this.db.query(
       `WITH live AS (
          SELECT * FROM ${AUTHORITY_TABLE}
@@ -506,7 +385,7 @@ export class McpTaskRepository {
 
   async retireAuthority(lease: McpTaskAuthorityLease): Promise<void> {
     requireAuthorityLease(lease);
-    const at = requireInstant(this.now(), 'clock').toISOString();
+    const at = decodeMcpTaskClock(this.now()).toISOString();
     await this.db.query(
       `UPDATE ${AUTHORITY_TABLE}
        SET retired_at = GREATEST(updated_at, $7::timestamptz),
@@ -521,14 +400,14 @@ export class McpTaskRepository {
   async create(input: CreateMcpTaskInput, lease: McpTaskAuthorityLease): Promise<McpTaskRecord> {
     requireIdentity(input);
     requireMatchingLease(input, lease);
-    const status = requireStatus(input.status);
-    const inputMetadata = requireMetadata(input.inputMetadata ?? null, 'inputMetadata');
-    const resultMetadata = requireMetadata(input.resultMetadata ?? null, 'resultMetadata');
+    const status = decodeMcpTaskStatus(input.status);
+    const inputMetadata = decodeMcpTaskInputMetadata(input.inputMetadata ?? null);
+    const resultMetadata = decodeMcpTaskResultMetadata(input.resultMetadata ?? null);
     const blockedDiagnostic = requireBlockedDiagnostic(input.blockedDiagnostic ?? null);
     const inputMetadataJson = serializeMetadata(inputMetadata);
     const resultMetadataJson = serializeMetadata(resultMetadata);
     const blockedDiagnosticJson = serializeMetadata(blockedDiagnostic);
-    const statusMessage = requireNullableText(input.statusMessage ?? null);
+    const statusMessage = decodeMcpTaskStatusMessage(input.statusMessage ?? null);
     if (status === 'input_required' && !inputMetadata) {
       throw new TypeError('An input_required MCP task requires inputMetadata.');
     }
@@ -544,7 +423,7 @@ export class McpTaskRepository {
         `MCP task blockedDiagnostic exceeds ${MAX_BLOCKED_DIAGNOSTIC_BYTES} bytes.`
       );
     }
-    const at = requireInstant(this.now(), 'clock');
+    const at = decodeMcpTaskClock(this.now());
     const result = await this.db.query(
       `INSERT INTO ${TABLE} (
          authority_epoch, server_id, resource, principal_id, task_id, status,
@@ -632,16 +511,16 @@ export class McpTaskRepository {
   ): Promise<McpTaskRecord> {
     requireIdentity(identity);
     requireMatchingLease(identity, lease);
-    const status = requireStatus(input.status);
+    const status = decodeMcpTaskStatus(input.status);
     const hasBlocked = Object.hasOwn(input, 'blockedDiagnostic');
     const hasInput = Object.hasOwn(input, 'inputMetadata');
     const hasResult = Object.hasOwn(input, 'resultMetadata');
     const hasMessage = Object.hasOwn(input, 'statusMessage');
-    const inputMetadata = requireMetadata(input.inputMetadata ?? null, 'inputMetadata');
-    const resultMetadata = requireMetadata(input.resultMetadata ?? null, 'resultMetadata');
+    const inputMetadata = decodeMcpTaskInputMetadata(input.inputMetadata ?? null);
+    const resultMetadata = decodeMcpTaskResultMetadata(input.resultMetadata ?? null);
     const inputMetadataJson = serializeMetadata(inputMetadata);
     const resultMetadataJson = serializeMetadata(resultMetadata);
-    const statusMessage = requireNullableText(input.statusMessage ?? null);
+    const statusMessage = decodeMcpTaskStatusMessage(input.statusMessage ?? null);
     const blockedDiagnostic = requireBlockedDiagnostic(input.blockedDiagnostic ?? null);
     const blockedDiagnosticJson = serializeMetadata(blockedDiagnostic);
     const requiresResult = status === 'completed' || status === 'failed';
@@ -660,7 +539,7 @@ export class McpTaskRepository {
         `MCP task blockedDiagnostic exceeds ${MAX_BLOCKED_DIAGNOSTIC_BYTES} bytes.`
       );
     }
-    const at = requireInstant(this.now(), 'clock');
+    const at = decodeMcpTaskClock(this.now());
     const result = await this.db.query(
       `UPDATE ${TABLE}
        SET status = $8,

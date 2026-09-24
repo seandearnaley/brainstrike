@@ -230,15 +230,18 @@ export class FileChunkRepository implements IFileChunkRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.query('DELETE FROM file_chunks WHERE id = $1', [id]);
-    return (result as unknown as { rowCount: number }).rowCount > 0;
+    // Count RETURNING rows: the desktop DB host surfaces only `rows`, never a
+    // row count, so a `rowCount` read here was `undefined` over IPC.
+    const result = await this.db.query('DELETE FROM file_chunks WHERE id = $1 RETURNING id', [id]);
+    return result.rows.length > 0;
   }
 
   async deleteByFileRecordId(fileRecordId: string): Promise<number> {
-    const result = await this.db.query('DELETE FROM file_chunks WHERE file_record_id = $1', [
-      fileRecordId,
-    ]);
-    return (result as unknown as { rowCount: number }).rowCount;
+    const result = await this.db.query(
+      'DELETE FROM file_chunks WHERE file_record_id = $1 RETURNING id',
+      [fileRecordId]
+    );
+    return result.rows.length;
   }
 
   async searchSimilar(
