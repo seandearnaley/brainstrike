@@ -10,7 +10,7 @@ import {
   type JsonObject,
   type McpTaskBlockedDiagnostic,
   type McpTaskStatus,
-} from './mcp-task-row-schema';
+} from './mcp-task-row-schema.js';
 
 const TABLE = 'brainstrike_mcp_tasks';
 const AUTHORITY_TABLE = 'brainstrike_mcp_task_authorities';
