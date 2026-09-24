@@ -34,11 +34,13 @@ interface PreparedRequest {
   cancelRequested?: boolean;
   readonly data: Record<string, unknown> | undefined;
   hostOwnsRun?: boolean;
+  readonly scopeKey: string | undefined;
 }
 
 interface PendingNoHeaderFailure {
   readonly error: Error;
   readonly request: PreparedRequest;
+  readonly scopeKey: string;
 }
 
 interface UseAssistantServerRunSessionOptions {
@@ -94,6 +96,12 @@ interface AssistantServerRunSessionController {
 }
 
 const MAX_ASSISTANT_REPLAY_RETRIES = 2;
+
+function assistantDiscoveryScopeMismatchError(): Error {
+  return new Error(
+    'A hosted assistant request is awaiting recovery in another resource scope. Return to its original scope to reconcile it.'
+  );
+}
 
 /**
  * Reconcile a stored reattachment record against the durable run row — the
@@ -357,6 +365,7 @@ async function releaseMissingDiscoveredRun(
 
 async function executeAssistantRunDiscoveryAttempt(args: {
   readonly context: DiscoveryReconciliation;
+  readonly discoveryKey: string;
   readonly readCurrentRequest: () => PreparedRequest | null;
   readonly readPendingNoHeaderFailure: () => PendingNoHeaderFailure | null;
   readonly resourceId: string;
@@ -364,6 +373,14 @@ async function executeAssistantRunDiscoveryAttempt(args: {
   readonly threadKey: string;
 }): Promise<AssistantRunDiscoveryOutcome<AssistantDiscoveredRun | null>> {
   const { context } = args;
+  const preparedRequest = args.readCurrentRequest();
+  if (preparedRequest && preparedRequest.scopeKey !== args.discoveryKey) {
+    throw assistantDiscoveryScopeMismatchError();
+  }
+  const pending = args.readPendingNoHeaderFailure();
+  if (pending && pending.scopeKey !== args.discoveryKey) {
+    throw assistantDiscoveryScopeMismatchError();
+  }
   let run = await fetchDiscoveredRun({
     authHeaders: context.authHeaders,
     baseUrl: context.baseUrl,
@@ -458,15 +475,14 @@ export function useAssistantServerRunSession({
     desktopAssistantBaseUrl && resourceId && threadKey
       ? `${desktopAssistantBaseUrl}:${resourceId}:${threadKey}`
       : undefined;
-  const discoveryAttemptKey =
-    discoveryKey === undefined ? undefined : JSON.stringify([discoveryKey, recoveryRetryToken]);
+  const discoveryAttemptKey = JSON.stringify([discoveryKey ?? null, recoveryRetryToken]);
   const discoveryResource = useMemo(
     () =>
       new AssistantRunDiscoveryResource<AssistantDiscoveredRun | null>(
-        discoveryAttemptKey ? 'pending' : 'ready',
+        discoveryKey ? 'pending' : 'ready',
         null
       ),
-    [discoveryAttemptKey]
+    [discoveryAttemptKey, discoveryKey]
   );
   const discovery = useSyncExternalStore(
     discoveryResource.subscribe,
@@ -490,6 +506,18 @@ export function useAssistantServerRunSession({
   }, [authHeaders]);
 
   useEffect(() => {
+    if (!discoveryKey) {
+      if (preparedRequestRef.current?.scopeKey === undefined) {
+        return;
+      }
+      return discoveryResource.start({
+        execute: async () => {
+          throw assistantDiscoveryScopeMismatchError();
+        },
+        onRetry: () => setRecoveryRetryToken((current) => current + 1),
+        timeoutMs: 30_000,
+      });
+    }
     if (!(discoveryKey && desktopAssistantBaseUrl && resourceId && threadKey)) {
       return;
     }
@@ -519,6 +547,7 @@ export function useAssistantServerRunSession({
             },
             signal,
           },
+          discoveryKey,
           readCurrentRequest: () => preparedRequestRef.current,
           readPendingNoHeaderFailure: () => pendingNoHeaderFailureRef.current,
           resourceId,
@@ -575,7 +604,7 @@ export function useAssistantServerRunSession({
 
   useEffect(() => {
     const pending = pendingNoHeaderFailureRef.current;
-    if (!(pending && discovery.status === 'ready')) {
+    if (!(pending && pending.scopeKey === discoveryKey && discovery.status === 'ready')) {
       return;
     }
     if (preparedRequestRef.current === pending.request) {
@@ -592,7 +621,7 @@ export function useAssistantServerRunSession({
       }
       void completeLatestPreparedRequest('failed', pending.error.message);
     }
-  }, [completeLatestPreparedRequest, discovery.status]);
+  }, [completeLatestPreparedRequest, discovery.status, discoveryKey]);
 
   const reconcilePendingCancellation = useCallback(async (): Promise<void> => {
     const pendingCancellation = preparedRequestRef.current;
@@ -622,6 +651,7 @@ export function useAssistantServerRunSession({
       turnAnchorMessageId?: string | null,
       runConfig?: unknown
     ): Promise<Record<string, unknown> | undefined> => {
+      const requestScopeKey = discoveryKey;
       await reconcilePendingCancellation();
       if (isRecovering || recoveryError) {
         throw recoveryError ?? new Error('Assistant run recovery is still in progress.');
@@ -660,13 +690,14 @@ export function useAssistantServerRunSession({
           completePreparedRequestRef.current
         );
       }
-      preparedRequestRef.current = { data };
+      preparedRequestRef.current = { data, scopeKey: requestScopeKey };
       return data;
     },
     [
       authHeaders,
       clearActiveRunSession,
       desktopAssistantBaseUrl,
+      discoveryKey,
       isRecovering,
       prepareRequestData,
       reconcilePendingCancellation,
@@ -733,16 +764,20 @@ export function useAssistantServerRunSession({
       const record = activeRunSessionRef.current;
       if (record) {
         setActiveSessionState({ record, replayEligible: true, scope: sessionScope });
-      } else if (preparedRequestRef.current && discoveryKey) {
+      } else if (preparedRequestRef.current?.scopeKey) {
         // The host may have admitted the POST before the renderer lost its
         // response headers. Discover that exact thread before releasing a send.
-        pendingNoHeaderFailureRef.current = { error, request: preparedRequestRef.current };
+        pendingNoHeaderFailureRef.current = {
+          error,
+          request: preparedRequestRef.current,
+          scopeKey: preparedRequestRef.current.scopeKey,
+        };
         setRecoveryRetryToken((current) => current + 1);
         return;
       }
       void completeLatestPreparedRequest('failed', error.message);
     },
-    [completeLatestPreparedRequest, discoveryKey, sessionScope]
+    [completeLatestPreparedRequest, sessionScope]
   );
 
   const onFinish = useCallback((): void => {

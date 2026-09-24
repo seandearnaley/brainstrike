@@ -484,6 +484,7 @@ describe('assistant run session asynchronous reconciliation', () => {
       await result.current.prepareRequest();
     });
     rerender({ authHeaders: async () => ({ authorization: 'Bearer second' }) });
+    await act(async () => Promise.resolve());
     expect(discoveries).toBe(1);
     act(() => result.current.retryRecovery());
     await waitFor(() => expect(discoveries).toBe(2));
@@ -569,6 +570,128 @@ describe('assistant run session asynchronous reconciliation', () => {
       'POST failed',
       false
     );
+  });
+
+  it('does not settle a headerless request from another resource scope', async () => {
+    window.sessionStorage.clear();
+    const originalScopeDiscovery = deferredResponse();
+    let firstResourceDiscoveries = 0;
+    let secondResourceDiscoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        expect(url.pathname).toBe('/assistant/active-run');
+        if (url.searchParams.get('resourceId') === 'resource-first') {
+          firstResourceDiscoveries += 1;
+          return firstResourceDiscoveries === 2
+            ? originalScopeDiscovery.promise
+            : Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }));
+        }
+        expect(url.searchParams.get('resourceId')).toBe('resource-second');
+        secondResourceDiscoveries += 1;
+        return Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }));
+      })
+    );
+    const completePreparedRequest = vi.fn();
+    const initialProps: { resourceId: string | undefined } = { resourceId: 'resource-first' };
+    const { result, rerender } = renderHook(
+      ({ resourceId }) =>
+        useAssistantServerRunSession({
+          api: API,
+          completePreparedRequest,
+          prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+          resourceId,
+          threadKey: THREAD_KEY,
+        }),
+      { initialProps }
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => result.current.prepareRequest());
+    act(() => result.current.onError(new TypeError('POST failed')));
+    await waitFor(() => expect(firstResourceDiscoveries).toBe(2));
+
+    rerender({ resourceId: 'resource-second' });
+    await waitFor(() => expect(result.current.recoveryError?.message).toContain('resource scope'));
+    expect(secondResourceDiscoveries).toBe(0);
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+    await expect(result.current.prepareRequest()).rejects.toThrow('resource scope');
+
+    rerender({ resourceId: undefined });
+    await waitFor(() => expect(result.current.recoveryError?.message).toContain('resource scope'));
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+    await expect(result.current.prepareRequest()).rejects.toThrow('resource scope');
+
+    rerender({ resourceId: 'resource-first' });
+    await waitFor(() => expect(firstResourceDiscoveries).toBe(3));
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(result.current.recoveryError).toBeUndefined();
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      { memory: { runId: NEW_RUN_ID } },
+      'failed',
+      'POST failed',
+      false
+    );
+    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
+
+    await act(async () =>
+      originalScopeDiscovery.resolve(
+        new Response(JSON.stringify({ activeRun: ACTIVE_NEW_RUN }), { status: 200 })
+      )
+    );
+    expect(result.current.activeRunSession).toBeUndefined();
+  });
+
+  it('keeps the prepared scope when the transport error arrives after a resource switch', async () => {
+    window.sessionStorage.clear();
+    let firstResourceDiscoveries = 0;
+    let secondResourceDiscoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        expect(url.pathname).toBe('/assistant/active-run');
+        if (url.searchParams.get('resourceId') === 'resource-first') {
+          firstResourceDiscoveries += 1;
+        } else {
+          expect(url.searchParams.get('resourceId')).toBe('resource-second');
+          secondResourceDiscoveries += 1;
+        }
+        return Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }));
+      })
+    );
+    const completePreparedRequest = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ resourceId }) =>
+        useAssistantServerRunSession({
+          api: API,
+          completePreparedRequest,
+          prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+          resourceId,
+          threadKey: THREAD_KEY,
+        }),
+      { initialProps: { resourceId: 'resource-first' } }
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => result.current.prepareRequest());
+
+    rerender({ resourceId: 'resource-second' });
+    await waitFor(() => expect(result.current.recoveryError?.message).toContain('resource scope'));
+    act(() => result.current.onError(new TypeError('POST failed')));
+    await waitFor(() => expect(result.current.recoveryError?.message).toContain('resource scope'));
+    expect(secondResourceDiscoveries).toBe(0);
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+
+    rerender({ resourceId: 'resource-first' });
+    await waitFor(() => expect(firstResourceDiscoveries).toBe(2));
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      { memory: { runId: NEW_RUN_ID } },
+      'failed',
+      'POST failed',
+      false
+    );
+    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
   });
 
   it('settles Stop after a headerless failure when discovery proves the host never admitted it', async () => {

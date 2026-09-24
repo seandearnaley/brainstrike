@@ -138,3 +138,16 @@ request, so disposal stops in-flight work as well as fencing later state
 changes. The bounded inline-callback and pending-notification regressions are
 in `assistant-run-session-races.test.tsx` and
 `assistant-run-discovery-resource.test.ts`.
+
+CodeRabbit's final review of PR #3302 found a separate ownership race: while
+the original resource's headerless POST was awaiting discovery, changing the
+resource without remounting the hook let the new resource's empty result mark
+the old POST failed. The production panel remounts on thread-key changes, but
+its memory resource is a separate prop. Preparation captures that resource
+scope before asynchronous work; a later transport error reads the captured
+scope even if the renderer already switched resources. The pending failure
+retains it; another or missing scope reports a visible
+recovery error without querying that host or releasing the old lease.
+Returning to the original scope runs discovery again and settles only from
+that result. The same-hook switch, return, and late old-attempt result are pinned in
+`assistant-run-session-races.test.tsx`.
