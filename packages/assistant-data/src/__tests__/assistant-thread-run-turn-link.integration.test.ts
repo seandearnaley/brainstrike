@@ -1,3 +1,4 @@
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 /**
  * BST-1163: the stored run↔turn-message link. `createThreadRun` persists
  * `turn_message_id` — the id of the user message whose turn the run belongs
@@ -38,7 +39,7 @@ describe('assistant thread run turn link (real PGlite, BST-1163)', () => {
     const thread = await repository.createThread('workspace-a');
 
     const record = await repository.createThreadRun({
-      id: 'run-1',
+      id: 'run-1' as HostRunId,
       model: 'claude-sonnet-5',
       provider: 'anthropic',
       resourceId: 'workspace-a',
@@ -80,7 +81,7 @@ describe('assistant thread run turn link (real PGlite, BST-1163)', () => {
     };
     await repository.createThreadRun({
       ...base,
-      id: 'original-host',
+      id: 'original-host' as HostRunId,
       turnMessageId: 'original-child-input',
     });
     const receipts = createDelegatedContinuationRepository(db, scope, 'original-host');
@@ -92,7 +93,7 @@ describe('assistant thread run turn link (real PGlite, BST-1163)', () => {
     const resumed = await repository.createThreadRun({
       ...base,
       childContinuation: target,
-      id: 'resume-host',
+      id: 'resume-host' as HostRunId,
       turnMessageId: 'unrelated-parent-message',
     });
     expect(resumed.turnMessageId).toBe('original-child-input');
@@ -107,7 +108,7 @@ describe('assistant thread run turn link (real PGlite, BST-1163)', () => {
       repository.createThreadRun({
         ...base,
         childContinuation: { ...target, nativeRunId: 'wrong-native' },
-        id: 'forged-host',
+        id: 'forged-host' as HostRunId,
       })
     ).rejects.toThrow();
     expect(
@@ -123,7 +124,7 @@ describe('assistant thread run turn link (real PGlite, BST-1163)', () => {
     const thread = await repository.createThread('workspace-a');
 
     const record = await repository.createThreadRun({
-      id: 'run-1',
+      id: 'run-1' as HostRunId,
       model: 'claude-sonnet-5',
       provider: 'anthropic',
       resourceId: 'workspace-a',
@@ -174,7 +175,7 @@ describe('assistant thread run turn link (real PGlite, BST-1163)', () => {
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     const record = await repository.createThreadRun({
-      id: 'run-upgraded',
+      id: 'run-upgraded' as HostRunId,
       model: 'claude-sonnet-5',
       provider: 'anthropic',
       resourceId: 'workspace-a',

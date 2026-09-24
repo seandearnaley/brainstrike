@@ -195,6 +195,12 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/assistant-contract": {
+      "ignoreDependencies": [
+        // Effect language-service plugin name, not a package; see packages/effect-kit.
+        "@effect/language-service"
+      ]
+    },
     "packages/assistant-data": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],

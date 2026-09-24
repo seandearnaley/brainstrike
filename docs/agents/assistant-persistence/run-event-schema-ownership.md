@@ -7,11 +7,15 @@ verbatim from the pre-distillation contract.
 
 Correction noted at extraction (verified 2026-09-21 against
 `packages/db/src/migrations/118-assistant-thread-runs.ts`): the header comment of
-`scripts/assistant-run-id-producer-guard.mjs` still says "Neither table is
-migration-backed". That is stale — migration 118 creates both relations, as the
-extract below records. The guard's actual assertions (one declaration, one call
-site, not exported for `createThreadRunId`) are unaffected; only its prose
-premise is out of date.
+`scripts/assistant-run-id-producer-guard.mjs` said "Neither table is
+migration-backed". That was stale — migration 118 creates both relations, as the
+extract below records. The guard's assertions (one declaration, one call site,
+not exported for `createThreadRunId`) were unaffected. The header was rewritten
+on 2026-09-24, when the guard also began pinning the one construction of the
+`HostRunId` brand that `createThreadRun` now requires
+(`effect-boundary/phase-two-boundaries.md` § "The host run id brand"). The
+contract rule then dropped "must bootstrap the schema itself" for a second
+producer, since nothing may create these tables at runtime.
 
 `brainstrike_assistant_thread_runs` and `brainstrike_assistant_run_events` are
 created by **migration 118**, and NOTHING creates them at runtime.

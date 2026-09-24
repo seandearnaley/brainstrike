@@ -4,6 +4,7 @@
  */
 import { rmSync } from 'node:fs';
 import { MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
@@ -29,7 +30,7 @@ async function seedRunRow(
   );
   const repository = createPgliteAssistantThreadRepository(db as DbHandle);
   await repository.createThreadRun({
-    id: input.runId,
+    id: input.runId as HostRunId,
     model: 'gpt-5.2',
     provider: 'openai',
     resourceId: 'workspace-a',

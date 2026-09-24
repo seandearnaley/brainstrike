@@ -3,6 +3,7 @@ import {
   COMPACTION_SUMMARY_METADATA_KEY,
   isCompactionSummaryPayload,
 } from '@brainstrike/assistant-contract/compaction-summary';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
@@ -2981,7 +2982,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
     await repository.createThreadRun({
-      id: 'run-1',
+      id: 'run-1' as HostRunId,
       model: 'gpt-5.2',
       modelSettings: { maxOutputTokens: 512 },
       provider: 'openai',
@@ -3622,7 +3623,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       const thread = await repository.createThread('workspace-a');
       await repository.createThreadRun({
-        id: 'run-forge-order',
+        id: 'run-forge-order' as HostRunId,
         model: 'gpt-test',
         provider: 'openai',
         resourceId: 'workspace-a',
@@ -3823,7 +3824,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
     await expect(
       repository.createThreadRun({
-        id: 'run-1',
+        id: 'run-1' as HostRunId,
         model: 'gpt-5.2',
         provider: 'openai',
         resourceId: '/tmp/workspace-a',
@@ -3834,7 +3835,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
     await expect(
       repository.createThreadRun({
-        id: 'run-2',
+        id: 'run-2' as HostRunId,
         model: 'gpt-5.2',
         provider: 'openai',
         resourceId: '/tmp/workspace-a',
@@ -3914,7 +3915,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     expect(repositoryA).toBe(repositoryB);
 
     await repositoryA.createThreadRun({
-      id: 'run-1',
+      id: 'run-1' as HostRunId,
       model: 'gpt-5.2',
       provider: 'openai',
       resourceId: '/tmp/workspace-a',
@@ -3922,7 +3923,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       threadId: 'thread-1',
     });
     await repositoryB.createThreadRun({
-      id: 'run-2',
+      id: 'run-2' as HostRunId,
       model: 'claude-sonnet-4-6',
       provider: 'anthropic',
       resourceId: '/tmp/workspace-a',
@@ -4542,7 +4543,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       threadId: thread.id,
     });
     await repository.createThreadRun({
-      id: 'run-delete',
+      id: 'run-delete' as HostRunId,
       model: 'gpt-test',
       provider: 'openai',
       resourceId: 'workspace-a',
@@ -5407,7 +5408,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // Run 1: completed, two usage rows (one with exact billed cost), two tool
     // completions + one tool failure, two edits (one later reverted), no label.
     await repository.createThreadRun({
-      id: 'run-1',
+      id: 'run-1' as HostRunId,
       model: 'claude-sonnet-5',
       provider: 'anthropic',
       resourceId: 'workspace-a',
@@ -5501,7 +5502,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     // Run 2: newer, failed transport, no usage/events, labeled failed by revert.
     await repository.createThreadRun({
-      id: 'run-2',
+      id: 'run-2' as HostRunId,
       model: 'gpt-5.2',
       provider: 'openai',
       resourceId: 'workspace-a',
@@ -5522,7 +5523,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     // A different workspace must not bleed into the ledger.
     await repository.createThreadRun({
-      id: 'run-other',
+      id: 'run-other' as HostRunId,
       model: 'gpt-5.2',
       provider: 'openai',
       resourceId: 'workspace-b',
@@ -5592,7 +5593,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     await repository.createThreadRun({
-      id: 'run-live',
+      id: 'run-live' as HostRunId,
       model: 'claude-sonnet-5',
       provider: 'anthropic',
       resourceId: 'workspace-a',

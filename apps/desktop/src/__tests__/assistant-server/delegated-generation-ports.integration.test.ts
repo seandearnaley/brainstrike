@@ -10,6 +10,7 @@
  * `other-root-leg` belongs to another root entirely.
  */
 import type { DelegatedConversationIdentity, DelegatedRunIdentity } from '@brainstrike/agent';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
@@ -68,7 +69,7 @@ describe('background generation ports (migration 140)', () => {
   ) => {
     await createPgliteAssistantThreadRepository(database as DbHandle).createThreadRun({
       decision,
-      id,
+      id: id as HostRunId,
       model: 'test',
       provider: 'openai',
       resourceId: 'owner',
@@ -148,7 +149,7 @@ describe('background generation ports (migration 140)', () => {
         'user-turn', 'keep going', 'child-native-run', 'awaiting-approval');`);
     await createPgliteAssistantThreadRepository(database as DbHandle).createThreadRun({
       childContinuation: { id: 'continuation-1', nativeRunId: 'child-native-run' },
-      id: 'continuation-decision-leg',
+      id: 'continuation-decision-leg' as HostRunId,
       model: 'test',
       provider: 'openai',
       resourceId: 'owner',
@@ -184,7 +185,7 @@ describe('background generation ports (migration 140)', () => {
     // invocations, nor supersede its row.
     await hostFor('initial-leg').recordNativeRootRun('native-first');
     await createPgliteAssistantThreadRepository(database as DbHandle).createThreadRun({
-      id: 'regeneration-leg',
+      id: 'regeneration-leg' as HostRunId,
       model: 'test',
       provider: 'openai',
       resourceId: 'owner',

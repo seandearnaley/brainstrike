@@ -1,3 +1,4 @@
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 /**
  * Task Ledger source 'hook': the main-process assistant-server records a
  * Stop-hook-reported run verdict against REAL PGlite via
@@ -52,7 +53,7 @@ describe('recordDesktopAssistantHookRunOutcome (real PGlite)', () => {
     // thread row must exist first — same shape as production.
     const thread = await repository.createThread('workspace-a');
     await repository.createThreadRun({
-      id: 'run-1',
+      id: 'run-1' as HostRunId,
       model: 'gpt-5.2',
       provider: 'openai',
       resourceId: 'workspace-a',

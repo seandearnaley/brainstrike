@@ -1,3 +1,4 @@
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import '@testing-library/jest-dom/vitest';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { createDelegatedConversationRepository, migrate, wasmLoader } from '@brainstrike/db';
@@ -61,7 +62,7 @@ beforeEach(async () => {
   childThreadId = child.id;
   rows = [{ groupId: null, id: root.id, kind: 'thread', parentId: null, thread: root }];
   await history.createThreadRun({
-    id: 'host',
+    id: 'host' as HostRunId,
     model: 'test',
     provider: 'openai',
     resourceId: 'owner',

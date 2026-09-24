@@ -6,11 +6,13 @@
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@modelcontextprotocol/core": "catalog:",
+    "effect": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
@@ -34,6 +36,11 @@
       "types": "./dist/assistant-request-body-limit.d.ts",
       "import": "./dist/assistant-request-body-limit.js",
       "require": "./dist/assistant-request-body-limit.js"
+    },
+    "./host-run-id": {
+      "types": "./dist/host-run-id.d.ts",
+      "import": "./dist/host-run-id.js",
+      "require": "./dist/host-run-id.js"
     },
     "./hook-trust-request": {
       "types": "./dist/hook-trust-request.d.ts",
@@ -267,7 +274,7 @@
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "sideEffects": false,
   "type": "module",

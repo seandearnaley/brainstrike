@@ -20,6 +20,7 @@ import {
   isApprovalActionMessage,
   readActionMessageHostRunId,
 } from '@brainstrike/assistant-contract/approval-action-message';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   DEFAULT_THREAD_TITLE,
   DELEGATED_THREAD_DELETE_CTES,
@@ -205,7 +206,8 @@ export interface CreateAssistantThreadRunInput {
     readonly toolCallId: string;
   };
   readonly error?: string | null;
-  readonly id: string;
+  /** Minted only by app-shell's `createThreadRunId` (see `HostRunId`). */
+  readonly id: HostRunId;
   readonly model: string;
   readonly modelSettings?: Record<string, unknown>;
   readonly provider: string;

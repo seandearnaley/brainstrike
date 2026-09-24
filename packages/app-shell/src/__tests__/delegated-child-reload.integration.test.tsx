@@ -1,3 +1,4 @@
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { createThreadWorkspaceRepository } from '@brainstrike/assistant-data';
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import type { DelegatedConversationRoot } from '../delegated-conversation-owner';
@@ -147,7 +148,7 @@ beforeEach(async () => {
   const child = await history.createThread('native-child');
   rootThreadId = root.id;
   await history.createThreadRun({
-    id: 'host',
+    id: 'host' as HostRunId,
     model: 'test',
     provider: 'openai',
     resourceId: 'owner',

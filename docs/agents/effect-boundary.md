@@ -70,10 +70,14 @@ Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`,
   with that message and the failing path, the `SchemaError` as `cause`.
 - Count affected rows from `RETURNING`, never a driver row count. Why: the
   desktop DB host surfaces only `rows`.
+- An id the renderer mints is a type-only `Brand.Brand`, asserted once by its
+  sole producer, with a guard pinning that site. Why: a Schema brand decoder
+  adds about 74 KB gzipped to the renderer for an id the app generates itself.
 
 Evidence: `effect-boundary/phase-two-boundaries.md`.
 Guard: `packages/db/__tests__/mcp-task-row-schema.test.ts`,
-`packages/effect-kit/src/__tests__/throwing-decoder.test.ts`.
+`packages/effect-kit/src/__tests__/throwing-decoder.test.ts`,
+`scripts/assistant-run-id-producer-guard.mjs`.
 
 ### Effect diagnostics
 

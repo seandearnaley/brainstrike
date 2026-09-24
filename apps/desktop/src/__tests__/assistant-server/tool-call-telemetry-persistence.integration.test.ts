@@ -1,3 +1,4 @@
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 /**
  * `persistDesktopToolCallTelemetry` against a REAL PGlite (BST-1190 review
  * fix).
@@ -54,7 +55,7 @@ async function seedRun(db: TestDatabase, runId: string, threadId: string): Promi
   );
   const repository = createPgliteAssistantThreadRepository(db as DbHandle);
   await repository.createThreadRun({
-    id: runId,
+    id: runId as HostRunId,
     model: 'gpt-5.2',
     provider: 'openai',
     resourceId: 'workspace-a',

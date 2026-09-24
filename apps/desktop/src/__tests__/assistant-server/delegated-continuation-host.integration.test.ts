@@ -1,3 +1,4 @@
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 // @vitest-environment node
 
 import { createTool } from '@brainstrike/agent/test-fixtures/delegated-stream';
@@ -655,7 +656,7 @@ it.each(['complete', 'approval'] as const)(
       await repository.completeThreadRun('wake-host', { status: 'completed' });
       await repository.createThreadRun({
         childContinuation: { id: input.id, nativeRunId: pause.nativeRunId },
-        id: 'resume-host',
+        id: 'resume-host' as HostRunId,
         model: 'gpt-5.4',
         provider: 'openai',
         resourceId: 'owner',
