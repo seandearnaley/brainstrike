@@ -462,6 +462,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../../packages/effect-kit
       '@brainstrike/embedding-worker':
         specifier: workspace:*
         version: link:../../packages/embedding-worker
@@ -1674,6 +1677,9 @@ importers:
       '@babel/parser':
         specifier: ^8.0.4
         version: 8.0.4
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
@@ -1762,6 +1768,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
@@ -1792,6 +1801,9 @@ importers:
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.2(@electric-sql/pglite@0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311))(@opentelemetry/api@1.9.1)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -1805,6 +1817,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.45.0
       '@stryker-mutator/api':
         specifier: 'catalog:'
         version: 10.0.0
@@ -2054,6 +2069,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
       '@brainstrike/embedding-worker':
         specifier: workspace:*
         version: link:../embedding-worker

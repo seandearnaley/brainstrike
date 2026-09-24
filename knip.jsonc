@@ -430,7 +430,9 @@
         // test lane needs no built dist of @brainstrike/config. knip resolves that
         // to a file, not to the package name, so it cannot credit the declaration.
         // The declaration still states the real workspace dependency; do not drop it.
-        "@brainstrike/config"
+        "@brainstrike/config",
+        // Effect language-service plugin name, not a package; see packages/effect-kit.
+        "@effect/language-service"
       ],
       "typescript": {
         "config": "tsconfig.json"

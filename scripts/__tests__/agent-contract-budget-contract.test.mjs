@@ -100,7 +100,9 @@ const CONTRACT_LINE_BUDGETS = {
   // bullet, whose "SIGKILL is the only exit" is no longer true of a trap.
   'database.md': 874,
   'domain.md': 37,
-  'effect-boundary.md': 59,
+  // A new contract that grows with each ADR-0004 phase; each addition is a
+  // rule with its guard, and the record lives in effect-boundary/*.md.
+  'effect-boundary.md': 88,
   'explorer-search-tapestry.md': 638,
   'issue-tracker.md': 56,
   'local-inference.md': 403,

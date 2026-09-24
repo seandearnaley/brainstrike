@@ -3,7 +3,7 @@
 // asserts it saw at least one subject so it cannot pass vacuously.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,10 @@ const DEPENDENCY_FIELDS = [
   'optionalDependencies',
   'peerDependencies',
 ];
-const DIAGNOSTICS_COMMAND = 'effect-tsgo diagnostics --project tsconfig.test.json --strict';
+// The diagnostics run on the widest program the package type-checks:
+// tsconfig.test.json when it has one, else tsconfig.json.
+const DIAGNOSTICS_COMMAND =
+  /effect-tsgo diagnostics --project (tsconfig\.test\.json|tsconfig\.json) --strict$/u;
 const LANGUAGE_SERVICE_PLUGIN = '@effect/language-service';
 // The one package allowed to run effects: it IS the Promise boundary.
 const RUNNER_OWNER_PREFIX = 'packages/effect-kit/src/';
@@ -293,16 +296,18 @@ test('every package that depends on effect runs the Effect diagnostics in type-c
       'catalog:',
       `${file} must list @effect/tsgo as a catalog: devDependency`
     );
-    assert.ok(
-      manifest.scripts?.['type-check']?.endsWith(DIAGNOSTICS_COMMAND),
-      `${file} type-check must end with "${DIAGNOSTICS_COMMAND}"`
-    );
-    // The diagnostics run on tsconfig.test.json, so its EFFECTIVE options are
-    // what must carry the plugin, whether declared there or inherited.
-    const plugins = effectiveCompilerOptions(`${directory}/tsconfig.test.json`).plugins ?? [];
+    const project = manifest.scripts?.['type-check']?.match(DIAGNOSTICS_COMMAND)?.[1];
+    assert.ok(project, `${file} type-check must end with a match for ${DIAGNOSTICS_COMMAND}`);
+    const widest = existsSync(path.join(repoRoot, directory, 'tsconfig.test.json'))
+      ? 'tsconfig.test.json'
+      : 'tsconfig.json';
+    assert.equal(project, widest, `${file} must run the diagnostics on ${widest}`);
+    // The EFFECTIVE options of that project must carry the plugin, whether
+    // declared there or inherited through `extends`.
+    const plugins = effectiveCompilerOptions(`${directory}/${project}`).plugins ?? [];
     assert.ok(
       plugins.some((plugin) => plugin?.name === LANGUAGE_SERVICE_PLUGIN),
-      `${directory}/tsconfig.test.json must resolve the ${LANGUAGE_SERVICE_PLUGIN} plugin; ` +
+      `${directory}/${project} must resolve the ${LANGUAGE_SERVICE_PLUGIN} plugin; ` +
         'without it effect-tsgo diagnostics checks 0 files and passes'
     );
   }

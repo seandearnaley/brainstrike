@@ -46,11 +46,40 @@ Guard: `apps/desktop/src/__tests__/preload-sandbox-imports.test.ts`.
 Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`,
 `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
+### Shared helpers
+
+- Bound a Promise with `runWithTimeout`, never `Promise.race(work, timer)`: it
+  clears its timer when the work settles and aborts the task's signal at the
+  deadline.
+- `createConcurrencyLimiter` bounds concurrency, not order: a task arriving
+  while a permit is momentarily free starts ahead of waiters not yet woken. Code
+  that relies on FIFO admission (the snapshot and worktree mutexes) keeps its own
+  promise chain.
+
+Evidence: `effect-boundary/phase-one-pilots.md`.
+Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`,
+`timeout.test.ts`.
+
+### Schema at boundaries
+
+- Decode PGlite rows, worker messages, and main-only IPC payloads with Effect
+  Schema where they first arrive; derive the row type from the schema, never
+  cast. Keep cross-field invariants as code over the decoded value.
+- Each field schema carries, as its `message`, the sentence its hand check used
+  to throw. Throwing code decodes through `makeThrowingDecoder`: a `TypeError`
+  with that message and the failing path, the `SchemaError` as `cause`.
+- Count affected rows from `RETURNING`, never a driver row count. Why: the
+  desktop DB host surfaces only `rows`.
+
+Evidence: `effect-boundary/phase-two-boundaries.md`.
+Guard: `packages/db/__tests__/mcp-task-row-schema.test.ts`,
+`packages/effect-kit/src/__tests__/throwing-decoder.test.ts`.
+
 ### Effect diagnostics
 
 - A package that depends on `effect` adds the `@effect/language-service` plugin
-  to its `tsconfig.json` and ends its `type-check` script with
-  `effect-tsgo diagnostics --project tsconfig.test.json --strict`.
+  to its `tsconfig.json` and ends `type-check` with `effect-tsgo diagnostics
+  --project <widest tsconfig> --strict` (`tsconfig.test.json` if present).
 - Never run `effect-tsgo patch`. Why: it rewrites the shared TypeScript 7 `tsc`
   that `ci-quality.md` § "TypeScript 7 CLI with the TypeScript 6 compatibility
   API" pins.

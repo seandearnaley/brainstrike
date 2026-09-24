@@ -35,8 +35,10 @@ Adopt Effect v4 (`effect`, exact-pinned) one runtime boundary at a time.
 1. **Phase 0 (this ADR):** the contract, an exact catalog pin, the Effect
    language service in dedicated diagnostics mode, and
    `@brainstrike/effect-kit` holding the one Promise-boundary helper.
-2. **Phase 1:** small self-contained pilots: a shared serial runner for the
-   copied mutexes, the leaking timeouts, and the effect-kit helpers they need.
+2. **Phase 1:** small self-contained pilots: `runWithTimeout` for the timeouts
+   that never cleared their timer, and `createConcurrencyLimiter` for the
+   git-inventory walk. The FIFO mutexes stay hand-written: Effect's `Semaphore`
+   is not strictly FIFO (`effect-boundary/phase-one-pilots.md`).
 3. **Phase 2:** Schema at boundaries that only main or a worker reaches: IPC
    handlers in Electron main, PGlite row decoding in repositories, chunking
    worker messages, and a branded host run id.

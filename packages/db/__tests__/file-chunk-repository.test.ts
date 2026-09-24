@@ -472,7 +472,7 @@ describe('FileChunkRepository', () => {
       await repository.insertMany(chunks);
 
       // Delete chunks for file1
-      await repository.deleteByFileRecordId('file1');
+      await expect(repository.deleteByFileRecordId('file1')).resolves.toBe(2);
 
       // Should have deleted file1 chunks but not file2
       const file1Chunks = await repository.findByFileRecordId('file1');
@@ -484,7 +484,7 @@ describe('FileChunkRepository', () => {
     });
 
     it('should handle deletion of non-existent file record', async () => {
-      await expect(repository.deleteByFileRecordId('nonexistent')).resolves.not.toThrow();
+      await expect(repository.deleteByFileRecordId('nonexistent')).resolves.toBe(0);
     });
   });
 

@@ -14,6 +14,7 @@
 
 /// <reference lib="webworker" />
 
+import { runWithTimeout } from '@brainstrike/effect-kit';
 import { isChunkBatchRequest, isChunkRequest } from './message-validation';
 import { chunkContent, type PortableChunkingResult } from './portable-chunking';
 import type {
@@ -248,17 +249,6 @@ function cleanupGlobalHandlers(): void {
 }
 
 /**
- * Create a promise that rejects after a timeout.
- */
-function createTimeout(ms: number, context: string): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => {
-      reject(new Error(`Processing timeout after ${ms}ms: ${context}`));
-    }, ms);
-  });
-}
-
-/**
  * Process a single file with timeout protection.
  */
 async function processFileWithTimeout(
@@ -267,7 +257,13 @@ async function processFileWithTimeout(
 ): Promise<ChunkResult | ChunkError> {
   const context = `${request.fileName} (${request.id})`;
   try {
-    return await Promise.race([processFile(request), createTimeout(timeoutMs, context)]);
+    // The deadline timer is cleared as soon as processFile settles. processFile
+    // takes no signal, so work that outlives the deadline still runs to the
+    // end; only its result is dropped.
+    return await runWithTimeout(() => processFile(request), {
+      onTimeout: () => new Error(`Processing timeout after ${timeoutMs}ms: ${context}`),
+      timeoutMs,
+    });
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'processFile timeout or race error', {

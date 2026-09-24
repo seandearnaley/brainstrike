@@ -21,6 +21,9 @@
   ],
   "references": [
     {
+      "path": "../effect-kit"
+    },
+    {
       "path": "../text-splitter"
     },
     {
