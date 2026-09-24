@@ -179,7 +179,11 @@ describe('MCP bounded verification runner', () => {
         caseTimeoutMs: 100,
         runTimeoutMs: 100,
       })
-    ).rejects.toThrow(/modern-stdio.*red.*100 ms/i);
+      // The error names the phase budget, ceil(remaining run time), which loses
+      // whatever elapsed before RED started ("90 ms" on a loaded CI runner), so
+      // only its shape is asserted. The deadline clock stays real: a frozen one
+      // would leave the full budget for cleanup and hide a lost cleanup reserve.
+    ).rejects.toThrow(/modern-stdio.*red.*\d+ ms/i);
     expect(events).toEqual([
       'create:modern-stdio:red',
       'run:modern-stdio:red',
