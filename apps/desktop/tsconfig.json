@@ -147,6 +147,9 @@
       "@brainstrike/assistant-data/assistant-thread-run-reaper": [
         "../../packages/assistant-data/src/assistant-thread-run-reaper.ts"
       ],
+      "@brainstrike/assistant-data/assistant-memory-repository": [
+        "../../packages/assistant-data/src/assistant-memory-repository.ts"
+      ],
       "@brainstrike/app-shell/changes/availability": [
         "../../packages/app-shell/src/changes/availability.ts"
       ],

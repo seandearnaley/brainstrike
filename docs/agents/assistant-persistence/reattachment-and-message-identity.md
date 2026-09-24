@@ -114,3 +114,40 @@ packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts â€
 if a Mastra writer ever starts persisting the echo, extend the exclusion at
 that writer and update this section.
 
+The September 2026 hosted-run fast follow moved active-run discovery into a
+per-attempt external resource subscribed through `useSyncExternalStore`. An
+effect starts and disposes the resource; it owns the timeout, abort signal,
+cached snapshot, and generation fence. The controller checks cancellation
+before executing after StrictMode's throwaway mount, and reconciliation checks
+the signal again before storage or session writes. This preserves the existing
+visible Retry path without fetching or setting asynchronous discovery state
+inside a React effect. A retained closed session from a prior run is checked
+for terminal status before a headerless new POST is deemed conflicting; a live
+same-run response is not reclassified as replay by a late discovery result.
+The races are pinned by `assistant-run-discovery-resource.test.ts` and
+`assistant-run-session-races.test.tsx`.
+
+The review of PR #3302 found that an inline `authHeaders` callback could
+recreate the discovery resource on every render. Starting each replacement
+published an identical pending snapshot, producing a render loop even though
+the thread and explicit retry had not changed. Discovery now keys its resource
+only to that semantic attempt, reads the latest auth callback when the attempt
+starts, and avoids notifying subscribers for an unchanged pending snapshot.
+Status probes within discovery use the same abort signal as the active-run
+request, so disposal stops in-flight work as well as fencing later state
+changes. The bounded inline-callback and pending-notification regressions are
+in `assistant-run-session-races.test.tsx` and
+`assistant-run-discovery-resource.test.ts`.
+
+CodeRabbit's final review of PR #3302 found a separate ownership race: while
+the original resource's headerless POST was awaiting discovery, changing the
+resource without remounting the hook let the new resource's empty result mark
+the old POST failed. The production panel remounts on thread-key changes, but
+its memory resource is a separate prop. Preparation captures that resource
+scope before asynchronous work; a later transport error reads the captured
+scope even if the renderer already switched resources. The pending failure
+retains it; another or missing scope reports a visible
+recovery error without querying that host or releasing the old lease.
+Returning to the original scope runs discovery again and settles only from
+that result. The same-hook switch, return, and late old-attempt result are pinned in
+`assistant-run-session-races.test.tsx`.

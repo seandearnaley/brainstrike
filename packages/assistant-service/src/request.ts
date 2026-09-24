@@ -89,10 +89,29 @@ interface PreparedAssistantPostRequest {
    * `providerAuthInputFromCredential`).
    */
   credential?: ResolvedProviderCredential;
+  finalInputMessage?: AgentMessage;
+  inputParentMessageId?: string | null;
   messages: AgentMessage[];
+  pausedMessageId?: string;
   runtimeData: RuntimeData;
   toolApprovalAction?: AssistantToolApprovalAction;
   toolResumeAction?: AssistantToolResumeAction;
+}
+
+function optionalInputParentMessageId(value: string | null | undefined): {
+  inputParentMessageId?: string | null;
+} {
+  return value === undefined ? {} : { inputParentMessageId: value };
+}
+
+function optionalPausedMessageId(value: string | undefined): { pausedMessageId?: string } {
+  return value === undefined ? {} : { pausedMessageId: value };
+}
+
+function optionalFinalInputMessage(value: AgentMessage | null | undefined): {
+  finalInputMessage?: AgentMessage;
+} {
+  return value === null || value === undefined ? {} : { finalInputMessage: value };
 }
 
 /**
@@ -128,8 +147,8 @@ export interface PrepareAssistantPostRequestParams {
    * here — every hook throw (including one that happens to be a class this
    * module maps for its own parse phase) is rethrown to the caller wrapped in
    * AssistantFilterPayloadError, and the transport unwraps `cause` and owns
-   * the wire shape (NO SILENT FALLBACKS, in both directions). Desktop passes
-   * no hook and is byte-for-byte unchanged.
+   * the wire shape (NO SILENT FALLBACKS, in both directions). Desktop uses an
+   * identity hook to register the initializing thread before credential work.
    */
   readonly filterPayload?: (
     payload: ParsedAssistantRequestEnvelope
@@ -355,6 +374,8 @@ export async function prepareAssistantPostRequest(
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
   let assistantMessageId: string | undefined;
+  let inputParentMessageId: string | null | undefined;
+  let pausedMessageId: string | undefined;
   let toolApprovalAction: AssistantToolApprovalAction | undefined;
   let toolApprovalActionInvalid = false;
   let toolResumeAction: AssistantToolResumeAction | undefined;
@@ -364,6 +385,8 @@ export async function prepareAssistantPostRequest(
     childFollowupAction = payload.childFollowupAction;
     childFollowupActionInvalid = Boolean(payload.childFollowupActionInvalid);
     assistantMessageId = payload.assistantMessageId;
+    inputParentMessageId = payload.inputParentMessageId;
+    pausedMessageId = payload.pausedMessageId;
     rawMessages = payload.rawMessages;
     data = payload.data;
     toolApprovalAction = payload.toolApprovalAction;
@@ -474,6 +497,9 @@ export async function prepareAssistantPostRequest(
       apiKey: apiKey ?? '',
       ...(childFollowupAction ? { childFollowupAction } : {}),
       ...(assistantMessageId ? { assistantMessageId } : {}),
+      ...optionalFinalInputMessage(finalInputMessage),
+      ...optionalInputParentMessageId(inputParentMessageId),
+      ...optionalPausedMessageId(pausedMessageId),
       ...(credential ? { credential } : {}),
       messages,
       runtimeData,

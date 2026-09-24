@@ -910,6 +910,28 @@ describe('buildDefaultInstructions delegation guidance', () => {
   const personas = [{ description: 'Survey code', id: 'explore', label: 'Explorer' }];
   const names = new Map<string, string>();
 
+  it('permits delegated deliverables only when an admitted Worker is available', () => {
+    const readOnly = buildDefaultInstructions(names, { personas });
+    expect(readOnly).toContain('Explorer is read-only');
+    expect(readOnly).toContain('never for mutations');
+
+    const withWorker = buildDefaultInstructions(names, {
+      personas: [
+        ...personas,
+        {
+          description: 'Implement changes and run checks',
+          id: 'worker',
+          label: 'Worker',
+          mode: 'worker',
+        } as const,
+      ],
+    });
+    expect(withWorker).toContain('agent-worker');
+    expect(withWorker).toContain('Delegate implementation and verification to Worker');
+    expect(withWorker).toContain('Explorer is read-only');
+    expect(withWorker).not.toContain('subagents are read-only');
+  });
+
   it('names the delegation tools and, with background workers, keeps _background host-owned', () => {
     const foreground = buildDefaultInstructions(names, { personas });
     expect(foreground).toContain('agent-explore');

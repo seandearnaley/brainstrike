@@ -569,16 +569,28 @@ async function generateQueryEmbedding(
   provider: HostedProviderType,
   modelId: string,
   dimensions: number,
-  query: string
+  query: string,
+  signal?: AbortSignal
 ): Promise<number[]> {
+  signal?.throwIfAborted();
   const apiKey = await resolveEmbeddingApiKey(provider);
+  signal?.throwIfAborted();
   if (hostedProviderRequiresApiKey(provider) && !apiKey) {
     throw new Error(ERROR_MESSAGES.missingApiKey);
   }
   const hostedProvider = createHostedProvider(provider, modelId, dimensions, apiKey);
-  const result = await hostedProvider.embed({ modelId, text: query });
+  const result = await hostedProvider.embed({
+    modelId,
+    text: query,
+    ...(signal ? { signal } : {}),
+  });
+  signal?.throwIfAborted();
   if (!result.ok) {
-    logger.warn('Embedding provider returned error', { error: result.error, provider });
+    logger.warn('Embedding provider returned error', {
+      error: redactErrorForLog(result.error),
+      provider,
+      stage: 'provider-request',
+    });
     throw new Error(ERROR_MESSAGES.embeddingFailed);
   }
   return result.value.embedding;
@@ -595,25 +607,51 @@ function resolveProviderForSet(embeddingSet: EmbeddingSetRow): EmbeddingProvider
 export async function generateQueryEmbeddingForSet(
   embeddingSet: EmbeddingSetRow,
   query: string,
-  dependencies: RetrievalToolDependencies
+  dependencies: RetrievalToolDependencies,
+  signal?: AbortSignal
 ): Promise<number[]> {
+  signal?.throwIfAborted();
   const provider = resolveProviderForSet(embeddingSet);
-  if (isHostedProvider(provider)) {
-    return generateQueryEmbedding(provider, embeddingSet.modelId, embeddingSet.dimensions, query);
-  }
-  if (isLocalProviderType(provider)) {
-    const embeddingHostManager = dependencies.embeddingHostManager;
-    if (!embeddingHostManager) {
-      throw new Error(ERROR_MESSAGES.localEmbeddingHostUnavailable);
+  const startedAt = performance.now();
+  try {
+    if (isHostedProvider(provider)) {
+      return await generateQueryEmbedding(
+        provider,
+        embeddingSet.modelId,
+        embeddingSet.dimensions,
+        query,
+        signal
+      );
     }
-    return embeddingHostManager.queryEmbedding({
-      dimensions: embeddingSet.dimensions,
-      modelId: embeddingSet.modelId,
-      modelKey: embeddingSet.modelKey,
-      query,
-    });
+    if (isLocalProviderType(provider)) {
+      const embeddingHostManager = dependencies.embeddingHostManager;
+      if (!embeddingHostManager) {
+        throw new Error(ERROR_MESSAGES.localEmbeddingHostUnavailable);
+      }
+      const payload = {
+        dimensions: embeddingSet.dimensions,
+        modelId: embeddingSet.modelId,
+        modelKey: embeddingSet.modelKey,
+        query,
+      };
+      return await (signal
+        ? embeddingHostManager.queryEmbedding(payload, { signal })
+        : embeddingHostManager.queryEmbedding(payload));
+    }
+    throw new Error(ERROR_MESSAGES.unsupportedProvider);
+  } catch (error) {
+    const timedOut = error instanceof Error && /timed out/i.test(error.message);
+    if (signal?.aborted || timedOut) {
+      logger.warn('Query embedding interrupted', {
+        aborted: signal?.aborted ?? false,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        provider,
+        stage: isLocalProviderType(provider) ? 'local-host' : 'hosted-provider',
+        timedOut,
+      });
+    }
+    throw error;
   }
-  throw new Error(ERROR_MESSAGES.unsupportedProvider);
 }
 
 function normalizeQuery(query: string): string {
@@ -745,8 +783,10 @@ async function packRetrievedContext(
 async function runRetrieval(
   input: RetrievalContextInput,
   runtimeData: RuntimeData | undefined,
-  dependencies: RetrievalToolDependencies = {}
+  dependencies: RetrievalToolDependencies = {},
+  signal?: AbortSignal
 ): Promise<RetrievalToolExecutionResult> {
+  signal?.throwIfAborted();
   const query = normalizeQuery(input.query);
   const embeddingSetId = resolveRuntimeEmbeddingSetId(runtimeData, input.embeddingSetId);
   if (!embeddingSetId) {
@@ -765,8 +805,10 @@ async function runRetrieval(
   }
 
   const db = await getDatabase();
+  signal?.throwIfAborted();
   const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
-  const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies);
+  const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies, signal);
+  signal?.throwIfAborted();
   assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
 
   const selectionState = await resolveSelectionState(db, runtimeData, input);
@@ -788,6 +830,7 @@ async function runRetrieval(
     runtimeData,
     input
   );
+  signal?.throwIfAborted();
 
   return {
     budget: packed.budget,
@@ -827,16 +870,19 @@ function handleRetrievalError(error: unknown): never {
 export async function runQueryEmbeddingSpace(
   input: QueryEmbeddingSpaceInput,
   runtimeData: RuntimeData | undefined,
-  dependencies: RetrievalToolDependencies = {}
+  dependencies: RetrievalToolDependencies = {},
+  signal?: AbortSignal
 ): Promise<RetrievalToolExecutionResult> {
   try {
+    signal?.throwIfAborted();
     const hasExplicitEmbeddingSet = Boolean(normalizeOptionalText(input.embeddingSetId));
     if (!(hasExplicitEmbeddingSet || hasWorkspaceIndexRuntimeStatus(runtimeData))) {
       throw new Error(ERROR_MESSAGES.missingQueryEmbeddingSpace);
     }
     const explicitRuntimeData = omitImplicitContextRuntimeData(runtimeData);
-    return await runRetrieval(input, explicitRuntimeData, dependencies);
+    return await runRetrieval(input, explicitRuntimeData, dependencies, signal);
   } catch (error) {
+    signal?.throwIfAborted();
     // BST-1020: this normalization previously lived ONLY in the deleted
     // tool factories, so the LIVE registry path surfaced raw unexpected
     // errors (workspace paths included) toward the model. The live entry now
