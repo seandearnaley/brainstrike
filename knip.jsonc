@@ -458,6 +458,20 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/effect-kit": {
+      "project": ["src/**/*.ts"],
+      "ignore": ["**/__tests__/**", "**/*.test.ts"],
+      "ignoreDependencies": [
+        // The Effect language-service tsconfig plugin NAME, not a package: the
+        // pinned `@effect/tsgo` binary resolves it in its dedicated diagnostics
+        // mode (docs/agents/effect-boundary.md § "Effect diagnostics"). Every
+        // Effect package carries the same entry.
+        "@effect/language-service"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "packages/context-actions": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],

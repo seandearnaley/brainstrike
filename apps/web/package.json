@@ -130,7 +130,7 @@
     "test:e2e:ui": "unset NO_COLOR; pnpm exec playwright test --ui",
     "test:ui": "vitest --ui",
     "test:watch": "vitest",
-    "type-check": "tsc --build --force && tsc --noEmit && tsc --noEmit --project tsconfig.test.json && pnpm run type-check:api",
+    "type-check": "tsc --build && tsc --noEmit && tsc --noEmit --project tsconfig.test.json && pnpm run type-check:api",
     "type-check:api": "tsc --noEmit --project api/tsconfig.json"
   },
   "type": "module"

@@ -1,0 +1,29 @@
+{
+  "extends": "../../packages/config/tsconfig/node-library.json",
+  "compilerOptions": {
+    "composite": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "declaration": true,
+    "outDir": "./dist",
+    "rootDir": "src",
+    "declarationMap": true,
+    "types": [],
+    "strictNullChecks": true,
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "src/**/*.test.ts",
+    "src/**/__tests__/**"
+  ],
+  "references": []
+}

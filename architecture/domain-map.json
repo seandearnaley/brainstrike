@@ -142,6 +142,7 @@
         "@brainstrike/assistant-wire",
         "@brainstrike/context-actions",
         "@brainstrike/e2e-test-utils",
+        "@brainstrike/effect-kit",
         "@brainstrike/file-system",
         "@brainstrike/file-tree-test-fixtures",
         "@brainstrike/hooks",
