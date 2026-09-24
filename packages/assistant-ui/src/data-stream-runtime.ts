@@ -10,12 +10,23 @@ import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   type AssistantActiveRunSession,
   AssistantAttachmentValidationError,
+  type AssistantDiscoveredRun,
   dataUrlByteLength,
+  isMatchingToolAction,
   type RuntimeTransportImageElision,
+  SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract/run-events';
 import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
+import {
+  readToolApprovalRunConfigAction,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-approval';
+import {
+  readToolResumeRunConfigAction,
+  TOOL_SUSPEND_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { createAssistantRequestEnvelope } from '@brainstrike/assistant-wire';
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
@@ -79,6 +90,7 @@ export interface CancelledAssistantRun {
 
 export type BrainstrikeDataStreamRuntimeOptions = {
   activeRunSession?: AssistantActiveRunSession;
+  discoveredRun?: AssistantDiscoveredRun;
   api: string;
   body?:
     | ((
@@ -104,8 +116,10 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
   /** Reports replay-only failures so the active session can schedule a bounded retry. */
-  onReplayError?: (error: Error) => void;
-  onResponse?: (response: Response) => Promise<void> | void;
+  onReplayError?: (error: Error, eventId: string) => void;
+  onResponse?: (response: Response, parentMessageId?: string | null) => Promise<void> | void;
+  /** Resolve a transient pause notice through the current exported thread graph. */
+  resolveInputParentMessageId?: (parentId: string | null) => string | null;
   /**
    * Visible local-model warmup that runs before the bounded request-input
    * phase. It has no absolute deadline because it may download model files,
@@ -911,6 +925,67 @@ function resolveOutboundTransportMessages(
   return excludeApprovalActionMessages(messages);
 }
 
+function isSyntheticPauseMessageId(id: string): boolean {
+  return (
+    id.startsWith('suspended-approval:') ||
+    id.startsWith('suspended-pause:') ||
+    id.startsWith(`${SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME}:`)
+  );
+}
+
+export function resolveDurableInputParentMessageId(
+  parentId: string | null,
+  messages: readonly {
+    readonly message: { readonly id: string };
+    readonly parentId: string | null;
+  }[]
+): string | null {
+  let current = parentId;
+  const visited = new Set<string>();
+  const parentsById = new Map<string, string | null>();
+  for (const item of messages) {
+    if (!parentsById.has(item.message.id)) {
+      parentsById.set(item.message.id, item.parentId);
+    }
+  }
+  while (current && isSyntheticPauseMessageId(current)) {
+    if (visited.has(current)) {
+      throw new Error('Assistant synthetic pause ancestry contains a cycle.');
+    }
+    visited.add(current);
+    const parent = parentsById.get(current);
+    if (parent === undefined) {
+      throw new Error(`Assistant synthetic pause '${current}' has no exported parent edge.`);
+    }
+    current = parent;
+  }
+  return current;
+}
+
+function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: unknown): string {
+  const approval = readToolApprovalRunConfigAction(runConfig);
+  const resume = readToolResumeRunConfigAction(runConfig);
+  const approvalAction = approval && 'action' in approval ? approval.action : undefined;
+  const resumeAction = resume && 'action' in resume ? resume.action : undefined;
+  const action = approvalAction ?? resumeAction;
+  const dataName = approvalAction ? TOOL_APPROVAL_DATA_NAME : TOOL_SUSPEND_DATA_NAME;
+  if (!action) {
+    throw new Error('Assistant action has no valid paused tool identity.');
+  }
+  const owners = messages.filter(
+    (message) =>
+      message.role === 'assistant' &&
+      message.content.some(
+        (part) =>
+          part.type === 'data' && part.name === dataName && isMatchingToolAction(part.data, action)
+      )
+  );
+  if (owners.length !== 1 || !owners[0]?.id.trim()) {
+    throw new Error('Assistant action has no unique owning paused assistant message.');
+  }
+  return owners[0].id;
+}
+
 /**
  * Pass-through tap that intercepts "message-finish" chunks to surface provider
  * token usage. The DataStreamDecoder outputs AssistantStreamChunk
@@ -1191,7 +1266,9 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       context,
       unstable_getMessage,
     }: Pick<ChatModelRunOptions, 'abortSignal' | 'context' | 'unstable_getMessage'>,
-    notifyResponse: boolean
+    notifyResponse: boolean,
+    releaseCancelHandler?: () => void,
+    replayParentMessageId?: string | null
   ) {
     let terminalFinishFlushed = false;
     if (!response.ok) {
@@ -1203,11 +1280,12 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       throw new Error('Response body is null');
     }
     if (notifyResponse) {
-      await this.options.onResponse?.(response);
+      await this.options.onResponse?.(response, replayParentMessageId);
     }
 
     const markTerminalFlushed = (): void => {
       terminalFinishFlushed = true;
+      releaseCancelHandler?.();
     };
     const delegatedReceiver = this.options.onDelegatedConversation
       ? createDelegatedConversationTap(
@@ -1260,27 +1338,25 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
   private registerCancelHandler(
     abortSignal: AbortSignal,
     readCancelledMessages: () => readonly ThreadMessage[]
-  ): void {
-    abortSignal.addEventListener(
-      'abort',
-      () => {
-        if ((abortSignal.reason as { detach?: unknown } | undefined)?.detach) {
-          return;
-        }
-        // Reading the live message can throw (a runtime torn down under the
-        // abort). The cancel path itself must still run: this file's rule is
-        // that hook failures never break the stream, and an empty set only
-        // means "nothing here looks stale", which is the safe direction.
-        let messages: readonly ThreadMessage[] = [];
-        try {
-          messages = readCancelledMessages();
-        } catch (error: unknown) {
-          logger.warn('Could not read the cancelled thread for the Stop notice', { error });
-        }
-        this.options.onCancel?.({ messages });
-      },
-      { once: true }
-    );
+  ): () => void {
+    const onAbort = (): void => {
+      if ((abortSignal.reason as { detach?: unknown } | undefined)?.detach) {
+        return;
+      }
+      // Reading the live message can throw (a runtime torn down under the
+      // abort). The cancel path itself must still run: this file's rule is
+      // that hook failures never break the stream, and an empty set only
+      // means "nothing here looks stale", which is the safe direction.
+      let messages: readonly ThreadMessage[] = [];
+      try {
+        messages = readCancelledMessages();
+      } catch (error: unknown) {
+        logger.warn('Could not read the cancelled thread for the Stop notice', { error });
+      }
+      this.options.onCancel?.({ messages });
+    };
+    abortSignal.addEventListener('abort', onAbort, { once: true });
+    return () => abortSignal.removeEventListener('abort', onAbort);
   }
 
   async *resume(
@@ -1294,7 +1370,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     }
   ) {
     const { abortSignal } = runOptions;
-    this.registerCancelHandler(abortSignal, () => [
+    const releaseCancelHandler = this.registerCancelHandler(abortSignal, () => [
       ...runOptions.messages,
       runOptions.unstable_getMessage(),
     ]);
@@ -1321,12 +1397,14 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
           `Status 404: ${await readBoundedHttpErrorResponseText(response)}`
         );
       }
-      yield* this.consumeResponse(response, runOptions, false);
+      yield* this.consumeResponse(response, runOptions, false, releaseCancelHandler);
     } catch (error: unknown) {
       const replayError = error instanceof Error ? error : new Error(String(error));
-      this.options.onReplayError?.(replayError);
+      this.options.onReplayError?.(replayError, eventId);
       this.reportError(error);
       throw error;
+    } finally {
+      releaseCancelHandler();
     }
   }
 
@@ -1338,7 +1416,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     unstable_assistantMessageId,
     unstable_getMessage,
   }: ChatModelRunOptions) {
-    this.registerCancelHandler(abortSignal, () => [...messages, unstable_getMessage()]);
+    const releaseCancelHandler = this.registerCancelHandler(abortSignal, () => [
+      ...messages,
+      unstable_getMessage(),
+    ]);
 
     try {
       const requestPreparationTimeoutMs =
@@ -1361,6 +1442,14 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         unstable_getMessage().metadata.unstable_state
       );
       const outboundMessages = resolveOutboundTransportMessages(messages, runConfig);
+      const rawInputParentMessageId = outboundMessages.at(-2)?.id ?? null;
+      let inputParentMessageId = rawInputParentMessageId;
+      if (rawInputParentMessageId && isSyntheticPauseMessageId(rawInputParentMessageId)) {
+        if (!this.options.resolveInputParentMessageId) {
+          throw new Error('Assistant synthetic pause parent requires an exported thread graph.');
+        }
+        inputParentMessageId = this.options.resolveInputParentMessageId(rawInputParentMessageId);
+      }
       const transportMessages = selectTransportMessagesForMastraMemory(outboundMessages, bodyValue);
       const compactedBodyValue = withTransportCompactionMetadata(
         bodyValue,
@@ -1378,7 +1467,11 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       const requestBody = createAssistantRequestEnvelope({
         ...(unstable_assistantMessageId ? { assistantMessageId: unstable_assistantMessageId } : {}),
         ...(Object.hasOwn(bodyData, 'data') ? { data: bodyData['data'] } : {}),
+        inputParentMessageId,
         messages: imageBound.messages,
+        ...(isActionRunConfig(runConfig)
+          ? { pausedMessageId: requirePausedMessageId(messages, runConfig) }
+          : {}),
         ...(runConfig === undefined ? {} : { runConfig }),
       });
       const serializedRequestBody = JSON.stringify(requestBody);
@@ -1403,12 +1496,16 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
           // biome-ignore lint/style/useNamingConvention: assistant-ui runtime field.
           unstable_getMessage,
         },
-        true
+        true,
+        releaseCancelHandler,
+        isActionRunConfig(runConfig) ? undefined : (outboundMessages.at(-1)?.id ?? null)
       );
     } catch (error: unknown) {
       throwIfRunAbortedBeforeTerminalCompletion(abortSignal, false);
       this.reportError(error);
       throw error;
+    } finally {
+      releaseCancelHandler();
     }
   }
 }
@@ -1426,6 +1523,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
   readonly onReplayError: BrainstrikeDataStreamRuntimeOptions['onReplayError'];
   readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
+  readonly resolveInputParentMessageId: BrainstrikeDataStreamRuntimeOptions['resolveInputParentMessageId'];
   readonly prepareRequestWarmup: BrainstrikeDataStreamRuntimeOptions['prepareRequestWarmup'];
   readonly requestBodyLimitBytes: BrainstrikeDataStreamRuntimeOptions['requestBodyLimitBytes'];
   readonly requestPreparationTimeoutMs: BrainstrikeDataStreamRuntimeOptions['requestPreparationTimeoutMs'];
@@ -1448,6 +1546,9 @@ function createRuntimeRequestOptionsSnapshot(input: {
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
     ...(input.onReplayError === undefined ? {} : { onReplayError: input.onReplayError }),
     ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
+    ...(input.resolveInputParentMessageId === undefined
+      ? {}
+      : { resolveInputParentMessageId: input.resolveInputParentMessageId }),
     ...(input.prepareRequestWarmup === undefined
       ? {}
       : { prepareRequestWarmup: input.prepareRequestWarmup }),
@@ -1464,6 +1565,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
 export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRuntimeOptions) {
   const {
     activeRunSession,
+    discoveredRun,
     adapters,
     api,
     body,
@@ -1478,6 +1580,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onFinish,
     onReplayError,
     onResponse,
+    resolveInputParentMessageId,
     prepareRequestWarmup,
     replayRetryToken = 0,
     requestBodyLimitBytes,
@@ -1503,12 +1606,9 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     prepareRequestWarmup,
     requestBodyLimitBytes,
     requestPreparationTimeoutMs,
+    resolveInputParentMessageId,
   });
   const optionsRef = useRef<BrainstrikeDataStreamRuntimeOptions>(requestOptions);
-  // Latest-ref sync in an unconditional layout effect, not during render —
-  // React Doctor `no-ref-current-in-render`. Layout, not passive: descendant
-  // passive effects (for example FollowUpQueueBridge's queued-send dispatch)
-  // can start a run in the same commit that changed these options.
   useLayoutEffect(() => {
     optionsRef.current = requestOptions;
   });
@@ -1544,6 +1644,13 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     // biome-ignore lint/style/useNamingConvention: assistant-ui LocalRuntimeOptions field.
     ...(unstable_humanToolNames ? { unstable_humanToolNames } : {}),
   });
+  // Publish the current graph resolver before descendant passive effects can send.
+  useLayoutEffect(() => {
+    optionsRef.current.resolveInputParentMessageId =
+      resolveInputParentMessageId ??
+      ((parentId) =>
+        resolveDurableInputParentMessageId(parentId, runtime.thread.export().messages));
+  });
   const replayStream = useCallback<NonNullable<CreateResumeRunConfig['stream']>>(
     (runOptions) => {
       if (!(activeRunSession && resumeApi)) {
@@ -1557,6 +1664,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     [activeRunSession, chatModelAdapter, resumeApi]
   );
   useAssistantRunReattachment({
+    discoveredRun,
     identityRef: replayIdentity,
     record: activeRunSession,
     replayRetryToken,

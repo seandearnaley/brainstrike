@@ -354,7 +354,14 @@ function normalizeGrepKey(
   persisted: boolean
 ): string | undefined {
   const candidate = resolveToolExecuteInputCandidate(GrepSearchInputSchema, invocation.args);
-  const parsed = GrepSearchInputSchema.safeParse(candidate);
+  // OpenAI can persist an omitted optional array as null even when the
+  // executed grep succeeded. Treat only that representation as omission;
+  // required fields and other malformed history still fail schema validation.
+  const historyArgs =
+    isRecord(candidate) && candidate['filePaths'] === null
+      ? { ...candidate, filePaths: undefined }
+      : candidate;
+  const parsed = GrepSearchInputSchema.safeParse(historyArgs);
   if (!parsed.success) {
     if (persisted && shouldWarnMalformed(invocation.toolCallId)) {
       logger.warn('Skipping unparseable persisted grep arguments during supersession detection', {

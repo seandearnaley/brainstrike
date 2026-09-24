@@ -40,6 +40,35 @@ const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
 const EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS = 3000;
 const EMBEDDING_HOST_STOP_TIMEOUT_MS = 10_000;
 
+function waitForHostStartup(
+  startup: Promise<EmbeddingHostStatus>,
+  signal?: AbortSignal
+): Promise<EmbeddingHostStatus> {
+  if (!signal) {
+    return startup;
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener('abort', onAbort);
+      reject(signal.reason);
+    };
+    void startup.then(
+      (status) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(status);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      }
+    );
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+    }
+  });
+}
+
 export interface EmbeddingHostManagerOptions {
   readonly platform?: NodeJS.Platform;
 }
@@ -67,6 +96,20 @@ export class EmbeddingHostManager {
       EmbeddingHostQueryEmbeddingRequest,
       EmbeddingHostQueryEmbeddingResponseReport
     >({
+      onTimeout: (_request, context) => {
+        logger.warn('Embedding host query timed out', {
+          pendingCount: context.pendingCount,
+          provider: 'local',
+          stage: 'host-response',
+          timeoutMs: context.timeoutMs,
+        });
+        return {
+          error: new Error(
+            `Embedding host request ${context.requestId} timed out after ${context.timeoutMs}ms.`
+          ),
+          policy: 'abandon',
+        };
+      },
       requestId: (request) => request.requestId,
       responseId: (report) => report.requestId,
       role: 'Embedding host',
@@ -289,9 +332,17 @@ export class EmbeddingHostManager {
     }
   }
 
-  async queryEmbedding(payload: EmbeddingHostQueryEmbeddingPayload): Promise<number[]> {
+  async queryEmbedding(
+    payload: EmbeddingHostQueryEmbeddingPayload,
+    options?: { signal?: AbortSignal }
+  ): Promise<number[]> {
+    options?.signal?.throwIfAborted();
     this.assertNotDisposed('queryEmbedding');
-    const status = await this.ensureStarted({ waitForRunning: true });
+    const status = await waitForHostStartup(
+      this.ensureStarted({ waitForRunning: true }),
+      options?.signal
+    );
+    options?.signal?.throwIfAborted();
     if (status.state !== 'running') {
       throw new Error(
         status.lastError ?? 'Embedding host is not running and cannot generate query embeddings.'
@@ -306,7 +357,7 @@ export class EmbeddingHostManager {
     }
 
     const request = createEmbeddingHostQueryEmbeddingRequest(status.runtimeId, payload);
-    const report = await this.queryRequests.request(request);
+    const report = await this.queryRequests.request(request, options);
     if (report.type === 'error') {
       throw deserializeRuntimeError(report.payload);
     }

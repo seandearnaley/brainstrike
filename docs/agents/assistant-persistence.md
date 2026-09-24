@@ -199,7 +199,7 @@ Guard: `packages/assistant-data/src/__tests__/assistant-approval-topology.integr
   second authority: `prepareRequest` reconciles it against the durable run row
   through `GET /assistant/run-status`. A terminal or missing run reclaims it with
   a warning; a `running` row keeps the guard; a FAILED probe keeps the guard.
-  Replay-retry exhaustion runs the same reconciliation.
+  Replay-retry exhaustion also reconciles; `GET /assistant/active-run` publishes `initializing` after envelope parsing and before credential work, restores exact ordinary or child-followup input and host-validated approval prefix/paused-leaf ancestry after reload, waits through initialization, and rejects unknown ancestry. Discovery is an abortable per-attempt external resource keyed by scope/retry that reads the latest auth callback; stale attempts cannot publish snapshots or mutate storage after awaited work, and status probes share their abort signal. Capture a prepared request's scope before async work; a headerless request settles only from discovery in that scope, and a scope switch remains visibly blocked until it reconciles. A durable paused ID disambiguates repeated tool-call IDs; synthetic notices still require unique persisted ownership. Approval/suspend retries select the paused owner from the exact matching action data, never an adjacent assistant.
 - Remap the generated streaming leaf to the durable id after `runEnd` through
   thread `export`/`import`. Missing leaves and leaves with descendants fail
   visibly.
@@ -213,7 +213,7 @@ Guard: `packages/assistant-data/src/__tests__/assistant-approval-topology.integr
 
 Evidence: `assistant-persistence/reattachment-and-message-identity.md`.
 Guard: `packages/assistant-ui/src/__tests__/history-hydration-composer.behavior.test.tsx`,
-`packages/assistant-ui/src/__tests__/assistant-ui-panel-architecture.test.ts`.
+`packages/assistant-ui/src/__tests__/assistant-ui-panel-architecture.test.ts`, `packages/assistant-ui/src/__tests__/assistant-run-session-races.test.tsx`.
 
 **Approval/suspend action messages are never a Mastra row.** The echo is
 UI/transport bookkeeping; the shared transport excludes action-marked messages
@@ -857,7 +857,7 @@ provider-request boundary without mutating Mastra-owned content.
   persisted invocations and exclude calls already in the overlay. Identity is
   canonical `rootId` plus workspace path. Either supported edit supersedes all
   earlier reads of that file; an identical normalized grep pattern/scope
-  supersedes the earlier grep. Dedup stubs are neither candidates nor superseders,
+  supersedes the earlier grep (`filePaths: null` means omitted). Dedup stubs are neither candidates nor superseders,
   and no in-memory pending queue exists.
 - Measure reclaimable size in DECODED characters — the same ruler the live
   projectors self-fit against, never `JSON.stringify(...).length`. Commit the whole

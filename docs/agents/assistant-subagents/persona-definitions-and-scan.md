@@ -17,6 +17,16 @@ automatically. We do NOT build a bespoke `subagent` tool — we ride Mastra's
 delegation machinery (hooks, memory isolation, nested-chunk forwarding,
 `subAgentToolResults`) and layer brainstrike's rules on top.
 
+2026-09-24 incident: a bug-hunt request explicitly asked for multiple subagents
+to implement the fix. The captured run used five Explorer calls and no Worker;
+its parent wrote in working memory that host policy forbade delegated edits and
+made the edits itself. The source supervisor instruction did categorically call
+every subagent read-only and prohibit delegated mutations, despite the built-in
+Worker capability. The pack does not prove whether Worker was admitted for that
+request. The instruction now receives each admitted persona's mode and permits
+Worker implementation under the host's existing permission gate while keeping
+Explorer and Analyst read-only. `default-instructions.spec.ts` guards both cases.
+
 - **Personas as data:** `packages/assistant-contract/src/personas.ts`
   (`BUILT_IN_PERSONAS` = `explore`, `analyze`, `worker`) plus USER-DEFINED personas.
   Absent `mode` preserves read-only behavior; `assertReadOnlyPersona` rejects

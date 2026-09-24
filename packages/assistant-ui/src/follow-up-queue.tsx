@@ -39,7 +39,24 @@ import { useThreadScrollFollow } from './thread-scroll-follow';
 
 const logger = createLogger('FollowUpQueue');
 
-export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
+function canDispatchQueuedFollowUp(args: {
+  readonly isRunning: boolean;
+  readonly queueLength: number;
+  readonly isRunEndTransition: boolean;
+  readonly isCatchUp: boolean;
+  readonly deferredRunEnd: boolean;
+}): boolean {
+  return (
+    !args.isRunning &&
+    args.queueLength > 0 &&
+    (args.isRunEndTransition || args.isCatchUp || args.deferredRunEnd)
+  );
+}
+
+export function useFollowUpQueueDispatch(
+  threadKey: string | undefined,
+  isReattaching = false
+): void {
   const ownsQueue = use(FollowUpQueueOwnershipContext);
   const aui = useAui();
   const follow = useThreadScrollFollow();
@@ -58,6 +75,7 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
   // promised "sends when the current run ends"; the run HAS ended). false
   // until the first settled (non-loading) observation.
   const caughtUpKeyRef = useRef<string | undefined>(undefined);
+  const deferredRunEndRef = useRef(false);
 
   useEffect(() => {
     if (!ownsQueue) {
@@ -70,6 +88,7 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       seededKeyRef.current = queueKey;
       wasRunningRef.current = isRunning;
       caughtUpKeyRef.current = undefined;
+      deferredRunEndRef.current = false;
       return;
     }
     if (isHistoryLoading) {
@@ -81,9 +100,25 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
     const wasRunning = wasRunningRef.current;
     wasRunningRef.current = isRunning;
     const isRunEndTransition = wasRunning && !isRunning;
-    if (isRunning || queueLength === 0 || !(isRunEndTransition || isCatchUp)) {
+    // The renderer can briefly report idle after a socket drops even while
+    // the host run remains active. Keep the chip until replay reaches a real
+    // terminal result (or the stale cursor is explicitly released).
+    if (isReattaching) {
+      deferredRunEndRef.current ||= queueLength > 0 && (isRunEndTransition || isCatchUp);
       return;
     }
+    if (
+      !canDispatchQueuedFollowUp({
+        deferredRunEnd: deferredRunEndRef.current,
+        isCatchUp,
+        isRunEndTransition,
+        isRunning,
+        queueLength,
+      })
+    ) {
+      return;
+    }
+    deferredRunEndRef.current = false;
 
     const item = dequeueDispatchable(queueKey, answered);
     if (!item) {
@@ -121,12 +156,28 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       // docs/agents/assistant-runtime.md).
       follow.scrollToBottom();
     }
-  }, [answered, aui, follow, isHistoryLoading, isRunning, ownsQueue, queueKey, queueLength]);
+  }, [
+    answered,
+    aui,
+    follow,
+    isHistoryLoading,
+    isReattaching,
+    isRunning,
+    ownsQueue,
+    queueKey,
+    queueLength,
+  ]);
 }
 
 /** Render-nothing leaf owning the run-end dispatch subscription. */
-export function FollowUpQueueBridge({ threadKey }: { readonly threadKey?: string | undefined }) {
-  useFollowUpQueueDispatch(threadKey);
+export function FollowUpQueueBridge({
+  isReattaching,
+  threadKey,
+}: {
+  readonly isReattaching?: boolean;
+  readonly threadKey?: string | undefined;
+}) {
+  useFollowUpQueueDispatch(threadKey, isReattaching);
   return null;
 }
 

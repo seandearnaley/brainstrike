@@ -76,6 +76,12 @@ export type { ComposerAttachmentsAvailability } from './composer-input';
 // source module, not the public import path.
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
 
+import {
+  isAssistantRecoveryBlocked,
+  replayRuntimeOptions,
+  requestResourceId,
+} from './assistant-run-recovery-options';
+import { AssistantRunRecoveryStatus } from './assistant-run-recovery-presentation';
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
@@ -685,6 +691,7 @@ const DataStreamRuntimeChat = ({
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
+  const resourceId = requestResourceId(requestData);
   const serverRunSession = useAssistantServerRunSession({
     api,
     authHeaders,
@@ -692,17 +699,17 @@ const DataStreamRuntimeChat = ({
     onPausesCancelled,
     prepareLocalModel,
     prepareRequestData,
+    ...(resourceId ? { resourceId } : {}),
     threadKey,
   });
+  const recoveryBlocked = isAssistantRecoveryBlocked(serverRunSession);
 
   const runtimeAdapters = useAssistantThreadRuntimeAdapters(
     historyAdapter,
     attachmentsAvailability !== undefined
   );
   const runtime = useBrainstrikeDataStreamRuntime({
-    ...(serverRunSession.activeRunSession
-      ? { activeRunSession: serverRunSession.activeRunSession }
-      : {}),
+    ...replayRuntimeOptions(serverRunSession),
     api,
     ...(authHeaders === undefined ? {} : { headers: authHeaders }),
     ...runtimeAdapters,
@@ -749,6 +756,7 @@ const DataStreamRuntimeChat = ({
     <AssistantRuntimeProvider runtime={runtime}>
       <PlanModeExitProvider onExit={planMode?.onExit}>
         <AssistantPanelErrorBoundary>
+          <AssistantRunRecoveryStatus session={serverRunSession} />
           <ChatThreadUI
             composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
@@ -757,7 +765,8 @@ const DataStreamRuntimeChat = ({
             effectiveInputBudget={effectiveInputBudget}
             fileMentions={fileMentions}
             hasGroupedProviders={hasGroupedProviders}
-            isComposerDisabled={isComposerDisabled}
+            isComposerDisabled={isComposerDisabled || recoveryBlocked}
+            isReattaching={recoveryBlocked || serverRunSession.activeRunSession !== undefined}
             localLoadingState={localLoadingState}
             omSegment={omSegment}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
@@ -841,6 +850,7 @@ export const ChatThreadUI = ({
   workspaceBar,
   planMode,
   attachmentsAvailability,
+  isReattaching = false,
   threadKey,
   toolMenu,
 }: {
@@ -870,6 +880,7 @@ export const ChatThreadUI = ({
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   isComposerDisabled: boolean;
+  isReattaching?: boolean;
   hideDefaultCancel?: boolean | undefined;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
@@ -941,7 +952,7 @@ export const ChatThreadUI = ({
                 {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
                 {...(threadKey ? { threadKey } : {})}
               />
-              <FollowUpQueueBridge threadKey={threadKey} />
+              <FollowUpQueueBridge isReattaching={isReattaching} threadKey={threadKey} />
               {/* Drains a successful rewind's target prompt back into the composer
             (Amendment 2). Mounted here rather than on the message, whose own
             button is unmounted by the rewind that hides it. */}

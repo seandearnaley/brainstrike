@@ -58,18 +58,22 @@ function Harness({
   adapter,
   threadKey,
   bridgeMounted = true,
+  isReattaching = false,
   onSteerRequest,
 }: {
   adapter: ChatModelAdapter;
   threadKey: string;
   bridgeMounted?: boolean;
+  isReattaching?: boolean;
   onSteerRequest?: () => Promise<boolean>;
 }) {
   const runtime = useLocalRuntime(adapter);
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadScrollFollowProvider>
-        {bridgeMounted ? <FollowUpQueueBridge threadKey={threadKey} /> : null}
+        {bridgeMounted ? (
+          <FollowUpQueueBridge isReattaching={isReattaching} threadKey={threadKey} />
+        ) : null}
         <FollowUpQueueChips threadKey={threadKey} />
         <ComposerPrimitive.Root>
           <ComposerPrimitive.Input aria-label="Message input" />
@@ -199,6 +203,25 @@ describe('follow-up queue behavior (real local runtime)', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
     });
+  });
+
+  it('keeps a queued message while the host stream is reattaching after renderer idle', async () => {
+    const user = userEvent.setup();
+    const { adapter, release, runInputs } = createControllableAdapter();
+    const view = render(<Harness adapter={adapter} isReattaching threadKey="t-reattach" />);
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'first message');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByTestId('assistant-queue-follow-up');
+    await user.type(input, 'queued follow-up');
+    await user.click(screen.getByTestId('assistant-queue-follow-up'));
+    release();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument());
+    expect(runInputs).toEqual(['first message']);
+    expect(screen.getByTestId('assistant-follow-up-chip')).toHaveTextContent('queued follow-up');
+    view.rerender(<Harness adapter={adapter} threadKey="t-reattach" />);
+    await waitFor(() => expect(runInputs).toEqual(['first message', 'queued follow-up']));
+    release();
   });
 
   it('dispatches a queued DECISION message with its run config when the run ends', async () => {

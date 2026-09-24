@@ -71,6 +71,50 @@ beforeEach(() => {
 });
 
 describe('runAssistantTurn', () => {
+  it('registers exact replay discovery metadata with the host-owned session', async () => {
+    const discovery = {
+      inputMessage: { id: 'user-1', parts: [{ text: 'Hi', type: 'text' }], role: 'user' },
+      inputParentMessageId: 'assistant-before',
+      parentMessageId: 'user-1',
+      resourceId: 'workspace',
+      threadId: 'thread-1',
+    } as const;
+    const { params, sessions } = baseParams({ discovery });
+
+    const result = await runAssistantTurn(params as never);
+
+    expect(result.ok).toBe(true);
+    expect(sessions.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ discovery: { ...discovery, runId: 'run-1' } })
+    );
+  });
+
+  it('rejects an unresolved action prefix before native initialization and releases ownership', async () => {
+    const initializeStream = vi.fn(
+      async (): Promise<AgentStreamResult> => ({
+        ok: true,
+        stream: emptyStream(),
+      })
+    );
+    const scope = { resourceId: 'workspace', threadId: 'thread-1' };
+    const { params } = baseParams({
+      initializeStream,
+      resolveDiscovery: async () => {
+        throw new Error('Approval action paused assistant has no durable parent edge.');
+      },
+      runtimeData: { memory: scope, provider: 'openai' },
+    });
+    await expect(runAssistantTurn(params as never)).rejects.toThrow('no durable parent edge');
+    expect(initializeStream).not.toHaveBeenCalled();
+    const next = baseParams({ runtimeData: { memory: scope, provider: 'openai' } });
+    const result = await runAssistantTurn(next.params as never);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      await result.completion();
+    }
+  });
+
   it('threads the auth input to the stream initializer as a DIRECT parameter (BST-1352)', async () => {
     // Never via RuntimeData: RequestContext.toJSON drops functions, so a
     // custom_fetch closure riding runtimeData would vanish silently.
