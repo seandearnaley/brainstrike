@@ -9,9 +9,13 @@ import {
   isAssistantActiveRunDiscoveryResponse,
   isAssistantRunStatusResponse,
 } from '@brainstrike/assistant-contract';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { assistantEndpointLogger, resolveDesktopAssistantBaseUrl } from './assistant-endpoint';
 import { readPreparedRunId, requestAssistantRunCancel } from './assistant-run-cancel';
+import {
+  type AssistantRunDiscoveryOutcome,
+  AssistantRunDiscoveryResource,
+} from './assistant-run-discovery-resource';
 import {
   clearAssistantActiveRunSession,
   readAssistantActiveRunSession,
@@ -25,6 +29,17 @@ import {
 import { hasUndecidedPauseNotice } from './undecided-pause-notices';
 
 type PreparedRequestStatus = 'cancelled' | 'completed' | 'failed';
+
+interface PreparedRequest {
+  cancelRequested?: boolean;
+  readonly data: Record<string, unknown> | undefined;
+  hostOwnsRun?: boolean;
+}
+
+interface PendingNoHeaderFailure {
+  readonly error: Error;
+  readonly request: PreparedRequest;
+}
 
 interface UseAssistantServerRunSessionOptions {
   readonly api: string;
@@ -160,6 +175,7 @@ interface DiscoveryReconciliation {
   readonly baseUrl: string;
   readonly clearSession: () => void;
   readonly currentSession: () => AssistantActiveRunSession | undefined;
+  readonly isLiveSession: (runId: string) => boolean;
   readonly replaceSession: (record: AssistantActiveRunSession) => void;
   readonly signal: AbortSignal;
 }
@@ -210,21 +226,29 @@ async function reconcileHeaderlessAdmission(args: {
   readonly authHeaders?: (() => Promise<Record<string, string>>) | undefined;
   readonly baseUrl: string;
   readonly pending: {
-    readonly request: {
-      readonly data: Record<string, unknown> | undefined;
-      cancelRequested?: boolean;
-      hostOwnsRun?: boolean;
-    };
+    readonly request: PreparedRequest;
   } | null;
   readonly currentRequest: object | null;
   readonly run: AssistantDiscoveredRun | null;
   readonly signal: AbortSignal;
 }): Promise<AssistantDiscoveredRun | null> {
   const { pending, run } = args;
+  args.signal.throwIfAborted();
   if (!(pending && pending.request === args.currentRequest && run)) {
     return run;
   }
   if (run.runId !== readPreparedRunId(pending.request.data)) {
+    if (run.state === 'closed') {
+      const settled = await isStoredRunSessionStale({
+        authHeaders: args.authHeaders,
+        baseUrl: args.baseUrl,
+        runId: run.runId,
+      });
+      args.signal.throwIfAborted();
+      if (settled) {
+        return null;
+      }
+    }
     throw new Error('Assistant run discovery returned a different run after transport loss.');
   }
   pending.request.hostOwnsRun = true;
@@ -269,6 +293,10 @@ async function adoptDiscoveredRun(
   context: DiscoveryReconciliation
 ): Promise<boolean> {
   const stored = context.currentSession();
+  context.signal.throwIfAborted();
+  if (stored?.runId === run.runId && context.isLiveSession(run.runId)) {
+    return true;
+  }
   if (stored && stored.runId !== run.runId) {
     const stale = await isStoredRunSessionStale({
       authHeaders: context.authHeaders,
@@ -287,6 +315,7 @@ async function adoptDiscoveredRun(
       runId: run.runId,
     });
   }
+  context.signal.throwIfAborted();
   context.replaceSession({
     assistantMessageId: run.assistantMessageId,
     eventId: run.eventId,
@@ -317,6 +346,46 @@ async function releaseMissingDiscoveredRun(
   }
   context.clearSession();
   return true;
+}
+
+async function executeAssistantRunDiscoveryAttempt(args: {
+  readonly authHeaders?: (() => Promise<Record<string, string>>) | undefined;
+  readonly baseUrl: string;
+  readonly context: DiscoveryReconciliation;
+  readonly readCurrentRequest: () => PreparedRequest | null;
+  readonly readPendingNoHeaderFailure: () => PendingNoHeaderFailure | null;
+  readonly resourceId: string;
+  readonly storedAtStart: AssistantActiveRunSession | undefined;
+  readonly threadKey: string;
+}): Promise<AssistantRunDiscoveryOutcome<AssistantDiscoveredRun | null>> {
+  const { context } = args;
+  let run = await fetchDiscoveredRun({
+    authHeaders: args.authHeaders,
+    baseUrl: args.baseUrl,
+    resourceId: args.resourceId,
+    signal: context.signal,
+    threadKey: args.threadKey,
+  });
+  context.signal.throwIfAborted();
+  run = await reconcileHeaderlessAdmission({
+    authHeaders: args.authHeaders,
+    baseUrl: args.baseUrl,
+    currentRequest: args.readCurrentRequest(),
+    pending: args.readPendingNoHeaderFailure(),
+    run,
+    signal: context.signal,
+  });
+  context.signal.throwIfAborted();
+  run = await reconcileClosedDiscoveredRun(run, context);
+  context.signal.throwIfAborted();
+  const reconciled = run
+    ? await adoptDiscoveredRun(run, context)
+    : await releaseMissingDiscoveredRun(args.storedAtStart, context);
+  if (!reconciled) {
+    return { type: 'retry' };
+  }
+  context.signal.throwIfAborted();
+  return { type: 'ready', value: run };
 }
 
 async function completeAbortedPreparation(
@@ -368,15 +437,9 @@ export function useAssistantServerRunSession({
   const activeRunSession =
     activeSessionState.scope === sessionScope ? activeSessionState.record : initialActiveRunSession;
   const activeRunSessionRef = useRef<AssistantActiveRunSession | undefined>(activeRunSession);
-  const preparedRequestRef = useRef<{
-    readonly data: Record<string, unknown> | undefined;
-    cancelRequested?: boolean;
-    hostOwnsRun?: boolean;
-  } | null>(null);
-  const pendingNoHeaderFailureRef = useRef<{
-    readonly error: Error;
-    readonly request: NonNullable<typeof preparedRequestRef.current>;
-  } | null>(null);
+  const liveRunIdRef = useRef<string | undefined>(undefined);
+  const preparedRequestRef = useRef<PreparedRequest | null>(null);
+  const pendingNoHeaderFailureRef = useRef<PendingNoHeaderFailure | null>(null);
   const replayEligible =
     activeSessionState.scope === sessionScope
       ? activeSessionState.replayEligible
@@ -391,111 +454,80 @@ export function useAssistantServerRunSession({
       : undefined;
   const discoveryAttemptKey =
     discoveryKey === undefined ? undefined : JSON.stringify([discoveryKey, recoveryRetryToken]);
-  const [discovery, setDiscovery] = useState<{
-    key: string | undefined;
-    status: 'pending' | 'ready' | 'error';
-    run?: AssistantDiscoveredRun | undefined;
-    error?: Error | undefined;
-  }>(() => ({ key: discoveryAttemptKey, status: discoveryKey ? 'pending' : 'ready' }));
-  const isRecovering =
-    Boolean(discoveryKey) &&
-    (discovery.key !== discoveryAttemptKey || discovery.status === 'pending');
-  const recoveryError = discovery.key === discoveryAttemptKey ? discovery.error : undefined;
+  const discoveryResource = useMemo(
+    () =>
+      new AssistantRunDiscoveryResource<AssistantDiscoveredRun | null>(
+        discoveryKey ? 'pending' : 'ready',
+        null
+      ),
+    [authHeaders, desktopAssistantBaseUrl, discoveryAttemptKey, discoveryKey, resourceId, threadKey]
+  );
+  const discovery = useSyncExternalStore(
+    discoveryResource.subscribe,
+    discoveryResource.getSnapshot,
+    discoveryResource.getSnapshot
+  );
+  const isRecovering = Boolean(discoveryKey) && discovery.status === 'pending';
+  const recoveryError = discovery.status === 'error' ? discovery.error : undefined;
   const discoveredRun =
-    discovery.key === discoveryAttemptKey && discovery.run?.runId === activeRunSession?.runId
-      ? discovery.run
+    discovery.status === 'ready' && discovery.value?.runId === activeRunSession?.runId
+      ? (discovery.value ?? undefined)
       : undefined;
 
   useEffect(() => {
     activeRunSessionRef.current = initialActiveRunSession;
+    liveRunIdRef.current = undefined;
   }, [initialActiveRunSession, sessionScope]);
 
   useEffect(() => {
     if (!(discoveryKey && desktopAssistantBaseUrl && resourceId && threadKey)) {
       return;
     }
-    const controller = new AbortController();
-    let cancelled = false;
     const storedAtDiscoveryStart = activeRunSessionRef.current;
-    const reconciliation: DiscoveryReconciliation = {
-      authHeaders,
-      baseUrl: desktopAssistantBaseUrl,
-      clearSession: () => {
-        clearAssistantActiveRunSession(threadKey);
-        activeRunSessionRef.current = undefined;
-        setActiveSessionState({ record: undefined, replayEligible: false, scope: sessionScope });
-      },
-      currentSession: () => activeRunSessionRef.current,
-      replaceSession: (record) => {
-        writeAssistantActiveRunSession(threadKey, record);
-        activeRunSessionRef.current = record;
-        setActiveSessionState({ record, replayEligible: true, scope: sessionScope });
-      },
-      signal: controller.signal,
-    };
-    const discoveryTask = (async () => {
-      let run = await fetchDiscoveredRun({
-        authHeaders,
-        baseUrl: desktopAssistantBaseUrl,
-        resourceId,
-        signal: controller.signal,
-        threadKey,
-      });
-      controller.signal.throwIfAborted();
-      run = await reconcileHeaderlessAdmission({
-        authHeaders,
-        baseUrl: desktopAssistantBaseUrl,
-        currentRequest: preparedRequestRef.current,
-        pending: pendingNoHeaderFailureRef.current,
-        run,
-        signal: controller.signal,
-      });
-      run = await reconcileClosedDiscoveredRun(run, reconciliation);
-      const reconciled = run
-        ? await adoptDiscoveredRun(run, reconciliation)
-        : await releaseMissingDiscoveredRun(storedAtDiscoveryStart, reconciliation);
-      if (!reconciled) {
-        controller.signal.throwIfAborted();
-        setRecoveryRetryToken((current) => current + 1);
-        return;
-      }
-      controller.signal.throwIfAborted();
-      setDiscovery({ key: discoveryAttemptKey, status: 'ready', ...(run ? { run } : {}) });
-    })();
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const timeoutTask = new Promise<never>((_resolve, reject) => {
-      timeout = setTimeout(() => {
-        controller.abort();
-        reject(new Error('Assistant run discovery timed out.'));
-      }, 30_000);
+    return discoveryResource.start({
+      execute: (signal) =>
+        executeAssistantRunDiscoveryAttempt({
+          authHeaders,
+          baseUrl: desktopAssistantBaseUrl,
+          context: {
+            authHeaders,
+            baseUrl: desktopAssistantBaseUrl,
+            clearSession: () => {
+              clearAssistantActiveRunSession(threadKey);
+              activeRunSessionRef.current = undefined;
+              liveRunIdRef.current = undefined;
+              setActiveSessionState({
+                record: undefined,
+                replayEligible: false,
+                scope: sessionScope,
+              });
+            },
+            currentSession: () => activeRunSessionRef.current,
+            isLiveSession: (runId) => liveRunIdRef.current === runId,
+            replaceSession: (record) => {
+              writeAssistantActiveRunSession(threadKey, record);
+              activeRunSessionRef.current = record;
+              setActiveSessionState({ record, replayEligible: true, scope: sessionScope });
+            },
+            signal,
+          },
+          readCurrentRequest: () => preparedRequestRef.current,
+          readPendingNoHeaderFailure: () => pendingNoHeaderFailureRef.current,
+          resourceId,
+          storedAtStart: storedAtDiscoveryStart,
+          threadKey,
+        }),
+      onError: (error) =>
+        assistantEndpointLogger.error('Assistant run discovery failed', { error }),
+      onRetry: () => setRecoveryRetryToken((current) => current + 1),
+      timeoutMs: 30_000,
     });
-    void Promise.race([discoveryTask, timeoutTask])
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          const recoveryError = error instanceof Error ? error : new Error(String(error));
-          assistantEndpointLogger.error('Assistant run discovery failed', { error: recoveryError });
-          setDiscovery({ error: recoveryError, key: discoveryAttemptKey, status: 'error' });
-        }
-      })
-      .finally(() => {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-      });
-    return () => {
-      cancelled = true;
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      controller.abort();
-    };
   }, [
     authHeaders,
     desktopAssistantBaseUrl,
-    discoveryAttemptKey,
     discoveryKey,
+    discoveryResource,
     resourceId,
-    resumeApi,
     sessionScope,
     threadKey,
   ]);
@@ -513,6 +545,7 @@ export function useAssistantServerRunSession({
       clearAssistantActiveRunSession(threadKey);
     }
     activeRunSessionRef.current = undefined;
+    liveRunIdRef.current = undefined;
     setActiveSessionState({ record: undefined, replayEligible: false, scope: sessionScope });
   }, [resumeApi, sessionScope, threadKey]);
 
@@ -535,7 +568,7 @@ export function useAssistantServerRunSession({
 
   useEffect(() => {
     const pending = pendingNoHeaderFailureRef.current;
-    if (!(pending && discovery.key === discoveryAttemptKey && discovery.status === 'ready')) {
+    if (!(pending && discovery.status === 'ready')) {
       return;
     }
     if (preparedRequestRef.current === pending.request) {
@@ -552,7 +585,7 @@ export function useAssistantServerRunSession({
       }
       void completeLatestPreparedRequest('failed', pending.error.message);
     }
-  }, [completeLatestPreparedRequest, discovery.key, discovery.status, discoveryAttemptKey]);
+  }, [completeLatestPreparedRequest, discovery.status]);
 
   const reconcilePendingCancellation = useCallback(async (): Promise<void> => {
     const pendingCancellation = preparedRequestRef.current;
@@ -689,6 +722,7 @@ export function useAssistantServerRunSession({
 
   const onError = useCallback(
     (error: Error): void => {
+      liveRunIdRef.current = undefined;
       const record = activeRunSessionRef.current;
       if (record) {
         setActiveSessionState({ record, replayEligible: true, scope: sessionScope });
@@ -779,6 +813,7 @@ export function useAssistantServerRunSession({
       };
       writeAssistantActiveRunSession(threadKey, record);
       activeRunSessionRef.current = record;
+      liveRunIdRef.current = runId;
       replayRetryCountRef.current = 0;
       setActiveSessionState({ record, replayEligible: false, scope: sessionScope });
     },

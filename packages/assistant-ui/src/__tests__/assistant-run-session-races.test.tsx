@@ -396,6 +396,103 @@ describe('assistant run session asynchronous reconciliation', () => {
     );
   });
 
+  it('ignores a retained closed prior run after a headerless failure of a new POST', async () => {
+    window.sessionStorage.clear();
+    let discoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === ASSISTANT_RUN_STATUS_PATH) {
+          return Promise.resolve(terminalStatus(OLD_RUN_ID));
+        }
+        expect(url.pathname).toBe('/assistant/active-run');
+        discoveries += 1;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              activeRun:
+                discoveries === 1
+                  ? null
+                  : { ...ACTIVE_NEW_RUN, runId: OLD_RUN_ID, state: 'closed' },
+            }),
+            { status: 200 }
+          )
+        );
+      })
+    );
+    const completePreparedRequest = vi.fn();
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        completePreparedRequest,
+        prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      })
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    act(() => result.current.onError(new TypeError('POST failed')));
+
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(result.current.recoveryError).toBeUndefined();
+    expect(result.current.activeRunSession).toBeUndefined();
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      { memory: { runId: NEW_RUN_ID } },
+      'failed',
+      'POST failed',
+      false
+    );
+  });
+
+  it('does not arm replay when same-run discovery resolves after a live response', async () => {
+    window.sessionStorage.clear();
+    const lateDiscovery = deferredResponse();
+    let discoveries = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        expect(new URL(String(input)).pathname).toBe('/assistant/active-run');
+        discoveries += 1;
+        return discoveries === 1
+          ? Promise.resolve(new Response(JSON.stringify({ activeRun: null }), { status: 200 }))
+          : lateDiscovery.promise;
+      })
+    );
+    const firstAuthHeaders = async () => ({ authorization: 'Bearer first' });
+    const { result, rerender } = renderHook(
+      ({ authHeaders }) =>
+        useAssistantServerRunSession({
+          api: API,
+          authHeaders,
+          prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+          resourceId: 'resource-1',
+          threadKey: THREAD_KEY,
+        }),
+      { initialProps: { authHeaders: firstAuthHeaders } }
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    rerender({ authHeaders: async () => ({ authorization: 'Bearer second' }) });
+    await waitFor(() => expect(discoveries).toBe(2));
+    act(() => admitNewRun(result.current.onResponse));
+    expect(result.current.replayEligible).toBe(false);
+    await act(async () =>
+      lateDiscovery.resolve(
+        new Response(JSON.stringify({ activeRun: ACTIVE_NEW_RUN }), { status: 200 })
+      )
+    );
+
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    expect(result.current.activeRunSession?.runId).toBe(NEW_RUN_ID);
+    expect(result.current.replayEligible).toBe(false);
+  });
+
   it('fails a pre-admission run only after discovery proves no host session exists', async () => {
     window.sessionStorage.clear();
     const afterPostFailure = deferredResponse();
@@ -549,6 +646,53 @@ describe('assistant run session asynchronous reconciliation', () => {
     );
     expect(result.current.activeRunSession).toBeUndefined();
     expect(result.current.replayEligible).toBe(false);
+  });
+
+  it('does not adopt a discovery after cancellation completes in a disposed attempt', async () => {
+    window.sessionStorage.clear();
+    const lateCancel = deferredResponse();
+    let discoveries = 0;
+    let cancels = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/assistant/cancel') {
+          cancels += 1;
+          return cancels === 1
+            ? Promise.resolve(new Response(null, { status: 404 }))
+            : lateCancel.promise;
+        }
+        expect(pathname).toBe('/assistant/active-run');
+        discoveries += 1;
+        return Promise.resolve(
+          new Response(JSON.stringify({ activeRun: discoveries === 1 ? null : ACTIVE_NEW_RUN }), {
+            status: 200,
+          })
+        );
+      })
+    );
+    const { result, unmount } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        prepareRequestData: async () => ({ memory: { runId: NEW_RUN_ID } }),
+        resourceId: 'resource-1',
+        threadKey: THREAD_KEY,
+      })
+    );
+    await waitFor(() => expect(result.current.isRecovering).toBe(false));
+    await act(async () => {
+      await result.current.prepareRequest();
+    });
+    act(() => {
+      result.current.onCancel({ messages: [] });
+      result.current.onError(new TypeError('POST failed'));
+    });
+    await waitFor(() => expect(cancels).toBe(2));
+    unmount();
+    await act(async () => lateCancel.resolve(new Response(null, { status: 200 })));
+
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it('replaces a terminal stored hint with the host active run in the same thread', async () => {

@@ -114,3 +114,15 @@ packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts â€
 if a Mastra writer ever starts persisting the echo, extend the exclusion at
 that writer and update this section.
 
+The September 2026 hosted-run fast follow moved active-run discovery into a
+per-attempt external resource subscribed through `useSyncExternalStore`. An
+effect starts and disposes the resource; it owns the timeout, abort signal,
+cached snapshot, and generation fence. The controller checks cancellation
+before executing after StrictMode's throwaway mount, and reconciliation checks
+the signal again before storage or session writes. This preserves the existing
+visible Retry path without fetching or setting asynchronous discovery state
+inside a React effect. A retained closed session from a prior run is checked
+for terminal status before a headerless new POST is deemed conflicting; a live
+same-run response is not reclassified as replay by a late discovery result.
+The races are pinned by `assistant-run-discovery-resource.test.ts` and
+`assistant-run-session-races.test.tsx`.
