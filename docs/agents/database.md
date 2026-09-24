@@ -508,52 +508,30 @@ Guard: `scripts/__tests__/pglite-factory-contract.test.mjs`,
 
 ### A WebAssembly trap poisons the PGlite instance — it never spins (BST-1221)
 
-`patches/@electric-sql__pglite@0.5.8.patch` (registered in `pnpm-workspace.yaml`
-`patchedDependencies`) changes one thing in PGlite 0.5.8's synchronous protocol
-loop (`execProtocolRawSync`, both `dist/index.js` and `dist/index.cjs`). Stock
-0.5.8 catches any throw from `_PostgresMainLoopOnce()`, and if
-`_pgl_setPGliteExitStatus(-2)` is not the longjmp sentinel it simply loops
-again without advancing its read offset. A genuine WebAssembly trap
-(`RuntimeError: function signature mismatch` in `$palloc`, seen deterministically
-when native stream cleanup overlapped database close, `Unit (rest)` run 34653237231) therefore
-spins the caller forever at 100% CPU with its event loop blocked: no timer,
-timeout or reporter can act. Upstream tracks the loop defect as
-electric-sql/pglite#1058; our evidence is on that thread.
+- `patches/@electric-sql__pglite@0.5.8.patch` is the ONE sanctioned change to
+  PGlite: stock 0.5.8 retries a trapped `execProtocolRawSync` iteration forever
+  against a blocked event loop; the patch throws `PGliteFatalTrapError` instead,
+  naming the exit status and carrying the trap as `cause`.
+- A trapped instance is POISONED. Later protocol calls and startup packets reject
+  with that fatal as `cause`, the loop runs no WASM finalizers, and `close()`
+  releases the instance and then rethrows — a trapped instance never ends a test
+  or a session cleanly. Ordinary PostgreSQL errors keep the longjmp path.
+- Never widen the patch beyond that loop. When a PGlite release terminates the
+  loop itself, drop the patch and rewrite the guard's precondition against the
+  upstream fix.
 
-The patched loop, on a non-longjmp trap:
-
-- throws a `PGliteFatalTrapError` (message names the exit status, `cause` is the
-  original trap) from the call that trapped;
-- marks the instance poisoned: every later protocol call rejects with a
-  `PGliteFatalTrapError` whose `cause` is that fatal, because memory a trap has
-  corrupted must not run more SQL;
-- lets `close()` release the WebAssembly instance and then rethrows the fatal, so
-  a trapped instance can never end a test or a session cleanly.
-
-After a fatal trap the protocol loop does not call the WASM ready/flush finalizers,
-which could trap again and replace the original failure. Startup packets are also
-rejected on a poisoned instance; only Terminate remains available for teardown.
-Ordinary PostgreSQL errors still take the unchanged longjmp path and leave the
-instance usable.
-
-`packages/db/__tests__/pglite-fatal-trap-fail-closed.integration.test.ts` pins all
-three with a simulated trap and a healthy control. Before it simulates the
-trap it proves the patched loop is the one it is about to call (the method
-source carries the `PGliteFatalTrapError` branch); if the patch is missing or
-stopped applying, the test fails immediately with a named error instead of
-driving the stock loop, which would spin the worker until the CI job is
-killed. This is deliberately not a retry, a fallback or a timeout: the failure
-stays a failure, named and immediate. Do not extend the patch beyond the loop;
-when a PGlite release terminates the loop itself, drop the patch, and rewrite
-the test's precondition against the upstream fix before keeping it.
+Settled: fail closed — never a retry, a fallback or a timeout.
+Evidence: `database/pglite-fatal-trap.md`.
+Guard: `packages/db/__tests__/pglite-fatal-trap-fail-closed.integration.test.ts`,
+which proves the patched loop is under test before it simulates a trap.
 
 ### CLOSING a PGlite: drain first — an overlapping statement wedges it forever
 
-- `PGlite.close()` deactivates the WASM backend BEFORE it awaits the shutdown protocol,
-  and `_checkReady()` only guards entry. A statement still in flight enters
-  `execProtocolRawSync`'s SYNCHRONOUS loop against a dead backend: neither it nor
-  `close()` settles, the event loop is blocked, and no timer, `AbortSignal`, or
-  `Promise.race` can recover it. `SIGKILL` is the only exit.
+- `PGlite.close()` deactivates the WASM backend BEFORE it awaits the shutdown
+  protocol, and `_checkReady()` only guards entry, so a statement still in flight
+  runs `execProtocolRawSync`'s SYNCHRONOUS loop against a dead backend. It either
+  traps — fatal and named, per the rule above — or blocks the event loop past any
+  timer, `AbortSignal` or `Promise.race`, leaving `SIGKILL` the only exit.
 - Every close path drains in-flight work first, through CANONICAL join points only.
   Sleeps, `SELECT 1` flushes, and `Promise.race` timeouts are rejected: a narrowed
   window is silent degradation, and no timer fires against a blocked event loop.

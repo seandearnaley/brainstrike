@@ -88,7 +88,17 @@ const CONTRACT_LINE_BUDGETS = {
   // sibling-invariant cross-reference to the `models.updated_at` rule in
   // assistant-providers.md, so a migration author meets it where they
   // actually read rather than only in the provider contract.
-  'database.md': 855,
+  //
+  // BST-1221 raised it from 855 (+19): PGlite is now vendored with a patch that
+  // changes its failure semantics — a WebAssembly trap throws and poisons the
+  // instance instead of spinning a blocked event loop forever. An agent on any
+  // PGlite path must know that before it reads a stack trace or touches the
+  // patch, so the rule belongs in the contract, not only in evidence. The story
+  // (the trace, the upstream issues, what the patch deliberately does not do,
+  // and when it is dropped) went to `database/pglite-fatal-trap.md`, 59 lines;
+  // what stayed is 18 lines of rule plus a one-line correction to the close
+  // bullet, whose "SIGKILL is the only exit" is no longer true of a trap.
+  'database.md': 874,
   'domain.md': 37,
   'effect-boundary.md': 59,
   'explorer-search-tapestry.md': 638,
