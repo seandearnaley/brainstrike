@@ -6,19 +6,32 @@ const pendingTimers = (): number =>
 
 const neverSettles = (): Promise<never> => new Promise<never>(() => undefined);
 
+/** Lets scheduler yields and timer bookkeeping run for a few macrotask turns. */
+async function settle(): Promise<void> {
+  for (let turn = 0; turn < 3; turn += 1) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
 describe('runWithTimeout', () => {
   it('resolves with the task value and clears the deadline timer', async () => {
     const before = pendingTimers();
+    let finish: (value: string) => void = () => undefined;
+    const running = runWithTimeout(
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+      { onTimeout: () => new Error('unused'), timeoutMs: 60_000 }
+    );
+    await settle();
+    // The deadline timer is visible while the task runs, so the final equality
+    // cannot pass vacuously (for example if the timer were unref'd and hidden).
+    expect(pendingTimers()).toBeGreaterThan(before);
 
-    await expect(
-      runWithTimeout(async () => 'chunked', {
-        onTimeout: () => new Error('unused'),
-        timeoutMs: 60_000,
-      })
-    ).resolves.toBe('chunked');
-    // Let any scheduler yield timer settle before sampling, so only a leaked
-    // 60-second deadline can keep the count above its starting value.
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    finish('chunked');
+    await expect(running).resolves.toBe('chunked');
+    await settle();
 
     expect(pendingTimers()).toBe(before);
   });
