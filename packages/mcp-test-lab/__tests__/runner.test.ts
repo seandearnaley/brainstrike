@@ -175,10 +175,20 @@ describe('MCP bounded verification runner', () => {
   it('reserves cleanup time and waits for an aborted run to settle', async () => {
     const events: string[] = [];
     await expect(
-      verifySingleCase(dependencies(events, { runSettlesAfterClose: true }), {
-        caseTimeoutMs: 100,
-        runTimeoutMs: 100,
-      })
+      verifySingleCase(
+        {
+          ...dependencies(events, { runSettlesAfterClose: true }),
+          // The error names the phase budget, ceil(remaining run time). On the
+          // real clock that loses whatever elapsed before RED started, so a
+          // loaded CI runner reported "90 ms". Freeze the deadline clock; the
+          // abort itself still fires on the real 75 ms operation timer.
+          now: () => 0,
+        },
+        {
+          caseTimeoutMs: 100,
+          runTimeoutMs: 100,
+        }
+      )
     ).rejects.toThrow(/modern-stdio.*red.*100 ms/i);
     expect(events).toEqual([
       'create:modern-stdio:red',
