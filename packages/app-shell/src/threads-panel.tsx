@@ -997,7 +997,7 @@ function ThreadBulkSelectionOverlay({
         </div>
       ) : null}
       {controller.panel === 'color' ? (
-        <div className="pointer-events-auto ml-auto w-56 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
+        <div className="pointer-events-auto ml-auto w-60 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
           <div className="px-2 pb-1 text-[11px] text-muted-foreground">Color selected</div>
           <div className="grid gap-2" data-testid="thread-bulk-color-grid">
             {ASSISTANT_THREAD_COLOR_PALETTES.map((palette) => (

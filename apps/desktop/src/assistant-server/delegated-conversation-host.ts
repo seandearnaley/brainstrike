@@ -553,8 +553,19 @@ export function createDesktopDelegatedConversationHost(
           identity.configuration,
           subagentSettings
         );
+        const existingChild = await admissionRepository.get(scope, identity.childThreadId);
+        let displayIdentity: ReturnType<typeof createDelegatedDisplayIdentity>;
+        if (existingChild) {
+          const { color, displayName } = existingChild;
+          if (!(color && displayName)) {
+            throw new DelegatedConversationIdentityError('child-display-identity-missing');
+          }
+          displayIdentity = { color, displayName };
+        } else {
+          displayIdentity = createDelegatedDisplayIdentity(identity.childThreadId);
+        }
         await admissionRepository.createChild(scope, {
-          ...createDelegatedDisplayIdentity(identity.childThreadId),
+          ...displayIdentity,
           configuration: identity.configuration,
           parentThreadId: identity.parentThreadId,
           resourceId: identity.childResourceId,

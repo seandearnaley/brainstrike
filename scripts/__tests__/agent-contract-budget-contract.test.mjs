@@ -103,7 +103,7 @@ const CONTRACT_LINE_BUDGETS = {
   // new token cannot live in an evidence file without the scale going stale.
   // It then rose to 615: § Scroll ownership names the Model Catalog as the
   // second sanctioned shared-scroller consumer, next to the rule it applies.
-  'ui-conventions.md': 615,
+  'ui-conventions.md': 614,
   'workspace-context.md': 1071,
 };
 

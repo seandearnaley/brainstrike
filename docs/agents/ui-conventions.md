@@ -254,19 +254,13 @@ Guard: `tree-table-render-stability.test.tsx`,
   checkbox gutter, with thread identity independently colorable inside it.
   Compute its start/end from the visible row model, so collapsed, empty and
   disclosure-limited groups still close their rounded boundary.
-- Every surface rendering a thread — tab strip and threads-panel rows — shares
-  `assistant-thread-presentation.ts`: the `THREAD_CONTROL_*` density tokens plus
-  one colour surface per thread. A control's fill comes from
-  `idleClassName`/`selectedClassName`, its identity mark from `markClassName` —
-  never the surface fill, which renders the mark invisible. Use
-  `getAssistantThreadColorSurface` rather than re-deriving an "unassigned"
-  fallback, and never re-declare heights or type sizes at a call site.
-- The eighteen durable thread colors are presented in three six-color sets from
-  `ASSISTANT_THREAD_COLOR_PALETTES` in thread, group, and bulk pickers. A child
-  uses the same color presentation in its sidebar row, workspace tab, and
-  conversation header. The shared assistant panel carries each conversation's
-  color into the reading backdrop, composer, and activity surfaces; delegation
-  cards use their child's own color. Keep callsign text and status alongside tint.
+- Thread surfaces share `assistant-thread-presentation.ts` density and colors:
+  three six-color palettes span thread, group and bulk pickers. Tabs and rows
+  use `idleClassName`/`selectedClassName` fills; `markClassName` must differ from
+  the fill. Use `getAssistantThreadColorSurface` for unassigned colors, never
+  re-declare density at call sites. Child rows, tabs and headers share their tint;
+  conversation backdrops, composers and activity inherit it; delegation cards
+  use child color. Keep callsign text and status beside every color cue.
 - The threads tree cell renders one `ThreadRow` (`thread-row.tsx`), never a
   single-element `ThreadRows` list: the row owns rename draft, customization,
   details, delete confirmation and pending/error state, while the connected panel
@@ -584,12 +578,9 @@ Guard: `approval-row.browser.test.tsx`.
 
 ## Delegated conversation navigation
 
-- Child cards and tab titles use durable callsigns, with persona role kept
-  separate. Breadcrumbs follow validated native owner/root/parent bindings;
-  returning focuses the originating delegation button while mounted, otherwise
-  the canonical destination tab.
-- New callsigns draw from the expanded name set and color set independently;
-  existing persisted child names and colors retain their identity.
+- Child cards/tabs use callsigns and independently chosen colors; persisted
+  identities survive host retries. Breadcrumbs follow native owner/root/parent
+  bindings; returning focuses the source button or canonical destination tab.
 - Root filters/sort and folders choose the visible roots; child rows stay beneath
   those roots in durable creation order, never independently selected or
   reparented by root bulk actions.

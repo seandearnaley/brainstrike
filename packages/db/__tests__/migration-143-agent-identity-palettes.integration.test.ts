@@ -75,5 +75,13 @@ describe('migration 143 agent identity palettes', () => {
         `UPDATE brainstrike_delegated_conversations SET color = 'magenta' WHERE thread_id = 'new-child'`
       )
     ).rejects.toThrow(/check constraint/i);
+
+    await expect(runner.rollback(migration)).rejects.toThrow(/check constraint/i);
+    await db.exec(`UPDATE brainstrike_assistant_thread_groups SET color = 'rose' WHERE id = 'new-group';
+      UPDATE brainstrike_delegated_conversations SET color = 'rose' WHERE thread_id = 'new-child';`);
+    await runner.rollback(migration);
+    await expect(
+      db.exec(`UPDATE brainstrike_assistant_thread_groups SET color = 'red' WHERE id = 'new-group'`)
+    ).rejects.toThrow(/check constraint/i);
   });
 });

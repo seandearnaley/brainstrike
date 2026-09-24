@@ -78,7 +78,7 @@ test('switches among running child tabs and retains the child draft', async ({
       await openButtons.nth(3).click();
       const tabs = window.getByRole('tablist', { name: 'Workspace tabs' });
       const childTabs = tabs.getByRole('tab', {
-        name: /^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/u,
+        name: /^[A-Z][a-z]+-[a-f0-9]{6}$/u,
       });
       await expect(childTabs).toHaveCount(3);
 

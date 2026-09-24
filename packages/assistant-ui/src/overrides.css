@@ -199,8 +199,10 @@
 }
 
 .bs-subagent-card[data-agent-color] {
-  border-color: color-mix(in oklab, var(--agent-accent) 35%, hsl(var(--border)));
-  background: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
+  --agent-edge: color-mix(in oklab, var(--agent-accent) 35%, hsl(var(--border)));
+  border-color: var(--agent-edge);
+  background: var(--agent-card);
   box-shadow: inset 2px 0 var(--agent-accent);
 }
 

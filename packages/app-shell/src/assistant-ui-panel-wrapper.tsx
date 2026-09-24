@@ -1363,10 +1363,6 @@ export function AssistantUiPanelWrapper({
               <BudgetGuardrailProvider value={budgetGuardrailBinding}>
                 <AssistantUiPanel
                   {...delegatedPanelBinding}
-                  agentColor={
-                    memoryThreads.find((thread) => thread.id === selectedMemoryThreadId)?.metadata
-                      ?.color
-                  }
                   composerDraftCommand={composerDraft.command}
                   {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                   {...(steerActiveRun ? { onSteerActiveRun: steerActiveRun } : {})}

@@ -110,13 +110,13 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
           .click();
         const heading = window
           .getByRole('heading', {
-            name: /^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/u,
+            name: /^[A-Z][a-z]+-[a-f0-9]{6}$/u,
           })
           .last();
         const name = (await heading.innerText()).trim();
         return {
           close: window.getByRole('button', {
-            name: /^Close (Cedar|Fern|Aspen|Maple|Iris|Willow)-/,
+            name: /^Close [A-Z][a-z]+-/,
           }),
           panel: window.getByRole('region', { exact: true, name }),
         };
@@ -424,7 +424,7 @@ async function assertChildDecision(
       const childTab = window
         .getByRole('tablist', { name: 'Workspace tabs' })
         .getByRole('tab', { selected: true });
-      await expect(childTab).toHaveText(/^(Cedar|Fern|Aspen|Maple|Iris|Willow)-[a-f0-9]+$/);
+      await expect(childTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
       const childName = (await childTab.innerText()).trim();
       const child = window.getByRole('region', { exact: true, name: childName });
       await expect(child.getByTestId(noticeId)).toBeVisible();

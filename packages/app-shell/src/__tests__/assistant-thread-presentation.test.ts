@@ -1,3 +1,5 @@
+import { ASSISTANT_THREAD_COLOR_IDS } from '@brainstrike/assistant-data';
+import { DELEGATED_CONVERSATION_COLOR_IDS } from '@brainstrike/db';
 import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_THREAD_COLOR_PALETTES,
@@ -45,6 +47,7 @@ describe('assistant thread presentation', () => {
   });
 
   it('resolves every durable metadata color to explicit light and dark presentation classes', () => {
+    expect(DELEGATED_CONVERSATION_COLOR_IDS).toEqual(ASSISTANT_THREAD_COLOR_IDS);
     expect(ASSISTANT_THREAD_COLOR_PALETTES.map(({ label }) => label)).toEqual([
       'Studio',
       'Voltage',
