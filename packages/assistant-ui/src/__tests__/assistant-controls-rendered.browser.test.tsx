@@ -1,6 +1,7 @@
+// @boundaries-ignore Browser-only fixture uses the consuming app's real theme to verify rendered geometry and colors; no runtime dependency.
 import '../../../../apps/web/src/app/globals.css';
 import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, expect, type Mock, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { ControlsMenu } from '../assistant-controls-menu';
 
@@ -13,7 +14,9 @@ const tools = Array.from({ length: 104 }, (_, index) => ({
   source: index < 36 ? ('native' as const) : ('mcp' as const),
 }));
 
-function renderControls(onToggleTool = vi.fn()) {
+type ToggleToolMock = Mock<(toolId: string, enabled: boolean) => void>;
+
+function renderControls(onToggleTool: ToggleToolMock = vi.fn()): ToggleToolMock {
   render(
     <div className="flex h-full w-full items-end justify-end p-4">
       <ControlsMenu
@@ -28,7 +31,9 @@ function renderControls(onToggleTool = vi.fn()) {
   return onToggleTool;
 }
 
-function bounds(element: Element) {
+function bounds(
+  element: Element
+): Pick<DOMRect, 'bottom' | 'height' | 'left' | 'right' | 'top' | 'width'> {
   const rect = element.getBoundingClientRect();
   return {
     bottom: rect.bottom,

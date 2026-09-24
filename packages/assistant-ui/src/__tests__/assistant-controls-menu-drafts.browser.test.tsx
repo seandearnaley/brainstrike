@@ -46,7 +46,7 @@ function renderMenu() {
 async function typeStepDraft(draft: string): Promise<HTMLInputElement> {
   await userEvent.click(screen.getByRole('button', { name: 'Open assistant controls' }));
   await userEvent.click(await screen.findByText('Output & Limits', { selector: 'summary span' }));
-  const steps = await screen.findByRole('spinbutton', { name: 'Max agent steps' });
+  const steps = await screen.findByRole('spinbutton', { name: 'Max steps' });
   await userEvent.clear(steps);
   await userEvent.click(steps);
   await userEvent.keyboard(draft);
@@ -74,9 +74,7 @@ describe('ControlsMenu Output & Limits drafts (real browser)', () => {
 
       await userEvent.click(screen.getByRole('button', { name }));
 
-      await expect
-        .poll(() => screen.queryByRole('spinbutton', { name: 'Max agent steps' }))
-        .toBeNull();
+      await expect.poll(() => screen.queryByRole('spinbutton', { name: 'Max steps' })).toBeNull();
       expect(onProviderSettingsChange.mock.calls).toEqual([['OpenAI', { agentMaxSteps: 64 }]]);
     }
   );
@@ -87,7 +85,7 @@ describe('ControlsMenu Output & Limits drafts (real browser)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Outside' }));
 
-    expect(screen.getByRole('spinbutton', { name: 'Max agent steps' })).toBe(steps);
+    expect(screen.getByRole('spinbutton', { name: 'Max steps' })).toBe(steps);
     expect(steps).toHaveValue(0);
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Enter a whole number of steps from 1 to 1,000.'
@@ -96,9 +94,7 @@ describe('ControlsMenu Output & Limits drafts (real browser)', () => {
 
     await userEvent.click(steps);
     await userEvent.keyboard('{Escape}');
-    await expect
-      .poll(() => screen.queryByRole('spinbutton', { name: 'Max agent steps' }))
-      .toBeNull();
+    await expect.poll(() => screen.queryByRole('spinbutton', { name: 'Max steps' })).toBeNull();
     expect(onProviderSettingsChange).not.toHaveBeenCalled();
   });
 
@@ -119,7 +115,7 @@ describe('ControlsMenu Output & Limits drafts (real browser)', () => {
 
     await userEvent.click(screen.getByText('Output & Limits', { selector: 'summary span' }));
 
-    expect(screen.getByRole('spinbutton', { name: 'Max agent steps' })).toBe(steps);
+    expect(screen.getByRole('spinbutton', { name: 'Max steps' })).toBe(steps);
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Enter a whole number of steps from 1 to 1,000.'
     );
@@ -207,7 +203,7 @@ describe('ControlsMenu Output & Limits drafts (real browser)', () => {
 
     await userEvent.keyboard('{ArrowLeft}');
 
-    expect(screen.getByRole('spinbutton', { name: 'Max agent steps' })).toBe(steps);
+    expect(screen.getByRole('spinbutton', { name: 'Max steps' })).toBe(steps);
     expect(steps).toHaveFocus();
     expect(steps).toHaveValue(64);
     expect(onProviderSettingsChange).not.toHaveBeenCalled();
@@ -245,7 +241,7 @@ describe('ControlsMenu Output & Limits drafts (real browser)', () => {
     expect(slider).toHaveFocus();
     expect(screen.getByRole('dialog', { name: 'Assistant controls' })).toBeInTheDocument();
     expect(onProviderSettingsChange).toHaveBeenCalledWith('OpenAI', {
-      maxOutputTokens: expect.any(Number),
+      maxOutputTokens: 960,
     });
   });
 });

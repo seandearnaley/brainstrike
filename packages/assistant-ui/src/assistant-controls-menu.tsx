@@ -14,14 +14,10 @@ import {
   PopoverContent,
   PopoverTrigger,
   Switch,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
 } from '@brainstrike/ui';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { Info, RotateCw, Search, Settings2, SlidersHorizontal } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import { DetailLevelControl } from './assistant-detail-control';
 import type {
   AssistantToolMenuConfig,
@@ -47,6 +43,55 @@ interface ToolMenuGroup {
   label: string;
   source: AssistantToolSource;
 }
+
+const ToolRow = ({
+  canToggleTools,
+  onToggleTool,
+  tool,
+}: {
+  canToggleTools: boolean;
+  onToggleTool: (toolId: string, enabled: boolean) => void;
+  tool: AssistantToolMenuItem;
+}) => {
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpId = useId();
+
+  return (
+    <div className="rounded-md hover:bg-accent/60">
+      <div className="flex min-h-9 items-center gap-2 px-2 py-1">
+        <span className="min-w-0 flex-1 truncate text-sm" title={tool.label}>
+          {tool.label}
+        </span>
+        {tool.description && (
+          <button
+            aria-controls={helpOpen ? helpId : undefined}
+            aria-expanded={helpOpen}
+            aria-label={`About ${tool.label}`}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={() => setHelpOpen((current) => !current)}
+            type="button"
+          >
+            <Info aria-hidden className="size-3.5" />
+          </button>
+        )}
+        <Switch
+          aria-label={`${tool.label} enabled`}
+          checked={tool.enabled}
+          disabled={tool.disabled || !canToggleTools}
+          onCheckedChange={(checked) => onToggleTool(tool.id, checked)}
+        />
+      </div>
+      {tool.description && helpOpen && (
+        <p
+          className="wrap-break-word max-h-28 overflow-y-auto whitespace-pre-wrap border-t px-2 py-2 text-muted-foreground text-xs leading-relaxed"
+          id={helpId}
+        >
+          {tool.description}
+        </p>
+      )}
+    </div>
+  );
+};
 
 const TOOL_SOURCE_ORDER: AssistantToolSource[] = ['native', 'mcp'];
 
@@ -119,12 +164,14 @@ const OutputLimitsSection = ({
 const ToolsControlsSection = ({
   canToggleTools,
   groupedTools,
+  onOpenSettings,
   onToggleTool,
   toolMenu,
   toolSummary,
 }: {
   canToggleTools: boolean;
   groupedTools: ToolMenuGroup[];
+  onOpenSettings: () => void;
   onToggleTool: (toolId: string, enabled: boolean) => void;
   toolMenu: AssistantToolMenuConfig;
   toolSummary: string;
@@ -132,157 +179,126 @@ const ToolsControlsSection = ({
   const [query, setQuery] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleGroups = groupedTools
-    .map((group) => ({
-      ...group,
-      visibleItems: group.items.filter((tool) =>
-        [tool.label, tool.id, tool.description ?? '', group.label, group.source]
-          .join(' ')
-          .toLocaleLowerCase()
-          .includes(normalizedQuery)
-      ),
-    }))
-    .filter((group) => group.visibleItems.length > 0);
+  const visibleGroups = groupedTools.flatMap((group) => {
+    const visibleItems = group.items.filter((tool) =>
+      [tool.label, tool.id, tool.description ?? '', group.label, group.source]
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(normalizedQuery)
+    );
+    return visibleItems.length > 0 ? [{ ...group, visibleItems }] : [];
+  });
 
   return (
-    <TooltipProvider delayDuration={300}>
-      <section aria-label="AI Tools" className="space-y-2 border-t pt-3">
-        <div className="flex items-baseline justify-between gap-2 px-1">
-          <h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
-            AI Tools
-          </h3>
-          <span className="text-[11px] text-muted-foreground">{toolSummary}</span>
+    <section aria-label="AI Tools" className="space-y-2 border-t pt-3">
+      <div className="flex items-baseline justify-between gap-2 px-1">
+        <h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+          AI Tools
+        </h3>
+        <span className="text-[11px] text-muted-foreground">{toolSummary}</span>
+      </div>
+      <div className="relative">
+        <Search
+          aria-hidden
+          className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          aria-label="Search tools"
+          className="h-9 rounded-lg pl-9 text-sm"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search tools…"
+          type="search"
+          value={query}
+        />
+      </div>
+      {toolMenu.isLoading && (
+        <div className="px-2 py-2 text-muted-foreground text-xs">Loading tools…</div>
+      )}
+      {!toolMenu.isLoading && groupedTools.length === 0 && (
+        <div className="px-2 py-2 text-muted-foreground text-xs">No tools detected.</div>
+      )}
+      {!toolMenu.isLoading && groupedTools.length > 0 && visibleGroups.length === 0 && (
+        <div className="px-2 py-3 text-muted-foreground text-sm">
+          No tools match “{query.trim()}”.
         </div>
-        <div className="relative">
-          <Search
-            aria-hidden
-            className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            aria-label="Search tools"
-            className="h-9 rounded-lg pl-9 text-sm"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search tools…"
-            type="search"
-            value={query}
-          />
-        </div>
-        {toolMenu.isLoading && (
-          <div className="px-2 py-2 text-muted-foreground text-xs">Loading tools…</div>
-        )}
-        {!toolMenu.isLoading && groupedTools.length === 0 && (
-          <div className="px-2 py-2 text-muted-foreground text-xs">No tools detected.</div>
-        )}
-        {!toolMenu.isLoading && groupedTools.length > 0 && visibleGroups.length === 0 && (
-          <div className="px-2 py-3 text-muted-foreground text-sm">
-            No tools match “{query.trim()}”.
-          </div>
-        )}
-        {!toolMenu.isLoading &&
-          visibleGroups.map((group) => {
-            const enabledCount = group.items.filter((tool) => tool.enabled).length;
-            return (
-              <details
-                className="group overflow-hidden rounded-lg border border-border/70"
-                key={group.id}
-                open={Boolean(normalizedQuery) || expandedGroups.has(group.id)}
-              >
-                {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is a native keyboard-operable disclosure; preserve expansion across search. */}
-                <summary
-                  className="flex cursor-pointer list-none items-center gap-2 bg-muted/20 px-3 py-2 text-sm hover:bg-accent [&::-webkit-details-marker]:hidden"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    if (normalizedQuery) {
-                      return;
+      )}
+      {!toolMenu.isLoading &&
+        visibleGroups.map((group) => {
+          const enabledCount = group.items.filter((tool) => tool.enabled).length;
+          return (
+            <details
+              className="group overflow-hidden rounded-lg border border-border/70"
+              key={group.id}
+              open={Boolean(normalizedQuery) || expandedGroups.has(group.id)}
+            >
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is a native keyboard-operable disclosure; preserve expansion across search. */}
+              <summary
+                className="flex cursor-pointer list-none items-center gap-2 bg-muted/20 px-3 py-2 text-sm hover:bg-accent [&::-webkit-details-marker]:hidden"
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (normalizedQuery) {
+                    return;
+                  }
+                  setExpandedGroups((current) => {
+                    const next = new Set(current);
+                    if (next.has(group.id)) {
+                      next.delete(group.id);
+                    } else {
+                      next.add(group.id);
                     }
-                    setExpandedGroups((current) => {
-                      const next = new Set(current);
-                      if (next.has(group.id)) {
-                        next.delete(group.id);
-                      } else {
-                        next.add(group.id);
-                      }
-                      return next;
-                    });
-                  }}
+                    return next;
+                  });
+                }}
+              >
+                <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
+                <span className="text-[11px] text-muted-foreground tabular-nums">
+                  {enabledCount}/{group.items.length}
+                </span>
+                <span
+                  aria-hidden
+                  className="text-muted-foreground transition-transform group-open:rotate-90"
                 >
-                  <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-                  <span className="text-[11px] text-muted-foreground tabular-nums">
-                    {enabledCount}/{group.items.length}
-                  </span>
-                  <span
-                    aria-hidden
-                    className="text-muted-foreground transition-transform group-open:rotate-90"
-                  >
-                    ›
-                  </span>
-                </summary>
-                <div className="space-y-0.5 border-t p-1">
-                  {group.visibleItems.map((tool) => (
-                    <div
-                      className="flex min-h-9 items-center gap-2 rounded-md px-2 py-1 hover:bg-accent/60"
-                      key={tool.id}
-                    >
-                      <span className="min-w-0 flex-1 truncate text-sm" title={tool.label}>
-                        {tool.label}
-                      </span>
-                      {tool.description && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              aria-label={`About ${tool.label}`}
-                              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
-                              type="button"
-                            >
-                              <Info aria-hidden className="size-3.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            className="max-w-[min(320px,80vw)] whitespace-normal text-left"
-                            side="left"
-                          >
-                            {tool.description}
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                      <Switch
-                        aria-label={`${tool.label} enabled`}
-                        checked={tool.enabled}
-                        disabled={tool.disabled || !canToggleTools}
-                        onCheckedChange={(checked) => onToggleTool(tool.id, checked)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </details>
-            );
-          })}
-        {(toolMenu.onRefresh || toolMenu.onOpenSettings) && (
-          <div className="flex flex-wrap items-center gap-2 px-1 pt-1">
-            {toolMenu.onRefresh && (
-              <button
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
-                onClick={() => void toolMenu.onRefresh?.()}
-                type="button"
-              >
-                <RotateCw aria-hidden className="size-3.5" />
-                Refresh tools
-              </button>
-            )}
-            {toolMenu.onOpenSettings && (
-              <button
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
-                onClick={() => toolMenu.onOpenSettings?.()}
-                type="button"
-              >
-                <Settings2 aria-hidden className="size-3.5" />
-                Manage tools…
-              </button>
-            )}
-          </div>
-        )}
-      </section>
-    </TooltipProvider>
+                  ›
+                </span>
+              </summary>
+              <div className="space-y-0.5 border-t p-1">
+                {group.visibleItems.map((tool) => (
+                  <ToolRow
+                    canToggleTools={canToggleTools}
+                    key={tool.id}
+                    onToggleTool={onToggleTool}
+                    tool={tool}
+                  />
+                ))}
+              </div>
+            </details>
+          );
+        })}
+      {(toolMenu.onRefresh || toolMenu.onOpenSettings) && (
+        <div className="flex flex-wrap items-center gap-2 px-1 pt-1">
+          {toolMenu.onRefresh && (
+            <button
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
+              onClick={() => void toolMenu.onRefresh?.()}
+              type="button"
+            >
+              <RotateCw aria-hidden className="size-3.5" />
+              Refresh tools
+            </button>
+          )}
+          {toolMenu.onOpenSettings && (
+            <button
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
+              onClick={onOpenSettings}
+              type="button"
+            >
+              <Settings2 aria-hidden className="size-3.5" />
+              Manage tools…
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   );
 };
 
@@ -372,18 +388,20 @@ export const ControlsMenu = ({
   const activeSettings = selectedProvider ? providerSettings?.[selectedProvider] : undefined;
   const [drafts] = useState(createDraftFieldScope);
   const [open, setOpen] = useState(false);
-  const escapeClosing = useRef(false);
 
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && escapeClosing.current) {
-      escapeClosing.current = false;
-      setOpen(false);
-      return;
-    }
     if (!(nextOpen || drafts.commitAll())) {
       return;
     }
     setOpen(nextOpen);
+  };
+
+  const handleOpenSettings = () => {
+    if (!drafts.commitAll()) {
+      return;
+    }
+    setOpen(false);
+    toolMenu?.onOpenSettings?.();
   };
 
   return (
@@ -405,8 +423,9 @@ export const ControlsMenu = ({
         className="max-h-[min(680px,80vh,var(--radix-popover-content-available-height))] w-[min(480px,calc(100vw-24px))] space-y-3 overflow-y-auto rounded-xl p-3"
         collisionPadding={12}
         // Pointer-down outside can unmount before a focused field blurs.
-        onEscapeKeyDown={() => {
-          escapeClosing.current = true;
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          setOpen(false);
         }}
         onInteractOutside={(event) => commitDraftsOrStayOpen(drafts, event)}
       >
@@ -429,6 +448,7 @@ export const ControlsMenu = ({
           <ToolsControlsSection
             canToggleTools={Boolean(toolMenuOnToggleTool)}
             groupedTools={groupedTools}
+            onOpenSettings={handleOpenSettings}
             onToggleTool={handleToggleTool}
             toolMenu={toolMenu}
             toolSummary={toolSummary}

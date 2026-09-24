@@ -34,7 +34,6 @@ import {
   useOpenRouterModelMetadataLookup,
   useProviderSettingsValidationChange,
 } from './openrouter-model-metadata-context';
-import { useIntegerSettingField } from './provider-settings-draft-field';
 import {
   type OpenRouterModelLimits,
   OpenRouterModelLimitsCard,
@@ -45,6 +44,7 @@ import {
   ANTHROPIC_THINKING_MIN,
   ANTHROPIC_THINKING_STEP,
 } from './reasoning-effort-controls';
+import { useIntegerSettingField } from './use-provider-settings-draft-field';
 
 const settingsNumberFormatter = new Intl.NumberFormat();
 
@@ -220,10 +220,13 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
   const workingMemoryEnabled = settings.workingMemoryEnabled ?? true;
   const maxStepsErrorId = useId();
   const maxStepsHelpId = useId();
+  const maxStepsInputId = useId();
   const inputTokenLimitErrorId = useId();
   const inputTokenLimitHelpId = useId();
+  const inputTokenLimitInputId = useId();
   const memoryErrorId = useId();
   const memoryHelpId = useId();
+  const memoryInputId = useId();
   const maxSteps = useIntegerSettingField(
     maxStepsEnabled ? String(settings.agentMaxSteps) : '',
     { max: AGENT_MAX_STEPS_MAX, min: AGENT_MAX_STEPS_MIN, noun: 'steps' },
@@ -249,7 +252,9 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
       <div className="space-y-4">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <div className="min-w-[160px] flex-1">
-            <p className="font-medium text-foreground text-xs">Max steps</p>
+            <Label className="font-medium text-foreground text-xs" htmlFor={maxStepsInputId}>
+              Max steps
+            </Label>
             <p className="text-muted-foreground text-xs" id={maxStepsHelpId}>
               Model steps per run. Without a custom limit, the default is 100.
             </p>
@@ -258,9 +263,9 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
             <Input
               aria-describedby={`${maxStepsHelpId}${maxSteps.error ? ` ${maxStepsErrorId}` : ''}`}
               aria-invalid={Boolean(maxSteps.error)}
-              aria-label="Max agent steps"
               className="h-9 w-28 min-w-0 shrink-0 text-sm"
               disabled={disabled || !maxStepsEnabled}
+              id={maxStepsInputId}
               inputMode="numeric"
               max={AGENT_MAX_STEPS_MAX}
               min={AGENT_MAX_STEPS_MIN}
@@ -282,7 +287,9 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
         <FieldRefusal id={maxStepsErrorId} message={maxSteps.error} />
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <div className="min-w-[160px] flex-1">
-            <p className="font-medium text-foreground text-xs">Input tokens</p>
+            <Label className="font-medium text-foreground text-xs" htmlFor={inputTokenLimitInputId}>
+              Input tokens
+            </Label>
             <p className="text-muted-foreground text-xs" id={inputTokenLimitHelpId}>
               Caps input tokens available to each model step.
             </p>
@@ -291,9 +298,9 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
             <Input
               aria-describedby={`${inputTokenLimitHelpId}${inputTokenLimit.error ? ` ${inputTokenLimitErrorId}` : ''}`}
               aria-invalid={Boolean(inputTokenLimit.error)}
-              aria-label="Input token limit"
               className="h-9 w-28 min-w-0 shrink-0 text-sm"
               disabled={disabled || !inputTokenLimitEnabled}
+              id={inputTokenLimitInputId}
               inputMode="numeric"
               max={INPUT_TOKEN_LIMIT_MAX}
               min={INPUT_TOKEN_LIMIT_MIN}
@@ -315,7 +322,9 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
         <FieldRefusal id={inputTokenLimitErrorId} message={inputTokenLimit.error} />
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <div className="min-w-[160px] flex-1">
-            <p className="font-medium text-foreground text-xs">Recent messages</p>
+            <Label className="font-medium text-foreground text-xs" htmlFor={memoryInputId}>
+              Recent messages
+            </Label>
             <p className="text-muted-foreground text-xs" id={memoryHelpId}>
               Recent messages retained for context. Set 0 to turn this off.
             </p>
@@ -323,9 +332,9 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
           <Input
             aria-describedby={`${memoryHelpId}${memory.error ? ` ${memoryErrorId}` : ''}`}
             aria-invalid={Boolean(memory.error)}
-            aria-label="Memory messages"
             className="h-9 w-28 min-w-0 shrink-0 text-sm"
             disabled={disabled}
+            id={memoryInputId}
             inputMode="numeric"
             max={MEMORY_LAST_MESSAGES_MAX}
             min={MEMORY_LAST_MESSAGES_MIN}
@@ -543,6 +552,7 @@ const AnthropicReasoningSection = ({
     ANTHROPIC_THINKING_MAX
   );
   const thinkingErrorId = useId();
+  const thinkingHelpId = useId();
   const thinkingBudget = useIntegerSettingField(
     thinkingEnabled ? String(settings.anthropicThinkingBudgetTokens) : '',
     { max: ANTHROPIC_THINKING_MAX, min: ANTHROPIC_THINKING_MIN, noun: 'thinking tokens' },
@@ -558,7 +568,9 @@ const AnthropicReasoningSection = ({
     >
       <div>
         <h3 className="font-semibold text-foreground text-xs">Claude reasoning</h3>
-        <p className="text-muted-foreground text-xs">Optional budget for Claude thinking.</p>
+        <p className="text-muted-foreground text-xs" id={thinkingHelpId}>
+          Optional budget for Claude thinking.
+        </p>
       </div>
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
@@ -577,7 +589,7 @@ const AnthropicReasoningSection = ({
         </div>
         <div className="flex min-w-0 items-center gap-3">
           <Input
-            aria-describedby={thinkingBudget.error ? thinkingErrorId : undefined}
+            aria-describedby={`${thinkingHelpId}${thinkingBudget.error ? ` ${thinkingErrorId}` : ''}`}
             aria-invalid={Boolean(thinkingBudget.error)}
             aria-label="Anthropic thinking budget input"
             className="h-9 min-w-0 flex-1 text-sm"

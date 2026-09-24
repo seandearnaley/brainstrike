@@ -1,16 +1,18 @@
 import type { AssistantProviderSettingsMap } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ReactNode } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ControlsMenu } from '../assistant-controls-menu';
 import type { AssistantToolMenuConfig } from '../assistant-ui-panel';
 
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/ui')>();
-  const Shell = ({ children }: { children: ReactNode }) => <div>{children}</div>;
-  const Content = ({ children }: { children: ReactNode }) => <div role="dialog">{children}</div>;
-  const Trigger = ({ children }: { children: ReactNode }) => <>{children}</>;
+  const Shell = ({ children }: { children: ReactNode }): JSX.Element => <div>{children}</div>;
+  const Content = ({ children }: { children: ReactNode }): JSX.Element => (
+    <div role="dialog">{children}</div>
+  );
+  const Trigger = ({ children }: { children: ReactNode }): JSX.Element => <>{children}</>;
 
   return {
     ...actual,
@@ -27,7 +29,7 @@ vi.mock('../provider-settings-panel', () => ({
   }: {
     modelName?: string;
     providerId?: string;
-  }) => (
+  }): JSX.Element => (
     <div data-model-name={modelName ?? ''} data-provider-id={providerId ?? ''}>
       Provider settings panel
     </div>
@@ -116,7 +118,13 @@ describe('ControlsMenu', () => {
     expect(screen.getByText('1 of 3 enabled')).toBeInTheDocument();
     expect(screen.getByText('Native Read')).toBeInTheDocument();
     expect(screen.queryByText('Reads local context')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'About Native Read' })).toBeInTheDocument();
+    const help = screen.getByRole('button', { name: 'About Native Read' });
+    expect(help).toHaveAttribute('aria-expanded', 'false');
+    await user.click(help);
+    expect(help).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Reads local context')).toBeInTheDocument();
+    await user.click(help);
+    expect(screen.queryByText('Reads local context')).not.toBeInTheDocument();
 
     const groupLabels = screen
       .getAllByText(/Alpha|Beta|Zeta/)

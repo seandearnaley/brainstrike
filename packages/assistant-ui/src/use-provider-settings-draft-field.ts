@@ -1,4 +1,4 @@
-import { type DraftInput, useDraftField } from '@brainstrike/ui';
+import { type DraftField, type DraftInput, useDraftField } from '@brainstrike/ui';
 
 interface IntegerRange {
   readonly max: number;
@@ -31,7 +31,7 @@ export function useIntegerSettingField(
   shown: string,
   range: IntegerRange,
   store: (value: number | undefined) => void
-) {
+): DraftField {
   return useDraftField({
     commit: (draft) => {
       const parsed = readIntegerDraft(draft, range);

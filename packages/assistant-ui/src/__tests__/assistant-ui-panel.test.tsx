@@ -2039,7 +2039,7 @@ describe('AssistantUiPanel model picker', () => {
       agentInputTokenLimit: 64_000,
     });
 
-    const memory = screen.getByRole('spinbutton', { name: 'Memory messages' });
+    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
     fireEvent.change(memory, { target: { value: '12' } });
     fireEvent.blur(memory);
     expect(onSettingsChange).toHaveBeenCalledWith('openai', { memoryLastMessages: 12 });
@@ -2094,16 +2094,16 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByText('Reasoning output')).toBeInTheDocument();
 
     // A value outside the range is refused with a message, never clamped.
-    const steps = screen.getByRole('spinbutton', { name: 'Max agent steps' });
+    const steps = screen.getByRole('spinbutton', { name: 'Max steps' });
     fireEvent.change(steps, { target: { value: '0' } });
     fireEvent.blur(steps);
-    const limit = screen.getByRole('spinbutton', { name: 'Input token limit' });
+    const limit = screen.getByRole('spinbutton', { name: 'Input tokens' });
     fireEvent.change(limit, { target: { value: '1' } });
     fireEvent.blur(limit);
     expect(screen.getAllByRole('alert')).toHaveLength(2);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
-    const memory = screen.getByRole('spinbutton', { name: 'Memory messages' });
+    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
     fireEvent.change(memory, { target: { value: '' } });
     fireEvent.blur(memory);
     expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', {

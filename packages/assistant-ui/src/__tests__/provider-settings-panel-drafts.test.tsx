@@ -26,18 +26,25 @@ describe('ProviderSettingsPanel number fields', () => {
       />
     );
 
-    expect(screen.getByRole('spinbutton', { name: 'Max agent steps' })).toHaveAccessibleDescription(
+    expect(screen.getByLabelText('Max steps')).toHaveAccessibleDescription(
       /model steps.*default.*100/i
     );
-    expect(
-      screen.getByRole('spinbutton', { name: 'Input token limit' })
-    ).toHaveAccessibleDescription(/input tokens.*step/i);
-    expect(screen.getByRole('spinbutton', { name: 'Memory messages' })).toHaveAccessibleDescription(
+    expect(screen.getByLabelText('Input tokens')).toHaveAccessibleDescription(
+      /input tokens.*step/i
+    );
+    expect(screen.getByLabelText('Recent messages')).toHaveAccessibleDescription(
       /recent messages.*0.*off/i
     );
     expect(
       screen.getByRole('spinbutton', { name: 'Output token limit' })
     ).toHaveAccessibleDescription(/output tokens.*step.*auto/i);
+  });
+
+  it('describes the Claude thinking budget field with its visible help', () => {
+    render(<ProviderSettingsPanel providerId="anthropic" settings={{}} />);
+    expect(
+      screen.getByRole('spinbutton', { name: 'Anthropic thinking budget input' })
+    ).toHaveAccessibleDescription(/optional budget for Claude thinking/i);
   });
 
   it('stores a typed step limit once, on blur — clearing it to retype never switches it off', async () => {
@@ -50,7 +57,7 @@ describe('ProviderSettingsPanel number fields', () => {
         settings={{ agentMaxSteps: 8 }}
       />
     );
-    const steps = screen.getByRole('spinbutton', { name: 'Max agent steps' });
+    const steps = screen.getByRole('spinbutton', { name: 'Max steps' });
     await user.clear(steps);
     await user.type(steps, '64');
     expect(steps).toHaveValue(64);
@@ -69,7 +76,7 @@ describe('ProviderSettingsPanel number fields', () => {
         settings={{ agentMaxSteps: 100 }}
       />
     );
-    const steps = screen.getByRole('spinbutton', { name: 'Max agent steps' });
+    const steps = screen.getByRole('spinbutton', { name: 'Max steps' });
     expect(steps).toHaveAttribute('max', '1000');
     await user.clear(steps);
     await user.type(steps, '1000');
@@ -94,7 +101,7 @@ describe('ProviderSettingsPanel number fields', () => {
         settings={{ agentInputTokenLimit: 32_000 }}
       />
     );
-    const limit = screen.getByRole('spinbutton', { name: 'Input token limit' });
+    const limit = screen.getByRole('spinbutton', { name: 'Input tokens' });
     await user.clear(limit);
     await user.type(limit, '80000');
     expect(onSettingsChange).not.toHaveBeenCalled();
@@ -112,7 +119,7 @@ describe('ProviderSettingsPanel number fields', () => {
         settings={{ agentInputTokenLimit: 32_000, agentMaxSteps: 8, memoryLastMessages: 40 }}
       />
     );
-    const steps = screen.getByRole('spinbutton', { name: 'Max agent steps' });
+    const steps = screen.getByRole('spinbutton', { name: 'Max steps' });
     await user.clear(steps);
     await user.type(steps, '0');
     await user.tab();
@@ -120,7 +127,7 @@ describe('ProviderSettingsPanel number fields', () => {
     expect(steps).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByRole('alert')).toHaveTextContent(/Enter a whole number of steps from 1 to/);
 
-    const limit = screen.getByRole('spinbutton', { name: 'Input token limit' });
+    const limit = screen.getByRole('spinbutton', { name: 'Input tokens' });
     await user.clear(limit);
     await user.type(limit, '1');
     await user.tab();
@@ -128,7 +135,7 @@ describe('ProviderSettingsPanel number fields', () => {
       'Enter a whole number of input tokens from 4,096 to 256,000.'
     );
 
-    const memory = screen.getByRole('spinbutton', { name: 'Memory messages' });
+    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
     await user.clear(memory);
     await user.type(memory, '2.5');
     await user.tab();
@@ -147,7 +154,7 @@ describe('ProviderSettingsPanel number fields', () => {
         settings={{ agentMaxSteps: 8 }}
       />
     );
-    const steps = screen.getByRole('spinbutton', { name: 'Max agent steps' });
+    const steps = screen.getByRole('spinbutton', { name: 'Max steps' });
     // A browser reports value '' with validity.badInput for "1.", "-" or "1e";
     // jsdom never sets badInput, so model the browser's report directly.
     Object.defineProperty(steps, 'validity', { configurable: true, value: { badInput: true } });
@@ -167,7 +174,7 @@ describe('ProviderSettingsPanel number fields', () => {
         settings={{ memoryLastMessages: 40 }}
       />
     );
-    const memory = screen.getByRole('spinbutton', { name: 'Memory messages' });
+    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
     await user.clear(memory);
     await user.type(memory, '12{Escape}');
     expect(memory).toHaveValue(40);
@@ -185,7 +192,7 @@ describe('ProviderSettingsPanel number fields', () => {
         settings={{ memoryLastMessages: 12 }}
       />
     );
-    const memory = screen.getByRole('spinbutton', { name: 'Memory messages' });
+    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
     await user.clear(memory);
     await user.tab();
     expect(onSettingsChange.mock.calls).toEqual([['openai', { memoryLastMessages: undefined }]]);
@@ -201,7 +208,7 @@ describe('ProviderSettingsPanel number fields', () => {
         settings={{ agentMaxSteps: 8 }}
       />
     );
-    const steps = screen.getByRole('spinbutton', { name: 'Max agent steps' });
+    const steps = screen.getByRole('spinbutton', { name: 'Max steps' });
     await user.clear(steps);
     await user.type(steps, '0');
     await user.click(screen.getByRole('switch', { name: 'Limit agent steps' }));
@@ -213,7 +220,7 @@ describe('ProviderSettingsPanel number fields', () => {
         settings={{}}
       />
     );
-    expect(screen.getByRole('spinbutton', { name: 'Max agent steps' })).toHaveValue(null);
+    expect(screen.getByRole('spinbutton', { name: 'Max steps' })).toHaveValue(null);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 

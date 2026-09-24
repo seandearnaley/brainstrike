@@ -1,3 +1,5 @@
+import type { JSX } from 'react';
+
 export interface OpenRouterModelLimits {
   contextWindow: number;
   effectiveInputBudget?: number;
@@ -20,7 +22,7 @@ export function OpenRouterModelLimitsCard({
   limits,
 }: {
   limits: OpenRouterModelLimits | undefined;
-}) {
+}): JSX.Element {
   if (!limits) {
     return (
       <p className="rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-destructive text-xs">
