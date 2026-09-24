@@ -28,6 +28,9 @@ const RUNNER_OWNER_PREFIX = 'packages/effect-kit/src/';
 const RAW_RUNNER_METHOD = /^run[A-Z]/u;
 const isEffectPackage = (name) => name === 'effect' || name.startsWith('@effect/');
 const isEffectModule = (specifier) => specifier === 'effect' || specifier.startsWith('effect/');
+// The contract's import surface: the barrel and the test kit. Everything else
+// (`effect/unstable/*`, deep `effect/Schema`-style paths) needs a contract change.
+const ALLOWED_EFFECT_MODULES = new Set(['effect', 'effect/testing']);
 
 const trackedFiles = (...patterns) =>
   execFileSync('git', ['ls-files', '-z', '--', ...patterns], { cwd: repoRoot, encoding: 'utf8' })
@@ -78,12 +81,13 @@ function analyzeEffectUsage(fileName, sourceText) {
   const effectLocals = new Set();
   const namespaceLocals = new Set();
   const usage = {
+    disallowedImports: [],
     dynamicImports: [],
     importsEffect: false,
     managedRuntime: false,
+    namespaceEscapes: [],
     reexports: [],
     runnerUses: [],
-    unstable: [],
   };
   for (const statement of sourceFile.statements) {
     const specifier = statement.moduleSpecifier;
@@ -91,8 +95,8 @@ function analyzeEffectUsage(fileName, sourceText) {
       continue;
     }
     usage.importsEffect = true;
-    if (specifier.text.startsWith('effect/unstable')) {
-      usage.unstable.push(specifier.text);
+    if (!ALLOWED_EFFECT_MODULES.has(specifier.text)) {
+      usage.disallowedImports.push(specifier.text);
     }
     if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
       usage.reexports.push(specifier.text);
@@ -118,12 +122,86 @@ function analyzeEffectUsage(fileName, sourceText) {
       }
     }
   }
+  const effectBindings = new Set([...effectLocals, ...namespaceLocals]);
+  for (const statement of sourceFile.statements) {
+    if (
+      ts.isExportDeclaration(statement) &&
+      !statement.moduleSpecifier &&
+      !statement.isTypeOnly &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const element of statement.exportClause.elements) {
+        const local = (element.propertyName ?? element.name).text;
+        if (!element.isTypeOnly && effectBindings.has(local)) {
+          usage.reexports.push(local);
+        }
+      }
+    }
+    if (
+      ts.isExportAssignment(statement) &&
+      ts.isIdentifier(statement.expression) &&
+      effectBindings.has(statement.expression.text)
+    ) {
+      usage.reexports.push(statement.expression.text);
+    }
+    if (
+      ts.isImportEqualsDeclaration(statement) &&
+      ts.isExternalModuleReference(statement.moduleReference) &&
+      ts.isStringLiteralLike(statement.moduleReference.expression) &&
+      isEffectModule(statement.moduleReference.expression.text)
+    ) {
+      usage.importsEffect = true;
+      usage.dynamicImports.push(statement.moduleReference.expression.text);
+    }
+  }
   const isEffectNamespace = (node) =>
     (ts.isIdentifier(node) && effectLocals.has(node.text)) ||
     (ts.isPropertyAccessExpression(node) &&
       node.name.text === 'Effect' &&
       ts.isIdentifier(node.expression) &&
       namespaceLocals.has(node.expression.text));
+  // An Effect namespace used as a value rather than through a member (`const
+  // Fx = Effect`, `helper(Effect)`, `{ ...Effect }`) would carry its runners past
+  // this scan, so any bare use counts. Destructuring is read member by member
+  // above, and import/export specifiers are handled with the declarations.
+  const isEscapingNamespace = (node) => {
+    const bare =
+      (ts.isIdentifier(node) && effectBindings.has(node.text)) ||
+      (ts.isPropertyAccessExpression(node) && isEffectNamespace(node));
+    if (!bare) {
+      return false;
+    }
+    const { parent } = node;
+    if (
+      ts.isImportSpecifier(parent) ||
+      ts.isImportClause(parent) ||
+      ts.isNamespaceImport(parent) ||
+      ts.isExportSpecifier(parent) ||
+      ts.isExportAssignment(parent) ||
+      ts.isQualifiedName(parent) ||
+      ts.isTypeQueryNode(parent)
+    ) {
+      return false;
+    }
+    if (
+      (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) &&
+      parent.expression === node
+    ) {
+      return false;
+    }
+    if (ts.isPropertyAccessExpression(parent) && parent.name === node) {
+      return false;
+    }
+    // Destructuring the Effect namespace is read member by member above;
+    // destructuring a module namespace (`const { Effect: Fx } = E`) is not.
+    return !(
+      isEffectNamespace(node) &&
+      ts.isVariableDeclaration(parent) &&
+      parent.initializer === node &&
+      ts.isObjectBindingPattern(parent.name)
+    );
+  };
   const visit = (node) => {
     if (
       ts.isPropertyAccessExpression(node) &&
@@ -163,12 +241,20 @@ function analyzeEffectUsage(fileName, sourceText) {
     }
     if (
       ts.isCallExpression(node) &&
-      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === 'require')) &&
       node.arguments[0] &&
       ts.isStringLiteralLike(node.arguments[0]) &&
       isEffectModule(node.arguments[0].text)
     ) {
+      usage.importsEffect = true;
       usage.dynamicImports.push(node.arguments[0].text);
+      if (!ALLOWED_EFFECT_MODULES.has(node.arguments[0].text)) {
+        usage.disallowedImports.push(node.arguments[0].text);
+      }
+    }
+    if (isEscapingNamespace(node)) {
+      usage.namespaceEscapes.push(node.getText(sourceFile));
     }
     ts.forEachChild(node, visit);
   };
@@ -222,7 +308,7 @@ test('every package that depends on effect runs the Effect diagnostics in type-c
   }
 });
 
-test('production code imports no effect/unstable module and runs effects only in effect-kit', () => {
+test('production code imports only effect and effect/testing and runs effects only in effect-kit', () => {
   const sources = trackedFiles('apps', 'packages').filter(isProductionSource);
   let effectImporters = 0;
   let ownerRunnerCalls = 0;
@@ -237,8 +323,10 @@ test('production code imports no effect/unstable module and runs effects only in
       continue;
     }
     effectImporters += 1;
-    for (const specifier of usage.unstable) {
-      failures.push(`${file} imports ${specifier}; the contract must change first`);
+    for (const specifier of usage.disallowedImports) {
+      failures.push(
+        `${file} imports ${specifier}; only effect and effect/testing are allowed until the contract changes`
+      );
     }
     if (file.startsWith(RUNNER_OWNER_PREFIX)) {
       ownerRunnerCalls += usage.runnerUses.length;
@@ -249,6 +337,11 @@ test('production code imports no effect/unstable module and runs effects only in
     }
     for (const specifier of usage.dynamicImports) {
       failures.push(`${file} imports ${specifier} dynamically; import it statically`);
+    }
+    for (const namespaceEscape of usage.namespaceEscapes) {
+      failures.push(
+        `${file} passes ${namespaceEscape} around as a value; reference its members directly`
+      );
     }
     for (const specifier of usage.reexports) {
       failures.push(`${file} re-exports ${specifier}; import effect where it is used`);
@@ -301,6 +394,38 @@ test('the effect usage detector fires on known violations and ignores look-alike
     ]
   );
   assert.deepEqual(runnerCalls("import { Effect } from 'effect';\nEffect.runtime;"), []);
+  const probe = (source) => analyzeEffectUsage('probe.ts', source);
+  assert.deepEqual(probe("import { Schema } from 'effect/Schema';").disallowedImports, [
+    'effect/Schema',
+  ]);
+  assert.deepEqual(probe("import { TestClock } from 'effect/testing';").disallowedImports, []);
+  assert.deepEqual(
+    probe(
+      [
+        "import { Effect } from 'effect';",
+        'const Fx = Effect;',
+        'helper(Effect);',
+        'Effect.succeed(1);',
+        'const { succeed } = Effect;',
+        'type Program = Effect.Effect<number>;',
+      ].join('\n')
+    ).namespaceEscapes,
+    ['Effect', 'Effect']
+  );
+  assert.deepEqual(
+    probe("import * as E from 'effect';\nconst { Effect: Fx } = E;\nE.Effect.succeed(1);")
+      .namespaceEscapes,
+    ['E']
+  );
+  assert.deepEqual(
+    probe("import { Effect } from 'effect';\nexport { Effect };\nexport { Effect as Fx };")
+      .reexports,
+    ['Effect', 'Effect']
+  );
+  assert.deepEqual(probe("import E = require('effect');").dynamicImports, ['effect']);
+  assert.deepEqual(probe("const E = require('effect/Schema');").disallowedImports, [
+    'effect/Schema',
+  ]);
   assert.deepEqual(
     analyzeEffectUsage('probe.ts', "const { Effect } = await import('effect');").dynamicImports,
     ['effect']
@@ -322,7 +447,7 @@ test('the effect usage detector fires on known violations and ignores look-alike
     true
   );
   assert.deepEqual(
-    analyzeEffectUsage('probe.ts', "import { Rpc } from 'effect/unstable/rpc';").unstable,
+    analyzeEffectUsage('probe.ts', "import { Rpc } from 'effect/unstable/rpc';").disallowedImports,
     ['effect/unstable/rpc']
   );
   assert.equal(
