@@ -942,16 +942,22 @@ export function resolveDurableInputParentMessageId(
 ): string | null {
   let current = parentId;
   const visited = new Set<string>();
+  const parentsById = new Map<string, string | null>();
+  for (const item of messages) {
+    if (!parentsById.has(item.message.id)) {
+      parentsById.set(item.message.id, item.parentId);
+    }
+  }
   while (current && isSyntheticPauseMessageId(current)) {
     if (visited.has(current)) {
       throw new Error('Assistant synthetic pause ancestry contains a cycle.');
     }
     visited.add(current);
-    const parent = messages.find((item) => item.message.id === current);
-    if (!parent) {
+    const parent = parentsById.get(current);
+    if (parent === undefined) {
       throw new Error(`Assistant synthetic pause '${current}' has no exported parent edge.`);
     }
-    current = parent.parentId;
+    current = parent;
   }
   return current;
 }

@@ -1,3 +1,4 @@
+import type { BrainstrikeDataStreamRuntimeOptions } from './data-stream-runtime';
 import type { useAssistantServerRunSession } from './use-assistant-server-run-session';
 
 type ServerRunSession = ReturnType<typeof useAssistantServerRunSession>;
@@ -17,7 +18,9 @@ export function isAssistantRecoveryBlocked(session: ServerRunSession): boolean {
   return session.isRecovering || Boolean(session.recoveryError);
 }
 
-export function replayRuntimeOptions(session: ServerRunSession) {
+export function replayRuntimeOptions(
+  session: ServerRunSession
+): Pick<BrainstrikeDataStreamRuntimeOptions, 'activeRunSession' | 'discoveredRun'> {
   return {
     ...(session.activeRunSession && session.replayEligible && !isAssistantRecoveryBlocked(session)
       ? { activeRunSession: session.activeRunSession }

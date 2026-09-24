@@ -1,8 +1,13 @@
+import type React from 'react';
 import type { useAssistantServerRunSession } from './use-assistant-server-run-session';
 
 type ServerRunSession = ReturnType<typeof useAssistantServerRunSession>;
 
-export function AssistantRunRecoveryStatus({ session }: { readonly session: ServerRunSession }) {
+export function AssistantRunRecoveryStatus({
+  session,
+}: {
+  readonly session: ServerRunSession;
+}): React.JSX.Element {
   return (
     <>
       {session.isRecovering ? (
