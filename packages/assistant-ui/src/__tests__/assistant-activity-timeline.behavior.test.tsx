@@ -526,7 +526,7 @@ describe('assistant activity chronology through the real runtime', () => {
       expect(verbs.map((verb) => verb?.textContent)).toEqual([
         'Thought',
         'Reading',
-        'Delegating to Explorer',
+        'Explorer is working',
       ]);
       expect(verbs.map((verb) => verb?.classList.contains('bs-thinking-shimmer'))).toEqual([
         false,
