@@ -1120,6 +1120,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
   // panel never renders the copy-debug-bundle button, so the debug-bundle
   // context is never read.
   DebugBundleProvider: ({ children }: { children: ReactNode }) => children,
+  DelegatedApprovalOwnerContext: (await import('react')).createContext(null),
   // Passthrough double for the real context provider — these tests render the
   // mocked AssistantUiPanel, so the checkpoint context is never read; the
   // provider just needs to mount its children without error.
@@ -1138,6 +1139,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
   >(null),
   SubagentConversationPresentationContext: (await import('react')).createContext(null),
   SubagentInvocationResolverContext: (await import('react')).createContext(null),
+  SubagentLiveInvocationContext: (await import('react')).createContext(null),
   ThreadMessageNavigationContext: (await import('react')).createContext(null),
   ToolApprovalGrantProvider: ({ children }: { children: ReactNode }) => children,
   // The wrapper reads the usage store both as a hook (selector at render time)

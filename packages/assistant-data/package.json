@@ -34,10 +34,6 @@
     "./assistant-thread-run-reaper": {
       "types": "./dist/assistant-thread-run-reaper.d.ts",
       "import": "./dist/assistant-thread-run-reaper.js"
-    },
-    "./assistant-thread-palette": {
-      "types": "./dist/assistant-thread-palette.d.ts",
-      "import": "./dist/assistant-thread-palette.js"
     }
   },
   "files": [

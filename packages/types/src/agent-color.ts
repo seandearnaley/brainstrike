@@ -170,7 +170,7 @@ export function createAgentFamilyColor(
   const hueSpan = hueWindow * 2 - 1;
   for (let index = 0; index < 256; index += 1) {
     // Coprime steps spread candidates through the local hue and tone window.
-    const hueOffset = (((seed % hueSpan) + index * 697) % hueSpan) - (hueWindow - 1);
+    const hueOffset = (((seed % hueSpan) + index * 691) % hueSpan) - (hueWindow - 1);
     const toneOffset = ((((seed >>> 12) % 601) + index * 283) % 601) - 300;
     const hue = ((Math.round(parent.hue * 10) + hueOffset + 3600) % 3600) / 10;
     const tone = Math.max(150, Math.min(850, parent.tone + toneOffset));

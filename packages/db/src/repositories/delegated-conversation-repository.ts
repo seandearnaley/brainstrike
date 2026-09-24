@@ -1,4 +1,8 @@
-import { type AgentColor, isAgentColor } from '@brainstrike/types/agent-color';
+import {
+  AGENT_SEMANTIC_COLOR_IDS,
+  type AgentColor,
+  isAgentColor,
+} from '@brainstrike/types/agent-color';
 import {
   type DelegatedConversationDatabase,
   DelegatedConversationIdentityError,
@@ -28,26 +32,7 @@ interface JsonObject {
   readonly [key: string]: JsonValue;
 }
 
-export const DELEGATED_CONVERSATION_COLOR_IDS = [
-  'blue',
-  'emerald',
-  'amber',
-  'rose',
-  'violet',
-  'slate',
-  'cyan',
-  'lime',
-  'orange',
-  'fuchsia',
-  'indigo',
-  'red',
-  'teal',
-  'green',
-  'yellow',
-  'pink',
-  'purple',
-  'zinc',
-] as const;
+export const DELEGATED_CONVERSATION_COLOR_IDS = AGENT_SEMANTIC_COLOR_IDS;
 export type DelegatedConversationColor = AgentColor;
 
 export interface CreateDelegatedChild {

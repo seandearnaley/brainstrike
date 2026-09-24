@@ -4,7 +4,7 @@ import {
   createAgentFamilyColor,
   getAgentColorStyles,
 } from '@brainstrike/types/agent-color';
-import type { CSSProperties, ReactElement } from 'react';
+import { type CSSProperties, type ReactElement, useMemo } from 'react';
 
 function previewColors(root: AssistantThreadColorId): readonly AgentColor[] {
   const siblings: AgentColor[] = [];
@@ -32,7 +32,7 @@ export function ThreadColorFamilyPreview({
 }: {
   readonly rootColor: AssistantThreadColorId | null;
 }): ReactElement {
-  const colors = previewColors(rootColor ?? 'blue');
+  const colors = useMemo(() => previewColors(rootColor ?? 'blue'), [rootColor]);
   return (
     <div className="mt-2 border-t pt-2" data-testid="thread-color-family-preview">
       <p className="text-[11px] text-muted-foreground">New agents branch into related shades.</p>

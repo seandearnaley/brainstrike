@@ -46,6 +46,15 @@ describe('agent family colors', () => {
     ).toBe(24);
   });
 
+  it('spreads crowded grandchildren across more than one residue class of nearby hues', () => {
+    const parent = createAgentFamilyColor('blue', 'parent', []);
+    const siblings: ReturnType<typeof createAgentFamilyColor>[] = [];
+    for (let index = 0; index < 100; index += 1) {
+      siblings.push(createAgentFamilyColor(parent, 'same-grandchild-id', siblings));
+    }
+    expect(new Set(siblings.map((color) => color.split(':')[1])).size).toBeGreaterThan(40);
+  });
+
   it('excludes a cousin token even when the cousin is not a sibling', () => {
     const parent = createAgentFamilyColor('blue', 'parent', []);
     const cousin = createAgentFamilyColor(parent, 'repeated-id', []);

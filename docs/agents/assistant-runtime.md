@@ -1711,8 +1711,8 @@ Previews and grants:
   (`approval-presentation.ts`) and the rank is computed ONCE per thread change by
   `ApprovalRanksProvider` from the SAME incremental index.
 - Delegated approvals use the owner's durable `colorId` for the standalone card
-  or row, with depth indentation and persona chain text. A missing color uses the
-  current panel accent. Approval parts stay standalone in the assistant message.
+  or row, with depth indentation and persona chain text. Unverified delegated owners
+  use neutral `unresolved`; root approvals inherit the panel. Parts remain standalone.
   Both forms carry `data-testid="assistant-tool-approval-notice"` and
   `data-approval-presentation="card|row"`; `approval-delegation-owner` names the
   persona chain. The notice file is a chooser; `use-approval-notice-state.ts` owns

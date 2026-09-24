@@ -110,3 +110,27 @@ it('shows unavailable when the host has no delegated color resolver', () => {
   expect(screen.getByRole('status')).toHaveTextContent('child identity could not be verified');
   expect(screen.getByTestId('approval')).toBeEmptyDOMElement();
 });
+
+it('reuses equivalent approval data and rechecks changed ancestry', async () => {
+  const resolve = vi.fn(async () => ({ colorId: 'violet', displayName: 'Aster' }));
+  const view = (approval: unknown) => (
+    <DelegatedApprovalOwnerContext value={resolve}>
+      <AssistantDataRendererRegistration />
+      <ApprovalPart approval={approval} />
+    </DelegatedApprovalOwnerContext>
+  );
+  const { rerender } = render(view(data));
+  await waitFor(() => expect(screen.getByTestId('approval')).toHaveTextContent('Aster'));
+  rerender(view(structuredClone(data)));
+  expect(resolve).toHaveBeenCalledOnce();
+  rerender(
+    view({
+      ...data,
+      delegation: {
+        ...data.delegation,
+        path: [{ ...data.delegation.path[0], parentToolCallId: 'different-parent-call' }],
+      },
+    })
+  );
+  await waitFor(() => expect(resolve).toHaveBeenCalledTimes(2));
+});

@@ -13,7 +13,7 @@ import {
   TOOL_APPROVAL_DATA_NAME,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useEffectEvent, useState } from 'react';
 import { assistantDiscoveryErrorDataUI } from './assistant-discovery-error-data-ui';
 import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
@@ -31,13 +31,17 @@ const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => {
     owner: DelegatedApprovalOwner | undefined;
   } | null>(null);
   const approval = isAssistantToolApprovalRequest(data) ? data : null;
-  const key = approval ? getToolActionIdentityKey(approval) : null;
+  const key = approval
+    ? JSON.stringify([getToolActionIdentityKey(approval), approval.delegation?.path])
+    : null;
+  const readApproval = useEffectEvent(() => approval);
   useEffect(() => {
-    if (!(approval?.delegation && resolveOwner && key)) {
+    const request = readApproval();
+    if (!(request?.delegation && resolveOwner && key)) {
       return;
     }
     let active = true;
-    resolveOwner(approval).then(
+    resolveOwner(request).then(
       (owner) => {
         if (active) {
           setResolved({ key, owner });
@@ -52,7 +56,7 @@ const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => {
     return () => {
       active = false;
     };
-  }, [approval, key, resolveOwner]);
+  }, [key, resolveOwner]);
   const owner = resolved?.key === key ? resolved.owner : undefined;
   const colorId = approval?.delegation ? (owner?.colorId ?? 'unresolved') : undefined;
   const ownerUnavailable =
