@@ -412,17 +412,9 @@ When changing this scale, update this section and `layers.test.ts` together.
 
 ## FLOATING LAYER ANCHORING
 
-Stacking decides what a popup paints *over*; this is what it is *measured
-against*. Radix positions Select/Popover/DropdownMenu/ContextMenu with Floating
-UI, which measures the trigger via `getBoundingClientRect()` and publishes
-`--radix-popper-anchor-width`/`-height` (Select re-namespaces these to
-`--radix-select-trigger-*`).
-
-**A transform on a trigger corrupts every popup it opens.**
-`getBoundingClientRect()` includes transforms, `ResizeObserver` does not fire for
-them, and Radix's default `updatePositionStrategy` is `optimized` — so the popup
-keeps whatever the trigger measured at the instant it opened. That instant is
-POINTERDOWN, while the trigger is still `:active`.
+**Never transform a popup anchor.** Radix retains its opening
+`getBoundingClientRect()` measurement, including active transforms. See
+`ui-conventions/popup-anchor-transform.md` for the ResizeObserver limitation.
 
 - Keep the `:not([data-state="open"])` clause on the `.kinetic-depress:active`
   rule in `packages/ui/src/globals.css`, which suppresses the press effect while
@@ -445,10 +437,8 @@ scaled phantom").
 
 ### Layer registration is not synchronous
 
-`DismissableLayer` mutates its module-level stack in an EFFECT but reads it during
-RENDER, so a freshly mounted layer paints one frame at `index === -1` and an
-Escape in that ~20ms window routes to the layer underneath. Radix writes its
-verdict as an INLINE `pointer-events` style on each layer node.
+`DismissableLayer` registers in an effect; before registration Escape can reach
+an underlying layer. Radix exposes readiness through inline `pointer-events`.
 
 - Wait with `waitForFloatingLayerStack(page, targetSelector)` in
   `apps/web/e2e/utils/layout-helpers.ts`.
@@ -463,6 +453,16 @@ verdict as an INLINE `pointer-events` style on each layer node.
   `--radix-select-trigger-width` at all.
 
 Evidence: `ui-conventions/layer-registration-timing.md`.
+
+## Composer Controls
+
+- Composer Controls is a viewport-bounded Popover with normal form navigation,
+  expandable tool groups and search; long tool descriptions are on-demand help.
+- Output & Limits keeps draft commit/refusal behavior when closing or collapsing;
+  fields and computed values must fit at narrow widths without horizontal scroll.
+  Evidence: `ui-conventions/assistant-controls.md`.
+  Guard: `assistant-controls-menu-drafts.browser.test.tsx`,
+  `assistant-controls-rendered.browser.test.tsx`.
 
 ---
 

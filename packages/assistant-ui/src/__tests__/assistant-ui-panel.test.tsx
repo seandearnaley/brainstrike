@@ -1592,7 +1592,7 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     expect(screen.getByText('Agent context')).toBeInTheDocument();
-    expect(screen.getByText('Output tokens / step')).toBeInTheDocument();
+    expect(screen.getByText('Output tokens per step')).toBeInTheDocument();
     expect(screen.queryByText('Gemma thinking')).not.toBeInTheDocument();
     expect(screen.queryByText('Enable thinking')).not.toBeInTheDocument();
   });
@@ -1753,6 +1753,25 @@ describe('AssistantUiPanel model picker', () => {
 
     expect(screen.getByText(/Auto requests 32,000.*964,147 effective input/)).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveValue('32000');
+    expect(
+      screen.getByRole('spinbutton', { name: 'Output token limit' })
+    ).toHaveAccessibleDescription(/Auto requests 32,000 tokens for this model/);
+  });
+
+  it('describes the actual OpenRouter Auto reservation while a custom output cap is selected', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="moonshotai/kimi-k3"
+        onSettingsChange={vi.fn()}
+        providerId="openrouter"
+        settings={{ maxOutputTokens: 1024, reasoningEffort: 'none' }}
+      />
+    );
+
+    expect(
+      screen.getByRole('spinbutton', { name: 'Output token limit' })
+    ).toHaveAccessibleDescription(/Auto requests 32,000 tokens for this model/);
+    expect(screen.getByText(/1,024 configured output/)).toBeInTheDocument();
   });
 
   it('shows and applies live OpenRouter model limits with provenance', () => {
@@ -2020,7 +2039,7 @@ describe('AssistantUiPanel model picker', () => {
       agentInputTokenLimit: 64_000,
     });
 
-    const memory = screen.getByRole('spinbutton', { name: 'Memory messages' });
+    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
     fireEvent.change(memory, { target: { value: '12' } });
     fireEvent.blur(memory);
     expect(onSettingsChange).toHaveBeenCalledWith('openai', { memoryLastMessages: 12 });
@@ -2075,16 +2094,16 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByText('Reasoning output')).toBeInTheDocument();
 
     // A value outside the range is refused with a message, never clamped.
-    const steps = screen.getByRole('spinbutton', { name: 'Max agent steps' });
+    const steps = screen.getByRole('spinbutton', { name: 'Max steps' });
     fireEvent.change(steps, { target: { value: '0' } });
     fireEvent.blur(steps);
-    const limit = screen.getByRole('spinbutton', { name: 'Input token limit' });
+    const limit = screen.getByRole('spinbutton', { name: 'Input tokens' });
     fireEvent.change(limit, { target: { value: '1' } });
     fireEvent.blur(limit);
     expect(screen.getAllByRole('alert')).toHaveLength(2);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
-    const memory = screen.getByRole('spinbutton', { name: 'Memory messages' });
+    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
     fireEvent.change(memory, { target: { value: '' } });
     fireEvent.blur(memory);
     expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', {

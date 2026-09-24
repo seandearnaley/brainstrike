@@ -9,20 +9,15 @@ import {
   createDraftFieldScope,
   type DraftFieldScope,
   DraftFieldScopeContext,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Switch,
 } from '@brainstrike/ui';
 import { defaultCollator } from '@brainstrike/utils/collator';
-import { SlidersHorizontal } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { Info, RotateCw, Search, Settings2, SlidersHorizontal } from 'lucide-react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import { DetailLevelControl } from './assistant-detail-control';
 import type {
   AssistantToolMenuConfig,
@@ -49,15 +44,61 @@ interface ToolMenuGroup {
   source: AssistantToolSource;
 }
 
+const ToolRow = ({
+  canToggleTools,
+  onToggleTool,
+  tool,
+}: {
+  canToggleTools: boolean;
+  onToggleTool: (toolId: string, enabled: boolean) => void;
+  tool: AssistantToolMenuItem;
+}) => {
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpId = useId();
+
+  return (
+    <div className="rounded-md hover:bg-accent/60">
+      <div className="flex min-h-9 items-center gap-2 px-2 py-1">
+        <span className="min-w-0 flex-1 truncate text-sm" title={tool.label}>
+          {tool.label}
+        </span>
+        {tool.description && (
+          <button
+            aria-controls={helpOpen ? helpId : undefined}
+            aria-expanded={helpOpen}
+            aria-label={`About ${tool.label}`}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={() => setHelpOpen((current) => !current)}
+            type="button"
+          >
+            <Info aria-hidden className="size-3.5" />
+          </button>
+        )}
+        <Switch
+          aria-label={`${tool.label} enabled`}
+          checked={tool.enabled}
+          disabled={tool.disabled || !canToggleTools}
+          onCheckedChange={(checked) => onToggleTool(tool.id, checked)}
+        />
+      </div>
+      {tool.description && helpOpen && (
+        <p
+          className="wrap-break-word max-h-28 overflow-y-auto whitespace-pre-wrap border-t px-2 py-2 text-muted-foreground text-xs leading-relaxed"
+          id={helpId}
+        >
+          {tool.description}
+        </p>
+      )}
+    </div>
+  );
+};
+
 const TOOL_SOURCE_ORDER: AssistantToolSource[] = ['native', 'mcp'];
 
 /**
- * A menu dismissal the draft fields inside it must survive. Radix unmounts the
- * content on an outside pointer-down BEFORE a focused field blurs, so its
- * blur-commit never runs: the dismissal commits every pending draft itself,
- * and `preventDefault` (Radix's documented way to cancel a dismissal) keeps
- * the menu open while a refused draft shows its message. Escape still
- * discards: it is not an outside interaction.
+ * A popover dismissal the draft fields inside it must survive. Radix can
+ * unmount content before the focused field blurs, so commit pending drafts at
+ * the dismissal boundary. Escape still discards.
  */
 function commitDraftsOrStayOpen(drafts: DraftFieldScope, event: Event): void {
   if (!drafts.commitAll()) {
@@ -87,115 +128,177 @@ const OutputLimitsSection = ({
   }
 
   return (
-    <>
-      <DropdownMenuSeparator className="my-2" />
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger className="text-sm">Output & Limits</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent
-          className="w-[420px] p-2"
-          // The submenu closes when focus leaves it (the pointer moves onto a
-          // root item); cancelling that keeps a refused draft on screen.
-          onFocusOutside={(event) => commitDraftsOrStayOpen(drafts, event)}
+    <details className="group rounded-lg border border-border/70 bg-muted/20">
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is a native keyboard-operable disclosure; prevent closing over an invalid draft. */}
+      <summary
+        className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-3 py-2.5 font-medium text-sm hover:bg-accent [&::-webkit-details-marker]:hidden"
+        onClick={(event) => {
+          const details = event.currentTarget.parentElement;
+          if (details instanceof HTMLDetailsElement && details.open && !drafts.commitAll()) {
+            event.preventDefault();
+          }
+        }}
+      >
+        <span>Output & Limits</span>
+        <span
+          aria-hidden
+          className="text-muted-foreground transition-transform group-open:rotate-90"
         >
-          <DraftFieldScopeContext value={drafts}>
-            <ProviderSettingsPanel
-              modelName={modelName}
-              onSettingsChange={onProviderSettingsChange}
-              providerId={providerId}
-              settings={settings}
-            />
-          </DraftFieldScopeContext>
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
-    </>
+          ›
+        </span>
+      </summary>
+      <div className="border-t px-2 py-3">
+        <DraftFieldScopeContext value={drafts}>
+          <ProviderSettingsPanel
+            modelName={modelName}
+            onSettingsChange={onProviderSettingsChange}
+            providerId={providerId}
+            settings={settings}
+          />
+        </DraftFieldScopeContext>
+      </div>
+    </details>
   );
 };
 
 const ToolsControlsSection = ({
+  canToggleTools,
   groupedTools,
-  hasTools,
+  onOpenSettings,
   onToggleTool,
   toolMenu,
   toolSummary,
 }: {
+  canToggleTools: boolean;
   groupedTools: ToolMenuGroup[];
-  hasTools: boolean;
+  onOpenSettings: () => void;
   onToggleTool: (toolId: string, enabled: boolean) => void;
   toolMenu: AssistantToolMenuConfig;
   toolSummary: string;
 }) => {
-  if (!hasTools) {
-    return null;
-  }
+  const [query, setQuery] = useState('');
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visibleGroups = groupedTools.flatMap((group) => {
+    const visibleItems = group.items.filter((tool) =>
+      [tool.label, tool.id, tool.description ?? '', group.label, group.source]
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(normalizedQuery)
+    );
+    return visibleItems.length > 0 ? [{ ...group, visibleItems }] : [];
+  });
 
   return (
-    <>
-      <DropdownMenuSeparator className="my-2" />
-      <DropdownMenuLabel className="px-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-        AI Tools
-      </DropdownMenuLabel>
+    <section aria-label="AI Tools" className="space-y-2 border-t pt-3">
+      <div className="flex items-baseline justify-between gap-2 px-1">
+        <h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+          AI Tools
+        </h3>
+        <span className="text-[11px] text-muted-foreground">{toolSummary}</span>
+      </div>
+      <div className="relative">
+        <Search
+          aria-hidden
+          className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          aria-label="Search tools"
+          className="h-9 rounded-lg pl-9 text-sm"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search tools…"
+          type="search"
+          value={query}
+        />
+      </div>
       {toolMenu.isLoading && (
         <div className="px-2 py-2 text-muted-foreground text-xs">Loading tools…</div>
       )}
       {!toolMenu.isLoading && groupedTools.length === 0 && (
         <div className="px-2 py-2 text-muted-foreground text-xs">No tools detected.</div>
       )}
+      {!toolMenu.isLoading && groupedTools.length > 0 && visibleGroups.length === 0 && (
+        <div className="px-2 py-3 text-muted-foreground text-sm">
+          No tools match “{query.trim()}”.
+        </div>
+      )}
       {!toolMenu.isLoading &&
-        groupedTools.map((group) => {
+        visibleGroups.map((group) => {
           const enabledCount = group.items.filter((tool) => tool.enabled).length;
           return (
-            <DropdownMenuSub key={group.id}>
-              <DropdownMenuSubTrigger className="text-sm">
-                <span className="flex-1 truncate">{group.label}</span>
-                <span className="text-[10px] text-muted-foreground">
+            <details
+              className="group overflow-hidden rounded-lg border border-border/70"
+              key={group.id}
+              open={Boolean(normalizedQuery) || expandedGroups.has(group.id)}
+            >
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is a native keyboard-operable disclosure; preserve expansion across search. */}
+              <summary
+                className="flex cursor-pointer list-none items-center gap-2 bg-muted/20 px-3 py-2 text-sm hover:bg-accent [&::-webkit-details-marker]:hidden"
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (normalizedQuery) {
+                    return;
+                  }
+                  setExpandedGroups((current) => {
+                    const next = new Set(current);
+                    if (next.has(group.id)) {
+                      next.delete(group.id);
+                    } else {
+                      next.add(group.id);
+                    }
+                    return next;
+                  });
+                }}
+              >
+                <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
+                <span className="text-[11px] text-muted-foreground tabular-nums">
                   {enabledCount}/{group.items.length}
                 </span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-[320px] p-1">
-                {group.items.map((tool) => (
-                  <DropdownMenuItem
-                    className="flex items-start justify-between gap-3"
+                <span
+                  aria-hidden
+                  className="text-muted-foreground transition-transform group-open:rotate-90"
+                >
+                  ›
+                </span>
+              </summary>
+              <div className="space-y-0.5 border-t p-1">
+                {group.visibleItems.map((tool) => (
+                  <ToolRow
+                    canToggleTools={canToggleTools}
                     key={tool.id}
-                    onSelect={(event) => event.preventDefault()}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-sm">{tool.label}</p>
-                      {tool.description && (
-                        <p className="text-muted-foreground text-xs">{tool.description}</p>
-                      )}
-                    </div>
-                    <Switch
-                      checked={tool.enabled}
-                      className="mt-0.5"
-                      disabled={tool.disabled}
-                      onCheckedChange={(checked) => onToggleTool(tool.id, checked)}
-                    />
-                  </DropdownMenuItem>
+                    onToggleTool={onToggleTool}
+                    tool={tool}
+                  />
                 ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+              </div>
+            </details>
           );
         })}
-      {toolSummary && (
-        <div className="px-2 pt-2 text-[10px] text-muted-foreground">{toolSummary}</div>
+      {(toolMenu.onRefresh || toolMenu.onOpenSettings) && (
+        <div className="flex flex-wrap items-center gap-2 px-1 pt-1">
+          {toolMenu.onRefresh && (
+            <button
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
+              onClick={() => void toolMenu.onRefresh?.()}
+              type="button"
+            >
+              <RotateCw aria-hidden className="size-3.5" />
+              Refresh tools
+            </button>
+          )}
+          {toolMenu.onOpenSettings && (
+            <button
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
+              onClick={onOpenSettings}
+              type="button"
+            >
+              <Settings2 aria-hidden className="size-3.5" />
+              Manage tools…
+            </button>
+          )}
+        </div>
       )}
-      {toolMenu.onRefresh && (
-        <DropdownMenuItem
-          className="mt-1"
-          onSelect={(event) => {
-            event.preventDefault();
-            void toolMenu.onRefresh?.();
-          }}
-        >
-          Refresh tools
-        </DropdownMenuItem>
-      )}
-      {toolMenu.onOpenSettings && (
-        <DropdownMenuItem onSelect={() => toolMenu.onOpenSettings?.()}>
-          Manage tools…
-        </DropdownMenuItem>
-      )}
-    </>
+    </section>
   );
 };
 
@@ -229,8 +332,6 @@ export const ControlsMenu = ({
 
   const toolMenuItems = toolMenu?.items;
   const toolMenuSummary = toolMenu?.summary;
-
-  const hasTools = Boolean(toolMenuItems && toolMenuItems.length > 0);
 
   const groupedTools = useMemo<ToolMenuGroup[]>(() => {
     if (!toolMenuItems) {
@@ -286,10 +387,26 @@ export const ControlsMenu = ({
   // without tools or reasoning settings.
   const activeSettings = selectedProvider ? providerSettings?.[selectedProvider] : undefined;
   const [drafts] = useState(createDraftFieldScope);
+  const [open, setOpen] = useState(false);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!(nextOpen || drafts.commitAll())) {
+      return;
+    }
+    setOpen(nextOpen);
+  };
+
+  const handleOpenSettings = () => {
+    if (!drafts.commitAll()) {
+      return;
+    }
+    setOpen(false);
+    toolMenu?.onOpenSettings?.();
+  };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <Popover onOpenChange={handleOpenChange} open={open}>
+      <PopoverTrigger asChild>
         <Button
           aria-label="Open assistant controls"
           className="h-8 gap-1.5 rounded-full border-border/70 bg-background/85 px-3 text-xs"
@@ -299,14 +416,25 @@ export const ControlsMenu = ({
           <SlidersHorizontal aria-hidden className="size-3.5 text-muted-foreground" />
           <span>Controls</span>
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
+      </PopoverTrigger>
+      <PopoverContent
         align="end"
-        className="w-[340px] p-2"
-        // A pointer-down outside (the trigger included) dismisses the whole
-        // menu, submenu and all, before any field blurs.
+        aria-label="Assistant controls"
+        className="max-h-[min(680px,80vh,var(--radix-popover-content-available-height))] w-[min(480px,calc(100vw-24px))] space-y-3 overflow-y-auto rounded-xl p-3"
+        collisionPadding={12}
+        // Pointer-down outside can unmount before a focused field blurs.
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          setOpen(false);
+        }}
         onInteractOutside={(event) => commitDraftsOrStayOpen(drafts, event)}
       >
+        <div className="px-1">
+          <h2 className="font-semibold text-sm">Assistant controls</h2>
+          <p className="text-muted-foreground text-xs">
+            Adjust what you see and which tools the assistant can use.
+          </p>
+        </div>
         <DetailLevelControl />
         <OutputLimitsSection
           drafts={drafts}
@@ -318,14 +446,15 @@ export const ControlsMenu = ({
         />
         {toolMenu && (
           <ToolsControlsSection
+            canToggleTools={Boolean(toolMenuOnToggleTool)}
             groupedTools={groupedTools}
-            hasTools={hasTools}
+            onOpenSettings={handleOpenSettings}
             onToggleTool={handleToggleTool}
             toolMenu={toolMenu}
             toolSummary={toolSummary}
           />
         )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </PopoverContent>
+    </Popover>
   );
 };
