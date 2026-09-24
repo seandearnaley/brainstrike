@@ -21,6 +21,9 @@ export interface TimeoutOptions {
  *   cooperative work stops, and the promise rejects with `onTimeout()`.
  * - The caller's `signal` aborts first: the task's signal aborts and the
  *   promise rejects with `signal.reason`.
+ *
+ * An invalid `timeoutMs` is reported as a rejected promise, like every other
+ * outcome of this call; the factory `createConcurrencyLimiter` throws instead.
  */
 export function runWithTimeout<T>(
   task: (signal: AbortSignal) => PromiseLike<T>,

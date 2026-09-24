@@ -96,7 +96,9 @@ describe('createConcurrencyLimiter', () => {
 
   it('does not guarantee FIFO: a task submitted as a permit frees can start ahead of an earlier waiter', async () => {
     // Pins the property the contract warns about (docs/agents/effect-boundary.md
-    // § "Shared helpers"): never replace a FIFO mutex with this limiter.
+    // § "Shared helpers"): never replace a FIFO mutex with this limiter. If this
+    // fails after an Effect bump, the scheduler or Semaphore changed: revisit
+    // that contract note. It is not a limiter regression.
     const limit = createConcurrencyLimiter(1);
     const holder = gate();
     const admitted: string[] = [];

@@ -16,6 +16,9 @@ describe('runWithTimeout', () => {
         timeoutMs: 60_000,
       })
     ).resolves.toBe('chunked');
+    // Let any scheduler yield timer settle before sampling, so only a leaked
+    // 60-second deadline can keep the count above its starting value.
+    await new Promise<void>((resolve) => setImmediate(resolve));
 
     expect(pendingTimers()).toBe(before);
   });

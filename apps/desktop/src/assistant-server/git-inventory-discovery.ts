@@ -136,6 +136,11 @@ export interface WalkForGitEntriesParams {
  * Opaque handle a caller can share across multiple {@link walkForGitEntries}
  * calls — see {@link createWalkSemaphore}. It bounds concurrency only; the
  * walk never depends on the order readdirs are admitted in.
+ *
+ * The bound holds until the walk's signal aborts. An abort returns the permit
+ * of a `readdir` that is still in flight (`InventoryFs` takes no signal), so
+ * share one semaphore only among walks that abort together, as one snapshot
+ * build's walks do; never reuse it across builds to cap real I/O.
  */
 export type WalkSemaphore = ConcurrencyLimiter;
 
