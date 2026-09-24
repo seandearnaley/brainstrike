@@ -157,6 +157,7 @@ export async function resolvePersonaRuntimeParts(params: {
       description: delegationDescriptionForPersona(persona, params.subagentSettings),
       id: persona.id,
       label: persona.label,
+      ...(persona.mode === undefined ? {} : { mode: persona.mode }),
     })),
     personasById: personaBuild.personasById,
     subAgents: personaBuild.subAgents,

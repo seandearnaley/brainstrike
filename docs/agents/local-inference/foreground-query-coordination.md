@@ -13,6 +13,18 @@ name is itself a recorded incident: see the comment in
 `packages/assistant-contract/src/__tests__/personas.test.ts`, where an agent
 read it out of this document and reported it as a code constant.
 
+2026-09-24 retrieval cancellation evidence: the assistant tool context supplies
+`abortSignal`; the retrieval and hybrid executors now carry it through hosted
+provider `EmbeddingInput.signal` or the main-process embedding host request
+channel. `retrieval-tool.test.ts` covers hosted propagation and already-aborted
+local calls; `embedding-host-manager-cancellation.test.ts` covers no host start
+on pre-abort and pending-request release on in-flight abort. The renderer's
+`handleQueryEmbeddingRequest` still lacks a per-request cancellation event and
+can finish an abandoned inference; main ignores its late response. Timeout
+diagnostics report provider/stage only. The six 60-second failures in the
+2026-09-24 thread debug pack do not identify which provider or internal stage
+stalled, so this change does not claim to fix their underlying cause.
+
 ## Original text
 
 Foreground query coordination (desktop):

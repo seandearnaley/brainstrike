@@ -12,6 +12,7 @@ export type AssistantUiMessage = AssistantUiMessageStrict;
 
 export type AssistantRoute =
   | 'status'
+  | 'active-run'
   | 'assistant'
   | 'cancel'
   | 'cancel-child'
@@ -29,6 +30,8 @@ export interface AssistantRequestPayload {
   childFollowupAction?: AssistantChildFollowupAction;
   childFollowupActionInvalid?: boolean;
   data: RuntimeData | undefined;
+  inputParentMessageId?: string | null;
+  pausedMessageId?: string;
   rawMessages: AssistantUiMessage[];
   toolApprovalAction?: AssistantToolApprovalAction;
   toolApprovalActionInvalid?: boolean;

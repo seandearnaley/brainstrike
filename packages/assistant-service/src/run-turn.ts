@@ -33,6 +33,7 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract';
+import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/assistant-stream-session';
 import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { RunPersistencePort, StreamInitializer } from './ports.js';
 import { acquireThreadRunOwnership } from './thread-run-ownership.js';
@@ -48,10 +49,20 @@ export interface RunAssistantTurnParams {
    */
   readonly authInput?: ProviderAuthInput | undefined;
   readonly childFollowupAction?: AssistantChildFollowupAction;
+  readonly discovery?: {
+    readonly resourceId: string;
+    readonly threadId: string;
+    readonly parentMessageId?: string | null;
+    readonly inputMessage: AssistantDiscoveredRun['inputMessage'];
+    readonly inputParentMessageId: string | null;
+    readonly actionReplay?: AssistantDiscoveredRun['actionReplay'];
+  };
   readonly executionSignal: AbortSignal;
   readonly initializeStream: StreamInitializer;
   readonly messages: AgentMessage[];
   readonly persistence: RunPersistencePort;
+  /** Runs after thread ownership admission and before any native resume starts. */
+  readonly resolveDiscovery?: () => Promise<RunAssistantTurnParams['discovery']>;
   readonly runId: string | undefined;
   readonly runtimeData: RuntimeData;
   /**
@@ -114,6 +125,8 @@ async function runOwnedAssistantTurn(
     authInput,
     assistantMessageId,
     executionSignal,
+    discovery,
+    resolveDiscovery,
     messages,
     persistence,
     initializeStream,
@@ -125,6 +138,7 @@ async function runOwnedAssistantTurn(
     toolResumeAction,
   } = params;
 
+  const admittedDiscovery = resolveDiscovery ? await resolveDiscovery() : discovery;
   const streamResult = await initializeStream({
     apiKey,
     authInput,
@@ -161,6 +175,7 @@ async function runOwnedAssistantTurn(
   const session = sessions.create(streamResult.stream, {
     ...(assistantMessageId ? { messageId: assistantMessageId } : {}),
     ...(outputLimitContext ? { outputLimitContext } : {}),
+    ...(admittedDiscovery && runId ? { discovery: { ...admittedDiscovery, runId } } : {}),
   });
   const response = session.createResponse({
     headers: {

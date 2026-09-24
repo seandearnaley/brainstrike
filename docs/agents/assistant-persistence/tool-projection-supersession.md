@@ -8,6 +8,14 @@ verbatim from the pre-distillation contract.
 Desktop native workspace inspection history is compacted at the transient
 provider-request boundary without mutating Mastra-owned message content.
 
+2026-09-24 incident: OpenAI persisted two successful grep calls with
+`filePaths: null` for an omitted optional scope. The replay supersession scan
+reparsed raw history against a schema requiring an array and warned that both
+calls were malformed, so later identical greps could not supersede them. The
+normalizer now treats only that nullable optional field as omitted, retaining
+schema rejection for malformed required fields. The integration test verifies
+that a later unscoped grep rewrites the earlier results.
+
 - **Where state lives:**
   `brainstrike_assistant_tool_projection_rewrites` (migration 084 plus the
   migration-087 `kind` extension, sole authors since BST-1651 retired the
@@ -84,4 +92,3 @@ provider-request boundary without mutating Mastra-owned message content.
   transaction inserted overlay rows. This prevents an unchanged-read dedup
   stub from referring to evidence the new batch will collapse. Below-threshold
   scans do not reset the guards.
-

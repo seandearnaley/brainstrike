@@ -13,6 +13,7 @@ import {
   clearAssistantActiveRunSession,
   readAssistantActiveRunSession,
   remapAssistantReplayHistoryItem,
+  restoreDiscoveredRunInput,
   useAssistantRunReattachment,
   writeAssistantActiveRunSession,
 } from '../assistant-run-reattachment';
@@ -58,6 +59,104 @@ describe('assistant active-run session storage', () => {
 });
 
 describe('useAssistantRunReattachment', () => {
+  it('rebuilds an unsaved first user turn from host discovery before replay', async () => {
+    let runtime: ReturnType<typeof useLocalRuntime> | undefined;
+    const Harness = () => {
+      const currentRuntime = useLocalRuntime({
+        async run() {
+          throw new Error('Replay must not start a second model request.');
+        },
+      });
+      useEffect(() => {
+        runtime = currentRuntime;
+      }, [currentRuntime]);
+      return <AssistantRuntimeProvider runtime={currentRuntime} />;
+    };
+    render(<Harness />);
+    await waitFor(() => expect(runtime?.thread.getState().isLoading).toBe(false));
+    const discoveredRun = {
+      assistantMessageId: 'assistant-live',
+      eventId: 'session:0',
+      inputMessage: {
+        id: 'user-1',
+        parts: [{ text: 'prompt', type: 'text' as const }],
+        role: 'user' as const,
+      },
+      inputParentMessageId: null,
+      parentMessageId: 'user-1',
+      runId: 'run-live',
+      state: 'active' as const,
+    };
+    const identityRef: AssistantReplayMessageIdentityRef = { current: null };
+    act(() => {
+      if (!runtime) {
+        throw new Error('Test runtime did not initialize.');
+      }
+      restoreDiscoveredRunInput(runtime, discoveredRun);
+      beginAssistantReplay({
+        durableMessageId: 'assistant-live',
+        identityRef,
+        parentMessageId: 'user-1',
+        runtime,
+        async *stream() {
+          yield {
+            content: [{ text: 'replayed', type: 'text' as const }],
+            status: { reason: 'stop' as const, type: 'complete' as const },
+          };
+        },
+      });
+    });
+    await waitFor(() => expect(runtime?.thread.getState().isRunning).toBe(false));
+    expect(runtime?.thread.getState().messages.map((item) => item.id)).toEqual([
+      'user-1',
+      'assistant-live',
+    ]);
+  });
+
+  it('replays a running host message before its assistant row is durable', async () => {
+    const initialMessages = [message('user-1', 'user')];
+    let runtime: ReturnType<typeof useLocalRuntime> | undefined;
+    const Harness = () => {
+      const currentRuntime = useLocalRuntime(
+        {
+          async run() {
+            throw new Error('Replay must not start a second model request.');
+          },
+        },
+        { initialMessages }
+      );
+      useEffect(() => {
+        runtime = currentRuntime;
+      }, [currentRuntime]);
+      return <AssistantRuntimeProvider runtime={currentRuntime} />;
+    };
+    render(<Harness />);
+    await waitFor(() => expect(runtime?.thread.getState().isLoading).toBe(false));
+    const identityRef: AssistantReplayMessageIdentityRef = { current: null };
+    act(() => {
+      if (!runtime) {
+        throw new Error('Test runtime did not initialize.');
+      }
+      beginAssistantReplay({
+        durableMessageId: 'assistant-live',
+        identityRef,
+        parentMessageId: 'user-1',
+        runtime,
+        async *stream() {
+          yield {
+            content: [{ text: 'replayed', type: 'text' as const }],
+            status: { reason: 'stop' as const, type: 'complete' as const },
+          };
+        },
+      });
+    });
+    await waitFor(() => expect(runtime?.thread.getState().isRunning).toBe(false));
+    expect(runtime?.thread.getState().messages.map((item) => item.id)).toEqual([
+      'user-1',
+      'assistant-live',
+    ]);
+  });
+
   it('resumes into the durable assistant message instead of creating a sibling', async () => {
     const initialMessages = [message('user-1', 'user'), message('assistant-1', 'assistant')];
     let runtime: ReturnType<typeof useLocalRuntime> | undefined;
@@ -355,6 +454,7 @@ describe('useAssistantRunReattachment', () => {
         identityRef: { current: null },
         runtime,
         stream: vi.fn() as unknown as NonNullable<CreateResumeRunConfig['stream']>,
+        syntheticPauseMessageId: 'suspended-approval:other-run:other-call',
       })
     ).toThrow('because it already has descendants');
     expect(runtime.thread.import).not.toHaveBeenCalled();

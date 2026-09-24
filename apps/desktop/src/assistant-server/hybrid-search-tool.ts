@@ -156,8 +156,10 @@ function handleHybridSearchError(error: unknown): never {
 export async function runHybridSearch(
   input: HybridSearchInput,
   runtimeData: RuntimeData | undefined,
-  dependencies: RetrievalToolDependencies = {}
+  dependencies: RetrievalToolDependencies = {},
+  signal?: AbortSignal
 ): Promise<HybridSearchToolResult> {
+  signal?.throwIfAborted();
   const query = input.query.trim();
   if (!query) {
     throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.invalidQuery);
@@ -169,8 +171,10 @@ export async function runHybridSearch(
 
   try {
     const db = await getDatabase();
+    signal?.throwIfAborted();
     const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
-    const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies);
+    const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies, signal);
+    signal?.throwIfAborted();
     assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
 
     const limit = input.limit ?? DEFAULT_LIMIT;
@@ -199,6 +203,7 @@ export async function runHybridSearch(
 
     const fileRecordIds = Array.from(new Set(results.map((result) => result.chunk.fileRecordId)));
     const fileMap = await buildFileRecordMap(new FileRecordRepository(db), db, fileRecordIds);
+    signal?.throwIfAborted();
 
     const items: HybridSearchToolResultItem[] = results.map((result) => {
       const fileInfo = fileMap.get(result.chunk.fileRecordId);
@@ -248,6 +253,7 @@ export async function runHybridSearch(
     };
     return fitItemsToCharBudget(items, buildResult).result;
   } catch (error) {
+    signal?.throwIfAborted();
     handleHybridSearchError(error);
   }
 }
