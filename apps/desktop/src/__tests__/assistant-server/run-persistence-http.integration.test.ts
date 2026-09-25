@@ -61,6 +61,66 @@ afterEach(() => {
   resetDesktopMastraMemoryCacheForTests();
 }, 15_000);
 describe('run persistence through the HTTP path', () => {
+  it('marks a rejected decision before stream admission without claiming the paused run', async () => {
+    const { toAiSdkStyleStream } = await import('@brainstrike/agent');
+    const response = await runRequest({
+      body: JSON.stringify({
+        data: {
+          memory: { resourceId: 'workspace-a', runId: 'rejected-answer-leg', threadId: 'thread-1' },
+          provider: 'openai',
+        },
+        messages: [],
+        pausedMessageId: 'paused-ui-owner',
+        runConfig: {
+          custom: {
+            brainstrikeToolApproval: {
+              action: 'approve',
+              runId: 'native-run',
+              toolCallId: 'canvas-call',
+            },
+          },
+        },
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      url: '/',
+    });
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'assistant_admission_rejected',
+      message: 'Assistant stream failed.',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('keeps post-admission action stream failures on the generic error path', async () => {
+    const { streamMastraToolApprovalAction } = await import('@brainstrike/agent');
+    const { streamResponse } = await import('../../assistant-server/http');
+    (streamResponse as Mock).mockRejectedValueOnce(new Error('stream setup failed'));
+    const response = await runRequest({
+      body: JSON.stringify({
+        data: { memory: { resourceId: 'workspace-a', threadId: 'thread-1' }, provider: 'openai' },
+        messages: [],
+        runConfig: {
+          custom: {
+            brainstrikeToolApproval: {
+              action: 'approve',
+              runId: 'native-run',
+              toolCallId: 'canvas-call',
+            },
+          },
+        },
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      url: '/',
+    });
+    expect(response.status).toBe(500);
+    expect(JSON.parse(response.body).error).toBe('assistant_stream_failed');
+    expect(streamMastraToolApprovalAction).toHaveBeenCalled();
+  });
+
   it('marks assistant thread runs completed after desktop streams finish', async () => {
     const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
       await import('@brainstrike/agent');

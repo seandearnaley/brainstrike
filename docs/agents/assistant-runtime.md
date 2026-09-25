@@ -62,12 +62,12 @@ the Mastra error-processor layer.
 
 - `packages/assistant-ui/src/assistant-panel-error-boundary.tsx` wraps
   `ChatThreadUI` inside `AssistantRuntimeProvider`, so reset preserves the
-  runtime. The data-stream adapter surfaces transport errors via `onError` and
-  rethrow; it never swallows them.
-- Render a run rejected before any stream part as a visible error block:
-  `AssistantMessage` mounts `AssistantMessageError` (ErrorPrimitive) for a
-  zero-part message. Put the styling on the error-conditional `Message`, never on
-  the always-rendered `Root`.
+  runtime. The data-stream adapter surfaces ambiguous transport errors via
+  `onError` and rethrow. A host-proven pre-admission rejection reports `onError`
+  and yields an incomplete error result so fire-and-forget append settles visibly.
+- Render pre-stream rejection visibly: mount `AssistantMessageError` on a
+  zero-part `AssistantMessage`; style `Message` conditionally, never `Root`.
+  Evidence: `assistant-runtime/pre-admission-rejection.md`. Guard: `packages/assistant-ui/src/__tests__/data-stream-runtime-hook.test.tsx`, `assistant-run-admission-rejection.test.tsx`.
 - The adapter owns a 30-second combined watchdog over asynchronous auth-header
   and request-body preparation before `fetch`, passing an internal abort signal
   through the body-preparation seam. Stop aborts that work immediately; expiry

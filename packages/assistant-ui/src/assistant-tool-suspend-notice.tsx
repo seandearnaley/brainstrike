@@ -30,6 +30,7 @@ import {
 } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useApprovalOwnerMessages } from './approval-owner-thread-context';
+import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recovery-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
 import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
@@ -221,6 +222,7 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const deliverLive = useLiveDecisionTransport();
   const decisionRoute = useDecisionRoute();
+  const recoveryBlocked = useAssistantDecisionRecoveryBlocked();
   const queueThreadKey = decisionRoute?.queueThreadKey ?? threadKey;
   const queued = useFollowUpQueueStore((state) =>
     request
@@ -228,6 +230,7 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
       : false
   );
   const locked =
+    recoveryBlocked ||
     queued ||
     submitted ||
     lockedByRun ||

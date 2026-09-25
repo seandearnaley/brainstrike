@@ -661,6 +661,12 @@ export interface AssistantThreadRepository {
   deleteThread: (threadId: string) => Promise<void>;
   deleteThreads?: (threadIds: readonly string[]) => Promise<void>;
   getCrossRootUsage: (resourceId: string) => Promise<readonly CrossRootUsageRow[]>;
+  /** Read an edge even when its transient UI message has no Mastra row. */
+  getMessageParent?: (
+    messageId: string,
+    threadId: string,
+    resourceId: string
+  ) => Promise<string | null | undefined>;
   /** Task Ledger read model. Optional only for read-only/test repositories. */
   getRunLedger?: (
     resourceId: string,
@@ -678,6 +684,7 @@ export interface AssistantThreadRepository {
    * it required puts that gap in the compiler's hands instead of the user's.
    */
   getThreadRunTurnMessageId: (runId: string, threadId: string) => Promise<string | null>;
+  hasResolvedToolCallInGeneration?: (hostRunId: string, toolCallId: string) => Promise<boolean>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
     threadId: string,
@@ -691,6 +698,8 @@ export interface AssistantThreadRepository {
     options?: AssistantThreadRunEventListOptions
   ) => Promise<readonly AssistantRunEvent[]>;
   listThreads: (resourceId: string) => Promise<readonly AssistantMemoryThread[]>;
+  /** Exact host-leg mapping recorded when a native root run starts. */
+  ownsNativeRun?: (hostRunId: string, nativeRunId: string) => Promise<boolean>;
   /** Required by history-adapter append; optional only for read-only/test repositories. */
   recordMessageParent?: (input: RecordAssistantMessageParentInput) => Promise<void>;
   /** Task Ledger: upsert the per-run outcome label. Optional only for read-only/test repositories. */
@@ -2761,6 +2770,7 @@ export async function readPausedActionReplayPrefix(input: {
   readonly pauseKind: 'approval' | 'suspend';
   readonly delegation?: DelegatedToolActionIdentity;
   readonly pausedMessageId?: string;
+  readonly hostRunId?: string | undefined;
 }): Promise<NonNullable<AssistantDiscoveredRun['actionReplay']>> {
   const { repository, resourceId, threadId, toolCallId, pausedMessageId, nativeRunId, delegation } =
     input;
@@ -2787,9 +2797,50 @@ export async function readPausedActionReplayPrefix(input: {
   // reused the same tool call ID. A synthetic notice identifies the action, not
   // the durable owner, and therefore still requires unique tool ownership.
   const hasDurablePausedId = pausedMessageId && pausedMessageId !== syntheticPauseMessageId;
-  const matchingCandidates = hasDurablePausedId
+  let matchingCandidates = hasDurablePausedId
     ? candidates.filter((item) => item.message.id === pausedMessageId)
     : candidates;
+  if (
+    hasDurablePausedId &&
+    matchingCandidates.length === 0 &&
+    candidates.length === 1 &&
+    !rows.some((row) => row.id === pausedMessageId)
+  ) {
+    const candidate = candidates[0];
+    const hostRunId = input.hostRunId;
+    if (
+      candidate &&
+      hostRunId &&
+      repository.getMessageParent &&
+      repository.ownsNativeRun &&
+      repository.hasResolvedToolCallInGeneration
+    ) {
+      const [transientParent, turnMessageId, ownsNativeRun, hasTerminal] = await Promise.all([
+        repository.getMessageParent(pausedMessageId, threadId, resourceId),
+        repository.getThreadRunTurnMessageId(hostRunId, threadId),
+        repository.ownsNativeRun(hostRunId, nativeRunId),
+        repository.hasResolvedToolCallInGeneration(hostRunId, toolCallId),
+      ]);
+      const events = await repository.listThreadRunEvents(threadId, resourceId);
+      const hasExactHostPause = events.some(
+        (event) =>
+          event.runId === hostRunId &&
+          event.kind === 'tool.approval.requested' &&
+          event.metadata?.['toolCallId'] === toolCallId
+      );
+      if (
+        ownsNativeRun &&
+        transientParent !== undefined &&
+        transientParent !== null &&
+        transientParent === candidate.parentId &&
+        turnMessageId === transientParent &&
+        hasExactHostPause &&
+        !hasTerminal
+      ) {
+        matchingCandidates = [candidate];
+      }
+    }
+  }
   if (matchingCandidates.length !== 1) {
     if (hasDurablePausedId && matchingCandidates.length === 0) {
       throw new Error(
@@ -3393,6 +3444,19 @@ export function createPgliteAssistantThreadRepository(
       );
       return result.rows.map(mapCrossRootUsageRow);
     },
+    async getMessageParent(messageId, threadId, resourceId) {
+      requireString(messageId, 'messageId');
+      requireString(threadId, 'threadId');
+      requireString(resourceId, 'resourceId');
+      await initialize();
+      const result = await database.query<{ parentId: string | null }>(
+        `SELECT parent_id AS "parentId"
+         FROM brainstrike_assistant_message_parents
+         WHERE message_id = $1 AND thread_id = $2 AND resource_id = $3`,
+        [messageId, threadId, resourceId]
+      );
+      return result.rows[0]?.parentId;
+    },
     async getRunLedger(
       resourceId: string,
       options?: RunLedgerListOptions
@@ -3503,6 +3567,25 @@ export function createPgliteAssistantThreadRepository(
       const value = result.rows[0]?.turnMessageId;
       return typeof value === 'string' && value.length > 0 ? value : null;
     },
+    async hasResolvedToolCallInGeneration(hostRunId, toolCallId) {
+      requireString(hostRunId, 'hostRunId');
+      requireString(toolCallId, 'toolCallId');
+      await initialize();
+      const result = await database.query<{ resolved: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM brainstrike_assistant_run_events terminal
+           JOIN brainstrike_assistant_thread_runs terminal_run ON terminal_run.id = terminal.run_id
+           JOIN brainstrike_assistant_thread_runs paused_run ON paused_run.id = $1
+           WHERE terminal_run.generation_run_id = paused_run.generation_run_id
+             AND terminal_run.thread_id = paused_run.thread_id
+             AND terminal_run.resource_id = paused_run.resource_id
+             AND terminal.metadata->>'toolCallId' = $2
+             AND terminal.kind IN ('tool.completed', 'tool.failed', 'tool.resume.unsupported')
+         ) AS resolved`,
+        [hostRunId, toolCallId]
+      );
+      return result.rows[0]?.resolved === true;
+    },
     listLatestThreadRuns,
     async listMessages(threadId, resourceId, options) {
       await initialize();
@@ -3556,6 +3639,19 @@ export function createPgliteAssistantThreadRepository(
           ...(latestRun ? { latestRun } : {}),
         });
       });
+    },
+    async ownsNativeRun(hostRunId, nativeRunId) {
+      requireString(hostRunId, 'hostRunId');
+      requireString(nativeRunId, 'nativeRunId');
+      await initialize();
+      const result = await database.query<{ owns: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM brainstrike_assistant_native_runs
+           WHERE host_run_id = $1 AND native_run_id = $2
+         ) AS owns`,
+        [hostRunId, nativeRunId]
+      );
+      return result.rows[0]?.owns === true;
     },
     async recordMessageParent(input: RecordAssistantMessageParentInput): Promise<void> {
       const messageId = requireNonEmptyTopologyId(input.messageId, 'messageId');

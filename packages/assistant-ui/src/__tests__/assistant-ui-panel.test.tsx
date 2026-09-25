@@ -80,6 +80,7 @@ vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
 vi.mock('../data-stream-runtime', () => ({
   AssistantRequestPreparationTimeoutError: class AssistantRequestPreparationTimeoutError extends Error {},
+  AssistantRunAdmissionRejectedError: class AssistantRunAdmissionRejectedError extends Error {},
   AssistantStreamReplayUnavailableError: class AssistantStreamReplayUnavailableError extends Error {},
   useBrainstrikeDataStreamRuntime: (options: unknown) =>
     useBrainstrikeDataStreamRuntimeMock(options),

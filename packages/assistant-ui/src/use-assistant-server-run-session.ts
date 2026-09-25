@@ -23,6 +23,7 @@ import {
 } from './assistant-run-reattachment';
 import {
   AssistantRequestPreparationTimeoutError,
+  AssistantRunAdmissionRejectedError,
   AssistantStreamReplayUnavailableError,
   type CancelledAssistantRun,
 } from './data-stream-runtime';
@@ -32,6 +33,7 @@ type PreparedRequestStatus = 'cancelled' | 'completed' | 'failed';
 
 interface PreparedRequest {
   cancelRequested?: boolean;
+  readonly complete: UseAssistantServerRunSessionOptions['completePreparedRequest'];
   readonly data: Record<string, unknown> | undefined;
   hostOwnsRun?: boolean;
   readonly scopeKey: string | undefined;
@@ -462,6 +464,14 @@ export function useAssistantServerRunSession({
   const liveRunIdRef = useRef<string | undefined>(undefined);
   const preparedRequestRef = useRef<PreparedRequest | null>(null);
   const pendingNoHeaderFailureRef = useRef<PendingNoHeaderFailure | null>(null);
+  const rejectedAdmissionRef = useRef<{
+    error: Error;
+    request: PreparedRequest;
+  } | null>(null);
+  const rejectedAdmissionCompletionRef = useRef<Promise<void> | null>(null);
+  const [rejectedAdmissionState, setRejectedAdmissionState] = useState<'pending' | Error | null>(
+    null
+  );
   const discoveryAuthHeadersRef = useRef(authHeaders);
   const replayEligible =
     activeSessionState.scope === sessionScope
@@ -489,8 +499,15 @@ export function useAssistantServerRunSession({
     discoveryResource.getSnapshot,
     discoveryResource.getSnapshot
   );
-  const isRecovering = Boolean(discoveryKey) && discovery.status === 'pending';
-  const recoveryError = discovery.status === 'error' ? discovery.error : undefined;
+  const isRecovering =
+    (Boolean(discoveryKey) && discovery.status === 'pending') ||
+    rejectedAdmissionState === 'pending';
+  const recoveryError =
+    rejectedAdmissionState instanceof Error
+      ? rejectedAdmissionState
+      : discovery.status === 'error'
+        ? discovery.error
+        : undefined;
   const discoveredRun =
     discovery.status === 'ready' && discovery.value?.runId === activeRunSession?.runId
       ? (discovery.value ?? undefined)
@@ -568,9 +585,46 @@ export function useAssistantServerRunSession({
     threadKey,
   ]);
 
-  const retryRecovery = useCallback((): void => {
-    setRecoveryRetryToken((current) => current + 1);
+  const settleRejectedAdmission = useCallback((): void => {
+    const rejected = rejectedAdmissionRef.current;
+    if (!rejected || rejectedAdmissionCompletionRef.current) {
+      return;
+    }
+    setRejectedAdmissionState('pending');
+    const completion = Promise.resolve().then(() =>
+      rejected.request.complete?.(rejected.request.data, 'failed', rejected.error.message, false)
+    );
+    rejectedAdmissionCompletionRef.current = completion;
+    void completion.then(
+      () => {
+        if (preparedRequestRef.current === rejected.request) {
+          preparedRequestRef.current = null;
+        }
+        if (rejectedAdmissionRef.current === rejected) {
+          rejectedAdmissionRef.current = null;
+          setRejectedAdmissionState(null);
+        }
+        rejectedAdmissionCompletionRef.current = null;
+      },
+      (error: unknown) => {
+        rejectedAdmissionCompletionRef.current = null;
+        const completionError =
+          error instanceof Error ? error : new Error('Failed to settle rejected assistant run.');
+        assistantEndpointLogger.error('Failed to settle rejected assistant admission', {
+          error: completionError,
+        });
+        setRejectedAdmissionState(completionError);
+      }
+    );
   }, []);
+
+  const retryRecovery = useCallback((): void => {
+    if (rejectedAdmissionRef.current) {
+      settleRejectedAdmission();
+      return;
+    }
+    setRecoveryRetryToken((current) => current + 1);
+  }, [settleRejectedAdmission]);
 
   useEffect(() => {
     completePreparedRequestRef.current = completePreparedRequest;
@@ -652,6 +706,7 @@ export function useAssistantServerRunSession({
       runConfig?: unknown
     ): Promise<Record<string, unknown> | undefined> => {
       const requestScopeKey = discoveryKey;
+      const requestCompletion = completePreparedRequestRef.current;
       await reconcilePendingCancellation();
       if (isRecovering || recoveryError) {
         throw recoveryError ?? new Error('Assistant run recovery is still in progress.');
@@ -690,7 +745,11 @@ export function useAssistantServerRunSession({
           completePreparedRequestRef.current
         );
       }
-      preparedRequestRef.current = { data, scopeKey: requestScopeKey };
+      preparedRequestRef.current = {
+        complete: requestCompletion,
+        data,
+        scopeKey: requestScopeKey,
+      };
       return data;
     },
     [
@@ -761,6 +820,19 @@ export function useAssistantServerRunSession({
   const onError = useCallback(
     (error: Error): void => {
       liveRunIdRef.current = undefined;
+      if (error instanceof AssistantRunAdmissionRejectedError) {
+        // The host explicitly rejected this request before it admitted a
+        // stream leg. The older paused run, if any, remains host-owned.
+        const request = preparedRequestRef.current;
+        if (request && !rejectedAdmissionRef.current) {
+          rejectedAdmissionRef.current = {
+            error,
+            request,
+          };
+          settleRejectedAdmission();
+        }
+        return;
+      }
       const record = activeRunSessionRef.current;
       if (record) {
         setActiveSessionState({ record, replayEligible: true, scope: sessionScope });
@@ -777,7 +849,7 @@ export function useAssistantServerRunSession({
       }
       void completeLatestPreparedRequest('failed', error.message);
     },
-    [completeLatestPreparedRequest, sessionScope]
+    [completeLatestPreparedRequest, sessionScope, settleRejectedAdmission]
   );
 
   const onFinish = useCallback((): void => {

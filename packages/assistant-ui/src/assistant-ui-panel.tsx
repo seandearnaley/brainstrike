@@ -48,7 +48,6 @@ import {
   ThreadScrollRegion,
   ThreadScrollToBottom,
 } from './assistant-thread-messages';
-import { PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { BranchPicker } from './branch-picker';
 import { BudgetGuardrailControl, useBudgetSendGate } from './budget-guardrail-control';
 import { ChangesReviewLink } from './changes-review-link';
@@ -76,6 +75,7 @@ export type { ComposerAttachmentsAvailability } from './composer-input';
 // source module, not the public import path.
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
 
+import { AssistantRunContextProviders } from './assistant-decision-recovery-provider';
 import {
   isAssistantRecoveryBlocked,
   replayRuntimeOptions,
@@ -754,7 +754,7 @@ const DataStreamRuntimeChat = ({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <PlanModeExitProvider onExit={planMode?.onExit}>
+      <AssistantRunContextProviders blocked={recoveryBlocked} onExit={planMode?.onExit}>
         <AssistantPanelErrorBoundary>
           <AssistantRunRecoveryStatus session={serverRunSession} />
           <ChatThreadUI
@@ -795,7 +795,7 @@ const DataStreamRuntimeChat = ({
             toolMenu={toolMenu}
           />
         </AssistantPanelErrorBoundary>
-      </PlanModeExitProvider>
+      </AssistantRunContextProviders>
     </AssistantRuntimeProvider>
   );
 };
