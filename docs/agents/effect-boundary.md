@@ -89,7 +89,7 @@ Guard: `apps/desktop/src/__tests__/maintenance-trigger-runtime.test.ts`, `script
 - An id the renderer mints is a type-only `Brand.Brand`, asserted once by its
   sole producer and guard-pinned: Schema decoding adds about 74 KB gzipped.
 
-Evidence: `effect-boundary/phase-two-boundaries.md`.
+Evidence: `effect-boundary/phase-two-boundaries.md`, `effect-boundary/parser-host-schema.md`.
 Guard: `packages/db/__tests__/mcp-task-row-schema.test.ts`,
 `packages/effect-kit/src/__tests__/throwing-decoder.test.ts`,
 `scripts/assistant-run-id-producer-guard.mjs`.

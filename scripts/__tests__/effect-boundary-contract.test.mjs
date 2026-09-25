@@ -539,3 +539,19 @@ test('provider auth owns fetch and body deadlines at one Effect boundary', () =>
   const guard = readRepoFile('apps/desktop/src/provider-auth/fetch-guards.ts');
   assert.match(guard, /runAtPromiseBoundary\(/u);
 });
+
+test('parser host Schema stays in main and utility consumers', () => {
+  const shared = readRepoFile('apps/desktop/src/parser-host-shared.ts');
+  assert.doesNotMatch(shared, /from ['"]effect['"]/u);
+  assert.doesNotMatch(shared, /parser-host-schema/u);
+  for (const name of ['ipc-parser-host', 'parser-host-entry', 'parser-host-manager']) {
+    const source = readRepoFile(`apps/desktop/src/${name}.ts`);
+    assert.match(source, /from ['"]\.\/parser-host-schema['"]/u);
+  }
+  const schema = readRepoFile('apps/desktop/src/parser-host-schema.ts');
+  assert.match(schema, /Schema\.is\(/u);
+  assert.match(
+    readRepoFile('docs/agents/effect-boundary.md'),
+    /effect-boundary\/parser-host-schema\.md/u
+  );
+});
