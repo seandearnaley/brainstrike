@@ -26,6 +26,14 @@ export type DesktopShutdownStepName = (typeof DESKTOP_SHUTDOWN_STEP_ORDER)[numbe
 
 export type DesktopShutdownTrigger = 'before-quit' | 'signal';
 
+/**
+ * How long after the step deadline the backstop exits. The step deadline
+ * normally fires first, aborting and naming the stuck step; the backstop only
+ * acts when the orchestration itself failed (a throwing `planRun`, say) and
+ * the steps never got their deadline.
+ */
+export const DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS = 250;
+
 /** What the forced-exit log names as its trigger: the signal, or `before-quit`. */
 export type DesktopForcedExitTrigger = NodeJS.Signals | 'before-quit';
 
@@ -53,14 +61,15 @@ export interface DesktopGracefulShutdownOptions {
   readonly markShuttingDown: () => void;
   readonly now?: (() => number) | undefined;
   readonly planRun: () => DesktopShutdownRunPlan;
-  /** Runs once, before any step: background work must stop restarting owners. */
+  /** Runs once, before the plan and any step: background work must stop restarting owners. */
   readonly retireBackgroundAdmission: () => void;
 }
 
 export interface DesktopGracefulShutdown {
   /**
    * Runs the ordered steps once. A later call, from any trigger, joins the
-   * first run. Resolves even when steps fail; the failures are logged.
+   * first run. Never rejects: step failures and an orchestration failure are
+   * logged, and the process exit stays bounded either way.
    */
   run(trigger: DesktopShutdownTrigger, forcedExitTrigger: DesktopForcedExitTrigger): Promise<void>;
 }
@@ -76,11 +85,30 @@ export function createDesktopGracefulShutdown(
 ): DesktopGracefulShutdown {
   const { deadlineMs, exitProcess, logger, markShuttingDown, planRun } = options;
   let running: Promise<void> | null = null;
+  let backstop: ReturnType<typeof setTimeout> | null = null;
+
+  // Armed before anything that can throw, so a broken orchestration still
+  // exits within the budget. Unref'd: it never holds the process open itself.
+  const armBackstop = (forcedExitTrigger: DesktopForcedExitTrigger): void => {
+    if (backstop) {
+      return;
+    }
+    backstop = setTimeout(() => {
+      logger.error('Timed out waiting for graceful shutdown; forcing exit', {
+        backstop: true,
+        inFlightStep: null,
+        trigger: forcedExitTrigger,
+      });
+      exitProcess(1);
+    }, deadlineMs + DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS);
+    backstop.unref?.();
+  };
 
   const runOnce = async (
     trigger: DesktopShutdownTrigger,
     forcedExitTrigger: DesktopForcedExitTrigger
   ): Promise<void> => {
+    options.retireBackgroundAdmission();
     const plan = planRun();
     const failures: SerializedDesktopError[] = [];
     // A holder, not a `let`: it is assigned inside the settle callback, which
@@ -111,17 +139,20 @@ export function createDesktopGracefulShutdown(
       name,
       run:
         name === 'error-log-sink'
-          ? (signal: AbortSignal) => {
+          ? async (signal: AbortSignal) => {
               // The ONLY log of the failures above, and it MUST precede the
               // sink close: a closed sink makes this very record a no-op in
-              // the NDJSON backstop.
-              if (failures.length > 0) {
-                logger.warn('Graceful shutdown completed with cleanup failures', {
-                  failures,
-                  trigger,
-                });
+              // the NDJSON backstop. The close still runs if the warn throws.
+              try {
+                if (failures.length > 0) {
+                  logger.warn('Graceful shutdown completed with cleanup failures', {
+                    failures,
+                    trigger,
+                  });
+                }
+              } finally {
+                await plan.steps[name](signal);
               }
-              return plan.steps[name](signal);
             }
           : plan.steps[name],
     }));
@@ -164,6 +195,7 @@ export function createDesktopGracefulShutdown(
 
   return {
     run: async (trigger, forcedExitTrigger) => {
+      armBackstop(forcedExitTrigger);
       // Latch before any teardown so work torn down mid-flight (an in-flight
       // embedding backfill, say) logs as a benign stop, not a failure.
       markShuttingDown();
@@ -171,8 +203,23 @@ export function createDesktopGracefulShutdown(
         await running;
         return;
       }
-      options.retireBackgroundAdmission();
-      running = runOnce(trigger, forcedExitTrigger);
+      running = runOnce(trigger, forcedExitTrigger).then(
+        () => {
+          // Finished, or the step deadline already forced the exit.
+          if (backstop) {
+            clearTimeout(backstop);
+            backstop = null;
+          }
+        },
+        (error: unknown) => {
+          // The steps may not have run; the armed backstop keeps the exit
+          // bounded, and callers still go on to quit.
+          logger.error('Graceful shutdown orchestration failed', {
+            error: serializeDesktopError(error),
+            trigger,
+          });
+        }
+      );
       await running;
     },
   };

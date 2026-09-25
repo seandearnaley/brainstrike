@@ -48,8 +48,9 @@ Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`,
 
 ### Shared helpers
 
-- Bound a Promise with `runWithTimeout`, not `Promise.race(work, timer)`: it clears
-  its timer when the work settles and aborts the task's signal at the deadline.
+- Bound a Promise with `runWithTimeout`, never `Promise.race(work, timer)`: it
+  clears its timer when the work settles and aborts the task's signal at the
+  deadline.
 - `createConcurrencyLimiter` bounds concurrency, not order: a task arriving
   while a permit is momentarily free starts ahead of waiters not yet woken. Code
   that relies on FIFO admission (the snapshot and worktree mutexes) keeps its own
@@ -70,7 +71,8 @@ Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`,
 - Each field schema carries, as its `message`, the sentence its hand check used
   to throw. Throwing code decodes through `makeThrowingDecoder`: a `TypeError`
   with that message and the failing path, the `SchemaError` as `cause`.
-- Count affected rows from `RETURNING`: the desktop DB host surfaces only `rows`.
+- Count affected rows from `RETURNING`, never a driver row count. Why: the
+  desktop DB host surfaces only `rows`.
 - An id the renderer mints is a type-only `Brand.Brand`, asserted once by its
   sole producer, with a guard pinning that site. Why: a Schema brand decoder
   adds about 74 KB gzipped to the renderer for an id the app generates itself.
@@ -85,7 +87,8 @@ Guard: `packages/db/__tests__/mcp-task-row-schema.test.ts`,
 - A package that depends on `effect` adds the `@effect/language-service` plugin
   to its `tsconfig.json` and ends `type-check` with `effect-tsgo diagnostics
   --project <widest tsconfig> --strict` (`tsconfig.test.json` if present).
-- Never run `effect-tsgo patch`. Why: it rewrites the shared TypeScript 7 `tsc` that
-  `ci-quality.md` § "TypeScript 7 CLI with the TypeScript 6 compatibility API" pins.
+- Never run `effect-tsgo patch`. Why: it rewrites the shared TypeScript 7 `tsc`
+  that `ci-quality.md` § "TypeScript 7 CLI with the TypeScript 6 compatibility
+  API" pins.
 
 Guard: `scripts/__tests__/effect-boundary-contract.test.mjs`.

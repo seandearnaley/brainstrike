@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createDesktopGracefulShutdown,
+  DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS,
   DESKTOP_SHUTDOWN_STEP_ORDER,
   type DesktopGracefulShutdownOptions,
   type DesktopShutdownStepName,
@@ -57,6 +58,12 @@ function createHarness(
 
 const stepEvents = (events: readonly string[]): string[] =>
   events.filter((event) => event.startsWith('step:'));
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('desktop graceful shutdown', () => {
   it('retires admission, then runs every step once in the canonical order', async () => {
@@ -223,5 +230,75 @@ describe('desktop graceful shutdown', () => {
     // Nothing after the stuck owner runs, and no completion is claimed.
     expect(events).not.toContain('step:llm-host');
     expect(logger.info).not.toHaveBeenCalled();
+    // The step deadline handled it, so the backstop was cleared: one exit.
+    await wait(20 + DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS + 50);
+    expect(options.exitProcess).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the backstop when every step finishes in time', async () => {
+    const { options } = createHarness({}, { deadlineMs: 20 });
+
+    await createDesktopGracefulShutdown(options).run('before-quit', 'before-quit');
+    await wait(20 + DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS + 50);
+
+    expect(options.exitProcess).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'planRun',
+      {
+        planRun: () => {
+          throw new Error('plan failed');
+        },
+      },
+    ],
+    [
+      'retireBackgroundAdmission',
+      {
+        retireBackgroundAdmission: () => {
+          throw new Error('retire failed');
+        },
+      },
+    ],
+  ] as const)('resolves and still bounds the exit when %s throws', async (_name, broken) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { logger, options } = createHarness({}, { deadlineMs: 5000 });
+    const shutdown = createDesktopGracefulShutdown({ ...options, ...broken });
+
+    // Callers go on to quit: the run never rejects.
+    await expect(shutdown.run('signal', 'SIGTERM')).resolves.toBeUndefined();
+    expect(logger.error).toHaveBeenCalledWith(
+      'Graceful shutdown orchestration failed',
+      expect.objectContaining({ trigger: 'signal' })
+    );
+    expect(options.exitProcess).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(5000 + DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS);
+
+    expect(options.exitProcess).toHaveBeenCalledWith(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Timed out waiting for graceful shutdown; forcing exit',
+      { backstop: true, inFlightStep: null, trigger: 'SIGTERM' }
+    );
+    // A later trigger joins the failed run instead of rejecting.
+    await expect(shutdown.run('before-quit', 'before-quit')).resolves.toBeUndefined();
+  });
+
+  it('still closes the error-log sink when the failure warn throws', async () => {
+    const { events, logger, options } = createHarness({
+      database: () => Promise.reject(new Error('close failed')),
+    });
+    logger.warn.mockImplementation(() => {
+      throw new Error('logger broke');
+    });
+
+    await createDesktopGracefulShutdown(options).run('before-quit', 'before-quit');
+
+    expect(events).toContain('step:error-log-sink');
+    expect(logger.error).toHaveBeenCalledWith('Failed to close the durable NDJSON error log', {
+      failure: expect.objectContaining({ message: 'logger broke', step: 'error-log-sink' }),
+      trigger: 'before-quit',
+    });
   });
 });

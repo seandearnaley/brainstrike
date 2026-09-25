@@ -62,19 +62,37 @@ The owner chose the narrowed scope below on 2026-09-24.
   fails on any `register*IpcHandlers(...)` call that is not the second
   argument of `ipcDisposers.add`. Against the pre-change `main.ts` it reported
   exactly those five calls.
+  Each of the five is `() => registry.unregisterAll()`, handler removal only,
+  so running them at `will-quit`, after the database closed, touches no DB,
+  secrets store or engine.
+- **A backstop keeps the exit bounded if the orchestration itself fails.**
+  Review of the first push (#3305) found that the step deadline lives inside
+  `runShutdownSequence`, so a throw from `retireBackgroundAdmission`,
+  `planRun` or a hook left no deadline at all, and `handleShutdownSignal`
+  could hang on a rejected run. The old `scheduleForcedProcessExit` timer was
+  armed before any of that. `run()` now arms an unref'd backstop first, at
+  the deadline plus `DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS` (250 ms), so the step
+  deadline still fires first on a stuck step and names it. The backstop is
+  cleared when the run finishes or the step deadline has fired. `run()` never
+  rejects: an orchestration failure is logged, and callers go on to quit.
+  Disabling the backstop fails both orchestration-failure tests.
+- **The error-log sink closes even if the failure warn throws.** The warn runs
+  inside the `error-log-sink` step, so the close sits in a `finally`.
 
 ## Behaviour differences, deliberately small
 
 - The deadline starts when the sequence starts, not when the trigger handler
   armed its timer. Both happened in the same tick; the handlers no longer arm a
-  separate timer, and `will-quit` no longer clears one.
+  separate timer (the module's backstop took that job), and `will-quit` no
+  longer clears one.
 - At the deadline the running step's signal aborts and later steps are not
   started. Before, they kept running until `process.exit(1)`, which was called
   in the same callback, so production behaviour is unchanged apart from the
   signal. No owner reads the signal yet.
-- While steps run, the deadline is a referenced timer (Effect's `sleep`), not
-  an `unref`'d one. Electron main keeps its event loop alive during shutdown
-  anyway, and the timer is cleared as soon as the steps settle.
+- While steps run, the step deadline is a referenced timer (Effect's `sleep`),
+  not an `unref`'d one. Electron main keeps its event loop alive during
+  shutdown anyway, the timer is cleared as soon as the steps settle, and the
+  backstop is unref'd.
 - `mcp-runtime` calls `cleanupMcpRuntimeForShutdown()` through a wrapper: the
   cleanup's optional first parameter is the runtime, so passing it the step
   signal would have been a bug.

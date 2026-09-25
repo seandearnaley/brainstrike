@@ -8,7 +8,7 @@ export interface MainSourceSections {
   /**
    * One step's body inside the plan. The step record's keys are sorted, not
    * ordered (the order is `DESKTOP_SHUTDOWN_STEP_ORDER`), so a body ends at
-   * the next key at the same indentation.
+   * the next key at the same indentation, without that key's leading comment.
    */
   readonly stepBody: (step: string) => string;
 }
@@ -37,7 +37,14 @@ export function readMainSourceSections(): MainSourceSections {
     }
     STEP_KEY.lastIndex = start + 1;
     const next = STEP_KEY.exec(shutdownPlanBlock);
-    return shutdownPlanBlock.slice(start, next ? next.index : shutdownPlanBlock.length);
+    const lines = shutdownPlanBlock
+      .slice(start, next ? next.index : shutdownPlanBlock.length)
+      .split('\n');
+    // Drop the NEXT step's leading comment, which sits above its key.
+    while (lines.length > 1 && /^\s*(?:\/\/.*)?$/.test(lines.at(-1) ?? '')) {
+      lines.pop();
+    }
+    return lines.join('\n');
   };
   return { shutdownPlanBlock, source, stepBody };
 }
