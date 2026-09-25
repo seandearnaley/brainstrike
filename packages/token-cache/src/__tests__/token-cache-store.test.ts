@@ -218,6 +218,11 @@ function createMockDb() {
   };
 }
 
+const asStoreDatabase = (
+  db: ReturnType<typeof createMockDb>
+): ConstructorParameters<typeof TokenCacheStore>[0] =>
+  db as unknown as ConstructorParameters<typeof TokenCacheStore>[0];
+
 describe('TokenCacheStore', () => {
   let store: TokenCacheStore;
   let mockDb: ReturnType<typeof createMockDb>;
@@ -672,7 +677,7 @@ describe('TokenCacheStore', () => {
         }
         return defaultQuery(sql, params);
       });
-      const configuredStore = new TokenCacheStore(mockDb as any, {
+      const configuredStore = new TokenCacheStore(asStoreDatabase(mockDb), {
         transactionRetryBaseDelayMs: 1,
         transactionRetryMaxAttempts: 4,
       });
@@ -746,7 +751,7 @@ describe('TokenCacheStore', () => {
     it('rejects retry delays too large for a native timer instead of waiting forever', () => {
       expect(
         () =>
-          new TokenCacheStore(mockDb as any, {
+          new TokenCacheStore(asStoreDatabase(mockDb), {
             transactionRetryBaseDelayMs: Number.MAX_VALUE,
             transactionRetryMaxAttempts: 2,
           })
@@ -761,7 +766,7 @@ describe('TokenCacheStore', () => {
         }
         return { rows: [] };
       });
-      const configuredStore = new TokenCacheStore(mockDb as any, {
+      const configuredStore = new TokenCacheStore(asStoreDatabase(mockDb), {
         transactionRetryBaseDelayMs: Number.MAX_VALUE,
         transactionRetryMaxAttempts: 1,
       });
@@ -778,7 +783,7 @@ describe('TokenCacheStore', () => {
         }
         return { rows: [] };
       });
-      const configuredStore = new TokenCacheStore(mockDb as any, {
+      const configuredStore = new TokenCacheStore(asStoreDatabase(mockDb), {
         transactionRetryBaseDelayMs: 1,
         transactionRetryMaxAttempts: 2,
       });
