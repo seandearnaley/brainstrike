@@ -162,10 +162,10 @@ Guard: `apps/desktop/src/__tests__/platform/desktop-ipc-registry.test.ts`,
 - `main/disposer-stack.ts` is the ONE holder of IPC-domain disposers: each
   `registerXIpcHandlers(...)` result is `ipcDisposers.add(label, …)`, `will-quit`
   unwinds LIFO with every throw isolated and logged by label, and a second live
-  entry under one label is a registration error. `before-quit` runs
-  `runGracefulShutdown` first, so the stack always unwinds after the graceful
-  steps. `main/logging-preferences.ts` owns preference STATE while `main.ts`
-  keeps the boot ORDER, and `main/git-awareness-lifecycle.ts` constructs the one
+  entry under one label is a registration error. `before-quit` runs the graceful
+  shutdown first, so the stack always unwinds after its steps.
+  `main/logging-preferences.ts` owns preference STATE while `main.ts` keeps the
+  boot ORDER, and `main/git-awareness-lifecycle.ts` constructs the one
   git-inventory/forge/worktree service inside `app.whenReady()`.
 - Electron 44 clipboard writes return `Promise<void>`, so the main handler awaits
   the write inside its catch boundary and a rejection returns
@@ -177,8 +177,8 @@ Settled: the manifest owns channel literals, preload imports are allowlisted by
 purity, and the migration inventory is closed in both directions. Evidence:
 `platform-contracts/ipc-contract-modules.md`.
 Guard: `apps/desktop/src/__tests__/main/ipc-global-manifest.test.ts`,
-`preload-sandbox-imports.test.ts`, `preload-contract-bridges.test.ts`,
-`platform/register-domain.test.ts`,
+`ipc-disposer-ledger.test.ts`, `preload-sandbox-imports.test.ts`,
+`preload-contract-bridges.test.ts`, `platform/register-domain.test.ts`,
 `scripts/__tests__/desktop-ipc-type-boundary-contract.test.mjs`.
 
 ---
@@ -349,11 +349,11 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
 
 ### Graceful shutdown ownership (hidden hosts and background indexing)
 
-- `main.ts` runs its ordered shutdown steps under ONE forced-exit budget
-  (`SIGNAL_SHUTDOWN_TIMEOUT_MS`, 5s), armed for signals and `before-quit`. Fix
-  the slow owner; do not raise the budget. The forced-exit log names the step
-  still awaiting completion and its elapsed time — a product log, not temporary
-  instrumentation: it is the only actionable fact a CI runner leaves behind.
+- `main/desktop-graceful-shutdown.ts` owns the step ORDER and its ONE forced-exit
+  budget (`SIGNAL_SHUTDOWN_TIMEOUT_MS`, 5s) for signals and `before-quit`;
+  `main.ts` supplies the step bodies. Fix the slow owner; do not raise the budget.
+  At the deadline the running step's signal aborts and the forced-exit log names it
+  and its elapsed time: a product log, and a CI runner's only actionable clue.
 - Shutdown retires embedding-backfill admission FIRST, and a backfill arriving
   after `markDesktopShuttingDown()` is refused before it touches the host. Why:
   background indexing keeps requesting backfills until its renderer dies,
@@ -381,9 +381,9 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
 Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:
 `platform-contracts/graceful-shutdown-ownership.md`.
-Guard: `apps/desktop/src/__tests__/ipc-embedding-backfill.test.ts`,
-`embedding-host-manager.test.ts`, `renderer-host-lifecycle.test.ts`,
-`apps/desktop/e2e/app-launch.test.ts`.
+Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`,
+`ipc-embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
+`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`.
 
 ### Browser preference hydration
 

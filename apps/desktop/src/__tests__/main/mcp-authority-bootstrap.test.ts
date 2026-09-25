@@ -457,16 +457,17 @@ describe('MCP desktop authority bootstrap', () => {
   });
 
   it('pins bounded shutdown ordering and renderer-ready reset wiring', () => {
-    const { assistantShutdownBlock: shutdownBlock, source } = readMainSourceSections();
-    const assistantDrain = shutdownBlock.indexOf("runShutdownStep('assistant-server'");
-    const settlement = shutdownBlock.indexOf('await Promise.allSettled([');
-    const mcpClose = shutdownBlock.indexOf("runShutdownStep('mcp-runtime'");
-    const orderingGuard = shutdownBlock.indexOf('if (!assistantServerDrained)');
-    expect(assistantDrain).toBeGreaterThanOrEqual(0);
-    expect(settlement).toBeGreaterThan(assistantDrain);
-    expect(shutdownBlock).toContain('Promise.resolve().then(() => stopServer?.())');
-    expect(mcpClose).toBeGreaterThan(assistantDrain);
-    expect(orderingGuard).toBeGreaterThan(mcpClose);
+    const { shutdownPlanBlock, source, stepBody } = readMainSourceSections();
+    const assistantStep = stepBody('assistant-server');
+    const settlement = assistantStep.indexOf('await Promise.allSettled([');
+    const drainedOnlyOnFulfilledStop = assistantStep.indexOf('assistantServerDrained = true;');
+    expect(settlement).toBeGreaterThan(0);
+    expect(assistantStep).toContain('Promise.resolve().then(() => stopServer?.())');
+    expect(drainedOnlyOnFulfilledStop).toBeGreaterThan(settlement);
+    // The step ORDER and the McpShutdownOrderingError guard are behavioural now:
+    // desktop-graceful-shutdown.test.ts runs them. main only feeds the guard.
+    expect(shutdownPlanBlock).toContain('isAssistantServerDrained: () => assistantServerDrained');
+    expect(stepBody('mcp-runtime')).toContain('() => cleanupMcpRuntimeForShutdown()');
 
     const resetStart = source.indexOf('const handleResetLocal = createDesktopFactoryResetHandler');
     const resetEnd = source.indexOf('desktopDatabaseMaintenanceScheduler =', resetStart);

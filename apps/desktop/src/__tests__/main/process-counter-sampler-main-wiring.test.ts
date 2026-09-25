@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { readMainSourceSections } from './main-source-test-helpers';
 
 const source = fs.readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
 
@@ -22,14 +23,9 @@ describe('process counter sampler main wiring', () => {
   });
 
   it('stops the sampler in the shutdown database step before the scheduler idle join', () => {
-    // Bound the slice at the NEXT step: an unbounded slice runs to end of file,
-    // where a LATER step's idle join could stand in for this one's and pass the
-    // ordering while the database step held neither call.
-    const stepStart = source.indexOf("runShutdownStep('database'");
-    expect(stepStart).toBeGreaterThan(-1);
-    const nextStepStart = source.indexOf('runShutdownStep(', stepStart + 1);
-    expect(nextStepStart).toBeGreaterThan(stepStart);
-    const step = source.slice(stepStart, nextStepStart);
+    // Bounded to the database step's own body: an unbounded slice runs to end
+    // of file, where a LATER step's idle join could stand in for this one's.
+    const step = readMainSourceSections().stepBody('database');
 
     const stopAt = step.indexOf('processCounterSampler.stop();');
     const idleJoinAt = step.indexOf('await waitForDesktopDatabaseWorkSchedulerIdle();');

@@ -43,8 +43,15 @@ Adopt Effect v4 (`effect`, exact-pinned) one runtime boundary at a time.
    handlers in Electron main, PGlite row decoding in repositories, and chunking
    worker messages. The host run id, minted in the renderer, gets a type-only
    brand instead.
+4. **Phase 3 (narrowed, BST-1819):** desktop main's graceful shutdown runs on
+   effect-kit's `runShutdownSequence` from a tested module that owns the step
+   order, and every IPC registration's disposer joins the disposer stack. Host
+   managers did not become scoped Layers: shutdown order is a dependency order
+   across all of main, not the reverse of construction order, and factory reset
+   is a restartable parallel stop, not a scope closing
+   (`effect-boundary/phase-three-lifecycle.md`).
 
-Later phases (host lifecycles as scoped Layers, RPC over workers,
+Later phases (main's composition root as a Layer graph, RPC over workers,
 `@effect/sql-pglite`, Stream) each need their own decision.
 
 ## Consequences

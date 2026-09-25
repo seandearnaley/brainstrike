@@ -87,7 +87,12 @@ it.
 **Known gaps, recorded honestly**: `main.ts` has Electron side effects at
 import time and no unit-test seam around `runGracefulShutdown`, so the
 shutdown ordering above and the `BRAINSTRIKE_DISABLE_FILE_LOGS` construction
-skip are inspection-verified only, not covered by an automated test. The
+skip are inspection-verified only, not covered by an automated test.
+**Update (2026-09-24, BST-1819):** the shutdown ordering now has that seam:
+`main/desktop-graceful-shutdown.ts` owns it, and
+`__tests__/main/desktop-graceful-shutdown.test.ts` pins the warn-before-sink
+order and the separate sink-close log. The file-log construction skip is still
+inspection-verified. The
 NDJSON file's `sessionId` is a fresh per-launch `randomUUID()`, independent
 of the renderer's `getDiagnosticSessionId()` DB `session_id` — deliberately,
 since the NDJSON backstop and the PGlite-backed DB sink are meant to be
