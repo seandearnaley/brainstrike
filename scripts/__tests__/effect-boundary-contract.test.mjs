@@ -492,3 +492,38 @@ test('desktop composition refactors keep lifecycle owners and require a separate
   assert.match(section, /Layer[\s\S]*separate decision/u);
   assert.match(section, /current startup-failure, reset and stale DB-client behavior/u);
 });
+
+test('desktop maintenance scope ownership preserves SQL drain and native cadence', () => {
+  const contract = readRepoFile('docs/agents/effect-boundary.md');
+  const decision = readRepoFile('docs/adr/0006-scoped-desktop-maintenance.md');
+  assert.match(contract, /scopes own maintenance triggers and subscriptions, never admitted SQL/u);
+  assert.match(
+    contract,
+    /Stop fences automatic dispatch synchronously; close joins finalizers before DB drain/u
+  );
+  assert.match(
+    contract,
+    /native unref interval cadence, separate admission policies and reset barriers/u
+  );
+  assert.match(decision, /Failed acquisition releases/u);
+  assert.match(
+    decision,
+    /Finalizer failures remain visible and do not bypass the existing database drain/u
+  );
+});
+
+test('both desktop maintenance schedulers delegate trigger resources to the scoped owner', () => {
+  for (const name of ['database', 'dimension-index']) {
+    const source = readRepoFile(`apps/desktop/src/${name}-maintenance-scheduler.ts`);
+    assert.match(source, /createMaintenanceTriggerRuntime\(/u, `${name} adopts the shared owner`);
+    assert.doesNotMatch(
+      source,
+      /\bset(?:Timeout|Interval)\s*\(/u,
+      `${name} cannot retain a second timer owner`
+    );
+  }
+  const owner = readRepoFile('apps/desktop/src/maintenance-trigger-runtime.ts');
+  assert.match(owner, /Effect\.acquireRelease\(/u);
+  assert.match(owner, /Scope\.close\(/u);
+  assert.match(owner, /runAtPromiseBoundary\(/u);
+});

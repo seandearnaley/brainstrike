@@ -17,6 +17,7 @@ import {
   type MaintenanceSchedulerSnapshot,
   readInFlightAssistantWork,
 } from './maintenance-admission';
+import { createMaintenanceTriggerRuntime } from './maintenance-trigger-runtime';
 
 const DEFAULT_DIMENSION_INDEX_MAINTENANCE_INITIAL_DELAY_MS = 45_000;
 const DEFAULT_DIMENSION_INDEX_MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
@@ -67,8 +68,9 @@ export type DesktopDimensionIndexMaintenanceRunResult =
     };
 
 export interface DesktopDimensionIndexMaintenanceScheduler {
+  readonly close: () => Promise<void>;
   readonly runOnce: () => Promise<DesktopDimensionIndexMaintenanceRunResult>;
-  readonly start: () => void;
+  readonly start: () => Promise<void>;
   readonly stop: () => void;
 }
 
@@ -226,11 +228,8 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
   const runDimensionMaintenance =
     options.runDimensionMaintenance ?? runNextDimensionIndexMaintenance;
   let maintenanceInFlight: Promise<DesktopDimensionIndexMaintenanceRunResult> | null = null;
-  let initialTimer: ReturnType<typeof setTimeout> | null = null;
-  let timer: ReturnType<typeof setInterval> | null = null;
   const quietPeriodMs = resolveQuietPeriodMs(options.quietPeriodMs);
   const idle = createSustainedIdleObserver(now);
-  let unsubscribeFromScheduler: (() => void) | null = null;
 
   const runOnce = async (): Promise<DesktopDimensionIndexMaintenanceRunResult> => {
     if (maintenanceInFlight) {
@@ -321,40 +320,27 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
     return await maintenanceInFlight;
   };
 
-  return {
-    runOnce,
-    start: () => {
-      if (initialTimer !== null || timer !== null) {
-        return;
-      }
+  const trigger = createMaintenanceTriggerRuntime({
+    initialDelayMs,
+    intervalMs,
+    onCloseError: (error) => {
+      options.logger.error({ error }, 'Dimension index maintenance trigger cleanup failed');
+    },
+    subscribe: () => {
       idle.seedBusy();
-      unsubscribeFromScheduler = options.subscribeToSchedulerSnapshots(idle.observe);
-      initialTimer = setTimeout(() => {
-        initialTimer = null;
-        void runOnce().catch((error: unknown) => {
-          options.logger.error({ error }, 'Dimension index maintenance failed');
-        });
-        timer = setInterval(() => {
-          void runOnce().catch((error: unknown) => {
-            options.logger.error({ error }, 'Dimension index maintenance failed');
-          });
-        }, intervalMs);
-        timer.unref?.();
-      }, initialDelayMs);
-      initialTimer.unref?.();
+      return options.subscribeToSchedulerSnapshots(idle.observe);
     },
-    stop: () => {
-      unsubscribeFromScheduler?.();
-      unsubscribeFromScheduler = null;
-      if (initialTimer !== null) {
-        clearTimeout(initialTimer);
-        initialTimer = null;
-      }
-      if (timer === null) {
-        return;
-      }
-      clearInterval(timer);
-      timer = null;
+    tick: () => {
+      void runOnce().catch((error: unknown) => {
+        options.logger.error({ error }, 'Dimension index maintenance failed');
+      });
     },
+  });
+
+  return {
+    close: trigger.close,
+    runOnce,
+    start: trigger.start,
+    stop: trigger.stop,
   };
 }

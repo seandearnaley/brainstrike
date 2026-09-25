@@ -484,6 +484,18 @@ describe('DesktopDimensionIndexMaintenanceScheduler admission', () => {
     harness.scheduler.stop();
   });
 
+  it('keeps the original quiet window when start is called again', async () => {
+    const harness = createHarness();
+    await harness.scheduler.start();
+    harness.advance(14_000);
+    await harness.scheduler.start();
+    harness.advance(2000);
+
+    await expect(harness.scheduler.runOnce()).resolves.toMatchObject({ status: 'completed' });
+    harness.scheduler.stop();
+    await harness.scheduler.close();
+  });
+
   it.for([
     { backgroundTasks: 0, runs: 1 },
     { backgroundTasks: 2, runs: 0 },

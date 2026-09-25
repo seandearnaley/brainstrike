@@ -68,6 +68,16 @@ Evidence: `effect-boundary/desktop-composition-root.md`.
 Decision: `docs/adr/0005-desktop-composition-root.md`.
 Guard: `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
+### Desktop maintenance scopes
+
+- Effect scopes own maintenance triggers and subscriptions, never admitted SQL.
+  Stop fences automatic dispatch synchronously; close joins finalizers before DB drain.
+- Preserve native unref interval cadence, separate admission policies and reset barriers;
+  failed acquisition releases its resources, and cleanup failures stay visible.
+
+Decision: `docs/adr/0006-scoped-desktop-maintenance.md`. Evidence: `effect-boundary/desktop-maintenance-runtime.md`.
+Guard: `apps/desktop/src/__tests__/maintenance-trigger-runtime.test.ts`, `scripts/__tests__/effect-boundary-contract.test.mjs`.
+
 ### Schema at boundaries
 
 - Decode PGlite rows, worker messages, and main-only IPC payloads with Effect

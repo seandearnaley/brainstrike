@@ -102,7 +102,7 @@ const CONTRACT_LINE_BUDGETS = {
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
-  'effect-boundary.md': 95,
+  'effect-boundary.md': 105,
   'explorer-search-tapestry.md': 638,
   'issue-tracker.md': 56,
   'local-inference.md': 403,
