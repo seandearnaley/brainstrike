@@ -841,8 +841,8 @@ subscription OAuth is PERMANENTLY REJECTED).
   resolving an OAuth credential.
 - Refresh is single-flight per provider (rotating refresh tokens are never
   replayed), proactive inside a 120s skew, and persists rotation; a server-omitted
-  refresh token keeps the old one. Every engine fetch runs under the flow's
-  AbortSignal plus a 30s per-request timeout.
+  refresh token keeps the old one. Fetch and body read share a 30s deadline;
+  cancellation aborts fetch and cannot accept a late response.
 - `invalid_grant`/revoked yields typed `reconnect_required` and KEEPS the stored
   credential — the user disconnects or reconnects explicitly, and nothing ever
   retry-loops. Rotation-then-persist-failure holds the rotated pair in memory as
