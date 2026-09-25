@@ -530,7 +530,10 @@ test('both desktop maintenance schedulers delegate trigger resources to the scop
 
 test('provider auth owns fetch and body deadlines at one Effect boundary', () => {
   const contract = readRepoFile('docs/agents/effect-boundary.md');
-  assert.match(contract, /Provider auth bounds fetch and body reading together/u);
+  assert.match(
+    contract,
+    /Provider auth and assistant provider probes bound fetch and body reading together/u
+  );
   for (const name of ['device-flow', 'oauth-flow', 'refresh']) {
     const source = readRepoFile(`apps/desktop/src/provider-auth/${name}.ts`);
     assert.match(source, /guardedFetchText\(/u, `${name} uses the complete response boundary`);
@@ -538,6 +541,20 @@ test('provider auth owns fetch and body deadlines at one Effect boundary', () =>
   }
   const guard = readRepoFile('apps/desktop/src/provider-auth/fetch-guards.ts');
   assert.match(guard, /runAtPromiseBoundary\(/u);
+});
+
+test('assistant provider probes own complete response deadlines at one Effect boundary', () => {
+  const contract = readRepoFile('docs/agents/effect-boundary.md');
+  assert.match(contract, /assistant provider probes bound fetch and body reading together/u);
+  assert.match(contract, /effect-boundary\/provider-probe-lifetimes\.md/u);
+  for (const name of ['provider-verification', 'openrouter-model-metadata']) {
+    const source = readRepoFile(`apps/desktop/src/assistant-server/${name}.ts`);
+    assert.match(source, /Effect\.tryPromise\(/u, `${name} wraps fetch and body`);
+    assert.match(source, /Effect\.timeoutOrElse\(/u, `${name} has a deadline`);
+    assert.match(source, /runAtPromiseBoundary\(/u, `${name} crosses once to Promise callers`);
+    assert.match(source, /signal\.throwIfAborted\(\)/u, `${name} fences late bodies`);
+    assert.doesNotMatch(source, /\bsetTimeout\(/u, `${name} cannot keep an unbounded timer`);
+  }
 });
 
 test('parser host Schema stays in main and utility consumers', () => {

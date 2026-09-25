@@ -48,10 +48,10 @@ Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`,
   failed step never skips a later one; at the deadline the running step aborts.
 - Retry token-cache transactions with `Effect.retry` and a bounded `Schedule`:
   preserve rollback, failure identity and logs; reject out-of-range delays.
-- Provider auth bounds fetch and body reading together; cancellation aborts fetch
-  and polling sleeps, preserving typed failures and adapter-owned outcomes.
+- Provider auth and assistant provider probes bound fetch and body reading together;
+  cancellation aborts fetch and polling sleeps, preserving typed failures, verdicts and cache provenance.
 
-Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`.
+Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`.
 Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`,
 `timeout.test.ts`, `shutdown-sequence.test.ts`.
 

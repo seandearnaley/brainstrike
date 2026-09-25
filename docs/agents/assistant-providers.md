@@ -603,9 +603,9 @@ Guard: `packages/agent/src/__tests__/{provider-factory.auth-input,runtime-config
 - `apps/desktop/src/assistant-server/provider-verification.ts` runs the cheapest
   authenticated call that proves a stored credential: bounded TTL cache with
   `live`/`fresh-cache` provenance, single-flight per (provider, credential
-  digest), 10s timeout, NO retries. Only `verified`/`verified_limited` earn the
-  60s success TTL; failures cache for 3s (click-storm dedup only), and the cache
-  timestamp is sampled AFTER the probe resolves.
+  digest), 10s fetch-and-body timeout even if abort is ignored, NO retries.
+  Only `verified`/`verified_limited` earn the 60s success TTL; failures get
+  a 3s click-storm cache. Sample the timestamp AFTER the probe resolves.
 - Exposed as `GET /assistant/verify-provider?provider=<id>` behind the same
   origin/auth gates as the metadata endpoint. The renderer sends only the
   provider id; credentials resolve main-side through the typed reader.
