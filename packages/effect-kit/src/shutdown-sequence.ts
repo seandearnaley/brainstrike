@@ -42,6 +42,7 @@ export interface ShutdownSequenceReport {
   readonly timedOut: boolean;
 }
 
+/** The options error to reject with, or null: a bad deadline, or empty or duplicate step names. */
 function validate(steps: readonly ShutdownStep[], deadlineMs: number): Error | null {
   if (!(Number.isFinite(deadlineMs) && deadlineMs > 0)) {
     return new RangeError(

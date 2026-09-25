@@ -2077,6 +2077,10 @@ if (singleInstanceLockAcquired) {
             logger.debug(payload, 'main-process-health');
           }
         }, 30_000).unref();
+        // Deliberately never stopped: it and the watchdog below keep reporting
+        // THROUGH graceful shutdown, whose hangs they exist to diagnose. Both
+        // are unref'd, and after the 'database' step the stopped
+        // processCounterSampler turns each tick's sample into a no-op.
       }
 
       // ---------------------------------------------------------------

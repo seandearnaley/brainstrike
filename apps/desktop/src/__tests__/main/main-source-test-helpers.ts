@@ -15,6 +15,7 @@ export interface MainSourceSections {
 
 const STEP_KEY = /\n {6}(?:'[a-z-]+'|[a-z]+): /g;
 
+/** Reads `main.ts` and slices out the shutdown plan for source-text wiring tests. */
 export function readMainSourceSections(): MainSourceSections {
   const source = readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
   const planStart = source.indexOf('function planDesktopShutdownRun');

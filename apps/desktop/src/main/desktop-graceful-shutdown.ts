@@ -74,12 +74,19 @@ export interface DesktopGracefulShutdown {
   run(trigger: DesktopShutdownTrigger, forcedExitTrigger: DesktopForcedExitTrigger): Promise<void>;
 }
 
+/** A failed step as the serialized record the aggregate warn logs; null on success. */
 function toFailure(outcome: ShutdownStepOutcome): SerializedDesktopError | null {
   return outcome.outcome === 'failed'
     ? { step: outcome.step, ...serializeDesktopError(outcome.error) }
     : null;
 }
 
+/**
+ * Builds desktop main's one graceful-shutdown runner. `run()` latches the
+ * shutdown flag, retires background admission, and runs
+ * `DESKTOP_SHUTDOWN_STEP_ORDER` once under `deadlineMs`, with an unref'd
+ * backstop so the exit stays bounded even if the orchestration itself fails.
+ */
 export function createDesktopGracefulShutdown(
   options: DesktopGracefulShutdownOptions
 ): DesktopGracefulShutdown {

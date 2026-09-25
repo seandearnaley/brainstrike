@@ -24,6 +24,7 @@ interface LedgerScan {
   readonly unledgered: readonly string[];
 }
 
+/** True for an `ipcDisposers.add(...)` call. */
 function isLedgerAdd(call: CallExpression): boolean {
   const callee = call.expression;
   return (
