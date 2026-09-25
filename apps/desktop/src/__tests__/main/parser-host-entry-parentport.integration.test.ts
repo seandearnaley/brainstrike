@@ -139,4 +139,21 @@ describe('parser-host-entry parentPort wiring', () => {
     const sent = parentPort.postMessage.mock.calls[0]?.[0] as ParserHostParseResponse;
     expect(sent.requestId).toBe('preserved-id');
   });
+
+  it.each([
+    ['array request', Object.assign([], validRequest)],
+    ['array options', { ...validRequest, options: Object.assign([], validRequest.options) }],
+  ])('rejects an %s with the same malformed-envelope response', async (_name, payload) => {
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../parser-host-entry');
+
+    listeners[0]?.(payload);
+    await flushMicrotasks();
+
+    expect(parentPort.postMessage).toHaveBeenCalledExactlyOnceWith({
+      error: 'Malformed parser host request envelope.',
+      ok: false,
+      requestId: 'req-1',
+    });
+  });
 });

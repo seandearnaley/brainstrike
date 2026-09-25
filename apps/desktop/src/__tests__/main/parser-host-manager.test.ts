@@ -10,7 +10,7 @@
 
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ParserHostParseRequest, ParserHostParseResponse } from '../../parser-host-shared';
+import type { ParserHostParseRequest } from '../../parser-host-shared';
 
 class FakeUtilityProcess extends EventEmitter {
   readonly kill = vi.fn(() => true);
@@ -20,7 +20,7 @@ class FakeUtilityProcess extends EventEmitter {
   readonly messages: ParserHostParseRequest[] = [];
   pid: number | undefined = 42;
 
-  reply(response: ParserHostParseResponse): void {
+  reply(response: unknown): void {
     this.emit('message', response);
   }
 
@@ -194,6 +194,55 @@ describe('ParserHostManager', () => {
 
     host.reply({ ok: true, requestId: 'req-1', root: { type: 'Program' } });
     await expect(parsePromise).resolves.toMatchObject({ ok: true });
+  });
+
+  it.each([
+    ['success without root', { ok: true, requestId: 'req-1' }],
+    ['success with array root', { ok: true, requestId: 'req-1', root: [] }],
+    [
+      'success with source text instead of a root',
+      { ok: true, requestId: 'req-1', root: 'private user source text' },
+    ],
+    ['failure without error', { ok: false, requestId: 'req-1' }],
+    ['failure with non-string error', { error: 42, ok: false, requestId: 'req-1' }],
+  ])('ignores %s, logs only shape, and lets the known request time out', async (_name, frame) => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js', requestTimeoutMs: 10 });
+    const parsePromise = manager.parse(baseRequest);
+
+    latestProcess().reply(frame);
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'Ignored malformed parser host message',
+      expect.objectContaining({ messageType: 'object' })
+    );
+    expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('private user source text');
+    await expect(parsePromise).resolves.toEqual({
+      error: 'parser host timeout after 10ms',
+      ok: false,
+      requestId: 'req-1',
+    });
+  });
+
+  it('passes through a valid response and its opaque AST descendants unchanged', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    const parsePromise = manager.parse(baseRequest);
+    const root = {
+      body: [{ deeplyNested: { content: 'user source text' } }],
+      end: 10,
+      start: 0,
+      type: 'Program',
+    };
+
+    latestProcess().reply({ ok: true, requestId: 'req-1', root });
+
+    const response = await parsePromise;
+    expect(response).toEqual({ ok: true, requestId: 'req-1', root });
+    if (response.ok) {
+      expect(response.root).toBe(root);
+    }
+    expect(loggerWarnMock).not.toHaveBeenCalled();
   });
 
   it('bounds the shape summary when the shape itself carries the payload', async () => {

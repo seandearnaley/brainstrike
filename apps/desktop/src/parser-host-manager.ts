@@ -18,6 +18,7 @@
 import { createLogger } from '@brainstrike/logging';
 import { type UtilityProcess, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
+import { isParserHostParseResponse } from './parser-host-schema';
 import type { ParserHostParseRequest, ParserHostParseResponse } from './parser-host-shared';
 import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 
@@ -79,17 +80,6 @@ function summarizeMalformedMessage(value: unknown): Record<string, unknown> {
     messageType: 'object',
     ...(typeof record['type'] === 'string' ? { type: truncateForLog(record['type']) } : {}),
   };
-}
-
-function isParserHostParseResponse(value: unknown): value is ParserHostParseResponse {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    'requestId' in value &&
-    typeof (value as { requestId?: unknown }).requestId === 'string' &&
-    'ok' in value &&
-    typeof (value as { ok?: unknown }).ok === 'boolean'
-  );
 }
 
 export class ParserHostManager {
