@@ -672,7 +672,7 @@ Guard: `scripts/__tests__/verify-stryker-mutation-contracts.test.mjs`.
   clean worktree.
 
 Settled: the side-by-side topology; two aliases of plain `typescript` make the
-`tsc` bin ambiguous. Evidence: `ci-quality/typescript-side-by-side.md`.
+`tsc` bin ambiguous. Evidence: `ci-quality/typescript-side-by-side.md`, `ci-quality/lsp-webgpu-fixture.md`.
 Guard: `scripts/__tests__/typescript-compiler-wiring.test.mjs`,
 `apps/desktop/src/__tests__/build-main-config.test.ts`.
 
