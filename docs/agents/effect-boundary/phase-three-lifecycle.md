@@ -75,7 +75,10 @@ The owner chose the narrowed scope below on 2026-09-24.
   deadline still fires first on a stuck step and names it. The backstop is
   cleared when the run finishes or the step deadline has fired. `run()` never
   rejects: an orchestration failure is logged, and callers go on to quit.
-  Disabling the backstop fails both orchestration-failure tests.
+  Disabling the backstop fails both orchestration-failure tests. Only the
+  first run arms it, so a signal arriving after a finished run cannot leave a
+  stray timer. A throwing logger can neither cancel the forced exit nor make
+  `run()` reject (second review of #3305).
 - **The error-log sink closes even if the failure warn throws.** The warn runs
   inside the `error-log-sink` step, so the close sits in a `finally`.
 

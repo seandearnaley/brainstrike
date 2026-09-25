@@ -285,6 +285,37 @@ describe('desktop graceful shutdown', () => {
     await expect(shutdown.run('before-quit', 'before-quit')).resolves.toBeUndefined();
   });
 
+  it('does not re-arm the backstop for a trigger after the run finished', async () => {
+    const { options } = createHarness({}, { deadlineMs: 20 });
+    const shutdown = createDesktopGracefulShutdown(options);
+
+    await shutdown.run('before-quit', 'before-quit');
+    // A late signal after before-quit completed joins the finished run.
+    await shutdown.run('signal', 'SIGTERM');
+    await wait(20 + DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS + 50);
+
+    expect(options.exitProcess).not.toHaveBeenCalled();
+  });
+
+  it('still forces the exit when logging the forced exit throws', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { logger, options } = createHarness({}, { deadlineMs: 5000 });
+    logger.error.mockImplementation(() => {
+      throw new Error('logger broke');
+    });
+    const shutdown = createDesktopGracefulShutdown({
+      ...options,
+      planRun: () => {
+        throw new Error('plan failed');
+      },
+    });
+
+    await shutdown.run('signal', 'SIGTERM');
+    vi.advanceTimersByTime(5000 + DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS);
+
+    expect(options.exitProcess).toHaveBeenCalledWith(1);
+  });
+
   it('still closes the error-log sink when the failure warn throws', async () => {
     const { events, logger, options } = createHarness({
       database: () => Promise.reject(new Error('close failed')),

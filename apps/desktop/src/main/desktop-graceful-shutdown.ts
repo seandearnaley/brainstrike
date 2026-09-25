@@ -87,6 +87,17 @@ export function createDesktopGracefulShutdown(
   let running: Promise<void> | null = null;
   let backstop: ReturnType<typeof setTimeout> | null = null;
 
+  // A throwing logger must never cancel the exit, and rethrowing its error
+  // from a timer would only add an uncaught exception to a dying process.
+  const forceExit = (data: Record<string, unknown>): void => {
+    try {
+      logger.error('Timed out waiting for graceful shutdown; forcing exit', data);
+    } catch {
+      // The exit below is what matters; there is nowhere left to report this.
+    }
+    exitProcess(1);
+  };
+
   // Armed before anything that can throw, so a broken orchestration still
   // exits within the budget. Unref'd: it never holds the process open itself.
   const armBackstop = (forcedExitTrigger: DesktopForcedExitTrigger): void => {
@@ -94,12 +105,7 @@ export function createDesktopGracefulShutdown(
       return;
     }
     backstop = setTimeout(() => {
-      logger.error('Timed out waiting for graceful shutdown; forcing exit', {
-        backstop: true,
-        inFlightStep: null,
-        trigger: forcedExitTrigger,
-      });
-      exitProcess(1);
+      forceExit({ backstop: true, inFlightStep: null, trigger: forcedExitTrigger });
     }, deadlineMs + DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS);
     backstop.unref?.();
   };
@@ -161,11 +167,7 @@ export function createDesktopGracefulShutdown(
       deadlineMs,
       now: options.now,
       onDeadline: (inFlight) => {
-        logger.error('Timed out waiting for graceful shutdown; forcing exit', {
-          inFlightStep: inFlight,
-          trigger: forcedExitTrigger,
-        });
-        exitProcess(1);
+        forceExit({ inFlightStep: inFlight, trigger: forcedExitTrigger });
       },
       onStepSettled: recordSettled,
     });
@@ -195,7 +197,11 @@ export function createDesktopGracefulShutdown(
 
   return {
     run: async (trigger, forcedExitTrigger) => {
-      armBackstop(forcedExitTrigger);
+      // Only the first run arms it: a later trigger joins a run that already
+      // has one, or that finished and cleared it.
+      if (!running) {
+        armBackstop(forcedExitTrigger);
+      }
       // Latch before any teardown so work torn down mid-flight (an in-flight
       // embedding backfill, say) logs as a benign stop, not a failure.
       markShuttingDown();
@@ -213,11 +219,15 @@ export function createDesktopGracefulShutdown(
         },
         (error: unknown) => {
           // The steps may not have run; the armed backstop keeps the exit
-          // bounded, and callers still go on to quit.
-          logger.error('Graceful shutdown orchestration failed', {
-            error: serializeDesktopError(error),
-            trigger,
-          });
+          // bounded, and callers still go on to quit — even if this log throws.
+          try {
+            logger.error('Graceful shutdown orchestration failed', {
+              error: serializeDesktopError(error),
+              trigger,
+            });
+          } catch {
+            // run() must not reject; the backstop still bounds the exit.
+          }
         }
       );
       await running;
