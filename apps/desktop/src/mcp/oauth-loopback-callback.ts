@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
+import { Effect, Exit, Scope } from 'effect';
 import {
   reportLoopbackListenerFault,
   reportUnavailableLoopbackPort,
@@ -8,6 +10,8 @@ export const DEFAULT_CALLBACK_PATH = '/mcp/oauth/callback';
 const MAX_CALLBACK_URL_BYTES = 16 * 1024;
 const AUTHORIZATION_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 const LOOPBACK_HOST = '127.0.0.1';
+const CANCELLED_MESSAGE = 'MCP OAuth authorization was cancelled.';
+const TIMEOUT_MESSAGE = 'MCP OAuth authorization callback timed out.';
 
 export interface LoopbackCallback {
   arm(expectedState: string): Promise<void>;
@@ -19,9 +23,17 @@ export interface LoopbackCallback {
   wait(): Promise<URLSearchParams>;
 }
 
-interface PendingCallback {
-  readonly reject: (error: Error) => void;
-  readonly resolve: (params: URLSearchParams) => void;
+type AttemptOutcome =
+  | { readonly kind: 'success'; readonly params: URLSearchParams }
+  | { readonly kind: 'failure'; readonly error: Error }
+  | { readonly kind: 'closing-timeout' };
+
+interface Attempt {
+  claimed: boolean;
+  expectedState?: string;
+  outcome?: AttemptOutcome;
+  resume?: ((effect: Effect.Effect<URLSearchParams, Error>) => void) | undefined;
+  timer?: ReturnType<typeof setTimeout> | undefined;
 }
 
 function applyCallbackHeaders(response: ServerResponse): void {
@@ -33,20 +45,27 @@ function applyCallbackHeaders(response: ServerResponse): void {
 
 async function listenOnLoopback(server: Server, port: number): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const onError = (cause: Error): void => reject(cause);
-    server.once('error', onError);
-    server.listen(port, LOOPBACK_HOST, () => {
+    const removeErrorListener = (): void => {
       server.removeListener('error', onError);
-      resolve();
-    });
+    };
+    const onError = (cause: Error): void => {
+      removeErrorListener();
+      reject(cause);
+    };
+    server.once('error', onError);
+    try {
+      server.listen(port, LOOPBACK_HOST, () => {
+        removeErrorListener();
+        resolve();
+      });
+    } catch (cause) {
+      removeErrorListener();
+      reject(cause);
+    }
   });
 }
 
-/**
- * Rebinds the persisted port so the dynamic-registration redirect URI survives a
- * relaunch. A port another process now owns forces a fresh one, which
- * invalidates the registration — reported, never absorbed.
- */
+/** Rebind the persisted port; a busy port is reported before retrying fresh. */
 async function bindLoopback(server: Server, preferredPort: number | undefined): Promise<void> {
   if (preferredPort !== undefined) {
     try {
@@ -64,12 +83,74 @@ export async function startLoopbackCallback(
   preferredPort: number | undefined
 ): Promise<LoopbackCallback> {
   let port = 0;
-  let expectedState: string | undefined;
-  let pending: PendingCallback | undefined;
-  let pendingTimeout: ReturnType<typeof setTimeout> | undefined;
-  let settled = false;
   let closed = false;
-  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+  let bound = false;
+  let attempt: Attempt = { claimed: false };
+  let closeServerPromise: Promise<void> | undefined;
+  let closePromise: Promise<void> | undefined;
+  let reportBoundError: ((cause: Error) => void) | undefined;
+  const activeWaits = new Set<Promise<URLSearchParams>>();
+  const scope = Scope.makeUnsafe();
+
+  const deliver = (current: Attempt): void => {
+    const outcome = current.outcome;
+    if (!outcome || outcome.kind === 'closing-timeout' || !current.resume) {
+      return;
+    }
+    current.resume(
+      outcome.kind === 'success' ? Effect.succeed(outcome.params) : Effect.fail(outcome.error)
+    );
+  };
+  const settle = (current: Attempt, outcome: AttemptOutcome): void => {
+    if (current.outcome) {
+      return;
+    }
+    current.outcome = outcome;
+    deliver(current);
+  };
+  const releaseServer = async (server: Server): Promise<void> => {
+    let closeCallbackCompleted = false;
+    try {
+      if (!bound) {
+        return;
+      }
+      const closing = new Promise<void>((resolve, reject) => {
+        try {
+          server.close((error?: Error) => {
+            closeCallbackCompleted = true;
+            if (error) {
+              reject(error);
+            } else {
+              resolve();
+            }
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
+      const connections = Promise.resolve().then((): void => server.closeAllConnections());
+      const results = await Promise.allSettled([closing, connections]);
+      const failures = results.flatMap((result): unknown[] =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(failures, 'MCP OAuth listener cleanup failed');
+      }
+    } finally {
+      if (closeCallbackCompleted && reportBoundError) {
+        server.removeListener('error', reportBoundError);
+      }
+    }
+  };
+  const closeServer = (): Promise<void> => {
+    closeServerPromise ??= runAtPromiseBoundary(Scope.close(scope, Exit.void));
+    return closeServerPromise;
+  };
+
+  const serverHandler = (request: IncomingMessage, response: ServerResponse): void => {
     applyCallbackHeaders(response);
     const host = request.headers.host;
     if (host !== `${LOOPBACK_HOST}:${port}` && host !== `localhost:${port}`) {
@@ -87,7 +168,11 @@ export async function startLoopbackCallback(
         .end('Invalid callback');
       return;
     }
-    if (expectedState === undefined || url.searchParams.get('state') !== expectedState) {
+    if (
+      closed ||
+      attempt.expectedState === undefined ||
+      url.searchParams.get('state') !== attempt.expectedState
+    ) {
       response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end('Invalid state');
       return;
     }
@@ -95,84 +180,131 @@ export async function startLoopbackCallback(
       'content-type': 'text/plain; charset=utf-8',
     });
     response.end(url.searchParams.has('code') ? 'Authorization received' : 'Authorization failed');
-    if (settled) {
-      return;
-    }
-    settled = true;
-    const current = pending;
-    pending = undefined;
-    if (pendingTimeout) {
-      clearTimeout(pendingTimeout);
-      pendingTimeout = undefined;
-    }
-    current?.resolve(new URLSearchParams(url.searchParams));
-  });
-
-  const teardown = async (): Promise<void> => {
-    if (closed) {
-      return;
-    }
-    closed = true;
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
-      server.closeAllConnections();
-    });
+    settle(attempt, { kind: 'success', params: new URLSearchParams(url.searchParams) });
   };
-  await bindLoopback(server, preferredPort);
-  // `bindLoopback` must not leave its bind-time rejector attached — it would
-  // survive as a stale rejector across the retry — which leaves the bound server
-  // with zero `'error'` listeners. Node throws an unhandled `'error'` event, so
-  // a later accept-path fault would crash Electron main instead of failing this
-  // OAuth callback. Reported, never silently absorbed and never rethrown.
-  server.on('error', (cause: Error) => reportLoopbackListenerFault(port, cause));
-  const address = server.address();
-  if (!address || typeof address === 'string') {
-    await teardown();
-    throw new Error('MCP OAuth loopback server did not expose a bound port.');
+
+  let server: Server;
+  try {
+    server = await runAtPromiseBoundary(
+      Effect.provideService(
+        Effect.acquireRelease(
+          Effect.sync(() => createServer(serverHandler)),
+          (owned: Server) => Effect.promise(() => releaseServer(owned))
+        ),
+        Scope.Scope,
+        scope
+      )
+    );
+    await bindLoopback(server, preferredPort);
+    bound = true;
+    reportBoundError = (cause: Error): void => reportLoopbackListenerFault(port, cause);
+    server.on('error', reportBoundError);
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('MCP OAuth loopback server did not expose a bound port.');
+    }
+    port = address.port;
+  } catch (error) {
+    try {
+      await closeServer();
+    } catch (closeError) {
+      throw new AggregateError(
+        [error, closeError],
+        'MCP OAuth loopback startup and cleanup failed'
+      );
+    }
+    throw error;
   }
-  port = address.port;
 
   return {
-    arm: async (state) => {
-      if (expectedState !== undefined && !settled) {
+    arm: async (state: string): Promise<void> => {
+      if (closed) {
+        throw new Error('MCP OAuth loopback callback is closed.');
+      }
+      if (attempt.expectedState !== undefined && !attempt.outcome) {
         throw new Error('MCP OAuth loopback callback is already armed.');
       }
-      expectedState = state;
-      settled = false;
-    },
-    cancel: () => {
-      if (settled) {
-        return;
+      if (attempt.outcome) {
+        attempt = { claimed: false, expectedState: state };
+      } else {
+        attempt.expectedState = state;
       }
-      settled = true;
-      const current = pending;
-      pending = undefined;
-      if (pendingTimeout) {
-        clearTimeout(pendingTimeout);
-        pendingTimeout = undefined;
-      }
-      current?.reject(new Error('MCP OAuth authorization was cancelled.'));
     },
-    close: teardown,
+    cancel: (): void => settle(attempt, { error: new Error(CANCELLED_MESSAGE), kind: 'failure' }),
+    close: (): Promise<void> => {
+      if (closePromise) {
+        return closePromise;
+      }
+      closed = true;
+      settle(attempt, { error: new Error(CANCELLED_MESSAGE), kind: 'failure' });
+      const serverClose = closeServer();
+      const waits = [...activeWaits];
+      closePromise = Promise.allSettled([serverClose, ...waits]).then((results): void => {
+        const result = results[0];
+        if (result?.status === 'rejected') {
+          throw result.reason;
+        }
+      });
+      return closePromise;
+    },
     port,
     redirectUrl: `http://${LOOPBACK_HOST}:${port}${pathname}`,
-    wait: () =>
-      new Promise<URLSearchParams>((resolve, reject) => {
-        if (settled) {
-          reject(new Error('MCP OAuth callback wait is not active.'));
-          return;
-        }
-        pending = { reject, resolve };
-        pendingTimeout = setTimeout(() => {
-          if (settled) {
+    wait: (): Promise<URLSearchParams> => {
+      if (closed || attempt.outcome) {
+        return Promise.reject(new Error('MCP OAuth callback wait is not active.'));
+      }
+      if (attempt.claimed) {
+        return Promise.reject(new Error('MCP OAuth callback wait is already active.'));
+      }
+      const current = attempt;
+      current.claimed = true;
+      const waitEffect = Effect.ensuring(
+        Effect.callback<URLSearchParams, Error>((resume) => {
+          current.resume = resume;
+          if (current.outcome) {
+            deliver(current);
             return;
           }
-          settled = true;
-          pending = undefined;
-          pendingTimeout = undefined;
-          reject(new Error('MCP OAuth authorization callback timed out.'));
-          void teardown();
-        }, AUTHORIZATION_CALLBACK_TIMEOUT_MS);
-      }),
+          current.timer = setTimeout(() => {
+            if (current.outcome) {
+              return;
+            }
+            closed = true;
+            current.outcome = { kind: 'closing-timeout' };
+            void closeServer().then(
+              (): void => {
+                current.outcome = { error: new Error(TIMEOUT_MESSAGE), kind: 'failure' };
+                deliver(current);
+              },
+              (cause: unknown): void => {
+                current.outcome = {
+                  error: new Error(TIMEOUT_MESSAGE, { cause }),
+                  kind: 'failure',
+                };
+                deliver(current);
+              }
+            );
+          }, AUTHORIZATION_CALLBACK_TIMEOUT_MS);
+        }),
+        Effect.sync((): void => {
+          if (current.timer) {
+            clearTimeout(current.timer);
+            current.timer = undefined;
+          }
+          current.resume = undefined;
+        })
+      );
+      const waiting = runAtPromiseBoundary(waitEffect);
+      activeWaits.add(waiting);
+      void waiting.then(
+        (): void => {
+          activeWaits.delete(waiting);
+        },
+        (): void => {
+          activeWaits.delete(waiting);
+        }
+      );
+      return waiting;
+    },
   };
 }
