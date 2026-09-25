@@ -48,12 +48,12 @@ Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`,
   failed step never skips a later one; at the deadline the running step aborts.
 - Retry token-cache transactions with `Effect.retry` and a bounded `Schedule`:
   preserve rollback, failure identity and logs; reject out-of-range delays.
-- Provider auth and assistant provider probes bound fetch and body reading together;
-  cancellation aborts fetch and polling sleeps, preserving typed failures, verdicts and cache provenance.
+- Provider auth and assistant provider probes bound fetch and body reading together; cancellation aborts fetch and polling sleeps, preserving typed failures, verdicts and cache provenance.
+- The MCP OAuth callback Scope owns listener teardown; each wait uses `Effect.ensuring` for timer cleanup, and close joins all active waits.
 
-Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`.
+Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`, `effect-boundary/mcp-oauth-callback-scope.md`.
 Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`,
-`timeout.test.ts`, `shutdown-sequence.test.ts`.
+`timeout.test.ts`, `shutdown-sequence.test.ts`, `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
 ### Desktop composition refactors
 
@@ -82,10 +82,11 @@ Guard: `apps/desktop/src/__tests__/maintenance-trigger-runtime.test.ts`, `script
 
 - Decode PGlite rows, worker messages, and main-only IPC payloads with Effect
   Schema on arrival; derive row types, never cast. Check cross-field invariants in code.
-- Preserve field messages; throwing boundaries use `makeThrowingDecoder` (`TypeError`
-  with path and `SchemaError` cause), except Python manifests retain `PythonManifestInvalidError`; missing targets stay unsupported-platform errors.
-- Count affected rows from `RETURNING`, never a driver row count. Why: the
-  desktop DB host surfaces only `rows`.
+- Each field schema's `message` is its old hand-check sentence. Throwing code uses
+  `makeThrowingDecoder`: `TypeError` with message/path and `SchemaError` cause.
+  Python manifests map issue paths to legacy `PythonManifestInvalidError` messages;
+  missing targets stay unsupported-platform errors.
+- Count affected rows from `RETURNING`, never a driver row count. Why: the desktop DB host surfaces only `rows`.
 - An id the renderer mints is a type-only `Brand.Brand`, asserted once by its
   sole producer and guard-pinned: Schema decoding adds about 74 KB gzipped.
 
@@ -98,7 +99,6 @@ Guard: `packages/db/__tests__/mcp-task-row-schema.test.ts`,
 
 - Each package depending on `effect` adds the `@effect/language-service` plugin
   to `tsconfig.json` and ends `type-check` with `effect-tsgo diagnostics --project <widest tsconfig> --strict` (`tsconfig.test.json` if present).
-- Never run `effect-tsgo patch`: it rewrites shared TypeScript 7 `tsc`, pinned by
-  `ci-quality.md` § "TypeScript 7 CLI with the TypeScript 6 compatibility API".
+- Never run `effect-tsgo patch`: it rewrites shared TypeScript 7 `tsc`, pinned by `ci-quality.md` § "TypeScript 7 CLI with the TypeScript 6 compatibility API".
 
 Guard: `scripts/__tests__/effect-boundary-contract.test.mjs`.

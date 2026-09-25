@@ -557,6 +557,20 @@ test('assistant provider probes own complete response deadlines at one Effect bo
   }
 });
 
+test('MCP OAuth callback scope closes its server and every claimed wait', () => {
+  const contract = readRepoFile('docs/agents/effect-boundary.md');
+  const source = readRepoFile('apps/desktop/src/mcp/oauth-loopback-callback.ts');
+  assert.match(contract, /MCP OAuth callback Scope owns listener teardown/u);
+  assert.match(contract, /effect-boundary\/mcp-oauth-callback-scope\.md/u);
+  assert.match(source, /Effect\.acquireRelease\(/u);
+  assert.match(source, /Scope\.close\(scope, Exit\.void\)/u);
+  assert.match(source, /Effect\.callback<URLSearchParams, Error>/u);
+  assert.match(source, /Effect\.ensuring\(/u);
+  assert.match(source, /Promise\.allSettled\(\[serverClose, \.\.\.waits\]\)/u);
+  assert.match(source, /runAtPromiseBoundary\(/u);
+  assert.doesNotMatch(source, /pendingTimeout|const teardown\s*=/u);
+});
+
 test('parser host Schema stays in main and utility consumers', () => {
   const shared = readRepoFile('apps/desktop/src/parser-host-shared.ts');
   assert.doesNotMatch(shared, /from ['"]effect['"]/u);
@@ -574,6 +588,10 @@ test('parser host Schema stays in main and utility consumers', () => {
 });
 
 test('Python manifest decodes with Schema and keeps its domain error boundary', () => {
+  assert.match(
+    readRepoFile('docs/agents/effect-boundary.md'),
+    /Each field schema's `message` is its old hand-check sentence/u
+  );
   const source = readRepoFile('apps/desktop/src/python-runtime/resolve-python-binary.ts');
   assert.match(source, /const manifestSchema = Schema\.Struct\(/u);
   assert.match(source, /targets: Schema\.Record\(Schema\.String, manifestTargetSchema\)/u);
