@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DesktopShutdownRunPlan } from '../../main/desktop-graceful-shutdown';
 
 /**
  * Startup-latency contract: the visible window must NOT wait on database
@@ -153,7 +154,8 @@ vi.mock('electron-store', () => {
   return { default: MockElectronStore };
 });
 
-const { getDatabaseMock } = vi.hoisted(() => ({
+const { closeDatabaseMock, getDatabaseMock } = vi.hoisted(() => ({
+  closeDatabaseMock: vi.fn(async (): Promise<void> => undefined),
   getDatabaseMock: vi.fn(),
 }));
 
@@ -161,9 +163,39 @@ vi.mock('../../db-main', async () => {
   const actual = await vi.importActual<typeof import('../../db-main')>('../../db-main');
   return {
     ...actual,
+    closeDatabase: closeDatabaseMock,
     getDatabase: getDatabaseMock,
   };
 });
+
+const { cleanupSubscriptionsMock, waitForDatabaseIdleMock } = vi.hoisted(() => ({
+  cleanupSubscriptionsMock: vi.fn(async (): Promise<void> => undefined),
+  waitForDatabaseIdleMock: vi.fn(async (): Promise<void> => undefined),
+}));
+
+vi.mock('../../ipc-handlers', async () => {
+  const actual = await vi.importActual<typeof import('../../ipc-handlers')>('../../ipc-handlers');
+  return {
+    ...actual,
+    cleanupDesktopLiveSubscriptionsForShutdown: cleanupSubscriptionsMock,
+    waitForDesktopDatabaseWorkSchedulerIdle: waitForDatabaseIdleMock,
+  };
+});
+
+const { shutdownPlanCapture } = vi.hoisted(() => ({
+  shutdownPlanCapture: {
+    current: null as null | (() => DesktopShutdownRunPlan),
+  },
+}));
+
+vi.mock('../../main/desktop-graceful-shutdown', () => ({
+  createDesktopGracefulShutdown: vi.fn(
+    (options: { readonly planRun: () => DesktopShutdownRunPlan }) => {
+      shutdownPlanCapture.current = options.planRun;
+      return { run: vi.fn(async () => undefined) };
+    }
+  ),
+}));
 
 const { probeMock } = vi.hoisted(() => ({
   probeMock: vi.fn(async () => ({
@@ -197,22 +229,35 @@ vi.mock('../../desktop-shutdown-state', async () => {
   };
 });
 
-const { databaseSchedulerStartMock, dimensionSchedulerStartMock } = vi.hoisted(() => ({
+const {
+  databaseSchedulerCloseMock,
+  databaseSchedulerStartMock,
+  databaseSchedulerStopMock,
+  dimensionSchedulerCloseMock,
+  dimensionSchedulerStartMock,
+  dimensionSchedulerStopMock,
+} = vi.hoisted(() => ({
+  databaseSchedulerCloseMock: vi.fn(async (): Promise<void> => undefined),
   databaseSchedulerStartMock: vi.fn(),
+  databaseSchedulerStopMock: vi.fn(),
+  dimensionSchedulerCloseMock: vi.fn(async (): Promise<void> => undefined),
   dimensionSchedulerStartMock: vi.fn(),
+  dimensionSchedulerStopMock: vi.fn(),
 }));
 
 vi.mock('../../database-maintenance-scheduler', () => ({
   createDesktopDatabaseMaintenanceScheduler: vi.fn(() => ({
+    close: databaseSchedulerCloseMock,
     start: databaseSchedulerStartMock,
-    stop: vi.fn(),
+    stop: databaseSchedulerStopMock,
   })),
 }));
 
 vi.mock('../../dimension-index-maintenance-scheduler', () => ({
   createDesktopDimensionIndexMaintenanceScheduler: vi.fn(() => ({
+    close: dimensionSchedulerCloseMock,
     start: dimensionSchedulerStartMock,
-    stop: vi.fn(),
+    stop: dimensionSchedulerStopMock,
   })),
 }));
 
@@ -220,6 +265,13 @@ describe('main boot order', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    shutdownPlanCapture.current = null;
+    isDesktopShuttingDownMock.mockReturnValue(false);
+    closeDatabaseMock.mockResolvedValue(undefined);
+    cleanupSubscriptionsMock.mockResolvedValue(undefined);
+    waitForDatabaseIdleMock.mockResolvedValue(undefined);
+    databaseSchedulerCloseMock.mockResolvedValue(undefined);
+    dimensionSchedulerCloseMock.mockResolvedValue(undefined);
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(true);
     process.env['CI'] = 'false';
@@ -269,7 +321,7 @@ describe('main boot order', () => {
     });
   });
 
-  it('logs a probe failure during shutdown as an expected teardown, not an error', async () => {
+  it('does not start maintenance after a probe finishes during shutdown', async () => {
     // The probe now runs concurrently with the app lifecycle. A short-lived
     // session (e2e apps, quick open/quit) can tear the DB down mid-probe;
     // that rejection is an EXPECTED teardown per desktop-shutdown-state and
@@ -280,9 +332,10 @@ describe('main boot order', () => {
 
     await import('../../main');
 
-    await vi.waitFor(() => {
-      expect(databaseSchedulerStartMock).toHaveBeenCalledTimes(1);
-    });
+    await vi.waitFor(() => expect(probeMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+    expect(databaseSchedulerStartMock).not.toHaveBeenCalled();
+    expect(dimensionSchedulerStartMock).not.toHaveBeenCalled();
 
     const mainLogger = createLoggerMock.mock.results
       .map((result) => result.value)
@@ -295,5 +348,65 @@ describe('main boot order', () => {
     expect(infoMessages).toContain(
       'Dimension index maintenance capability probe aborted by shutdown'
     );
+  });
+
+  it('fences both maintenance owners before joining trigger close and the database lane', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    await import('../../main');
+    const planRun = shutdownPlanCapture.current;
+    if (!planRun) {
+      throw new Error('Shutdown plan was not registered');
+    }
+
+    let releaseTriggerClose: (() => void) | undefined;
+    dimensionSchedulerCloseMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseTriggerClose = resolve;
+        })
+    );
+    const step = planRun().steps.database(new AbortController().signal);
+
+    expect(dimensionSchedulerStopMock).toHaveBeenCalledTimes(1);
+    expect(databaseSchedulerStopMock).toHaveBeenCalledTimes(1);
+    expect(dimensionSchedulerCloseMock).toHaveBeenCalledTimes(1);
+    expect(databaseSchedulerCloseMock).toHaveBeenCalledTimes(1);
+    expect(waitForDatabaseIdleMock).not.toHaveBeenCalled();
+
+    releaseTriggerClose?.();
+    await step;
+    expect(waitForDatabaseIdleMock).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still drains and closes the database when trigger cleanup rejects undefined', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    await import('../../main');
+    const planRun = shutdownPlanCapture.current;
+    if (!planRun) {
+      throw new Error('Shutdown plan was not registered');
+    }
+    dimensionSchedulerCloseMock.mockRejectedValueOnce(undefined);
+
+    await expect(planRun().steps.database(new AbortController().signal)).rejects.toMatchObject({
+      errors: [undefined],
+    });
+    expect(cleanupSubscriptionsMock).toHaveBeenCalledTimes(2);
+    expect(waitForDatabaseIdleMock).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains the existing database failure path when the idle join rejects', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    await import('../../main');
+    const planRun = shutdownPlanCapture.current;
+    if (!planRun) {
+      throw new Error('Shutdown plan was not registered');
+    }
+    waitForDatabaseIdleMock.mockRejectedValueOnce(undefined);
+
+    await expect(planRun().steps.database(new AbortController().signal)).rejects.toBeUndefined();
+    expect(cleanupSubscriptionsMock).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseMock).not.toHaveBeenCalled();
   });
 });

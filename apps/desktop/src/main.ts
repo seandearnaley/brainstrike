@@ -506,16 +506,43 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await chunkingHostManager.dispose();
       },
       database: async () => {
-        desktopDimensionIndexMaintenanceScheduler?.stop();
+        const dimensionMaintenance = desktopDimensionIndexMaintenanceScheduler;
+        dimensionMaintenance?.stop();
         desktopDimensionIndexMaintenanceScheduler = null;
-        desktopDatabaseMaintenanceScheduler?.stop();
+        const databaseMaintenance = desktopDatabaseMaintenanceScheduler;
+        databaseMaintenance?.stop();
         desktopDatabaseMaintenanceScheduler = null;
         // Before the idle join: a submitted sample drains; later ticks are no-ops.
         processCounterSampler.stop();
-        await cleanupDesktopLiveSubscriptionsForShutdown();
-        await waitForDesktopDatabaseWorkSchedulerIdle();
-        await cleanupDesktopLiveSubscriptionsForShutdown();
-        await closeDatabase();
+        const triggerClosures = await Promise.allSettled([
+          dimensionMaintenance?.close(),
+          databaseMaintenance?.close(),
+        ]);
+        const triggerErrors: unknown[] = triggerClosures.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        // A failed trigger finalizer cannot skip the independent DB idle join
+        // and host close. Admitted SQL remains owned by the work scheduler.
+        let databaseCloseFailed = false;
+        let databaseCloseError: unknown;
+        try {
+          await cleanupDesktopLiveSubscriptionsForShutdown();
+          await waitForDesktopDatabaseWorkSchedulerIdle();
+          await cleanupDesktopLiveSubscriptionsForShutdown();
+          await closeDatabase();
+        } catch (error) {
+          databaseCloseFailed = true;
+          databaseCloseError = error;
+        }
+        if (triggerErrors.length > 0) {
+          throw new AggregateError(
+            databaseCloseFailed ? [...triggerErrors, databaseCloseError] : triggerErrors,
+            'Desktop database shutdown cleanup failed'
+          );
+        }
+        if (databaseCloseFailed) {
+          throw databaseCloseError;
+        }
       },
       'embedding-host': async () => {
         await embeddingHostManager.dispose();
@@ -1422,11 +1449,25 @@ if (singleInstanceLockAcquired) {
       // degrades internally); the .catch guards the scheduler start() calls so
       // a future throw there can never become an unhandled rejection.
       void initializeDesktopDimensionIndexStrategy()
-        .then(() => {
-          desktopDatabaseMaintenanceScheduler?.start();
-          logger.debug('Scheduled desktop database maintenance started');
-          desktopDimensionIndexMaintenanceScheduler?.start();
-          logger.debug('Scheduled desktop dimension index maintenance started');
+        .then(async () => {
+          if (isDesktopShuttingDown()) {
+            return;
+          }
+          const databaseMaintenance = desktopDatabaseMaintenanceScheduler;
+          if (databaseMaintenance) {
+            await databaseMaintenance.start();
+            logger.debug('Scheduled desktop database maintenance started');
+          }
+          // Shutdown may have sealed and removed both owners while the first
+          // scoped acquisition was settling. Never restart a retired owner.
+          if (isDesktopShuttingDown()) {
+            return;
+          }
+          const dimensionMaintenance = desktopDimensionIndexMaintenanceScheduler;
+          if (dimensionMaintenance) {
+            await dimensionMaintenance.start();
+            logger.debug('Scheduled desktop dimension index maintenance started');
+          }
         })
         .catch((error) => {
           logger.error('Failed to start desktop maintenance schedulers', { error });

@@ -132,6 +132,18 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
     harness.scheduler.stop();
   });
 
+  it('does not restart the quiet window when start is called twice', async () => {
+    const harness = createHarness();
+    await harness.scheduler.start();
+    harness.advance(14_000);
+    await harness.scheduler.start();
+    harness.advance(2000);
+
+    expect(await harness.scheduler.runOnce()).toBe(COMPLETED_MAINTENANCE_RESULT);
+    harness.scheduler.stop();
+    await harness.scheduler.close();
+  });
+
   it('restarts the quiet window when observed work arrives between passes', async () => {
     // The failure this pins: the instantaneous check samples only at run time,
     // so a burst that ended microseconds ago looked identical to a long lull.
@@ -353,11 +365,17 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         warn: vi.fn(),
       },
       onRuntimeCorruption: vi.fn(),
+      quietPeriodMs: 0,
       runMaintenance,
       runScheduledWork,
     });
 
+    await scheduler.start();
     const firstRun = scheduler.runOnce();
+    let firstRunSettled = false;
+    void firstRun.then(() => {
+      firstRunSettled = true;
+    });
     await Promise.resolve();
 
     const secondRun = await scheduler.runOnce();
@@ -376,8 +394,12 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     if (!finishMaintenance) {
       throw new Error('Expected database maintenance to be pending.');
     }
+    scheduler.stop();
+    await scheduler.close();
+    expect(firstRunSettled).toBe(false);
     finishMaintenance(COMPLETED_MAINTENANCE_RESULT);
     await firstRun;
+    expect(firstRunSettled).toBe(true);
   });
 
   it('runs an initial pass after the configured startup delay', async () => {
@@ -428,6 +450,11 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
   it('starts recurring passes after the initial startup delay', async () => {
     vi.useFakeTimers();
     try {
+      const firstFailure = new Error('temporary maintenance failure');
+      const error = vi.fn();
+      const runMaintenance = vi
+        .fn(async () => COMPLETED_MAINTENANCE_RESULT)
+        .mockRejectedValueOnce(firstFailure);
       const runScheduledWork = vi.fn(
         async <TResult>(
           _options: DatabaseWorkOptions,
@@ -444,14 +471,14 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         intervalMs: 100,
         logger: {
           debug: vi.fn(),
-          error: vi.fn(),
+          error,
           info: vi.fn(),
           warn: vi.fn(),
         },
         onRuntimeCorruption: vi.fn(),
         // Timer mechanics in isolation — see the note on the initial-pass test.
         quietPeriodMs: 0,
-        runMaintenance: vi.fn(async () => COMPLETED_MAINTENANCE_RESULT),
+        runMaintenance,
         runScheduledWork,
       });
 
@@ -461,12 +488,17 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
 
       await vi.advanceTimersByTimeAsync(1);
       expect(runScheduledWork).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledExactlyOnceWith(
+        { error: firstFailure },
+        'Scheduled database maintenance failed'
+      );
 
       await vi.advanceTimersByTimeAsync(99);
       expect(runScheduledWork).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(1);
       expect(runScheduledWork).toHaveBeenCalledTimes(2);
+      expect(runMaintenance).toHaveBeenCalledTimes(2);
 
       scheduler.stop();
     } finally {

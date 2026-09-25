@@ -17,6 +17,7 @@ import {
   type MaintenanceSchedulerSnapshot,
   readInFlightAssistantWork,
 } from './maintenance-admission';
+import { createMaintenanceTriggerRuntime } from './maintenance-trigger-runtime';
 
 const DEFAULT_DATABASE_MAINTENANCE_INITIAL_DELAY_MS = 30_000;
 
@@ -86,8 +87,9 @@ export type DesktopDatabaseMaintenanceRunResult =
     };
 
 export interface DesktopDatabaseMaintenanceScheduler {
+  readonly close: () => Promise<void>;
   readonly runOnce: () => Promise<DesktopDatabaseMaintenanceRunResult>;
-  readonly start: () => void;
+  readonly start: () => Promise<void>;
   readonly stop: () => void;
 }
 
@@ -177,9 +179,6 @@ export function createDesktopDatabaseMaintenanceScheduler(
   const now = options.now ?? (() => new Date());
   const runMaintenance = options.runMaintenance ?? runScheduledDatabaseMaintenance;
   let maintenanceInFlight: Promise<DesktopDatabaseMaintenanceRunResult> | null = null;
-  let initialTimer: ReturnType<typeof setTimeout> | null = null;
-  let timer: ReturnType<typeof setInterval> | null = null;
-  let unsubscribeFromScheduler: (() => void) | null = null;
   const idle = createSustainedIdleObserver(now);
 
   const runOnce = async (): Promise<DesktopDatabaseMaintenanceRunResult> => {
@@ -287,42 +286,28 @@ export function createDesktopDatabaseMaintenanceScheduler(
     return await maintenanceInFlight;
   };
 
-  return {
-    runOnce,
-    start: () => {
-      if (initialTimer !== null || timer !== null) {
-        return;
-      }
-      // Treat start as a busy observation: the app is booting, which is
-      // exactly the window the quiet period exists to protect.
+  const trigger = createMaintenanceTriggerRuntime({
+    initialDelayMs,
+    intervalMs,
+    onCloseError: (error) => {
+      options.logger.error({ error }, 'Scheduled database maintenance trigger cleanup failed');
+    },
+    subscribe: () => {
+      // Seed only when a new trigger generation is acquired.
       idle.seedBusy();
-      unsubscribeFromScheduler = options.subscribeToSchedulerSnapshots?.(idle.observe) ?? null;
-      initialTimer = setTimeout(() => {
-        initialTimer = null;
-        void runOnce().catch((error: unknown) => {
-          options.logger.error({ error }, 'Scheduled database maintenance failed');
-        });
-        timer = setInterval(() => {
-          void runOnce().catch((error: unknown) => {
-            options.logger.error({ error }, 'Scheduled database maintenance failed');
-          });
-        }, intervalMs);
-        timer.unref?.();
-      }, initialDelayMs);
-      initialTimer.unref?.();
+      return options.subscribeToSchedulerSnapshots?.(idle.observe) ?? null;
     },
-    stop: () => {
-      unsubscribeFromScheduler?.();
-      unsubscribeFromScheduler = null;
-      if (initialTimer !== null) {
-        clearTimeout(initialTimer);
-        initialTimer = null;
-      }
-      if (timer === null) {
-        return;
-      }
-      clearInterval(timer);
-      timer = null;
+    tick: () => {
+      void runOnce().catch((error: unknown) => {
+        options.logger.error({ error }, 'Scheduled database maintenance failed');
+      });
     },
+  });
+
+  return {
+    close: trigger.close,
+    runOnce,
+    start: trigger.start,
+    stop: trigger.stop,
   };
 }
