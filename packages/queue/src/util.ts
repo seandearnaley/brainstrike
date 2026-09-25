@@ -108,24 +108,3 @@ export function createWorkerReadyWaiter(
     });
   };
 }
-
-/**
- * Creates a timeout promise that rejects after the specified duration.
- *
- * Useful for racing worker operations against deadlines.
- *
- * @example
- * ```typescript
- * const result = await Promise.race([
- *   worker.performOperation(),
- *   createTimeoutPromise(5000, 'Operation timed out'),
- * ]);
- * ```
- */
-export function createTimeoutPromise<T = never>(timeoutMs: number, message: string): Promise<T> {
-  return new Promise((_, reject) => {
-    setTimeout(() => {
-      reject(new Error(message));
-    }, timeoutMs);
-  });
-}
