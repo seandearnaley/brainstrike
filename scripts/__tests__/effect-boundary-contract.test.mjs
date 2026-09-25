@@ -573,6 +573,21 @@ test('parser host Schema stays in main and utility consumers', () => {
   );
 });
 
+test('Python manifest decodes with Schema and keeps its domain error boundary', () => {
+  const source = readRepoFile('apps/desktop/src/python-runtime/resolve-python-binary.ts');
+  assert.match(source, /const manifestSchema = Schema\.Struct\(/u);
+  assert.match(source, /targets: Schema\.Record\(Schema\.String, manifestTargetSchema\)/u);
+  assert.match(source, /Schema\.decodeUnknownResult\(manifestSchema\)/u);
+  assert.match(source, /typeof manifestSchema\.Type/u);
+  assert.match(source, /typeof manifestTargetSchema\.Type/u);
+  assert.match(source, /new PythonManifestInvalidError\(/u);
+  assert.doesNotMatch(source, /assertManifestShape|as PythonRuntimeManifest/u);
+  assert.match(
+    readRepoFile('docs/agents/effect-boundary.md'),
+    /effect-boundary\/python-manifest-schema\.md/u
+  );
+});
+
 test('renderer startup adopts Effect retry and always finalizes readiness waits', () => {
   for (const name of ['create-window', 'renderer-host-lifecycle']) {
     const source = readRepoFile(`apps/desktop/src/${name}.ts`);

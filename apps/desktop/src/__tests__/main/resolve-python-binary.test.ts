@@ -148,6 +148,17 @@ describe('resolvePythonBinary', () => {
     ).rejects.toMatchObject({ code: 'python_unsupported_platform' });
   });
 
+  it('throws unsupported-platform when a valid manifest omits the target entry', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir, {
+      targets: { 'x86_64-apple-darwin': { bytes: 1, sha256: 'f'.repeat(64) } },
+    });
+    const { resolvePythonBinary } = await loadModule();
+    await expect(
+      resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+    ).rejects.toMatchObject({ code: 'python_unsupported_platform' });
+  });
+
   it('throws a typed manifest error when the manifest is missing or malformed', async () => {
     const { resourcesDir, userDataDir } = await createFixtureDirs();
     const { resolvePythonBinary } = await loadModule();
@@ -361,13 +372,104 @@ describe('resolvePythonBinary', () => {
   });
 
   describe('manifest shape validation (python_manifest_invalid)', () => {
-    it('rejects a manifest whose top-level value is not an object', async () => {
+    it.each(['[]', 'null', '"just-a-string"'])(
+      'rejects top-level %s as a non-object',
+      async (raw) => {
+        const { resourcesDir, userDataDir } = await createFixtureDirs();
+        const manifestPath = path.join(resourcesDir, 'manifest.json');
+        writeFileSync(manifestPath, raw);
+        const { resolvePythonBinary } = await loadModule();
+        await expect(
+          resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+        ).rejects.toMatchObject({
+          code: 'python_manifest_invalid',
+          message: `Bundled Python runtime manifest at ${manifestPath} is not an object.`,
+        });
+      }
+    );
+
+    it('rejects an array in place of the targets map', async () => {
       const { resourcesDir, userDataDir } = await createFixtureDirs();
-      writeFileSync(path.join(resourcesDir, 'manifest.json'), JSON.stringify('just-a-string'));
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.targets = [];
+      writeFileSync(manifestPath, JSON.stringify(manifest));
       const { resolvePythonBinary } = await loadModule();
       await expect(
         resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
-      ).rejects.toMatchObject({ code: 'python_manifest_invalid' });
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid "targets" map.`,
+      });
+    });
+
+    it('reports the first invalid field in the legacy priority order', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.assetUrlTemplate = '';
+      manifest.variant = '';
+      manifest.supportedTargets = [123];
+      manifest.targets = [];
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} is missing string field "assetUrlTemplate".`,
+      });
+    });
+
+    it('reports an invalid supported-target list before an invalid targets map', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.supportedTargets = [123];
+      manifest.targets = [];
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid "supportedTargets" list.`,
+      });
+    });
+
+    it('rejects a target size above the safe-integer limit', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.targets[TRIPLE].bytes = Number.MAX_SAFE_INTEGER + 1;
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid entry for target "${TRIPLE}".`,
+      });
+    });
+
+    it('validates entries beyond the selected target', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.targets['x86_64-apple-darwin'].sha256 = 'A'.repeat(64);
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid entry for target "x86_64-apple-darwin".`,
+      });
     });
 
     it('rejects a manifest missing a required string field', async () => {
@@ -384,7 +486,7 @@ describe('resolvePythonBinary', () => {
         resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
       ).rejects.toMatchObject({
         code: 'python_manifest_invalid',
-        message: expect.stringContaining('variant'),
+        message: `Bundled Python runtime manifest at ${manifestPath} is missing string field "variant".`,
       });
     });
 
@@ -398,7 +500,10 @@ describe('resolvePythonBinary', () => {
       const { resolvePythonBinary } = await loadModule();
       await expect(
         resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
-      ).rejects.toMatchObject({ code: 'python_manifest_invalid' });
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid "supportedTargets" list.`,
+      });
     });
 
     it('rejects a manifest whose target entry is malformed', async () => {
@@ -413,7 +518,7 @@ describe('resolvePythonBinary', () => {
         resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
       ).rejects.toMatchObject({
         code: 'python_manifest_invalid',
-        message: expect.stringContaining(TRIPLE),
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid entry for target "${TRIPLE}".`,
       });
     });
 

@@ -82,17 +82,17 @@ Guard: `apps/desktop/src/__tests__/maintenance-trigger-runtime.test.ts`, `script
 
 - Decode PGlite rows, worker messages, and main-only IPC payloads with Effect
   Schema on arrival; derive row types, never cast. Check cross-field invariants in code.
-- Each field schema's `message` is its old hand-check sentence. Throwing code uses
-  `makeThrowingDecoder`: `TypeError` with message/path and `SchemaError` as `cause`.
+- Preserve field messages; throwing boundaries use `makeThrowingDecoder` (`TypeError`
+  with path and `SchemaError` cause), except Python manifests retain `PythonManifestInvalidError`; missing targets stay unsupported-platform errors.
 - Count affected rows from `RETURNING`, never a driver row count. Why: the
   desktop DB host surfaces only `rows`.
 - An id the renderer mints is a type-only `Brand.Brand`, asserted once by its
   sole producer and guard-pinned: Schema decoding adds about 74 KB gzipped.
 
-Evidence: `effect-boundary/phase-two-boundaries.md`, `effect-boundary/parser-host-schema.md`.
+Evidence: `effect-boundary/phase-two-boundaries.md`, `effect-boundary/parser-host-schema.md`, `effect-boundary/python-manifest-schema.md`.
 Guard: `packages/db/__tests__/mcp-task-row-schema.test.ts`,
 `packages/effect-kit/src/__tests__/throwing-decoder.test.ts`,
-`scripts/assistant-run-id-producer-guard.mjs`.
+`scripts/assistant-run-id-producer-guard.mjs`, `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
 ### Effect diagnostics
 
