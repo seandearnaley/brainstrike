@@ -187,6 +187,7 @@ describe('OpenRouterModelMetadataService', () => {
   });
 
   it('returns stale metadata when body reading stalls past the deadline and ignores abort', async () => {
+    vi.useFakeTimers();
     let resolveBody: ((value: unknown) => void) | undefined;
     const stalled = new Response('', { status: 200 });
     vi.spyOn(stalled, 'json').mockImplementation(
@@ -207,42 +208,58 @@ describe('OpenRouterModelMetadataService', () => {
       requestTimeoutMs: 5,
       successTtlMs: 10,
     });
-    await service.get('openai/gpt-5.4-mini', 'secret-key');
-    now = 2000;
+    try {
+      await service.get('openai/gpt-5.4-mini', 'secret-key');
+      now = 2000;
 
-    await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
-      freshness: 'stale-cache',
-      metadata: { checkedAt: 1000 },
-      warning: 'OpenRouter Models API request timed out after 5ms',
-    });
-    expect(fetchImpl.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
+      const refresh = service.get('openai/gpt-5.4-mini', 'secret-key');
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(refresh).resolves.toMatchObject({
+        freshness: 'stale-cache',
+        metadata: { checkedAt: 1000 },
+        warning: 'OpenRouter Models API request timed out after 5ms',
+      });
+      expect(fetchImpl.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
 
-    now = 3000;
-    await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
-      freshness: 'live',
-      metadata: { checkedAt: 3000 },
-    });
-    resolveBody?.({ data: { ...payload.data, context_length: 1 } });
-    await Promise.resolve();
-    await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
-      freshness: 'fresh-cache',
-      metadata: { checkedAt: 3000, contextWindow: 400_000 },
-    });
+      now = 3000;
+      await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
+        freshness: 'live',
+        metadata: { checkedAt: 3000 },
+      });
+      resolveBody?.({ data: { ...payload.data, context_length: 1 } });
+      await Promise.resolve();
+      await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
+        freshness: 'fresh-cache',
+        metadata: { checkedAt: 3000, contextWindow: 400_000 },
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('fails visibly when the first fetch ignores abort past its deadline', async () => {
+    vi.useFakeTimers();
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockImplementation(() => new Promise<Response>(() => {}));
     const service = createOpenRouterModelMetadataService({ fetchImpl, requestTimeoutMs: 5 });
-
-    await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toThrow(
-      'OpenRouter Models API request timed out after 5ms'
-    );
-    expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    try {
+      const assertion = expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toThrow(
+        'OpenRouter Models API request timed out after 5ms'
+      );
+      await vi.advanceTimersByTimeAsync(5);
+      await assertion;
+      expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('observes a body rejection that arrives after timeout', async () => {
+    vi.useFakeTimers();
     let rejectBody: ((error: Error) => void) | undefined;
     const response = new Response('', { status: 200 });
     vi.spyOn(response, 'json').mockImplementation(
@@ -256,25 +273,42 @@ describe('OpenRouterModelMetadataService', () => {
       requestTimeoutMs: 5,
     });
 
-    await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toThrow(
-      'OpenRouter Models API request timed out after 5ms'
-    );
-    rejectBody?.(new Error('late body failure'));
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const assertion = expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toThrow(
+        'OpenRouter Models API request timed out after 5ms'
+      );
+      await vi.advanceTimersByTimeAsync(5);
+      await assertion;
+      rejectBody?.(new Error('late body failure'));
+      await vi.advanceTimersByTimeAsync(1);
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      process.off('unhandledRejection', unhandled);
+      vi.useRealTimers();
+    }
   });
 
   it('clears the deadline after successful metadata reading', async () => {
+    vi.useFakeTimers();
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }));
     const service = createOpenRouterModelMetadataService({ fetchImpl, requestTimeoutMs: 20 });
 
-    await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
-      freshness: 'live',
-    });
-    const signal = fetchImpl.mock.calls[0]?.[1]?.signal;
-    await new Promise<void>((resolve) => setTimeout(resolve, 35));
-    expect(signal?.aborted).toBe(false);
+    try {
+      await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
+        freshness: 'live',
+      });
+      const signal = fetchImpl.mock.calls[0]?.[1]?.signal;
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(20);
+      expect(signal?.aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('fails visibly when no validated snapshot exists', async () => {
@@ -284,6 +318,15 @@ describe('OpenRouterModelMetadataService', () => {
     await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toThrow(
       'OpenRouter Models API returned status 503'
     );
+  });
+
+  it('preserves the original request error when no snapshot exists', async () => {
+    const failure = new TypeError('fetch failed');
+    const service = createOpenRouterModelMetadataService({
+      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(failure),
+    });
+
+    await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toBe(failure);
   });
 
   it.each(['', 'gpt-5.4-mini', 'openai/model/extra'])('rejects invalid model id %j', async (id) => {

@@ -16,7 +16,7 @@ const MAX_MODEL_ID_CHARS = 256;
 
 class OpenRouterMetadataRequestError extends Error {
   constructor(error: unknown) {
-    super(toVisibleError(error));
+    super(toVisibleError(error), { cause: error });
     this.name = 'OpenRouterMetadataRequestError';
   }
 }
@@ -137,11 +137,9 @@ export function createOpenRouterModelMetadataService(
     stale: OpenRouterModelMetadata | undefined
   ): Promise<OpenRouterModelMetadataSnapshot> => {
     const request = Effect.tryPromise({
-      catch: (error: unknown) =>
-        error instanceof OpenRouterMetadataStatusError
-          ? error
-          : new OpenRouterMetadataRequestError(error),
-      try: async (signal): Promise<OpenRouterModelMetadata> => {
+      catch: (error: unknown): Error =>
+        error instanceof Error ? error : new OpenRouterMetadataRequestError(error),
+      try: async (signal: AbortSignal): Promise<OpenRouterModelMetadata> => {
         const response = await fetchImpl(buildModelUrl(modelId), {
           headers: { accept: 'application/json', authorization: `Bearer ${apiKey}` },
           signal,
@@ -157,7 +155,8 @@ export function createOpenRouterModelMetadataService(
     });
     const bounded = Effect.timeoutOrElse(request, {
       duration: requestTimeoutMs,
-      orElse: () => Effect.fail(new OpenRouterMetadataTimeoutError(requestTimeoutMs)),
+      orElse: (): Effect.Effect<never, OpenRouterMetadataTimeoutError> =>
+        Effect.fail(new OpenRouterMetadataTimeoutError(requestTimeoutMs)),
     });
     try {
       const metadata = await runAtPromiseBoundary(bounded);

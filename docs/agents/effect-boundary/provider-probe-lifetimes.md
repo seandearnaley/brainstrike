@@ -28,16 +28,16 @@ Four RED regressions hung past a 5 ms deadline when fetch or body reading
 ignored abort. The corresponding GREEN tests prove the deadline settles,
 aborts the fetch signal, clears single-flight, preserves completion-time TTL,
 retains stale metadata with its original timestamp, and fences late body data.
-The focused suites pass 54 tests across two files; the Effect and contract-budget
+The focused suites pass 55 tests across two files; the Effect and contract-budget
 guards pass 21 checks. The canonical candidate desktop build passes 50 tasks
-and produces `main.js` at 2,704,532 raw bytes and 576,127 bytes with `gzip -9`
-(+2,121 raw / +328 gzip). Desktop type-check and Effect diagnostics pass with
+and produces `main.js` at 2,704,577 raw bytes and 576,122 bytes with `gzip -9`
+(+2,166 raw / +323 gzip). Desktop type-check and Effect diagnostics pass with
 zero errors or warnings. Ultracite check passes; its 16 warnings are outside
 this change.
 
 An isolated in-memory OpenRouter metadata benchmark ran 550 calls for each
 implementation, discarding 50 warmups. The baseline median/p95 was
-0.003166/0.005792 ms; the Effect candidate was 0.010208/0.017459 ms.
-The roughly 0.007 ms median increase measures only the request boundary,
+0.003209/0.007000 ms; the Effect candidate was 0.009542/0.017792 ms.
+The roughly 0.006 ms median increase measures only the request boundary,
 without network or JSON parsing. The assistant-server endpoint integration
 suite also passed 32 tests, covering the HTTP-facing response mapping.

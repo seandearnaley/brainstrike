@@ -76,7 +76,7 @@ const AWS_REGION_PATTERN = /^[a-z0-9-]{1,32}$/;
 
 class ProviderProbeRequestError extends Error {
   constructor(error: unknown) {
-    super(toVisibleError(error));
+    super(toVisibleError(error), { cause: error });
     this.name = 'ProviderProbeRequestError';
   }
 }
@@ -567,8 +567,9 @@ export function createProviderVerificationService(
   const runProbe = async (probe: ProbeRequest): Promise<ProviderVerificationResult> => {
     const checkedAt = new Date(now()).toISOString();
     const request = Effect.tryPromise({
-      catch: (error: unknown) => new ProviderProbeRequestError(error),
-      try: async (signal): Promise<{ response: Response; bodyText: string }> => {
+      catch: (error: unknown): Error =>
+        error instanceof Error ? error : new ProviderProbeRequestError(error),
+      try: async (signal: AbortSignal): Promise<{ response: Response; bodyText: string }> => {
         const response = await fetchImpl(probe.url, {
           ...(probe.body === undefined ? {} : { body: probe.body }),
           headers: probe.headers,
@@ -583,7 +584,8 @@ export function createProviderVerificationService(
     });
     const bounded = Effect.timeoutOrElse(request, {
       duration: requestTimeoutMs,
-      orElse: () => Effect.fail(new ProviderProbeTimeoutError(requestTimeoutMs)),
+      orElse: (): Effect.Effect<never, ProviderProbeTimeoutError> =>
+        Effect.fail(new ProviderProbeTimeoutError(requestTimeoutMs)),
     });
     try {
       const { response, bodyText } = await runAtPromiseBoundary(bounded);
