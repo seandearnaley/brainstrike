@@ -39,6 +39,12 @@ Adopt Effect v4 (`effect`, exact-pinned) one runtime boundary at a time.
    that never cleared their timer, and `createConcurrencyLimiter` for the
    git-inventory walk. The FIFO mutexes stay hand-written: Effect's `Semaphore`
    is not strictly FIFO (`effect-boundary/phase-one-pilots.md`).
+   Token-cache batch transactions also use `Effect.retry` with a bounded
+   exponential `Schedule`. The Promise API, transaction rollback, error identity,
+   and retry log contract remain. Configurations whose largest retry delay
+   exceeds the native timer range now fail at construction, instead of relying
+   on platform-specific timeout overflow behavior
+   (`effect-boundary/token-cache-retry.md`).
 3. **Phase 2:** Schema at boundaries that only main or a worker reaches: IPC
    handlers in Electron main, PGlite row decoding in repositories, and chunking
    worker messages. The host run id, minted in the renderer, gets a type-only

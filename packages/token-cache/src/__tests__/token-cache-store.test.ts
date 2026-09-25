@@ -657,6 +657,135 @@ describe('TokenCacheStore', () => {
       ]);
       expect(mockLoggerWarn).toHaveBeenCalledTimes(2);
     });
+
+    it('keeps the configured attempt budget, uncapped backoff, and final error identity', async () => {
+      const transientError = Object.assign(new Error('database is locked'), {
+        code: 'SQLITE_BUSY',
+      });
+      const defaultQuery = mockDb.query.getMockImplementation();
+      mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (sql.trim().toUpperCase() === 'COMMIT') {
+          throw transientError;
+        }
+        if (!defaultQuery) {
+          throw new Error('Expected default token cache mock query implementation');
+        }
+        return defaultQuery(sql, params);
+      });
+      const configuredStore = new TokenCacheStore(mockDb as any, {
+        transactionRetryBaseDelayMs: 1,
+        transactionRetryMaxAttempts: 4,
+      });
+
+      await expect(configuredStore.setBatch([createEntry()])).rejects.toBe(transientError);
+
+      const transactionStatements = mockDb.query.mock.calls
+        .map(([sql]) => sql.trim().toUpperCase())
+        .filter((sql) => sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK');
+      expect(transactionStatements).toEqual([
+        'BEGIN',
+        'COMMIT',
+        'ROLLBACK',
+        'BEGIN',
+        'COMMIT',
+        'ROLLBACK',
+        'BEGIN',
+        'COMMIT',
+        'ROLLBACK',
+        'BEGIN',
+        'COMMIT',
+        'ROLLBACK',
+      ]);
+      expect(mockLoggerWarn.mock.calls.map(([, details]) => details)).toEqual([
+        {
+          attempt: 1,
+          code: 'SQLITE_BUSY',
+          delayMs: 1,
+          maxAttempts: 4,
+          reason: 'database is locked',
+        },
+        {
+          attempt: 2,
+          code: 'SQLITE_BUSY',
+          delayMs: 2,
+          maxAttempts: 4,
+          reason: 'database is locked',
+        },
+        {
+          attempt: 3,
+          code: 'SQLITE_BUSY',
+          delayMs: 4,
+          maxAttempts: 4,
+          reason: 'database is locked',
+        },
+      ]);
+    });
+
+    it('does not retry a non-transient commit failure', async () => {
+      const permanentError = new Error('constraint failed');
+      const defaultQuery = mockDb.query.getMockImplementation();
+      mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (sql.trim().toUpperCase() === 'COMMIT') {
+          throw permanentError;
+        }
+        if (!defaultQuery) {
+          throw new Error('Expected default token cache mock query implementation');
+        }
+        return defaultQuery(sql, params);
+      });
+
+      await expect(store.setBatch([createEntry()])).rejects.toBe(permanentError);
+      expect(
+        mockDb.query.mock.calls
+          .map(([sql]) => sql.trim().toUpperCase())
+          .filter((sql) => sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK')
+      ).toEqual(['BEGIN', 'COMMIT', 'ROLLBACK']);
+      expect(mockLoggerWarn).not.toHaveBeenCalled();
+    });
+
+    it('rejects retry delays too large for a native timer instead of waiting forever', () => {
+      expect(
+        () =>
+          new TokenCacheStore(mockDb as any, {
+            transactionRetryBaseDelayMs: Number.MAX_VALUE,
+            transactionRetryMaxAttempts: 2,
+          })
+      ).toThrow(RangeError);
+    });
+
+    it('allows a single attempt without scheduling a delay', async () => {
+      const transientError = new Error('database is locked');
+      mockDb.query.mockImplementation(async (sql: string) => {
+        if (sql.trim().toUpperCase() === 'COMMIT') {
+          throw transientError;
+        }
+        return { rows: [] };
+      });
+      const configuredStore = new TokenCacheStore(mockDb as any, {
+        transactionRetryBaseDelayMs: Number.MAX_VALUE,
+        transactionRetryMaxAttempts: 1,
+      });
+
+      await expect(configuredStore.setBatch([createEntry()])).rejects.toBe(transientError);
+      expect(mockLoggerWarn).not.toHaveBeenCalled();
+    });
+
+    it('preserves a non-Error transient rejection value after retry exhaustion', async () => {
+      const transientFailure = { code: '40001' };
+      mockDb.query.mockImplementation(async (sql: string) => {
+        if (sql.trim().toUpperCase() === 'COMMIT') {
+          throw transientFailure;
+        }
+        return { rows: [] };
+      });
+      const configuredStore = new TokenCacheStore(mockDb as any, {
+        transactionRetryBaseDelayMs: 1,
+        transactionRetryMaxAttempts: 2,
+      });
+
+      await expect(configuredStore.setBatch([createEntry()])).rejects.toBe(transientFailure);
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('delete', () => {
