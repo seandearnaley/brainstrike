@@ -2,7 +2,7 @@ import type { OAuthProviderDescriptor, ProviderCredential } from '@brainstrike/a
 import type { SecretsService } from '../secrets';
 import { getOAuthProviderDescriptor } from './descriptor-registry';
 import { ProviderAuthFlowError } from './errors';
-import { guardedFetch } from './fetch-guards';
+import { guardedFetchText } from './fetch-guards';
 import { DEFAULT_TOKEN_EXPIRES_IN_SECONDS } from './oauth-flow';
 
 /**
@@ -150,7 +150,7 @@ export function createTokenRefresher(deps: TokenRefresherDeps): TokenRefresher {
   ): Promise<FreshAccessTokenResult> {
     const descriptor = getDescriptor(providerId);
     const epochAtStart = getEpoch(providerId);
-    const response = await guardedFetch({
+    const { response, text } = await guardedFetchText({
       fetchFn: deps.fetchFn,
       init: {
         // biome-ignore-start lint/style/useNamingConvention: RFC 6749 wire fields + standard HTTP header names.
@@ -174,7 +174,6 @@ export function createTokenRefresher(deps: TokenRefresherDeps): TokenRefresher {
       ...(deps.fetchTimeoutMs === undefined ? {} : { timeoutMs: deps.fetchTimeoutMs }),
       url: descriptor.tokenUrl,
     });
-    const text = await response.text();
     let body: unknown;
     try {
       body = JSON.parse(text) as unknown;

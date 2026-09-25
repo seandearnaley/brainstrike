@@ -7,8 +7,10 @@ import type {
   OAuthProviderDescriptor,
   OAuthTokenGrant,
 } from '@brainstrike/assistant-contract';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
+import { Clock, Effect } from 'effect';
 import { ProviderAuthFlowCancelledError, ProviderAuthFlowError } from './errors';
-import { guardedFetch } from './fetch-guards';
+import { guardedFetchText } from './fetch-guards';
 
 /**
  * Generic device-authorization poller (BST-1355). The engine owns the loop
@@ -184,39 +186,10 @@ export type DeviceFlowTerminalOutcome = Extract<
   { kind: 'authorization_code' } | { kind: 'tokens' }
 >;
 
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
 function assertNotCancelled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw new ProviderAuthFlowCancelledError('Device flow cancelled.');
   }
-}
-
-/** Race the injected sleep against cancellation. */
-async function abortableSleep(
-  ms: number,
-  sleep: (ms: number) => Promise<void>,
-  signal: AbortSignal | undefined
-): Promise<void> {
-  if (!signal) {
-    await sleep(ms);
-    return;
-  }
-  assertNotCancelled(signal);
-  await new Promise<void>((resolve, reject) => {
-    const onAbort = () => {
-      reject(new ProviderAuthFlowCancelledError('Device flow cancelled.'));
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-    sleep(ms).then(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, reject);
-  });
 }
 
 function resolveAdapter(descriptor: OAuthProviderDescriptor): DeviceFlowResponseAdapter {
@@ -234,7 +207,7 @@ async function performRequest(
   providerId: string,
   request: DeviceFlowHttpRequest
 ): Promise<DeviceFlowHttpResponse> {
-  const response = await guardedFetch({
+  const { response, text } = await guardedFetchText({
     ...(deps.cancelSignal ? { cancelSignal: deps.cancelSignal } : {}),
     fetchFn: deps.fetchFn,
     init: {
@@ -250,7 +223,6 @@ async function performRequest(
     ...(deps.fetchTimeoutMs === undefined ? {} : { timeoutMs: deps.fetchTimeoutMs }),
     url: request.url,
   });
-  const text = await response.text();
   let body: unknown;
   try {
     body = JSON.parse(text) as unknown;
@@ -299,63 +271,92 @@ export async function pollDeviceFlow(
   deps: DeviceFlowDeps
 ): Promise<DeviceFlowTerminalOutcome> {
   const adapter = resolveAdapter(descriptor);
-  const sleep = deps.sleep ?? defaultSleep;
-  const now = deps.now ?? (() => Date.now());
-  const deadline = now() + start.expiresInMs;
-  let intervalMs = Math.max(start.intervalMs, DEVICE_FLOW_MIN_INTERVAL_MS);
+  const readNow = deps.now ? Effect.sync(deps.now) : Clock.currentTimeMillis;
+  const injectedSleep = deps.sleep;
+  const wait = (ms: number) =>
+    injectedSleep
+      ? Effect.tryPromise({ catch: (error) => error, try: () => injectedSleep(ms) })
+      : Effect.sleep(ms);
+  const poll = Effect.gen(function* () {
+    const deadline = (yield* readNow) + start.expiresInMs;
+    let intervalMs = Math.max(start.intervalMs, DEVICE_FLOW_MIN_INTERVAL_MS);
 
-  while (now() < deadline) {
-    assertNotCancelled(deps.cancelSignal);
-    const response = await performRequest(
-      deps,
-      descriptor.providerId,
-      adapter.buildPollRequest(descriptor, start)
-    );
-    const outcome = adapter.classifyPollResponse(response);
-    switch (outcome.kind) {
-      case 'authorization_code':
-      case 'tokens':
-        return outcome;
-      case 'pending':
-        break;
-      case 'slow_down':
-        intervalMs =
-          outcome.intervalMs !== undefined && Number.isFinite(outcome.intervalMs)
-            ? Math.max(outcome.intervalMs, DEVICE_FLOW_MIN_INTERVAL_MS)
-            : intervalMs + DEVICE_FLOW_SLOW_DOWN_INCREMENT_MS;
-        break;
-      case 'expired':
-        throw new ProviderAuthFlowError(
-          'device_flow_expired',
-          `Device code for ${descriptor.providerId} expired before authorization.`
-        );
-      case 'denied':
-        throw new ProviderAuthFlowError(
-          'device_flow_denied',
-          `Device authorization for ${descriptor.providerId} was denied.`
-        );
-      case 'failure':
-        throw new ProviderAuthFlowError(
-          'device_flow_failed',
-          `Device flow for ${descriptor.providerId} failed: ${outcome.message}`
-        );
-      default: {
-        const exhaustive: never = outcome;
-        throw new ProviderAuthFlowError(
-          'device_flow_failed',
-          `Unrecognized device flow outcome: ${JSON.stringify(exhaustive)}`
-        );
+    while ((yield* readNow) < deadline) {
+      const response = yield* Effect.tryPromise({
+        catch: (error: unknown): unknown => error,
+        try: (signal) =>
+          performRequest(
+            { ...deps, cancelSignal: signal },
+            descriptor.providerId,
+            adapter.buildPollRequest(descriptor, start)
+          ),
+      });
+      const outcome = adapter.classifyPollResponse(response);
+      switch (outcome.kind) {
+        case 'authorization_code':
+        case 'tokens':
+          return outcome;
+        case 'pending':
+          break;
+        case 'slow_down':
+          intervalMs =
+            outcome.intervalMs !== undefined && Number.isFinite(outcome.intervalMs)
+              ? Math.max(outcome.intervalMs, DEVICE_FLOW_MIN_INTERVAL_MS)
+              : intervalMs + DEVICE_FLOW_SLOW_DOWN_INCREMENT_MS;
+          break;
+        case 'expired':
+          return yield* Effect.fail(
+            new ProviderAuthFlowError(
+              'device_flow_expired',
+              `Device code for ${descriptor.providerId} expired before authorization.`
+            )
+          );
+        case 'denied':
+          return yield* Effect.fail(
+            new ProviderAuthFlowError(
+              'device_flow_denied',
+              `Device authorization for ${descriptor.providerId} was denied.`
+            )
+          );
+        case 'failure':
+          return yield* Effect.fail(
+            new ProviderAuthFlowError(
+              'device_flow_failed',
+              `Device flow for ${descriptor.providerId} failed: ${outcome.message}`
+            )
+          );
+        default: {
+          const exhaustive: never = outcome;
+          return yield* Effect.fail(
+            new ProviderAuthFlowError(
+              'device_flow_failed',
+              `Unrecognized device flow outcome: ${JSON.stringify(exhaustive)}`
+            )
+          );
+        }
       }
+      const remaining = Math.max(0, deadline - (yield* readNow));
+      yield* wait(Math.min(intervalMs + DEVICE_FLOW_POLL_SAFETY_MARGIN_MS, remaining));
     }
-    const remaining = Math.max(0, deadline - now());
-    await abortableSleep(
-      Math.min(intervalMs + DEVICE_FLOW_POLL_SAFETY_MARGIN_MS, remaining),
-      sleep,
-      deps.cancelSignal
+    return yield* Effect.fail(
+      new ProviderAuthFlowError(
+        'device_flow_expired',
+        `Device authorization for ${descriptor.providerId} timed out.`
+      )
     );
+  });
+
+  const cancellation = new AbortController();
+  const onCancel = (): void => {
+    cancellation.abort(new ProviderAuthFlowCancelledError('Device flow cancelled.'));
+  };
+  deps.cancelSignal?.addEventListener('abort', onCancel, { once: true });
+  if (deps.cancelSignal?.aborted) {
+    onCancel();
   }
-  throw new ProviderAuthFlowError(
-    'device_flow_expired',
-    `Device authorization for ${descriptor.providerId} timed out.`
-  );
+  try {
+    return await runAtPromiseBoundary(poll, { signal: cancellation.signal });
+  } finally {
+    deps.cancelSignal?.removeEventListener('abort', onCancel);
+  }
 }

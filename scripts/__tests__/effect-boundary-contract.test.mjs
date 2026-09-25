@@ -527,3 +527,15 @@ test('both desktop maintenance schedulers delegate trigger resources to the scop
   assert.match(owner, /Scope\.close\(/u);
   assert.match(owner, /runAtPromiseBoundary\(/u);
 });
+
+test('provider auth owns fetch and body deadlines at one Effect boundary', () => {
+  const contract = readRepoFile('docs/agents/effect-boundary.md');
+  assert.match(contract, /Provider auth bounds fetch and body reading together/u);
+  for (const name of ['device-flow', 'oauth-flow', 'refresh']) {
+    const source = readRepoFile(`apps/desktop/src/provider-auth/${name}.ts`);
+    assert.match(source, /guardedFetchText\(/u, `${name} uses the complete response boundary`);
+    assert.doesNotMatch(source, /response\.text\(/u, `${name} cannot read outside the deadline`);
+  }
+  const guard = readRepoFile('apps/desktop/src/provider-auth/fetch-guards.ts');
+  assert.match(guard, /runAtPromiseBoundary\(/u);
+});

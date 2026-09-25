@@ -203,8 +203,10 @@ and runs ONLY in the Electron main process.
 - The RFC 8628 device flow polls with the server interval + safety margin,
   honors `slow_down`, and treats `expired_token`/`access_denied` as terminal.
 - Every engine network call (token exchange, device start/poll, refresh) runs
-  under the flow's AbortSignal plus a 30-second per-request timeout — a hung
-  endpoint cannot wedge a flow, and cancel rejects a stalled call promptly.
+  under the flow's AbortSignal plus a 30-second per-request timeout covering
+  response headers and body text. Timeout or cancel aborts the actual fetch
+  signal and rejects promptly even if a transport ignores that signal; late
+  responses cannot complete a cancelled flow.
 
 ### OpenAI Codex — ChatGPT subscription provider (BST-1356)
 

@@ -1,8 +1,7 @@
 # Effect boundary contract
 
-Owns where `effect` runs, its Promise boundary, and `@brainstrike/effect-kit`.
-Staging: `docs/adr/0004-effect-at-runtime-boundaries.md`. Update this file and
-`scripts/__tests__/effect-boundary-contract.test.mjs` together.
+Owns where `effect` runs, its Promise boundary, and `@brainstrike/effect-kit`; staging: `docs/adr/0004-effect-at-runtime-boundaries.md`.
+Update this file and `scripts/__tests__/effect-boundary-contract.test.mjs` together.
 
 ## Adoption
 
@@ -31,8 +30,7 @@ Guard: `apps/desktop/src/__tests__/preload-sandbox-imports.test.ts`.
 
 ### Promise boundaries
 
-- Package APIs stay Promise-based until callers use Effect. Cross back via
-  `runAtPromiseBoundary`; outside effect-kit, no `Effect.run*` or runtime.
+- Package APIs stay Promise-based until callers use Effect. Cross back via `runAtPromiseBoundary`; outside effect-kit, no `Effect.run*` or runtime.
 - `runAtPromiseBoundary` resolves with the value; rejects with the failure itself
   (preserving tagged classes), thrown defects, or `signal.reason` on caller interruption or prior abort.
 
@@ -50,8 +48,10 @@ Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`,
   failed step never skips a later one; at the deadline the running step aborts.
 - Retry token-cache transactions with `Effect.retry` and a bounded `Schedule`:
   preserve rollback, failure identity and logs; reject out-of-range delays.
+- Provider auth bounds fetch and body reading together; cancellation aborts fetch
+  and polling sleeps, preserving typed failures and adapter-owned outcomes.
 
-Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`.
+Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`.
 Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`,
 `timeout.test.ts`, `shutdown-sequence.test.ts`.
 
