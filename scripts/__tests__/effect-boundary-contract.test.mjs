@@ -468,3 +468,13 @@ test('AGENTS.md routes the effect boundary contract exactly once', () => {
   const agents = readRepoFile('AGENTS.md');
   assert.equal(agents.split('docs/agents/effect-boundary.md').length - 1, 1);
 });
+
+test('desktop composition refactors keep lifecycle owners and require a separate Layer decision', () => {
+  const contract = readRepoFile('docs/agents/effect-boundary.md');
+  const section = contract.match(/### Desktop composition refactors\n([\s\S]*?)(?:\n### |$)/u)?.[1];
+  assert.ok(section, 'effect boundary contract must have desktop composition refactor rules');
+  assert.match(section, /pre-ready[\s\S]*app-ready/u);
+  assert.match(section, /runShutdownSequence[\s\S]*factory reset/u);
+  assert.match(section, /Layer[\s\S]*separate decision/u);
+  assert.match(section, /current startup-failure, reset and stale DB-client behavior/u);
+});
