@@ -48,3 +48,23 @@ did not, and the measurements behind each call (2026-09-24, effect 4.0.0-rc.117)
   its first read in a Node test, while the current `readEnv` reads on every call.
 - **A Logger-to-Pino bridge.** No Phase 1 code logs through Effect; it lands with
   its first caller.
+
+## Follow-up cleanup (2026-09-25)
+
+- Removed the unused `packages/queue` `createTimeoutPromise` export and its
+  helper-only tests after a repository-wide reference search found no production
+  caller. The Phase 1 finding above records its state at the time of that pilot.
+- `GPU.requestAdapter` has no signal option, so `runWithTimeout` bounds the
+  device-detection wait and clears its timer but cannot cancel the browser's
+  adapter request. `chunkContent` has no signal option and performs synchronous
+  work that can delay the timer callback itself.
+  Cooperative yields and cancellation checks would be needed to stop that work.
+  Adding an unused signal to either call would imply cancellation that does not
+  happen. After a timeout the chunking worker drops the eventual return value,
+  but `processFile` can still emit progress or logs before it returns.
+- Validation: focused queue utility, device detection, and desktop shutdown
+  tests passed (77 tests total); queue, chunking-worker, embeddings, and
+  effect-kit type checks passed, including zero Effect diagnostics findings;
+  agent and Effect contract scripts passed (13 tests). No bundle measurement was
+  taken because this cleanup adds no renderer-reachable import or runtime path.
+  No new behavioral guard was needed for comments and an unused export removal.

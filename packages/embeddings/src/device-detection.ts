@@ -115,6 +115,8 @@ async function probeWebGPUAdapter(gpu: GPU): Promise<WebGPUProbeResult> {
   try {
     // Bound the adapter request so an unresponsive GPU driver cannot hang the
     // UI; the deadline timer is cleared as soon as the request settles.
+    // GPU.requestAdapter does not accept an AbortSignal, so a late request
+    // may still finish after this probe reports a timeout.
     const adapter = await runWithTimeout(
       () => gpu.requestAdapter({ powerPreference: 'high-performance' }),
       {

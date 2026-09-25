@@ -258,8 +258,8 @@ async function processFileWithTimeout(
   const context = `${request.fileName} (${request.id})`;
   try {
     // The deadline timer is cleared as soon as processFile settles. processFile
-    // takes no signal, so work that outlives the deadline still runs to the
-    // end; only its result is dropped.
+    // takes no signal, and synchronous chunking can delay the timer until it
+    // yields. Late work may finish; this call drops its eventual return value.
     return await runWithTimeout(() => processFile(request), {
       onTimeout: () => new Error(`Processing timeout after ${timeoutMs}ms: ${context}`),
       timeoutMs,

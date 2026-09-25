@@ -74,7 +74,7 @@ export interface DesktopGracefulShutdown {
   run(trigger: DesktopShutdownTrigger, forcedExitTrigger: DesktopForcedExitTrigger): Promise<void>;
 }
 
-/** A failed step as the serialized record the aggregate warn logs; null on success. */
+/** A failed step’s serialized failure record; null on success. */
 function toFailure(outcome: ShutdownStepOutcome): SerializedDesktopError | null {
   return outcome.outcome === 'failed'
     ? { step: outcome.step, ...serializeDesktopError(outcome.error) }
