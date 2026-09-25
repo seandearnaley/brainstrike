@@ -469,6 +469,20 @@ test('AGENTS.md routes the effect boundary contract exactly once', () => {
   assert.equal(agents.split('docs/agents/effect-boundary.md').length - 1, 1);
 });
 
+test('token-cache retry adoption records its bounded schedule and timer decision', () => {
+  const contract = readRepoFile('docs/agents/effect-boundary.md');
+  const evidence = readRepoFile('docs/agents/effect-boundary/token-cache-retry.md');
+  assert.match(
+    contract,
+    /Retry token-cache transactions with `Effect\.retry` and a bounded `Schedule`/u
+  );
+  assert.match(
+    contract,
+    /preserve rollback, failure identity and logs; reject out-of-range delays/u
+  );
+  assert.match(evidence, /native timer range/u);
+});
+
 test('desktop composition refactors keep lifecycle owners and require a separate Layer decision', () => {
   const contract = readRepoFile('docs/agents/effect-boundary.md');
   const section = contract.match(/### Desktop composition refactors\n([\s\S]*?)(?:\n### |$)/u)?.[1];
