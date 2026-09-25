@@ -111,15 +111,52 @@ describe('action replay prefix', () => {
     expect(
       (await readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })).pausedMessageId
     ).toBe('native-owner');
-    expect(
-      (
-        await readPausedActionReplayPrefix({
-          ...common,
-          hostRunId: 'host-leg',
-          pauseKind: 'suspend',
-        })
-      ).syntheticPauseMessageId
-    ).toBe('suspended-pause:native-run:canvas-call');
+    await db.query(`DELETE FROM brainstrike_assistant_run_events WHERE id = 'pending-canvas'`);
+    const typedSuspension = { ...common, hostRunId: 'host-leg', pauseKind: 'suspend' as const };
+    await expect(readPausedActionReplayPrefix(typedSuspension)).rejects.toThrow('disagrees');
+    await repository.appendThreadRunEvent('host-leg', {
+      id: 'unsupported-suspend',
+      kind: 'tool.resume.unsupported',
+      label: 'Tool pause cannot be answered by this build (no registered resume UI)',
+      metadata: {
+        resumeSupportedByClient: false,
+        runId: 'native-run',
+        runStillSuspended: true,
+        suspended: true,
+        toolCallId: 'canvas-call',
+        toolName: 'brainstrike.manageCanvas',
+        unregisteredResumeSchema: true,
+      },
+      sequence: 2,
+      status: 'failed',
+      timestamp: '2026-08-10T17:00:02Z',
+    });
+    await expect(readPausedActionReplayPrefix(typedSuspension)).rejects.toThrow('disagrees');
+    await repository.appendThreadRunEvent('host-leg', {
+      id: 'started-typed-suspend',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
+      sequence: 3,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:02Z',
+    });
+    expect((await readPausedActionReplayPrefix(typedSuspension)).syntheticPauseMessageId).toBe(
+      'suspended-pause:native-run:canvas-call'
+    );
+    await db.query(`DELETE FROM brainstrike_assistant_run_events WHERE id = 'unsupported-suspend'`);
+    expect((await readPausedActionReplayPrefix(typedSuspension)).pausedMessageId).toBe(
+      'native-owner'
+    );
+    await repository.appendThreadRunEvent('host-leg', {
+      id: 'pending-canvas',
+      kind: 'tool.approval.requested',
+      label: 'Awaiting approval',
+      metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:02Z',
+    });
     await expect(
       readPausedActionReplayPrefix({ ...common, hostRunId: 'wrong-host' })
     ).rejects.toThrow('disagrees');
@@ -159,6 +196,20 @@ describe('action replay prefix', () => {
       status: 'completed',
       timestamp: '2026-08-10T17:00:03Z',
     });
+    expect(
+      (await readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })).pausedMessageId
+    ).toBe('native-owner');
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs SET generation_run_id = 'host-leg'
+       WHERE id = 'other-host-leg'`
+    );
+    await expect(
+      readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })
+    ).rejects.toThrow('disagrees');
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs SET generation_run_id = NULL
+       WHERE id IN ('host-leg', 'other-host-leg')`
+    );
     expect(
       (await readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })).pausedMessageId
     ).toBe('native-owner');
@@ -203,17 +254,18 @@ describe('action replay prefix', () => {
     ).rejects.toThrow('disagrees');
     await db.query(`DELETE FROM mastra_messages WHERE id = 'colliding-native-owner'`);
     await repository.appendThreadRunEvent('host-leg', {
-      id: 'completed-canvas',
-      kind: 'tool.completed',
-      label: 'Tool completed',
+      id: 'declined-canvas',
+      kind: 'tool.failed',
+      label: 'Tool call declined',
       metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
-      sequence: 2,
-      status: 'completed',
+      sequence: 4,
+      status: 'failed',
       timestamp: '2026-08-10T17:00:06Z',
     });
     await expect(
       readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })
     ).rejects.toThrow('disagrees');
+    await expect(readPausedActionReplayPrefix(typedSuspension)).rejects.toThrow('disagrees');
   });
 
   it('selects two same-turn pauses by exact tool identity and freezes the pre-resume prefix', async () => {

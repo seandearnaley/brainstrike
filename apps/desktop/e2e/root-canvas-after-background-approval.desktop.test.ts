@@ -117,6 +117,8 @@ test('root creates a canvas after two approved background Explorer reads', async
     Object.keys(environment).map((key) => [key, process.env[key]])
   );
   Object.assign(process.env, environment);
+  const testFailures: unknown[] = [];
+  const cleanupFailures: unknown[] = [];
   try {
     const window = await electron.ensureWindow();
     const unhandledErrors: string[] = [];
@@ -161,11 +163,31 @@ test('root creates a canvas after two approved background Explorer reads', async
     await canvasApproval.click();
     await expect(root.getByText('ROOT_CANVAS_CREATED', { exact: true })).toBeVisible();
 
-    const rows = await window.evaluate(async () => {
+    const initialPost = assistantPosts.find(
+      ({ path: requestPath }) => requestPath === '/assistant'
+    );
+    const rootMemory = (
+      initialPost?.body as
+        | { data?: { memory?: { resourceId?: unknown; threadId?: unknown } } }
+        | undefined
+    )?.data?.memory;
+    if (typeof rootMemory?.resourceId !== 'string' || typeof rootMemory.threadId !== 'string') {
+      throw new Error('Initial assistant POST lacked root ownership coordinates');
+    }
+    const rootCoordinates = {
+      resourceId: rootMemory.resourceId,
+      threadId: rootMemory.threadId,
+    };
+    const rows = await window.evaluate(async ({ resourceId, threadId }) => {
       const api = (
         globalThis as {
           electronAPI?: {
-            db?: { query?: (sql: string) => Promise<{ rows: Record<string, unknown>[] }> };
+            db?: {
+              query?: (
+                sql: string,
+                params?: readonly unknown[]
+              ) => Promise<{ rows: Record<string, unknown>[] }>;
+            };
           };
         }
       ).electronAPI;
@@ -173,13 +195,18 @@ test('root creates a canvas after two approved background Explorer reads', async
         throw new Error('Native database bridge unavailable');
       }
       return (
-        await api.db.query(`SELECT canvas.title, canvas.html, canvas.version,
+        await api.db.query(
+          `SELECT canvas.title, canvas.html, canvas.version,
         canvas.thread_id AS "threadId", canvas.resource_id AS "resourceId",
         (child.thread_id = child.root_thread_id AND child.parent_thread_id IS NULL) AS "isRootOwner"
         FROM brainstrike_canvas_versions canvas
-        LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = canvas.thread_id`)
+        LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = canvas.thread_id
+        WHERE canvas.thread_id = $1 AND canvas.resource_id = $2
+        ORDER BY canvas.version DESC`,
+          [threadId, resourceId]
+        )
       ).rows;
-    });
+    }, rootCoordinates);
     expect(rows).toEqual([
       {
         html: CANVAS_HTML,
@@ -296,22 +323,51 @@ test('root creates a canvas after two approved background Explorer reads', async
     expect(owner.native[0]?.['id']).toBe(canvasAction.pausedMessageId);
     expect(unhandledErrors).toEqual([]);
   } catch (error) {
-    await testInfo.attach('provider-transcript', {
-      body: JSON.stringify(provider.transcript()),
-      contentType: 'application/json',
-    });
-    throw error;
+    testFailures.push(error);
+    try {
+      await testInfo.attach('provider-transcript', {
+        body: JSON.stringify(provider.transcript()),
+        contentType: 'application/json',
+      });
+    } catch (attachmentError) {
+      testFailures.push(attachmentError);
+    }
   } finally {
-    await electron.dispose();
-    await provider.close();
-    await rm(workspace, { force: true, recursive: true });
     for (const key of Object.keys(environment)) {
-      const value = previous[key];
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
+      try {
+        const value = previous[key];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      } catch (error) {
+        cleanupFailures.push(error);
       }
     }
+    try {
+      await electron.dispose();
+    } catch (error) {
+      cleanupFailures.push(error);
+    }
+    try {
+      await provider.close();
+    } catch (error) {
+      cleanupFailures.push(error);
+    }
+    try {
+      await rm(workspace, { force: true, recursive: true });
+    } catch (error) {
+      cleanupFailures.push(error);
+    }
+  }
+  if (cleanupFailures.length > 0) {
+    throw new AggregateError([...testFailures, ...cleanupFailures], 'Canvas test cleanup failed');
+  }
+  if (testFailures.length > 1) {
+    throw new AggregateError(testFailures, 'Canvas test and diagnostic attachment failed');
+  }
+  if (testFailures.length === 1) {
+    throw testFailures[0];
   }
 });

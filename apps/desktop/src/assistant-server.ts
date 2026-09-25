@@ -884,6 +884,8 @@ async function handleAssistantPostOwned(
           }
         : {}),
       initializeStream: async (core) => {
+        // Pre-admission rejection releases the renderer's prepared lease. Keep
+        // durable admission and native execution after this boundary.
         enteredStreamInitialization = true;
         // runAssistantTurn admits this root only after its previous owner settles.
         await beginOwnedTurnLeg();

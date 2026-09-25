@@ -2756,6 +2756,23 @@ function toHistoryRepository(
   };
 }
 
+function hasHostPauseEvidence(input: {
+  readonly events: readonly AssistantRunEvent[];
+  readonly hostRunId: string;
+  readonly pauseKind: 'approval' | 'suspend';
+  readonly toolCallId: string;
+}): boolean {
+  // Typed suspend has no durable pause event; its unresolved tool start is
+  // the host-side evidence before native snapshot authorization.
+  const expectedKind = input.pauseKind === 'approval' ? 'tool.approval.requested' : 'tool.started';
+  return input.events.some(
+    (event) =>
+      event.runId === input.hostRunId &&
+      event.kind === expectedKind &&
+      event.metadata?.['toolCallId'] === input.toolCallId
+  );
+}
+
 /**
  * Capture the paused assistant exactly as persisted before a continuation can
  * add a new Mastra snapshot to its hydration group. A tool-call identity must
@@ -2775,10 +2792,8 @@ export async function readPausedActionReplayPrefix(input: {
   const { repository, resourceId, threadId, toolCallId, pausedMessageId, nativeRunId, delegation } =
     input;
   const rows = await repository.listMessages(threadId, resourceId);
-  const history = toHistoryRepository(
-    rows,
-    await repository.listThreadRunEvents(threadId, resourceId)
-  );
+  const runEvents = await repository.listThreadRunEvents(threadId, resourceId);
+  const history = toHistoryRepository(rows, runEvents);
   const candidates = history.messages.filter(
     (item) =>
       item.message.role === 'assistant' &&
@@ -2821,13 +2836,12 @@ export async function readPausedActionReplayPrefix(input: {
         repository.ownsNativeRun(hostRunId, nativeRunId),
         repository.hasResolvedToolCallInGeneration(hostRunId, toolCallId),
       ]);
-      const events = await repository.listThreadRunEvents(threadId, resourceId);
-      const hasExactHostPause = events.some(
-        (event) =>
-          event.runId === hostRunId &&
-          event.kind === 'tool.approval.requested' &&
-          event.metadata?.['toolCallId'] === toolCallId
-      );
+      const hasExactHostPause = hasHostPauseEvidence({
+        events: runEvents,
+        hostRunId,
+        pauseKind: input.pauseKind,
+        toolCallId,
+      });
       if (
         ownsNativeRun &&
         transientParent !== undefined &&
@@ -3576,11 +3590,15 @@ export function createPgliteAssistantThreadRepository(
            SELECT 1 FROM brainstrike_assistant_run_events terminal
            JOIN brainstrike_assistant_thread_runs terminal_run ON terminal_run.id = terminal.run_id
            JOIN brainstrike_assistant_thread_runs paused_run ON paused_run.id = $1
-           WHERE terminal_run.generation_run_id = paused_run.generation_run_id
-             AND terminal_run.thread_id = paused_run.thread_id
+           WHERE terminal_run.thread_id = paused_run.thread_id
              AND terminal_run.resource_id = paused_run.resource_id
+             AND (
+               terminal.run_id = paused_run.id OR
+               (paused_run.generation_run_id IS NOT NULL AND
+                terminal_run.generation_run_id = paused_run.generation_run_id)
+             )
              AND terminal.metadata->>'toolCallId' = $2
-             AND terminal.kind IN ('tool.completed', 'tool.failed', 'tool.resume.unsupported')
+             AND terminal.kind IN ('tool.completed', 'tool.failed')
          ) AS resolved`,
         [hostRunId, toolCallId]
       );
