@@ -64,7 +64,7 @@ Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`,
 - Extraction preserves current startup-failure, reset and stale DB-client behavior.
   A desktop Layer graph requires a separate decision with measured benefit.
 
-Evidence: `effect-boundary/desktop-composition-root.md`.
+Evidence: `effect-boundary/desktop-composition-root.md`, `effect-boundary/renderer-startup.md`.
 Decision: `docs/adr/0005-desktop-composition-root.md`.
 Guard: `scripts/__tests__/effect-boundary-contract.test.mjs`.
 

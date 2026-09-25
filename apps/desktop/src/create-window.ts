@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
+import { Effect, Schedule } from 'effect';
 import { app, BrowserWindow } from 'electron';
 import { resolveAgentDevtoolsWindowTitle } from './agent-devtools-config';
 import {
@@ -125,15 +127,19 @@ function shouldAutoOpenDevTools(): boolean {
   return process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] === '1';
 }
 
-async function wait(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function connectToDevServer(win: BrowserWindow, devRendererUrl: string) {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= DEV_SERVER_RETRY_ATTEMPTS; attempt++) {
-    try {
+async function connectToDevServer(win: BrowserWindow, devRendererUrl: string): Promise<void> {
+  let attempt = 0;
+  const load = Effect.tryPromise({
+    catch: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      startupLogger.warn(
+        { attempt, message, url: devRendererUrl },
+        'Desktop renderer connection attempt failed'
+      );
+      return error;
+    },
+    try: async () => {
+      attempt++;
       const attemptStart = Date.now();
       // CRITICAL: Keep dev renderer URL deterministic.
       // Probing multiple ports caused hidden startup slowdowns and non-deterministic
@@ -147,27 +153,19 @@ async function connectToDevServer(win: BrowserWindow, devRendererUrl: string) {
         { attempt, elapsedMs: Date.now() - attemptStart, url: devRendererUrl },
         'Desktop renderer connection established'
       );
-      return;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      startupLogger.warn(
-        { attempt, message, url: devRendererUrl },
-        'Desktop renderer connection attempt failed'
-      );
-      lastError = error;
-    }
-
-    if (attempt < DEV_SERVER_RETRY_ATTEMPTS) {
-      await wait(DEV_SERVER_RETRY_DELAY_MS);
-    }
-  }
-
-  throw new Error(
-    `Unable to connect to dev renderer at ${devRendererUrl} after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`,
-    {
-      cause: lastError instanceof Error ? lastError : undefined,
-    }
+    },
+  });
+  const retryPolicy = Schedule.spaced(DEV_SERVER_RETRY_DELAY_MS).pipe(
+    Schedule.upTo({ times: DEV_SERVER_RETRY_ATTEMPTS - 1 })
   );
+  try {
+    await runAtPromiseBoundary(Effect.retry(load, retryPolicy));
+  } catch (error) {
+    throw new Error(
+      `Unable to connect to dev renderer at ${devRendererUrl} after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`,
+      { cause: error instanceof Error ? error : undefined }
+    );
+  }
 }
 
 export function noteNextWindowReload(win: BrowserWindow, metadata: WindowReloadMetadata): void {
