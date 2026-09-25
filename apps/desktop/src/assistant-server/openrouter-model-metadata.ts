@@ -5,12 +5,35 @@ import {
   type OpenRouterModelMetadataSnapshot,
   parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
+import { Effect } from 'effect';
 
 const DEFAULT_SUCCESS_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CACHE_ENTRIES = 128;
 const MAX_VISIBLE_ERROR_CHARS = 300;
 const MAX_MODEL_ID_CHARS = 256;
+
+class OpenRouterMetadataRequestError extends Error {
+  constructor(error: unknown) {
+    super(toVisibleError(error));
+    this.name = 'OpenRouterMetadataRequestError';
+  }
+}
+
+class OpenRouterMetadataStatusError extends Error {
+  constructor(status: number) {
+    super(`OpenRouter Models API returned status ${status}`);
+    this.name = 'OpenRouterMetadataStatusError';
+  }
+}
+
+class OpenRouterMetadataTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`OpenRouter Models API request timed out after ${timeoutMs}ms`);
+    this.name = 'OpenRouterMetadataTimeoutError';
+  }
+}
 
 interface OpenRouterModelMetadataServiceOptions {
   readonly fetchImpl?: typeof fetch;
@@ -113,19 +136,31 @@ export function createOpenRouterModelMetadataService(
     apiKey: string,
     stale: OpenRouterModelMetadata | undefined
   ): Promise<OpenRouterModelMetadataSnapshot> => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+    const request = Effect.tryPromise({
+      catch: (error: unknown) =>
+        error instanceof OpenRouterMetadataStatusError
+          ? error
+          : new OpenRouterMetadataRequestError(error),
+      try: async (signal): Promise<OpenRouterModelMetadata> => {
+        const response = await fetchImpl(buildModelUrl(modelId), {
+          headers: { accept: 'application/json', authorization: `Bearer ${apiKey}` },
+          signal,
+        });
+        signal.throwIfAborted();
+        if (!response.ok) {
+          throw new OpenRouterMetadataStatusError(response.status);
+        }
+        const body = await response.json();
+        signal.throwIfAborted();
+        return mergeCatalogBudgetCeilings(parseOpenRouterModelMetadata(body, modelId, now()));
+      },
+    });
+    const bounded = Effect.timeoutOrElse(request, {
+      duration: requestTimeoutMs,
+      orElse: () => Effect.fail(new OpenRouterMetadataTimeoutError(requestTimeoutMs)),
+    });
     try {
-      const response = await fetchImpl(buildModelUrl(modelId), {
-        headers: { accept: 'application/json', authorization: `Bearer ${apiKey}` },
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`OpenRouter Models API returned status ${response.status}`);
-      }
-      const metadata = mergeCatalogBudgetCeilings(
-        parseOpenRouterModelMetadata(await response.json(), modelId, now())
-      );
+      const metadata = await runAtPromiseBoundary(bounded);
       retain(metadata);
       return { freshness: 'live', metadata };
     } catch (error) {
@@ -133,8 +168,6 @@ export function createOpenRouterModelMetadataService(
         throw error;
       }
       return { freshness: 'stale-cache', metadata: stale, warning: toVisibleError(error) };
-    } finally {
-      clearTimeout(timeout);
     }
   };
 

@@ -62,6 +62,8 @@ import {
   type ProviderVerificationStatus,
 } from '@brainstrike/assistant-contract';
 import { resolveEnvAwsRegion } from '@brainstrike/assistant-service/provider-credential-projection';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
+import { Effect } from 'effect';
 import { resolveProviderCredential } from './provider-credentials';
 import { resolveTavilyApiKeyFromKeychain, TAVILY_SECRET_PROVIDER } from './web-search-tool';
 
@@ -71,6 +73,20 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CACHE_ENTRIES = 32;
 const MAX_VISIBLE_ERROR_CHARS = 200;
 const AWS_REGION_PATTERN = /^[a-z0-9-]{1,32}$/;
+
+class ProviderProbeRequestError extends Error {
+  constructor(error: unknown) {
+    super(toVisibleError(error));
+    this.name = 'ProviderProbeRequestError';
+  }
+}
+
+class ProviderProbeTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Request timed out after ${timeoutMs}ms`);
+    this.name = 'ProviderProbeTimeoutError';
+  }
+}
 
 /** The provider id is not verifiable here (not in the registry, not tavily). */
 export class UnknownVerificationProviderError extends Error {
@@ -550,20 +566,27 @@ export function createProviderVerificationService(
 
   const runProbe = async (probe: ProbeRequest): Promise<ProviderVerificationResult> => {
     const checkedAt = new Date(now()).toISOString();
-    const controller = new AbortController();
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, requestTimeoutMs);
+    const request = Effect.tryPromise({
+      catch: (error: unknown) => new ProviderProbeRequestError(error),
+      try: async (signal): Promise<{ response: Response; bodyText: string }> => {
+        const response = await fetchImpl(probe.url, {
+          ...(probe.body === undefined ? {} : { body: probe.body }),
+          headers: probe.headers,
+          method: probe.method,
+          signal,
+        });
+        signal.throwIfAborted();
+        const bodyText = await response.text();
+        signal.throwIfAborted();
+        return { bodyText, response };
+      },
+    });
+    const bounded = Effect.timeoutOrElse(request, {
+      duration: requestTimeoutMs,
+      orElse: () => Effect.fail(new ProviderProbeTimeoutError(requestTimeoutMs)),
+    });
     try {
-      const response = await fetchImpl(probe.url, {
-        ...(probe.body === undefined ? {} : { body: probe.body }),
-        headers: probe.headers,
-        method: probe.method,
-        signal: controller.signal,
-      });
-      const bodyText = await response.text();
+      const { response, bodyText } = await runAtPromiseBoundary(bounded);
       const status = (probe.classifyHttp ?? classifySharedHttp)(response, bodyText);
       if (status === 'verified') {
         const detail = probe.describeSuccess?.(bodyText)?.slice(0, MAX_VISIBLE_ERROR_CHARS);
@@ -579,12 +602,7 @@ export function createProviderVerificationService(
           : `HTTP ${response.status}`;
       return { checkedAt, detail, status };
     } catch (error) {
-      const detail = timedOut
-        ? `Request timed out after ${requestTimeoutMs}ms`
-        : toVisibleError(error);
-      return { checkedAt, detail, status: 'unreachable' };
-    } finally {
-      clearTimeout(timeout);
+      return { checkedAt, detail: toVisibleError(error), status: 'unreachable' };
     }
   };
 
