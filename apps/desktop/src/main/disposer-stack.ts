@@ -3,9 +3,9 @@
  * Owned by `main.ts`'s shutdown path: every `registerXIpcHandlers(...)`
  * disposer is pushed here instead of into its own `let unregisterX` slot,
  * and `will-quit` unwinds the stack instead of a hand-written per-domain
- * ladder. Bookkeeping only — `runGracefulShutdown` (the deep module) is
- * untouched and still runs BEFORE `will-quit`; disposers that must unwind
- * inside a graceful step (forge) stay there.
+ * ladder. Bookkeeping only — the graceful shutdown
+ * (`main/desktop-graceful-shutdown.ts`) still runs BEFORE `will-quit`;
+ * disposers that must unwind inside a graceful step (forge) stay there.
  *
  * `disposeAll` unwinds in LIFO order and isolates every throw: a failing
  * disposer never prevents a later one from running, and each failure is

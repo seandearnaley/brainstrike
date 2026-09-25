@@ -55,10 +55,13 @@ Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`,
   while a permit is momentarily free starts ahead of waiters not yet woken. Code
   that relies on FIFO admission (the snapshot and worktree mutexes) keeps its own
   promise chain.
+- Ordered teardown runs through `runShutdownSequence`, in an explicit order: a
+  failed step never skips a later one; at the deadline the running step aborts.
 
-Evidence: `effect-boundary/phase-one-pilots.md`.
+Evidence: `effect-boundary/phase-one-pilots.md`,
+`effect-boundary/phase-three-lifecycle.md`.
 Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`,
-`timeout.test.ts`.
+`timeout.test.ts`, `shutdown-sequence.test.ts`.
 
 ### Schema at boundaries
 

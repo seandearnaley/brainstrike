@@ -66,3 +66,16 @@ step; fix the owner. Settled rulings, each with a paired test:
   stop; other close failures remain visible. Plain `server.close()`
   waits for every in-flight response, and the first attributed CI forced exit
   named `assistant-server` at 5000 ms in the bare app-launch smoke case.
+
+---
+### Update (2026-09-24, BST-1819): the orchestration moved out of `main.ts`
+
+`main/desktop-graceful-shutdown.ts` now owns the step order
+(`DESKTOP_SHUTDOWN_STEP_ORDER`), the single forced-exit budget, the MCP
+ordering check, the warn-before-sink order and the forced-exit log, on top of
+effect-kit's `runShutdownSequence`. The in-flight tracking that
+`shutdown-step-tracker.ts` did is part of that helper now; the file is gone.
+`main.ts` keeps the step bodies. Step names, order, the 5s budget and every
+log message are unchanged. At the deadline the running step's `AbortSignal`
+now aborts before the forced-exit log. Record:
+`docs/agents/effect-boundary/phase-three-lifecycle.md`.
