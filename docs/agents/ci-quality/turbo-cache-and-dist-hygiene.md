@@ -113,8 +113,8 @@ per-file emit — anything else throws, and such a package must clean instead. `
 `pnpm run clean:generated` cleans stray compiled JS in `src`, not `dist` — it
 does not satisfy this contract (ui's `dist/prompt-management` was a proven
 poisoning vector behind exactly that prefix). The contract scans build-chain
-scripts only: `type-check`'s emitting `tsc --build --force` (apps/web) cannot
-create orphans or archives — only `build` has `dist/**` outputs, and the prune
+scripts only: `type-check`'s emitting `tsc --build` (apps/web; `--force` until
+BST-1818) cannot create orphans or archives — only `build` has `dist/**` outputs, and the prune
 before every snapshot-producing build launders dist before archiving. The
 wiring contract, pruner behavior, entrypoint controls, and the `turbo.jsonc`
 `global.inputs` hash entry for the pruner (editing it must invalidate

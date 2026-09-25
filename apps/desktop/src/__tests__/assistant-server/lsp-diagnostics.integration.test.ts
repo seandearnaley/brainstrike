@@ -117,17 +117,19 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
     const repoRoot = path.resolve(import.meta.dirname, '../../../../..');
     const absolutePath = path.join(repoRoot, 'packages/embeddings/src/device-detection.ts');
     const content = await fsPromises.readFile(absolutePath, 'utf8');
+    const args = { absolutePath, content, rootId: 'brainstrike-webgpu-compat', rootPath: repoRoot };
 
-    const result = await getEditDiagnostics({
-      absolutePath,
-      content,
-      rootId: 'brainstrike-webgpu-compat',
-      rootPath: repoRoot,
-    });
+    // A cold server loads the whole monorepo project before it publishes, and
+    // on a slow runner that alone can outlast the 6s edit budget. The server
+    // is pooled per root, so one warm-up call may time out; the assertion is
+    // on the next call, which must settle. This test pins "no false-positive
+    // diagnostics", not first-edit latency.
+    const warmUp = await getEditDiagnostics(args);
+    const result = warmUp.reason === 'timeout' ? await getEditDiagnostics(args) : warmUp;
 
     expect(result.available, result.message ?? result.reason).toBe(true);
     expect(result.diagnostics ?? []).toEqual([]);
-  }, 30_000);
+  }, 45_000);
 
   it('omits diagnostics for an unsupported language (no note spam)', async () => {
     const root = await makeRoot();
