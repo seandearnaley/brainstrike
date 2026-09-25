@@ -506,13 +506,32 @@ Guard: `scripts/__tests__/pglite-factory-contract.test.mjs`,
 `file-chunk-repository.test.ts`,
 `apps/desktop/src/__tests__/main/db-main.pglite-factory.test.ts`.
 
+### A WebAssembly trap poisons the PGlite instance — it never spins (BST-1221)
+
+- `patches/@electric-sql__pglite@0.5.8.patch` is the ONE sanctioned change to
+  PGlite: stock 0.5.8 retries a trapped `execProtocolRawSync` iteration forever
+  against a blocked event loop; the patch throws `PGliteFatalTrapError` instead,
+  naming the exit status and carrying the trap as `cause`.
+- A trapped instance is POISONED. Later protocol calls and startup packets reject
+  with that fatal as `cause`, the loop runs no WASM finalizers, and `close()`
+  releases the instance and then rethrows — a trapped instance never ends a test
+  or a session cleanly. Ordinary PostgreSQL errors keep the longjmp path.
+- Never widen the patch beyond that loop. When a PGlite release terminates the
+  loop itself, drop the patch and rewrite the guard's precondition against the
+  upstream fix.
+
+Settled: fail closed — never a retry, a fallback or a timeout.
+Evidence: `database/pglite-fatal-trap.md`.
+Guard: `packages/db/__tests__/pglite-fatal-trap-fail-closed.integration.test.ts`,
+which proves the patched loop is under test before it simulates a trap.
+
 ### CLOSING a PGlite: drain first — an overlapping statement wedges it forever
 
-- `PGlite.close()` deactivates the WASM backend BEFORE it awaits the shutdown protocol,
-  and `_checkReady()` only guards entry. A statement still in flight enters
-  `execProtocolRawSync`'s SYNCHRONOUS loop against a dead backend: neither it nor
-  `close()` settles, the event loop is blocked, and no timer, `AbortSignal`, or
-  `Promise.race` can recover it. `SIGKILL` is the only exit.
+- `PGlite.close()` deactivates the WASM backend BEFORE it awaits the shutdown
+  protocol, and `_checkReady()` only guards entry, so a statement still in flight
+  runs `execProtocolRawSync`'s SYNCHRONOUS loop against a dead backend. It either
+  traps — fatal and named, per the rule above — or blocks the event loop past any
+  timer, `AbortSignal` or `Promise.race`, leaving `SIGKILL` the only exit.
 - Every close path drains in-flight work first, through CANONICAL join points only.
   Sleeps, `SELECT 1` flushes, and `Promise.race` timeouts are rejected: a narrowed
   window is silent degradation, and no timer fires against a blocked event loop.
