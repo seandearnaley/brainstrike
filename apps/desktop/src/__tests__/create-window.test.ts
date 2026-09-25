@@ -697,6 +697,42 @@ describe('createWindow', () => {
     });
   });
 
+  it('retries the production dev target 30 times at 200 ms spacing', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('VITEST', 'false');
+    vi.resetModules();
+    try {
+      const [{ createWindow: createProductionWindow }, rendererTarget] = await Promise.all([
+        import('../create-window'),
+        import('../desktop-renderer-target'),
+      ]);
+      rendererTarget.configureDesktopRendererTarget(DEV_RENDERER_TARGET);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
+      const attemptedAt: number[] = [];
+      const failure = new Error('dev server unavailable');
+      mockBrowserWindow.loadURL.mockImplementation(() => {
+        attemptedAt.push(Date.now());
+        return Promise.reject(failure);
+      });
+
+      const result = expect(createProductionWindow()).rejects.toThrow(
+        'Dev renderer unavailable in non-packaged mode; refusing production fallback'
+      );
+      await vi.runAllTimersAsync();
+      await result;
+
+      expect(attemptedAt).toHaveLength(30);
+      expect(attemptedAt.slice(1).map((time, index) => time - attemptedAt[index]!)).toEqual(
+        Array.from({ length: 29 }, () => 200)
+      );
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   describe('security configuration', () => {
     it('should configure window open handler', async () => {
       existsSyncMock.mockReturnValue(true);
@@ -901,9 +937,12 @@ describe('createWindow', () => {
       const error = new Error('All ports unavailable');
       mockBrowserWindow.loadURL.mockRejectedValue(error);
 
-      await expect(createWindow()).rejects.toThrow(
+      const failure = await createWindow().catch((cause: unknown) => cause);
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain(
         'Dev renderer unavailable in non-packaged mode; refusing production fallback'
       );
+      expect(((failure as Error).cause as Error).cause).toBe(error);
       expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
       const attemptedUrls = mockBrowserWindow.loadURL.mock.calls.map((call: [string]) => call[0]);
       for (const url of attemptedUrls) {

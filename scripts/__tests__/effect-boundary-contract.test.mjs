@@ -555,3 +555,18 @@ test('parser host Schema stays in main and utility consumers', () => {
     /effect-boundary\/parser-host-schema\.md/u
   );
 });
+
+test('renderer startup adopts Effect retry and always finalizes readiness waits', () => {
+  for (const name of ['create-window', 'renderer-host-lifecycle']) {
+    const source = readRepoFile(`apps/desktop/src/${name}.ts`);
+    assert.match(source, /Effect\.retry\(/u);
+    assert.match(source, /runAtPromiseBoundary\(/u);
+  }
+  const host = readRepoFile('apps/desktop/src/renderer-host-lifecycle.ts');
+  assert.match(host, /Effect\.callback</u);
+  assert.match(host, /Effect\.ensuring\(/u);
+  assert.match(
+    readRepoFile('docs/agents/effect-boundary.md'),
+    /effect-boundary\/renderer-startup\.md/u
+  );
+});
