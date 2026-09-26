@@ -60,3 +60,41 @@ it('does not report hosted providers as unavailable local models', () => {
   );
   expect(records).toEqual([]);
 });
+
+it('does not record provider read errors as model unavailability', () => {
+  renderHook(() =>
+    useAssistantProviderDisabledReason(
+      { ...base, providerReadErrors: { ollama: 'Could not read provider' } },
+      false
+    )
+  );
+  expect(records).toEqual([]);
+});
+it('does not record an unavailable runtime as a missing model', () => {
+  renderHook(() => useAssistantProviderDisabledReason({ ...base, configuredProviders: [] }, false));
+  expect(records).toEqual([]);
+});
+
+it('does not record disabled models as missing when the selected model exists', () => {
+  const { result } = renderHook(() =>
+    useAssistantProviderDisabledReason(
+      {
+        ...base,
+        getProviderLlmModels: () => [
+          {
+            contextWindow: 1000,
+            default: false,
+            id: 'private-model',
+            label: 'Private',
+            type: 'llm',
+            vision: 'unsupported',
+          },
+        ],
+        providerHasEnabledModels: () => false,
+      },
+      false
+    )
+  );
+  expect(result.current).toContain('Enable at least one model');
+  expect(records).toEqual([]);
+});

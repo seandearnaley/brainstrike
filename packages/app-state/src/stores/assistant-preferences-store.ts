@@ -1250,24 +1250,22 @@ export const useAssistantPreferencesStore = create<Store>()(
       recentModels: [],
       selectedModel: null,
 
-      setModel: (compositeKey) =>
-        set((state) => {
-          const parsed = parseCompositeModelKey(compositeKey);
-          if (!parsed) {
-            return state;
-          }
-
-          if (state.selectedModel !== parsed.compositeKey) {
-            recordAssistantModelDiagnostic('assistant_model_selected', parsed.provider);
-          }
-          // Single atomic update: selectedModel composite key + remember preference
-          // The UI layer validates model enabled state against the database before calling setModel
-          return {
-            modelsByProvider: { ...state.modelsByProvider, [parsed.provider]: parsed.model },
-            recentModels: pushRecentModel(state.recentModels, parsed.compositeKey),
-            selectedModel: parsed.compositeKey,
-          };
-        }),
+      setModel: (compositeKey) => {
+        const parsed = parseCompositeModelKey(compositeKey);
+        if (!parsed) {
+          return;
+        }
+        const changed = get().selectedModel !== parsed.compositeKey;
+        // The UI validates enabled state before this single atomic preference update.
+        set((state) => ({
+          modelsByProvider: { ...state.modelsByProvider, [parsed.provider]: parsed.model },
+          recentModels: pushRecentModel(state.recentModels, parsed.compositeKey),
+          selectedModel: parsed.compositeKey,
+        }));
+        if (changed) {
+          recordAssistantModelDiagnostic('assistant_model_selected', parsed.provider);
+        }
+      },
 
       setModelEnabled: (provider, model, enabled) =>
         set((state) => {

@@ -1,6 +1,6 @@
 import { recordAssistantModelDiagnostic } from '@brainstrike/app-state/local-runtime-diagnostics';
 import { useEffect, useMemo, useRef } from 'react';
-import { resolveAssistantProviderDisabledReason } from '../assistant-ui-panel-wrapper-runtime';
+import { resolveAssistantProviderDisabledNotice } from '../assistant-ui-panel-wrapper-runtime';
 
 /** Shares the rendered notice's priority and logs only a newly presented local warning. */
 export function useAssistantProviderDisabledReason(
@@ -12,12 +12,12 @@ export function useAssistantProviderDisabledReason(
     providerHasEnabledModels,
     providerReadErrors,
     selectedProvider,
-  }: Parameters<typeof resolveAssistantProviderDisabledReason>[0],
+  }: Parameters<typeof resolveAssistantProviderDisabledNotice>[0],
   noticeHidden: boolean
 ): string | undefined {
-  const reason = useMemo(
+  const notice = useMemo(
     () =>
-      resolveAssistantProviderDisabledReason({
+      resolveAssistantProviderDisabledNotice({
         configuredProviders,
         currentModel,
         getProviderLlmModels,
@@ -40,19 +40,19 @@ export function useAssistantProviderDisabledReason(
   useEffect(() => {
     if (
       noticeHidden ||
-      !reason ||
+      notice?.kind !== 'model-unavailable' ||
       !currentModel ||
       (selectedProvider !== 'ollama' && selectedProvider !== 'lmstudio')
     ) {
       lastNotice.current = null;
       return;
     }
-    const identity = JSON.stringify([selectedProvider, currentModel, reason]);
+    const identity = JSON.stringify([selectedProvider, currentModel]);
     if (lastNotice.current === identity) {
       return;
     }
     lastNotice.current = identity;
     recordAssistantModelDiagnostic('assistant_model_unavailable_shown', selectedProvider);
-  }, [currentModel, noticeHidden, reason, selectedProvider]);
-  return reason;
+  }, [currentModel, noticeHidden, notice?.kind, selectedProvider]);
+  return notice?.message;
 }

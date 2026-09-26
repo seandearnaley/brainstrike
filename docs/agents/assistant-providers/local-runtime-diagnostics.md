@@ -60,3 +60,14 @@ For troubleshooting, filter Log Viewer by `LocalRuntimeDiagnostics` and the code
 A started record without a result means the attempt has not settled; unavailable
 and blocked_web remain distinct. For endpoints/credentials use Settings' explicit
 runtime diagnostics, not these bounded events.
+
+The notice resolver returns a bounded kind alongside its display message. Only
+`model-unavailable` emits the shown event; runtime availability and provider
+read/configuration errors do not. Dedupe uses provider/model identity, never
+changing hint text. Model selection records after the atomic preference update,
+outside the Zustand updater.
+
+Each discovery/catalog invocation records one started/result pair, including
+service-cache hits. These count calls, not network requests. The assistant catalog
+hook refreshes on mount and provider-settings changes, not on a polling timer.
+Info level is intentional for these bounded records; rejected calls remain warn.

@@ -816,7 +816,7 @@ export function toRuntimeWorkspaceContext(
   };
 }
 
-export function resolveAssistantProviderDisabledReason(args: {
+export function resolveAssistantProviderDisabledNotice(args: {
   configuredProviders: readonly SupportedProvider[];
   currentModel: string | null | undefined;
   getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
@@ -824,33 +824,36 @@ export function resolveAssistantProviderDisabledReason(args: {
   providerHasEnabledModels: (provider: SupportedProvider) => boolean;
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
   selectedProvider: SupportedProvider | null;
-}): string | undefined {
+}): { kind: 'provider' | 'model-unavailable'; message: string } | undefined {
   const localRuntimeProviderReason = resolveLocalRuntimeProviderDisabledReason(
     args.selectedProvider,
     args.configuredProviders
   );
   if (localRuntimeProviderReason) {
-    return localRuntimeProviderReason;
+    return { kind: 'provider', message: localRuntimeProviderReason };
   }
 
   const builtInLocalReason = resolveBuiltInLocalProviderDisabledReason(args.selectedProvider);
   if (builtInLocalReason) {
-    return builtInLocalReason;
+    return { kind: 'provider', message: builtInLocalReason };
   }
 
   if (args.configuredProviders.length === 0) {
     const baseReason = 'Connect an AI provider in Settings → Providers to enable the assistant.';
-    return args.localRuntimeHint ? `${baseReason} ${args.localRuntimeHint}` : baseReason;
+    return {
+      kind: 'provider',
+      message: args.localRuntimeHint ? `${baseReason} ${args.localRuntimeHint}` : baseReason,
+    };
   }
   if (!args.selectedProvider) {
-    return 'Select an AI provider to start chatting.';
+    return { kind: 'provider', message: 'Select an AI provider to start chatting.' };
   }
   const providerReadError = args.providerReadErrors?.[args.selectedProvider];
   if (providerReadError) {
-    return providerReadError;
+    return { kind: 'provider', message: providerReadError };
   }
   if (!args.configuredProviders.includes(args.selectedProvider)) {
-    return 'The selected provider is no longer configured.';
+    return { kind: 'provider', message: 'The selected provider is no longer configured.' };
   }
 
   const providerModelIds = args
@@ -862,17 +865,26 @@ export function resolveAssistantProviderDisabledReason(args: {
     selectedProvider: args.selectedProvider,
   });
   if (unavailableLocalModelReason) {
-    return unavailableLocalModelReason;
+    return { kind: 'model-unavailable', message: unavailableLocalModelReason };
   }
 
   if (!args.providerHasEnabledModels(args.selectedProvider)) {
     const definition = getProviderDefinition(args.selectedProvider);
-    return `Enable at least one model for ${definition.displayName} to continue.`;
+    return {
+      kind: 'provider',
+      message: `Enable at least one model for ${definition.displayName} to continue.`,
+    };
   }
   if (!args.currentModel) {
-    return 'Select a model for the chosen provider to continue.';
+    return { kind: 'provider', message: 'Select a model for the chosen provider to continue.' };
   }
   return;
+}
+
+export function resolveAssistantProviderDisabledReason(
+  args: Parameters<typeof resolveAssistantProviderDisabledNotice>[0]
+): string | undefined {
+  return resolveAssistantProviderDisabledNotice(args)?.message;
 }
 
 export function resolveProviderModelSelection(args: {

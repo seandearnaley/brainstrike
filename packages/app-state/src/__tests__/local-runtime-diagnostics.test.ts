@@ -92,6 +92,7 @@ describe('local runtime diagnostics wiring', () => {
       useAssistantPreferencesStore.getState().getLocalRuntimeStatus('ollama')
     ).rejects.toBe(error);
     expect(events()).toHaveLength(2);
+    expect(events()).toHaveLength(2);
     expect(events()[1]).toMatchObject({ code: 'local_provider_probe_result', state: 'error' });
     expect(JSON.stringify(events())).not.toContain(privateText);
   });
@@ -142,40 +143,43 @@ describe('local runtime diagnostics wiring', () => {
       { code: 'assistant_model_selected', provider: 'ollama', schemaVersion: 1 },
     ]);
   });
-});
 
-it('pairs catalog rejection without logging its error', async () => {
-  const error = new Error(privateText);
-  installBridge(vi.fn(), vi.fn().mockRejectedValue(error));
-  await expect(useAssistantPreferencesStore.getState().getLocalRuntimeModels()).rejects.toBe(error);
-  expect(events()).toHaveLength(2);
-  expect(events()[1]).toMatchObject({ code: 'local_models_list_result', state: 'error' });
-  expect(JSON.stringify(events())).not.toContain(privateText);
-});
-it('reports browser catalog outcomes without copying the catalog payload', async () => {
-  vi.spyOn(LocalRuntimeModelCatalogService.prototype, 'listRuntimeModels').mockResolvedValue({
-    availability: { checkedAt: 0, endpoint: privateText, latencyMs: 1, state: 'available' },
-    checkedAt: 0,
-    endpoint: privateText,
-    freshness: 'live',
-    models: [],
-    runtime: 'ollama',
-    source: 'ollama_api_tags',
-    state: 'loaded_empty',
+  it('pairs catalog rejection without logging its error', async () => {
+    const error = new Error(privateText);
+    installBridge(vi.fn(), vi.fn().mockRejectedValue(error));
+    await expect(useAssistantPreferencesStore.getState().getLocalRuntimeModels()).rejects.toBe(
+      error
+    );
+    expect(events()).toHaveLength(2);
+    expect(events()[1]).toMatchObject({ code: 'local_models_list_result', state: 'error' });
+    expect(JSON.stringify(events())).not.toContain(privateText);
   });
-  await useAssistantPreferencesStore.getState().getLocalRuntimeModels();
-  expect(events()).toHaveLength(2);
-  expect(events()[1]).toMatchObject({
-    code: 'local_models_list_result',
-    route: 'browser-service',
-    state: 'loaded_empty',
+  it('reports browser catalog outcomes without copying the catalog payload', async () => {
+    vi.spyOn(LocalRuntimeModelCatalogService.prototype, 'listRuntimeModels').mockResolvedValue({
+      availability: { checkedAt: 0, endpoint: privateText, latencyMs: 1, state: 'available' },
+      checkedAt: 0,
+      endpoint: privateText,
+      freshness: 'live',
+      models: [],
+      runtime: 'ollama',
+      source: 'ollama_api_tags',
+      state: 'loaded_empty',
+    });
+    await useAssistantPreferencesStore.getState().getLocalRuntimeModels();
+    expect(events()).toHaveLength(2);
+    expect(events()[1]).toMatchObject({
+      code: 'local_models_list_result',
+      route: 'browser-service',
+      state: 'loaded_empty',
+    });
   });
-});
-it('reports malformed native results as errors rather than accepting unknown diagnostic state', async () => {
-  installBridge(vi.fn().mockResolvedValue({ state: privateText }));
-  await expect(
-    useAssistantPreferencesStore.getState().getLocalRuntimeStatus('ollama')
-  ).rejects.toThrow('Unexpected probe result shape');
-  expect(events()[1]).toMatchObject({ code: 'local_provider_probe_result', state: 'error' });
-  expect(JSON.stringify(events())).not.toContain(privateText);
+  it('reports malformed native results as errors rather than accepting unknown diagnostic state', async () => {
+    installBridge(vi.fn().mockResolvedValue({ state: privateText }));
+    await expect(
+      useAssistantPreferencesStore.getState().getLocalRuntimeStatus('ollama')
+    ).rejects.toThrow('Unexpected probe result shape');
+    expect(events()).toHaveLength(2);
+    expect(events()[1]).toMatchObject({ code: 'local_provider_probe_result', state: 'error' });
+    expect(JSON.stringify(events())).not.toContain(privateText);
+  });
 });
