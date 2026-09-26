@@ -1,19 +1,19 @@
 # Database: Model Catalog Migrations, PGlite Extensions, First-Run Bootstrap
 
-> Read before adding migrations or models, constructing PGlite, or touching
-> browser bootstrap. Rules here are true now; the record behind each is in
-> `database/<topic>.md`.
+> Read before migrations, models, PGlite, or browser bootstrap. Rules are current;
+> historical records live in `database/<topic>.md`.
 
 ## ATOMIC CHUNK AND JOB WRITES
 
-- `insertChunksAndEnqueueEmbeddingJobs` inserts chunks and enqueues their jobs in
-  one transaction: construct the chunk repository from the outer transactional
-  connection and pass the callback's query surface to `insertManyWithTx`.
-- The callback's `IDatabase` requires `query` and makes `transaction` optional. A
-  query-only handle is valid; never cast it into a database that guarantees
-  nested transactions.
+- `insertChunksAndEnqueueEmbeddingJobs` uses one transaction: construct the chunk
+  repository from its connection and pass its query surface to `insertManyWithTx`.
+- The callback's `IDatabase` guarantees `query` only; query-only handles must not be cast to support nested transactions.
+- `claimMany` atomically fails expired final-attempt leases once, releasing
+  ownership/dedupe eligibility; live leases survive, and claims never refund attempts.
 
-Guard: `packages/db/__tests__/job-queue-transactional-enqueue.test.ts`.
+Guard: `packages/db/__tests__/job-queue-transactional-enqueue.test.ts`,
+`packages/db/__tests__/job-queue-expired-lease.test.ts`.
+Evidence: `database/job-queue-lease-exhaustion.md`.
 
 ## CHUNK SEARCH POLICY AND ATOMIC TRANSPORTS
 
