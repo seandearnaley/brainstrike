@@ -160,6 +160,40 @@ describe('wasmLoader browser worker host', () => {
     expect(getMissingBrainstrikeDbClientCapabilities(client)).toEqual([]);
   });
 
+  it('reports a cached worker close failure once without rejecting', async () => {
+    const workerClient = {
+      close: vi.fn().mockRejectedValue(new Error('worker closed unexpectedly')),
+      live: { query: vi.fn() },
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      transaction: vi.fn(),
+    };
+    pgliteWorkerCreate.mockResolvedValue(workerClient);
+    const { wasmLoader } = await import('../src/wasm-loader');
+    const { addLogListener } = await import('@brainstrike/logging');
+    await wasmLoader.createPGliteClient('idb://web');
+    let failures = 0;
+    const unsubscribe = addLogListener((record) => {
+      if (
+        record.args.some(
+          (arg) =>
+            typeof arg === 'object' &&
+            arg !== null &&
+            'code' in arg &&
+            arg.code === 'database_close_failed'
+        )
+      ) {
+        failures += 1;
+      }
+    });
+    try {
+      await expect(wasmLoader.closeCached('idb://web')).resolves.toBeUndefined();
+      expect(failures).toBe(1);
+      expect(workerClient.close).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('deduplicates concurrent worker client creation for the same IndexedDB path', async () => {
     const workerClient = {
       close: vi.fn().mockResolvedValue(undefined),

@@ -219,7 +219,7 @@ describe('DbProvider', () => {
 
   it.each(['close failed', 'filesystem closed unexpectedly'])(
     'emits a structured diagnostic when closing fails: %s',
-    async (message) => {
+    async (message: string): Promise<void> => {
       const mockDb = createMockDb();
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
       vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);

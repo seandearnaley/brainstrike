@@ -24,6 +24,7 @@ import {
   isBrowserPersistentPGliteDataDir,
   isIndexedDbPGliteDataDir,
 } from './browser-pglite-storage.js';
+import { reportDatabaseCloseFailure } from './database-close-diagnostics.js';
 import type {
   ClearAllDataResult,
   DatabaseTransport,
@@ -130,14 +131,10 @@ async function closeDirectConnection(db: PGliteRuntimeClient, dataDir: string): 
       await db.close();
     }
   } catch (err: unknown) {
-    if (err instanceof Error && err.message === 'PGlite is closed') {
-      return;
-    }
-    logger.error('Failed to close database:', {
-      code: 'database_close_failed',
+    reportDatabaseCloseFailure(
       err,
-      storage: isBrowserPersistentPGliteDataDir(dataDir) ? 'browser-persistent' : 'direct',
-    });
+      isBrowserPersistentPGliteDataDir(dataDir) ? 'browser-persistent' : 'direct'
+    );
   }
 }
 
@@ -159,20 +156,7 @@ async function purgeAndCloseDirectDb(
   } catch (err) {
     logger.warn('VACUUM after purge failed:', err);
   }
-  if (isBrowserPersistentPGliteDataDir(dataDir)) {
-    try {
-      await wasmLoader.closeCached(dataDir);
-      logger.info('[DbProvider] Closed cached browser PGlite instance during factory reset');
-    } catch (err) {
-      logger.warn('Failed to close cached browser PGlite instance during reset:', err);
-    }
-  } else {
-    try {
-      await db.close();
-    } catch (err) {
-      logger.warn('Closing database after purge failed:', err);
-    }
-  }
+  await closeDirectConnection(db, dataDir);
 }
 
 async function loadDrizzleEmbeddingSetsRepository() {

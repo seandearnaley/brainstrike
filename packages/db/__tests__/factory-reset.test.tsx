@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
@@ -133,6 +134,39 @@ describe('DbProvider factoryReset', () => {
       writable: true,
     });
     vi.restoreAllMocks();
+  });
+
+  it('reports reset close failures and still completes teardown', async () => {
+    const { result } = renderHook(
+      () => ({ repo: useFileRecordRepository(), reset: useFactoryReset() }),
+      { wrapper }
+    );
+    await waitFor(() => expect(result.current.repo).not.toBeNull());
+    const db = createdDbs[0];
+    if (!db) {
+      throw new Error('Expected initialized database');
+    }
+    db.close.mockRejectedValue(new Error('disk failure'));
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => records.push(record));
+    try {
+      await act(async () => {
+        await result.current.reset?.();
+      });
+      expect(
+        records.filter((record) =>
+          record.args.some(
+            (arg) =>
+              typeof arg === 'object' &&
+              arg !== null &&
+              'code' in arg &&
+              arg.code === 'database_close_failed'
+          )
+        )
+      ).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('exposes a factoryReset function once the DB is initialized', async () => {

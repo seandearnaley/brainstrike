@@ -26,7 +26,7 @@ afterEach(() => resetLogger());
 
 describe.each(['memory://', 'opfs-ahp://private-profile'])(
   'close diagnostics for %s',
-  (dataDir) => {
+  (dataDir: string): void => {
     it.each([
       { error: undefined, expected: false, label: 'successful close' },
       { error: new Error('PGlite is closed'), expected: false, label: 'already closed' },
@@ -35,45 +35,53 @@ describe.each(['memory://', 'opfs-ahp://private-profile'])(
         expected: true,
         label: 'unexpected error mentioning closed',
       },
+      {
+        error: { message: 'PGlite is closed' },
+        expected: false,
+        label: 'cross-realm closed sentinel',
+      },
       { error: 'disk failure', expected: true, label: 'non-Error rejection' },
-    ])('$label', async ({ error, expected }) => {
-      const cached = dataDir.startsWith('opfs-ahp:');
-      if (error !== undefined) {
-        (cached ? closeCached : close).mockRejectedValue(error);
-      }
-      const records: LogRecord[] = [];
-      const unsubscribe = addLogListener((record) => records.push(record));
-      try {
-        const transport = createPgliteDirectTransport({ getDataDir: () => dataDir });
-        // A client constructed after disposal must close without installing a DB.
-        await expect(
-          transport.open({ isDisposed: () => true, scheduler: createDatabaseWorkScheduler() })
-        ).resolves.toBeNull();
-        expect(cached ? closeCached : close).toHaveBeenCalledTimes(1);
-        expect(cached ? close : closeCached).not.toHaveBeenCalled();
-        const events = records.flatMap((record) => {
-          const event = logRecordToDiagnosticEvent(record, {
-            appVersion: 'test',
-            makeId: () => 'event',
-            platform: 'test',
-            sessionId: 'session',
-            source: 'renderer',
-          });
-          return event ? [event] : [];
-        });
-        expect(events).toHaveLength(expected ? 1 : 0);
-        if (expected) {
-          expect(events[0]).toMatchObject({
-            code: 'database_close_failed',
-            context: { storage: cached ? 'browser-persistent' : 'direct' },
-            scope: 'DbProvider',
-            severity: 'error',
-          });
-          expect(JSON.stringify(events)).not.toContain('private-profile');
+    ])(
+      '$label',
+      async ({ error, expected }: { error: unknown; expected: boolean }): Promise<void> => {
+        const cached = dataDir.startsWith('opfs-ahp:');
+        if (error !== undefined) {
+          (cached ? closeCached : close).mockRejectedValue(error);
         }
-      } finally {
-        unsubscribe();
+        const records: LogRecord[] = [];
+        const unsubscribe = addLogListener((record) => records.push(record));
+        try {
+          const transport = createPgliteDirectTransport({ getDataDir: () => dataDir });
+          // A client constructed after disposal must close without installing a DB.
+          await expect(
+            transport.open({ isDisposed: () => true, scheduler: createDatabaseWorkScheduler() })
+          ).resolves.toBeNull();
+          expect(cached ? closeCached : close).toHaveBeenCalledTimes(1);
+          expect(cached ? close : closeCached).not.toHaveBeenCalled();
+          const events = records.flatMap((record) => {
+            const event = logRecordToDiagnosticEvent(record, {
+              appVersion: 'test',
+              makeId: () => 'event',
+              platform: 'test',
+              sessionId: 'session',
+              source: 'renderer',
+            });
+            return event ? [event] : [];
+          });
+          expect(events).toHaveLength(expected ? 1 : 0);
+          if (expected) {
+            expect(events[0]).toMatchObject({
+              code: 'database_close_failed',
+              context: { storage: cached ? 'browser-persistent' : 'direct' },
+              scope: 'DbProvider',
+              severity: 'error',
+            });
+            expect(JSON.stringify(events)).not.toContain('private-profile');
+          }
+        } finally {
+          unsubscribe();
+        }
       }
-    });
+    );
   }
 );
