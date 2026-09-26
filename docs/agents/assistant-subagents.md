@@ -160,30 +160,28 @@ bespoke `subagent` tool.
   panel reads the user's settings for the tree-wide block, and it shows
   `effectiveChildStepBudget` rather than repeating the arithmetic. A bridge
   omitting the fields renders no scope line rather than a guess.
-- **Model pinning:** `resolvePinnedModel`. Same-provider pins reuse the parent
-  key, cross-provider pins use `personaProviderApiKeys`,
-  `PERSONA_PIN_KEYLESS_PROVIDERS` need none, a `local` pin REQUIRES
-  `runtime.localLlmHostClient`, and anything else throws and SKIPS that persona
-  with `subagent_persona_pin_unresolvable` — never a parent-model fallback.
-- **Child factory:** `build-persona-subagents.ts`. A child's tool map is a
-  permission-gated SUBSET of the parent's already-guarded, lifecycle-hooked map
-  through the same `filterToolsByPermissionWithMetadata` gate. Read-risk ask
-  tools keep native per-tool approval only with storage and the complete durable
-  child-control binding; an empty post-gate map means the persona is NOT
-  registered, and workers are omitted visibly without every durable
-  child-control method. The child `Agent` id EQUALS the persona id. Because the
-  selected tools are the same parent-owned objects, the model-projection wrapper
-  installs the child's budget only for the synchronous projector call and
-  restores the prior value in `finally`.
+- **Model pinning:** same-provider pins reuse the parent key; cross-provider
+  pins use `personaProviderApiKeys`; `PERSONA_PIN_KEYLESS_PROVIDERS` need none.
+  A local pin requires `runtime.localLlmHostClient`. `resolvePinnedModel` skips
+  unresolvable pins with `subagent_persona_pin_unresolvable`, never a fallback.
+- **Child factory:** `build-persona-subagents.ts` selects a subset of the parent's
+  guarded, lifecycle-hooked tools through `filterToolsByPermissionWithMetadata`.
+  Read-risk ask tools retain approval only with storage and the complete durable
+  binding. Omit empty tool maps and visibly omit workers missing any child-control
+  method. Child Agent ids equal persona ids. Shared tool objects receive the
+  child's projection budget only synchronously; restore it in `finally`.
 - **Safety rails:** `createDelegationConfig` (`subagent-delegation.ts`) builds a
   per-run closure — caps from `subagentSettings`, the persona `maxSteps` clamp,
-  unknown-persona rejection, and `onDelegationComplete` reporting child usage
-  through `onChildUsage` into a durable `run_kind='subagent'` row under the
-  PARENT runId. Parent FINISH counters still exclude child tokens; attribution
+  unknown-persona rejection, and `onChildUsage` reporting into durable
+  `run_kind='subagent'` rows under the parent runId. FINISH counters exclude child tokens; attribution
   rides that row (`assistant-persistence.md`). Pass it on
   `streamOptions.delegation` in ALL THREE stream iterators — initial turn,
   approval resume, suspend resume. With durable budgets the shared model/tool
   queue replaces the in-flight cap.
+- Failure hooks log fixed cause categories and call identity, not freeform errors;
+  known embedding failures give feedback. Selected Stop requires the same reason
+  in both owner signals and child error cause chain; `AbortError` alone is insufficient.
+  Evidence: `assistant-subagents/worker-startup-failures.md`.
 - An in-flight delegation whose parent run aborts mid-stream gets a terminal
   `subagent.failed` (status `cancelled`), so a cancelled parent leaves no
   orphaned `subagent.started`. An approval-resume leg synthesizes a `start`
@@ -192,6 +190,8 @@ bespoke `subagent` tool.
 - **Stream → run events:** `processMastraStreamPart` emits `subagent.started`/
   `.finished`/`.failed` alongside the generic `tool.*` timeline and maps a
   delegation `tool-output` to `subagent.tool.*` instead of the generic path.
+  The first terminal wins for both timelines; duplicate parts cannot emit
+  another subagent terminal. Guard: `mastra-tool-lifecycle.spec.ts`.
   `requireRunEventKind` throws on an unknown kind, so the contract enum ships
   before any emitter. Metadata carries ids and labels only, never args or
   results.

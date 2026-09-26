@@ -21,6 +21,7 @@ import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readApprovalActionChipProps } from '../approval-action-chip';
 import {
+  AssistantActionHistoryBarrier,
   BrainstrikeDataStreamRuntimeAdapter,
   boundResentImageHistory,
   extractTransportBodyData,
@@ -45,6 +46,103 @@ function message(id: string, role: ThreadMessage['role']): ThreadMessage {
     role,
   } as ThreadMessage;
 }
+
+describe('action history admission barrier', () => {
+  const actionRunConfig = {
+    custom: {
+      [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+        action: 'approve',
+        runId: 'run-echo-1',
+        toolCallId: 'call-echo-1',
+        toolName: 'shell.tool',
+      },
+    },
+  };
+  const actionMessages = [
+    message('real-user', 'user'),
+    pausedActionMessage('assistant-1', 'approval', 'run-echo-1', 'call-echo-1'),
+    approvalActionMessage('approval-user'),
+  ];
+  const response = () =>
+    new Response(
+      dataStreamFromLines([
+        'f:{"messageId":"msg-echo"}',
+        '0:"Done"',
+        'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+      ])
+    );
+  const consume = async (adapter: BrainstrikeDataStreamRuntimeAdapter, signal: AbortSignal) => {
+    for await (const _ of adapter.run(
+      runOptions({ abortSignal: signal, messages: actionMessages, runConfig: actionRunConfig })
+    )) {
+      // Drain the request.
+    }
+  };
+
+  it('holds the exact action POST until its history write commits', async () => {
+    let release!: () => void;
+    const write = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const barrier = new AssistantActionHistoryBarrier();
+    barrier.record('approval-user', write);
+    const fetchSpy = vi.fn(async () => response());
+    vi.stubGlobal('fetch', fetchSpy);
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      actionHistoryBarrier: barrier,
+      api: 'http://assistant.test/api/assistant',
+    });
+    const pending = consume(adapter, new AbortController().signal);
+    await Promise.resolve();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    release();
+    await pending;
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('never sends after a failed, invalidated, or aborted action write', async () => {
+    const fetchSpy = vi.fn(async () => response());
+    vi.stubGlobal('fetch', fetchSpy);
+    const failed = new AssistantActionHistoryBarrier();
+    failed.record('approval-user', Promise.reject(new Error('topology write failed')));
+    await expect(
+      consume(
+        new BrainstrikeDataStreamRuntimeAdapter({
+          actionHistoryBarrier: failed,
+          api: 'http://assistant.test/api/assistant',
+        }),
+        new AbortController().signal
+      )
+    ).rejects.toThrow('topology write failed');
+
+    const invalidated = new AssistantActionHistoryBarrier();
+    invalidated.record('approval-user', new Promise<void>(() => undefined));
+    const invalidatedRun = consume(
+      new BrainstrikeDataStreamRuntimeAdapter({
+        actionHistoryBarrier: invalidated,
+        api: 'http://assistant.test/api/assistant',
+      }),
+      new AbortController().signal
+    );
+    invalidated.invalidate();
+    invalidated.reopen();
+    await expect(invalidatedRun).resolves.toBeUndefined();
+
+    const aborted = new AssistantActionHistoryBarrier();
+    aborted.record('approval-user', new Promise<void>(() => undefined));
+    const controller = new AbortController();
+    const abortedRun = consume(
+      new BrainstrikeDataStreamRuntimeAdapter({
+        actionHistoryBarrier: aborted,
+        api: 'http://assistant.test/api/assistant',
+      }),
+      controller.signal
+    );
+    controller.abort();
+    await expect(abortedRun).rejects.toThrow();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
 
 function pausedActionMessage(
   id: string,

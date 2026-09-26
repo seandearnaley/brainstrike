@@ -347,6 +347,12 @@ function composeDelegatedHooks(
   };
 }
 
+function externalStopSignalOption(runtimeData: RuntimeData | undefined): {
+  externalStopSignal?: AbortSignal;
+} {
+  return runtimeData?.signal ? { externalStopSignal: runtimeData.signal } : {};
+}
+
 function buildRuntimeToolLoopOptions(
   runtime: MastraAgentRuntime,
   runtimeData: RuntimeData | undefined
@@ -413,6 +419,7 @@ export function buildStreamOptions(
       ? {
           delegation: createDelegationConfig({
             abortSignal,
+            ...externalStopSignalOption(runtimeData),
             childPromptFacts: {
               byPersonaId: runtime.childPromptFacts,
               dispatchingAgentId: runtime.agent.id,

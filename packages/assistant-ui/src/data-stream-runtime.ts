@@ -45,6 +45,7 @@ import {
 import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  ACTION_PAUSED_OWNER_MESSAGE_ID_KEY,
   excludeApprovalActionMessages,
   isActionRunConfig,
   isApprovalActionMessage,
@@ -68,6 +69,134 @@ type HeadersValue = Headers | Record<string, string>;
 const logger = createLogger('BrainstrikeDataStreamRuntime');
 const MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS = 4000;
 export const DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS = 30_000;
+
+/** The action's topology write failed before any host request was prepared. */
+export class AssistantActionHistoryWriteError extends Error {
+  override readonly name = 'AssistantActionHistoryWriteError';
+}
+
+function preAdmissionErrorCode(error: unknown): string | undefined {
+  if (error instanceof AssistantActionHistoryWriteError) {
+    return 'assistant_action_history_failed';
+  }
+  if (error instanceof AssistantRunAdmissionRejectedError) {
+    return 'assistant_admission_rejected';
+  }
+  return undefined;
+}
+
+/** Await the exact optimistic action echo's topology write before sending it. */
+export class AssistantActionHistoryBarrier {
+  private readonly writes = new Map<string, Promise<void>>();
+  private invalidation = new AbortController();
+  private active = true;
+  private generation = 0;
+
+  captureGeneration(): number {
+    return this.generation;
+  }
+
+  record(messageId: string, write: Promise<void>): void {
+    if (!this.active || this.writes.has(messageId)) {
+      this.invalidate();
+      return;
+    }
+    this.writes.set(messageId, write);
+  }
+
+  async wait(messageId: string, signal: AbortSignal): Promise<void> {
+    const generation = this.generation;
+    const write = this.writes.get(messageId);
+    if (!(this.active && write)) {
+      throw new AssistantActionHistoryWriteError('Assistant action history has no matching write.');
+    }
+    this.writes.delete(messageId);
+    await runAbortableRequestWarmup(
+      () => write,
+      AbortSignal.any([signal, this.invalidation.signal])
+    );
+    this.assertCurrent(signal, generation);
+  }
+
+  assertCurrent(signal: AbortSignal, generation: number): void {
+    signal.throwIfAborted();
+    if (!(this.active && this.generation === generation)) {
+      throw new AssistantActionHistoryWriteError(
+        'Assistant action history changed before request admission.'
+      );
+    }
+  }
+
+  invalidate(): void {
+    this.active = false;
+    this.generation += 1;
+    this.writes.clear();
+    this.invalidation.abort(
+      new AssistantActionHistoryWriteError(
+        'Assistant action history changed before request admission.'
+      )
+    );
+  }
+
+  reopen(): void {
+    if (this.active) {
+      return;
+    }
+    this.invalidation = new AbortController();
+    this.active = true;
+  }
+}
+
+async function awaitActionHistoryWrite(
+  barrier: AssistantActionHistoryBarrier | undefined,
+  messages: readonly ThreadMessage[],
+  runConfig: unknown,
+  signal: AbortSignal
+): Promise<void> {
+  if (!(barrier && isActionRunConfig(runConfig))) {
+    return;
+  }
+  const actionMessageId = messages.at(-1)?.id;
+  if (!actionMessageId) {
+    throw new AssistantActionHistoryWriteError('Assistant action has no matching history message.');
+  }
+  await barrier.wait(actionMessageId, signal);
+}
+
+function assertActionHistoryCurrent(
+  barrier: AssistantActionHistoryBarrier | undefined,
+  generation: number | undefined,
+  signal: AbortSignal
+): void {
+  if (generation !== undefined) {
+    barrier?.assertCurrent(signal, generation);
+  }
+}
+
+function boundActionHistoryWrite(write: Promise<void>, timeoutMs: number): Promise<void> {
+  const deadlineMs = requireRequestPreparationTimeoutMs(timeoutMs);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new AssistantActionHistoryWriteError(
+            `Assistant action history write timed out after ${deadlineMs}ms.`
+          )
+        ),
+      deadlineMs
+    );
+    void write.then(
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      () => {
+        clearTimeout(timer);
+        reject(new AssistantActionHistoryWriteError('Assistant action history write failed.'));
+      }
+    );
+  });
+}
 
 /** The host proved this request failed before admitting a stream leg. */
 export class AssistantRunAdmissionRejectedError extends Error {
@@ -94,6 +223,8 @@ export interface CancelledAssistantRun {
 }
 
 export type BrainstrikeDataStreamRuntimeOptions = {
+  /** Internal, per-history barrier for action echo writes. */
+  actionHistoryBarrier?: AssistantActionHistoryBarrier;
   activeRunSession?: AssistantActiveRunSession;
   discoveredRun?: AssistantDiscoveredRun;
   api: string;
@@ -196,6 +327,12 @@ function requireRequestPreparationTimeoutMs(timeoutMs: number): number {
     );
   }
   return timeoutMs;
+}
+
+function resolveRequestPreparationTimeoutMs(timeoutMs: number | undefined): number {
+  return requireRequestPreparationTimeoutMs(
+    timeoutMs === undefined ? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS : timeoutMs
+  );
 }
 
 function abortReason(signal: AbortSignal): unknown {
@@ -967,7 +1104,10 @@ export function resolveDurableInputParentMessageId(
   return current;
 }
 
-function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: unknown): string {
+function findPausedMessageId(
+  messages: readonly ThreadMessage[],
+  runConfig: unknown
+): string | null | undefined {
   const approval = readToolApprovalRunConfigAction(runConfig);
   const resume = readToolResumeRunConfigAction(runConfig);
   const approvalAction = approval && 'action' in approval ? approval.action : undefined;
@@ -975,7 +1115,7 @@ function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: u
   const action = approvalAction ?? resumeAction;
   const dataName = approvalAction ? TOOL_APPROVAL_DATA_NAME : TOOL_SUSPEND_DATA_NAME;
   if (!action) {
-    throw new Error('Assistant action has no valid paused tool identity.');
+    return;
   }
   const owners = messages.filter(
     (message) =>
@@ -986,9 +1126,40 @@ function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: u
       )
   );
   if (owners.length !== 1 || !owners[0]?.id.trim()) {
-    throw new Error('Assistant action has no unique owning paused assistant message.');
+    return null;
   }
   return owners[0].id;
+}
+
+function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: unknown): string {
+  const ownerId = findPausedMessageId(messages, runConfig);
+  if (ownerId === undefined) {
+    throw new Error('Assistant action has no valid paused tool identity.');
+  }
+  if (ownerId === null) {
+    throw new Error('Assistant action has no unique owning paused assistant message.');
+  }
+  return ownerId;
+}
+
+class AssistantHistoryRuntimeBinding {
+  private runtime: ReturnType<typeof useLocalRuntime> | null = null;
+
+  bind(runtime: ReturnType<typeof useLocalRuntime>): () => void {
+    this.runtime = runtime;
+    return () => {
+      if (this.runtime === runtime) {
+        this.runtime = null;
+      }
+    };
+  }
+
+  resolveOwner(runConfig: unknown): string | null {
+    if (!this.runtime) {
+      return null;
+    }
+    return findPausedMessageId(this.runtime.thread.getState().messages, runConfig) ?? null;
+  }
 }
 
 /**
@@ -1441,13 +1612,16 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       ...messages,
       unstable_getMessage(),
     ]);
+    const actionHistoryBarrier = this.options.actionHistoryBarrier;
+    const actionHistoryGeneration = actionHistoryBarrier?.captureGeneration();
 
     try {
-      const requestPreparationTimeoutMs =
-        this.options.requestPreparationTimeoutMs === undefined
-          ? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS
-          : this.options.requestPreparationTimeoutMs;
-      requireRequestPreparationTimeoutMs(requestPreparationTimeoutMs);
+      if (isActionRunConfig(runConfig)) {
+        await awaitActionHistoryWrite(actionHistoryBarrier, messages, runConfig, abortSignal);
+      }
+      const requestPreparationTimeoutMs = resolveRequestPreparationTimeoutMs(
+        this.options.requestPreparationTimeoutMs
+      );
       if (this.options.prepareRequestWarmup) {
         await runAbortableRequestWarmup(this.options.prepareRequestWarmup, abortSignal);
       }
@@ -1501,6 +1675,8 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         assertSerializedRequestBodyWithinLimit(serializedRequestBody, requestBodyLimitBytes);
       }
 
+      assertActionHistoryCurrent(actionHistoryBarrier, actionHistoryGeneration, abortSignal);
+
       const response = await fetch(this.options.api, {
         body: serializedRequestBody,
         credentials: this.options.credentials ?? 'same-origin',
@@ -1524,13 +1700,17 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     } catch (error: unknown) {
       throwIfRunAbortedBeforeTerminalCompletion(abortSignal, false);
       this.reportError(error);
-      if (error instanceof AssistantRunAdmissionRejectedError) {
-        // This is a definitive protocol rejection, so publish the local
-        // runtime's normal visible error status without rejecting its
-        // fire-and-forget append promise.
+      const preAdmissionCode = preAdmissionErrorCode(error);
+      if (preAdmissionCode && error instanceof Error) {
+        // These pre-admission failures are definitive. Publish a visible
+        // incomplete result without rejecting assistant-ui's fire-and-forget
+        // append promise.
         yield {
           status: {
-            error: { code: 'assistant_admission_rejected', message: error.message },
+            error: {
+              code: preAdmissionCode,
+              message: error.message,
+            },
             reason: 'error' as const,
             type: 'incomplete' as const,
           },
@@ -1545,6 +1725,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
 }
 
 function createRuntimeRequestOptionsSnapshot(input: {
+  readonly actionHistoryBarrier: BrainstrikeDataStreamRuntimeOptions['actionHistoryBarrier'];
   readonly api: string;
   readonly body: BrainstrikeDataStreamRuntimeOptions['body'];
   readonly credentials: BrainstrikeDataStreamRuntimeOptions['credentials'];
@@ -1565,6 +1746,9 @@ function createRuntimeRequestOptionsSnapshot(input: {
 }): BrainstrikeDataStreamRuntimeOptions {
   return {
     api: input.api,
+    ...(input.actionHistoryBarrier === undefined
+      ? {}
+      : { actionHistoryBarrier: input.actionHistoryBarrier }),
     ...(input.body === undefined ? {} : { body: input.body }),
     ...(input.credentials === undefined ? {} : { credentials: input.credentials }),
     ...(input.headers === undefined ? {} : { headers: input.headers }),
@@ -1623,7 +1807,16 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onUsage,
     unstable_humanToolNames,
   } = options;
+  const actionHistoryBarrier = useMemo(
+    () => (adapters?.history ? new AssistantActionHistoryBarrier() : undefined),
+    [adapters?.history]
+  );
+  useLayoutEffect(() => {
+    actionHistoryBarrier?.reopen();
+    return () => actionHistoryBarrier?.invalidate();
+  }, [actionHistoryBarrier]);
   const requestOptions = createRuntimeRequestOptionsSnapshot({
+    actionHistoryBarrier,
     api,
     body,
     credentials,
@@ -1655,6 +1848,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
   const [replayIdentity] = useState<AssistantReplayMessageIdentityRef>(() => ({
     current: null,
   }));
+  const [historyRuntime] = useState(() => new AssistantHistoryRuntimeBinding());
   const replayAwareAdapters = useMemo(() => {
     const history = adapters?.history;
     if (!history) {
@@ -1666,11 +1860,49 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
         ...history,
         append: async (item) => {
           const identity = replayIdentity.current;
-          await history.append(remapAssistantReplayHistoryItem(item, identity));
+          const write = Promise.resolve().then(() => {
+            if (!isActionRunConfig(item.runConfig)) {
+              return history.append(remapAssistantReplayHistoryItem(item, identity));
+            }
+            if (item.message.role !== 'user') {
+              throw new AssistantActionHistoryWriteError(
+                'Assistant action echo is not a user message.'
+              );
+            }
+            const actionItem = {
+              ...item,
+              message: {
+                ...item.message,
+                metadata: {
+                  ...item.message.metadata,
+                  custom: {
+                    ...item.message.metadata.custom,
+                    [ACTION_PAUSED_OWNER_MESSAGE_ID_KEY]: historyRuntime.resolveOwner(
+                      item.runConfig
+                    ),
+                  },
+                },
+              },
+            };
+            return history.append(remapAssistantReplayHistoryItem(actionItem, identity));
+          });
+          if (isActionRunConfig(item.runConfig)) {
+            const trackedWrite = boundActionHistoryWrite(
+              write,
+              requestPreparationTimeoutMs ?? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS
+            );
+            actionHistoryBarrier?.record(item.message.id, trackedWrite);
+            // The run consumes the same recorded rejection as a visible
+            // pre-admission error. assistant-ui starts append and run in
+            // parallel and otherwise leaves a fire-and-forget rejection.
+            await trackedWrite.catch(() => undefined);
+            return;
+          }
+          await write;
         },
       },
     };
-  }, [adapters, replayIdentity]);
+  }, [actionHistoryBarrier, adapters, historyRuntime, replayIdentity, requestPreparationTimeoutMs]);
 
   const runtime = useLocalRuntime(chatModelAdapter, {
     ...(replayAwareAdapters ? { adapters: replayAwareAdapters } : {}),
@@ -1678,6 +1910,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     // biome-ignore lint/style/useNamingConvention: assistant-ui LocalRuntimeOptions field.
     ...(unstable_humanToolNames ? { unstable_humanToolNames } : {}),
   });
+  useLayoutEffect(() => historyRuntime.bind(runtime), [historyRuntime, runtime]);
   // Publish the current graph resolver before descendant passive effects can send.
   useLayoutEffect(() => {
     optionsRef.current.resolveInputParentMessageId =

@@ -20,6 +20,7 @@ import {
 import {
   isApprovalActionMessage,
   readActionMessageHostRunId,
+  readActionMessagePausedOwnerId,
 } from '@brainstrike/assistant-contract/approval-action-message';
 import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/assistant-stream-session';
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
@@ -3924,15 +3925,17 @@ export function createAssistantThreadHistoryAdapter({
   readonly resourceId: string;
   readonly threadId: string;
 }): AssistantUiThreadHistoryAdapter {
-  // DURABLE-PARENT INVARIANT (BST-1243): every persisted edge must reference a
-  // durable (Mastra-persisted) message id or null. Approval/suspend flows
-  // append UI-transient messages — the action echo, the post-resume leg, and
-  // the synthetic rediscovered-pause notices — that Mastra deliberately never
-  // persists; persisting their edges (or chaining a real message onto their
-  // ids) dangles the graph, and reload hydration re-roots the child into a
-  // phantom root carousel sibling. The maps below alias each transient id to
-  // its nearest durable ancestor so persisted topology skips them entirely.
+  // DURABLE-PARENT INVARIANT (BST-1243): every persisted edge must point to a
+  // Mastra-persisted parent id or null. Action echoes, ordinary resume legs,
+  // and rediscovered notices have no Mastra rows; alias them to their nearest
+  // durable ancestor so subsequent messages cannot dangle on transient ids.
+  // The narrow exception is a resumed assistant that owns a NEW pause: its
+  // action echo records a proof edge from that UI id to the exact host turn,
+  // allowing replay to verify the later Mastra tool owner without splitting
+  // the hydrated continuation group.
   const transientParentByAliasId = new Map<string, string | null>();
+  const transientResumeMessageIds = new Set<string>();
+  let topologyEpoch = 0;
   const hydratedParentById = new Map<string, string | null>();
   const persistedEdgeIds = new Set<string>();
 
@@ -3953,8 +3956,11 @@ export function createAssistantThreadHistoryAdapter({
     if (!repository.recordMessageParent) {
       throw new Error('Assistant history repository cannot persist message branch topology.');
     }
+    const epoch = topologyEpoch;
     await repository.recordMessageParent({ messageId, parentId, resourceId, threadId });
-    persistedEdgeIds.add(messageId);
+    if (epoch === topologyEpoch) {
+      persistedEdgeIds.add(messageId);
+    }
   };
 
   // The echo is transport bookkeeping with no durable row — never an edge.
@@ -3979,10 +3985,64 @@ export function createAssistantThreadHistoryAdapter({
   // backfill and the tail silently answered instead, guessing wrong whenever
   // the tail was not the suspended message's own turn. A live pause always
   // names its host leg; anything else is a producer defect and throws.
+  const recordResumedPauseEdge = async (
+    message: unknown,
+    pausedMessageId: string | null,
+    resolvedParentId: string | null
+  ): Promise<boolean> => {
+    if (!(pausedMessageId && transientResumeMessageIds.has(pausedMessageId))) {
+      return false;
+    }
+    const epoch = topologyEpoch;
+    const assertCurrent = (): void => {
+      if (
+        epoch !== topologyEpoch ||
+        !transientResumeMessageIds.has(pausedMessageId) ||
+        transientParentByAliasId.get(pausedMessageId) !== resolvedParentId
+      ) {
+        throw new Error('Assistant resumed pause changed while its parent was loading.');
+      }
+    };
+    const hostRunId = readActionMessageHostRunId(message);
+    if (!hostRunId) {
+      throw new Error('Assistant history cannot anchor a resumed pause without its host leg.');
+    }
+    const turnMessageId = await repository.getThreadRunTurnMessageId(hostRunId, threadId);
+    const resolvedParent =
+      resolvedParentId && repository.getMessageParent
+        ? await repository.getMessageParent(resolvedParentId, threadId, resourceId)
+        : undefined;
+    assertCurrent();
+    if (
+      !(turnMessageId && (resolvedParentId === turnMessageId || resolvedParent === turnMessageId))
+    ) {
+      throw new Error('Assistant resumed pause disagrees with its durable host turn.');
+    }
+    if (persistedEdgeIds.has(pausedMessageId)) {
+      const existingParent = await repository.getMessageParent?.(
+        pausedMessageId,
+        threadId,
+        resourceId
+      );
+      assertCurrent();
+      if (existingParent !== turnMessageId) {
+        throw new Error('Assistant resumed pause has a conflicting persisted parent.');
+      }
+    } else {
+      await recordParentEdge(pausedMessageId, turnMessageId);
+      assertCurrent();
+    }
+    return true;
+  };
+
   const recordActionEchoAppend = async (
     message: unknown,
+    pausedMessageId: string | null,
     resolvedParentId: string | null
   ): Promise<void> => {
+    if (await recordResumedPauseEdge(message, pausedMessageId, resolvedParentId)) {
+      return;
+    }
     if (resolvedParentId === null || persistedEdgeIds.has(resolvedParentId)) {
       return;
     }
@@ -4024,8 +4084,16 @@ export function createAssistantThreadHistoryAdapter({
       }
       const resolvedParentId = resolveDurableParentId(item.parentId);
       if (isApprovalActionMessage(item.message)) {
+        const appendEpoch = topologyEpoch;
+        // assistant-ui keeps the optimistic echo even when the async history
+        // write rejects. Its descendants still need the durable parent alias.
         transientParentByAliasId.set(item.message.id, resolvedParentId);
-        await recordActionEchoAppend(item.message, resolvedParentId);
+        const pausedOwnerId = readActionMessagePausedOwnerId(item.message) ?? item.parentId;
+        const resolvedPausedOwnerId = resolveDurableParentId(pausedOwnerId);
+        await recordActionEchoAppend(item.message, pausedOwnerId, resolvedPausedOwnerId);
+        if (appendEpoch !== topologyEpoch) {
+          throw new Error('Assistant approval action changed while its parent was loading.');
+        }
         return;
       }
       if (
@@ -4047,11 +4115,13 @@ export function createAssistantThreadHistoryAdapter({
         // "regeneration taken from a post-approval response" case in
         // assistant-approval-topology.integration.test.ts.
         transientParentByAliasId.set(item.message.id, resolvedParentId);
+        transientResumeMessageIds.add(item.message.id);
         return;
       }
       await recordParentEdge(item.message.id, resolvedParentId);
     },
     async load() {
+      topologyEpoch += 1;
       // Discovery and history run concurrently. The discovery fetch has a
       // deadline and explicit recovery errors (assistant-suspended-approvals.ts);
       // endpoint/auth resolution retains its bridge-owned lifecycle.
@@ -4066,6 +4136,7 @@ export function createAssistantThreadHistoryAdapter({
       ]);
       // Reseed session topology state from hydration (a re-load replaces it).
       transientParentByAliasId.clear();
+      transientResumeMessageIds.clear();
       hydratedParentById.clear();
       persistedEdgeIds.clear();
       for (const message of messages) {

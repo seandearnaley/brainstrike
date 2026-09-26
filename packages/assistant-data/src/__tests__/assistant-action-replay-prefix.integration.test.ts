@@ -1,7 +1,9 @@
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
+import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import {
+  createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
   readPausedActionReplayPrefix,
 } from '../assistant-memory-repository';
@@ -48,6 +50,298 @@ function toolPart(toolCallId: string): Record<string, unknown> {
 }
 
 describe('action replay prefix', () => {
+  it('proves a second pause on a transient resume message through its host turn', async () => {
+    fixtureIndex += 1;
+    const db = (await createMigratedTestPGlite(
+      `memory://action-prefix-${fixtureIndex}`
+    )) as DbHandle;
+    const repository = createPgliteAssistantThreadRepository(db);
+    const thread = await repository.createThread('workspace-a');
+    let releaseStaleLookup!: () => void;
+    const staleLookupGate = new Promise<void>((resolve) => {
+      releaseStaleLookup = resolve;
+    });
+    let staleLookupStarted!: () => void;
+    const staleLookupPending = new Promise<void>((resolve) => {
+      staleLookupStarted = resolve;
+    });
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository: {
+        ...repository,
+        getThreadRunTurnMessageId: async (runId, runThreadId) => {
+          if (runId === 'stale-host') {
+            staleLookupStarted();
+            await staleLookupGate;
+          }
+          return repository.getThreadRunTurnMessageId(runId, runThreadId);
+        },
+      },
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    type AppendItem = Parameters<typeof adapter.append>[0];
+    const echo = (
+      id: string,
+      parentId: string,
+      hostRunId: string,
+      toolCallId: string,
+      pausedOwnerId?: string | null
+    ) =>
+      ({
+        message: {
+          attachments: [],
+          content: [{ text: 'Approved', type: 'text' }],
+          createdAt: new Date(),
+          id,
+          metadata: {
+            custom: {
+              ...(pausedOwnerId === undefined
+                ? {}
+                : { 'brainstrike.paused-owner-message-id': pausedOwnerId }),
+              [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+                action: 'approve',
+                hostRunId,
+                runId: 'native-run',
+                toolCallId,
+                toolName: 'brainstrike.executeCommand',
+              },
+            },
+          },
+          role: 'user',
+        },
+        parentId,
+      }) as AppendItem;
+    const resumedAssistant = (id: string, parentId: string, text: string): AppendItem =>
+      ({
+        message: {
+          content: [{ text, type: 'text' }],
+          createdAt: new Date(),
+          id,
+          metadata: {
+            custom: {},
+            steps: [],
+            unstable_annotations: [],
+            unstable_data: [],
+            unstable_state: null,
+          },
+          role: 'assistant',
+          status: { reason: 'stop', type: 'complete' },
+        },
+        parentId,
+      }) as AppendItem;
+    await insertMessage(
+      db,
+      thread.id,
+      'user-a',
+      'user',
+      [{ text: 'prompt', type: 'text' }],
+      '2026-08-10T17:00:00Z'
+    );
+    await insertMessage(
+      db,
+      thread.id,
+      'canvas-owner',
+      'assistant',
+      [toolPart('canvas-call')],
+      '2026-08-10T17:00:01Z'
+    );
+    await repository.recordMessageParent?.({
+      messageId: 'user-a',
+      parentId: null,
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    await repository.createThreadRun({
+      id: 'canvas-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    await db.query(
+      `INSERT INTO brainstrike_assistant_native_runs (native_run_id, host_run_id) VALUES ('native-run', 'canvas-host')`
+    );
+    await adapter.append(echo('canvas-echo', 'canvas-owner', 'canvas-host', 'canvas-call'));
+    await adapter.append(resumedAssistant('resume-ui', 'canvas-echo', 'Workers paused'));
+    expect(
+      await repository.getMessageParent?.('resume-ui', thread.id, 'workspace-a')
+    ).toBeUndefined();
+    await insertMessage(
+      db,
+      thread.id,
+      'worker-snapshot',
+      'assistant',
+      [toolPart('worker-call')],
+      '2026-08-10T17:00:02Z'
+    );
+    await repository.createThreadRun({
+      decision: { delegated: false, runId: 'native-run', toolCallId: 'canvas-call' },
+      id: 'worker-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    await repository.appendThreadRunEvent('worker-host', {
+      id: 'worker-approval',
+      kind: 'tool.approval.requested',
+      label: 'Awaiting approval',
+      metadata: { toolCallId: 'worker-call' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:03Z',
+    });
+    await insertMessage(
+      db,
+      thread.id,
+      'user-b',
+      'user',
+      [{ text: 'another turn', type: 'text' }],
+      '2026-08-10T17:00:04Z'
+    );
+    await adapter.append({
+      message: {
+        attachments: [],
+        content: [{ text: 'another turn', type: 'text' }],
+        createdAt: new Date('2026-08-10T17:00:04Z'),
+        id: 'user-b',
+        metadata: { custom: {} },
+        role: 'user',
+      },
+      parentId: 'canvas-owner',
+    } as AppendItem);
+    // The pending Worker notice is on resume-ui, while the echo appends at
+    // the current tail after an independent user turn.
+    await adapter.append(echo('worker-echo', 'user-b', 'worker-host', 'worker-call', 'resume-ui'));
+    expect(await repository.getMessageParent?.('resume-ui', thread.id, 'workspace-a')).toBe(
+      'user-a'
+    );
+    const replay = await readPausedActionReplayPrefix({
+      hostRunId: 'worker-host',
+      nativeRunId: 'native-run',
+      pausedMessageId: 'resume-ui',
+      pauseKind: 'approval',
+      repository,
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+      toolCallId: 'worker-call',
+    });
+    expect(replay.pausedMessageId).toBe('canvas-owner');
+    expect(replay.pausedParentMessageId).toBe('user-a');
+    await repository.createThreadRun({
+      id: 'foreign-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-b',
+    });
+    await expect(
+      adapter.append(echo('foreign-echo', 'user-b', 'foreign-host', 'worker-call', 'resume-ui'))
+    ).rejects.toThrow('disagrees with its durable host turn');
+    await expect(
+      adapter.append(echo('malformed-echo', 'user-b', 'worker-host', 'worker-call', ' '))
+    ).rejects.toThrow('invalid paused owner');
+    await expect(
+      adapter.append(echo('unresolved-echo', 'user-b', 'worker-host', 'worker-call', null))
+    ).rejects.toThrow('invalid paused owner');
+    // assistant-ui retains an optimistic action echo after a failed history
+    // write. A later message must still resolve through its durable alias.
+    await adapter.append({
+      message: {
+        attachments: [],
+        content: [{ text: 'later prompt', type: 'text' }],
+        createdAt: new Date(),
+        id: 'after-failed-echo',
+        metadata: { custom: {} },
+        role: 'user',
+      },
+      parentId: 'foreign-echo',
+    } as AppendItem);
+    expect(await repository.getMessageParent?.('after-failed-echo', thread.id, 'workspace-a')).toBe(
+      'user-b'
+    );
+    for (const [id, parentId] of [
+      ['after-malformed-echo', 'malformed-echo'],
+      ['after-unresolved-echo', 'unresolved-echo'],
+    ] as const) {
+      await adapter.append({
+        message: {
+          attachments: [],
+          content: [{ text: 'later prompt', type: 'text' }],
+          createdAt: new Date(),
+          id,
+          metadata: { custom: {} },
+          role: 'user',
+        },
+        parentId,
+      } as AppendItem);
+      expect(await repository.getMessageParent?.(id, thread.id, 'workspace-a')).toBe('user-b');
+    }
+    await db.query(
+      `UPDATE brainstrike_assistant_message_parents SET parent_id = 'user-b'
+       WHERE thread_id = $1 AND message_id = 'resume-ui'`,
+      [thread.id]
+    );
+    await expect(
+      adapter.append(echo('conflict-echo', 'resume-ui', 'worker-host', 'worker-call'))
+    ).rejects.toThrow('conflicting persisted parent');
+    await adapter.append(resumedAssistant('resume-ui-2', 'worker-echo', 'Another pause'));
+    await repository.createThreadRun({
+      id: 'stale-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    const staleEcho = adapter.append(
+      echo('stale-echo', 'resume-ui-2', 'stale-host', 'worker-call')
+    );
+    await staleLookupPending;
+    await adapter.load();
+    releaseStaleLookup();
+    await expect(staleEcho).rejects.toThrow('changed while its parent was loading');
+    expect(
+      await repository.getMessageParent?.('resume-ui-2', thread.id, 'workspace-a')
+    ).toBeUndefined();
+    await repository.recordMessageParent?.({
+      messageId: 'user-b',
+      parentId: 'canvas-owner',
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    await insertMessage(
+      db,
+      thread.id,
+      'assistant-b',
+      'assistant',
+      [toolPart('foreign-call')],
+      '2026-08-10T17:00:05Z'
+    );
+    await repository.recordMessageParent?.({
+      messageId: 'assistant-b',
+      parentId: 'user-b',
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    await adapter.load();
+    await adapter.append(echo('foreign-turn-echo', 'assistant-b', 'foreign-host', 'foreign-call'));
+    await adapter.append(resumedAssistant('foreign-resume', 'foreign-turn-echo', 'Later pause'));
+    await expect(
+      adapter.append(echo('old-turn-echo', 'foreign-resume', 'worker-host', 'worker-call'))
+    ).rejects.toThrow('disagrees with its durable host turn');
+    expect(
+      await repository.getMessageParent?.('foreign-resume', thread.id, 'workspace-a')
+    ).toBeUndefined();
+  });
+
   it('accepts a typed pause on an approval resume leg in the native owner generation', async () => {
     fixtureIndex += 1;
     const db = (await createMigratedTestPGlite(

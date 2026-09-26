@@ -17,7 +17,11 @@
  * both consume them.
  */
 
-import { isAssistantToolApprovalAction, TOOL_APPROVAL_RUN_CONFIG_KEY } from './tool-approval.js';
+import {
+  ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
+  isAssistantToolApprovalAction,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
+} from './tool-approval.js';
 import { isAssistantToolResumeAction, TOOL_SUSPEND_RUN_CONFIG_KEY } from './tool-suspend.js';
 
 /**
@@ -29,6 +33,9 @@ export const ACTION_MESSAGE_RUN_CONFIG_KEYS = [
   TOOL_APPROVAL_RUN_CONFIG_KEY,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 ] as const;
+
+/** History-only proof of the exact paused assistant owning an action echo. */
+export const ACTION_PAUSED_OWNER_MESSAGE_ID_KEY = 'brainstrike.paused-owner-message-id';
 
 /**
  * The STRICT contract guard for each action key — the SAME guards the chip
@@ -101,6 +108,24 @@ export function isApprovalActionMessage(
  */
 export function readActionMessageHostRunId(message: unknown): string | undefined {
   return readActionMessageMarkerId(message, 'hostRunId');
+}
+
+export function readActionMessagePausedOwnerId(message: unknown): string | undefined {
+  if (!isApprovalActionMessage(message)) {
+    return;
+  }
+  const ownerId = readCustomMetadata(message)?.[ACTION_PAUSED_OWNER_MESSAGE_ID_KEY];
+  if (ownerId === undefined) {
+    return;
+  }
+  if (
+    typeof ownerId !== 'string' ||
+    !ownerId.trim() ||
+    ownerId.length > ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS
+  ) {
+    throw new Error('Assistant action names an invalid paused owner message.');
+  }
+  return ownerId;
 }
 
 function readActionMessageMarkerId(message: unknown, field: string): string | undefined {
