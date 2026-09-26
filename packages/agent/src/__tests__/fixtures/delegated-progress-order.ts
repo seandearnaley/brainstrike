@@ -1,5 +1,6 @@
 import type { StreamChunk } from '../../types';
 
+/** One shell slice per fixture child: sorted IDs catch omissions and duplicates. */
 export function shellOutputOwners(chunks: readonly StreamChunk[]): string[] {
   return chunks
     .flatMap((chunk) =>

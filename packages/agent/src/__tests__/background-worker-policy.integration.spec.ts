@@ -428,6 +428,7 @@ it('a session grant answers every parked background sibling in the same approval
     expect(parked?.tasks).toEqual([]);
     expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');
     // The wakeup is recorded before the parent inference it names.
+    // Moving its write after agent.stream would put promptsAtRecord past the wakeup prompt.
     expect(fixture.wakeups.map((row) => row.kind)).toEqual(['resume-leg']);
     const directive = fixture.wakeups[0]?.directive;
     const wakeupPrompt = fixture.model.prompts.findIndex((call) =>

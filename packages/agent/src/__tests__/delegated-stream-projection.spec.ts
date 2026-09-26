@@ -391,12 +391,16 @@ it('attributes only an active child tool’s known custom output to its observed
   if (!projection) {
     throw new Error('Missing projection');
   }
-  const wrap = (
+  const wrap: (
     output: unknown,
-    runId = 'parent-run',
-    callId = 'call',
-    toolName = 'agent-explore'
-  ) => ({
+    runId?: string,
+    callId?: string,
+    toolName?: string
+  ) => {
+    payload: { output: unknown; toolCallId: string; toolName: string };
+    runId: string;
+    type: 'tool-output';
+  } = (output, runId = 'parent-run', callId = 'call', toolName = 'agent-explore') => ({
     payload: { output, toolCallId: callId, toolName },
     runId,
     type: 'tool-output',
