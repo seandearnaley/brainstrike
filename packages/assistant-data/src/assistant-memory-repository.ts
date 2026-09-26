@@ -20,6 +20,7 @@ import {
 import {
   isApprovalActionMessage,
   readActionMessageHostRunId,
+  readActionMessagePausedOwnerId,
 } from '@brainstrike/assistant-contract/approval-action-message';
 import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/assistant-stream-session';
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
@@ -4084,10 +4085,12 @@ export function createAssistantThreadHistoryAdapter({
       const resolvedParentId = resolveDurableParentId(item.parentId);
       if (isApprovalActionMessage(item.message)) {
         const appendEpoch = topologyEpoch;
+        const pausedOwnerId = readActionMessagePausedOwnerId(item.message) ?? item.parentId;
+        const resolvedPausedOwnerId = resolveDurableParentId(pausedOwnerId);
         // assistant-ui keeps the optimistic echo even when the async history
         // write rejects. Its descendants still need the durable parent alias.
         transientParentByAliasId.set(item.message.id, resolvedParentId);
-        await recordActionEchoAppend(item.message, item.parentId, resolvedParentId);
+        await recordActionEchoAppend(item.message, pausedOwnerId, resolvedPausedOwnerId);
         if (appendEpoch !== topologyEpoch) {
           throw new Error('Assistant approval action changed while its parent was loading.');
         }

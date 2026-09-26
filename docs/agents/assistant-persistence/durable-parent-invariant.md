@@ -146,3 +146,17 @@ verbatim from the pre-distillation contract.
    SQL's timestamp/message-id order can place the assistant before the user,
    without changing either persisted edge (PR #3243 CI regression).
 
+
+### Older actionable pauses after a later turn (2026-09-26)
+
+The SDK appends an approval echo at the current tail, which may have advanced
+past the paused assistant. The UI history wrapper resolves the paused owner
+with the same strict action matcher as POST and carries that ID in history-only
+`brainstrike.paused-owner-message-id` metadata. The data adapter anchors the
+pause proof using that owner while retaining the echo's ordinary tail ancestry.
+The existing exact host-turn check still rejects a foreign owner. Missing or
+ambiguous owners fail through the bounded history barrier before POST.
+Regression: `assistant-action-replay-prefix.integration.test.ts` exercises a
+resumed transient pause followed by a later turn; `data-stream-runtime-hook.test.tsx`
+checks the SDK history handoff. This avoids weakening hydration or inferring
+ownership from whichever message happens to be last.

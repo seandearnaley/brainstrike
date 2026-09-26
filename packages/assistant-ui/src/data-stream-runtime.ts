@@ -45,6 +45,7 @@ import {
 import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  ACTION_PAUSED_OWNER_MESSAGE_ID_KEY,
   excludeApprovalActionMessages,
   isActionRunConfig,
   isApprovalActionMessage,
@@ -326,6 +327,12 @@ function requireRequestPreparationTimeoutMs(timeoutMs: number): number {
     );
   }
   return timeoutMs;
+}
+
+function resolveRequestPreparationTimeoutMs(timeoutMs: number | undefined): number {
+  return requireRequestPreparationTimeoutMs(
+    timeoutMs === undefined ? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS : timeoutMs
+  );
 }
 
 function abortReason(signal: AbortSignal): unknown {
@@ -1121,6 +1128,26 @@ function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: u
   return owners[0].id;
 }
 
+class AssistantHistoryRuntimeBinding {
+  private runtime: ReturnType<typeof useLocalRuntime> | null = null;
+
+  bind(runtime: ReturnType<typeof useLocalRuntime>): () => void {
+    this.runtime = runtime;
+    return () => {
+      if (this.runtime === runtime) {
+        this.runtime = null;
+      }
+    };
+  }
+
+  resolveOwner(runConfig: unknown): string {
+    if (!this.runtime) {
+      throw new Error('Assistant action history runtime is not attached.');
+    }
+    return requirePausedMessageId(this.runtime.thread.getState().messages, runConfig);
+  }
+}
+
 /**
  * Pass-through tap that intercepts "message-finish" chunks to surface provider
  * token usage. The DataStreamDecoder outputs AssistantStreamChunk
@@ -1575,12 +1602,12 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     const actionHistoryGeneration = actionHistoryBarrier?.captureGeneration();
 
     try {
-      await awaitActionHistoryWrite(actionHistoryBarrier, messages, runConfig, abortSignal);
-      const requestPreparationTimeoutMs =
-        this.options.requestPreparationTimeoutMs === undefined
-          ? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS
-          : this.options.requestPreparationTimeoutMs;
-      requireRequestPreparationTimeoutMs(requestPreparationTimeoutMs);
+      if (isActionRunConfig(runConfig)) {
+        await awaitActionHistoryWrite(actionHistoryBarrier, messages, runConfig, abortSignal);
+      }
+      const requestPreparationTimeoutMs = resolveRequestPreparationTimeoutMs(
+        this.options.requestPreparationTimeoutMs
+      );
       if (this.options.prepareRequestWarmup) {
         await runAbortableRequestWarmup(this.options.prepareRequestWarmup, abortSignal);
       }
@@ -1807,6 +1834,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
   const [replayIdentity] = useState<AssistantReplayMessageIdentityRef>(() => ({
     current: null,
   }));
+  const [historyRuntime] = useState(() => new AssistantHistoryRuntimeBinding());
   const replayAwareAdapters = useMemo(() => {
     const history = adapters?.history;
     if (!history) {
@@ -1818,9 +1846,32 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
         ...history,
         append: async (item) => {
           const identity = replayIdentity.current;
-          const write = Promise.resolve().then(() =>
-            history.append(remapAssistantReplayHistoryItem(item, identity))
-          );
+          const write = Promise.resolve().then(() => {
+            if (!isActionRunConfig(item.runConfig)) {
+              return history.append(remapAssistantReplayHistoryItem(item, identity));
+            }
+            if (item.message.role !== 'user') {
+              throw new AssistantActionHistoryWriteError(
+                'Assistant action echo is not a user message.'
+              );
+            }
+            const actionItem = {
+              ...item,
+              message: {
+                ...item.message,
+                metadata: {
+                  ...item.message.metadata,
+                  custom: {
+                    ...item.message.metadata.custom,
+                    [ACTION_PAUSED_OWNER_MESSAGE_ID_KEY]: historyRuntime.resolveOwner(
+                      item.runConfig
+                    ),
+                  },
+                },
+              },
+            };
+            return history.append(remapAssistantReplayHistoryItem(actionItem, identity));
+          });
           if (isActionRunConfig(item.runConfig)) {
             const trackedWrite = boundActionHistoryWrite(
               write,
@@ -1837,7 +1888,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
         },
       },
     };
-  }, [actionHistoryBarrier, adapters, replayIdentity, requestPreparationTimeoutMs]);
+  }, [actionHistoryBarrier, adapters, historyRuntime, replayIdentity, requestPreparationTimeoutMs]);
 
   const runtime = useLocalRuntime(chatModelAdapter, {
     ...(replayAwareAdapters ? { adapters: replayAwareAdapters } : {}),
@@ -1845,6 +1896,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     // biome-ignore lint/style/useNamingConvention: assistant-ui LocalRuntimeOptions field.
     ...(unstable_humanToolNames ? { unstable_humanToolNames } : {}),
   });
+  useLayoutEffect(() => historyRuntime.bind(runtime), [historyRuntime, runtime]);
   // Publish the current graph resolver before descendant passive effects can send.
   useLayoutEffect(() => {
     optionsRef.current.resolveInputParentMessageId =

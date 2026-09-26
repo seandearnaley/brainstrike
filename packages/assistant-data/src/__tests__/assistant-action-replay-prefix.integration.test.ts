@@ -80,7 +80,13 @@ describe('action replay prefix', () => {
       threadId: thread.id,
     });
     type AppendItem = Parameters<typeof adapter.append>[0];
-    const echo = (id: string, parentId: string, hostRunId: string, toolCallId: string) =>
+    const echo = (
+      id: string,
+      parentId: string,
+      hostRunId: string,
+      toolCallId: string,
+      pausedOwnerId?: string
+    ) =>
       ({
         message: {
           attachments: [],
@@ -89,6 +95,7 @@ describe('action replay prefix', () => {
           id,
           metadata: {
             custom: {
+              ...(pausedOwnerId ? { 'brainstrike.paused-owner-message-id': pausedOwnerId } : {}),
               [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
                 action: 'approve',
                 hostRunId,
@@ -186,7 +193,28 @@ describe('action replay prefix', () => {
       status: 'running',
       timestamp: '2026-08-10T17:00:03Z',
     });
-    await adapter.append(echo('worker-echo', 'resume-ui', 'worker-host', 'worker-call'));
+    await insertMessage(
+      db,
+      thread.id,
+      'user-b',
+      'user',
+      [{ text: 'another turn', type: 'text' }],
+      '2026-08-10T17:00:04Z'
+    );
+    await adapter.append({
+      message: {
+        attachments: [],
+        content: [{ text: 'another turn', type: 'text' }],
+        createdAt: new Date('2026-08-10T17:00:04Z'),
+        id: 'user-b',
+        metadata: { custom: {} },
+        role: 'user',
+      },
+      parentId: 'canvas-owner',
+    } as AppendItem);
+    // The pending Worker notice is on resume-ui, while the echo appends at
+    // the current tail after an independent user turn.
+    await adapter.append(echo('worker-echo', 'user-b', 'worker-host', 'worker-call', 'resume-ui'));
     expect(await repository.getMessageParent?.('resume-ui', thread.id, 'workspace-a')).toBe(
       'user-a'
     );
@@ -202,14 +230,6 @@ describe('action replay prefix', () => {
     });
     expect(replay.pausedMessageId).toBe('canvas-owner');
     expect(replay.pausedParentMessageId).toBe('user-a');
-    await insertMessage(
-      db,
-      thread.id,
-      'user-b',
-      'user',
-      [{ text: 'another turn', type: 'text' }],
-      '2026-08-10T17:00:04Z'
-    );
     await repository.createThreadRun({
       id: 'foreign-host' as HostRunId,
       model: 'gpt-test',
@@ -220,8 +240,11 @@ describe('action replay prefix', () => {
       turnMessageId: 'user-b',
     });
     await expect(
-      adapter.append(echo('foreign-echo', 'resume-ui', 'foreign-host', 'worker-call'))
+      adapter.append(echo('foreign-echo', 'user-b', 'foreign-host', 'worker-call', 'resume-ui'))
     ).rejects.toThrow('disagrees with its durable host turn');
+    await expect(
+      adapter.append(echo('malformed-echo', 'user-b', 'worker-host', 'worker-call', ' '))
+    ).rejects.toThrow('invalid paused owner');
     // assistant-ui retains an optimistic action echo after a failed history
     // write. A later message must still resolve through its durable alias.
     await adapter.append({
@@ -236,7 +259,7 @@ describe('action replay prefix', () => {
       parentId: 'foreign-echo',
     } as AppendItem);
     expect(await repository.getMessageParent?.('after-failed-echo', thread.id, 'workspace-a')).toBe(
-      'canvas-owner'
+      'user-b'
     );
     await db.query(
       `UPDATE brainstrike_assistant_message_parents SET parent_id = 'user-b'

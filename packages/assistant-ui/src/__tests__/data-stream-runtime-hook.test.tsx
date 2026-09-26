@@ -5,11 +5,12 @@ import {
   useAui,
   useAuiState,
 } from '@assistant-ui/react';
+import { ACTION_PAUSED_OWNER_MESSAGE_ID_KEY } from '@brainstrike/assistant-contract/approval-action-message';
 import {
   TOOL_APPROVAL_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { StrictMode, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isActionRunConfig } from '../approval-action-message';
@@ -125,7 +126,12 @@ it('does not install a child receiver when a callback appears after the run star
 });
 
 describe('useBrainstrikeDataStreamRuntime', () => {
-  async function renderActionCase(topologyWrite: Promise<void>, timeoutMs?: number) {
+  async function renderActionCase(
+    topologyWrite: Promise<void>,
+    timeoutMs?: number,
+    laterTurn = false,
+    ownerCase: 'ambiguous' | 'missing' | 'single' = 'single'
+  ) {
     const append = vi.fn<ThreadHistoryAdapter['append']>((item) =>
       isActionRunConfig(item.runConfig) ? topologyWrite : Promise.resolve()
     );
@@ -148,7 +154,7 @@ describe('useBrainstrikeDataStreamRuntime', () => {
                   {
                     data: {
                       runId: 'native-1',
-                      toolCallId: 'call-1',
+                      toolCallId: ownerCase === 'missing' ? 'other-call' : 'call-1',
                       toolName: 'shell.tool',
                     },
                     name: TOOL_APPROVAL_DATA_NAME,
@@ -161,12 +167,47 @@ describe('useBrainstrikeDataStreamRuntime', () => {
               },
               parentId: 'user-1',
             },
+            ...(ownerCase === 'ambiguous'
+              ? [
+                  {
+                    message: {
+                      content: [
+                        {
+                          data: {
+                            runId: 'native-1',
+                            toolCallId: 'call-1',
+                            toolName: 'shell.tool',
+                          },
+                          name: TOOL_APPROVAL_DATA_NAME,
+                          type: 'data' as const,
+                        },
+                      ],
+                      id: 'paused-2',
+                      role: 'assistant' as const,
+                      status: { reason: 'tool-calls' as const, type: 'requires-action' as const },
+                    },
+                    parentId: 'paused-1',
+                  },
+                ]
+              : []),
+            ...(laterTurn
+              ? [
+                  {
+                    message: {
+                      content: [{ text: 'later prompt', type: 'text' as const }],
+                      id: 'user-later',
+                      role: 'user' as const,
+                    },
+                    parentId: 'paused-1',
+                  },
+                ]
+              : []),
           ],
-          { headId: 'paused-1' }
+          { headId: laterTurn ? 'user-later' : ownerCase === 'ambiguous' ? 'paused-2' : 'paused-1' }
         ),
     };
     const fetchSpy = vi.fn(
-      async () =>
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Response(
           new ReadableStream<Uint8Array>({
             start(controller) {
@@ -232,12 +273,21 @@ describe('useBrainstrikeDataStreamRuntime', () => {
         <ActionRuntime historyAdapter={history} />
       </StrictMode>
     );
-    await waitFor(() => expect(screen.getByTestId('action-message-count')).toHaveTextContent('2'));
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() =>
-      expect(append.mock.calls.some(([item]) => isActionRunConfig(item.runConfig))).toBe(true)
+      expect(screen.getByTestId('action-message-count')).toHaveTextContent(
+        String(2 + Number(laterTurn) + Number(ownerCase === 'ambiguous'))
+      )
     );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    });
+    if (ownerCase === 'single') {
+      await waitFor(() =>
+        expect(append.mock.calls.some(([item]) => isActionRunConfig(item.runConfig))).toBe(true)
+      );
+    }
     return {
+      append,
       changeHistory: () =>
         view.rerender(
           <StrictMode>
@@ -258,6 +308,35 @@ describe('useBrainstrikeDataStreamRuntime', () => {
     commit();
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
   });
+
+  it('carries an older paused owner through an echo appended at the later tail', async () => {
+    const { append, fetchSpy } = await renderActionCase(Promise.resolve(), undefined, true);
+    const actionItem = append.mock.calls.find(([item]) => isActionRunConfig(item.runConfig))?.[0];
+    expect(actionItem?.parentId).toBe('user-later');
+    expect(actionItem?.message.metadata.custom[ACTION_PAUSED_OWNER_MESSAGE_ID_KEY]).toBe(
+      'paused-1'
+    );
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(body['pausedMessageId']).toBe('paused-1');
+  });
+
+  it.each(['missing', 'ambiguous'] as const)(
+    'fails visibly without POST when the action owner is %s',
+    async (ownerCase) => {
+      const { append, fetchSpy } = await renderActionCase(
+        Promise.resolve(),
+        undefined,
+        false,
+        ownerCase
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('last-message-status')).toHaveTextContent('incomplete')
+      );
+      expect(append.mock.calls.some(([item]) => isActionRunConfig(item.runConfig))).toBe(false);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    }
+  );
 
   it('fails visibly before POST when an action history write times out', async () => {
     let finishLate!: () => void;

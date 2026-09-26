@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { readActionMessageHostRunId } from '../approval-action-message.js';
+import {
+  ACTION_PAUSED_OWNER_MESSAGE_ID_KEY,
+  readActionMessageHostRunId,
+  readActionMessagePausedOwnerId,
+} from '../approval-action-message.js';
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '../tool-approval.js';
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '../tool-suspend.js';
 
@@ -73,6 +77,32 @@ describe('readActionMessageHostRunId', () => {
           'assistant'
         )
       )
+    ).toBeUndefined();
+  });
+});
+
+describe('readActionMessagePausedOwnerId', () => {
+  const marker = { action: 'approve', runId: NATIVE_RUN_ID, toolCallId: 'call-1' };
+
+  it('reads the bounded owner from an action echo without changing the action marker', () => {
+    expect(
+      readActionMessagePausedOwnerId(
+        echo({
+          [ACTION_PAUSED_OWNER_MESSAGE_ID_KEY]: 'resumed-assistant-1',
+          [TOOL_APPROVAL_RUN_CONFIG_KEY]: marker,
+        })
+      )
+    ).toBe('resumed-assistant-1');
+  });
+
+  it('rejects a malformed owner and ignores ordinary messages', () => {
+    expect(() =>
+      readActionMessagePausedOwnerId(
+        echo({ [ACTION_PAUSED_OWNER_MESSAGE_ID_KEY]: ' ', [TOOL_APPROVAL_RUN_CONFIG_KEY]: marker })
+      )
+    ).toThrow('invalid paused owner');
+    expect(
+      readActionMessagePausedOwnerId(echo({ [ACTION_PAUSED_OWNER_MESSAGE_ID_KEY]: 'other' }))
     ).toBeUndefined();
   });
 });
