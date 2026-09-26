@@ -601,6 +601,27 @@ test('parser host Schema stays in main and utility consumers', () => {
   );
 });
 
+test('worker envelope Schema uses a dedicated subpath outside root and preload imports', () => {
+  const contract = readRepoFile('docs/agents/effect-boundary.md');
+  const manifest = JSON.parse(readRepoFile('packages/worker-runtime/package.json'));
+  const root = readRepoFile('packages/worker-runtime/src/index.ts');
+  const validation = readRepoFile('packages/worker-runtime/src/validation.ts');
+  assert.match(contract, /effect-boundary\/worker-envelope-schema\.md/u);
+  assert.equal(manifest.exports['./validation'].default, './dist/validation.js');
+  assert.doesNotMatch(root, /from ['"]effect['"]|from ['"]\.\/validation\.js['"]/u);
+  assert.match(validation, /Schema\.Struct\(/u);
+  assert.match(validation, /Schema\.makeFilter\(/u);
+  assert.match(validation, /Schema\.is\(/u);
+  for (const host of ['chunking', 'embedding', 'llm']) {
+    const source = readRepoFile(`apps/desktop/src/${host}-host-shared.ts`);
+    assert.match(source, /from ['"]@brainstrike\/worker-runtime\/validation['"]/u);
+  }
+  for (const preload of ['preload', 'hidden-preload']) {
+    const source = readRepoFile(`apps/desktop/src/${preload}.ts`);
+    assert.doesNotMatch(source, /@brainstrike\/worker-runtime\/validation/u);
+  }
+});
+
 test('Python manifest decodes with Schema and keeps its domain error boundary', () => {
   assert.match(
     readRepoFile('docs/agents/effect-boundary.md'),

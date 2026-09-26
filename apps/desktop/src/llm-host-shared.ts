@@ -13,10 +13,10 @@ import type {
   RuntimeResultEnvelope,
 } from '@brainstrike/worker-runtime';
 import {
-  assertRuntimeObjectPayloadEnvelope,
   createBackgroundRuntimeDescriptor,
   serializeRuntimeError,
 } from '@brainstrike/worker-runtime';
+import { assertRuntimeObjectPayloadEnvelope } from '@brainstrike/worker-runtime/validation';
 
 export const LLM_HOST_RUNTIME = createBackgroundRuntimeDescriptor('llm-host');
 export const LLM_HOST_LIFECYCLE_CHANNELS = LLM_HOST_RUNTIME.lifecycleChannels;
