@@ -1639,17 +1639,19 @@ export async function startEmbeddingWorker(
     if (completed.length === 0) {
       return;
     }
-    await jq.completeBatch(
+    const completedJobs = await jq.completeBatch(
       completed.map((item) => ({ id: item.job.id, leaseToken: item.job.lease_token }))
     );
     const newlyCompleted = new Set<string>();
-    for (const item of completed) {
-      completedJobIds.add(item.job.id);
-      newlyCompleted.add(item.job.id);
+    for (const job of completedJobs) {
+      completedJobIds.add(job.id);
+      newlyCompleted.add(job.id);
     }
-    await onJobsCompleted?.(newlyCompleted);
-    metrics.jobsProcessed += completed.length;
-    processedSinceInit += completed.length;
+    if (newlyCompleted.size > 0) {
+      await onJobsCompleted?.(newlyCompleted);
+    }
+    metrics.jobsProcessed += newlyCompleted.size;
+    processedSinceInit += newlyCompleted.size;
   }
 
   async function maybeReinitialize() {

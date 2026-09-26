@@ -48,10 +48,9 @@ Guard: `vector-preferences-store.hidden-host.test.ts`,
 
 ### Job queue and embedding input hash
 
-- `startEmbeddingWorker` applies one runtime-wide in-flight budget across all polling
-  loops before `claimMany` (ceiling `claimBatchSize`, overridable by a positive
-  `maxInFlightJobs`). Release a slot only after the matching completion/failure write,
-  or during cleanup after a lost lease or interrupted batch.
+- Reserve one runtime-wide in-flight budget before all `claimMany` loops (ceiling
+  `claimBatchSize` or positive `maxInFlightJobs`). Release slots only after matching
+  completion/failure writes, or cleanup after a lost lease or interrupted batch.
 - Every durable `embed_chunk` payload carries `sourceContentHash` plus
   `embeddingInputHash` (lowercase SHA-256 of `${contentHash}:${resolvedModelKey}`),
   computed by every producer through `buildEmbeddingJobInputHashes` before enqueue.
@@ -60,11 +59,12 @@ Guard: `vector-preferences-store.hidden-host.test.ts`,
   legacy hashing fallback: migration 105 backfills provable jobs and visibly cancels
   those whose chunk/model identity cannot be proven.
 - Desktop backfill admission bounds queued/running jobs for the target
-  `embedding_set_id`, not the whole queue, and admitted jobs take the queue's earliest
-  runnable ordering. Same-set backfills stay single-flight at the IPC boundary; the
-  runtime-wide budget stays the global inference ceiling.
+  `embedding_set_id` and takes earliest runnable jobs. Same-set backfills stay
+  single-flight at IPC; the runtime-wide budget remains the inference ceiling.
+- For already embedded chunks, count and settle only `completeBatch` returned jobs, never stale leases.
 
 Evidence: `local-inference/job-queue-input-hash.md`.
+Guard: `packages/embeddings/src/__tests__/embedding-worker-already-completed-lease.integration.test.ts`.
 
 ### Background-indexing backfill ownership
 
