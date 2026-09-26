@@ -36,6 +36,10 @@ import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../automation-overrides';
+import {
+  recordAssistantModelDiagnostic,
+  withLocalRuntimeDiagnostics,
+} from '../local-runtime-diagnostics';
 import { getModelIdMigrationTarget, isRetiredModelId } from './assistant-model-id-migrations';
 import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
 import { clearPersistedStorageForTests } from './persist-api';
@@ -394,17 +398,24 @@ async function probeRuntimeViaBridgeOrService(
   }
 
   const bridge = getRuntimeBridge();
-  if (bridge) {
-    const result = await bridge.probe(runtimeId, options);
-    if (!isAvailabilityState(result)) {
-      throw new Error(
-        `Unexpected probe result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
-      );
+  return await withLocalRuntimeDiagnostics(
+    'probe',
+    runtimeId,
+    bridge ? 'native-bridge' : 'browser-service',
+    async () => {
+      if (bridge) {
+        const result = await bridge.probe(runtimeId, options);
+        if (!isAvailabilityState(result)) {
+          throw new Error(
+            `Unexpected probe result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
+          );
+        }
+        return result;
+      }
+      const { discoveryService } = getLocalRuntimeServices();
+      return await discoveryService.probeRuntime(runtimeId, options);
     }
-    return result;
-  }
-  const { discoveryService } = getLocalRuntimeServices();
-  return await discoveryService.probeRuntime(runtimeId, options);
+  );
 }
 
 async function listRuntimeModelsViaBridgeOrService(
@@ -418,17 +429,24 @@ async function listRuntimeModelsViaBridgeOrService(
   }
 ): Promise<LocalRuntimeModelCatalogState> {
   const bridge = getRuntimeBridge();
-  if (bridge) {
-    const result = await bridge.listModels(runtimeId, options);
-    if (!isCatalogState(result)) {
-      throw new Error(
-        `Unexpected catalog result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
-      );
+  return await withLocalRuntimeDiagnostics(
+    'models',
+    runtimeId,
+    bridge ? 'native-bridge' : 'browser-service',
+    async () => {
+      if (bridge) {
+        const result = await bridge.listModels(runtimeId, options);
+        if (!isCatalogState(result)) {
+          throw new Error(
+            `Unexpected catalog result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
+          );
+        }
+        return result;
+      }
+      const { modelCatalogService } = getLocalRuntimeServices();
+      return await modelCatalogService.listRuntimeModels(runtimeId, options);
     }
-    return result;
-  }
-  const { modelCatalogService } = getLocalRuntimeServices();
-  return await modelCatalogService.listRuntimeModels(runtimeId, options);
+  );
 }
 
 interface ParsedCompositeModelKey {
@@ -1239,6 +1257,9 @@ export const useAssistantPreferencesStore = create<Store>()(
             return state;
           }
 
+          if (state.selectedModel !== parsed.compositeKey) {
+            recordAssistantModelDiagnostic('assistant_model_selected', parsed.provider);
+          }
           // Single atomic update: selectedModel composite key + remember preference
           // The UI layer validates model enabled state against the database before calling setModel
           return {
