@@ -30,3 +30,17 @@ DB browser-storage tests stub and restore `navigator` with Vitest's global
 helpers; hook cleanup uses `vi.doUnmock`, since hoisted `vi.unmock` is module-only.
 Root source aliases are shared by inline projects through Vitest 5 inheritance;
 keep the snapshot `globalSetup` on the unit project only.
+
+## Coverage guard (BST-1085, 2026-09-26)
+
+The original missing runtime wrappers were already present on main; this change
+protects their coverage. `database-telemetry-seams-contract.test.mjs` parses the
+TypeScript AST and classifies every declared and public file-record method.
+It requires Base and Drizzle reads (including managed-cache reads), token-cache
+aggregate reads, scheduled live-query creation/refresh, and Electron start/refresh
+to execute inside the matching measured callback. Live subscription/update
+counters are pinned at their owning functions. Existing scheduler and live-query
+behavioral suites remain the lifecycle semantics proof. Negative controls reject
+missing, mislabeled, pre-wrapper and eagerly evaluated reads, comment-only
+instrumentation, and removed operations. This guards the named feature seams;
+it is not a whole-program SQL or data-flow analyser.
