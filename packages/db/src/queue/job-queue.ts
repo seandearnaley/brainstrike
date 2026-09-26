@@ -664,11 +664,30 @@ export class JobQueue {
     const leasedUntil = new Date(Date.now() + params.leaseMs).toISOString();
     const updatedAt = now;
     const limit = Math.max(1, params.limit ?? 1);
+    const exhaustedError = 'Job lease expired after maximum attempts.';
 
     // Atomic claim: next runnable or expired lease; bump attempts on claim.
-    // Re-check state/lease conditions in the UPDATE to prevent double-claim races.
-    const result = await this.db.query<JobRow>(
-      `WITH candidate AS (
+    // Expired leases with no attempts left fail in the same statement. Both
+    // transitions re-check state and lease ownership after selecting candidates.
+    const result = await this.db.query<JobRow & { transition: 'claimed' | 'failed' }>(
+      `WITH exhausted_candidate AS (
+         SELECT id FROM job_queue
+          WHERE queue = $1 AND state = 'running' AND attempts >= max_attempts
+            AND (leased_until IS NULL OR leased_until <= $2)
+          ORDER BY leased_until ASC NULLS FIRST, id ASC
+          LIMIT $8 FOR UPDATE SKIP LOCKED
+       ), failed AS (
+         UPDATE job_queue AS j SET
+           state = 'failed', error = $9, lease_token = NULL,
+           leased_until = NULL, updated_at = $6
+         FROM exhausted_candidate c
+         WHERE j.id = c.id AND j.queue = $1 AND j.state = 'running'
+           AND j.attempts >= j.max_attempts
+           AND (j.leased_until IS NULL OR j.leased_until <= $2)
+         RETURNING j.*
+       ),
+       ${incrementOutcomeMetricsCte('failed', 'failed_total')},
+       candidate AS (
          SELECT id
            FROM job_queue
           WHERE queue = $1
@@ -680,8 +699,8 @@ export class JobQueue {
           ORDER BY run_at ASC, id ASC
           LIMIT $7
           FOR UPDATE SKIP LOCKED
-       )
-       UPDATE job_queue AS j SET
+       ), claimed AS (
+         UPDATE job_queue AS j SET
          state = 'running',
          attempts = j.attempts + 1,
          lease_token = $3,
@@ -692,14 +711,36 @@ export class JobQueue {
        WHERE j.id = c.id
          AND j.attempts < j.max_attempts
          AND (
-               (j.state = 'queued'  AND j.run_at <= $2)
+             (j.state = 'queued'  AND j.run_at <= $2)
             OR (j.state = 'running' AND (j.leased_until IS NULL OR j.leased_until <= $2))
              )
-       RETURNING j.*`,
-      [params.queue, now, leaseToken, leasedUntil, params.workerId ?? null, updatedAt, limit]
+         RETURNING j.*
+       )
+       SELECT 'claimed'::text AS transition, claimed.* FROM claimed
+       UNION ALL
+       SELECT 'failed'::text AS transition, failed.* FROM failed`,
+      [
+        params.queue,
+        now,
+        leaseToken,
+        leasedUntil,
+        params.workerId ?? null,
+        updatedAt,
+        limit,
+        Math.min(limit, 64),
+        exhaustedError,
+      ]
     );
 
-    const jobs = fromClaimedRows(result.rows);
+    const failed = result.rows.filter((row) => row.transition === 'failed').map(fromRow);
+    if (failed.length > 0) {
+      logger.warn('Expired exhausted job leases failed', {
+        count: failed.length,
+        queue: params.queue,
+      });
+      this.emitFailTelemetry(failed, exhaustedError, true);
+    }
+    const jobs = fromClaimedRows(result.rows.filter((row) => row.transition === 'claimed'));
     if (jobs.length > 0) {
       logger.trace('Jobs claimed', {
         count: jobs.length,

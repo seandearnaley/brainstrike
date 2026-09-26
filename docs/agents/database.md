@@ -6,14 +6,14 @@
 
 ## ATOMIC CHUNK AND JOB WRITES
 
-- `insertChunksAndEnqueueEmbeddingJobs` inserts chunks and enqueues their jobs in
-  one transaction: construct the chunk repository from the outer transactional
-  connection and pass the callback's query surface to `insertManyWithTx`.
-- The callback's `IDatabase` requires `query` and makes `transaction` optional. A
-  query-only handle is valid; never cast it into a database that guarantees
-  nested transactions.
-
-Guard: `packages/db/__tests__/job-queue-transactional-enqueue.test.ts`.
+- `insertChunksAndEnqueueEmbeddingJobs` uses one transaction: construct the chunk
+  repository from its connection and pass its query surface to `insertManyWithTx`.
+- The callback's `IDatabase` guarantees `query`, not nested `transaction`;
+  query-only handles are valid and must not be cast to require transactions.
+- `claimMany` atomically fails expired final-attempt leases once, releasing
+  ownership/dedupe eligibility; live leases survive, and claims never refund attempts.
+Guard: `packages/db/__tests__/job-queue-transactional-enqueue.test.ts`, `job-queue-expired-lease.test.ts`.
+Evidence: `database/job-queue-lease-exhaustion.md`.
 
 ## CHUNK SEARCH POLICY AND ATOMIC TRANSPORTS
 
