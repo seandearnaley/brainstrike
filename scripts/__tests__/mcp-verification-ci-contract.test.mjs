@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { OFFICIAL_AUTH_CONFORMANCE_PROFILES } from '../../packages/assistant-contract/src/official-auth-conformance.ts';
 
@@ -10,6 +11,8 @@ import { buildPlan, CI_GATE_PLAN_IDS } from '../check.mjs';
 import { buildOfficialAuthEvidence } from '../run-official-mcp-client-conformance.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const requireDesktop = createRequire(path.join(repoRoot, 'apps/desktop/package.json'));
+const { minimatch } = requireDesktop('minimatch');
 const readRepoFile = (relativePath) => readFileSync(path.join(repoRoot, relativePath), 'utf8');
 const representativeCommand =
   'pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json';
@@ -208,6 +211,29 @@ test('modern-only auth closeout is an independent bounded required job', () => {
   );
   assert.equal(uploadStep.with['if-no-files-found'], 'error');
   assert.equal(uploadStep.with['retention-days'], 14);
+});
+
+test('resource-mismatch process proof runs in the required desktop integration lane', async () => {
+  const relativeTestPath =
+    'src/__tests__/main/official-conformance-client-process.integration.test.ts';
+  assert.ok(existsSync(path.join(repoRoot, 'apps/desktop', relativeTestPath)));
+
+  const desktop = JSON.parse(readRepoFile('apps/desktop/package.json'));
+  assert.match(
+    desktop.scripts['test:integration'],
+    /vitest run --config vitest\.integration\.config\.mts/u
+  );
+  const configUrl = pathToFileURL(
+    path.join(repoRoot, 'apps/desktop/vitest.integration.config.mts')
+  );
+  const { default: integrationConfig } = await import(configUrl.href);
+  const include = integrationConfig.test?.include ?? [];
+  assert.ok(include.some((glob) => minimatch(relativeTestPath, glob)));
+
+  const workflow = parseYaml(readRepoFile('.github/workflows/test.yml'));
+  const step = findStep(workflow, 'unit-shard', 'Pull request affected integration tests');
+  assert.match(step.run, /pnpm turbo run test:integration/u);
+  assert.equal(step['continue-on-error'], undefined);
 });
 
 test('official core conformance is an independent bounded required job', () => {
