@@ -79,3 +79,13 @@ effect-kit's `runShutdownSequence`. The in-flight tracking that
 log message are unchanged. At the deadline the running step's `AbortSignal`
 now aborts before the forced-exit log. Record:
 `docs/agents/effect-boundary/phase-three-lifecycle.md`.
+
+### Update (2026-09-26): deferred HNSW recovery joins shutdown ownership
+
+The worker-write Electron smoke passed, but shutdown canceled a backfill whose
+HNSW index was suspended with two scoped jobs pending. Its deferred recovery
+polled again after the DB host retired and logged a false terminal rebuild
+failure. The deferred poll now observes shutdown before querying; the durable
+suspension is reconciled by the next eligible maintenance run. This does not
+change the embedding host's three-second stop timeout, which remains a separate
+fail-visible shutdown step.

@@ -64,3 +64,14 @@ backfill. Each paragraph records a bug that a shortcut reintroduces.
      count snapshot so always-mounted queue subscribers do not rerender on an
      idle polling cadence. Diagnostics consume the stored poll timestamp; they
      must not synthesize queue freshness during React render.
+
+## Shutdown of deferred HNSW recovery (2026-09-26)
+
+An Electron smoke run canceled a background backfill with two active scoped jobs
+after suspending dimension 384's HNSW index. Its fire-and-forget deferred recovery
+kept polling a captured DB handle after shutdown retired that handle, logging
+`DB host manager is retired.` The shutdown owner now stops that poll before its
+next query and leaves the suspension row intact. A later eligible maintenance run
+reconciles that durable row (`packages/db/__tests__/dimension-index-maintenance.test.ts`).
+The focused backfill regression retires its mock DB after shutdown and requires
+zero further queries. Non-shutdown recovery errors remain visible.

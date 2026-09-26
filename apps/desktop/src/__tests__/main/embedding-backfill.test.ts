@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  markDesktopShuttingDown,
+  resetDesktopShutdownStateForTests,
+} from '../../desktop-shutdown-state';
 import {
   type EnqueueEmbeddingBackfillOptions,
   enqueueEmbeddingBackfill,
@@ -109,6 +113,11 @@ function enqueueTestEmbeddingBackfill(
 
 describe('embedding-backfill', () => {
   beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    resetDesktopShutdownStateForTests();
     vi.useRealTimers();
   });
 
@@ -917,6 +926,66 @@ describe('embedding-backfill', () => {
       expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
       undefined
     );
+  });
+
+  it('stops deferred HNSW polling before the database host retires on shutdown', async () => {
+    vi.useFakeTimers();
+    let retired = false;
+    let postRetireQueries = 0;
+    let suspensionExists = false;
+    let pendingChecks = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (retired) {
+          postRetireQueries += 1;
+          throw new Error('DB host manager is retired.');
+        }
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }] };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
+          suspensionExists = true;
+          return { rows: [] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          pendingChecks += 1;
+          return { rows: [{ count: 2 }] };
+        }
+        if (sql.includes('DELETE FROM embedding_dimension_index_suspensions')) {
+          suspensionExists = false;
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+        throw new Error('Unexpected query.');
+      }),
+    };
+    const jobQueue = withQueueRepair({
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(),
+    });
+
+    await expect(
+      enqueueEmbeddingBackfill(withMaintenanceExec(db), jobQueue, 'set-123', () => undefined, {
+        assertCanContinue: () => {
+          throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+        },
+        backlogPollMs: 10,
+        drainTimeoutMs: 100,
+      })
+    ).rejects.toThrow(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+    expect(pendingChecks).toBeGreaterThanOrEqual(3);
+    expect(suspensionExists).toBe(true);
+
+    const checksBeforeShutdown = pendingChecks;
+    markDesktopShuttingDown();
+    retired = true;
+    await vi.advanceTimersByTimeAsync(11);
+
+    expect(pendingChecks).toBe(checksBeforeShutdown);
+    expect(postRetireQueries).toBe(0);
+    expect(suspensionExists).toBe(true);
   });
 
   it('leaves deferred canceled background indexing HNSW rebuild suspended after scoped jobs drain', async () => {

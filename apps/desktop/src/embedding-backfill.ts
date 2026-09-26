@@ -16,7 +16,7 @@ import {
 } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { canonicalizeProviderModelKey } from '@brainstrike/utils';
-import { isExpectedBackfillTeardown } from './desktop-shutdown-state';
+import { isDesktopShuttingDown, isExpectedBackfillTeardown } from './desktop-shutdown-state';
 import { EMBEDDING_BACKFILL_CANCELED_MESSAGE } from './embedding-host-shared';
 
 export interface EmbeddingBackfillQueueCounts {
@@ -547,6 +547,13 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
     requestDimensionIndexMaintenance,
   } = params;
   const key = getDeferredDimensionIndexRebuildKey(embeddingSetId, dimension);
+  if (isDesktopShuttingDown()) {
+    logger.info('Deferred dimension HNSW recovery retained for next eligible maintenance run', {
+      dimension,
+      embeddingSetId,
+    });
+    return;
+  }
   if (deferredDimensionIndexRebuilds.has(key)) {
     logger.debug('Deferred dimension HNSW index rebuild already scheduled', {
       dimension,
@@ -556,14 +563,22 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
   }
   deferredDimensionIndexRebuilds.add(key);
   void (async () => {
+    const shutdown = new Error('Deferred dimension HNSW recovery stopped for shutdown.');
+    const assertNotShuttingDown = (): void => {
+      if (isDesktopShuttingDown()) {
+        throw shutdown;
+      }
+    };
     try {
       const counts = await waitForEmbeddingSetDrain(
         db,
         embeddingSetId,
         backlogPollMs,
         drainTimeoutMs,
-        now
+        now,
+        { assertBeforePoll: assertNotShuttingDown }
       );
+      assertNotShuttingDown();
       await completeBackfillDimensionIndexMaintenance(
         db,
         embeddingSetId,
@@ -583,11 +598,18 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
         rebuildDimensionIndexOnCompletion,
       });
     } catch (error) {
-      logger.error('Deferred dimension HNSW index rebuild after interrupted backfill failed', {
-        dimension,
-        embeddingSetId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      if (error === shutdown) {
+        logger.info('Deferred dimension HNSW recovery retained for next eligible maintenance run', {
+          dimension,
+          embeddingSetId,
+        });
+      } else {
+        logger.error('Deferred dimension HNSW index rebuild after interrupted backfill failed', {
+          dimension,
+          embeddingSetId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     } finally {
       deferredDimensionIndexRebuilds.delete(key);
     }
@@ -733,24 +755,29 @@ async function waitForEmbeddingSetDrain(
   backlogPollMs: number,
   timeoutMs: number,
   now: () => number,
-  assertCanContinue?: () => void | Promise<void>,
-  updatedAfter?: string,
-  observeMaintenance?: () => void | Promise<void>
+  options: {
+    assertBeforePoll?: () => void;
+    assertCanContinue?: () => void | Promise<void>;
+    observeMaintenance?: () => void | Promise<void>;
+    updatedAfter?: string;
+  } = {}
 ): Promise<EmbeddingBackfillQueueCounts> {
   const startedAt = now();
   while (true) {
+    options.assertBeforePoll?.();
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
     if (pending === 0) {
-      await observeMaintenance?.();
-      return await getEmbeddingSetQueueCounts(db, embeddingSetId, updatedAfter);
+      await options.observeMaintenance?.();
+      options.assertBeforePoll?.();
+      return await getEmbeddingSetQueueCounts(db, embeddingSetId, options.updatedAfter);
     }
-    await assertCanContinue?.();
+    await options.assertCanContinue?.();
     if (now() - startedAt >= timeoutMs) {
       throw new Error(
         `Backfill timed out while waiting for embedding set '${embeddingSetId}' to drain.`
       );
     }
-    await observeMaintenance?.();
+    await options.observeMaintenance?.();
     await sleep(backlogPollMs);
   }
 }
@@ -892,9 +919,11 @@ async function drainExistingScopedBackfillJobs({
     backlogPollMs,
     drainTimeoutMs,
     now,
-    assertCanContinue,
-    runStartedAt,
-    observeMaintenance
+    {
+      ...(assertCanContinue ? { assertCanContinue } : {}),
+      ...(observeMaintenance ? { observeMaintenance } : {}),
+      updatedAfter: runStartedAt,
+    }
   );
   if (counts.failed > 0) {
     throw new Error(
@@ -1267,9 +1296,11 @@ export async function enqueueEmbeddingBackfill(
       backlogPollMs,
       drainTimeoutMs,
       now,
-      assertCanContinue,
-      runStartedAt,
-      observeMaintenance
+      {
+        ...(assertCanContinue ? { assertCanContinue } : {}),
+        observeMaintenance,
+        updatedAfter: runStartedAt,
+      }
     );
     if (drainedCounts.failed > 0) {
       throw new Error(
