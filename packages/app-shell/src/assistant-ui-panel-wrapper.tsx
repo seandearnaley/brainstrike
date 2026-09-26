@@ -96,7 +96,6 @@ import {
   type LocalRuntimeProviderId,
   resolveAdvertisedNativeToolIds,
   resolveAssistantMemoryDisabledReason,
-  resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveEffectiveObservationalMemorySettings,
   resolveHostedMemoryBackendAvailable,
@@ -114,6 +113,7 @@ import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-run
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
+import { useAssistantProviderDisabledReason } from './hooks/use-assistant-provider-disabled-reason';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useAssistantThreadRootBinding } from './hooks/use-assistant-thread-root-binding';
@@ -1127,30 +1127,21 @@ export function AssistantUiPanelWrapper({
     ]
   );
 
-  const providerDisabledReason = useMemo(
-    () =>
-      resolveAssistantProviderDisabledReason({
-        configuredProviders,
-        currentModel,
-        getProviderLlmModels,
-        localRuntimeHint,
-        providerHasEnabledModels,
-        ...(providerReadErrors ? { providerReadErrors } : {}),
-        selectedProvider,
-      }),
-    [
+  const providerDiscoveryReason = providerDiscoveryError
+    ? `Could not refresh available providers: ${providerDiscoveryError}`
+    : undefined;
+  const providerDisabledReason = useAssistantProviderDisabledReason(
+    {
       configuredProviders,
       currentModel,
       getProviderLlmModels,
       localRuntimeHint,
       providerHasEnabledModels,
-      providerReadErrors,
+      ...(providerReadErrors ? { providerReadErrors } : {}),
       selectedProvider,
-    ]
+    },
+    Boolean(memoryDisabledReason || (configuredProviders.length === 0 && providerDiscoveryReason))
   );
-  const providerDiscoveryReason = providerDiscoveryError
-    ? `Could not refresh available providers: ${providerDiscoveryError}`
-    : undefined;
   const runtimeDisabledReason =
     (configuredProviders.length === 0 ? providerDiscoveryReason : undefined) ??
     memoryDisabledReason ??

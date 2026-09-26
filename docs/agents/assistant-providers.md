@@ -51,7 +51,7 @@ store persists each thread's own model and provider settings.
   capability source `inferred` and is never followed by a native `/api/show`. A
   forced refresh forces every native lookup.
 - `capabilities.vision` is tri-state (`supported | unsupported | unknown`);
-  never coerce unknown to unsupported.
+  never coerce unknown to unsupported. Diagnostics use bounded fields, never model IDs/URLs/errors.
 
 **Built-in local provider.**
 
@@ -372,7 +372,7 @@ store persists each thread's own model and provider settings.
 
 Implementation: `packages/app-shell/src/hooks/use-assistant-availability.ts`.
 Evidence: `assistant-providers/local-runtime-fetch-receiver.md`,
-`assistant-providers/local-runtime-catalogs.md`,
+`assistant-providers/local-runtime-catalogs.md`, `assistant-providers/local-runtime-diagnostics.md`,
 `assistant-providers/local-provider-entrypoints.md`,
 `assistant-providers/credential-inventory.md`,
 `assistant-providers/typed-provider-credentials.md`,
