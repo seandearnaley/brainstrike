@@ -144,3 +144,16 @@ The live-decision guard is
 `packages/agent/src/__tests__/delegated-live-tool-output.integration.spec.ts`;
 `background-worker-policy.integration.spec.ts` proves both granted siblings
 retain their own output owners.
+
+Selective Stop also leaves already-queued custom output in the parent stream.
+A production-mapper regression reproduces the first queued part cancelling its
+child and the second part failing the parent. Once exact ownership and the known
+leaf call are verified, discard output for a completed child without reopening
+it; unknown ownership and malformed native identities still fail closed. A
+sibling continues normally, and the selected child emits no duplicate terminal.
+Guard: `delegated-cancelled-custom-output.spec.ts`.
+
+On resume, publish answered-approval notices before seeded child starts so a
+granted sibling cannot appear running with a still-actionable approval card.
+The seed uses the canonical native tool-call payload shape. The native background
+sibling integration asserts this ordering before either resumed output stream.

@@ -464,9 +464,16 @@ it('attributes only an active child tool’s known custom output to its observed
   );
   activeCalls.get('call')?.add('native-call');
   await projection.project(wrap({ runId: 'child-run', type: 'finish' }), new Map());
-  await expect(projection.project(wrap(custom), new Map())).rejects.toThrow(
-    'no observed active native owner'
-  );
+  expect(await projection.project(wrap(custom), new Map())).toEqual([]);
+  await expect(
+    projection.project(wrap({ ...custom, toolCallId: 'unknown-after-terminal' }), new Map())
+  ).rejects.toThrow('no observed active native owner');
+  await expect(
+    projection.project(wrap({ ...custom, messageId: 'foreign-after-terminal' }), new Map())
+  ).rejects.toThrow('changed its observed message identity');
+  await expect(
+    projection.project(wrap({ ...custom, runId: 'changed-after-terminal' }), new Map())
+  ).rejects.toThrow('changed its native invocation identity');
   expect(
     await projection.project(wrap(custom, 'parent-run', 'sibling-call'), new Map())
   ).toMatchObject([

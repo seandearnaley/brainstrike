@@ -467,10 +467,10 @@ Evidence: `assistant-subagents/child-stream-projection.md`.
 - Independent `DataStreamMapper`s emit `brainstrike.delegated-conversation`;
   replay reuses encoded session events without remapping or duplicate events.
 - Runless shell/MCP progress requires the exact native parent/delegation/persona
-  and active child tool call; it cannot admit an invocation or reopen completed
-  children. Ordinary parts still require native IDs.
-- Validated native pauses seed scoped child starts before resumed output, using
-  authorized ancestry and saved message IDs, including granted siblings.
+  and active child tool call; queued output for a known completed child is ignored
+  without reopening it. Ordinary parts still require native IDs.
+- Validated native pauses seed child starts after answered notices, before output,
+  using authorized ancestry and saved message IDs, including granted siblings.
 - **Consumed child envelopes.** `createDelegatedConversationTap` consumes routed
   `brainstrike.delegated-conversation`/`brainstrike.child-continuation` data before
   parent accumulation. Other data, including parent-indexed `part-start`, forwards.

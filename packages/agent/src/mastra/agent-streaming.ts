@@ -1639,14 +1639,14 @@ export async function* streamAttemptChunks({
     if (resumedApprovalToolCall) {
       yield* makeResumedStartChunks(resumedApprovalToolCall, toolNames, lifecycleState);
     }
+    // Lock the grant-answered sibling cards before projecting their resumed
+    // native tool starts. Both precede any output from the resumed stream.
+    yield* answeredApprovals ?? [];
     yield* resumedDelegatedStartChunks(
       delegatedProjection,
       resumedApprovalToolCall,
       resumedDelegatedToolCalls
     );
-    // The answered siblings lock their cards before any of their children
-    // stream, so no stale button is clickable while a child already runs.
-    yield* answeredApprovals ?? [];
     const rawSource = readableStreamIterator(stream, streamAbortContext.signal);
     const toolInputBoundedSource = withToolCallInputTimeout(
       rawSource,

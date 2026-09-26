@@ -434,12 +434,20 @@ export function createDelegatedStreamProjection<State>(
       const toolCallId = readMastraStreamPartString(nested, 'toolCallId');
       if (
         !existing ||
-        (existing.finished && !existing.parked) ||
         existing.identity.personaId !== personaId ||
         !toolCallId ||
-        !existing.toolNames.has(toolCallId) ||
-        !options.isActiveToolCall(existing.state, toolCallId)
+        !existing.toolNames.has(toolCallId)
       ) {
+        throw new Error('Delegated tool progress has no observed active native owner.');
+      }
+      assertObservedCustomMessageIdentity(nested, existing.messageId);
+      // A selected Stop can settle this child while an already-queued custom
+      // chunk still crosses the vendor stream. Its observed owner is terminal;
+      // discard the late progress without disturbing the running sibling.
+      if (existing.finished && !existing.parked) {
+        return;
+      }
+      if (!options.isActiveToolCall(existing.state, toolCallId)) {
         throw new Error('Delegated tool progress has no observed active native owner.');
       }
       if (!reopenIfParked(existing)) {
@@ -489,7 +497,7 @@ export function createDelegatedStreamProjection<State>(
     }
     const { args, registeredToolName, toolCallId } = resume.toolCall;
     const { chunks, finished } = await options.mapPart(
-      { args, toolCallId, toolName: registeredToolName, type: 'tool-call' },
+      { payload: { args, toolCallId, toolName: registeredToolName }, type: 'tool-call' },
       leaf.state,
       leaf.toolNames
     );

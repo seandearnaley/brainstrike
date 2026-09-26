@@ -53,6 +53,14 @@ test('delegated command asks by default, then a per-tool grant streams output an
   const failures: unknown[] = [];
   let ownedProcess: ChildProcess | undefined;
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-worker-command-'));
+  const requireAdvertisedTool = (toolNames: readonly string[], name: string): void => {
+    try {
+      expect(toolNames).toContain(name);
+    } catch (error) {
+      failures.push(error);
+      throw error;
+    }
+  };
   const provider = await startModelProviderShim(({ messages, toolNames }) => {
     if (toolNames.length === 0) {
       return { finalText: 'Worker command task' };
@@ -72,7 +80,7 @@ test('delegated command asks by default, then a per-tool grant streams output an
     const second = task.includes('SECOND');
     const suffix = second ? 'SECOND' : 'FIRST';
     if (task.includes('WORKER_COMMAND')) {
-      expect(toolNames).toContain('brainstrike_executeCommand');
+      requireAdvertisedTool(toolNames, 'brainstrike_executeCommand');
       return {
         finalText: `CHILD_${suffix}_COMMAND_COMPLETE`,
         toolCall: {
@@ -83,7 +91,7 @@ test('delegated command asks by default, then a per-tool grant streams output an
         },
       };
     }
-    expect(toolNames).toContain('agent-worker');
+    requireAdvertisedTool(toolNames, 'agent-worker');
     if (history.includes(`CHILD_${suffix}_COMMAND_COMPLETE`)) {
       return { finalText: `ROOT_${suffix}_COMMAND_COMPLETE` };
     }
