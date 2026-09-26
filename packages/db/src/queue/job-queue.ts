@@ -732,7 +732,15 @@ export class JobQueue {
       ]
     );
 
-    const failed = result.rows.filter((row) => row.transition === 'failed').map(fromRow);
+    const failed: Job[] = [];
+    const claimedRows: JobRow[] = [];
+    for (const row of result.rows) {
+      if (row.transition === 'failed') {
+        failed.push(fromRow(row));
+      } else {
+        claimedRows.push(row);
+      }
+    }
     if (failed.length > 0) {
       logger.warn('Expired exhausted job leases failed', {
         count: failed.length,
@@ -740,7 +748,7 @@ export class JobQueue {
       });
       this.emitFailTelemetry(failed, exhaustedError, true);
     }
-    const jobs = fromClaimedRows(result.rows.filter((row) => row.transition === 'claimed'));
+    const jobs = fromClaimedRows(claimedRows);
     if (jobs.length > 0) {
       logger.trace('Jobs claimed', {
         count: jobs.length,

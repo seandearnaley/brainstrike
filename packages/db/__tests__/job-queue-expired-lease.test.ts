@@ -109,7 +109,7 @@ describe('JobQueue expired lease claiming', () => {
     });
   });
 
-  it('counts a final lease failure once when workers poll together', async () => {
+  it('counts a final lease failure once across serialized PGlite polls', async () => {
     const firstWorker = new JobQueue(db as IDatabase);
     const secondWorker = new JobQueue(db as IDatabase);
     const job = await firstWorker.enqueue({
