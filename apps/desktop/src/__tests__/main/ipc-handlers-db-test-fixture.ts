@@ -236,6 +236,7 @@ vi.mock('@brainstrike/db', async () => {
     applyManagedCacheBatch: applyManagedCacheBatchMock,
     invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityMock,
     parseManagedCacheBatchArgs: parseManagedCacheBatchArgsMock,
+    recoverInterruptedDimensionIndexMaintenanceAtStartup: vi.fn(async () => 0),
   };
 });
 vi.mock('@brainstrike/db/react', async () => {

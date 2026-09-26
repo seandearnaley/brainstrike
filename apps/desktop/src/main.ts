@@ -381,15 +381,27 @@ try {
 loggingPreferences.applyInitial();
 
 async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
-  const db = await getDatabase();
-  if (isDesktopShuttingDown()) {
+  let db: Awaited<ReturnType<typeof getDatabase>>;
+  let recovered: number;
+  try {
+    db = await getDatabase();
+    if (isDesktopShuttingDown()) {
+      return;
+    }
+    // This process owns the single-instance lock and maintenance triggers have
+    // not started. Only here can a persisted `running` build be proven orphaned.
+    recovered = await recoverInterruptedDimensionIndexMaintenanceAtStartup(db, {
+      now: () => mainProcessStartedAt,
+    });
+  } catch (error) {
+    if (!isDesktopShuttingDown()) {
+      throw error;
+    }
+    logger.info('Dimension index maintenance initialization aborted by shutdown', {
+      error: serializeDesktopError(error),
+    });
     return;
   }
-  // This process owns the single-instance lock and maintenance triggers have
-  // not started. Only here can a persisted `running` build be proven orphaned.
-  const recovered = await recoverInterruptedDimensionIndexMaintenanceAtStartup(db, {
-    now: () => mainProcessStartedAt,
-  });
   if (recovered > 0) {
     logger.info('Recovered interrupted dimension index maintenance at startup', {
       recovered,

@@ -157,7 +157,7 @@ describe('dimension index maintenance service', () => {
       });
       await firstBoot.query(
         `UPDATE embedding_dimension_index_maintenance
-            SET state = 'running', attempts = 3, started_at = $1
+            SET state = 'running', attempts = 2, started_at = $1
           WHERE dimension = 384`,
         [NOW_ISO]
       );
@@ -211,6 +211,83 @@ describe('dimension index maintenance service', () => {
     } finally {
       await nextBoot.close();
     }
+  });
+
+  it('does not refund an interrupted build that already consumed its final attempt', async () => {
+    await db.query(
+      `INSERT INTO embedding_dimension_index_suspensions (dimension, reason, suspended_at)
+       VALUES (384, 'embedding-backfill:set-a', $1)`,
+      [NOW_ISO]
+    );
+    await requestDimensionIndexMaintenance(db, {
+      dimension: 384,
+      now: () => new Date(NOW_ISO),
+      reason: 'embedding-backfill:set-a',
+      strategy: 'regular',
+    });
+    await db.query(
+      `UPDATE embedding_dimension_index_maintenance
+          SET state = 'running', attempts = 3, started_at = $1
+        WHERE dimension = 384`,
+      [NOW_ISO]
+    );
+
+    expect(
+      await recoverInterruptedDimensionIndexMaintenanceAtStartup(db, {
+        now: () => new Date(RECENT_ISO),
+      })
+    ).toBe(1);
+    await expectMaintenanceRow(db, 384, 'pending', { attempts: 3 });
+
+    const createIndex = vi.fn(async () => undefined);
+    for (let tick = 0; tick < 2; tick += 1) {
+      const result = await runNextDimensionIndexMaintenance(db, {
+        createIndex,
+        maxAttempts: 3,
+        now: () => new Date(RECENT_ISO),
+        strategy: 'regular',
+      });
+      expect(result).toMatchObject({ reason: 'max-attempts', status: 'skipped' });
+    }
+    expect(createIndex).not.toHaveBeenCalled();
+    await expectMaintenanceRow(db, 384, 'pending', { attempts: 3 });
+    await expectSuspensionPresent(db, 384);
+  });
+
+  it('does not reset a terminal failed suspended build on routine ticks', async () => {
+    await db.query(
+      `INSERT INTO embedding_dimension_index_suspensions (dimension, reason, suspended_at)
+       VALUES (384, 'embedding-backfill:set-a', $1)`,
+      [NOW_ISO]
+    );
+    await requestDimensionIndexMaintenance(db, {
+      dimension: 384,
+      now: () => new Date(NOW_ISO),
+      reason: 'embedding-backfill:set-a',
+      strategy: 'regular',
+    });
+    await db.query(
+      `UPDATE embedding_dimension_index_maintenance
+          SET state = 'failed', attempts = 3, last_error = 'index build failed'
+        WHERE dimension = 384`
+    );
+
+    const createIndex = vi.fn(async () => undefined);
+    for (let tick = 0; tick < 2; tick += 1) {
+      const result = await runNextDimensionIndexMaintenance(db, {
+        createIndex,
+        maxAttempts: 3,
+        now: () => new Date(RECENT_ISO),
+        strategy: 'regular',
+      });
+      expect(result).toMatchObject({ status: 'skipped' });
+    }
+    expect(createIndex).not.toHaveBeenCalled();
+    await expectMaintenanceRow(db, 384, 'failed', {
+      attempts: 3,
+      lastError: 'index build failed',
+    });
+    await expectSuspensionPresent(db, 384);
   });
 
   it('lists active dimension index suspensions for diagnostics', async () => {

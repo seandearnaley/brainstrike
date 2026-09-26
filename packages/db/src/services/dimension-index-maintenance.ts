@@ -298,8 +298,7 @@ export async function recoverInterruptedDimensionIndexMaintenanceAtStartup(
     `UPDATE embedding_dimension_index_maintenance
         SET state = 'pending',
             next_run_at = $1,
-            started_at = NULL,
-            attempts = GREATEST(attempts - 1, 0)
+            started_at = NULL
       WHERE state = 'running'
       RETURNING dimension`,
     [nowIso]
@@ -319,7 +318,7 @@ export async function reconcileSuspendedDimensionIndexMaintenance(
        FROM embedding_dimension_index_suspensions s
        LEFT JOIN embedding_dimension_index_maintenance m
          ON m.dimension = s.dimension
-        AND m.state IN ('pending', 'running')
+        AND m.state IN ('pending', 'running', 'failed')
       WHERE m.dimension IS NULL
       ORDER BY s.dimension`
   );
