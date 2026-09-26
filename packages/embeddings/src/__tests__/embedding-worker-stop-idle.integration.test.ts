@@ -1,6 +1,6 @@
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
 import type {
   EmbeddingConfig,
@@ -10,6 +10,35 @@ import type {
   EmbeddingStatus,
   SimilarityResult,
 } from '../types.js';
+import type { EmbeddingAdmissionBudget } from '../worker/embedding-admission-budget.js';
+
+const admissionProbe = vi.hoisted(
+  (): {
+    budget: EmbeddingAdmissionBudget | undefined;
+    onGrant: (() => void) | undefined;
+  } => ({ budget: undefined, onGrant: undefined })
+);
+
+vi.mock('../worker/embedding-admission-budget.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../worker/embedding-admission-budget.js')>();
+  return {
+    ...actual,
+    createEmbeddingAdmissionBudget: async (capacity: number): Promise<EmbeddingAdmissionBudget> => {
+      const budget = await actual.createEmbeddingAdmissionBudget(capacity);
+      admissionProbe.budget = budget;
+      return {
+        ...budget,
+        tryReserve: async (requested: number): Promise<number> => {
+          const granted = await budget.tryReserve(requested);
+          if (granted > 0) {
+            admissionProbe.onGrant?.();
+          }
+          return granted;
+        },
+      };
+    },
+  };
+});
 
 class IdleEmbeddingService implements EmbeddingService {
   private status: EmbeddingStatus = 'ready';
@@ -76,7 +105,44 @@ describe('embedding-worker: stop while idle', () => {
   });
 
   afterEach(async () => {
+    admissionProbe.onGrant = undefined;
+    admissionProbe.budget = undefined;
     await db.close();
+  });
+
+  it('returns a committed admission grant when Stop arrives before the claim handoff', async () => {
+    const entered = Promise.withResolvers<void>();
+    const permit = Promise.withResolvers<void>();
+    const grantObserved = Promise.withResolvers<void>();
+    const claimSpy = vi.spyOn(JobQueue.prototype, 'claimMany');
+    const controller = await startEmbeddingWorker({
+      concurrency: 1,
+      db,
+      leaseMs: 1000,
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      service: new IdleEmbeddingService(),
+      waitForBackgroundPermit: (): Promise<void> => {
+        entered.resolve();
+        return permit.promise;
+      },
+    });
+    await entered.promise;
+    let stopping: Promise<void> | undefined;
+    admissionProbe.onGrant = (): void => {
+      stopping = controller.stop();
+      grantObserved.resolve();
+    };
+    try {
+      permit.resolve();
+      await grantObserved.promise;
+      await stopping;
+      expect(claimSpy).not.toHaveBeenCalled();
+      expect(await admissionProbe.budget?.inFlight()).toBe(0);
+    } finally {
+      permit.resolve();
+      await controller.stop();
+      claimSpy.mockRestore();
+    }
   });
 
   it('stops promptly without claiming jobs when its background permit never arrives', async () => {

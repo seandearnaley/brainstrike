@@ -2114,6 +2114,9 @@ importers:
       '@huggingface/transformers':
         specifier: 'catalog:'
         version: 4.2.0
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
       glob:
         specifier: 'catalog:'
         version: 13.0.6
@@ -2124,6 +2127,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.45.0
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311)

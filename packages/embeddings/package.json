@@ -17,9 +17,11 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "catalog:",
+    "effect": "catalog:",
     "glob": "catalog:"
   },
   "devDependencies": {
+    "@effect/tsgo": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
     "@electric-sql/pglite": "catalog:",
     "@types/node": "catalog:",
@@ -78,7 +80,7 @@
     "test:integration": "vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism",
     "test:models": "vitest run --config vitest.models.config.mts",
     "test:watch": "vitest --watch",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "types": "dist/index.d.ts",
