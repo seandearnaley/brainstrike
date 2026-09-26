@@ -168,6 +168,18 @@ vi.mock('../../db-main', async () => {
   };
 });
 
+const { recoverInterruptedMaintenanceMock } = vi.hoisted(() => ({
+  recoverInterruptedMaintenanceMock: vi.fn(async (): Promise<number> => 0),
+}));
+
+vi.mock('@brainstrike/db', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
+  return {
+    ...actual,
+    recoverInterruptedDimensionIndexMaintenanceAtStartup: recoverInterruptedMaintenanceMock,
+  };
+});
+
 const { cleanupSubscriptionsMock, waitForDatabaseIdleMock } = vi.hoisted(() => ({
   cleanupSubscriptionsMock: vi.fn(async (): Promise<void> => undefined),
   waitForDatabaseIdleMock: vi.fn(async (): Promise<void> => undefined),
@@ -262,6 +274,7 @@ describe('main boot order', () => {
     waitForDatabaseIdleMock.mockResolvedValue(undefined);
     maintenanceCloseMock.mockResolvedValue(undefined);
     maintenanceStartMock.mockResolvedValue(undefined);
+    recoverInterruptedMaintenanceMock.mockResolvedValue(0);
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(true);
     process.env['CI'] = 'false';
@@ -294,6 +307,25 @@ describe('main boot order', () => {
       expect(probeMock).toHaveBeenCalledTimes(1);
       expect(maintenanceStartMock).toHaveBeenCalledTimes(1);
     });
+    expect(recoverInterruptedMaintenanceMock).toHaveBeenCalledTimes(1);
+    expect(recoverInterruptedMaintenanceMock.mock.invocationCallOrder[0]).toBeLessThan(
+      probeMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
+    expect(probeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      maintenanceStartMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
+  });
+
+  it('does not start maintenance when exclusive boot recovery fails', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    recoverInterruptedMaintenanceMock.mockRejectedValueOnce(new Error('recovery failed'));
+
+    await import('../../main');
+
+    await vi.waitFor(() => expect(recoverInterruptedMaintenanceMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+    expect(probeMock).not.toHaveBeenCalled();
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
   });
 
   it('still starts the maintenance schedulers when the capability probe fails', async () => {
@@ -340,8 +372,10 @@ describe('main boot order', () => {
     // that rejection is an EXPECTED teardown per desktop-shutdown-state and
     // must not produce an alarming error-level log on every fast quit.
     getDatabaseMock.mockResolvedValue({});
-    probeMock.mockRejectedValueOnce(new Error('db host disposed'));
-    isDesktopShuttingDownMock.mockReturnValue(true);
+    probeMock.mockImplementationOnce(async () => {
+      isDesktopShuttingDownMock.mockReturnValue(true);
+      throw new Error('db host disposed');
+    });
 
     await import('../../main');
 

@@ -210,6 +210,7 @@ export {
   type RunDimensionIndexMaintenanceOptions,
   type RunDimensionIndexMaintenanceResult,
   reconcileSuspendedDimensionIndexMaintenance,
+  recoverInterruptedDimensionIndexMaintenanceAtStartup,
   requestDimensionIndexMaintenance,
   runNextDimensionIndexMaintenance,
 } from './services/dimension-index-maintenance.js';

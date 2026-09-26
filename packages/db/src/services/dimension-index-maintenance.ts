@@ -288,6 +288,25 @@ export async function requestDimensionIndexMaintenance(
   );
 }
 
+/** Call once at exclusive desktop boot, before starting maintenance triggers. */
+export async function recoverInterruptedDimensionIndexMaintenanceAtStartup(
+  db: DimensionIndexMaintenanceDb,
+  options: Pick<DimensionIndexMaintenanceClockOptions, 'now'> = {}
+): Promise<number> {
+  const nowIso = resolveNow(options.now).toISOString();
+  const result = await db.query<{ dimension: number }>(
+    `UPDATE embedding_dimension_index_maintenance
+        SET state = 'pending',
+            next_run_at = $1,
+            started_at = NULL,
+            attempts = GREATEST(attempts - 1, 0)
+      WHERE state = 'running'
+      RETURNING dimension`,
+    [nowIso]
+  );
+  return result.rows.length;
+}
+
 export async function reconcileSuspendedDimensionIndexMaintenance(
   db: DimensionIndexMaintenanceDb,
   options: DimensionIndexMaintenanceClockOptions = {}

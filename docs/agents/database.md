@@ -155,20 +155,20 @@ Guard: `packages/db/__tests__/managed-cache-batch-parameter-limit.test.ts`.
   - The gate reads those rows across EVERY thread, so the desktop startup reaper
     (`reapOrphanedThreadRuns`, `assistant-persistence.md`) is part of this contract,
     and the background sweep runs after the native-decision repair.
-- Run-scoped work must be ON the scheduler, so a run started while a statement is
-  already running waits there instead of timing out at the host.
-- A maintenance failure matching `isCorruptionError` enters runtime corruption
-  recovery with context `'maintenance'`; any other maintenance failure is only
-  logged (`platform-contracts.md` § RUNTIME DATABASE CORRUPTION RECOVERY).
+- On exclusive desktop boot, before maintenance triggers start, reclaim persisted
+  `running` HNSW maintenance as pending; routine ticks must not reset live-owner rows.
+- Run-scoped work must be ON the scheduler, so a run started during a statement waits there instead of timing out at the host.
+- A maintenance failure matching `isCorruptionError` enters runtime corruption recovery with context `'maintenance'`;
+  any other maintenance failure is only logged (`platform-contracts.md` § RUNTIME DATABASE CORRUPTION RECOVERY).
 
 Settled: boot evidence, not row age, proves an orphaned row is dead — age is a
-guess that can kill live work, and neither table carries a heartbeat. Evidence:
-`database/maintenance-admission.md`.
+guess that can kill live work, and neither table carries a heartbeat. Evidence: `database/maintenance-admission.md`.
 Guard: `apps/desktop/src/__tests__/dimension-index-maintenance-scheduler.test.ts`
 ("admission"), `database-maintenance-scheduler.test.ts` ("assistant work
 admission"), `maintenance-admission.test.ts`,
 `maintenance-admission.integration.test.ts`,
-`packages/db/__tests__/thread-run-startup-reaper.integration.test.ts`.
+`packages/db/__tests__/thread-run-startup-reaper.integration.test.ts`,
+`packages/db/__tests__/dimension-index-maintenance.test.ts` (persisted recovery), `apps/desktop/src/__tests__/main/boot-order.test.ts` (exclusive boot order).
 
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
