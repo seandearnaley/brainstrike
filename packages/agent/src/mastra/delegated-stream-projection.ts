@@ -18,6 +18,8 @@ import {
   type DelegatedSynthesisPart,
   readDelegatedSynthesisPart,
 } from './delegated-synthesis-outcomes';
+import { MCP_PROGRESS_STREAM_PART_TYPE } from './mcp-runtime-client';
+import { SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
 import type { SubagentChildUsageReport } from './subagent-delegation';
 import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 import { resolveDelegationPersona } from './tool-lifecycle-processors';
@@ -56,6 +58,7 @@ interface DelegatedStreamProjectionOptions<State> {
     threadId: string,
     identity: DelegatedRunIdentity
   ) => State;
+  readonly isActiveToolCall: (state: State, toolCallId: string) => boolean;
   readonly mapPart: (
     part: unknown,
     state: State,
@@ -82,6 +85,23 @@ function assertChildIdentity<State>(
       child.identity.personaId !== identity.personaId)
   ) {
     throw new Error('Delegated stream changed its native invocation identity.');
+  }
+}
+
+function assertObservedCustomMessageIdentity(part: unknown, observedMessageId: string): void {
+  const type = readMastraStreamPartString(part, 'type');
+  if (type !== SHELL_OUTPUT_STREAM_PART_TYPE && type !== MCP_PROGRESS_STREAM_PART_TYPE) {
+    return;
+  }
+  if (readMastraStreamPartValue(part, 'runId') !== undefined) {
+    return;
+  }
+  const rawMessageId = readMastraStreamPartValue(part, 'messageId');
+  if (
+    rawMessageId !== undefined &&
+    readMastraStreamPartString(part, 'messageId') !== observedMessageId
+  ) {
+    throw new Error('Delegated tool progress changed its observed message identity.');
   }
 }
 
@@ -281,6 +301,14 @@ export function createDelegatedStreamProjection<State>(
         part: unknown,
         toolNames: Map<string, string>
       ) => Promise<StreamChunkDelegatedConversation[]>;
+      seedResumedToolCall: (resume: {
+        readonly path: readonly DelegatedRunIdentity[];
+        readonly toolCall: {
+          readonly args: unknown;
+          readonly registeredToolName: string;
+          readonly toolCallId: string;
+        };
+      }) => Promise<StreamChunkDelegatedConversation[]>;
     }
   | undefined {
   const authorize = options.authorize;
@@ -388,6 +416,100 @@ export function createDelegatedStreamProjection<State>(
     return child;
   };
 
+  const resolveChild = async (
+    parentRuntimeRunId: string,
+    parentToolCallId: string,
+    personaId: string,
+    nested: unknown
+  ): Promise<ChildStreamState<State> | undefined> => {
+    const childRuntimeRunId = readMastraStreamPartString(nested, 'runId');
+    const nestedType = readMastraStreamPartString(nested, 'type');
+    const isToolCustomPart =
+      nestedType === SHELL_OUTPUT_STREAM_PART_TYPE || nestedType === MCP_PROGRESS_STREAM_PART_TYPE;
+    if (isToolCustomPart && readMastraStreamPartValue(nested, 'runId') === undefined) {
+      // Mastra forwards writer.custom() verbatim, without a run id. A tool's
+      // transient progress can use only the child invocation already authorized
+      // for this exact parent call and the tool call already observed within it.
+      const existing = children.get(JSON.stringify([parentRuntimeRunId, parentToolCallId]));
+      const toolCallId = readMastraStreamPartString(nested, 'toolCallId');
+      if (
+        !existing ||
+        (existing.finished && !existing.parked) ||
+        existing.identity.personaId !== personaId ||
+        !toolCallId ||
+        !existing.toolNames.has(toolCallId) ||
+        !options.isActiveToolCall(existing.state, toolCallId)
+      ) {
+        throw new Error('Delegated tool progress has no observed active native owner.');
+      }
+      if (!reopenIfParked(existing)) {
+        throw new Error('Delegated tool progress has no observed active native owner.');
+      }
+      return existing;
+    }
+    const child = await admitChild(
+      {
+        childRuntimeRunId: requireIdentity(childRuntimeRunId),
+        parentRuntimeRunId,
+        parentToolCallId,
+        personaId,
+      },
+      nested
+    );
+    return reopenIfParked(child) ? child : undefined;
+  };
+
+  const seedResumedToolCall = async (resume: {
+    readonly path: readonly DelegatedRunIdentity[];
+    readonly toolCall: {
+      readonly args: unknown;
+      readonly registeredToolName: string;
+      readonly toolCallId: string;
+    };
+  }): Promise<StreamChunkDelegatedConversation[]> => {
+    if (resume.path.length === 0) {
+      throw new Error('Delegated resume requires its authorized native ancestry.');
+    }
+    let leaf: ChildStreamState<State> | undefined;
+    for (const [index, identity] of resume.path.entries()) {
+      leaf = await admitChild(identity, {});
+      if (leaf.finished && !reopenIfParked(leaf)) {
+        throw new Error('Delegated resume cannot reopen a completed native invocation.');
+      }
+      const next = resume.path[index + 1];
+      if (next) {
+        if (next.parentRuntimeRunId !== identity.childRuntimeRunId) {
+          throw new Error('Delegated resume changed its native ancestry.');
+        }
+        leaf.toolNames.set(next.parentToolCallId, `agent-${next.personaId}`);
+      }
+    }
+    if (!leaf) {
+      throw new Error('Delegated resume requires its authorized native leaf.');
+    }
+    const { args, registeredToolName, toolCallId } = resume.toolCall;
+    const { chunks, finished } = await options.mapPart(
+      { args, toolCallId, toolName: registeredToolName, type: 'tool-call' },
+      leaf.state,
+      leaf.toolNames
+    );
+    leaf.finished = finished;
+    const path = resume.path;
+    const projected = chunks.map(
+      (chunk, index): StreamChunkDelegatedConversation => ({
+        ...(index === 0 && leaf.baseline ? { baseline: leaf.baseline } : {}),
+        chunk: decorate(chunk, path, registeredToolName),
+        identity: leaf.identity,
+        messageId: leaf.messageId,
+        type: 'delegated-conversation-chunk',
+      })
+    );
+    if (projected.length > 0) {
+      leaf.baseline = undefined;
+    }
+    return projected;
+  };
+
   const project = async (
     part: unknown,
     toolNames: Map<string, string>,
@@ -413,16 +535,18 @@ export function createDelegatedStreamProjection<State>(
       return [];
     }
     const { delegation, nested } = resolved;
-    const identity: DelegatedRunIdentity = {
-      childRuntimeRunId: requireIdentity(readMastraStreamPartString(nested, 'runId')),
-      parentRuntimeRunId: requireIdentity(readMastraStreamPartString(part, 'runId')),
-      parentToolCallId: requireIdentity(delegation.parentToolCallId),
-      personaId: delegation.personaId,
-    };
-    const child = await admitChild(identity, nested);
-    if (!reopenIfParked(child)) {
+    const parentRuntimeRunId = requireIdentity(readMastraStreamPartString(part, 'runId'));
+    const parentToolCallId = requireIdentity(delegation.parentToolCallId);
+    const child = await resolveChild(
+      parentRuntimeRunId,
+      parentToolCallId,
+      delegation.personaId,
+      nested
+    );
+    if (!child) {
       return [];
     }
+    assertObservedCustomMessageIdentity(nested, child.messageId);
     const messageId = readMastraStreamPartString(nested, 'messageId');
     if (messageId !== undefined) {
       child.messageId = requireIdentity(messageId);
@@ -486,5 +610,6 @@ export function createDelegatedStreamProjection<State>(
     },
     preparePart,
     project,
+    seedResumedToolCall,
   };
 }

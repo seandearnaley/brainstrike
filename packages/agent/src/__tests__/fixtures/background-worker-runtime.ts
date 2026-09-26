@@ -11,7 +11,7 @@ import {
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
-import { createTool, type ToolExecutionContext } from '@mastra/core/tools';
+import { createTool, type ToolExecutionContext, ToolStream } from '@mastra/core/tools';
 import { vi } from 'vitest';
 import { z } from 'zod';
 import {
@@ -31,6 +31,8 @@ import {
 import type { DelegatedRunIdentity } from '../../mastra/delegated-run-publication';
 import type { DelegatedSuspensionResolver } from '../../mastra/delegated-suspension-discovery';
 import { LiveDecisionUnavailableError } from '../../mastra/live-decision-channel';
+import { MCP_PROGRESS_STREAM_PART_TYPE } from '../../mastra/mcp-runtime-client';
+import { writeShellOutputChunk } from '../../mastra/shell-output-stream';
 import { createPgliteMastraMemory } from '../../pglite-mastra-memory';
 import {
   hasToolResult,
@@ -274,6 +276,8 @@ export async function createBackgroundFixture(
      * `BACKGROUND_FIXTURE_SUBAGENT_SETTINGS`.
      */
     readonly requestOmitsSubagentSettings?: boolean;
+    readonly customToolOutput?: 'shell' | 'mcp';
+    readonly customSuspendedToolOutput?: 'shell' | 'mcp';
   } = {}
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
@@ -306,6 +310,27 @@ export async function createBackgroundFixture(
       throw new Error('Native background tool omitted its cancellation signal.');
     }
     toolSignals.push(signal);
+    if (fanout.customToolOutput) {
+      const writer: unknown = context?.['writer'];
+      if (!(writer instanceof ToolStream)) {
+        throw new Error('Native child tool omitted its stream writer.');
+      }
+      const toolCallId = context?.agent?.toolCallId ?? '';
+      if (fanout.customToolOutput === 'shell') {
+        await writeShellOutputChunk(writer, {
+          chunk: 'synthetic shell output',
+          stream: 'stdout',
+          toolCallId,
+        });
+      } else {
+        await writer.custom({
+          progress: 1,
+          toolCallId,
+          toolName: 'mcp.synthetic',
+          type: MCP_PROGRESS_STREAM_PART_TYPE,
+        });
+      }
+    }
     const aborted = Promise.withResolvers<never>();
     const subscription = addAbortListener(signal, () => aborted.reject(signal.reason));
     entered.resolve();
@@ -730,7 +755,43 @@ export async function createBackgroundFixture(
     tools: {
       ...(question
         ? {
-            'brainstrike.askUser': createAskUserTool(),
+            'brainstrike.askUser': fanout.customSuspendedToolOutput
+              ? createTool({
+                  description: 'Ask then report tool progress',
+                  execute: async (input, context) => {
+                    const resume = context?.agent?.resumeData;
+                    if (resume === undefined) {
+                      await context?.agent?.suspend?.({ question: input.question });
+                      return;
+                    }
+                    const writer: unknown = context?.['writer'];
+                    if (!(writer instanceof ToolStream)) {
+                      throw new Error('Resumed native child tool omitted its stream writer.');
+                    }
+                    const toolCallId = context?.agent?.toolCallId ?? '';
+                    if (fanout.customSuspendedToolOutput === 'shell') {
+                      await writeShellOutputChunk(writer, {
+                        chunk: 'resumed shell output',
+                        stream: 'stdout',
+                        toolCallId,
+                      });
+                    } else {
+                      await writer.custom({
+                        progress: 1,
+                        toolCallId,
+                        toolName: 'mcp.synthetic',
+                        type: MCP_PROGRESS_STREAM_PART_TYPE,
+                      });
+                    }
+                    return { answer: 'evidence' };
+                  },
+                  id: 'brainstrike.askUser',
+                  inputSchema: z.object({ question: z.string() }),
+                  outputSchema: z.object({ answer: z.string() }),
+                  resumeSchema: z.object({ answer: z.string() }),
+                  suspendSchema: z.object({ question: z.string() }),
+                })
+              : createAskUserTool(),
             'brainstrike.submitPlan': createSubmitPlanTool(),
           }
         : {}),

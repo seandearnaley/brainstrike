@@ -57,6 +57,7 @@ import { createMastraAgentError, isMastraAgentError, MastraAgentError } from './
 import { makeMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
 import { makePermissionGateResolvedChunks } from './permission-gate-run-events';
 import { computePromptBreakdown } from './prompt-breakdown';
+import { assertResumedCallIsSuspendPause } from './resumed-tool-snapshot';
 import { buildStreamOptions } from './runtime-assembly/stream-options';
 import { createDelegationOutcomeCapture } from './subagent-delegation';
 import { resolveDiscoveredApprovalToolName } from './suspended-run-discovery';
@@ -388,7 +389,7 @@ export async function readResumedApprovalToolCall(
     action
   );
   if (backgroundTask) {
-    if (!(delegated?.toolName && delegated.originalToolCall)) {
+    if (!(delegated?.toolName && delegated.originalToolCall && action.delegation)) {
       throw new Error(
         'Background approval requires its authorized native child and original input.'
       );
@@ -401,6 +402,15 @@ export async function readResumedApprovalToolCall(
         action.runId
       ),
       args: original.args,
+      delegatedLeaf: {
+        path: action.delegation.path,
+        toolCall: {
+          args: delegated.args,
+          displayToolName: delegated.toolName,
+          registeredToolName: delegated.toolName,
+          toolCallId: action.delegation.toolCallId,
+        },
+      },
       displayToolName: original.toolName,
       registeredToolName: original.toolName,
       siblings: [],
@@ -422,7 +432,8 @@ export async function readResumedApprovalToolCall(
       detail: 'Suspended approval snapshot is missing the requested tool call or its arguments.',
     });
   }
-  if (delegated && !delegated.originalToolCall) {
+  const delegatedLeafToolName = delegated?.toolName;
+  if (delegated && !(delegated.originalToolCall && delegatedLeafToolName)) {
     throw createMastraAgentError('mastra_agent_stream_failure', {
       detail:
         'The original delegation input is unavailable; this approval cannot be resumed safely.',
@@ -470,6 +481,19 @@ export async function readResumedApprovalToolCall(
       action.runId
     ),
     registeredToolName: displayedCall.toolName,
+    ...(delegated && action.delegation && delegatedLeafToolName
+      ? {
+          delegatedLeaf: {
+            path: action.delegation.path,
+            toolCall: {
+              args: delegated.args,
+              displayToolName: delegatedLeafToolName,
+              registeredToolName: delegatedLeafToolName,
+              toolCallId: action.delegation.toolCallId,
+            },
+          },
+        }
+      : {}),
     siblings,
     toolCallId: action.toolCallId,
   };
@@ -572,7 +596,7 @@ async function createToolApprovalTurnAttempt({
     });
     // Native resume is not invoked until the stream below, so a failure here
     // releases the claim rather than letting disposal consume it.
-    const { answeredApprovals, backgroundTask, late, resumes } =
+    const { answeredApprovals, backgroundTask, late, resumes, resumedDelegatedToolCalls } =
       await beforeDelegatedToolActionResume(
         action,
         runtime.conversationBinding,
@@ -654,6 +678,7 @@ async function createToolApprovalTurnAttempt({
         stream: fullStream,
         streamAbortContext,
         ...(action.action === 'approve' ? { resumedApprovalToolCall } : {}),
+        ...(resumedDelegatedToolCalls.length > 0 ? { resumedDelegatedToolCalls } : {}),
         ...(answeredApprovals.length > 0 ? { answeredApprovals } : {}),
         ...(runtimeData ? { runtimeData } : {}),
         ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
@@ -738,81 +763,6 @@ export function validateToolResumeAction(action: AssistantToolResumeAction): voi
       detail: 'tool resume action requires toolCallId',
     });
   }
-}
-
-/**
- * The suspend-resume transport answers a tool's OWN `suspend()` pause and
- * nothing else. Refuse when the targeted call is suspended for APPROVAL
- * (BST-1097): the two pause kinds carry different resume shapes, and a generic
- * resume payload delivered to an approval pause would reach a self-approving
- * tool as if its gates were already settled — e.g. `{action:'allow'}` answering
- * run_python's Gate A would skip the approval card entirely. Mirrors
- * `readResumedApprovalToolCall`, which enforces the symmetric direction
- * (`requiresApproval === true`) for the approval transport. A missing run or
- * tool call fails visibly here with the same typed error family — never a
- * silent fallthrough to a blind resume.
- */
-async function assertResumedCallIsSuspendPause(
-  runtime: MastraAgentRuntime,
-  runtimeData: RuntimeData | undefined,
-  action: AssistantToolResumeAction
-): Promise<{ readonly toolName: string }> {
-  const memoryContext = runtimeData?.memory;
-  const backgroundTask = await findPendingBackgroundTask(
-    runtime.backgroundTaskManager,
-    memoryContext,
-    action
-  );
-  if (backgroundTask) {
-    const delegated = await assertDelegatedToolActionPending({
-      action,
-      agent: runtime.agent,
-      binding: runtime.conversationBinding,
-      requiresApproval: false,
-    });
-    if (!delegated?.toolName) {
-      throw new Error('Background resume requires its authorized native child decision.');
-    }
-    return { toolName: delegated.toolName };
-  }
-  const { runs } = await runtime.agent.listSuspendedRuns(
-    memoryContext
-      ? { resourceId: memoryContext.resourceId, threadId: memoryContext.threadId }
-      : undefined
-  );
-  const run = runs.find((candidate) => candidate.runId === action.runId);
-  const toolCall = run?.toolCalls.find((candidate) => candidate.toolCallId === action.toolCallId);
-  if (!toolCall) {
-    throw createMastraAgentError('mastra_agent_stream_failure', {
-      context: { runId: action.runId, toolCallId: action.toolCallId },
-      detail: 'Suspended tool snapshot is missing the requested tool call.',
-    });
-  }
-  if (toolCall.requiresApproval) {
-    throw createMastraAgentError('mastra_agent_stream_failure', {
-      context: { runId: action.runId, toolCallId: action.toolCallId },
-      detail:
-        'The requested tool call is suspended for APPROVAL; answer it through the approval transport, not the suspend-resume transport.',
-    });
-  }
-  const delegated = await assertDelegatedToolActionPending({
-    action,
-    agent: runtime.agent,
-    binding: runtime.conversationBinding,
-    requiresApproval: false,
-  });
-  const toolName = delegated?.toolName ?? toolCall.toolName;
-  if (!toolName) {
-    // The rider decision below keys on the tool's ask registration; a
-    // snapshot with no tool name cannot be classified — refuse rather than
-    // guessing (a wrong guess either denies a valid resume or widens a
-    // payload the tool's schema will reject).
-    throw createMastraAgentError('mastra_agent_stream_failure', {
-      context: { runId: action.runId, toolCallId: action.toolCallId },
-      detail: 'Suspended tool snapshot has no tool name for the requested tool call.',
-    });
-  }
-  return { toolName };
 }
 
 /**
@@ -1019,6 +969,9 @@ async function createToolResumeTurnAttempt({
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         promptBreakdown,
+        ...(suspendedCall.delegatedLeaf
+          ? { resumedDelegatedToolCalls: [suspendedCall.delegatedLeaf] }
+          : {}),
         runtime,
         stream: fullStream,
         streamAbortContext,
