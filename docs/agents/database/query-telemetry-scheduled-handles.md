@@ -47,7 +47,13 @@ instrumentation, deferred nested callbacks, and removed operations. An awaited
 scheduler.run callback is the sole allowed nested callback boundary. Public
 properties/accessors also require classification. Write methods are inspected:
 Drizzle selects require measurement; Base queries skip only simple SQL beginning
-with INSERT/UPDATE/DELETE (literal or a single local declaration). That syntax
+with INSERT/UPDATE/DELETE (literal or a single const declaration). That syntax
 check does not analyze subqueries, aliases, or arbitrary dynamic SQL. New query
 shapes require extending this guard or a focused behavioral test. This guards the named feature seams;
 it is not a whole-program SQL or data-flow analyser.
+
+The guard rejects all intervening function-like boundaries, including named
+functions and object methods; scheduler controls pin awaited/first-argument
+ownership and the outer wrapper. It does not inspect Drizzle relational queries,
+execute/$count, or transaction-local selects; adding these entry points requires
+extending the named-operation inventory and its behavioral coverage.

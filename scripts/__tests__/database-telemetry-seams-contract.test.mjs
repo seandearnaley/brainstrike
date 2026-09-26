@@ -77,6 +77,12 @@ function assertMeasured(scopeNode, operation, wrapper, feature) {
   for (const call of operations) {
     let measured = false;
     for (let ancestor = call.parent; ancestor; ancestor = ancestor.parent) {
+      if (
+        ts.isFunctionLike(ancestor) &&
+        !(ts.isArrowFunction(ancestor) || ts.isFunctionExpression(ancestor))
+      ) {
+        break;
+      }
       if (!(ts.isArrowFunction(ancestor) || ts.isFunctionExpression(ancestor))) {
         continue;
       }
@@ -97,13 +103,13 @@ function assertMeasured(scopeNode, operation, wrapper, feature) {
       }
       const callbackIndex = feature === undefined ? 0 : 1;
       if (parent.arguments[callbackIndex] !== ancestor) {
-        continue;
+        break;
       }
       if (
         feature !== undefined &&
         (!ts.isStringLiteral(parent.arguments[0]) || parent.arguments[0].text !== feature)
       ) {
-        continue;
+        break;
       }
       measured = true;
       break;
@@ -123,6 +129,9 @@ function isMutation(owner, argument) {
       (node) => ts.isVariableDeclaration(node) && node.name.getText() === sql.text
     );
     assert.equal(declarations.length, 1, 'SQL variable must have one declaration');
+    if (!(declarations[0].parent.flags & ts.NodeFlags.Const)) {
+      return false;
+    }
     sql = declarations[0].initializer;
   }
   if (!sql) {
@@ -285,6 +294,14 @@ describe('telemetry guard negative controls', () => {
   });
   for (const body of [
     "return this.db.query('SELECT 1');",
+    "return measureDatabaseQuery('file-tree', async () => { function later() { return this.db.query('SELECT 1'); } setTimeout(later, 0); });",
+    "return measureDatabaseQuery('file-tree', async () => ({ run() { return this.db.query('SELECT 1'); } }));",
+    "return measureDatabaseQuery('file-tree', async () => { scheduler.run(async () => this.db.query('SELECT 1')); });",
+    "return measureDatabaseQuery('file-tree', async () => { return scheduler.run(async () => this.db.query('SELECT 1')); });",
+    "return measureDatabaseQuery('file-tree', async () => { void scheduler.run(async () => this.db.query('SELECT 1')); });",
+    "return measureDatabaseQuery('file-tree', async () => { await scheduler.run({}, async () => this.db.query('SELECT 1')); });",
+    "await scheduler.run(async () => this.db.query('SELECT 1'));",
+    "return measureDatabaseQuery('file-tree', async () => measureDatabaseQuery('queue-stats', async () => this.db.query('SELECT 1')));",
     "return measureDatabaseQuery('queue-stats', async () => this.db.query('SELECT 1'));",
     "await this.db.query('SELECT 1'); return measureDatabaseQuery('file-tree', async () => []);",
     "// measureDatabaseQuery('file-tree', async () => this.db.query('SELECT 1'))\nreturn this.db.query('SELECT 1');",
@@ -295,6 +312,30 @@ describe('telemetry guard negative controls', () => {
     it(`rejects unmeasured work: ${body}`, () => {
       assert.throws(
         () => assertMeasured(fixture(body), 'this.db.query', 'measureDatabaseQuery', 'file-tree'),
+        /outside measured callback/
+      );
+    });
+  }
+  it('accepts the awaited scheduler callback inside a measured span', () => {
+    assertMeasured(
+      fixture(
+        "return measureDatabaseQuery('file-tree', async () => await scheduler.run(async () => this.db.query('SELECT 1')));"
+      ),
+      'this.db.query',
+      'measureDatabaseQuery',
+      'file-tree'
+    );
+  });
+  for (const source of [
+    "const sql = 'SELECT 1';",
+    "let sql = 'DELETE FROM rows'; sql = 'SELECT 1';",
+  ]) {
+    it(`does not exempt a write-method read: ${source}`, () => {
+      const owner = fixture(`${source} return this.db.query(sql);`);
+      const call = calls(owner, 'this.db.query')[0];
+      assert.equal(isMutation(owner, call.arguments[0]), false);
+      assert.throws(
+        () => assertMeasured(call, 'this.db.query', 'measureDatabaseQuery', 'file-tree'),
         /outside measured callback/
       );
     });
