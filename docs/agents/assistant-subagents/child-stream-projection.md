@@ -104,3 +104,56 @@ This layer does not close BST-1719. Nested pause/resume production proofs,
 oversized artifact reload recovery and
 complete receiver routing remain acceptance work. Child UI and controls remain
 BST-1720/1723/1724/1725; read-only/no-nesting restrictions stay in force.
+
+## 2026-09-26: delegated custom tool progress
+
+A Worker command failed after its native tool start with `Delegated stream
+requires observed native identity.` Real Mastra/PGlite reproduction showed
+`writer.custom()` shell-output parts arriving inside a native delegation envelope
+without a nested `runId`. MCP progress uses the same custom-writer boundary.
+The native parent run and delegation call still identify an already authorized
+child; the custom part must also name a tool call currently active in that child.
+These two progress types use that established ownership. They cannot establish
+an invocation, reopen a completed child, or weaken identity checks for native
+events. Native IDs that change remain errors. Budget `data-*` handling is unchanged.
+
+The recorded command's effective permission policy had execute=`ask`, yolo=false,
+and an explicit `brainstrike.executeCommand` per-tool `allow` override. That
+override legitimately takes precedence over the category; the debug pack does
+not establish when or how the user granted it. No permission policy change is
+part of this fix.
+
+Guards: `packages/agent/src/__tests__/delegated-custom-tool-output.integration.spec.ts`
+uses real native Worker shell-output and MCP-progress writers;
+`packages/agent/src/__tests__/delegated-stream-projection.spec.ts` checks exact
+ownership and rejection boundaries;
+`apps/desktop/e2e/delegated-worker-command-output.desktop.test.ts` exercises
+real command approval, per-tool grant, streamed stdout/stderr, and reload history.
+
+A real Electron approval test exposed the second boundary: on a fresh resume
+leg Mastra executes the paused tool without replaying its native tool-call
+event. The first custom output therefore has no admitted projection state.
+Seed that leg from the already validated native pause and ancestry, authorize
+each invocation through the existing binding, and project the leaf start using
+the saved native message ID before consuming output. This also covers typed
+resumes and session-granted siblings. A live decision in an existing leg instead
+reopens only the exact parked invocation with its still-active tool call.
+Completed invocations and terminal tools stay closed.
+
+The live-decision guard is
+`packages/agent/src/__tests__/delegated-live-tool-output.integration.spec.ts`;
+`background-worker-policy.integration.spec.ts` proves both granted siblings
+retain their own output owners.
+
+Selective Stop also leaves already-queued custom output in the parent stream.
+A production-mapper regression reproduces the first queued part cancelling its
+child and the second part failing the parent. Once exact ownership and the known
+leaf call are verified, discard output for a completed child without reopening
+it; unknown ownership and malformed native identities still fail closed. A
+sibling continues normally, and the selected child emits no duplicate terminal.
+Guard: `delegated-cancelled-custom-output.spec.ts`.
+
+On resume, publish answered-approval notices before seeded child starts so a
+granted sibling cannot appear running with a still-actionable approval card.
+The seed uses the canonical native tool-call payload shape. The native background
+sibling integration asserts this ordering before either resumed output stream.

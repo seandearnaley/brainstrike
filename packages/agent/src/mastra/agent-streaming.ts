@@ -96,6 +96,7 @@ import {
 } from './child-continuation';
 import { readChildContinuationUserMessage } from './child-continuation-user-message';
 import { withDelegatedPersonaSnapshots } from './delegated-persona-snapshots';
+import type { DelegatedRunIdentity } from './delegated-run-publication';
 import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
 import { createDelegatedStreamProjection } from './delegated-stream-projection';
 import { DELEGATED_SYNTHESIS_PART } from './delegated-synthesis-outcomes';
@@ -968,6 +969,7 @@ interface StreamGeneratorParams {
    */
   readNativeStatus: () => string | undefined;
   resumedApprovalToolCall?: ResumedApprovalToolCall;
+  resumedDelegatedToolCalls?: readonly NonNullable<ResumedApprovalToolCall['delegatedLeaf']>[];
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   sanitizedNameMap?: Map<string, string>;
@@ -986,6 +988,11 @@ export interface ResumedToolCallStart {
 export interface ResumedApprovalToolCall extends ResumedToolCallStart {
   /** Actual approved tool, which may be inside the displayed delegation call. */
   readonly approvedToolName: string;
+  /** Host-authorized ancestry and native suspended leaf, replayed before custom tool output. */
+  readonly delegatedLeaf?: {
+    readonly path: readonly DelegatedRunIdentity[];
+    readonly toolCall: ResumedToolCallStart;
+  };
   /**
    * The suspended step's OTHER pending calls (2026-08-24 field failure).
    * Mastra resume legs never replay the step's `tool-call` parts, and the
@@ -1167,6 +1174,9 @@ export function createAttemptDelegatedProjection({
   decorate(chunk: StreamChunk): StreamChunk;
   preparePart(part: unknown): unknown;
   project(part: unknown, toolNames: Map<string, string>): Promise<StreamChunk[]>;
+  seedResumedToolCall(
+    resume: NonNullable<ResumedApprovalToolCall['delegatedLeaf']>
+  ): Promise<StreamChunk[]>;
   settle(): StreamChunk[];
 } {
   const delegatedProjection = createDelegatedStreamProjection({
@@ -1197,6 +1207,9 @@ export function createAttemptDelegatedProjection({
         },
       };
     },
+    isActiveToolCall: (state, toolCallId) =>
+      state.activeToolEvents?.has(toolCallId) === true &&
+      !state.terminalToolCallStates.has(toolCallId),
     mapPart: async (childPart, state, childToolNames) => {
       const executionSignal = state.executionSignal;
       const result =
@@ -1253,6 +1266,12 @@ export function createAttemptDelegatedProjection({
         : (delegatedProjection?.decorate(chunk) ?? chunk),
     preparePart: (part) => delegatedProjection?.preparePart(part) ?? part,
     project: async (part, toolNames) => (await delegatedProjection?.project(part, toolNames)) ?? [],
+    seedResumedToolCall: async (resume) => {
+      if (!delegatedProjection) {
+        throw new Error('Delegated resume has no host-owned conversation binding.');
+      }
+      return await delegatedProjection.seedResumedToolCall(resume);
+    },
     settle,
   };
 }
@@ -1560,6 +1579,19 @@ async function completeNativeTerminal(
   }
 }
 
+async function* resumedDelegatedStartChunks(
+  projection: ReturnType<typeof createAttemptDelegatedProjection>,
+  approval: ResumedApprovalToolCall | undefined,
+  additional: readonly NonNullable<ResumedApprovalToolCall['delegatedLeaf']>[] | undefined
+): AsyncGenerator<StreamChunk> {
+  for (const leaf of [
+    ...(approval?.delegatedLeaf ? [approval.delegatedLeaf] : []),
+    ...(additional ?? []),
+  ]) {
+    yield* await projection.seedResumedToolCall(leaf);
+  }
+}
+
 export async function* streamAttemptChunks({
   abortedTurnPersistence,
   delegationUsage,
@@ -1572,6 +1604,7 @@ export async function* streamAttemptChunks({
   streamAbortContext,
   sanitizedNameMap,
   resumedApprovalToolCall,
+  resumedDelegatedToolCalls,
   answeredApprovals,
   titleMessages,
   completeNativeStream,
@@ -1606,9 +1639,14 @@ export async function* streamAttemptChunks({
     if (resumedApprovalToolCall) {
       yield* makeResumedStartChunks(resumedApprovalToolCall, toolNames, lifecycleState);
     }
-    // The answered siblings lock their cards before any of their children
-    // stream, so no stale button is clickable while a child already runs.
+    // Lock the grant-answered sibling cards before projecting their resumed
+    // native tool starts. Both precede any output from the resumed stream.
     yield* answeredApprovals ?? [];
+    yield* resumedDelegatedStartChunks(
+      delegatedProjection,
+      resumedApprovalToolCall,
+      resumedDelegatedToolCalls
+    );
     const rawSource = readableStreamIterator(stream, streamAbortContext.signal);
     const toolInputBoundedSource = withToolCallInputTimeout(
       rawSource,

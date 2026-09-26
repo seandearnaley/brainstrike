@@ -7,6 +7,7 @@ import {
 import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
 import type { StreamChunk } from '../types';
 import { createBackgroundFixture } from './fixtures/background-worker-runtime';
+import { hasGrantedShellProgressOrder } from './fixtures/delegated-progress-order';
 
 // Host policy over the model-facing background knobs and over Mastra's
 // documented `untilIdle` terminals, driven through the production stream entry
@@ -390,6 +391,7 @@ it("a background child's decision reaches each view ONCE while the dispatching r
 
 it('a session grant answers every parked background sibling in the same approval leg', async () => {
   const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+    customToolOutput: 'shell',
     permissionPolicy: READ_ASK_POLICY,
     siblings: 2,
   });
@@ -415,6 +417,9 @@ it('a session grant answers every parked background sibling in the same approval
     expect(fixture.policyAnswers).toEqual(['background-child-2']);
     // Both children ran their read, both returned, the parent woke once with both.
     expect(effect).toHaveBeenCalledTimes(2);
+    expect(hasGrantedShellProgressOrder(chunks, 'background-read-2', 'background-child-2')).toBe(
+      true
+    );
     const parked = await runtime.backgroundTaskManager?.listTasks({ status: 'suspended' });
     expect(parked?.tasks).toEqual([]);
     expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');

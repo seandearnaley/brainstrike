@@ -8,6 +8,9 @@ function projection() {
   const result = createDelegatedStreamProjection({
     authorize: async () => ({ threadId: 'child' }),
     createState: () => state,
+    isActiveToolCall: (current, toolCallId) =>
+      current.activeToolEvents?.has(toolCallId) === true &&
+      !current.terminalToolCallStates.has(toolCallId),
     mapPart: async (part, current, names) => {
       const mapped = await processMastraStreamPart(part, names, current);
       return {

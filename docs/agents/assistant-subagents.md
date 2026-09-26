@@ -461,19 +461,19 @@ Evidence: `assistant-subagents/child-stream-projection.md`.
 
 ### Scoped child stream projection
 
-- With the durable publication capability, each native invocation has an
-  independent lifecycle/tool-name state and uses the root's mapper.
-  Authorization precedes projection at every depth; the parent keeps its compact
-  delegation lifecycle and child text never becomes parent text.
-- The data-stream mapper emits `brainstrike.delegated-conversation` data from an
-  independent `DataStreamMapper`. A child finish never finishes the parent, and
-  replay reuses the session's encoded event buffer without remapping or minting
-  duplicate child events.
-- **Consumed child envelopes.** `createDelegatedConversationTap` CONSUMES every
-  out-of-band `data` entry named `brainstrike.delegated-conversation` or
-  `brainstrike.child-continuation` once routed to its child receiver; the parent
-  accumulator never sees it. Other entries forward, and a `part-start` data part
-  owns a parent part index and still forwards.
+- Durable native invocations use independent lifecycle/tool-name state and the
+  root's mapper. Authorization precedes projection at every depth; child text
+  and finish stay separate from the parent's compact delegation lifecycle.
+- Independent `DataStreamMapper`s emit `brainstrike.delegated-conversation`;
+  replay reuses encoded session events without remapping or duplicate events.
+- Runless shell/MCP progress requires the exact native parent/delegation/persona
+  and active child tool call; queued output for a known completed child is ignored
+  without reopening it. Ordinary parts still require native IDs.
+- Validated native pauses seed child starts after answered notices, before output,
+  using authorized ancestry and saved message IDs, including granted siblings.
+- **Consumed child envelopes.** `createDelegatedConversationTap` consumes routed
+  `brainstrike.delegated-conversation`/`brainstrike.child-continuation` data before
+  parent accumulation. Other data, including parent-indexed `part-start`, forwards.
 - **Grouped parts render isolation.** `patches/@assistant-ui__core@0.3.17.patch`
   builds one leaf closure per `children` identity so a streaming part does not
   re-render every sibling leaf. Delete it when an upstream release carries the

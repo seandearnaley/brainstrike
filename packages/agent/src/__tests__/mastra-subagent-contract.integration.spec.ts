@@ -610,6 +610,9 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
           },
           createState: (_personaId, threadId) =>
             createTurnAttemptLifecycleState({ memory: { threadId } }, undefined, undefined),
+          isActiveToolCall: (state, toolCallId) =>
+            state.activeToolEvents?.has(toolCallId) === true &&
+            !state.terminalToolCallStates.has(toolCallId),
           mapPart: async (part, state, toolNames) => {
             const result = await processMastraStreamPart(
               part,

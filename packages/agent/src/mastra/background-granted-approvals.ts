@@ -8,6 +8,7 @@ import type { Agent } from '@mastra/core/agent';
 import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
 import type { RuntimeData, StreamChunkToolApprovalAnswered } from '../types';
 import type { MastraAgentRuntime } from './agent-runtime';
+import type { ResumedApprovalToolCall } from './agent-streaming';
 import { withBackgroundIdleLoop } from './background-idle-loop';
 import {
   createBackgroundLedgerSource,
@@ -46,6 +47,11 @@ export interface GrantedBackgroundApproval {
     readonly delegation: NonNullable<AssistantToolApprovalAction['delegation']>;
   };
   readonly answered: AssistantToolApprovalAnswered;
+  readonly leafToolCall: {
+    readonly args: unknown;
+    readonly toolCallId: string;
+    readonly toolName: string;
+  };
   readonly task: BackgroundTask;
 }
 
@@ -84,11 +90,12 @@ async function readParkedLeaf(params: {
   readonly rootThreadId: string;
   readonly task: BackgroundTask;
 }): Promise<{
-  readonly leaf: { readonly toolCallId: string; readonly toolName: string };
+  readonly leaf: { readonly args: unknown; readonly toolCallId: string; readonly toolName: string };
   readonly scopes: readonly DelegatedToolActionScope[];
 }> {
   const scopes: DelegatedToolActionScope[] = [];
   let leafToolName: string | undefined;
+  let leafArgs: unknown;
   let parent = params.agent;
   let address = {
     parentRuntimeRunId: params.task.runId,
@@ -112,7 +119,12 @@ async function readParkedLeaf(params: {
     });
     const run = runs.find((candidate) => candidate.runId === scope.identity.childRuntimeRunId);
     const pending = run?.toolCalls[0];
-    if (run?.toolCalls.length !== 1 || !pending?.toolCallId || !pending.toolName) {
+    if (
+      run?.toolCalls.length !== 1 ||
+      !pending?.toolCallId ||
+      !pending.toolName ||
+      pending.args === undefined
+    ) {
       throw new Error('Parked delegation has no unambiguous native leaf decision.');
     }
     if (!pending.requiresApproval) {
@@ -120,6 +132,7 @@ async function readParkedLeaf(params: {
     }
     parent = child;
     leafToolName = pending.toolName;
+    leafArgs = pending.args;
     address = {
       parentRuntimeRunId: run.runId,
       parentThreadId: scope.threadId,
@@ -130,7 +143,10 @@ async function readParkedLeaf(params: {
     throw new Error('Parked background decision has no authorized child address.');
   }
   // The loop's final address names the leaf call inside the last child.
-  return { leaf: { toolCallId: address.parentToolCallId, toolName: leafToolName }, scopes };
+  return {
+    leaf: { args: leafArgs, toolCallId: address.parentToolCallId, toolName: leafToolName },
+    scopes,
+  };
 }
 
 type GateRuntime = Pick<MastraAgentRuntime, 'askTools' | 'permissionEnforced' | 'toolNameMap'>;
@@ -199,6 +215,7 @@ export async function findGrantedBackgroundApprovals(params: {
     readonly delegation: DelegatedToolActionIdentity;
     readonly leafRunId: string;
     readonly task: BackgroundTask;
+    readonly leafToolCall: GrantedBackgroundApproval['leafToolCall'];
     /** The leaf's whole authorized ancestry, as the host's answer write reads it. */
     readonly threadIds: readonly string[];
     readonly toolName: string;
@@ -224,6 +241,7 @@ export async function findGrantedBackgroundApprovals(params: {
     candidates.push({
       delegation: { path: identities, toolCallId: leaf.toolCallId },
       leafRunId,
+      leafToolCall: { args: leaf.args, toolCallId: leaf.toolCallId, toolName: leaf.toolName },
       task,
       threadIds: scopes.map((entry) => entry.threadId),
       toolName: resolveDiscoveredApprovalToolName(leaf.toolName, runtime.toolNameMap, task.runId),
@@ -243,7 +261,7 @@ export async function findGrantedBackgroundApprovals(params: {
     ).map((leaf) => [leafKey(leaf), leaf.reason])
   );
   const granted: GrantedBackgroundApproval[] = [];
-  for (const { delegation, leafRunId, task, toolName } of candidates) {
+  for (const { delegation, leafRunId, leafToolCall, task, toolName } of candidates) {
     const skipped = unanswerable.get(
       leafKey({ childRuntimeRunId: leafRunId, toolCallId: delegation.toolCallId })
     );
@@ -277,6 +295,7 @@ export async function findGrantedBackgroundApprovals(params: {
         toolCallId: task.toolCallId,
         toolName,
       },
+      leafToolCall,
       task,
     });
   }
@@ -440,6 +459,9 @@ export async function prepareApprovalResume(params: {
   readonly backgroundTask: BackgroundTask | undefined;
   readonly late: BackgroundTask[];
   readonly resumes: readonly BackgroundResume[];
+  readonly resumedDelegatedToolCalls: readonly NonNullable<
+    ResumedApprovalToolCall['delegatedLeaf']
+  >[];
 }> {
   const { action, runtime, runtimeData } = params;
   params.signal.throwIfAborted();
@@ -457,7 +479,13 @@ export async function prepareApprovalResume(params: {
   if (!task) {
     const late = await readLateBackgroundResults(runtime, runtimeData, action.runId);
     await recordLateOverlayWakeup(runtime, late);
-    return { answeredApprovals: [], backgroundTask: undefined, late, resumes: [] };
+    return {
+      answeredApprovals: [],
+      backgroundTask: undefined,
+      late,
+      resumedDelegatedToolCalls: [],
+      resumes: [],
+    };
   }
   if (!params.hasDurableMemory) {
     throw new Error('Background resume requires durable memory.');
@@ -488,6 +516,9 @@ export async function claimGrantedBackgroundResumes(params: {
 }): Promise<{
   readonly answeredApprovals: readonly StreamChunkToolApprovalAnswered[];
   readonly resumes: readonly BackgroundResume[];
+  readonly resumedDelegatedToolCalls: readonly NonNullable<
+    ResumedApprovalToolCall['delegatedLeaf']
+  >[];
 }> {
   const { decision, runtime, runtimeData } = params;
   const manager = runtime.backgroundTaskManager;
@@ -508,6 +539,15 @@ export async function claimGrantedBackgroundResumes(params: {
   const answeredApprovals = await recordGrantedBackgroundApprovals({ granted, runtime });
   return {
     answeredApprovals,
+    resumedDelegatedToolCalls: granted.map((entry) => ({
+      path: entry.action.delegation.path,
+      toolCall: {
+        args: entry.leafToolCall.args,
+        displayToolName: entry.leafToolCall.toolName,
+        registeredToolName: entry.leafToolCall.toolName,
+        toolCallId: entry.leafToolCall.toolCallId,
+      },
+    })),
     resumes: [
       decision,
       ...granted.map((entry) => ({ resumeData: { approved: true }, task: entry.task })),

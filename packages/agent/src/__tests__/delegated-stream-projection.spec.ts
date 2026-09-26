@@ -28,6 +28,7 @@ describe('delegated stream terminal ownership', () => {
     const projection = createDelegatedStreamProjection({
       authorize: async () => ({ baseline, threadId: 'child' }),
       createState: () => ({}),
+      isActiveToolCall: () => false,
       mapPart: async () => ({ chunks: [], finished: false }),
       personas: new Map([['agent-explore', 'explore']]),
     });
@@ -66,6 +67,7 @@ describe('delegated stream terminal ownership', () => {
     const projection = createDelegatedStreamProjection({
       authorize: async () => ({ messageId: 'saved-native-message', threadId: 'owned-thread' }),
       createState: () => ({}),
+      isActiveToolCall: () => false,
       mapPart: async (value) => {
         const chunk = value as ReturnType<typeof approval>;
         return { chunks: chunk.type === 'tool-approval-required' ? [chunk] : [], finished: false };
@@ -119,6 +121,7 @@ describe('delegated stream terminal ownership', () => {
     const projection = createDelegatedStreamProjection({
       authorize: async () => ({ messageId: 'saved', threadId: 'child' }),
       createState: () => ({}),
+      isActiveToolCall: () => false,
       mapPart: async (value) => {
         const { type } = value as { type: string };
         if (type === 'tool-call-approval' || type === 'finish') {
@@ -158,6 +161,7 @@ describe('delegated stream terminal ownership', () => {
     const projection = createDelegatedStreamProjection({
       authorize: async () => ({ messageId: 'persisted-message', threadId: 'child-thread' }),
       createState: () => ({}),
+      isActiveToolCall: () => false,
       mapPart: async () => ({
         chunks: [
           {
@@ -195,6 +199,7 @@ describe('delegated stream terminal ownership', () => {
     const projection = createDelegatedStreamProjection({
       authorize: async () => ({ threadId: 'child-thread' }),
       createState: () => ({}),
+      isActiveToolCall: () => false,
       mapPart: async () => ({
         chunks: [{ type: 'text-delta', value: 'Partial' } as const],
         finished: false,
@@ -226,6 +231,7 @@ it('requires exactly one published native child for unwrapped processor usage da
   const projection = createDelegatedStreamProjection({
     authorize: async () => ({ threadId: 'child' }),
     createState: () => ({}),
+    isActiveToolCall: () => false,
     mapPart: async () => ({ chunks: [], finished: false }),
     onUsage,
     personas: new Map([['agent-explore', 'explore']]),
@@ -276,6 +282,7 @@ it('projects a synthesis part onto its owner child as a delegation.budget.exhaus
   const projection = createDelegatedStreamProjection({
     authorize: async () => ({ messageId: 'native-message', threadId: 'child' }),
     createState: () => ({}),
+    isActiveToolCall: () => false,
     mapPart: async () => ({ chunks: [], finished: false }),
     personas: new Map([['agent-explore', 'explore']]),
   });
@@ -337,4 +344,139 @@ it('projects a synthesis part onto its owner child as a delegation.budget.exhaus
   await expect(
     projection.project({ ...synthesis, data: { ...synthesis.data, cap: 'moon' } }, new Map())
   ).rejects.toThrow();
+});
+
+it('attributes only an active child tool’s known custom output to its observed native invocation', async () => {
+  const activeCalls = new Map<string, Set<string>>();
+  const projection = createDelegatedStreamProjection({
+    authorize: async (native) => ({ threadId: `child-${native.parentToolCallId}` }),
+    createState: (_persona, _thread, native) => {
+      const calls = new Set<string>();
+      activeCalls.set(native.parentToolCallId, calls);
+      return calls;
+    },
+    isActiveToolCall: (state, callId) => state.has(callId),
+    mapPart: async (candidate, state, names) => {
+      const value = candidate as {
+        payload?: { toolCallId?: string; toolName?: string };
+        type: string;
+      };
+      if (value.type === 'tool-call' && value.payload?.toolCallId) {
+        names.set(value.payload.toolCallId, value.payload.toolName ?? 'unknown');
+        state.add(value.payload.toolCallId);
+      }
+      if (value.type === 'tool-result' && value.payload?.toolCallId) {
+        state.delete(value.payload.toolCallId);
+      }
+      return {
+        chunks:
+          value.type === 'brainstrike.shell-output.chunk'
+            ? [
+                {
+                  chunk: 'output',
+                  stream: 'stdout',
+                  toolCallId: 'native-call',
+                  type: 'shell-output' as const,
+                },
+              ]
+            : [],
+        finished: value.type === 'finish',
+      };
+    },
+    personas: new Map([['agent-explore', 'explore']]),
+  });
+  if (!projection) {
+    throw new Error('Missing projection');
+  }
+  const wrap = (output: unknown, runId = 'parent-run', callId = 'call') => ({
+    payload: { output, toolCallId: callId, toolName: 'agent-explore' },
+    runId,
+    type: 'tool-output',
+  });
+  const custom = {
+    chunk: 'output',
+    stream: 'stdout',
+    toolCallId: 'native-call',
+    type: 'brainstrike.shell-output.chunk',
+  };
+  await expect(projection.project(wrap(custom), new Map())).rejects.toThrow(
+    'no observed active native owner'
+  );
+  await projection.project(
+    wrap({
+      messageId: 'observed-message',
+      payload: { toolCallId: 'native-call', toolName: 'brainstrike.executeCommand' },
+      runId: 'child-run',
+      type: 'tool-call',
+    }),
+    new Map()
+  );
+  expect(await projection.project(wrap(custom), new Map())).toMatchObject([
+    { chunk: { type: 'shell-output' }, identity, messageId: 'observed-message' },
+  ]);
+  expect(
+    await projection.project(wrap({ ...custom, messageId: 'observed-message' }), new Map())
+  ).toMatchObject([{ messageId: 'observed-message' }]);
+  for (const runId of ['', null, 123]) {
+    await expect(projection.project(wrap({ ...custom, runId }), new Map())).rejects.toThrow(
+      'requires observed native identity'
+    );
+  }
+  await expect(
+    projection.project(wrap({ ...custom, messageId: 'foreign-message' }), new Map())
+  ).rejects.toThrow('changed its observed message identity');
+  await projection.project(
+    wrap(
+      {
+        messageId: 'sibling-message',
+        payload: { toolCallId: 'native-call', toolName: 'brainstrike.executeCommand' },
+        runId: 'sibling-run',
+        type: 'tool-call',
+      },
+      'parent-run',
+      'sibling-call'
+    ),
+    new Map()
+  );
+  expect(
+    await projection.project(wrap(custom, 'parent-run', 'sibling-call'), new Map())
+  ).toMatchObject([
+    { identity: { childRuntimeRunId: 'sibling-run', parentToolCallId: 'sibling-call' } },
+  ]);
+  await expect(
+    projection.project(wrap({ ...custom, toolCallId: 'other-call' }), new Map())
+  ).rejects.toThrow('no observed active native owner');
+  await expect(projection.project(wrap(custom, 'other-parent'), new Map())).rejects.toThrow(
+    'no observed active native owner'
+  );
+  await expect(
+    projection.project(wrap(custom, 'parent-run', 'other-delegation'), new Map())
+  ).rejects.toThrow('no observed active native owner');
+  await expect(
+    projection.project(wrap({ payload: { text: 'ordinary part' }, type: 'text-delta' }), new Map())
+  ).rejects.toThrow('requires observed native identity');
+  await expect(
+    projection.project(wrap({ ...custom, runId: 'changed-child' }), new Map())
+  ).rejects.toThrow('changed its native invocation identity');
+  activeCalls.get('call')?.delete('native-call');
+  await expect(projection.project(wrap(custom), new Map())).rejects.toThrow(
+    'no observed active native owner'
+  );
+  activeCalls.get('call')?.add('native-call');
+  await projection.project(wrap({ runId: 'child-run', type: 'finish' }), new Map());
+  expect(await projection.project(wrap(custom), new Map())).toEqual([]);
+  await expect(
+    projection.project(wrap({ ...custom, toolCallId: 'unknown-after-terminal' }), new Map())
+  ).rejects.toThrow('no observed active native owner');
+  await expect(
+    projection.project(wrap({ ...custom, messageId: 'foreign-after-terminal' }), new Map())
+  ).rejects.toThrow('changed its observed message identity');
+  await expect(
+    projection.project(wrap({ ...custom, runId: 'changed-after-terminal' }), new Map())
+  ).rejects.toThrow('changed its native invocation identity');
+  expect(
+    await projection.project(wrap(custom, 'parent-run', 'sibling-call'), new Map())
+  ).toMatchObject([
+    { identity: { childRuntimeRunId: 'sibling-run', parentToolCallId: 'sibling-call' } },
+  ]);
 });
