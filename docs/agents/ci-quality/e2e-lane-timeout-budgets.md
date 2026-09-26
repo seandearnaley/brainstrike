@@ -54,3 +54,17 @@ specs run 4.6-9.5x slower on Linux CI than locally, while launch-only specs run
 the fan-in are pinned by
 `scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs`, which is the guard
 that forces the change to be deliberate.
+
+## 2026-09-26: workers after a canvas approval
+
+The delegated smoke lane adds one real Electron case with two completed
+Explorers, a reload while root canvas approval is pending, then two fresh Worker writes
+on the same resumed root turn.
+It verifies separate child checkpoint ownership and durable completion of the
+root and both Workers before teardown. On macOS it took 10.4 seconds for the
+case, 25.0 seconds including setup; the lane retains its 900-second ceiling
+and zero retries. The prior measured 440-second lane has headroom for this
+case even using the historical 9.5x Linux/local ratio (about 99 seconds).
+This is a headroom estimate, not a new full-lane measurement; PR CI measures
+the new complete lane. The provider endpoint is a Chat Completions shim;
+the app runtime, database, approval, filesystem writes, and reload are real.

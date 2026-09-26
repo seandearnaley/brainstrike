@@ -479,6 +479,66 @@ describe('mastra streaming: tool lifecycle', () => {
     ]);
   });
 
+  it('emits one failed terminal when a delegation has both error and result parts', async () => {
+    setMockStreamParts([
+      {
+        args: { task: 'inspect' },
+        toolCallId: 'worker-call',
+        toolName: 'agent-explore',
+        type: 'tool-call',
+      },
+      {
+        error: { message: 'worker failed' },
+        toolCallId: 'worker-call',
+        toolName: 'agent-explore',
+        type: 'tool-error',
+      },
+      {
+        result: { text: 'worker failed' },
+        toolCallId: 'worker-call',
+        toolName: 'agent-explore',
+        type: 'tool-result',
+      },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'delegate this', type: 'text' }], role: 'user' }],
+      {
+        personas: [
+          {
+            allowedToolIds: ['brainstrike.grepSearch'],
+            description: 'Explore the workspace and report findings.',
+            id: 'explore',
+            instructions: 'You are the Explorer subagent.',
+            label: 'Explorer',
+            maxSteps: 8,
+          },
+        ],
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: {
+          'brainstrike.grepSearch': {
+            description: 'Search the workspace.',
+            id: 'brainstrike.grepSearch',
+          },
+        },
+      }
+    );
+
+    const terminalEvents = [];
+    for await (const chunk of iterator) {
+      if (
+        chunk.type === 'run-event' &&
+        (chunk.event.kind === 'tool.failed' ||
+          chunk.event.kind === 'subagent.failed' ||
+          chunk.event.kind === 'subagent.finished')
+      ) {
+        terminalEvents.push(chunk.event.kind);
+      }
+    }
+    expect(terminalEvents).toEqual(['tool.failed', 'subagent.failed']);
+  });
+
   it('lets a terminal tool-error override an earlier intermediate tool-output', async () => {
     setMockStreamParts([
       {

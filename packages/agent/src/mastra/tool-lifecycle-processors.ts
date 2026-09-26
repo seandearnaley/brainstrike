@@ -986,6 +986,11 @@ export function mapToolLifecyclePart(
         readMastraStreamPartString(part, 'runId')
       )
   );
+  const parentToolCallId = delegation?.parentToolCallId;
+  const alreadySettled =
+    partType !== 'tool-call' &&
+    parentToolCallId !== undefined &&
+    lifecycleState.terminalToolCallStates.has(parentToolCallId);
   const lifecycleType = failedResult ? 'tool-error' : partType;
   const generic = mapGenericToolEvent(
     failedResult ? { ...asMastraStreamPart(part), type: 'tool-error' } : part,
@@ -995,6 +1000,12 @@ export function mapToolLifecyclePart(
     sanitizedNameMap
   );
   if (!delegation) {
+    return generic;
+  }
+  // Mastra may publish a tool-result after a failed delegation's tool-error.
+  // The generic timeline already keeps the first terminal; mirror that rule
+  // for the paired subagent timeline rather than reporting a second outcome.
+  if (alreadySettled) {
     return generic;
   }
   const parentRuntimeRunId = readMastraStreamPartString(part, 'runId');
