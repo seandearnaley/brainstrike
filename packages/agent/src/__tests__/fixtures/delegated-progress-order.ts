@@ -1,5 +1,16 @@
 import type { StreamChunk } from '../../types';
 
+/** One shell slice per fixture child: sorted IDs catch omissions and duplicates. */
+export function shellOutputOwners(chunks: readonly StreamChunk[]): string[] {
+  return chunks
+    .flatMap((chunk) =>
+      chunk.type === 'delegated-conversation-chunk' && chunk.chunk.type === 'shell-output'
+        ? [chunk.identity.parentToolCallId]
+        : []
+    )
+    .sort();
+}
+
 /** A granted sibling's card locks before its native start and first output. */
 export function hasGrantedShellProgressOrder(
   chunks: readonly StreamChunk[],
