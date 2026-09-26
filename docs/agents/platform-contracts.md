@@ -354,10 +354,10 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   `main.ts` supplies the step bodies. Fix the slow owner; do not raise the budget.
   At the deadline the running step's signal aborts and the forced-exit log names it
   and its elapsed time: a product log, and a CI runner's only actionable clue.
-- Shutdown retires embedding-backfill admission FIRST, and a backfill arriving
-  after `markDesktopShuttingDown()` is refused before it touches the host. Why:
-  background indexing keeps requesting backfills until its renderer dies,
-  restarting the host the next step is stopping. Job rows stay durable.
+- Shutdown retires embedding-backfill admission FIRST. A request arriving after
+  `markDesktopShuttingDown()` cannot restart the host being stopped. Deferred
+  HNSW polling stops before database retirement; job rows and index suspension
+  stay durable for the next eligible maintenance run.
 - The first tracked step closes ordinary renderer windows with
   `BrowserWindow.close()` while their IPC dependencies still exist; hidden hosts
   stay alive for their owning stop commands, and already-admitted database work
@@ -382,7 +382,7 @@ Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:
 `platform-contracts/graceful-shutdown-ownership.md`.
 Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`,
-`ipc-embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
+`ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
 `renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`.
 
 ### Browser preference hydration
