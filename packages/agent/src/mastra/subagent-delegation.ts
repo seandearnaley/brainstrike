@@ -347,7 +347,7 @@ async function resolveMissingAnswerResult(
   // failed. Native streaming failures may return a projected tool-result that
   // omits finishReason, so retain the hook's authoritative outcome for mapping.
   if (context.success === false) {
-    if (isExplicitParentStop(params)) {
+    if (isExplicitParentStop(params, context.error)) {
       return;
     }
     params.delegationOutcomes?.recordFailure(context.toolCallId, context.runId);
@@ -387,8 +387,42 @@ async function resolveMissingAnswerResult(
   return { resultText: describeMissingChildAnswer(persona, context.result) };
 }
 
-function isExplicitParentStop(params: CreateDelegationConfigParams): boolean {
-  return params.externalStopSignal?.aborted === true && params.abortSignal.aborted;
+function isExplicitParentStop(params: CreateDelegationConfigParams, error: unknown): boolean {
+  if (!(params.externalStopSignal?.aborted && params.abortSignal.aborted)) {
+    return false;
+  }
+  // createStreamAbortContext forwards the caller's reason unchanged. If the
+  // attempt already aborted for a watchdog/provider fault, a later Stop can
+  // trip both signals without being the cause of the child's failure.
+  if (params.abortSignal.reason !== params.externalStopSignal.reason) {
+    return false;
+  }
+  // Mastra passes the original thrown error to onDelegationComplete, but a
+  // child can also report finishReason:error with no error object. A Stop that
+  // races either failure must not erase its diagnostic or model feedback.
+  if (
+    !(error instanceof Error) ||
+    summarizeDelegationFailure(error).causeCategory === 'known-internal'
+  ) {
+    return false;
+  }
+  const seen = new Set<Error>();
+  let current: unknown = error;
+  try {
+    for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+      if (seen.has(current)) {
+        break;
+      }
+      seen.add(current);
+      if (current === params.externalStopSignal.reason) {
+        return true;
+      }
+      current = current.cause;
+    }
+  } catch {
+    // An unexpected error shape is a failed child, never proof of a Stop.
+  }
+  return false;
 }
 
 function logDelegationCompletion(
@@ -411,7 +445,7 @@ function logDelegationCompletion(
     parentToolCallId: context.toolCallId,
     personaId: context.primitiveId,
   };
-  if (isExplicitParentStop(params)) {
+  if (isExplicitParentStop(params, context.error)) {
     params.logger.info('Subagent delegation cancelled', {
       code: 'subagent_delegation_cancelled',
       ...identity,

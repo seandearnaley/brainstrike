@@ -52,6 +52,17 @@ delegation. The mapper already deduplicated the generic tool timeline; it now
 uses the same first-terminal rule for the paired subagent timeline. The regression
 fails with duplicate child terminals before the fix and passes with one afterward.
 
+A review of the cancellation boundary found that a delegated `tool-output` is
+routed to `subagent.tool.*`, not to the generic pending-success queue. On child
+run cancellation, the active delegation tool receives `tool.failed` with
+`cancelled` status; a late result cannot add `tool.completed`. The focused
+`delegation-cancellation-lifecycle.spec.ts` guard exercises this ordering. A
+separate Stop race was real: an unrelated provider `AbortError` could be
+classified as selected parent Stop after both signals aborted, hiding its
+failure. The hook now requires the exact propagated Stop reason in the child's
+bounded cause chain. `subagent-stop-causality.spec.ts` was red under the prior
+condition and green after narrowing it.
+
 Guards: `delegation-failure-diagnostic.spec.ts`, `mastra-tool-lifecycle.spec.ts`,
 `worker-after-root-approval.integration.test.ts`, and
 `workers-after-canvas-approval.desktop.test.ts`.

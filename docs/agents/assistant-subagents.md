@@ -178,9 +178,9 @@ bespoke `subagent` tool.
   `streamOptions.delegation` in ALL THREE stream iterators — initial turn,
   approval resume, suspend resume. With durable budgets the shared model/tool
   queue replaces the in-flight cap.
-- Failed delegation hooks log fixed cause categories and call identity at error
-  level; never log freeform exceptions or payloads. Known embedding-probe failures
-  supply supervisor feedback. Guard: `delegation-failure-diagnostic.spec.ts`.
+- Failure hooks log fixed cause categories and call identity, not freeform errors;
+  known embedding failures give feedback. Selected Stop requires the same reason
+  in both owner signals and child error cause chain; `AbortError` alone is insufficient.
   Evidence: `assistant-subagents/worker-startup-failures.md`.
 - An in-flight delegation whose parent run aborts mid-stream gets a terminal
   `subagent.failed` (status `cancelled`), so a cancelled parent leaves no

@@ -222,6 +222,22 @@ describe('action replay prefix', () => {
     await expect(
       adapter.append(echo('foreign-echo', 'resume-ui', 'foreign-host', 'worker-call'))
     ).rejects.toThrow('disagrees with its durable host turn');
+    // assistant-ui retains an optimistic action echo after a failed history
+    // write. A later message must still resolve through its durable alias.
+    await adapter.append({
+      message: {
+        attachments: [],
+        content: [{ text: 'later prompt', type: 'text' }],
+        createdAt: new Date(),
+        id: 'after-failed-echo',
+        metadata: { custom: {} },
+        role: 'user',
+      },
+      parentId: 'foreign-echo',
+    } as AppendItem);
+    expect(await repository.getMessageParent?.('after-failed-echo', thread.id, 'workspace-a')).toBe(
+      'canvas-owner'
+    );
     await db.query(
       `UPDATE brainstrike_assistant_message_parents SET parent_id = 'user-b'
        WHERE thread_id = $1 AND message_id = 'resume-ui'`,
@@ -249,6 +265,35 @@ describe('action replay prefix', () => {
     await expect(staleEcho).rejects.toThrow('changed while its parent was loading');
     expect(
       await repository.getMessageParent?.('resume-ui-2', thread.id, 'workspace-a')
+    ).toBeUndefined();
+    await repository.recordMessageParent?.({
+      messageId: 'user-b',
+      parentId: 'canvas-owner',
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    await insertMessage(
+      db,
+      thread.id,
+      'assistant-b',
+      'assistant',
+      [toolPart('foreign-call')],
+      '2026-08-10T17:00:05Z'
+    );
+    await repository.recordMessageParent?.({
+      messageId: 'assistant-b',
+      parentId: 'user-b',
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    await adapter.load();
+    await adapter.append(echo('foreign-turn-echo', 'assistant-b', 'foreign-host', 'foreign-call'));
+    await adapter.append(resumedAssistant('foreign-resume', 'foreign-turn-echo', 'Later pause'));
+    await expect(
+      adapter.append(echo('old-turn-echo', 'foreign-resume', 'worker-host', 'worker-call'))
+    ).rejects.toThrow('disagrees with its durable host turn');
+    expect(
+      await repository.getMessageParent?.('foreign-resume', thread.id, 'workspace-a')
     ).toBeUndefined();
   });
 

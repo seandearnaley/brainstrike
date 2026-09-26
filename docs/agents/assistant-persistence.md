@@ -151,11 +151,12 @@ Guard: `packages/agent/src/__tests__/aborted-turn-persistence.spec.ts`,
    `null`), re-roots retained messages whose parent fell outside the 80-row
    window, and traverses parent-first. Rows without an edge keep the
    chronological fallback; conflicting edges for one message id THROW.
-   - **DURABLE-PARENT INVARIANT.** Every persisted edge references a
-     Mastra-persisted parent id or null, enforced at the adapter rather than per
-     flow. Approval echoes and ordinary resume legs alias to their nearest
-     durable ancestor. A resumed assistant that owns a NEW pause gets a narrow
-     proof edge to its exact host turn; `load()` seeds synthetic-pause aliases.
+   - **DURABLE-PARENT INVARIANT.** Edges reference a Mastra-persisted parent or
+     null. Approval echoes alias before writes, even on failure; ordinary resume
+     legs alias to durable ancestors. A NEW pause gets an exact-turn proof edge
+     only from that turn or its direct child; `load()` seeds synthetic aliases.
+   - Await the exact action echo's bounded history write before POST; failure,
+     Stop, or history invalidation forbids sending the action.
    - Backfill parent authority, in order: the hydrated graph parent; else the
      durable HOST LEG the pause named (`hostRunId`) and its `turn_message_id`.
      There is no third fallback, and a live echo naming no host leg THROWS.

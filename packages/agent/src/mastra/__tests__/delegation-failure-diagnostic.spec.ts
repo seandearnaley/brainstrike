@@ -129,6 +129,24 @@ describe('delegation failure diagnostics', () => {
     expect(JSON.stringify(result)).not.toMatch(/secret prompt|secret provider|credentials/);
   });
 
+  it('does not borrow an unrelated outer 401 for an embedding probe failure', () => {
+    const probeError = new MastraError(
+      {
+        category: ErrorCategory.THIRD_PARTY,
+        domain: ErrorDomain.MASTRA_VECTOR,
+        id: 'MASTRA_MEMORY_GET_EMBEDDING_DIMENSION_FAILED',
+      },
+      new Error('provider unavailable')
+    );
+    const unrelatedOuter = Object.assign(new Error('outer request denied', { cause: probeError }), {
+      statusCode: 401,
+    });
+    expect(summarizeDelegationFailure(unrelatedOuter)).toEqual({
+      causeCategory: 'known-internal',
+      causeReason: 'memory-embedding-probe-failed',
+    });
+  });
+
   it('classifies only fixed internal reasons', () => {
     const error = new Error('secret prompt sensitive-credential-test-marker');
     error.cause = { providerRequest: 'secret prompt' };
@@ -244,7 +262,7 @@ describe('delegation failure diagnostics', () => {
       const result = await config.onDelegationComplete?.({
         bail: () => undefined,
         duration: 10,
-        error: new DOMException('Aborted', 'AbortError'),
+        error: parentStop.signal.reason,
         iteration: 1,
         messages: [],
         parentAgentId: 'parent',
@@ -263,6 +281,94 @@ describe('delegation failure diagnostics', () => {
     }
     expect(outcomes.failed('stopped-call', 'run-1')).toBe(false);
     expect(records.some((record) => record.message === 'Subagent delegation failed')).toBe(false);
+    expect(records.some((record) => record.message === 'Subagent delegation cancelled')).toBe(true);
+  });
+
+  it.each([new Error('independent child failure'), undefined])(
+    'keeps independent or unreported child failure visible when Stop also races',
+    async (childError) => {
+      const attempt = new AbortController();
+      const parentStop = new AbortController();
+      const outcomes = createDelegationOutcomeCapture();
+      const records: LogRecord[] = [];
+      const remove = addLogListener((record) => records.push(record));
+      const config = createDelegationConfig({
+        abortSignal: attempt.signal,
+        delegationOutcomes: outcomes,
+        externalStopSignal: parentStop.signal,
+        logger: createLogger('DelegationDiagnosticTest'),
+        personasById: new Map([['explore', persona]]),
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      });
+      parentStop.abort(new Error('User stopped the run'));
+      attempt.abort(parentStop.signal.reason);
+      try {
+        const result = await config.onDelegationComplete?.({
+          bail: () => undefined,
+          duration: 10,
+          ...(childError ? { error: childError } : {}),
+          iteration: 1,
+          messages: [],
+          parentAgentId: 'parent',
+          parentAgentName: 'Parent',
+          primitiveId: 'explore',
+          primitiveType: 'agent',
+          prompt: 'secret prompt',
+          result: { text: '' },
+          runId: 'run-1',
+          success: false,
+          toolCallId: 'independent-failure',
+        });
+        expect(result?.resultText).toContain('failed before completing the task');
+      } finally {
+        remove();
+      }
+      expect(outcomes.failed('independent-failure', 'run-1')).toBe(true);
+      expect(records.some((record) => record.message === 'Subagent delegation failed')).toBe(true);
+      expect(records.some((record) => record.message === 'Subagent delegation cancelled')).toBe(
+        false
+      );
+    }
+  );
+
+  it('recognizes the propagated Stop reason through a native error wrapper', async () => {
+    const attempt = new AbortController();
+    const parentStop = new AbortController();
+    const outcomes = createDelegationOutcomeCapture();
+    const records: LogRecord[] = [];
+    const remove = addLogListener((record) => records.push(record));
+    const config = createDelegationConfig({
+      abortSignal: attempt.signal,
+      delegationOutcomes: outcomes,
+      externalStopSignal: parentStop.signal,
+      logger: createLogger('DelegationDiagnosticTest'),
+      personasById: new Map([['explore', persona]]),
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+    });
+    parentStop.abort(new Error('Assistant run canceled by user.'));
+    attempt.abort(parentStop.signal.reason);
+    try {
+      const result = await config.onDelegationComplete?.({
+        bail: () => undefined,
+        duration: 10,
+        error: new Error('native child stopped', { cause: parentStop.signal.reason }),
+        iteration: 1,
+        messages: [],
+        parentAgentId: 'parent',
+        parentAgentName: 'Parent',
+        primitiveId: 'explore',
+        primitiveType: 'agent',
+        prompt: 'secret prompt',
+        result: { text: '' },
+        runId: 'run-1',
+        success: false,
+        toolCallId: 'stopped-call',
+      });
+      expect(result).toBeUndefined();
+    } finally {
+      remove();
+    }
+    expect(outcomes.failed('stopped-call', 'run-1')).toBe(false);
     expect(records.some((record) => record.message === 'Subagent delegation cancelled')).toBe(true);
   });
 
@@ -303,5 +409,48 @@ describe('delegation failure diagnostics', () => {
     }
     expect(outcomes.failed('timed-out-call', 'run-1')).toBe(true);
     expect(records.some((record) => record.message === 'Subagent delegation failed')).toBe(true);
+  });
+
+  it('keeps an attempt timeout failed when a user Stop arrives afterward', async () => {
+    const attempt = new AbortController();
+    const parentStop = new AbortController();
+    attempt.abort(new Error('Attempt timed out'));
+    parentStop.abort(new Error('Assistant run canceled by user.'));
+    const outcomes = createDelegationOutcomeCapture();
+    const records: LogRecord[] = [];
+    const remove = addLogListener((record) => records.push(record));
+    const config = createDelegationConfig({
+      abortSignal: attempt.signal,
+      delegationOutcomes: outcomes,
+      externalStopSignal: parentStop.signal,
+      logger: createLogger('DelegationDiagnosticTest'),
+      personasById: new Map([['explore', persona]]),
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+    });
+    try {
+      await config.onDelegationComplete?.({
+        bail: () => undefined,
+        duration: 10,
+        error: new DOMException('Aborted', 'AbortError'),
+        iteration: 1,
+        messages: [],
+        parentAgentId: 'parent',
+        parentAgentName: 'Parent',
+        primitiveId: 'explore',
+        primitiveType: 'agent',
+        prompt: 'secret prompt',
+        result: { text: '' },
+        runId: 'run-1',
+        success: false,
+        toolCallId: 'timeout-before-stop',
+      });
+    } finally {
+      remove();
+    }
+    expect(outcomes.failed('timeout-before-stop', 'run-1')).toBe(true);
+    expect(records.some((record) => record.message === 'Subagent delegation failed')).toBe(true);
+    expect(records.some((record) => record.message === 'Subagent delegation cancelled')).toBe(
+      false
+    );
   });
 });

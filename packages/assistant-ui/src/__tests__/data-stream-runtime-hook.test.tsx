@@ -1,7 +1,18 @@
-import { AssistantRuntimeProvider, useAui, useAuiState } from '@assistant-ui/react';
+import {
+  AssistantRuntimeProvider,
+  ExportedMessageRepository,
+  type ThreadHistoryAdapter,
+  useAui,
+  useAuiState,
+} from '@assistant-ui/react';
+import {
+  TOOL_APPROVAL_DATA_NAME,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-approval';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useEffect } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isActionRunConfig } from '../approval-action-message';
 import { useBrainstrikeDataStreamRuntime } from '../data-stream-runtime';
 import type { DelegatedConversationUpdate } from '../delegated-conversation-receiver';
 
@@ -114,6 +125,183 @@ it('does not install a child receiver when a callback appears after the run star
 });
 
 describe('useBrainstrikeDataStreamRuntime', () => {
+  async function renderActionCase(topologyWrite: Promise<void>, timeoutMs?: number) {
+    const append = vi.fn<ThreadHistoryAdapter['append']>((item) =>
+      isActionRunConfig(item.runConfig) ? topologyWrite : Promise.resolve()
+    );
+    const history: ThreadHistoryAdapter = {
+      append,
+      load: async () =>
+        ExportedMessageRepository.fromBranchableArray(
+          [
+            {
+              message: {
+                content: [{ text: 'prompt', type: 'text' }],
+                id: 'user-1',
+                role: 'user',
+              },
+              parentId: null,
+            },
+            {
+              message: {
+                content: [
+                  {
+                    data: {
+                      runId: 'native-1',
+                      toolCallId: 'call-1',
+                      toolName: 'shell.tool',
+                    },
+                    name: TOOL_APPROVAL_DATA_NAME,
+                    type: 'data',
+                  },
+                ],
+                id: 'paused-1',
+                role: 'assistant',
+                status: { reason: 'tool-calls', type: 'requires-action' },
+              },
+              parentId: 'user-1',
+            },
+          ],
+          { headId: 'paused-1' }
+        ),
+    };
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('f:{"messageId":"reply"}\n'));
+              controller.enqueue(
+                new TextEncoder().encode(
+                  'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}\n'
+                )
+              );
+              controller.close();
+            },
+          })
+        )
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    function ActionSender() {
+      const aui = useAui();
+      const messageCount = useAuiState((state) => state.thread.messages.length);
+      return (
+        <>
+          <output data-testid="action-message-count">{messageCount}</output>
+          <button
+            onClick={() => {
+              void Promise.resolve(
+                aui.thread().append({
+                  content: [{ text: 'Approved shell.tool.', type: 'text' }],
+                  role: 'user',
+                  runConfig: {
+                    custom: {
+                      [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+                        action: 'approve',
+                        runId: 'native-1',
+                        toolCallId: 'call-1',
+                        toolName: 'shell.tool',
+                      },
+                    },
+                  },
+                })
+              ).catch(() => undefined);
+            }}
+            type="button"
+          >
+            Approve
+          </button>
+        </>
+      );
+    }
+    function ActionRuntime({ historyAdapter }: { historyAdapter: ThreadHistoryAdapter }) {
+      const runtime = useBrainstrikeDataStreamRuntime({
+        adapters: { history: historyAdapter },
+        api: 'http://assistant.test/api/assistant',
+        ...(timeoutMs === undefined ? {} : { requestPreparationTimeoutMs: timeoutMs }),
+      });
+      return (
+        <AssistantRuntimeProvider runtime={runtime}>
+          <ActionSender />
+          <LastMessageStatus />
+        </AssistantRuntimeProvider>
+      );
+    }
+    const view = render(
+      <StrictMode>
+        <ActionRuntime historyAdapter={history} />
+      </StrictMode>
+    );
+    await waitFor(() => expect(screen.getByTestId('action-message-count')).toHaveTextContent('2'));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() =>
+      expect(append.mock.calls.some(([item]) => isActionRunConfig(item.runConfig))).toBe(true)
+    );
+    return {
+      changeHistory: () =>
+        view.rerender(
+          <StrictMode>
+            <ActionRuntime historyAdapter={{ ...history }} />
+          </StrictMode>
+        ),
+      fetchSpy,
+    };
+  }
+
+  it('waits for the exact action echo topology write before POST', async () => {
+    let commit!: () => void;
+    const topologyWrite = new Promise<void>((resolve) => {
+      commit = resolve;
+    });
+    const { fetchSpy } = await renderActionCase(topologyWrite);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    commit();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+  });
+
+  it('fails visibly before POST when an action history write times out', async () => {
+    let finishLate!: () => void;
+    const topologyWrite = new Promise<void>((resolve) => {
+      finishLate = resolve;
+    });
+    const { fetchSpy } = await renderActionCase(topologyWrite, 20);
+    await waitFor(() =>
+      expect(screen.getByTestId('last-message-status')).toHaveTextContent('incomplete')
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    finishLate();
+    await Promise.resolve();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('fails visibly before POST when an action history write rejects', async () => {
+    let fail!: (reason: Error) => void;
+    const topologyWrite = new Promise<void>((_resolve, reject) => {
+      fail = reject;
+    });
+    const { fetchSpy } = await renderActionCase(topologyWrite);
+    fail(new Error('topology write failed'));
+    await waitFor(() =>
+      expect(screen.getByTestId('last-message-status')).toHaveTextContent('incomplete')
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('fails the old action before POST when its history scope changes', async () => {
+    let finishLate!: () => void;
+    const topologyWrite = new Promise<void>((resolve) => {
+      finishLate = resolve;
+    });
+    const { changeHistory, fetchSpy } = await renderActionCase(topologyWrite);
+    changeHistory();
+    await waitFor(() =>
+      expect(screen.getByTestId('last-message-status')).toHaveTextContent('incomplete')
+    );
+    finishLate();
+    await Promise.resolve();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('settles a rejected admission visibly through a real local append', async () => {
     vi.stubGlobal(
       'fetch',

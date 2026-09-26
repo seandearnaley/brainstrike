@@ -51,7 +51,9 @@ export function summarizeDelegationFailure(error: unknown): DelegationFailureDia
       };
       sawEmbeddingProbe ||= shaped.id === EMBEDDING_PROBE_ERROR_ID;
       const status = shaped.statusCode ?? shaped.status;
-      sawAccessDenial ||= status === 401 || status === 403;
+      // An outer transport wrapper may carry its own unrelated status. Only
+      // the probe error and causes beneath it can identify embedding access.
+      sawAccessDenial ||= sawEmbeddingProbe && (status === 401 || status === 403);
       const reason = INTERNAL_REASONS.get(current.message);
       if (reason) {
         return { causeCategory: 'known-internal', causeReason: reason };
