@@ -2,6 +2,7 @@
 import type { LogRecord } from '@brainstrike/logging';
 import * as loggingModule from '@brainstrike/logging';
 import * as utilsModule from '@brainstrike/utils';
+import { logRecordToDiagnosticEvent } from '@brainstrike/utils/diagnostics';
 import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
@@ -216,50 +217,82 @@ describe('DbProvider', () => {
     unsubscribe();
   });
 
-  it('logs an error if closing the db fails on unmount', async () => {
-    const mockDb = createMockDb();
-    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
-    vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+  it.each(['close failed', 'filesystem closed unexpectedly'])(
+    'emits a structured diagnostic when closing fails: %s',
+    async (message) => {
+      const mockDb = createMockDb();
+      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
 
-    // Mock production environment but enable logging for the test
-    const isDevEnvSpy = vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
-    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
+      // Mock production environment but enable logging for the test
+      const isDevEnvSpy = vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
+      const { addLogListener, LogLevel } = await import('@brainstrike/logging');
 
-    const captured: LogRecord[] = [];
-    const unsubscribe = addLogListener((record) => {
-      if (record.scope === 'DbProvider') {
-        captured.push(record);
+      const captured: LogRecord[] = [];
+      const unsubscribe = addLogListener((record) => {
+        if (record.scope === 'DbProvider') {
+          captured.push(record);
+        }
+      });
+
+      const closeError = new Error(message);
+      mockDb.close.mockRejectedValue(closeError);
+      const closeSpy = mockDb.close;
+
+      const { result, unmount } = renderHook(() => useFileRecordRepository(), {
+        wrapper,
+      });
+      await waitFor(() => expect(result.current).not.toBeNull(), { timeout: 10_000 });
+
+      expect(() => unmount()).not.toThrow();
+
+      // Wait for the async close operation to complete
+      await waitFor(() => expect(closeSpy).toHaveBeenCalledTimes(1), {
+        timeout: 1000,
+      });
+
+      await waitFor(() => {
+        expect(
+          captured.some(
+            (record) =>
+              record.level === LogLevel.ERROR &&
+              record.scope === 'DbProvider' &&
+              record.message === 'Failed to close database:' &&
+              hasStructuredErrorArg(record, closeError) &&
+              record.args.some(
+                (arg) =>
+                  typeof arg === 'object' &&
+                  arg !== null &&
+                  'code' in arg &&
+                  arg.code === 'database_close_failed'
+              )
+          )
+        ).toBe(true);
+      });
+      const closeRecords = captured.filter(
+        (record) => record.message === 'Failed to close database:'
+      );
+      expect(closeRecords).toHaveLength(1);
+      const record = closeRecords[0];
+      if (!record) {
+        throw new Error('Expected a close failure record');
       }
-    });
-
-    const closeError = new Error('close failed');
-    mockDb.close.mockRejectedValue(closeError);
-    const closeSpy = mockDb.close;
-
-    const { result, unmount } = renderHook(() => useFileRecordRepository(), {
-      wrapper,
-    });
-    await waitFor(() => expect(result.current).toBeDefined(), { timeout: 10_000 });
-
-    expect(() => unmount()).not.toThrow();
-
-    // Wait for the async close operation to complete
-    await waitFor(() => expect(closeSpy).toHaveBeenCalledTimes(1), {
-      timeout: 1000,
-    });
-
-    await waitFor(() => {
       expect(
-        captured.some(
-          (record) =>
-            record.level === LogLevel.ERROR &&
-            record.scope === 'DbProvider' &&
-            record.message === 'Failed to close database:' &&
-            hasStructuredErrorArg(record, closeError)
-        )
-      ).toBe(true);
-    });
-    unsubscribe();
-    isDevEnvSpy.mockRestore();
-  });
+        logRecordToDiagnosticEvent(record, {
+          appVersion: 'test',
+          makeId: () => 'close-failure',
+          platform: 'test',
+          sessionId: 'test',
+          source: 'renderer',
+        })
+      ).toMatchObject({
+        code: 'database_close_failed',
+        context: { storage: 'direct' },
+        scope: 'DbProvider',
+        severity: 'error',
+      });
+      unsubscribe();
+      isDevEnvSpy.mockRestore();
+    }
+  );
 });

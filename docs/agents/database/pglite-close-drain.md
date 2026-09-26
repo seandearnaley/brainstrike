@@ -87,3 +87,13 @@ seams, per surface:
   transport's own reset contract, with the real transport);
   `factory-reset.test.tsx` and `db-provider-lifecycle.test.tsx` stay as the
   thin mount-level wiring checks.
+
+## Structured close failures (BST-404, 2026-09-26)
+
+The direct transport keeps teardown non-throwing but emits one error-level
+`database_close_failed` record through the existing logging/diagnostics sink.
+Its storage dimension is only `direct` or `browser-persistent`; it does not add
+the data directory to telemetry. Only the exact PGlite closed Error sentinel is
+ignored, not arbitrary failures mentioning "closed". Guards:
+`pglite-close-diagnostics.test.ts` (both ownership paths, benign/success and
+unexpected/non-Error failures) and `db-provider.test.tsx` (normal unmount).

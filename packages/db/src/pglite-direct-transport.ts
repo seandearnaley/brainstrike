@@ -130,10 +130,14 @@ async function closeDirectConnection(db: PGliteRuntimeClient, dataDir: string): 
       await db.close();
     }
   } catch (err: unknown) {
-    const errorMessage = (err as Error)?.message || '';
-    if (!(errorMessage.includes('closed') || errorMessage.includes('PGlite is closed'))) {
-      logger.error('Failed to close database:', err);
+    if (err instanceof Error && err.message === 'PGlite is closed') {
+      return;
     }
+    logger.error('Failed to close database:', {
+      code: 'database_close_failed',
+      err,
+      storage: isBrowserPersistentPGliteDataDir(dataDir) ? 'browser-persistent' : 'direct',
+    });
   }
 }
 
