@@ -10,11 +10,11 @@ import type {
   RuntimeResultEnvelope,
 } from '@brainstrike/worker-runtime';
 import {
-  assertRuntimeObjectPayloadEnvelope,
   createBackgroundRuntimeDescriptor,
   createRequestId,
   serializeRuntimeError,
 } from '@brainstrike/worker-runtime';
+import { assertRuntimeObjectPayloadEnvelope } from '@brainstrike/worker-runtime/validation';
 
 export const EMBEDDING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('embedding-host');
 export const EMBEDDING_HOST_LIFECYCLE_CHANNELS = EMBEDDING_HOST_RUNTIME.lifecycleChannels;

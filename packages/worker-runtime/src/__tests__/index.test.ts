@@ -2,8 +2,6 @@ import type { LogRecord } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import {
   assertBackgroundRuntimeStatus,
-  assertRuntimeObjectPayloadEnvelope,
-  assertRuntimeRequestPayloadBase,
   bindRuntimeLogRecord,
   createBackgroundRuntimeDescriptor,
   createBackgroundRuntimeLifecycleChannels,
@@ -24,6 +22,10 @@ import {
   deserializeRuntimeError,
   serializeRuntimeError,
 } from '../index.js';
+import {
+  assertRuntimeObjectPayloadEnvelope,
+  assertRuntimeRequestPayloadBase,
+} from '../validation.js';
 
 describe('@brainstrike/worker-runtime', () => {
   it('creates runtime ids with the runtime kind prefix', () => {

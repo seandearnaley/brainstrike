@@ -601,10 +601,54 @@ test('parser host Schema stays in main and utility consumers', () => {
   );
 });
 
+test('worker envelope Schema uses a dedicated subpath outside root and preload imports', () => {
+  const contract = readRepoFile('docs/agents/effect-boundary.md');
+  const manifest = JSON.parse(readRepoFile('packages/worker-runtime/package.json'));
+  const root = readRepoFile('packages/worker-runtime/src/index.ts');
+  const validation = readRepoFile('packages/worker-runtime/src/validation.ts');
+  assert.match(contract, /effect-boundary\/worker-envelope-schema\.md/u);
+  assert.match(
+    contract,
+    /predicate-only\s+`Schema\.is` boundaries preserve existing errors in caller code/u
+  );
+  assert.equal(manifest.exports['./validation'].default, './dist/validation.js');
+  const importedSpecifiers = (source) =>
+    ts.preProcessFile(source, true, true).importedFiles.map(({ fileName }) => fileName);
+  for (const [source, specifier] of [
+    ["import { Schema } from 'effect/Schema'", 'effect/Schema'],
+    ["import '@effect/platform'", '@effect/platform'],
+    ["export * from './validation.js'", './validation.js'],
+    ["const module = import('effect')", 'effect'],
+    ["const module = require('./validation.js')", './validation.js'],
+  ]) {
+    assert.deepEqual(importedSpecifiers(source), [specifier]);
+  }
+  assert.deepEqual(
+    importedSpecifiers(root).filter(
+      (specifier) =>
+        isEffectModule(specifier) ||
+        specifier.startsWith('@effect/') ||
+        /(?:^|\/)validation(?:\.[cm]?[jt]s)?$/u.test(specifier)
+    ),
+    []
+  );
+  assert.match(validation, /Schema\.Struct\(/u);
+  assert.match(validation, /Schema\.makeFilter\(/u);
+  assert.match(validation, /Schema\.is\(/u);
+  for (const host of ['chunking', 'embedding', 'llm']) {
+    const source = readRepoFile(`apps/desktop/src/${host}-host-shared.ts`);
+    assert.match(source, /from ['"]@brainstrike\/worker-runtime\/validation['"]/u);
+  }
+  for (const preload of ['preload', 'hidden-preload']) {
+    const source = readRepoFile(`apps/desktop/src/${preload}.ts`);
+    assert.doesNotMatch(source, /@brainstrike\/worker-runtime\/validation/u);
+  }
+});
+
 test('Python manifest decodes with Schema and keeps its domain error boundary', () => {
   assert.match(
     readRepoFile('docs/agents/effect-boundary.md'),
-    /Each field schema's `message` is its old hand-check sentence/u
+    /Decoded fields annotate `message` with old hand-check sentences/u
   );
   const source = readRepoFile('apps/desktop/src/python-runtime/resolve-python-binary.ts');
   assert.match(source, /const manifestSchema = Schema\.Struct\(/u);

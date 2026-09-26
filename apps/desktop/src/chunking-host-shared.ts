@@ -9,11 +9,13 @@ import type {
   RuntimeResultEnvelope,
 } from '@brainstrike/worker-runtime';
 import {
-  assertRuntimeObjectPayloadEnvelope,
-  assertRuntimeRequestPayloadBase,
   createBackgroundRuntimeDescriptor,
   serializeRuntimeError,
 } from '@brainstrike/worker-runtime';
+import {
+  assertRuntimeObjectPayloadEnvelope,
+  assertRuntimeRequestPayloadBase,
+} from '@brainstrike/worker-runtime/validation';
 
 export const CHUNKING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('chunking-host');
 export const CHUNKING_HOST_LIFECYCLE_CHANNELS = CHUNKING_HOST_RUNTIME.lifecycleChannels;

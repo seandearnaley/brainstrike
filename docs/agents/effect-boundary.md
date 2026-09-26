@@ -82,15 +82,15 @@ Guard: `apps/desktop/src/__tests__/maintenance-trigger-runtime.test.ts`, `script
 
 - Decode PGlite rows, worker messages, and main-only IPC payloads with Effect
   Schema on arrival; derive row types, never cast. Check cross-field invariants in code.
-- Each field schema's `message` is its old hand-check sentence. Throwing code uses
+- Decoded fields annotate `message` with old hand-check sentences; predicate-only
+  `Schema.is` boundaries preserve existing errors in caller code. Throwing decoders use
   `makeThrowingDecoder`: `TypeError` with message/path and `SchemaError` cause.
-  Python manifests map issue paths to legacy `PythonManifestInvalidError` messages;
-  missing targets stay unsupported-platform errors.
+  Python maps issue paths to legacy `PythonManifestInvalidError` messages; missing targets stay unsupported-platform errors.
 - Count affected rows from `RETURNING`, never a driver row count. Why: the desktop DB host surfaces only `rows`.
-- An id the renderer mints is a type-only `Brand.Brand`, asserted once by its
-  sole producer and guard-pinned: Schema decoding adds about 74 KB gzipped.
+- A renderer-minted id is a type-only `Brand.Brand`, asserted once by its sole producer; Schema decoding adds about 74 KB gzipped.
+- Worker envelope Schema lives behind `@brainstrike/worker-runtime/validation`; keep the root import light and preserve plain `Error` sentences, array roots, and object identity.
 
-Evidence: `effect-boundary/phase-two-boundaries.md`, `effect-boundary/parser-host-schema.md`, `effect-boundary/python-manifest-schema.md`.
+Evidence: `effect-boundary/phase-two-boundaries.md`, `effect-boundary/parser-host-schema.md`, `effect-boundary/python-manifest-schema.md`, `effect-boundary/worker-envelope-schema.md`.
 Guard: `packages/db/__tests__/mcp-task-row-schema.test.ts`,
 `packages/effect-kit/src/__tests__/throwing-decoder.test.ts`,
 `scripts/assistant-run-id-producer-guard.mjs`, `scripts/__tests__/effect-boundary-contract.test.mjs`.
