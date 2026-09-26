@@ -100,3 +100,57 @@ regression. No test, timeout, WebGPU behavior or reset policy was weakened.
 The explicit renderer-before-host shutdown E2E also passes unchanged (one test,
 3.9 s). The delegated reset failure is tracked as BST-1825; the logs identify the
 failed owner but omit its nested rejection, so no precise timeout cause is claimed.
+
+## Atomic paired Layer — 2026-09-25
+
+ADR-0006's later narrow Context/Layer clause now applies to the two maintenance
+triggers. The scheduler facades still validate at module evaluation, and the
+capability probe still precedes acquisition without blocking window paint. One
+Layer owns the actual subscriptions and native timers through the shared
+`acquireRelease` recipe. Its parallel group Scope has a sequential child Scope
+per trigger: acquisition stays database then dimension, while closure attempts
+both children even if one finalizer is slow or fails. The Layer's build-failure
+handler fences dispatch before Effect closes a partially acquired Layer.
+
+The original main startup left database triggers running if dimension trigger
+acquisition failed. The paired owner makes startup atomic, joins in-flight
+acquisition on close, and preserves the original acquisition and finalizer
+values in `AggregateError.errors` when both fail. `Cause.squash` alone would
+drop later failures, so the boundary receives `Effect.exit` and maps every
+Cause reason. Main's startup logger now calls `serializeDesktopError`; the
+ordinary logging redactor does not copy `AggregateError.errors`, which is a
+non-enumerable property. Shutdown already serializes errors through the
+graceful-shutdown outcome path and still attempts the independent DB drain.
+
+Focused tests cover partial graph rollback with real timer and subscription
+resources, rollback fencing while a finalizer is gated, both child finalizers
+starting before either joins, undefined cleanup failure, synchronous
+start/close reentry, close during pending acquisition, and boot-order logging.
+The pre-change baseline E2Es on main `271e64286` passed shutdown (1/1) and
+ordinary factory reset (2/2); delegated factory reset reproduced the same
+BST-1825 GPU-unavailable embedding-host stop failure before the first
+maintenance tick. The retained baseline logs are
+`/tmp/effect-layer-baseline-{shutdown,reset}-e2e.log`.
+
+Three paired Node 26.10 resource probes each ran 100 warmup and 500 measured
+two-trigger cycles. Both the prior pair and Layer owner held two live timers
+and observers after start, zero after close; each probe saw 1,200 timers
+created, cleared and unreferenced. The Layer's median construct/start was
+0.0148–0.0164 ms versus 0.0088–0.0099 ms for the prior pair; median
+stop/close was 0.0069–0.0074 ms versus 0.0045–0.0047 ms. Raw results and
+method are at `/tmp/effect-layer-resource-measurement.json`. These are
+isolated measurements, not user-perceived startup timings or a speed claim;
+the gain is atomic ownership and cleanup visibility.
+
+The same canonical build inputs produced unchanged measured desktop renderer
+and web bundle file lists and sizes versus main `271e64286`. The main entry
+changed from 2,722,217 raw / 581,368 gzip bytes to 2,725,947 raw / 582,262
+gzip bytes (+3,730 / +894). All seven other desktop entries had unchanged
+measured raw/gzip sizes. Candidate unchanged shutdown E2E passed 1/1 (4.3 s),
+and ordinary plus delegated factory-reset
+E2E passed 3/3 (24.3 s), with retries disabled. The baseline delegated reset
+failed as described above; both runs show unavailable WebGPU, so the candidate
+pass does not establish that this Layer fixes BST-1825. Its embedding-host
+teardown issue remains separately tracked. Full app E2E does not inject a
+second-trigger acquisition failure; the focused native-timer graph test and
+gated rollback tests cover that failure path.

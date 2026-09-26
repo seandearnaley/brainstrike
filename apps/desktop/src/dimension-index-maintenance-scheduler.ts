@@ -9,6 +9,7 @@ import {
   withIndexBuildMaintenanceWorkMem,
 } from '@brainstrike/db';
 import type { WorkspaceIndexingPowerSnapshot } from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
+import type { Effect, Scope } from 'effect';
 import type { DimensionIndexBuildStrategy } from './dimension-index-maintenance-capabilities';
 import {
   createSustainedIdleObserver,
@@ -17,7 +18,10 @@ import {
   type MaintenanceSchedulerSnapshot,
   readInFlightAssistantWork,
 } from './maintenance-admission';
-import { createMaintenanceTriggerRuntime } from './maintenance-trigger-runtime';
+import {
+  acquireMaintenanceTriggerResources,
+  createMaintenanceTriggerRuntime,
+} from './maintenance-trigger-runtime';
 
 const DEFAULT_DIMENSION_INDEX_MAINTENANCE_INITIAL_DELAY_MS = 45_000;
 const DEFAULT_DIMENSION_INDEX_MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
@@ -68,6 +72,7 @@ export type DesktopDimensionIndexMaintenanceRunResult =
     };
 
 export interface DesktopDimensionIndexMaintenanceScheduler {
+  readonly acquireTrigger: (isLive: () => boolean) => Effect.Effect<void, never, Scope.Scope>;
   readonly close: () => Promise<void>;
   readonly runOnce: () => Promise<DesktopDimensionIndexMaintenanceRunResult>;
   readonly start: () => Promise<void>;
@@ -320,10 +325,10 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
     return await maintenanceInFlight;
   };
 
-  const trigger = createMaintenanceTriggerRuntime({
+  const triggerOptions = {
     initialDelayMs,
     intervalMs,
-    onCloseError: (error) => {
+    onCloseError: (error: unknown) => {
       options.logger.error({ error }, 'Dimension index maintenance trigger cleanup failed');
     },
     subscribe: () => {
@@ -335,9 +340,11 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
         options.logger.error({ error }, 'Dimension index maintenance failed');
       });
     },
-  });
+  };
+  const trigger = createMaintenanceTriggerRuntime(triggerOptions);
 
   return {
+    acquireTrigger: (isLive) => acquireMaintenanceTriggerResources(triggerOptions, isLive),
     close: trigger.close,
     runOnce,
     start: trigger.start,

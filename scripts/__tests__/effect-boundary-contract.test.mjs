@@ -489,14 +489,17 @@ test('desktop composition refactors keep lifecycle owners and require a separate
   assert.ok(section, 'effect boundary contract must have desktop composition refactor rules');
   assert.match(section, /pre-ready[\s\S]*app-ready/u);
   assert.match(section, /runShutdownSequence[\s\S]*factory reset/u);
-  assert.match(section, /Layer[\s\S]*separate decision/u);
+  assert.match(section, /whole-main Layer graph[\s\S]*separate decision/u);
   assert.match(section, /current startup-failure, reset and stale DB-client behavior/u);
 });
 
 test('desktop maintenance scope ownership preserves SQL drain and native cadence', () => {
   const contract = readRepoFile('docs/agents/effect-boundary.md');
   const decision = readRepoFile('docs/adr/0006-scoped-desktop-maintenance.md');
-  assert.match(contract, /scopes own maintenance triggers and subscriptions, never admitted SQL/u);
+  assert.match(
+    contract,
+    /Context\/Layer scope owns both maintenance triggers and subscriptions, never admitted SQL/u
+  );
   assert.match(
     contract,
     /Stop fences automatic dispatch synchronously; close joins finalizers before DB drain/u
@@ -506,6 +509,8 @@ test('desktop maintenance scope ownership preserves SQL drain and native cadence
     /native unref interval cadence, separate admission policies and reset barriers/u
   );
   assert.match(decision, /Failed acquisition releases/u);
+  assert.match(contract, /partial graph acquisition rolls back both triggers/u);
+  assert.match(decision, /Startup is atomic across the pair/u);
   assert.match(
     decision,
     /Finalizer failures remain visible and do not bypass the existing database drain/u
@@ -526,6 +531,16 @@ test('both desktop maintenance schedulers delegate trigger resources to the scop
   assert.match(owner, /Effect\.acquireRelease\(/u);
   assert.match(owner, /Scope\.close\(/u);
   assert.match(owner, /runAtPromiseBoundary\(/u);
+  const graph = readRepoFile('apps/desktop/src/desktop-maintenance-trigger-graph.ts');
+  assert.match(graph, /Context\.Service</u);
+  assert.match(graph, /Layer\.effect\(/u);
+  assert.match(graph, /Layer\.buildWithScope\(/u);
+  assert.match(graph, /Scope\.fork\(layerScope, 'parallel'\)/u);
+  assert.match(graph, /Scope\.fork\(groupScope, 'sequential'\)/u);
+  assert.match(graph, /runAtPromiseBoundary\(Effect\.exit\(/u);
+  const main = readRepoFile('apps/desktop/src/main.ts');
+  assert.match(main, /createDesktopMaintenanceTriggerGraph\(/u);
+  assert.match(main, /error: serializeDesktopError\(error\)/u);
 });
 
 test('provider auth owns fetch and body deadlines at one Effect boundary', () => {

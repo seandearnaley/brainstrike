@@ -44,10 +44,15 @@ actual native timer adapter with controlled timers and a real process-exit
 check. TestClock is appropriate for Effect Clock consumers, not evidence for a
 native setInterval adapter; no custom clock protocol is introduced to exercise it.
 
-A later narrow Context/Layer composition may acquire these actual resources.
-It must preserve early construction validation and app-ready timing and prove
-partial graph acquisition cleanup. This decision does not authorize a whole-main
-Layer graph, a profile scope, database ownership, or new admission policies.
+A narrow Context/Layer owner acquires both actual trigger resources after the
+capability probe, while the scheduler facades still validate at construction.
+Startup is atomic across the pair: if the second trigger fails to acquire, the
+first is fenced before rollback finalizers run, both trigger scopes are closed,
+and acquisition plus cleanup failures remain visible. A close racing start
+joins acquisition and release before database drain. The parallel group Scope
+closes two sequential child Scopes so one slow finalizer does not prevent the
+other close attempt. This decision does not authorize a whole-main Layer graph,
+a profile scope, database ownership, or new admission policies.
 
 ## Evidence
 
