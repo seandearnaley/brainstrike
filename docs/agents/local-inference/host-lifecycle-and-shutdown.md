@@ -44,8 +44,10 @@ Voyage) have a fetch contract test proving that an active abort keeps the exact
 signal reason in `network_error.originalError`.
 The real Electron regression `embedding-host-active-stop.desktop.test.ts` held an
 Ollama-compatible HTTP embedding request open while the hidden renderer was
-running. The Stop bridge returned its command-matched `stopped` status within
-3s, the request socket closed, and the job retained its first running lease.
+running. The Stop bridge returned a `stopped` status with a command-prefixed
+ID within 3s, the request socket closed, and the job retained its first running
+lease. Manager unit tests separately reject a different command ID and accept
+the ID sent with Stop.
 The 2026-09-26 run passed 1/1; its subsequent app shutdown reported a 6ms
 embedding-host step after explicit Stop. This proves active hosted Stop, not
 model initialization or a still-active request during app quit.

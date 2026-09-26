@@ -281,7 +281,7 @@ complementary application-level proof, not a pre-streaming baseline. Evidence:
   the owned renderer and remains a reported stop failure.
 - Stop aborts hosted requests/local streams; never start another group after abort.
 - A queued abort terminates the client and settles all streams with its exact reason.
-- Unfinished jobs keep leases without failure settlement; reclaim counts a new attempt.
+- Only the exact Stop reason leaves unfinished jobs leased; independent errors still fail/retry, and reclaim adds an attempt.
 - Desktop test teardown quits with hidden host windows open; pre-closing them removes
   command listeners and races the shutdown coordinator's Stop acknowledgement.
 
