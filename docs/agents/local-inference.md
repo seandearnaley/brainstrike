@@ -280,9 +280,8 @@ complementary application-level proof, not a pre-streaming baseline. Evidence:
   the 5s app shutdown deadline. A missing acknowledgement or renderer error destroys
   the owned renderer and remains a reported stop failure.
 - Stop aborts hosted requests/local streams; never start another group after abort.
-- A queued stream's own abort terminates the dedicated client immediately, settling
-  its active and queued streams with that exact reason. Unfinished jobs keep leases
-  without failure settlement. Reclaim counts as a new attempt.
+- A queued abort terminates the client and settles all streams with its exact reason.
+- Unfinished jobs keep leases without failure settlement; reclaim counts a new attempt.
 - Desktop test teardown quits with hidden host windows open; pre-closing them removes
   command listeners and races the shutdown coordinator's Stop acknowledgement.
 
