@@ -306,33 +306,59 @@ describe('wasmLoader browser worker host', () => {
     expect(firstWorkerClient.close).not.toHaveBeenCalled();
   });
 
-  it('closes a late-resolved disposed worker startup once', async () => {
-    const workerClient = {
-      close: vi.fn().mockResolvedValue(undefined),
-      live: { query: vi.fn() },
-      query: vi.fn().mockResolvedValue({ rows: [] }),
-      transaction: vi.fn(),
-    };
-    let resolveCreate: (client: typeof workerClient) => void = () => undefined;
-    pgliteWorkerCreate.mockImplementation(
-      () =>
-        new Promise<typeof workerClient>((resolve) => {
-          resolveCreate = resolve;
-        })
-    );
-    const { wasmLoader } = await import('../src/wasm-loader');
+  it.each([false, true])(
+    'closes a late-resolved disposed worker once; rejects=%s',
+    async (rejectClose) => {
+      const workerClient = {
+        close: vi.fn().mockResolvedValue(undefined),
+        live: { query: vi.fn() },
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+        transaction: vi.fn(),
+      };
+      if (rejectClose) {
+        workerClient.close.mockRejectedValue(new Error('late close failure'));
+      }
+      const { addLogListener } = await import('@brainstrike/logging');
+      const diagnostic = vi.fn();
+      const unsubscribe = addLogListener((record) => {
+        if (
+          record.args.some(
+            (arg) =>
+              typeof arg === 'object' &&
+              arg !== null &&
+              'code' in arg &&
+              arg.code === 'database_close_failed'
+          )
+        ) {
+          diagnostic();
+        }
+      });
+      let resolveCreate: (client: typeof workerClient) => void = () => undefined;
+      pgliteWorkerCreate.mockImplementation(
+        () =>
+          new Promise<typeof workerClient>((resolve) => {
+            resolveCreate = resolve;
+          })
+      );
+      const { wasmLoader } = await import('../src/wasm-loader');
 
-    const createPromise = wasmLoader.createPGliteClient('idb://web');
-    await waitForMockCall(pgliteWorkerCreate);
+      const createPromise = wasmLoader.createPGliteClient('idb://web');
+      await waitForMockCall(pgliteWorkerCreate);
 
-    resolveCreate(workerClient);
-    await expect(wasmLoader.closeCached('idb://web')).resolves.toBeUndefined();
-    await expect(createPromise).rejects.toThrow(
-      'PGlite worker client startup was disposed before completion'
-    );
+      resolveCreate(workerClient);
+      await expect(wasmLoader.closeCached('idb://web')).resolves.toBeUndefined();
+      await expect(createPromise).rejects.toThrow(
+        'PGlite worker client startup was disposed before completion'
+      );
 
-    expect(workerClient.close).toHaveBeenCalledTimes(1);
-  });
+      try {
+        await vi.waitFor(() => expect(workerClient.close).toHaveBeenCalledTimes(1));
+        expect(diagnostic).toHaveBeenCalledTimes(rejectClose ? 1 : 0);
+      } finally {
+        unsubscribe();
+      }
+    }
+  );
 
   it('keeps memory databases on direct PGlite for unit and integration tests', async () => {
     const { wasmLoader } = await import('../src/wasm-loader');

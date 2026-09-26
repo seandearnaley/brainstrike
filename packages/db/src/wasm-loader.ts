@@ -324,7 +324,7 @@ class WasmLoader {
             try {
               await closeResolved(db);
             } catch (err) {
-              logger.warn('Failed to close late PGlite worker startup', { dataDir, error: err });
+              reportDatabaseCloseFailure(err, 'browser-persistent');
             }
           })
           .catch(() => undefined);

@@ -164,6 +164,9 @@ describe('DbProvider factoryReset', () => {
           )
         )
       ).toHaveLength(1);
+      expect(db.exec).toHaveBeenCalledWith('VACUUM');
+      expect(result.current.repo).toBeNull();
+      expect(result.current.reset).toBeNull();
     } finally {
       unsubscribe();
     }
