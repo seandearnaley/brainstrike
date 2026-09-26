@@ -79,48 +79,110 @@ export function isAgentColor(value: unknown): value is AgentColor {
   return !!match && Number(match[1]) <= 3599 && Number(match[2]) <= 999;
 }
 
-interface AgentCoordinates {
-  readonly chroma: number;
-  readonly hue: number;
-  readonly semanticLightness?: number;
-  readonly tone: number;
-}
+type Lab = readonly [number, number, number];
+type ThemeLabs = readonly [Lab, Lab];
 
-function coordinates(color: AgentColor): AgentCoordinates {
+function familyCoordinates(color: AgentFamilyColor): readonly [number, number] {
   if (!isAgentColor(color)) {
     throw new Error('Invalid agent color.');
   }
-  if (!color.startsWith('family:')) {
-    const [semanticLightness, chroma, hue] = SEMANTIC_OKLCH[color as AgentSemanticColor];
-    return {
-      chroma,
-      hue,
-      semanticLightness,
-      tone: 500,
-    };
-  }
   const [, hue, tone] = color.split(':');
-  return { chroma: 0.16, hue: Number(hue) / 10, tone: Number(tone) };
+  return [Number(hue) / 10, Number(tone)];
+}
+
+function oklab(lightness: number, chroma: number, hue: number): Lab {
+  const radians = (hue * Math.PI) / 180;
+  return [lightness, chroma * Math.cos(radians), chroma * Math.sin(radians)];
+}
+
+function linearRgb([lightness, a, b]: Lab): Lab {
+  const l = (lightness + 0.396_337_777_4 * a + 0.215_803_757_3 * b) ** 3;
+  const m = (lightness - 0.105_561_345_8 * a - 0.063_854_172_8 * b) ** 3;
+  const s = (lightness - 0.089_484_177_5 * a - 1.291_485_548 * b) ** 3;
+  return [
+    4.076_741_662_1 * l - 3.307_711_591_3 * m + 0.230_969_929_2 * s,
+    -1.268_438_004_6 * l + 2.609_757_401_1 * m - 0.341_319_396_5 * s,
+    -0.004_196_086_3 * l - 0.703_418_614_7 * m + 1.707_614_701 * s,
+  ];
+}
+
+function isInSrgbGamut(color: Lab): boolean {
+  return linearRgb(color).every((channel) => channel >= 0 && channel <= 1);
+}
+
+function inkForAccent(color: Lab): '#000' | '#fff' {
+  const [red, green, blue] = linearRgb(color);
+  const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? '#000' : '#fff';
+}
+
+function vividChroma(lightness: number, hue: number): number {
+  let low = 0;
+  let high = 0.24;
+  for (let index = 0; index < 16; index += 1) {
+    const middle = (low + high) / 2;
+    if (isInSrgbGamut(oklab(lightness, middle, hue))) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return low * 0.96;
+}
+
+function familyThemeLabs(hue: number, tone: number): ThemeLabs {
+  const light = 0.6 + (tone / 999) * 0.17;
+  const dark = 0.7 + (tone / 999) * 0.14;
+  return [oklab(light, vividChroma(light, hue), hue), oklab(dark, vividChroma(dark, hue), hue)];
+}
+
+function themeLabs(color: AgentColor): ThemeLabs {
+  if (!isAgentColor(color)) {
+    throw new Error('Invalid agent color.');
+  }
+  if (color.startsWith('family:')) {
+    return familyThemeLabs(...familyCoordinates(color as AgentFamilyColor));
+  }
+  const [lightness, chroma, hue] = SEMANTIC_OKLCH[color as AgentSemanticColor];
+  const lab = oklab(lightness, chroma, hue);
+  return [lab, lab];
+}
+
+function labDistance(left: Lab, right: Lab): number {
+  return Math.hypot(left[0] - right[0], left[1] - right[1], left[2] - right[2]);
+}
+
+function colorDistance(left: ThemeLabs, right: ThemeLabs): number {
+  return Math.min(labDistance(left[0], right[0]), labDistance(left[1], right[1]));
 }
 
 /** CSS variables for both color schemes, computed without a finite token palette. */
 export function getAgentColorStyles(color: AgentColor): {
   '--agent-accent-light': string;
   '--agent-accent-dark': string;
+  '--agent-ink-light': '#000' | '#fff';
+  '--agent-ink-dark': '#000' | '#fff';
 } {
   if (!isAgentColor(color)) {
     throw new Error('Invalid agent color.');
   }
   if (!color.startsWith('family:')) {
     const value = `var(--color-${SEMANTIC_CSS_COLOR[color as AgentSemanticColor]}-500)`;
-    return { '--agent-accent-dark': value, '--agent-accent-light': value };
+    const ink = inkForAccent(themeLabs(color)[0]);
+    return {
+      '--agent-accent-dark': value,
+      '--agent-accent-light': value,
+      '--agent-ink-dark': ink,
+      '--agent-ink-light': ink,
+    };
   }
-  const { hue, tone, chroma } = coordinates(color);
-  const lightness = 0.44 + (tone / 999) * 0.15;
-  const darkLightness = 0.68 + (tone / 999) * 0.14;
+  const [hue, tone] = familyCoordinates(color as AgentFamilyColor);
+  const [light, dark] = familyThemeLabs(hue, tone);
   return {
-    '--agent-accent-dark': `oklch(${darkLightness.toFixed(5)} ${(chroma * 0.82).toFixed(3)} ${hue.toFixed(1)})`,
-    '--agent-accent-light': `oklch(${lightness.toFixed(5)} ${chroma.toFixed(3)} ${hue.toFixed(1)})`,
+    '--agent-accent-dark': `oklch(${dark[0].toFixed(5)} ${Math.hypot(dark[1], dark[2]).toFixed(5)} ${hue.toFixed(1)})`,
+    '--agent-accent-light': `oklch(${light[0].toFixed(5)} ${Math.hypot(light[1], light[2]).toFixed(5)} ${hue.toFixed(1)})`,
+    '--agent-ink-dark': inkForAccent(dark),
+    '--agent-ink-light': inkForAccent(light),
   };
 }
 
@@ -133,25 +195,7 @@ function hashId(value: string): number {
   return hash >>> 0;
 }
 
-function oklab(color: AgentCoordinates, dark: boolean): readonly [number, number, number] {
-  const lightness =
-    color.semanticLightness ??
-    (dark ? 0.68 + (color.tone / 999) * 0.14 : 0.44 + (color.tone / 999) * 0.15);
-  const radians = (color.hue * Math.PI) / 180;
-  const chroma = dark && color.semanticLightness === undefined ? color.chroma * 0.82 : color.chroma;
-  return [lightness, chroma * Math.cos(radians), chroma * Math.sin(radians)];
-}
-
-function colorDistance(left: AgentCoordinates, right: AgentCoordinates): number {
-  const distance = (dark: boolean): number => {
-    const a = oklab(left, dark);
-    const b = oklab(right, dark);
-    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-  };
-  return Math.min(distance(false), distance(true));
-}
-
-/** Pick a stable, locally related shade furthest from saved sibling accents. */
+/** Allocate against the whole occupied tree; favor the parent among near-best choices. */
 export function createAgentFamilyColor(
   parentColor: AgentColor,
   childThreadId: string,
@@ -161,35 +205,29 @@ export function createAgentFamilyColor(
   if (!childThreadId.trim()) {
     throw new Error('Child thread id is required for agent color.');
   }
-  const parent = coordinates(parentColor);
-  const siblings = siblingColors.map(coordinates);
-  const occupied = new Set(occupiedColors);
+  const parent = themeLabs(parentColor);
+  const occupied = new Set<AgentColor>([parentColor, ...siblingColors, ...occupiedColors]);
+  const occupiedLabs = [...occupied].map(themeLabs);
   const seed = hashId(childThreadId);
-  let selected: { hue: number; tone: number; score: number } | undefined;
-  const hueWindow = parentColor.startsWith('family:') ? 281 : 551;
-  const hueSpan = hueWindow * 2 - 1;
-  for (let index = 0; index < 256; index += 1) {
-    // Coprime steps spread candidates through the local hue and tone window.
-    const hueOffset = (((seed % hueSpan) + index * 691) % hueSpan) - (hueWindow - 1);
-    const toneOffset = ((((seed >>> 12) % 601) + index * 283) % 601) - 300;
-    const hue = ((Math.round(parent.hue * 10) + hueOffset + 3600) % 3600) / 10;
-    const tone = Math.max(150, Math.min(850, parent.tone + toneOffset));
-    if (hue === parent.hue && tone === parent.tone) {
+  const candidates: { color: AgentFamilyColor; relation: number; separation: number }[] = [];
+  let bestSeparation = 0;
+  for (let index = 0; index < 720; index += 1) {
+    const hueIndex = ((seed % 3600) + index * 1379) % 3600;
+    const tone = ((seed % 1000) + index * 283) % 1000;
+    const color: AgentFamilyColor = `family:${hueIndex}:${tone}`;
+    if (occupied.has(color)) {
       continue;
     }
-    if (occupied.has(`family:${Math.round(hue * 10)}:${tone}`)) {
-      continue;
-    }
-    const candidate = { chroma: 0.16, hue, tone };
-    const score = Math.min(
-      ...[parent, ...siblings].map((other) => colorDistance(candidate, other))
-    );
-    if (!selected || score > selected.score) {
-      selected = { hue, score, tone };
-    }
+    const lab = familyThemeLabs(hueIndex / 10, tone);
+    const separation = Math.min(...occupiedLabs.map((other) => colorDistance(lab, other)));
+    candidates.push({ color, relation: colorDistance(lab, parent), separation });
+    bestSeparation = Math.max(bestSeparation, separation);
   }
+  const selected = candidates
+    .filter((candidate) => candidate.separation >= bestSeparation * 0.9)
+    .sort((left, right) => left.relation - right.relation)[0];
   if (!selected) {
     throw new Error('Unable to allocate agent family color.');
   }
-  return `family:${Math.round(selected.hue * 10)}:${selected.tone}`;
+  return selected.color;
 }

@@ -20,6 +20,7 @@ export type AssistantRoute =
   | 'decide'
   | 'openrouter-model'
   | 'resume'
+  | 'refresh-agent-colors'
   | 'run-status'
   | 'steer'
   | 'suspended-runs'

@@ -147,3 +147,7 @@ re-keying is not a supported mutation of this immutable graph: an owner/scope
 mismatch must remain denied. A future ownership migration must update native
 and graph identity atomically with its own recovery proof, never bypass this
 authorization check to delete a partially re-keyed branch.
+
+## Explicit presentation refresh (2026-09-25)
+
+The allocated-once rule still applies to callsigns and execution identity. The user may explicitly refresh colors on an idle authorized tree; the host reuses the shared allocator inside its existing database transaction and changes only delegated color values. Reopening or retrying a conversation never triggers it. Whole-tree color rules and guards are recorded in `../database/agent-family-colors.md`.

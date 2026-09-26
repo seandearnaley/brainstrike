@@ -82,6 +82,7 @@ import {
   resolveProviderCredential,
 } from './assistant-server/provider-credentials';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
+import { handleRefreshAgentColorsRequest } from './assistant-server/refresh-agent-colors-endpoint';
 import { registerRequestAbort } from './assistant-server/request-abort';
 import { resolveRequestPersonas } from './assistant-server/request-personas';
 import { prepareRequestSkills } from './assistant-server/request-skills';
@@ -326,6 +327,7 @@ export function startAssistantServer(portHint?: number, options: AssistantServer
   });
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Explicit route dispatch keeps request handling and auth in one place.
 export async function handleAssistantRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -394,6 +396,11 @@ export async function handleAssistantRequest(
 
   if (route === 'run-status') {
     await handleRunStatusRequest(req, res, getDatabase);
+    return;
+  }
+
+  if (route === 'refresh-agent-colors') {
+    await handleRefreshAgentColorsRequest(req, res);
     return;
   }
 

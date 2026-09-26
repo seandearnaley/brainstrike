@@ -9,11 +9,17 @@ import { type CSSProperties, type ReactElement, useMemo } from 'react';
 function previewColors(root: AssistantThreadColorId): readonly AgentColor[] {
   const siblings: AgentColor[] = [];
   for (const id of ['preview-first', 'preview-second', 'preview-third']) {
-    siblings.push(createAgentFamilyColor(root, id, siblings));
+    siblings.push(createAgentFamilyColor(root, id, siblings, [root, ...siblings]));
   }
   const descendants: AgentColor[] = [];
   for (const id of ['preview-grandchild-first', 'preview-grandchild-second']) {
-    descendants.push(createAgentFamilyColor(siblings[1] ?? root, id, descendants));
+    descendants.push(
+      createAgentFamilyColor(siblings[1] ?? root, id, descendants, [
+        root,
+        ...siblings,
+        ...descendants,
+      ])
+    );
   }
   return [root, ...siblings, ...descendants];
 }
@@ -35,7 +41,7 @@ export function ThreadColorFamilyPreview({
   const colors = useMemo(() => previewColors(rootColor ?? 'blue'), [rootColor]);
   return (
     <div className="mt-2 border-t pt-2" data-testid="thread-color-family-preview">
-      <p className="text-[11px] text-muted-foreground">New agents branch into related shades.</p>
+      <p className="text-[11px] text-muted-foreground">New agents get distinct, related colors.</p>
       <p className="sr-only">
         Preview: one root agent branches to three child agents; one child branches to two more.
       </p>

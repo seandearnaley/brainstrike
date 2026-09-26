@@ -15,6 +15,7 @@ import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-libr
 import userEvent from '@testing-library/user-event';
 import { type ComponentProps, createElement, use } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { publishDelegatedColorRefresh } from '../delegated-color-refresh';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
 import { DelegatedWorkspaceNavigation } from '../delegated-workspace-navigation';
 import { delegatedWorkspaceTabId } from '../delegated-workspace-tab';
@@ -37,6 +38,20 @@ vi.mock('../delegated-child-conversation-panel', async (importOriginal) => {
     ) {
       mocks.childRoute(props.panelProps?.decisionRoute);
       return createElement(original.DelegatedChildConversationPanel, props);
+    },
+  };
+});
+vi.mock('../delegated-workspace-child-app-surface', async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import('../delegated-workspace-child-app-surface')>();
+  return {
+    ...original,
+    ChildAppSurface(props: ComponentProps<typeof original.ChildAppSurface>) {
+      return (
+        <div data-testid="child-app-surface">
+          <original.ChildAppSurface {...props} />
+        </div>
+      );
     },
   };
 });
@@ -78,7 +93,7 @@ describe('delegated workspace app registration', () => {
     await waitFor(() => expect(result.current[0]?.label).toBe('Cedar'));
     expect(result.current[0]?.tabAppearance).toMatchObject({
       colorId: 'family:1734:680',
-      markClassName: 'bs-agent-family-mark',
+      markClassName: 'bs-agent-solid-mark bs-agent-family-mark',
       selectedClassName: 'bs-agent-family bs-agent-family-selected',
       style: {
         '--agent-accent-dark': expect.stringContaining('173.4'),
@@ -131,6 +146,68 @@ describe('delegated workspace app registration', () => {
     });
     await waitFor(() => expect(result.current[1]?.label).toBe('Flint'));
     expect(mocks.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('reloads an already open child identity after saved colors change', async () => {
+    mocks.get.mockResolvedValueOnce(node).mockResolvedValueOnce({ ...node, color: 'violet' });
+    useWorkspaceTabSelectionStore.getState().openApp(delegatedWorkspaceTabId(address));
+    const { result } = renderHook(useDelegatedWorkspaceApps);
+    await waitFor(() => expect(result.current[0]?.tabAppearance?.colorId).toBe('emerald'));
+    act(publishDelegatedColorRefresh);
+    await waitFor(() => expect(result.current[0]?.tabAppearance?.colorId).toBe('violet'));
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the mounted child view during a delayed color refresh', async () => {
+    let resolveRefresh: ((value: DelegatedConversationNode) => void) | undefined;
+    mocks.insights.mockResolvedValue({});
+    let childReads = 0;
+    mocks.get.mockImplementation(async (_scope, threadId) => {
+      if (threadId === 'root') {
+        return {
+          ...node,
+          color: null,
+          displayName: null,
+          parentThreadId: null,
+          resourceId: 'owner',
+          threadId: 'root',
+        };
+      }
+      childReads += 1;
+      if (childReads === 1) {
+        return node;
+      }
+      return new Promise<DelegatedConversationNode>((resolve) => {
+        resolveRefresh = resolve;
+      });
+    });
+    useWorkspaceTabSelectionStore.getState().openApp(delegatedWorkspaceTabId(address));
+    function Harness() {
+      const apps = useDelegatedWorkspaceApps();
+      return apps.map((app) => (
+        <section data-agent-color={app.tabAppearance?.colorId} key={app.id}>
+          {app.render()}
+        </section>
+      ));
+    }
+    render(
+      <FileExplorerProvider storageAdapter={workspaceStorage}>
+        <DelegatedConversationRootsProvider>
+          <Harness />
+        </DelegatedConversationRootsProvider>
+      </FileExplorerProvider>
+    );
+    const childView = await screen.findByTestId('child-app-surface');
+    expect(childView.closest('section')).toHaveAttribute('data-agent-color', 'emerald');
+    act(publishDelegatedColorRefresh);
+    await waitFor(() => expect(childReads).toBe(2));
+    expect(childView).toBeInTheDocument();
+    expect(screen.getByTestId('child-app-surface')).toBe(childView);
+    await act(async () => resolveRefresh?.({ ...node, color: 'violet' }));
+    await waitFor(() =>
+      expect(childView.closest('section')).toHaveAttribute('data-agent-color', 'violet')
+    );
+    expect(childView).toBeInTheDocument();
   });
 
   it('reauthorizes a closed child before showing cached metadata or reading its history', async () => {

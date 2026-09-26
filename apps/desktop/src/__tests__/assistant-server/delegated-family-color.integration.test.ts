@@ -3,6 +3,7 @@ import { isAgentColor } from '@brainstrike/types/agent-color';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDesktopDelegatedConversationHost } from '../../assistant-server/delegated-conversation-host';
+import { refreshDelegatedFamilyColors } from '../../assistant-server/refresh-delegated-family-colors';
 import { BUDGETED_HOST_SETTINGS, createBudgetedHost } from './fixtures/budgeted-host';
 import { createHostDatabase, identity, scope } from './fixtures/delegated-host-fixtures';
 
@@ -46,6 +47,7 @@ describe('durable delegated family colors', () => {
     );
     expect(colors.every((color) => isAgentColor(color) && color.startsWith('family:'))).toBe(true);
     expect(new Set(colors).size).toBe(3);
+    expect(colors).not.toContain('rose');
   });
 
   it('reuses an existing child identity even if the root color later changes', async () => {
@@ -149,5 +151,78 @@ describe('durable delegated family colors', () => {
     }
     expect(colors).toHaveLength(24);
     expect(new Set(colors).size).toBe(24);
+  });
+
+  it('refreshes legacy duplicates through the saved tree without changing identities or runs', async () => {
+    const host = createBudgetedHost(database, 'initial-leg');
+    await host.persist(identity);
+    await host.persist({
+      ...identity,
+      childResourceId: 'native-sibling-owner',
+      childThreadId: 'sibling',
+      parentToolCallId: 'sibling-call',
+    });
+    await database.query(`INSERT INTO mastra_threads
+      (id, "resourceId", title, metadata, "createdAt", "updatedAt")
+      VALUES ('grandchild', 'native-grandchild-owner', 'Grandchild', '{}', NOW(), NOW())`);
+    await host.persist({
+      ...identity,
+      childResourceId: 'native-grandchild-owner',
+      childThreadId: 'grandchild',
+      parentResourceId: identity.childResourceId,
+      parentRuntimeRunId: 'child-run',
+      parentThreadId: identity.childThreadId,
+      parentToolCallId: 'grandchild-call',
+    });
+    await database.query(
+      `UPDATE brainstrike_delegated_conversations SET color = 'rose'
+       WHERE thread_id IN ('child', 'sibling', 'grandchild')`
+    );
+    await database.query(
+      `UPDATE brainstrike_assistant_thread_runs SET status = 'completed'
+       WHERE thread_id = 'root'`
+    );
+    const repository = createDelegatedConversationRepository(database);
+    const before = await repository.listDescendants(scope);
+    expect(await refreshDelegatedFamilyColors(database, scope)).toBe(3);
+    const after = await repository.listDescendants(scope);
+    expect(new Set(after.map((node) => node.color)).size).toBe(3);
+    expect(after.map(({ color: _color, ...rest }) => rest)).toEqual(
+      before.map(({ color: _color, ...rest }) => rest)
+    );
+    expect(await refreshDelegatedFamilyColors(database, scope)).toBe(0);
+    const otherRun = await database.query(
+      `SELECT status FROM brainstrike_assistant_thread_runs WHERE id = 'other-root-leg'`
+    );
+    expect(otherRun.rows).toEqual([{ status: 'running' }]);
+  });
+
+  it('refuses active roots and cross-owner refresh requests without changing colors', async () => {
+    await createBudgetedHost(database, 'initial-leg').persist(identity);
+    const repository = createDelegatedConversationRepository(database);
+    const before = (await repository.get(scope, 'child'))?.color;
+    await expect(refreshDelegatedFamilyColors(database, scope)).rejects.toMatchObject({
+      reason: 'agent-colors-active-run',
+    });
+    await expect(
+      refreshDelegatedFamilyColors(database, { ...scope, ownerResourceId: 'foreign' })
+    ).rejects.toMatchObject({ reason: 'root-scope-mismatch' });
+    expect((await repository.get(scope, 'child'))?.color).toBe(before);
+  });
+
+  it('does not recolor while a concurrent delegation is admitted', async () => {
+    const host = createBudgetedHost(database, 'initial-leg');
+    const [refresh, admission] = await Promise.allSettled([
+      refreshDelegatedFamilyColors(database, scope),
+      host.persist(identity),
+    ]);
+    expect(refresh.status).toBe('rejected');
+    if (refresh.status === 'rejected') {
+      expect(refresh.reason).toMatchObject({ reason: 'agent-colors-active-run' });
+    }
+    expect(admission.status).toBe('fulfilled');
+    expect(
+      (await createDelegatedConversationRepository(database).get(scope, 'child'))?.color
+    ).toMatch(/^family:/u);
   });
 });

@@ -171,15 +171,14 @@
 }
 
 .assistant-ui-panel[data-agent-color] {
-  --agent-wash: color-mix(in oklab, var(--agent-accent) 6%, hsl(var(--background)));
-  --agent-card: color-mix(in oklab, var(--agent-accent) 10%, hsl(var(--background)));
-  --agent-edge: color-mix(in oklab, var(--agent-accent) 32%, hsl(var(--border)));
-  box-shadow: inset 2px 0 var(--agent-accent);
+  --agent-wash: color-mix(in oklab, var(--agent-accent) 4%, hsl(var(--background)));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 7%, hsl(var(--background)));
+  --agent-edge: color-mix(in oklab, var(--agent-accent) 22%, hsl(var(--border)));
 }
 
 .dark .assistant-ui-panel[data-agent-color] {
-  --agent-wash: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
-  --agent-card: color-mix(in oklab, var(--agent-accent) 14%, hsl(var(--background)));
+  --agent-wash: color-mix(in oklab, var(--agent-accent) 6%, hsl(var(--background)));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
 }
 
 .assistant-ui-panel[data-agent-color] .bs-thread {
@@ -211,11 +210,10 @@
 }
 
 .bs-subagent-card[data-agent-color] {
-  --agent-card: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
-  --agent-edge: color-mix(in oklab, var(--agent-accent) 35%, hsl(var(--border)));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 7%, hsl(var(--background)));
+  --agent-edge: color-mix(in oklab, var(--agent-accent) 24%, hsl(var(--border)));
   border-color: var(--agent-edge);
   background: var(--agent-card);
-  box-shadow: inset 2px 0 var(--agent-accent);
 }
 
 /**

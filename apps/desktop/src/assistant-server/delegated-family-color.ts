@@ -12,7 +12,7 @@ import {
 } from '@brainstrike/types/agent-color';
 import { createDelegatedDisplayIdentity } from './delegated-display-identity';
 
-async function readRootColor(
+export async function readRootColor(
   database: DelegatedConversationDatabase,
   scope: DelegatedConversationScope
 ): Promise<AgentColor> {
@@ -55,18 +55,21 @@ export async function resolveDelegatedFamilyIdentity(
     }
     return { color: existing.color, displayName: existing.displayName };
   }
-  const parentColor =
-    parent.parentThreadId === null ? await readRootColor(database, scope) : parent.color;
+  const rootColor = await readRootColor(database, scope);
+  const parentColor = parent.parentThreadId === null ? rootColor : parent.color;
   if (!parentColor) {
     throw new DelegatedConversationIdentityError('parent-display-identity-missing');
   }
   const descendants = await repository.listDescendants(scope);
-  const occupiedColors = descendants.map((descendant) => {
-    if (!descendant.color) {
-      throw new DelegatedConversationIdentityError('descendant-display-identity-missing');
-    }
-    return descendant.color;
-  });
+  const occupiedColors = [
+    rootColor,
+    ...descendants.map((descendant) => {
+      if (!descendant.color) {
+        throw new DelegatedConversationIdentityError('descendant-display-identity-missing');
+      }
+      return descendant.color;
+    }),
+  ];
   const siblingColors = descendants
     .filter((descendant) => descendant.parentThreadId === parent.threadId)
     .map((sibling) => {

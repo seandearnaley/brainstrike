@@ -59,6 +59,20 @@ describe('delegated rows in the ordinary thread tree', () => {
     expect(rows.map((row) => row.kind)).toEqual(['thread', 'delegated', 'delegated', 'delegated']);
     expect(rows[2]).toMatchObject({ depth: 2, node: { displayName: 'Wren' }, parentId: id });
     expect(rows.filter((row) => row.kind === 'thread')).toEqual([root]);
+    expect(rows[2]).toMatchObject({ parentColor: 'emerald' });
+  });
+  it('carries the root identity color to its direct children', () => {
+    const coloredRoot = {
+      ...root,
+      thread: { ...root.thread, metadata: { color: 'rose' as const } },
+    } as ThreadPanelVisibleRow;
+    const rows = projectDelegatedSidebarRows(
+      [coloredRoot],
+      expanded,
+      new Map([['root', { children: [child('Cedar')] }]]),
+      new Map()
+    );
+    expect(rows[1]).toMatchObject({ parentColor: 'rose' });
   });
   it('bounds initial child rows to fifty and exposes an explicit continuation', () => {
     const entries = new Map([

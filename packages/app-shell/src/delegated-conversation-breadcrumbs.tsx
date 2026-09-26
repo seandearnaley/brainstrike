@@ -3,8 +3,9 @@ import { SubagentConversationNavigationContext } from '@brainstrike/assistant-ui
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import { getAgentColorStyles, isAgentColor } from '@brainstrike/types/agent-color';
 import { Breadcrumbs } from '@brainstrike/ui';
-import { use, useEffect, useState } from 'react';
+import { type CSSProperties, use, useEffect, useState } from 'react';
 import { getDelegatedColorPresentation } from './agent-color-presentation';
 import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
 import { loadDelegatedConversationAncestry } from './delegated-conversation-ancestry';
@@ -33,6 +34,12 @@ export function DelegatedConversationBreadcrumbs({
         (thread) => thread.id === node.rootThreadId
       )?.title
   );
+  const rootColor = useAssistantThreadStore(
+    (state) =>
+      state.threadsByResourceId[node.ownerResourceId]?.find(
+        (thread) => thread.id === node.rootThreadId
+      )?.metadata?.color
+  );
   const [ancestry, setAncestry] = useState<Ancestry>();
   useEffect(() => {
     let active = true;
@@ -58,6 +65,9 @@ export function DelegatedConversationBreadcrumbs({
   }, [db, node]);
   const current = ancestry?.db === db && ancestry.node === node ? ancestry : undefined;
   const appearance = getDelegatedColorPresentation(node.color);
+  const parent = current && 'trail' in current ? current.trail.children.at(-2) : undefined;
+  const parentColor = parent?.color ?? rootColor;
+  const parentName = parent?.displayName ?? rootTitle ?? 'Main conversation';
   return (
     <header
       className={`shrink-0 space-y-2 border-b px-4 py-3 ${appearance.idleClassName}`}
@@ -89,10 +99,25 @@ export function DelegatedConversationBreadcrumbs({
         </p>
       )}
       <div className="flex items-center gap-2">
-        <span className={`rounded-md border p-1 ${appearance.markClassName}`}>
+        <span className={`bs-agent-solid-mark rounded-md border p-1 ${appearance.markClassName}`}>
           <Icon aria-hidden="true" className="size-4" />
         </span>
         <h2 className="truncate font-semibold text-sm">{node.displayName}</h2>
+        {current && 'trail' in current && isAgentColor(parentColor) ? (
+          <span
+            aria-label={`Parent: ${parentName}`}
+            className="ml-auto flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground"
+            role="img"
+            title={`Parent: ${parentName}`}
+          >
+            <span
+              aria-hidden="true"
+              className="bs-agent-parent-cue size-2 rounded-full"
+              style={getAgentColorStyles(parentColor) as CSSProperties}
+            />
+            Parent
+          </span>
+        ) : null}
       </div>
       <p className="text-muted-foreground text-xs" data-testid="child-workspace-mode">
         {node.workspaceRootId

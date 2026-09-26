@@ -6,6 +6,7 @@ import type { DbHandle } from '@brainstrike/db/react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { publishDelegatedColorRefresh } from '../delegated-color-refresh';
 import type { DelegatedConversationRoot } from '../delegated-conversation-owner';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
 import { DelegatedSidebarCell } from '../delegated-sidebar-cell';
@@ -109,6 +110,36 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   activeRoot = undefined;
   await database.close();
+});
+
+it('repaints expanded saved child rows after an explicit color refresh', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
+  );
+  render(
+    <DelegatedConversationRootsProvider>
+      <Sidebar />
+    </DelegatedConversationRootsProvider>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Toggle root' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /^Cedar\s*Child$/u })).toHaveAttribute(
+      'data-agent-color',
+      'emerald'
+    )
+  );
+  await database.query(
+    'UPDATE brainstrike_delegated_conversations SET color = $1 WHERE thread_id = $2',
+    ['violet', childThreadId]
+  );
+  act(publishDelegatedColorRefresh);
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /^Cedar\s*Child$/u })).toHaveAttribute(
+      'data-agent-color',
+      'violet'
+    )
+  );
 });
 
 it('restores pending child attention in a fresh sidebar without mounting a transcript', async () => {

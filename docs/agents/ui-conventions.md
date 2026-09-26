@@ -576,9 +576,9 @@ Guard: `approval-row.browser.test.tsx`.
 
 ## Delegated conversation navigation
 
-- Child colors branch from parent hue with sibling-aware shade separation;
-  identities survive host retries. Breadcrumbs follow native owner/root/parent
-  bindings; returning focuses the source button or canonical destination tab.
+- Child accents separate the whole tree in both themes; parent dots and ancestry
+  show relatedness. Explicit refresh recolors saved children without changing names.
+  Breadcrumbs validate owner/root/parent and restore source or canonical-tab focus.
 - Root filters/sort and folders choose the visible roots; child rows stay beneath
   those roots in durable creation order, never independently selected or
   reparented by root bulk actions.

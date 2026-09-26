@@ -1,5 +1,6 @@
+import { getAgentColorStyles } from '@brainstrike/types/agent-color';
 import { Button } from '@brainstrike/ui';
-import { useSyncExternalStore } from 'react';
+import { type CSSProperties, useSyncExternalStore } from 'react';
 import { getDelegatedColorPresentation } from './agent-color-presentation';
 import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
@@ -36,6 +37,14 @@ function ChildRow({ row }: { readonly row: Extract<DelegatedSidebarRow, { kind: 
         <Icon aria-hidden="true" className="size-3.5" />
       </span>
       <span className="truncate">{row.node.displayName}</span>
+      {row.parentColor ? (
+        <span
+          aria-hidden="true"
+          className="bs-agent-parent-cue size-2 shrink-0 rounded-full"
+          style={getAgentColorStyles(row.parentColor) as CSSProperties}
+          title="Parent agent color"
+        />
+      ) : null}
       {unread ? (
         <span aria-label="Unread child activity" className="shrink-0 text-xs" role="img">
           •
