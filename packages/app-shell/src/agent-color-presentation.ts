@@ -15,7 +15,7 @@ export function getDelegatedColorPresentation(color: AgentColor): {
     return {
       accentClassName: 'bs-agent-family-accent',
       idleClassName: 'bs-agent-family bs-agent-family-idle',
-      markClassName: 'bs-agent-family-mark',
+      markClassName: 'bs-agent-solid-mark bs-agent-family-mark',
       selectedClassName: 'bs-agent-family bs-agent-family-selected',
       style: getAgentColorStyles(color) as CSSProperties,
     };

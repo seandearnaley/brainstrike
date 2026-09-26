@@ -10,8 +10,12 @@ import {
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { type ReactNode, useCallback, useMemo } from 'react';
+import { type ReactNode, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { getDelegatedColorPresentation } from './agent-color-presentation';
+import {
+  getDelegatedColorRevision,
+  subscribeDelegatedColorRefresh,
+} from './delegated-color-refresh';
 import type { DelegatedConversationRoot } from './delegated-conversation-owner';
 import { loadDelegatedWorkspaceNode } from './delegated-workspace-node';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
@@ -38,6 +42,10 @@ export function DelegatedWorkspaceNavigation({
   readonly ownerResourceId: string;
   readonly rootThreadId: string | undefined;
 }) {
+  const colorRevision = useSyncExternalStore(
+    subscribeDelegatedColorRefresh,
+    getDelegatedColorRevision
+  );
   const root = useDelegatedConversationRoot(ownerResourceId, rootThreadId);
   const db = usePGliteDatabase();
   const liveInvocations = useMemo(() => {
@@ -92,6 +100,8 @@ export function DelegatedWorkspaceNavigation({
     },
     [db, ownerResourceId, rootThreadId, currentThreadId]
   );
+  // Consumers invalidate cached identity when this resolver changes. The color
+  // revision deliberately changes its identity after a committed color refresh.
   const presentation = useCallback(
     async (threadId: string) => {
       if (!(db && rootThreadId)) {
@@ -111,8 +121,10 @@ export function DelegatedWorkspaceNavigation({
         markClassName: getDelegatedColorPresentation(node.color).markClassName,
       };
     },
-    [db, ownerResourceId, rootThreadId, currentThreadId]
+    [db, ownerResourceId, rootThreadId, currentThreadId, colorRevision]
   );
+  // Approval-owner consumers also key their cache by resolver identity so late
+  // results from a previous color revision cannot restore the old presentation.
   const approvalOwner = useCallback(
     async (approval: AssistantToolApprovalRequest): Promise<ApprovalOwner | undefined> => {
       if (!(db && rootThreadId)) {
@@ -125,7 +137,7 @@ export function DelegatedWorkspaceNavigation({
         approval
       );
     },
-    [db, ownerResourceId, rootThreadId, currentThreadId]
+    [db, ownerResourceId, rootThreadId, currentThreadId, colorRevision]
   );
   const open = useCallback(
     (threadId: string, origin?: HTMLElement) => {

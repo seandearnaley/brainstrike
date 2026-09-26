@@ -332,6 +332,7 @@ describe('child view after renderer restart', () => {
     expect(screen.getByRole('navigation', { name: 'Conversation ancestry' })).toHaveTextContent(
       /Cedar.*Maple/
     );
+    expect(screen.getByLabelText('Parent: Cedar')).toHaveAttribute('title', 'Parent: Cedar');
     expect(
       useWorkspaceTabSelectionStore.getState().openAppIds.filter((id) => id === appId)
     ).toHaveLength(1);

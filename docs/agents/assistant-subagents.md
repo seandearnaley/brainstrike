@@ -386,8 +386,8 @@ Evidence: `assistant-subagents/durable-binding-and-usage.md`.
   RuntimeData, and clone the configuration snapshot before child execution.
 - The host derives owner, root and turn from its persisted server run while child
   resource ids stay native execution scopes; resume reauthorizes the original
-  invocation against the current leg's owner/root/turn. Names and colors are
-  allocated once in the graph.
+  invocation against the current leg's owner/root/turn. Names are allocated once;
+  colors change only through an explicit authorized, idle-tree refresh.
 - Thread deletion expands the complete native branch through the same authorized
   graph; revoked ancestry rejects the whole delete, and overlapping bulk roots
   produce one deletion per native thread.

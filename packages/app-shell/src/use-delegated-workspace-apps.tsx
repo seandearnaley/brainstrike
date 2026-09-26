@@ -3,8 +3,19 @@ import { type DbHandle, useDbProviderError, usePGliteDatabase } from '@brainstri
 import type { WorkspaceApp } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { MessageSquare } from 'lucide-react';
-import { type ReactNode, useEffect, useEffectEvent, useMemo, useState } from 'react';
+import {
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { getDelegatedColorPresentation } from './agent-color-presentation';
+import {
+  getDelegatedColorRevision,
+  subscribeDelegatedColorRefresh,
+} from './delegated-color-refresh';
 import { ChildAppSurface } from './delegated-workspace-child-app-surface';
 import { Failure } from './delegated-workspace-child-view';
 import { type ChildNode, loadDelegatedWorkspaceNode } from './delegated-workspace-node';
@@ -15,8 +26,8 @@ function asError(value: unknown): Error {
 }
 
 type Entry =
-  | { readonly db: DbHandle; readonly node: ChildNode }
-  | { readonly db: DbHandle; readonly error: Error };
+  | { readonly db: DbHandle; readonly revision: number; readonly node: ChildNode }
+  | { readonly db: DbHandle; readonly revision: number; readonly error: Error };
 type AddressEntry =
   | { readonly id: string; readonly address: DelegatedWorkspaceTab }
   | { readonly id: string; readonly error: Error };
@@ -47,6 +58,8 @@ function resolveAppEntry(
   entries: ReadonlyMap<string, Entry>
 ): { readonly error: Error | undefined; readonly node: ChildNode | undefined } {
   const cached = entries.get(item.id);
+  // Keep the mounted child view while its color-only reread is pending. A
+  // database switch still clears the old view, and the new read replaces it.
   const entry = cached?.db === db ? cached : undefined;
   const error =
     'error' in item
@@ -57,6 +70,10 @@ function resolveAppEntry(
 }
 
 export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
+  const colorRevision = useSyncExternalStore(
+    subscribeDelegatedColorRefresh,
+    getDelegatedColorRevision
+  );
   const openIds = useWorkspaceTabSelectionStore((state) => state.openAppIds);
   const db = usePGliteDatabase();
   const dbError = useDbProviderError();
@@ -96,18 +113,23 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
     let active = true;
     const repository = createDelegatedConversationRepository(db);
     for (const item of addresses) {
-      if (!('address' in item) || readEntry(item.id)?.db === db) {
+      const cached = readEntry(item.id);
+      if (!('address' in item) || (cached?.db === db && cached.revision === colorRevision)) {
         continue;
       }
       loadDelegatedWorkspaceNode(repository, item.address).then(
         (node) => {
           if (active) {
-            setEntries((previous) => new Map(previous).set(item.id, { db, node }));
+            setEntries((previous) =>
+              new Map(previous).set(item.id, { db, node, revision: colorRevision })
+            );
           }
         },
         (error: unknown) => {
           if (active) {
-            setEntries((previous) => new Map(previous).set(item.id, { db, error: asError(error) }));
+            setEntries((previous) =>
+              new Map(previous).set(item.id, { db, error: asError(error), revision: colorRevision })
+            );
           }
         }
       );
@@ -115,7 +137,7 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
     return () => {
       active = false;
     };
-  }, [addresses, db]);
+  }, [addresses, colorRevision, db]);
   return useMemo(
     () =>
       addresses.map((item): WorkspaceApp => {

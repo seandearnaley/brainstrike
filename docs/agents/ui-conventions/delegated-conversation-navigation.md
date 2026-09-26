@@ -48,3 +48,34 @@ foreground, with restrained accent washes on surfaces.
 Guards: `packages/types/__tests__/agent-color.test.ts`,
 `packages/app-shell/src/__tests__/delegated-workspace-apps.test.tsx`,
 `packages/app-shell/src/__tests__/thread-color-family-preview.test.tsx`.
+
+## Distinct tree accents (2026-09-25)
+
+The narrow descendant hue window above is replaced by whole-tree perceptual separation. A compact solid mark carries the strongest identity color; larger surfaces retain quiet washes, and sidebar/header parent dots use validated existing ancestry. The shared generator chooses black or white glyph ink for contrast in both themes.
+
+Explicit Refresh agent colors updates existing children through the host and publishes one renderer invalidation. Re-reading a color must not unmount a child transcript or discard its draft/scroll state. Parent/subagent bindings, approval ownership, names and run state stay authoritative independently of color.
+
+### Distinct tree colors: rendered verification (2026-09-25)
+
+The follow-up to BST-1725 was checked in the isolated Electron agent-debug renderer
+at 2560 × 1312 CSS pixels in both themes. A 31-node fixture (root plus 30 descendants)
+used actual compiled mark CSS in DOM probes and canvas sampling of computed colors:
+
+| Measurement | Light | Dark |
+| --- | --- | --- |
+| Previous distinct painted child accents | 29 / 30 | 27 / 30 |
+| Updated distinct painted child accents | 30 / 30 | 30 / 30 |
+| Minimum updated pairwise OKLab distance | 0.0581 | 0.0574 |
+| Minimum updated mark ink contrast | 4.81:1 | 7.31:1 |
+
+Six mounted child tabs were checked separately: their actual 20 × 20 marks matched
+their saved accents, the ancestor cue matched the saved parent, and both conversation
+backdrops had `box-shadow: none`. All 18 semantic mark inks measured at least 4.58:1.
+These are bounded fixture results, not a claim that arbitrarily large trees remain
+perceptually distinct. Names and ancestry remain available alongside color.
+
+Color refresh keeps the same-database child view mounted while its reread is pending.
+A failed reread still replaces it with a visible failure: repository failures do not
+reliably distinguish transient storage problems from invalid persisted identity or
+configuration. Retaining cached child content after every failure would violate
+the existing fail-closed ownership boundary.

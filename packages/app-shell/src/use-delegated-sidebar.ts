@@ -5,7 +5,19 @@ import {
 } from '@brainstrike/assistant-data';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
-import { use, useCallback, useEffect, useEffectEvent, useMemo, useState } from 'react';
+import {
+  use,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import {
+  getDelegatedColorRevision,
+  subscribeDelegatedColorRefresh,
+} from './delegated-color-refresh';
 import {
   DELEGATED_SIDEBAR_PAGE_SIZE,
   type DelegatedSidebarAddress,
@@ -71,6 +83,10 @@ async function loadChildren(
 }
 
 export function useDelegatedSidebar(baseRows: readonly ThreadPanelVisibleRow[]) {
+  const colorRevision = useSyncExternalStore(
+    subscribeDelegatedColorRefresh,
+    getDelegatedColorRevision
+  );
   const db = usePGliteDatabase();
   const roots = use(RootsContext);
   const [expanded, setExpanded] = useState<ReadonlyMap<string, DelegatedSidebarAddress>>(
@@ -90,7 +106,7 @@ export function useDelegatedSidebar(baseRows: readonly ThreadPanelVisibleRow[]) 
       return;
     }
     const cleanups = [...activeExpanded.values()].map((parent) =>
-      subscribeParent(roots, db, parent, readEntry, (id, entry) => {
+      subscribeParent(roots, db, parent, colorRevision, readEntry, (id, entry) => {
         setEntries((current) => new Map(current).set(id, entry));
       })
     );
@@ -99,7 +115,7 @@ export function useDelegatedSidebar(baseRows: readonly ThreadPanelVisibleRow[]) 
         cleanup();
       }
     };
-  }, [activeExpanded, db, roots]);
+  }, [activeExpanded, colorRevision, db, roots]);
   const rows = useMemo(
     () =>
       projectDelegatedSidebarRows(
@@ -199,6 +215,7 @@ function subscribeParent(
   roots: Roots,
   db: DbHandle,
   parent: DelegatedSidebarAddress,
+  colorRevision: number,
   readEntry: (id: string) => CachedEntry | undefined,
   publishEntry: (id: string, entry: CachedEntry) => void
 ): () => void {
@@ -226,7 +243,7 @@ function subscribeParent(
       throw new Error('The expanded conversation has no root registry.');
     }
     const refresh = () => {
-      const signature = JSON.stringify([...root.store.getSnapshot().keys()]);
+      const signature = JSON.stringify([colorRevision, ...root.store.getSnapshot().keys()]);
       if (observedSignature === signature) {
         return;
       }

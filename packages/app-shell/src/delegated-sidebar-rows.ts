@@ -1,3 +1,4 @@
+import type { AgentColor } from '@brainstrike/types/agent-color';
 import type { ChildNode } from './delegated-workspace-node';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import type { ThreadPanelVisibleRow } from './thread-panel-visible-rows';
@@ -20,7 +21,12 @@ export type DelegatedSidebarRow = {
   readonly depth: number;
   readonly groupId: string | null;
 } & (
-  | { readonly kind: 'delegated'; readonly node: ChildNode; readonly needsInput?: boolean }
+  | {
+      readonly kind: 'delegated';
+      readonly node: ChildNode;
+      readonly needsInput?: boolean;
+      readonly parentColor?: AgentColor | undefined;
+    }
   | {
       readonly kind: 'delegated-state';
       readonly label: string;
@@ -38,6 +44,7 @@ export function projectDelegatedSidebarRows(
   limits: ReadonlyMap<string, number>
 ): ThreadPanelVisibleRow[] {
   const rows: ThreadPanelVisibleRow[] = [];
+  const colorByRowId = new Map<string, AgentColor>();
   const appendChildren = (parentId: string, ancestors: ReadonlySet<string>): void => {
     const parent = expanded.get(parentId);
     if (!parent) {
@@ -70,6 +77,7 @@ export function projectDelegatedSidebarRows(
     const limit = limits.get(parentId) ?? DELEGATED_SIDEBAR_PAGE_SIZE;
     for (const node of entry.children.slice(0, limit)) {
       const id = delegatedWorkspaceTabId(node);
+      const parentColor = colorByRowId.get(parentId);
       if (ancestors.has(node.threadId)) {
         state('Conflicting conversation ancestry', true);
         return;
@@ -81,8 +89,10 @@ export function projectDelegatedSidebarRows(
         kind: 'delegated',
         ...(entry.pendingThreadIds?.has(node.threadId) ? { needsInput: true } : {}),
         node,
+        parentColor,
         parentId,
       });
+      colorByRowId.set(id, node.color);
       appendChildren(id, new Set([...ancestors, node.threadId]));
     }
     if (entry.children.length > limit) {
@@ -96,6 +106,9 @@ export function projectDelegatedSidebarRows(
   for (const row of base) {
     rows.push(row);
     if (row.kind === 'thread') {
+      if (row.thread.metadata?.color) {
+        colorByRowId.set(row.id, row.thread.metadata.color);
+      }
       appendChildren(row.id, new Set([row.id]));
     }
   }

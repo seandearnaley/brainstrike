@@ -1,5 +1,6 @@
 import { ASSISTANT_THREAD_COLOR_IDS } from '@brainstrike/assistant-data';
 import { DELEGATED_CONVERSATION_COLOR_IDS } from '@brainstrike/db';
+import { getAgentColorStyles } from '@brainstrike/types/agent-color';
 import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_THREAD_COLOR_PALETTES,
@@ -46,7 +47,7 @@ describe('assistant thread presentation', () => {
     expect(getAssistantThreadIconPresentation('bug')).toBe(ASSISTANT_THREAD_ICON_PRESENTATION.bug);
   });
 
-  it('resolves every durable metadata color to explicit light and dark presentation classes', () => {
+  it('resolves every durable metadata color to a solid mark and color surface', () => {
     expect(DELEGATED_CONVERSATION_COLOR_IDS).toEqual(ASSISTANT_THREAD_COLOR_IDS);
     expect(ASSISTANT_THREAD_COLOR_PALETTES.map(({ label }) => label)).toEqual([
       'Studio',
@@ -61,7 +62,7 @@ describe('assistant thread presentation', () => {
       accentClassName: 'bg-rose-500',
       label: 'Rose',
     });
-    expect(ASSISTANT_THREAD_COLOR_PRESENTATION.rose.markClassName).toContain('dark:');
+    expect(ASSISTANT_THREAD_COLOR_PRESENTATION.rose.markClassName).toContain('bg-rose-500');
   });
 
   it('styles rows with tinted fills and inset rings instead of borders and stripes', () => {
@@ -104,7 +105,7 @@ describe('assistant thread presentation', () => {
     expect(THREAD_CONTROL_TITLE_CLASS_NAME).toContain('text-xs');
     expect(THREAD_CONTROL_TITLE_CLASS_NAME).not.toContain('text-[13px]');
     expect(THREAD_CONTROL_MARK_CLASS_NAME).toContain('size-5');
-    // The mark sits on a tinted surface, so it needs its own outline to read.
+    // The solid mark retains its border box for stable control geometry.
     expect(THREAD_CONTROL_MARK_CLASS_NAME).toContain('border');
   });
 
@@ -125,7 +126,18 @@ describe('assistant thread presentation', () => {
       for (const markFill of fills(presentation.markClassName)) {
         expect(surfaceFills).not.toContain(markFill);
       }
-      expect(presentation.markClassName).toContain('border-');
+      if (presentation !== UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION) {
+        expect(presentation.markClassName).toContain('bs-agent-solid-mark');
+        expect(presentation.markClassName).toContain('-500');
+      }
+    }
+  });
+
+  it('uses the shared contrast decision for every semantic mark', () => {
+    for (const color of ASSISTANT_THREAD_COLOR_IDS) {
+      const ink = getAgentColorStyles(color)['--agent-ink-light'];
+      const mark = ASSISTANT_THREAD_COLOR_PRESENTATION[color].markClassName;
+      expect(mark).toContain(ink === '#000' ? 'text-black' : 'text-white');
     }
   });
 });

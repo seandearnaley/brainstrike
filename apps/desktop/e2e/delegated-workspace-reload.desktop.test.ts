@@ -212,7 +212,10 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
   await expect(cedar.locator('..')).toHaveAttribute('data-agent-color', 'emerald');
   await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'family:2000:730');
-  await expect(cedar.getByTestId('workspace-agent-mark')).toHaveClass(/text-emerald-700/u);
+  await expect(cedar.getByTestId('workspace-agent-mark')).toHaveCSS(
+    'background-color',
+    'oklch(0.696 0.17 162.48)'
+  );
   await expect(flint.getByTestId('workspace-agent-mark')).toHaveClass(/bs-agent-family-mark/u);
   const flintMarkBackground = await flint
     .getByTestId('workspace-agent-mark')

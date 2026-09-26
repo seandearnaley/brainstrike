@@ -6,7 +6,7 @@ import { ThreadColorFamilyPreview } from '../thread-color-family-preview';
 describe('ThreadColorFamilyPreview', () => {
   it('shows a decorative family for the selected root color', () => {
     const { container } = render(<ThreadColorFamilyPreview rootColor="rose" />);
-    expect(screen.getByText('New agents branch into related shades.')).toBeVisible();
+    expect(screen.getByText('New agents get distinct, related colors.')).toBeVisible();
     expect(screen.getByText(/one root agent branches to three child agents/i)).toBeInTheDocument();
     expect(
       screen.getByText('Changing this color sets the starting point for new agents.')
@@ -16,6 +16,9 @@ describe('ThreadColorFamilyPreview', () => {
     expect(graph).toHaveAttribute('aria-hidden', 'true');
     const circles = graph?.querySelectorAll('circle');
     expect(circles).toHaveLength(6);
+    expect(new Set(Array.from(circles ?? [], (circle) => circle.getAttribute('style'))).size).toBe(
+      6
+    );
     expect(circles?.[0]?.getAttribute('style')).toContain(
       getAgentColorStyles('rose')['--agent-accent-light']
     );
