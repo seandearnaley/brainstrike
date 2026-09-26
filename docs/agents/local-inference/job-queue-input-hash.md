@@ -5,6 +5,23 @@ hash". Read before changing `embed_chunk` payload identity, the in-flight
 budget, or the desktop backfill admission bound. Migration 105 is
 `packages/db/src/migrations/105-embedding-job-input-hash.ts`.
 
+## Guarded settlement ownership (2026-09-26)
+
+The worker's already embedded path called `completeBatch` under lease tokens but
+counted every input as processed, even when ownership had changed and the queue
+returned no updated row. Its completion callback also released in-flight slots
+for those stale inputs. A real PGlite test replaces one of two lease tokens at
+the completion statement; only the valid row may enter processed counts and
+the completed-ID callback. The queue remains the authority for settlement.
+
+The same input-count mistake affected `handleBatchFailure`: after another worker
+reclaimed a lease, `failBatch` returned no updated rows, but the first worker
+still counted a failure and released that stale ID through its settlement callback.
+A real PGlite regression reclaims the lease with a second `JobQueue` before
+inference throws. Failure counts and callback IDs now come only from the rows
+that `failBatch` actually transitioned; the inference error still advances the
+worker's consecutive-error control.
+
 ## Original text
 
 4. Job Queue

@@ -968,15 +968,17 @@ export async function startEmbeddingWorker(
     const { backoffMs, isTerminal, truncated } = classifyFailure(error);
 
     // Fail all jobs in one batched call (2-3 queries instead of 2N)
-    await jq.failBatch({
+    const failedJobs = await jq.failBatch({
       error: truncated,
       jobs: jobs.map((j) => ({ id: j.id, leaseToken: j.lease_token })),
       terminal: isTerminal,
       ...(backoffMs === undefined ? {} : { backoffMs }),
     });
-    await onJobsFailed?.(new Set(jobs.map((job) => job.id)));
+    if (failedJobs.length > 0) {
+      await onJobsFailed?.(new Set(failedJobs.map((job) => job.id)));
+    }
 
-    metrics.jobsFailed += jobs.length;
+    metrics.jobsFailed += failedJobs.length;
     consecutiveFailures += 1;
 
     if (fatalWorkerError) {
@@ -1639,17 +1641,19 @@ export async function startEmbeddingWorker(
     if (completed.length === 0) {
       return;
     }
-    await jq.completeBatch(
+    const completedJobs = await jq.completeBatch(
       completed.map((item) => ({ id: item.job.id, leaseToken: item.job.lease_token }))
     );
     const newlyCompleted = new Set<string>();
-    for (const item of completed) {
-      completedJobIds.add(item.job.id);
-      newlyCompleted.add(item.job.id);
+    for (const job of completedJobs) {
+      completedJobIds.add(job.id);
+      newlyCompleted.add(job.id);
     }
-    await onJobsCompleted?.(newlyCompleted);
-    metrics.jobsProcessed += completed.length;
-    processedSinceInit += completed.length;
+    if (newlyCompleted.size > 0) {
+      await onJobsCompleted?.(newlyCompleted);
+    }
+    metrics.jobsProcessed += newlyCompleted.size;
+    processedSinceInit += newlyCompleted.size;
   }
 
   async function maybeReinitialize() {
