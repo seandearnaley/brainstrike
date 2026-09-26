@@ -66,8 +66,8 @@ Guard: `packages/db/__tests__/chunk-search-adapter-parity.test.ts`,
   unsubscribe as idempotent, and rejects later subscribe/refresh; a caller that
   wants to continue creates a fresh handle.
 
-Settled: no same-handle retry or reactivation semantics — upstream offers no
-retry either. Evidence: `database/query-telemetry-scheduled-handles.md`.
+Settled: no same-handle retry/reactivation; upstream offers no retry. Guard named seams with `scripts/__tests__/database-telemetry-seams-contract.test.mjs`.
+Evidence: `database/query-telemetry-scheduled-handles.md` (file-record, token-cache, queue poller, live-query coverage and limits).
 
 ## DESKTOP LIVE-QUERY MEMORY TEST DIAGNOSTICS
 
