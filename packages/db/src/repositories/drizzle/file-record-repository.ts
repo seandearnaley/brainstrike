@@ -674,10 +674,11 @@ export class DrizzleFileRecordRepository {
       return new Map();
     }
 
-    const rows = await this.db
-      .select()
-      .from(fileRecords)
-      .where(inArray(fileRecords.contentHash, hashes));
+    const rows = await measureDatabaseQuery(
+      'file-tree',
+      async () =>
+        await this.db.select().from(fileRecords).where(inArray(fileRecords.contentHash, hashes))
+    );
 
     const map = new Map<string, FileRecord>();
 

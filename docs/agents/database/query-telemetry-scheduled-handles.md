@@ -34,7 +34,8 @@ keep the snapshot `globalSetup` on the unit project only.
 ## Coverage guard (BST-1085, 2026-09-26)
 
 The original missing runtime wrappers were present on main. Review exposed
-unmeasured count reads in both clearAll implementations; these now use the
+unmeasured count reads in both clearAll implementations and the private
+Drizzle bulk-import dedup lookup; these now use the
 file-tree wrapper without counting the subsequent deletion as a read. `database-telemetry-seams-contract.test.mjs` parses the
 TypeScript AST and classifies every declared and public file-record method.
 It requires Base and Drizzle reads (including managed-cache reads), token-cache
@@ -45,7 +46,7 @@ behavioral suites remain the lifecycle semantics proof. Negative controls reject
 missing, mislabeled, pre-wrapper and eagerly evaluated reads, comment-only
 instrumentation, deferred nested callbacks, and removed operations. An awaited
 scheduler.run callback is the sole allowed nested callback boundary. Public
-properties/accessors also require classification. Write methods are inspected:
+properties/accessors also require classification. Every class member is inspected, including private helpers:
 Drizzle selects require measurement; Base queries skip only simple SQL beginning
 with INSERT/UPDATE/DELETE (literal or a single const declaration). That syntax
 check does not analyze subqueries, aliases, or arbitrary dynamic SQL. New query

@@ -212,8 +212,8 @@ describe('database telemetry seams', () => {
         `${className}: classify every public method`
       );
 
-      for (const method of writeMethods) {
-        const owner = scope(source, method);
+      // Inspect every member, including private helpers reached from write methods.
+      for (const owner of scope(source, className).members) {
         for (const call of calls(owner, operation)) {
           if (path === basePath && isMutation(owner, call.arguments[0])) {
             continue;
