@@ -1873,6 +1873,9 @@ export async function startEmbeddingWorker(
     let groupFailed = false;
     try {
       for (const group of groups.values()) {
+        if (stopController.signal.aborted) {
+          break;
+        }
         const checkLease = () => group.some((job) => leaseLost.has(job.id));
         if (checkLease()) {
           workerLogger.warn('Skipping group due to lost lease before processing', {

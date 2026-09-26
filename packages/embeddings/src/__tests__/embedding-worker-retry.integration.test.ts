@@ -487,6 +487,106 @@ describe('embedding-worker hosted-provider retries', () => {
     return modelKey;
   }
 
+  async function seedLocalStopJob(db: PGlite): Promise<void> {
+    const now = new Date().toISOString();
+    const modelKey = 'local::jinaai/jina-embeddings-v2-base-code';
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ('stop-local-set', $1, 'jinaai/jina-embeddings-v2-base-code', 768, 'cosine', $2)`,
+      [modelKey, now]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+       VALUES ('stop-local-chunk', 'stop-hosted-file', 1, 'never initialize', 'stop-local-hash', 10, 'text', 16, $1, $1)`,
+      [now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+       VALUES ('stop-local-job', 'embeddings', 'embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [
+        JSON.stringify({
+          chunkId: 'stop-local-chunk',
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000002',
+          embeddingSetId: 'stop-local-set',
+          expectedDimension: 768,
+          modelKey,
+          sourceContentHash: 'stop-local-hash',
+        }),
+        now,
+      ]
+    );
+  }
+
+  it('does not start a later local model group after hosted inference is stopped', async () => {
+    const started = Promise.withResolvers<void>();
+    const modelKey = await seedHostedStopJob(db);
+    await seedLocalStopJob(db);
+    const fatalError = vi.fn();
+    const provider: IEmbeddingProvider = {
+      async embed(input) {
+        started.resolve();
+        try {
+          await new Promise<void>((_resolve, reject) => {
+            input.signal?.addEventListener('abort', () => reject(input.signal?.reason), {
+              once: true,
+            });
+          });
+        } catch (error) {
+          return {
+            error: {
+              originalError: error instanceof Error ? error : new Error(String(error)),
+              provider: 'openai',
+              type: 'network_error',
+            },
+            ok: false,
+          };
+        }
+        throw new Error('Stopped hosted inference cannot succeed.');
+      },
+      getMetadata: () => null,
+      getModelInfo: () => null,
+      isAvailable: () => Promise.resolve(true),
+      validateDimensions: () => ({ ok: true, value: undefined }),
+    };
+    vi.spyOn(EmbeddingProviderFactory, 'createProvider').mockResolvedValue({
+      ok: true,
+      value: provider,
+    });
+    const controller = await startEmbeddingWorker({
+      claimBatchSize: 2,
+      concurrency: 1,
+      db,
+      leaseMs: 10_000,
+      maxInFlightJobs: 2,
+      modelKey,
+      onFatalError: fatalError,
+      service: createFlakyService({
+        embeddingValue: 0.3,
+        errorMessage: 'unused-by-hosted-path',
+        shouldFail: () => false,
+        totalTokens: 10,
+      }),
+      stopOnFatalLocalError: true,
+    });
+    try {
+      await started.promise;
+      const beforeStop = await db.query<{ attempts: number; state: string }>(
+        `SELECT state, attempts FROM job_queue WHERE id = 'stop-local-job'`
+      );
+      expect(beforeStop.rows[0]).toMatchObject({ attempts: 1, state: 'running' });
+
+      await controller.stop();
+
+      const afterStop = await db.query<{ attempts: number; error: string | null; state: string }>(
+        `SELECT state, attempts, error FROM job_queue WHERE id = 'stop-local-job'`
+      );
+      expect(afterStop.rows[0]).toMatchObject({ attempts: 1, error: null, state: 'running' });
+      expect(fatalError).not.toHaveBeenCalled();
+    } finally {
+      await controller.stop();
+    }
+  });
+
   it('aborts an active hosted request on Stop without consuming another attempt', async () => {
     const started = Promise.withResolvers<void>();
     const released = Promise.withResolvers<void>();

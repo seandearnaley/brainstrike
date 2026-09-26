@@ -37,6 +37,22 @@ const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
 };
 
+async function settlePromptly(
+  promises: readonly Promise<unknown>[]
+): Promise<PromiseSettledResult<unknown>[] | 'pending'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.allSettled(promises),
+      new Promise<'pending'>((resolve) => {
+        timer = setTimeout(() => resolve('pending'), 100);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 it('rejects queued streams when the owned worker is terminated', async () => {
   const worker = new MockWorker();
   const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
@@ -75,4 +91,65 @@ it('terminates an active stream when its controller signal aborts', async () => 
   await expect(pending).rejects.toBe(controller.signal.reason);
   await expect(queued).rejects.toBe(controller.signal.reason);
   expect(worker.terminate).toHaveBeenCalledTimes(1);
+});
+
+it('settles an active stream and a queued stream when the queued signal aborts', async () => {
+  const worker = new MockWorker();
+  const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+  const activeController = new AbortController();
+  const queuedController = new AbortController();
+  const removeActiveListener = vi.spyOn(activeController.signal, 'removeEventListener');
+  const removeQueuedListener = vi.spyOn(queuedController.signal, 'removeEventListener');
+  const active = client.stream(createRequest(), { signal: activeController.signal });
+  const queued = client.stream(
+    { ...createRequest(), id: 'embed-queued' },
+    { signal: queuedController.signal }
+  );
+  await flushMicrotasks();
+
+  queuedController.abort();
+
+  try {
+    const outcome = await settlePromptly([active, queued]);
+    expect(outcome).toEqual([
+      { reason: queuedController.signal.reason, status: 'rejected' },
+      { reason: queuedController.signal.reason, status: 'rejected' },
+    ]);
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    await expect(client.stream({ ...createRequest(), id: 'embed-later' })).rejects.toBe(
+      queuedController.signal.reason
+    );
+    expect(removeActiveListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(removeQueuedListener).toHaveBeenCalledWith('abort', expect.any(Function));
+  } finally {
+    client.terminate();
+    await Promise.allSettled([active, queued]);
+  }
+});
+
+it('terminates an active stream when the queued signal was already aborted', async () => {
+  const worker = new MockWorker();
+  const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+  const active = client.stream(createRequest());
+  await flushMicrotasks();
+  const queuedController = new AbortController();
+  queuedController.abort();
+  const queued = client.stream(
+    { ...createRequest(), id: 'embed-queued' },
+    { signal: queuedController.signal }
+  );
+
+  try {
+    const outcome = await settlePromptly([active, queued]);
+    expect(outcome).toEqual([
+      { reason: queuedController.signal.reason, status: 'rejected' },
+      { reason: queuedController.signal.reason, status: 'rejected' },
+    ]);
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  } finally {
+    client.terminate();
+    await Promise.allSettled([active, queued]);
+  }
 });

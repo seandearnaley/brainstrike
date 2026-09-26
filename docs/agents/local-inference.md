@@ -279,9 +279,10 @@ complementary application-level proof, not a pre-streaming baseline. Evidence:
 - A running host uses the worker Stop protocol with a 3s acknowledgement bound inside
   the 5s app shutdown deadline. A missing acknowledgement or renderer error destroys
   the owned renderer and remains a reported stop failure.
-- Worker Stop aborts active hosted/local inference and joins the loop. Its local worker
-  rejects active/queued streams. Incomplete jobs retain leases for reclaim without
-  spending a retry or latching a local model failure.
+- Stop aborts hosted requests/local streams; never start another group after abort.
+- A queued stream's own abort terminates the dedicated client immediately, settling
+  its active and queued streams with that exact reason. Unfinished jobs keep leases
+  without failure settlement. Reclaim counts as a new attempt.
 - Desktop test teardown quits with hidden host windows open; pre-closing them removes
   command listeners and races the shutdown coordinator's Stop acknowledgement.
 

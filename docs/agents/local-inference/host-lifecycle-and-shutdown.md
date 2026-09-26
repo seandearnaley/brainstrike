@@ -29,14 +29,19 @@ Foreground child decision coverage asserts actual process exit zero as well as U
 The controller previously aborted admission and idle waits but did not pass its Stop
 signal to a hosted provider's active `embed` request or to the dedicated local
 streaming worker. Its loop join could therefore outlive the host's 3s Stop bound.
-The active hosted and local PGlite job tests now block inference until the signal
-arrives, prove prompt Stop, and verify the claimed job remains `running` with one
-attempt. The streaming client tests prove termination rejects both the active and
-queued promises. A later worker reclaims the durable lease; interrupted inference
-is not recorded as a failed embedding attempt.
+The active hosted and local streaming PGlite job tests block inference until the
+signal arrives, prove prompt Stop, and verify the claimed job remains `running`
+with one attempt. The streaming client tests prove that aborting either an active
+or queued stream terminates its dedicated worker immediately and rejects the active
+and queued promises with the exact signal reason, including when the queued signal
+was already aborted. A later worker reclaims the durable lease with a new claim
+that increments `attempts`; Stop itself records no additional failure settlement.
 Cancellation is recognized only when the failed request carries the exact Stop
 signal reason through the provider or streaming client. A separate provider
 failure arriving after Stop still records its normal queue failure and retry.
+The six hosted provider variants (OpenAI, Ollama, LM Studio, Cohere, Google,
+Voyage) have a fetch contract test proving that an active abort keeps the exact
+signal reason in `network_error.originalError`.
 The real Electron regression `embedding-host-active-stop.desktop.test.ts` held an
 Ollama-compatible HTTP embedding request open while the hidden renderer was
 running. The Stop bridge returned its command-matched `stopped` status within

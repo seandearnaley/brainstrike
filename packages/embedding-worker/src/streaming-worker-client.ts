@@ -352,11 +352,19 @@ export class StreamingEmbeddingWorkerClient {
       throw this.terminationReason ?? new Error('Embedding worker was terminated.');
     }
     this.runtime.throwIfFailed();
+    const signal = options.signal;
+    // A queued request can abort while an earlier stream still owns executionChain.
+    // This dedicated worker must terminate immediately so both promises settle.
+    const onAbort = (): void => this.terminate(signal?.reason);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+    }
     const run = async (): Promise<EmbedWorkerComplete['metadata']> => {
       if (this.terminated) {
         throw this.terminationReason ?? new Error('Embedding worker was terminated.');
       }
-      options.signal?.throwIfAborted();
+      signal?.throwIfAborted();
       // A prior stream can fail while this request is waiting on executionChain. Recheck at
       // execution time so a queued request never posts to the worker after onFailure terminates it.
       this.runtime.throwIfFailed();
@@ -378,21 +386,15 @@ export class StreamingEmbeddingWorkerClient {
 
           this.handleStreamEvent(message, request, options, cleanup, resolve, reject);
         });
-        const onAbort = (): void => this.terminate(options.signal?.reason);
         const cleanup = (): void => {
           cleanupMessage();
-          options.signal?.removeEventListener('abort', onAbort);
+          signal?.removeEventListener('abort', onAbort);
         };
         this.activeStream = {
           cleanup,
           reject,
           requestId: request.id,
         };
-        options.signal?.addEventListener('abort', onAbort, { once: true });
-        if (options.signal?.aborted) {
-          onAbort();
-          return;
-        }
         this.postMessage({
           request,
           type: 'stream-embed',
@@ -405,7 +407,11 @@ export class StreamingEmbeddingWorkerClient {
       () => undefined,
       () => undefined
     );
-    return await execution;
+    try {
+      return await execution;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
   }
 
   terminate(reason?: unknown): void {
