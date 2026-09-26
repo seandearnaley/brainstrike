@@ -1,3 +1,4 @@
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import {
@@ -47,6 +48,354 @@ function toolPart(toolCallId: string): Record<string, unknown> {
 }
 
 describe('action replay prefix', () => {
+  it('accepts a typed pause on an approval resume leg in the native owner generation', async () => {
+    fixtureIndex += 1;
+    const db = (await createMigratedTestPGlite(
+      `memory://action-prefix-${fixtureIndex}`
+    )) as DbHandle;
+    const repository = createPgliteAssistantThreadRepository(db);
+    const thread = await repository.createThread('workspace-a');
+    await insertMessage(
+      db,
+      thread.id,
+      'user-a',
+      'user',
+      [{ text: 'prompt', type: 'text' }],
+      '2026-08-10T17:00:00Z'
+    );
+    await insertMessage(
+      db,
+      thread.id,
+      'native-owner',
+      'assistant',
+      [toolPart('canvas-call')],
+      '2026-08-10T17:00:01Z'
+    );
+    await repository.recordMessageParent?.({
+      messageId: 'paused-gate-b-ui',
+      parentId: 'user-a',
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    await repository.createThreadRun({
+      id: 'first-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    await db.query(
+      `INSERT INTO brainstrike_assistant_native_runs (native_run_id, host_run_id)
+       VALUES ('native-run', 'first-host')`
+    );
+    await repository.appendThreadRunEvent('first-host', {
+      id: 'gate-a-approval',
+      kind: 'tool.approval.requested',
+      label: 'Awaiting approval',
+      metadata: { toolCallId: 'canvas-call' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:02Z',
+    });
+    await repository.createThreadRun({
+      decision: { delegated: false, runId: 'native-run', toolCallId: 'canvas-call' },
+      id: 'resume-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    await repository.appendThreadRunEvent('resume-host', {
+      id: 'gate-b-started',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'canvas-call' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:03Z',
+    });
+    const action = {
+      hostRunId: 'resume-host',
+      nativeRunId: 'native-run',
+      pausedMessageId: 'paused-gate-b-ui',
+      pauseKind: 'suspend' as const,
+      repository,
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+      toolCallId: 'canvas-call',
+    };
+    expect((await readPausedActionReplayPrefix(action)).pausedMessageId).toBe('native-owner');
+    expect(
+      (
+        await db.query<{ hostRunId: string }>(
+          `SELECT host_run_id AS "hostRunId" FROM brainstrike_assistant_native_runs
+           WHERE native_run_id = 'native-run'`
+        )
+      ).rows[0]?.hostRunId
+    ).toBe('first-host');
+
+    const otherThread = await repository.createThread('workspace-a');
+    await repository.createThreadRun({
+      id: 'other-thread-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: otherThread.id,
+      turnMessageId: 'user-a',
+    });
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs
+       SET generation_run_id = 'first-host' WHERE id = 'other-thread-host'`
+    );
+    expect(await repository.sharesNativeRunGeneration?.('other-thread-host', 'native-run')).toBe(
+      false
+    );
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs
+       SET thread_id = $1, resource_id = 'another-workspace' WHERE id = 'other-thread-host'`,
+      [thread.id]
+    );
+    expect(await repository.sharesNativeRunGeneration?.('other-thread-host', 'native-run')).toBe(
+      false
+    );
+
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs SET generation_run_id = id WHERE id = 'resume-host'`
+    );
+    await expect(readPausedActionReplayPrefix(action)).rejects.toThrow('disagrees');
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs SET generation_run_id = NULL
+       WHERE id IN ('first-host', 'resume-host')`
+    );
+    expect(await repository.sharesNativeRunGeneration?.('resume-host', 'native-run')).toBe(false);
+    await expect(readPausedActionReplayPrefix(action)).rejects.toThrow('disagrees');
+  });
+
+  it('resolves a live paused UI owner through its exact host leg and durable parent', async () => {
+    fixtureIndex += 1;
+    const db = (await createMigratedTestPGlite(
+      `memory://action-prefix-${fixtureIndex}`
+    )) as DbHandle;
+    const repository = createPgliteAssistantThreadRepository(db);
+    const thread = await repository.createThread('workspace-a');
+    await insertMessage(
+      db,
+      thread.id,
+      'user-a',
+      'user',
+      [{ text: 'prompt', type: 'text' }],
+      '2026-08-10T17:00:00Z'
+    );
+    await insertMessage(
+      db,
+      thread.id,
+      'native-owner',
+      'assistant',
+      [toolPart('canvas-call')],
+      '2026-08-10T17:00:01Z'
+    );
+    await repository.recordMessageParent?.({
+      messageId: 'paused-ui-owner',
+      parentId: 'user-a',
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    await repository.createThreadRun({
+      id: 'host-leg' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    await db.query(
+      `INSERT INTO brainstrike_assistant_native_runs (native_run_id, host_run_id)
+       VALUES ('native-run', 'host-leg')`
+    );
+    await repository.appendThreadRunEvent('host-leg', {
+      id: 'pending-canvas',
+      kind: 'tool.approval.requested',
+      label: 'Awaiting approval',
+      metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:02Z',
+    });
+    const common = {
+      nativeRunId: 'native-run',
+      pausedMessageId: 'paused-ui-owner',
+      pauseKind: 'approval' as const,
+      repository,
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+      toolCallId: 'canvas-call',
+    };
+    expect(
+      (await readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })).pausedMessageId
+    ).toBe('native-owner');
+    await db.query(`DELETE FROM brainstrike_assistant_run_events WHERE id = 'pending-canvas'`);
+    const typedSuspension = { ...common, hostRunId: 'host-leg', pauseKind: 'suspend' as const };
+    await expect(readPausedActionReplayPrefix(typedSuspension)).rejects.toThrow('disagrees');
+    await repository.appendThreadRunEvent('host-leg', {
+      id: 'unsupported-suspend',
+      kind: 'tool.resume.unsupported',
+      label: 'Tool pause cannot be answered by this build (no registered resume UI)',
+      metadata: {
+        resumeSupportedByClient: false,
+        runId: 'native-run',
+        runStillSuspended: true,
+        suspended: true,
+        toolCallId: 'canvas-call',
+        toolName: 'brainstrike.manageCanvas',
+        unregisteredResumeSchema: true,
+      },
+      sequence: 2,
+      status: 'failed',
+      timestamp: '2026-08-10T17:00:02Z',
+    });
+    await expect(readPausedActionReplayPrefix(typedSuspension)).rejects.toThrow('disagrees');
+    await repository.appendThreadRunEvent('host-leg', {
+      id: 'started-typed-suspend',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
+      sequence: 3,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:02Z',
+    });
+    expect((await readPausedActionReplayPrefix(typedSuspension)).syntheticPauseMessageId).toBe(
+      'suspended-pause:native-run:canvas-call'
+    );
+    await db.query(`DELETE FROM brainstrike_assistant_run_events WHERE id = 'unsupported-suspend'`);
+    expect((await readPausedActionReplayPrefix(typedSuspension)).pausedMessageId).toBe(
+      'native-owner'
+    );
+    await repository.appendThreadRunEvent('host-leg', {
+      id: 'pending-canvas',
+      kind: 'tool.approval.requested',
+      label: 'Awaiting approval',
+      metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:02Z',
+    });
+    await expect(
+      readPausedActionReplayPrefix({ ...common, hostRunId: 'wrong-host' })
+    ).rejects.toThrow('disagrees');
+    await expect(
+      readPausedActionReplayPrefix({
+        ...common,
+        hostRunId: 'host-leg',
+        nativeRunId: 'wrong-native-run',
+      })
+    ).rejects.toThrow('disagrees');
+    await expect(
+      readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg', pausedMessageId: 'unknown' })
+    ).rejects.toThrow('disagrees');
+    await insertMessage(
+      db,
+      thread.id,
+      'user-b',
+      'user',
+      [{ text: 'another turn', type: 'text' }],
+      '2026-08-10T17:00:03Z'
+    );
+    await repository.createThreadRun({
+      id: 'other-host-leg' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-b',
+    });
+    await repository.appendThreadRunEvent('other-host-leg', {
+      id: 'other-generation-terminal',
+      kind: 'tool.completed',
+      label: 'Tool completed',
+      metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
+      sequence: 1,
+      status: 'completed',
+      timestamp: '2026-08-10T17:00:03Z',
+    });
+    expect(
+      (await readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })).pausedMessageId
+    ).toBe('native-owner');
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs SET generation_run_id = 'host-leg'
+       WHERE id = 'other-host-leg'`
+    );
+    await expect(
+      readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })
+    ).rejects.toThrow('disagrees');
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs SET generation_run_id = NULL
+       WHERE id IN ('host-leg', 'other-host-leg')`
+    );
+    expect(
+      (await readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })).pausedMessageId
+    ).toBe('native-owner');
+    await insertMessage(
+      db,
+      thread.id,
+      'other-durable',
+      'assistant',
+      [{ text: 'another assistant', type: 'text' }],
+      '2026-08-10T17:00:04Z'
+    );
+    await expect(
+      readPausedActionReplayPrefix({
+        ...common,
+        hostRunId: 'host-leg',
+        pausedMessageId: 'other-durable',
+      })
+    ).rejects.toThrow('disagrees');
+    await repository.recordMessageParent?.({
+      messageId: 'wrong-turn-ui',
+      parentId: 'user-b',
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    await expect(
+      readPausedActionReplayPrefix({
+        ...common,
+        hostRunId: 'host-leg',
+        pausedMessageId: 'wrong-turn-ui',
+      })
+    ).rejects.toThrow('disagrees');
+    await insertMessage(
+      db,
+      thread.id,
+      'colliding-native-owner',
+      'assistant',
+      [toolPart('canvas-call')],
+      '2026-08-10T17:00:05Z'
+    );
+    await expect(
+      readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })
+    ).rejects.toThrow('disagrees');
+    await db.query(`DELETE FROM mastra_messages WHERE id = 'colliding-native-owner'`);
+    await repository.appendThreadRunEvent('host-leg', {
+      id: 'declined-canvas',
+      kind: 'tool.failed',
+      label: 'Tool call declined',
+      metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
+      sequence: 4,
+      status: 'failed',
+      timestamp: '2026-08-10T17:00:06Z',
+    });
+    await expect(
+      readPausedActionReplayPrefix({ ...common, hostRunId: 'host-leg' })
+    ).rejects.toThrow('disagrees');
+    await expect(readPausedActionReplayPrefix(typedSuspension)).rejects.toThrow('disagrees');
+  });
+
   it('selects two same-turn pauses by exact tool identity and freezes the pre-resume prefix', async () => {
     fixtureIndex += 1;
     const db = (await createMigratedTestPGlite(

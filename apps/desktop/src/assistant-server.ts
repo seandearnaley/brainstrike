@@ -564,6 +564,13 @@ function resolveTurnBoundariesForRun(
   });
 }
 
+function isRejectedBeforeStreamInitialization(
+  enteredStreamInitialization: boolean,
+  isToolDecisionLeg: boolean
+): boolean {
+  return !enteredStreamInitialization && isToolDecisionLeg;
+}
+
 /**
  * `createdBy: 'agent'` and the run/thread ids are bound HERE, never taken from
  * tool input: provenance the model can set is provenance the model can forge.
@@ -767,10 +774,11 @@ async function handleAssistantPostOwned(
   const executionAbortController = new AbortController();
   const runId = runtimeData.memory?.runId;
   const threadId = runtimeData.memory?.threadId;
+  const isToolDecisionLeg = Boolean(toolApprovalAction ?? toolResumeAction);
   const discovery = discoveryForRequest({
     finalInputMessage,
     inputParentMessageId,
-    isToolDecisionLeg: Boolean(toolApprovalAction || toolResumeAction),
+    isToolDecisionLeg,
     resourceId: runtimeData.memory?.resourceId,
     runId,
     threadId,
@@ -831,6 +839,7 @@ async function handleAssistantPostOwned(
   // leg, and unregistering it would make a genuinely active run un-steerable
   // (spurious 404). Review finding, BST-588.
   let registeredSteerableRun = false;
+  let enteredStreamInitialization = false;
   try {
     // Steering control (BST-588): in-memory only, injected AFTER request
     // validation exactly like `signal`. Every streaming leg with a runId is
@@ -860,6 +869,7 @@ async function handleAssistantPostOwned(
                 return discovery;
               }
               const actionReplay = await readPausedActionReplayPrefix({
+                hostRunId: action.hostRunId,
                 nativeRunId: action.runId,
                 pauseKind: toolApprovalAction ? 'approval' : 'suspend',
                 repository: createPgliteAssistantThreadRepository(await getDatabase()),
@@ -874,6 +884,9 @@ async function handleAssistantPostOwned(
           }
         : {}),
       initializeStream: async (core) => {
+        // Pre-admission rejection releases the renderer's prepared lease. Keep
+        // durable admission and native execution after this boundary.
+        enteredStreamInitialization = true;
         // runAssistantTurn admits this root only after its previous owner settles.
         await beginOwnedTurnLeg();
         // Apps admission is keyed by the OWNING THREAD (review finding on
@@ -968,6 +981,10 @@ async function handleAssistantPostOwned(
               })
           : null,
       error,
+      preAdmissionRejected: isRejectedBeforeStreamInitialization(
+        enteredStreamInitialization,
+        isToolDecisionLeg
+      ),
       res,
       runId,
       signal: executionAbortController.signal,
@@ -987,6 +1004,7 @@ async function handleAssistantPostStreamError({
   runId,
   signal,
   error,
+  preAdmissionRejected,
 }: {
   /** W7 T2: turn-end snapshot hook, run BEFORE the terminal status write. */
   readonly completeTurnLeg:
@@ -996,6 +1014,7 @@ async function handleAssistantPostStreamError({
   readonly runId: string | undefined;
   readonly signal: AbortSignal;
   readonly error: unknown;
+  readonly preAdmissionRejected: boolean;
 }): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
   if (runId) {
@@ -1013,7 +1032,7 @@ async function handleAssistantPostStreamError({
     return;
   }
   respondJson(res, 500, {
-    error: 'assistant_stream_failed',
+    error: preAdmissionRejected ? 'assistant_admission_rejected' : 'assistant_stream_failed',
     message: 'Assistant stream failed.',
   });
 }

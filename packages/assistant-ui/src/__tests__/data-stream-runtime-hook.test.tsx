@@ -1,4 +1,4 @@
-import { AssistantRuntimeProvider, useAui } from '@assistant-ui/react';
+import { AssistantRuntimeProvider, useAui, useAuiState } from '@assistant-ui/react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +17,11 @@ function SendButton() {
       Send
     </button>
   );
+}
+
+function LastMessageStatus() {
+  const status = useAuiState((state) => state.thread.messages.at(-1)?.status);
+  return <output data-testid="last-message-status">{JSON.stringify(status)}</output>;
 }
 
 function EffectSender({ sendVersion }: { sendVersion: number }) {
@@ -54,6 +59,7 @@ function RuntimeHarness({
     <AssistantRuntimeProvider runtime={runtime}>
       <EffectSender sendVersion={sendVersion} />
       <SendButton />
+      <LastMessageStatus />
     </AssistantRuntimeProvider>
   );
 }
@@ -108,6 +114,30 @@ it('does not install a child receiver when a callback appears after the run star
 });
 
 describe('useBrainstrikeDataStreamRuntime', () => {
+  it('settles a rejected admission visibly through a real local append', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: 'assistant_admission_rejected',
+              message: 'Assistant stream failed.',
+            }),
+            { status: 500 }
+          )
+      )
+    );
+    render(<RuntimeHarness onResponse={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('last-message-status')).toHaveTextContent(
+        'assistant_admission_rejected'
+      )
+    );
+    expect(screen.getByTestId('last-message-status')).toHaveTextContent('incomplete');
+  });
+
   it('uses the latest committed callback without recreating the runtime', async () => {
     const firstOnResponse = vi.fn();
     const secondOnResponse = vi.fn();

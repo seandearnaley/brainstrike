@@ -69,6 +69,11 @@ const logger = createLogger('BrainstrikeDataStreamRuntime');
 const MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS = 4000;
 export const DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS = 30_000;
 
+/** The host proved this request failed before admitting a stream leg. */
+export class AssistantRunAdmissionRejectedError extends Error {
+  override readonly name = 'AssistantRunAdmissionRejectedError';
+}
+
 export interface AssistantUsage {
   readonly billedCostUsd?: number;
   /** Anthropic prompt-cache write tokens; present only when reported. */
@@ -1272,9 +1277,25 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
   ) {
     let terminalFinishFlushed = false;
     if (!response.ok) {
-      throw new Error(
-        `Status ${response.status}: ${await readBoundedHttpErrorResponseText(response)}`
-      );
+      const detail = await readBoundedHttpErrorResponseText(response);
+      const message = `Status ${response.status}: ${detail}`;
+      if (response.status === 500) {
+        let payload: unknown;
+        try {
+          payload = JSON.parse(detail);
+        } catch {
+          // Non-JSON responses retain the ordinary ambiguous failure path.
+        }
+        if (
+          payload &&
+          typeof payload === 'object' &&
+          !Array.isArray(payload) &&
+          (payload as Record<string, unknown>)['error'] === 'assistant_admission_rejected'
+        ) {
+          throw new AssistantRunAdmissionRejectedError(message);
+        }
+      }
+      throw new Error(message);
     }
     if (!response.body) {
       throw new Error('Response body is null');
@@ -1503,6 +1524,19 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     } catch (error: unknown) {
       throwIfRunAbortedBeforeTerminalCompletion(abortSignal, false);
       this.reportError(error);
+      if (error instanceof AssistantRunAdmissionRejectedError) {
+        // This is a definitive protocol rejection, so publish the local
+        // runtime's normal visible error status without rejecting its
+        // fire-and-forget append promise.
+        yield {
+          status: {
+            error: { code: 'assistant_admission_rejected', message: error.message },
+            reason: 'error' as const,
+            type: 'incomplete' as const,
+          },
+        };
+        return;
+      }
       throw error;
     } finally {
       releaseCancelHandler();

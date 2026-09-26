@@ -661,6 +661,12 @@ export interface AssistantThreadRepository {
   deleteThread: (threadId: string) => Promise<void>;
   deleteThreads?: (threadIds: readonly string[]) => Promise<void>;
   getCrossRootUsage: (resourceId: string) => Promise<readonly CrossRootUsageRow[]>;
+  /** Read an edge even when its transient UI message has no Mastra row. */
+  getMessageParent?: (
+    messageId: string,
+    threadId: string,
+    resourceId: string
+  ) => Promise<string | null | undefined>;
   /** Task Ledger read model. Optional only for read-only/test repositories. */
   getRunLedger?: (
     resourceId: string,
@@ -678,6 +684,7 @@ export interface AssistantThreadRepository {
    * it required puts that gap in the compiler's hands instead of the user's.
    */
   getThreadRunTurnMessageId: (runId: string, threadId: string) => Promise<string | null>;
+  hasResolvedToolCallInGeneration?: (hostRunId: string, toolCallId: string) => Promise<boolean>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
     threadId: string,
@@ -697,6 +704,8 @@ export interface AssistantThreadRepository {
   recordRunOutcome?: (input: RecordRunOutcomeInput) => Promise<void>;
   recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
   renameThread: (threadId: string, title: string) => Promise<void>;
+  /** The first host owner and later legs in its scoped generation. */
+  sharesNativeRunGeneration?: (hostRunId: string, nativeRunId: string) => Promise<boolean>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
   updateThreadsMetadata?: (
     threadIds: readonly string[],
@@ -2747,6 +2756,23 @@ function toHistoryRepository(
   };
 }
 
+function hasHostPauseEvidence(input: {
+  readonly events: readonly AssistantRunEvent[];
+  readonly hostRunId: string;
+  readonly pauseKind: 'approval' | 'suspend';
+  readonly toolCallId: string;
+}): boolean {
+  // Typed suspend has no durable pause event; its unresolved tool start is
+  // the host-side evidence before native snapshot authorization.
+  const expectedKind = input.pauseKind === 'approval' ? 'tool.approval.requested' : 'tool.started';
+  return input.events.some(
+    (event) =>
+      event.runId === input.hostRunId &&
+      event.kind === expectedKind &&
+      event.metadata?.['toolCallId'] === input.toolCallId
+  );
+}
+
 /**
  * Capture the paused assistant exactly as persisted before a continuation can
  * add a new Mastra snapshot to its hydration group. A tool-call identity must
@@ -2761,14 +2787,13 @@ export async function readPausedActionReplayPrefix(input: {
   readonly pauseKind: 'approval' | 'suspend';
   readonly delegation?: DelegatedToolActionIdentity;
   readonly pausedMessageId?: string;
+  readonly hostRunId?: string | undefined;
 }): Promise<NonNullable<AssistantDiscoveredRun['actionReplay']>> {
   const { repository, resourceId, threadId, toolCallId, pausedMessageId, nativeRunId, delegation } =
     input;
   const rows = await repository.listMessages(threadId, resourceId);
-  const history = toHistoryRepository(
-    rows,
-    await repository.listThreadRunEvents(threadId, resourceId)
-  );
+  const runEvents = await repository.listThreadRunEvents(threadId, resourceId);
+  const history = toHistoryRepository(rows, runEvents);
   const candidates = history.messages.filter(
     (item) =>
       item.message.role === 'assistant' &&
@@ -2787,9 +2812,50 @@ export async function readPausedActionReplayPrefix(input: {
   // reused the same tool call ID. A synthetic notice identifies the action, not
   // the durable owner, and therefore still requires unique tool ownership.
   const hasDurablePausedId = pausedMessageId && pausedMessageId !== syntheticPauseMessageId;
-  const matchingCandidates = hasDurablePausedId
+  let matchingCandidates = hasDurablePausedId
     ? candidates.filter((item) => item.message.id === pausedMessageId)
     : candidates;
+  if (
+    hasDurablePausedId &&
+    matchingCandidates.length === 0 &&
+    candidates.length === 1 &&
+    !rows.some((row) => row.id === pausedMessageId)
+  ) {
+    const candidate = candidates[0];
+    const hostRunId = input.hostRunId;
+    if (
+      candidate &&
+      hostRunId &&
+      repository.getMessageParent &&
+      repository.sharesNativeRunGeneration &&
+      repository.hasResolvedToolCallInGeneration
+    ) {
+      const [transientParent, turnMessageId, sharesNativeRunGeneration, hasTerminal] =
+        await Promise.all([
+          repository.getMessageParent(pausedMessageId, threadId, resourceId),
+          repository.getThreadRunTurnMessageId(hostRunId, threadId),
+          repository.sharesNativeRunGeneration(hostRunId, nativeRunId),
+          repository.hasResolvedToolCallInGeneration(hostRunId, toolCallId),
+        ]);
+      const hasExactHostPause = hasHostPauseEvidence({
+        events: runEvents,
+        hostRunId,
+        pauseKind: input.pauseKind,
+        toolCallId,
+      });
+      if (
+        sharesNativeRunGeneration &&
+        transientParent !== undefined &&
+        transientParent !== null &&
+        transientParent === candidate.parentId &&
+        turnMessageId === transientParent &&
+        hasExactHostPause &&
+        !hasTerminal
+      ) {
+        matchingCandidates = [candidate];
+      }
+    }
+  }
   if (matchingCandidates.length !== 1) {
     if (hasDurablePausedId && matchingCandidates.length === 0) {
       throw new Error(
@@ -3393,6 +3459,19 @@ export function createPgliteAssistantThreadRepository(
       );
       return result.rows.map(mapCrossRootUsageRow);
     },
+    async getMessageParent(messageId, threadId, resourceId) {
+      requireString(messageId, 'messageId');
+      requireString(threadId, 'threadId');
+      requireString(resourceId, 'resourceId');
+      await initialize();
+      const result = await database.query<{ parentId: string | null }>(
+        `SELECT parent_id AS "parentId"
+         FROM brainstrike_assistant_message_parents
+         WHERE message_id = $1 AND thread_id = $2 AND resource_id = $3`,
+        [messageId, threadId, resourceId]
+      );
+      return result.rows[0]?.parentId;
+    },
     async getRunLedger(
       resourceId: string,
       options?: RunLedgerListOptions
@@ -3502,6 +3581,29 @@ export function createPgliteAssistantThreadRepository(
       );
       const value = result.rows[0]?.turnMessageId;
       return typeof value === 'string' && value.length > 0 ? value : null;
+    },
+    async hasResolvedToolCallInGeneration(hostRunId, toolCallId) {
+      requireString(hostRunId, 'hostRunId');
+      requireString(toolCallId, 'toolCallId');
+      await initialize();
+      const result = await database.query<{ resolved: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM brainstrike_assistant_run_events terminal
+           JOIN brainstrike_assistant_thread_runs terminal_run ON terminal_run.id = terminal.run_id
+           JOIN brainstrike_assistant_thread_runs paused_run ON paused_run.id = $1
+           WHERE terminal_run.thread_id = paused_run.thread_id
+             AND terminal_run.resource_id = paused_run.resource_id
+             AND (
+               terminal.run_id = paused_run.id OR
+               (paused_run.generation_run_id IS NOT NULL AND
+                terminal_run.generation_run_id = paused_run.generation_run_id)
+             )
+             AND terminal.metadata->>'toolCallId' = $2
+             AND terminal.kind IN ('tool.completed', 'tool.failed')
+         ) AS resolved`,
+        [hostRunId, toolCallId]
+      );
+      return result.rows[0]?.resolved === true;
     },
     listLatestThreadRuns,
     async listMessages(threadId, resourceId, options) {
@@ -3675,6 +3777,29 @@ export function createPgliteAssistantThreadRepository(
          WHERE id = $1`,
         [threadId, normalizedTitle, THREAD_TITLE_SOURCE_METADATA_KEY, new Date()]
       );
+    },
+    async sharesNativeRunGeneration(hostRunId, nativeRunId) {
+      requireString(hostRunId, 'hostRunId');
+      requireString(nativeRunId, 'nativeRunId');
+      await initialize();
+      const result = await database.query<{ owns: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM brainstrike_assistant_thread_runs host
+           JOIN brainstrike_assistant_native_runs mapped ON mapped.native_run_id = $2
+           JOIN brainstrike_assistant_thread_runs owner ON owner.id = mapped.host_run_id
+           WHERE host.id = $1
+             AND host.thread_id = owner.thread_id
+             AND host.resource_id = owner.resource_id
+             AND (
+               -- Legacy null-generation rows can still prove their exact first owner.
+               mapped.host_run_id = host.id OR
+               (host.generation_run_id IS NOT NULL AND
+                host.generation_run_id = owner.generation_run_id)
+             )
+         ) AS owns`,
+        [hostRunId, nativeRunId]
+      );
+      return result.rows[0]?.owns === true;
     },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
       assertPersistableThreadMetadata(metadata);

@@ -14,6 +14,7 @@ import {
   useDelegatedNoticeContext,
 } from './approval-notice-status';
 import { useApprovalOwnerMessages } from './approval-owner-thread-context';
+import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recovery-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
 import { useLiveDecisionTransport } from './live-decision-transport';
@@ -148,6 +149,7 @@ export function useApprovalNoticeState(
   const { isRunning, queued, threadKey } = useDecisionQueueState(approval);
   const deliverLive = useLiveDecisionTransport();
   const decisionRoute = useDecisionRoute();
+  const recoveryBlocked = useAssistantDecisionRecoveryBlocked();
   const decisionLocked =
     rediscovered?.decisionState !== undefined ||
     (hostAnswer !== null && approvalRunOutcome.state !== 'retryable');
@@ -168,7 +170,9 @@ export function useApprovalNoticeState(
 
   const submitApprovalAction = useCallback(
     (action: AssistantToolApprovalDecision): void => {
-      if (!(submittedAction === null && !actionLockedByRun && !decisionLocked)) {
+      if (
+        !(submittedAction === null && !actionLockedByRun && !decisionLocked && !recoveryBlocked)
+      ) {
         return;
       }
       setSendFailure(null);
@@ -234,6 +238,7 @@ export function useApprovalNoticeState(
       decisionRoute,
       deliverLive,
       isRunning,
+      recoveryBlocked,
       submittedAction,
       threadKey,
     ]
@@ -257,7 +262,7 @@ export function useApprovalNoticeState(
   });
   return {
     actionButtonsDisabled:
-      queued || decisionLocked || submittedAction !== null || actionLockedByRun,
+      queued || decisionLocked || submittedAction !== null || actionLockedByRun || recoveryBlocked,
     answered: decisionLocked || actionLockedByRun || submittedAction !== null || queued,
     decisionLocked,
     delegationOwner,

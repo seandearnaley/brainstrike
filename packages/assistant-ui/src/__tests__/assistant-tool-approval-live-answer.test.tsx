@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
+import { AssistantDecisionRecoveryProvider } from '../assistant-decision-recovery-provider';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
 import { expandApprovalRow } from './approval-row-helpers';
 
@@ -100,5 +101,29 @@ describe('AssistantToolApprovalNotice live answers', () => {
 
     expect(screen.getByRole('button', { name: /approve brainstrike/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /decline brainstrike/i })).toBeEnabled();
+  });
+
+  it('waits for hosted run reconciliation before retrying a failed approval', async () => {
+    const answeredRun = answer('approve', 'user');
+    answeredRun.status = { error: 'resume_failed', reason: 'error', type: 'incomplete' };
+    messages.push(answeredRun);
+    const view = render(
+      <AssistantDecisionRecoveryProvider blocked>
+        <AnsweredApprovalsProvider>
+          <AssistantToolApprovalNotice data={approval} />
+        </AnsweredApprovalsProvider>
+      </AssistantDecisionRecoveryProvider>
+    );
+
+    const approve = screen.getByRole('button', { name: /approve brainstrike/i });
+    expect(approve).toBeDisabled();
+    view.rerender(
+      <AssistantDecisionRecoveryProvider blocked={false}>
+        <AnsweredApprovalsProvider>
+          <AssistantToolApprovalNotice data={approval} />
+        </AnsweredApprovalsProvider>
+      </AssistantDecisionRecoveryProvider>
+    );
+    expect(approve).toBeEnabled();
   });
 });
