@@ -4085,11 +4085,11 @@ export function createAssistantThreadHistoryAdapter({
       const resolvedParentId = resolveDurableParentId(item.parentId);
       if (isApprovalActionMessage(item.message)) {
         const appendEpoch = topologyEpoch;
-        const pausedOwnerId = readActionMessagePausedOwnerId(item.message) ?? item.parentId;
-        const resolvedPausedOwnerId = resolveDurableParentId(pausedOwnerId);
         // assistant-ui keeps the optimistic echo even when the async history
         // write rejects. Its descendants still need the durable parent alias.
         transientParentByAliasId.set(item.message.id, resolvedParentId);
+        const pausedOwnerId = readActionMessagePausedOwnerId(item.message) ?? item.parentId;
+        const resolvedPausedOwnerId = resolveDurableParentId(pausedOwnerId);
         await recordActionEchoAppend(item.message, pausedOwnerId, resolvedPausedOwnerId);
         if (appendEpoch !== topologyEpoch) {
           throw new Error('Assistant approval action changed while its parent was loading.');

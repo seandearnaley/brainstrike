@@ -1104,7 +1104,10 @@ export function resolveDurableInputParentMessageId(
   return current;
 }
 
-function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: unknown): string {
+function findPausedMessageId(
+  messages: readonly ThreadMessage[],
+  runConfig: unknown
+): string | null | undefined {
   const approval = readToolApprovalRunConfigAction(runConfig);
   const resume = readToolResumeRunConfigAction(runConfig);
   const approvalAction = approval && 'action' in approval ? approval.action : undefined;
@@ -1112,7 +1115,7 @@ function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: u
   const action = approvalAction ?? resumeAction;
   const dataName = approvalAction ? TOOL_APPROVAL_DATA_NAME : TOOL_SUSPEND_DATA_NAME;
   if (!action) {
-    throw new Error('Assistant action has no valid paused tool identity.');
+    return;
   }
   const owners = messages.filter(
     (message) =>
@@ -1123,9 +1126,20 @@ function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: u
       )
   );
   if (owners.length !== 1 || !owners[0]?.id.trim()) {
-    throw new Error('Assistant action has no unique owning paused assistant message.');
+    return null;
   }
   return owners[0].id;
+}
+
+function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: unknown): string {
+  const ownerId = findPausedMessageId(messages, runConfig);
+  if (ownerId === undefined) {
+    throw new Error('Assistant action has no valid paused tool identity.');
+  }
+  if (ownerId === null) {
+    throw new Error('Assistant action has no unique owning paused assistant message.');
+  }
+  return ownerId;
 }
 
 class AssistantHistoryRuntimeBinding {
@@ -1140,11 +1154,11 @@ class AssistantHistoryRuntimeBinding {
     };
   }
 
-  resolveOwner(runConfig: unknown): string {
+  resolveOwner(runConfig: unknown): string | null {
     if (!this.runtime) {
-      throw new Error('Assistant action history runtime is not attached.');
+      return null;
     }
-    return requirePausedMessageId(this.runtime.thread.getState().messages, runConfig);
+    return findPausedMessageId(this.runtime.thread.getState().messages, runConfig) ?? null;
   }
 }
 

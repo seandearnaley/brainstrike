@@ -160,3 +160,10 @@ Regression: `assistant-action-replay-prefix.integration.test.ts` exercises a
 resumed transient pause followed by a later turn; `data-stream-runtime-hook.test.tsx`
 checks the SDK history handoff. This avoids weakening hydration or inferring
 ownership from whichever message happens to be last.
+
+Failed owner lookup must still hand the optimistic echo to history with an
+explicit unresolved owner. The adapter records the tail alias before rejecting
+an unresolved or malformed owner. A later ordinary message then reaches its
+durable parent even though the action itself was never admitted. The regression
+also appends descendants of both failed-owner echoes and checks their exact
+parent; merely asserting no POST does not prove recovery.

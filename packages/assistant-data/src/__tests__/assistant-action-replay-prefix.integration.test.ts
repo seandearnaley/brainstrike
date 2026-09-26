@@ -85,7 +85,7 @@ describe('action replay prefix', () => {
       parentId: string,
       hostRunId: string,
       toolCallId: string,
-      pausedOwnerId?: string
+      pausedOwnerId?: string | null
     ) =>
       ({
         message: {
@@ -95,7 +95,9 @@ describe('action replay prefix', () => {
           id,
           metadata: {
             custom: {
-              ...(pausedOwnerId ? { 'brainstrike.paused-owner-message-id': pausedOwnerId } : {}),
+              ...(pausedOwnerId === undefined
+                ? {}
+                : { 'brainstrike.paused-owner-message-id': pausedOwnerId }),
               [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
                 action: 'approve',
                 hostRunId,
@@ -245,6 +247,9 @@ describe('action replay prefix', () => {
     await expect(
       adapter.append(echo('malformed-echo', 'user-b', 'worker-host', 'worker-call', ' '))
     ).rejects.toThrow('invalid paused owner');
+    await expect(
+      adapter.append(echo('unresolved-echo', 'user-b', 'worker-host', 'worker-call', null))
+    ).rejects.toThrow('invalid paused owner');
     // assistant-ui retains an optimistic action echo after a failed history
     // write. A later message must still resolve through its durable alias.
     await adapter.append({
@@ -261,6 +266,23 @@ describe('action replay prefix', () => {
     expect(await repository.getMessageParent?.('after-failed-echo', thread.id, 'workspace-a')).toBe(
       'user-b'
     );
+    for (const [id, parentId] of [
+      ['after-malformed-echo', 'malformed-echo'],
+      ['after-unresolved-echo', 'unresolved-echo'],
+    ] as const) {
+      await adapter.append({
+        message: {
+          attachments: [],
+          content: [{ text: 'later prompt', type: 'text' }],
+          createdAt: new Date(),
+          id,
+          metadata: { custom: {} },
+          role: 'user',
+        },
+        parentId,
+      } as AppendItem);
+      expect(await repository.getMessageParent?.(id, thread.id, 'workspace-a')).toBe('user-b');
+    }
     await db.query(
       `UPDATE brainstrike_assistant_message_parents SET parent_id = 'user-b'
        WHERE thread_id = $1 AND message_id = 'resume-ui'`,

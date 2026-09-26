@@ -152,7 +152,7 @@ Guard: `packages/agent/src/__tests__/aborted-turn-persistence.spec.ts`,
    window, and traverses parent-first. Rows without an edge keep the
    chronological fallback; conflicting edges for one message id THROW.
    - **DURABLE-PARENT INVARIANT.** Edges reference a Mastra-persisted parent or
-     null. Echo ancestry stays at the tail; history-only paused-owner metadata
+     null. Alias echoes to the tail BEFORE owner validation; history-only metadata
      uses POST's strict matcher. A NEW pause gets an exact-turn proof edge only
      from its turn or direct child; resume aliases and `load()` retain ancestors.
    - Await each bounded action echo history write before POST; failure, Stop, or history invalidation forbids sending.

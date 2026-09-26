@@ -132,9 +132,15 @@ describe('useBrainstrikeDataStreamRuntime', () => {
     laterTurn = false,
     ownerCase: 'ambiguous' | 'missing' | 'single' = 'single'
   ) {
-    const append = vi.fn<ThreadHistoryAdapter['append']>((item) =>
-      isActionRunConfig(item.runConfig) ? topologyWrite : Promise.resolve()
-    );
+    const append = vi.fn<ThreadHistoryAdapter['append']>((item) => {
+      if (!isActionRunConfig(item.runConfig)) {
+        return Promise.resolve();
+      }
+      if (item.message.metadata.custom[ACTION_PAUSED_OWNER_MESSAGE_ID_KEY] === null) {
+        return Promise.reject(new Error('invalid paused owner'));
+      }
+      return topologyWrite;
+    });
     const history: ThreadHistoryAdapter = {
       append,
       load: async () =>
@@ -281,11 +287,9 @@ describe('useBrainstrikeDataStreamRuntime', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     });
-    if (ownerCase === 'single') {
-      await waitFor(() =>
-        expect(append.mock.calls.some(([item]) => isActionRunConfig(item.runConfig))).toBe(true)
-      );
-    }
+    await waitFor(() =>
+      expect(append.mock.calls.some(([item]) => isActionRunConfig(item.runConfig))).toBe(true)
+    );
     return {
       append,
       changeHistory: () =>
@@ -333,7 +337,8 @@ describe('useBrainstrikeDataStreamRuntime', () => {
       await waitFor(() =>
         expect(screen.getByTestId('last-message-status')).toHaveTextContent('incomplete')
       );
-      expect(append.mock.calls.some(([item]) => isActionRunConfig(item.runConfig))).toBe(false);
+      const actionItem = append.mock.calls.find(([item]) => isActionRunConfig(item.runConfig))?.[0];
+      expect(actionItem?.message.metadata.custom[ACTION_PAUSED_OWNER_MESSAGE_ID_KEY]).toBeNull();
       expect(fetchSpy).not.toHaveBeenCalled();
     }
   );

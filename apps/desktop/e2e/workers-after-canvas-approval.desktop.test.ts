@@ -298,6 +298,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
   );
   Object.assign(process.env, environment);
   const assistantPosts: unknown[] = [];
+  const failures: unknown[] = [];
   try {
     const window = await electron.ensureWindow();
     const assistantFailures: string[] = [];
@@ -438,22 +439,46 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
     expect(assistantPosts).toHaveLength(4);
     expect(assistantFailures).toEqual([]);
   } catch (error) {
-    await testInfo.attach('provider-transcript', {
-      body: JSON.stringify(provider.transcript()),
-      contentType: 'application/json',
-    });
-    throw error;
+    failures.push(error);
+    try {
+      await testInfo.attach('provider-transcript', {
+        body: JSON.stringify(provider.transcript()),
+        contentType: 'application/json',
+      });
+    } catch (attachmentError) {
+      failures.push(attachmentError);
+    }
   } finally {
     for (const key of Object.keys(environment)) {
-      const value = previous[key];
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
+      try {
+        const value = previous[key];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      } catch (cleanupError) {
+        failures.push(cleanupError);
       }
     }
-    await electron.dispose();
-    await provider.close();
-    await rm(workspace, { force: true, recursive: true });
+    for (const cleanup of [
+      async () => electron.dispose(),
+      async () => provider.close(),
+      async () => rm(workspace, { force: true, recursive: true }),
+    ]) {
+      try {
+        await cleanup();
+      } catch (cleanupError) {
+        failures.push(cleanupError);
+      }
+    }
+  }
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Canvas worker test and cleanup failed', {
+      cause: failures[0],
+    });
   }
 });
