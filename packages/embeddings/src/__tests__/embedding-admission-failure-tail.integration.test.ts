@@ -111,7 +111,10 @@ it('joins every pending failure write before releasing the batch after one relea
     expect(failCalls).toBe(2);
     expect(await admissionProbe.budget?.inFlight()).toBe(2);
     secondWriteRelease.resolve();
-    for (let index = 0; index < 100; index += 1) {
+    // Allow the worker's 1000 ms error backoff plus scheduling margin after
+    // the second write settles; fixed poll counts can expire early on CI.
+    const releaseDeadline = Date.now() + 5000;
+    while (Date.now() < releaseDeadline) {
       if ((await admissionProbe.budget?.inFlight()) === 0) {
         break;
       }
