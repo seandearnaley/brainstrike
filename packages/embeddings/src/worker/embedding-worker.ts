@@ -20,6 +20,7 @@ import type {
   EmbeddingWorkerRuntimeMetadata,
   ModelConfig,
 } from '../types.js';
+import { createEmbeddingAdmissionBudget } from './embedding-admission-budget.js';
 import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance.js';
 import type { EmbeddingCacheInterface } from './embedding-cache-types.js';
 import { getModelConfigFromDb } from './embedding-model-config.js';
@@ -435,43 +436,19 @@ export async function startEmbeddingWorker(
   const jq = new JobQueue(options.db);
   let running = true;
   const stopController = new AbortController();
-  let inFlightJobs = 0;
-  const inFlightBudgetWaiters = new Set<() => void>();
-
-  function notifyInFlightBudgetWaiters(): void {
-    for (const resolve of inFlightBudgetWaiters) {
-      resolve();
-    }
-    inFlightBudgetWaiters.clear();
-  }
-
-  function reserveInFlightJobs(requested: number): number {
-    const available = Math.max(0, maxInFlightJobs - inFlightJobs);
-    const reserved = Math.min(requested, available);
-    inFlightJobs += reserved;
-    return reserved;
-  }
-
-  function releaseInFlightJobs(count: number): void {
-    if (count === 0) {
-      return;
-    }
-    if (count < 0 || count > inFlightJobs) {
-      throw new Error(
-        `Invalid embedding in-flight budget release: ${count} with ${inFlightJobs} reserved.`
-      );
-    }
-    inFlightJobs -= count;
-    notifyInFlightBudgetWaiters();
-  }
+  const admissionBudget = await createEmbeddingAdmissionBudget(maxInFlightJobs);
 
   async function waitForInFlightBudget(): Promise<void> {
-    if (!running || inFlightJobs < maxInFlightJobs) {
+    if (!running) {
       return;
     }
-    await new Promise<void>((resolve) => {
-      inFlightBudgetWaiters.add(resolve);
-    });
+    try {
+      await admissionBudget.waitForAvailable(stopController.signal);
+    } catch (error) {
+      if (!stopController.signal.aborted) {
+        throw error;
+      }
+    }
   }
 
   async function waitForBackgroundPermit(label: string): Promise<void> {
@@ -588,7 +565,7 @@ export async function startEmbeddingWorker(
     }
     fatalWorkerError = error;
     running = false;
-    notifyInFlightBudgetWaiters();
+    stopController.abort();
     reportWorkerActivity(false);
     workerLogger.error('Stopping embedding worker after fatal local model error', {
       error: error.message,
@@ -978,7 +955,7 @@ export async function startEmbeddingWorker(
   async function handleBatchFailure(
     jobs: ClaimedJob[],
     error: unknown,
-    onJobsFailed?: (jobIds: Set<string>) => void
+    onJobsFailed?: (jobIds: Set<string>) => Promise<void>
   ) {
     // LOG THE ERROR so we can see what's happening
     workerLogger.error('handleBatchFailure: Job(s) failed', {
@@ -997,7 +974,7 @@ export async function startEmbeddingWorker(
       terminal: isTerminal,
       ...(backoffMs === undefined ? {} : { backoffMs }),
     });
-    onJobsFailed?.(new Set(jobs.map((job) => job.id)));
+    await onJobsFailed?.(new Set(jobs.map((job) => job.id)));
 
     metrics.jobsFailed += jobs.length;
     consecutiveFailures += 1;
@@ -1117,7 +1094,7 @@ export async function startEmbeddingWorker(
   async function completeBatch(
     toProcess: LoadedChunkItem[],
     embeddings: number[][],
-    onJobsCompleted?: (jobIds: Set<string>) => void
+    onJobsCompleted?: (jobIds: Set<string>) => Promise<void>
   ): Promise<Set<string>> {
     // Validate batch size consistency before processing
     if (toProcess.length !== embeddings.length) {
@@ -1161,7 +1138,7 @@ export async function startEmbeddingWorker(
     for (const job of completedJobs) {
       completedJobIds.add(job.id);
     }
-    onJobsCompleted?.(completedJobIds);
+    await onJobsCompleted?.(completedJobIds);
     const completedEmbeddingSetIds = completedJobs
       .map((job) => job.embedding_set_id)
       .filter((embeddingSetId): embeddingSetId is string => typeof embeddingSetId === 'string');
@@ -1192,7 +1169,7 @@ export async function startEmbeddingWorker(
     toProcess: LoadedChunkItem[],
     embeddings: number[][],
     completedJobIds: Set<string>,
-    onJobsCompleted?: (jobIds: Set<string>) => void
+    onJobsCompleted?: (jobIds: Set<string>) => Promise<void>
   ): Promise<void> {
     const newlyCompleted = await completeBatch(toProcess, embeddings, onJobsCompleted);
     for (const id of newlyCompleted) {
@@ -1210,7 +1187,7 @@ export async function startEmbeddingWorker(
   function createStreamingCompletionWriter(
     capacity: EmbeddingWorkerPipelineCapacity,
     completedJobIds: Set<string>,
-    onJobsCompleted?: (jobIds: Set<string>) => void
+    onJobsCompleted?: (jobIds: Set<string>) => Promise<void>
   ): {
     enqueue: (
       toProcess: LoadedChunkItem[],
@@ -1385,13 +1362,30 @@ export async function startEmbeddingWorker(
     }
   }
 
+  async function rethrowAfterStreamingWriteDrain(
+    writer: { flush: () => Promise<void> },
+    error: unknown
+  ): Promise<never> {
+    try {
+      await writer.flush();
+    } catch (flushError) {
+      if (flushError !== error) {
+        workerLogger.error('Accepted embedding completion failed after stream error', {
+          message: flushError instanceof Error ? flushError.message : String(flushError),
+          stack: flushError instanceof Error ? flushError.stack : undefined,
+        });
+      }
+    }
+    throw error;
+  }
+
   async function processLocalGroupIncrementally(
     jobModel: EmbeddingJobModel,
     toProcess: LoadedChunkItem[],
     expectedDimension: number,
     completedJobIds: Set<string>,
     checkLease: () => boolean,
-    onJobsCompleted?: (jobIds: Set<string>) => void
+    onJobsCompleted?: (jobIds: Set<string>) => Promise<void>
   ): Promise<void> {
     const modelKey = jobModel.compositeKey;
     const pipelineCapacity = await resolveEffectivePipelineCapacity();
@@ -1400,107 +1394,112 @@ export async function startEmbeddingWorker(
       completedJobIds,
       onJobsCompleted
     );
-    let lastStreamBatchFinishedAt = performance.now();
-    const cacheHits = await lookupCacheHits(
-      options.embeddingCache,
-      toProcess,
-      modelKey,
-      workerLogger
-    );
-    const cacheMisses = filterCacheMisses(toProcess, cacheHits, modelKey);
-    const cacheHitItems = toProcess.filter((item) =>
-      cacheHits.has(`${item.chunk.contentHash}:${modelKey}`)
-    );
-
-    if (cacheHitItems.length > 0) {
-      if (checkLease()) {
-        throw new Error('Lease lost during processing');
-      }
-      const cachedEmbeddings = reconstructResults(cacheHitItems, cacheHits, [], modelKey);
-      await completionWriter.enqueue(cacheHitItems, cachedEmbeddings);
-    }
-
-    if (cacheMisses.length === 0) {
-      await completionWriter.flush();
-      await maybeReinitialize();
-      return;
-    }
-
-    await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
-    failFastOnLatchedLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey);
-    const streamingService = assertStreamingService(service);
-
     try {
-      const streamStartedAt = performance.now();
-      lastStreamBatchFinishedAt = streamStartedAt;
-      const runtimeMetadata = await runWithWorkerActivity(async () =>
-        streamingService.generateEmbeddingsStream(
-          cacheMisses.map((item) => item.chunk.content),
-          async (batch) => {
-            const batchFinishedAt = performance.now();
-            const inferenceMs = batchFinishedAt - lastStreamBatchFinishedAt;
-            lastStreamBatchFinishedAt = batchFinishedAt;
-            if (checkLease()) {
-              throw new LocalEmbeddingStreamCallbackError(
-                new Error('Lease lost during processing')
-              );
-            }
+      let lastStreamBatchFinishedAt = performance.now();
+      const cacheHits = await lookupCacheHits(
+        options.embeddingCache,
+        toProcess,
+        modelKey,
+        workerLogger
+      );
+      const cacheMisses = filterCacheMisses(toProcess, cacheHits, modelKey);
+      const cacheHitItems = toProcess.filter((item) =>
+        cacheHits.has(`${item.chunk.contentHash}:${modelKey}`)
+      );
 
-            const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
-            if (batchItems.length !== batch.results.length) {
-              throw new Error(
-                `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
-              );
-            }
-            reportRuntimeMetadata(batch.results.find((result) => result.runtime)?.runtime);
+      if (cacheHitItems.length > 0) {
+        if (checkLease()) {
+          throw new Error('Lease lost during processing');
+        }
+        const cachedEmbeddings = reconstructResults(cacheHitItems, cacheHits, [], modelKey);
+        await completionWriter.enqueue(cacheHitItems, cachedEmbeddings);
+      }
 
-            const embeddings = batch.results.map((result, index) => {
-              if (
-                !Array.isArray(result.embedding) ||
-                result.embedding.length !== expectedDimension
-              ) {
-                throw new Error(
-                  `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
+      if (cacheMisses.length === 0) {
+        await completionWriter.flush();
+        await maybeReinitialize();
+        return;
+      }
+
+      await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
+      failFastOnLatchedLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey);
+      const streamingService = assertStreamingService(service);
+
+      try {
+        const streamStartedAt = performance.now();
+        lastStreamBatchFinishedAt = streamStartedAt;
+        const runtimeMetadata = await runWithWorkerActivity(async () =>
+          streamingService.generateEmbeddingsStream(
+            cacheMisses.map((item) => item.chunk.content),
+            async (batch) => {
+              const batchFinishedAt = performance.now();
+              const inferenceMs = batchFinishedAt - lastStreamBatchFinishedAt;
+              lastStreamBatchFinishedAt = batchFinishedAt;
+              if (checkLease()) {
+                throw new LocalEmbeddingStreamCallbackError(
+                  new Error('Lease lost during processing')
                 );
               }
-              return result.embedding;
-            });
 
-            try {
-              await completionWriter.enqueue(batchItems, embeddings, {
-                afterComplete: (completedItems, completedEmbeddings) => {
-                  storeToCacheAsync(
-                    options.embeddingCache,
-                    completedItems,
-                    completedEmbeddings,
-                    modelKey,
-                    expectedDimension,
-                    trackCacheWrite
+              const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
+              if (batchItems.length !== batch.results.length) {
+                throw new Error(
+                  `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
+                );
+              }
+              reportRuntimeMetadata(batch.results.find((result) => result.runtime)?.runtime);
+
+              const embeddings = batch.results.map((result, index) => {
+                if (
+                  !Array.isArray(result.embedding) ||
+                  result.embedding.length !== expectedDimension
+                ) {
+                  throw new Error(
+                    `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
                   );
-                },
-                inferenceMs,
+                }
+                return result.embedding;
               });
-            } catch (error) {
-              throw new LocalEmbeddingStreamCallbackError(error);
-            }
-          },
-          shouldOverrideStreamBatchSize
-            ? { streamBatchSize: pipelineCapacity.streamBatchSize }
-            : undefined
-        )
-      );
-      reportRuntimeMetadata(parseRuntimeMetadata(runtimeMetadata));
-    } catch (error) {
-      if (error instanceof LocalEmbeddingStreamCallbackError) {
-        throw error.originalError instanceof Error ? error.originalError : error;
+
+              try {
+                await completionWriter.enqueue(batchItems, embeddings, {
+                  afterComplete: (completedItems, completedEmbeddings) => {
+                    storeToCacheAsync(
+                      options.embeddingCache,
+                      completedItems,
+                      completedEmbeddings,
+                      modelKey,
+                      expectedDimension,
+                      trackCacheWrite
+                    );
+                  },
+                  inferenceMs,
+                });
+              } catch (error) {
+                throw new LocalEmbeddingStreamCallbackError(error);
+              }
+            },
+            shouldOverrideStreamBatchSize
+              ? { streamBatchSize: pipelineCapacity.streamBatchSize }
+              : undefined
+          )
+        );
+        reportRuntimeMetadata(parseRuntimeMetadata(runtimeMetadata));
+      } catch (error) {
+        if (error instanceof LocalEmbeddingStreamCallbackError) {
+          throw error.originalError instanceof Error ? error.originalError : error;
+        }
+        throw latchLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey, error);
       }
-      throw latchLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey, error);
+
+      await completionWriter.flush();
+      localModelExecutionFailure = null;
+
+      await maybeReinitialize();
+    } catch (error) {
+      // Accepted writes still own their permits after inference fails.
+      return rethrowAfterStreamingWriteDrain(completionWriter, error);
     }
-
-    await completionWriter.flush();
-    localModelExecutionFailure = null;
-
-    await maybeReinitialize();
   }
 
   function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: (job: ClaimedJob) => void) {
@@ -1567,13 +1566,13 @@ export async function startEmbeddingWorker(
     jobs: ClaimedJob[],
     jobModel: EmbeddingJobModel,
     checkLease: () => boolean,
-    onJobsSettled?: (jobIds: Set<string>) => void
+    onJobsSettled?: (jobIds: Set<string>) => Promise<void>
   ) {
     const { toProcess, completed, orphanCount, staleCount } = await loadAndFilterChunks(jobs, {
       db: options.db,
       failTerminalJobs: async (terminalJobs, error) => {
         await jq.failBatch({ error, jobs: terminalJobs, terminal: true });
-        onJobsSettled?.(new Set(terminalJobs.map((job) => job.id)));
+        await onJobsSettled?.(new Set(terminalJobs.map((job) => job.id)));
       },
       fileChunkIdType,
       logWarn: (message, meta) => workerLogger.warn(message, meta),
@@ -1635,7 +1634,7 @@ export async function startEmbeddingWorker(
   async function markAlreadyCompleted(
     completed: Array<{ job: ClaimedJob }>,
     completedJobIds: Set<string>,
-    onJobsCompleted?: (jobIds: Set<string>) => void
+    onJobsCompleted?: (jobIds: Set<string>) => Promise<void>
   ) {
     if (completed.length === 0) {
       return;
@@ -1648,7 +1647,7 @@ export async function startEmbeddingWorker(
       completedJobIds.add(item.job.id);
       newlyCompleted.add(item.job.id);
     }
-    onJobsCompleted?.(newlyCompleted);
+    await onJobsCompleted?.(newlyCompleted);
     metrics.jobsProcessed += completed.length;
     processedSinceInit += completed.length;
   }
@@ -1677,7 +1676,7 @@ export async function startEmbeddingWorker(
 
   async function resolveGroupJobModelOrFail(
     jobs: ClaimedJob[],
-    onJobsSettled?: (jobIds: Set<string>) => void
+    onJobsSettled?: (jobIds: Set<string>) => Promise<void>
   ): Promise<EmbeddingJobModel | null> {
     const firstJob = jobs[0];
     if (!firstJob) {
@@ -1725,7 +1724,7 @@ export async function startEmbeddingWorker(
     error: unknown,
     jobs: ClaimedJob[],
     checkLease: () => boolean,
-    onJobsSettled?: (jobIds: Set<string>) => void
+    onJobsSettled?: (jobIds: Set<string>) => Promise<void>
   ): Promise<void> {
     if (checkLease()) {
       workerLogger.warn('Aborting batch processing due to lost lease');
@@ -1741,7 +1740,7 @@ export async function startEmbeddingWorker(
   async function processGroup(
     jobs: ClaimedJob[],
     checkLeaseOverride?: () => boolean,
-    onJobsSettled?: (jobIds: Set<string>) => void
+    onJobsSettled?: (jobIds: Set<string>) => Promise<void>
   ): Promise<void> {
     if (jobs.length === 0) {
       return;
@@ -1753,9 +1752,9 @@ export async function startEmbeddingWorker(
     }
 
     const lease = createLeaseTracker(jobs, checkLeaseOverride);
-    const markJobsCompleted = (jobIds: Set<string>) => {
+    const markJobsCompleted = async (jobIds: Set<string>): Promise<void> => {
       lease.markCompleted(jobIds);
-      onJobsSettled?.(jobIds);
+      await onJobsSettled?.(jobIds);
     };
 
     try {
@@ -1769,7 +1768,7 @@ export async function startEmbeddingWorker(
 
   function groupJobs(
     jobs: ClaimedJob[],
-    onJobsSettled?: (jobIds: Set<string>) => void
+    onJobsSettled?: (jobIds: Set<string>) => Promise<void>
   ): {
     failureWrites: Promise<void>[];
     groups: Map<string, ClaimedJob[]>;
@@ -1794,12 +1793,12 @@ export async function startEmbeddingWorker(
               id: job.id,
               leaseToken: job.lease_token,
             })
-            .then(() => {
-              onJobsSettled?.(new Set([job.id]));
-            })
-            .catch((error: unknown) => {
-              workerLogger.error('Failed to fail job', { error });
-            })
+            .then(
+              async (): Promise<void> => onJobsSettled?.(new Set([job.id])),
+              (error: unknown): void => {
+                workerLogger.error('Failed to fail job', { error });
+              }
+            )
         );
         metrics.jobsFailed += 1;
       }
@@ -1809,19 +1808,24 @@ export async function startEmbeddingWorker(
 
   async function processClaimedJobs(
     jobs: ClaimedJob[],
-    onJobsSettled?: (jobIds: Set<string>) => void
+    onJobsSettled?: (jobIds: Set<string>) => Promise<void>
   ) {
     const leaseLost = new Set<string>();
     const batchHeartbeat = startHeartbeat(jobs, (job) => {
       leaseLost.add(job.id);
     });
-    const markJobsSettled = (jobIds: Set<string>) => {
+    const markJobsSettled = async (jobIds: Set<string>): Promise<void> => {
       batchHeartbeat.markCompleted(jobIds);
-      onJobsSettled?.(jobIds);
+      await onJobsSettled?.(jobIds);
     };
+    const { failureWrites, groups } = groupJobs(jobs, markJobsSettled);
+    // Observe every started settlement immediately, even while another group
+    // is still running; admission remains held until all writes settle below.
+    const failureWriteResults = Promise.allSettled(failureWrites);
 
+    let groupError: unknown;
+    let groupFailed = false;
     try {
-      const { failureWrites, groups } = groupJobs(jobs, markJobsSettled);
       for (const group of groups.values()) {
         const checkLease = () => group.some((job) => leaseLost.has(job.id));
         if (checkLease()) {
@@ -1832,9 +1836,30 @@ export async function startEmbeddingWorker(
         }
         await processGroup(group, checkLease, markJobsSettled);
       }
-      await Promise.all(failureWrites);
+    } catch (error) {
+      groupError = error;
+      groupFailed = true;
+    }
+    let results: PromiseSettledResult<void>[];
+    try {
+      results = await failureWriteResults;
     } finally {
       batchHeartbeat.stop();
+    }
+    const failures = results.flatMap((result): unknown[] =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (groupFailed && failures.length > 0) {
+      throw new AggregateError([groupError, ...failures], 'Embedding job settlement failed');
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Embedding job settlement failed');
+    }
+    if (groupFailed) {
+      throw groupError;
     }
   }
 
@@ -1882,26 +1907,29 @@ export async function startEmbeddingWorker(
     return message.includes('PGlite is closed') || message.includes('closed');
   }
 
+  async function reserveClaimSlots(): Promise<number> {
+    await waitForInFlightBudget();
+    if (!running) {
+      return 0;
+    }
+    await waitForBackgroundPermit('embedding claim');
+    if (!running) {
+      return 0;
+    }
+    const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
+    if (effectiveClaimBatchSize === null) {
+      await sleepUnlessStopped(CLAIM_SIZE_RESOLVER_RETRY_BACKOFF_MS, stopController.signal);
+      return 0;
+    }
+    return admissionBudget.tryReserve(effectiveClaimBatchSize);
+  }
+
   async function processBatch(): Promise<void> {
     const batchStart = performance.now();
     let heldInFlightSlots = 0;
     try {
-      await waitForInFlightBudget();
-      if (!running) {
-        return;
-      }
-      await waitForBackgroundPermit('embedding claim');
-      if (!running) {
-        return;
-      }
-      const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
-      if (effectiveClaimBatchSize === null) {
-        await sleepUnlessStopped(CLAIM_SIZE_RESOLVER_RETRY_BACKOFF_MS, stopController.signal);
-        return;
-      }
-      heldInFlightSlots = reserveInFlightJobs(effectiveClaimBatchSize);
-      if (heldInFlightSlots === 0) {
-        await waitForInFlightBudget();
+      heldInFlightSlots = await reserveClaimSlots();
+      if (!running || heldInFlightSlots === 0) {
         return;
       }
       // Claim a batch of jobs
@@ -1918,7 +1946,7 @@ export async function startEmbeddingWorker(
       }
 
       const unusedSlots = heldInFlightSlots - jobs.length;
-      releaseInFlightJobs(unusedSlots);
+      await admissionBudget.release(unusedSlots);
       heldInFlightSlots -= unusedSlots;
 
       if (jobs.length === 0) {
@@ -1928,14 +1956,14 @@ export async function startEmbeddingWorker(
 
       resetIdleBackoff();
       const unsettledJobIds = new Set(jobs.map((job) => job.id));
-      await processClaimedJobs(jobs, (jobIds) => {
+      await processClaimedJobs(jobs, async (jobIds): Promise<void> => {
         let releasedCount = 0;
         for (const jobId of jobIds) {
           if (unsettledJobIds.delete(jobId)) {
             releasedCount += 1;
           }
         }
-        releaseInFlightJobs(releasedCount);
+        await admissionBudget.release(releasedCount);
         heldInFlightSlots -= releasedCount;
       });
 
@@ -1947,12 +1975,13 @@ export async function startEmbeddingWorker(
     } catch (err) {
       if (isClosedDatabaseError(err)) {
         running = false; // Stop the worker loop
+        stopController.abort();
         return;
       }
       workerLogger.error('Critical worker error in processBatch', { error: err });
       await sleepUnlessStopped(1000, stopController.signal);
     } finally {
-      releaseInFlightJobs(heldInFlightSlots);
+      await admissionBudget.release(heldInFlightSlots);
       metrics.totalDurationMs += performance.now() - batchStart;
     }
   }
@@ -1974,23 +2003,33 @@ export async function startEmbeddingWorker(
       if (!running) {
         return;
       }
-      const uptimeMs = Date.now() - metrics.startedAt;
-      const avgMs = metrics.jobsProcessed > 0 ? metrics.totalDurationMs / metrics.jobsProcessed : 0;
-      log('worker_metrics', {
-        avgDurationMs: Math.round(avgMs),
-        claimBatchSize,
-        concurrency,
-        effectiveClaimBatchSize: lastClaimBatchSize,
-        effectiveClaimBatchSizeError: lastClaimBatchSizeError,
-        failed: metrics.jobsFailed,
-        inFlightJobs,
-        interBatchDelayMs,
-        maxInFlightJobs,
-        modelKey: activeCompositeKey,
-        processed: metrics.jobsProcessed,
-        queue: queueName,
-        uptimeMs,
-      });
+      void admissionBudget.inFlight().then(
+        (inFlightJobs): void => {
+          if (!running) {
+            return;
+          }
+          const uptimeMs = Date.now() - metrics.startedAt;
+          const avgMs =
+            metrics.jobsProcessed > 0 ? metrics.totalDurationMs / metrics.jobsProcessed : 0;
+          log('worker_metrics', {
+            avgDurationMs: Math.round(avgMs),
+            claimBatchSize,
+            concurrency,
+            effectiveClaimBatchSize: lastClaimBatchSize,
+            effectiveClaimBatchSizeError: lastClaimBatchSizeError,
+            failed: metrics.jobsFailed,
+            inFlightJobs,
+            interBatchDelayMs,
+            maxInFlightJobs,
+            modelKey: activeCompositeKey,
+            processed: metrics.jobsProcessed,
+            queue: queueName,
+            uptimeMs,
+          });
+        },
+        (error: unknown): void =>
+          workerLogger.error('Failed to read embedding admission budget', { error })
+      );
     },
     Math.max(5000, metricsInterval)
   );
@@ -1999,7 +2038,6 @@ export async function startEmbeddingWorker(
     stop: async () => {
       running = false;
       stopController.abort();
-      notifyInFlightBudgetWaiters();
       reportWorkerActivity(false);
       await Promise.race([Promise.allSettled(loops).then(() => {}), sleep(leaseMs)]);
       try {

@@ -571,6 +571,20 @@ test('MCP OAuth callback scope closes its server and every claimed wait', () => 
   assert.doesNotMatch(source, /pendingTimeout|const teardown\s*=/u);
 });
 
+test('embedding admission owns atomic partial permits without a shadow counter', () => {
+  const contract = readRepoFile('docs/agents/effect-boundary.md');
+  const helper = readRepoFile('packages/embeddings/src/worker/embedding-admission-budget.ts');
+  const worker = readRepoFile('packages/embeddings/src/worker/embedding-worker.ts');
+  assert.match(contract, /Embedding admission reserves partial permits transactionally/u);
+  assert.match(contract, /effect-boundary\/embedding-admission-permits\.md/u);
+  assert.match(helper, /TxSemaphore\.available\(semaphore\)/u);
+  assert.match(helper, /Effect\.txRetry/u);
+  assert.match(helper, /Effect\.tx\(/u);
+  assert.match(worker, /await admissionBudget\.release\(unusedSlots\)/u);
+  assert.match(worker, /await admissionBudget\.release\(heldInFlightSlots\)/u);
+  assert.doesNotMatch(worker, /let inFlightJobs|inFlightBudgetWaiters/u);
+});
+
 test('parser host Schema stays in main and utility consumers', () => {
   const shared = readRepoFile('apps/desktop/src/parser-host-shared.ts');
   assert.doesNotMatch(shared, /from ['"]effect['"]/u);
