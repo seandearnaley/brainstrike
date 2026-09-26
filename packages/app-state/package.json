@@ -206,6 +206,10 @@
     "./stores/worktree-setup-consent-store": {
       "types": "./dist/stores/worktree-setup-consent-store.d.ts",
       "import": "./dist/stores/worktree-setup-consent-store.js"
+    },
+    "./local-runtime-diagnostics": {
+      "types": "./dist/local-runtime-diagnostics.d.ts",
+      "import": "./dist/local-runtime-diagnostics.js"
     }
   },
   "files": [
