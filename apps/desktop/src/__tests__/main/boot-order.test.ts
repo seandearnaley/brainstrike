@@ -229,35 +229,25 @@ vi.mock('../../desktop-shutdown-state', async () => {
   };
 });
 
-const {
-  databaseSchedulerCloseMock,
-  databaseSchedulerStartMock,
-  databaseSchedulerStopMock,
-  dimensionSchedulerCloseMock,
-  dimensionSchedulerStartMock,
-  dimensionSchedulerStopMock,
-} = vi.hoisted(() => ({
-  databaseSchedulerCloseMock: vi.fn(async (): Promise<void> => undefined),
-  databaseSchedulerStartMock: vi.fn(),
-  databaseSchedulerStopMock: vi.fn(),
-  dimensionSchedulerCloseMock: vi.fn(async (): Promise<void> => undefined),
-  dimensionSchedulerStartMock: vi.fn(),
-  dimensionSchedulerStopMock: vi.fn(),
+const { maintenanceCloseMock, maintenanceStartMock, maintenanceStopMock } = vi.hoisted(() => ({
+  maintenanceCloseMock: vi.fn(async (): Promise<void> => undefined),
+  maintenanceStartMock: vi.fn(async (): Promise<void> => undefined),
+  maintenanceStopMock: vi.fn(),
 }));
 
 vi.mock('../../database-maintenance-scheduler', () => ({
-  createDesktopDatabaseMaintenanceScheduler: vi.fn(() => ({
-    close: databaseSchedulerCloseMock,
-    start: databaseSchedulerStartMock,
-    stop: databaseSchedulerStopMock,
-  })),
+  createDesktopDatabaseMaintenanceScheduler: vi.fn(() => ({})),
 }));
 
 vi.mock('../../dimension-index-maintenance-scheduler', () => ({
-  createDesktopDimensionIndexMaintenanceScheduler: vi.fn(() => ({
-    close: dimensionSchedulerCloseMock,
-    start: dimensionSchedulerStartMock,
-    stop: dimensionSchedulerStopMock,
+  createDesktopDimensionIndexMaintenanceScheduler: vi.fn(() => ({})),
+}));
+
+vi.mock('../../desktop-maintenance-trigger-graph', () => ({
+  createDesktopMaintenanceTriggerGraph: vi.fn(() => ({
+    close: maintenanceCloseMock,
+    start: maintenanceStartMock,
+    stop: maintenanceStopMock,
   })),
 }));
 
@@ -270,8 +260,8 @@ describe('main boot order', () => {
     closeDatabaseMock.mockResolvedValue(undefined);
     cleanupSubscriptionsMock.mockResolvedValue(undefined);
     waitForDatabaseIdleMock.mockResolvedValue(undefined);
-    databaseSchedulerCloseMock.mockResolvedValue(undefined);
-    dimensionSchedulerCloseMock.mockResolvedValue(undefined);
+    maintenanceCloseMock.mockResolvedValue(undefined);
+    maintenanceStartMock.mockResolvedValue(undefined);
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(true);
     process.env['CI'] = 'false';
@@ -296,15 +286,13 @@ describe('main boot order', () => {
       expect(mockBrowserWindowInstance.loadFile).toHaveBeenCalled();
       expect(mockBrowserWindowInstance.show).toHaveBeenCalled();
     });
-    expect(databaseSchedulerStartMock).not.toHaveBeenCalled();
-    expect(dimensionSchedulerStartMock).not.toHaveBeenCalled();
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
 
     // Once the DB (and probe) complete, the maintenance schedulers start.
     resolveDatabase?.({});
     await vi.waitFor(() => {
       expect(probeMock).toHaveBeenCalledTimes(1);
-      expect(databaseSchedulerStartMock).toHaveBeenCalledTimes(1);
-      expect(dimensionSchedulerStartMock).toHaveBeenCalledTimes(1);
+      expect(maintenanceStartMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -316,9 +304,34 @@ describe('main boot order', () => {
 
     await vi.waitFor(() => {
       expect(mockBrowserWindowInstance.show).toHaveBeenCalled();
-      expect(databaseSchedulerStartMock).toHaveBeenCalledTimes(1);
-      expect(dimensionSchedulerStartMock).toHaveBeenCalledTimes(1);
+      expect(maintenanceStartMock).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('logs each error from a partial maintenance graph acquisition', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    maintenanceStartMock.mockRejectedValueOnce(
+      new AggregateError([new Error('dimension timer failed'), undefined], 'Acquisition failed')
+    );
+
+    await import('../../main');
+
+    const mainLogger = createLoggerMock.mock.results
+      .map((result) => result.value)
+      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
+    await vi.waitFor(() =>
+      expect(mainLogger?.error).toHaveBeenCalledWith(
+        'Failed to start desktop maintenance schedulers',
+        {
+          error: expect.objectContaining({
+            errors: [
+              expect.objectContaining({ message: 'dimension timer failed' }),
+              { message: 'undefined' },
+            ],
+          }),
+        }
+      )
+    );
   });
 
   it('does not start maintenance after a probe finishes during shutdown', async () => {
@@ -334,8 +347,7 @@ describe('main boot order', () => {
 
     await vi.waitFor(() => expect(probeMock).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
-    expect(databaseSchedulerStartMock).not.toHaveBeenCalled();
-    expect(dimensionSchedulerStartMock).not.toHaveBeenCalled();
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
 
     const mainLogger = createLoggerMock.mock.results
       .map((result) => result.value)
@@ -350,7 +362,7 @@ describe('main boot order', () => {
     );
   });
 
-  it('fences both maintenance owners before joining trigger close and the database lane', async () => {
+  it('fences the paired maintenance owner before joining trigger close and the database lane', async () => {
     getDatabaseMock.mockResolvedValue({});
     await import('../../main');
     const planRun = shutdownPlanCapture.current;
@@ -359,7 +371,7 @@ describe('main boot order', () => {
     }
 
     let releaseTriggerClose: (() => void) | undefined;
-    dimensionSchedulerCloseMock.mockImplementationOnce(
+    maintenanceCloseMock.mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
           releaseTriggerClose = resolve;
@@ -367,10 +379,8 @@ describe('main boot order', () => {
     );
     const step = planRun().steps.database(new AbortController().signal);
 
-    expect(dimensionSchedulerStopMock).toHaveBeenCalledTimes(1);
-    expect(databaseSchedulerStopMock).toHaveBeenCalledTimes(1);
-    expect(dimensionSchedulerCloseMock).toHaveBeenCalledTimes(1);
-    expect(databaseSchedulerCloseMock).toHaveBeenCalledTimes(1);
+    expect(maintenanceStopMock).toHaveBeenCalledTimes(1);
+    expect(maintenanceCloseMock).toHaveBeenCalledTimes(1);
     expect(waitForDatabaseIdleMock).not.toHaveBeenCalled();
 
     releaseTriggerClose?.();
@@ -386,7 +396,7 @@ describe('main boot order', () => {
     if (!planRun) {
       throw new Error('Shutdown plan was not registered');
     }
-    dimensionSchedulerCloseMock.mockRejectedValueOnce(undefined);
+    maintenanceCloseMock.mockRejectedValueOnce(undefined);
 
     await expect(planRun().steps.database(new AbortController().signal)).rejects.toMatchObject({
       errors: [undefined],

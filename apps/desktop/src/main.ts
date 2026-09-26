@@ -50,10 +50,7 @@ import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { closeDesktopRenderers } from './close-desktop-renderers';
 import { createWindow, noteNextWindowReload } from './create-window';
-import {
-  createDesktopDatabaseMaintenanceScheduler,
-  type DesktopDatabaseMaintenanceScheduler,
-} from './database-maintenance-scheduler';
+import { createDesktopDatabaseMaintenanceScheduler } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
 import {
   closeDatabase,
@@ -66,6 +63,10 @@ import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { serializeDesktopError } from './desktop-error-serialization';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
+import {
+  createDesktopMaintenanceTriggerGraph,
+  type DesktopMaintenanceTriggerGraph,
+} from './desktop-maintenance-trigger-graph';
 import {
   configureDesktopRendererTarget,
   createDesktopRendererTarget,
@@ -104,10 +105,7 @@ import {
   type DimensionIndexBuildStrategy,
   probeDimensionIndexRuntimeCapabilities,
 } from './dimension-index-maintenance-capabilities';
-import {
-  createDesktopDimensionIndexMaintenanceScheduler,
-  type DesktopDimensionIndexMaintenanceScheduler,
-} from './dimension-index-maintenance-scheduler';
+import { createDesktopDimensionIndexMaintenanceScheduler } from './dimension-index-maintenance-scheduler';
 import { resolveBuiltRendererPath } from './dist-root';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
@@ -458,9 +456,7 @@ let worktreeService: ReturnType<typeof createWorktreeService> | null = null;
 // load, before construction. There is exactly one instance; T2/T3 consume it
 // through the injected seams, never by constructing a second service.
 let snapshotService: SnapshotService | null = null;
-let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
-let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
-  null;
+let desktopMaintenanceTriggerGraph: DesktopMaintenanceTriggerGraph | null = null;
 let desktopDimensionIndexStrategy: DimensionIndexBuildStrategy | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
@@ -506,18 +502,12 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await chunkingHostManager.dispose();
       },
       database: async () => {
-        const dimensionMaintenance = desktopDimensionIndexMaintenanceScheduler;
-        dimensionMaintenance?.stop();
-        desktopDimensionIndexMaintenanceScheduler = null;
-        const databaseMaintenance = desktopDatabaseMaintenanceScheduler;
-        databaseMaintenance?.stop();
-        desktopDatabaseMaintenanceScheduler = null;
+        const maintenance = desktopMaintenanceTriggerGraph;
+        maintenance?.stop();
+        desktopMaintenanceTriggerGraph = null;
         // Before the idle join: a submitted sample drains; later ticks are no-ops.
         processCounterSampler.stop();
-        const triggerClosures = await Promise.allSettled([
-          dimensionMaintenance?.close(),
-          databaseMaintenance?.close(),
-        ]);
+        const triggerClosures = await Promise.allSettled([maintenance?.close()]);
         const triggerErrors: unknown[] = triggerClosures.flatMap((result) =>
           result.status === 'rejected' ? [result.reason] : []
         );
@@ -869,7 +859,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
 });
 
-desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
+const desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
   getDatabase,
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
@@ -881,7 +871,7 @@ desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler(
   subscribeToSchedulerSnapshots: (listener) =>
     getDesktopDatabaseWorkScheduler().subscribe(listener),
 });
-desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenanceScheduler({
+const desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenanceScheduler({
   getDatabase,
   getDimensionIndexStrategy: () => desktopDimensionIndexStrategy,
   getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
@@ -893,6 +883,10 @@ desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenan
   subscribeToSchedulerSnapshots: (listener) =>
     getDesktopDatabaseWorkScheduler().subscribe(listener),
 });
+desktopMaintenanceTriggerGraph = createDesktopMaintenanceTriggerGraph(
+  desktopDatabaseMaintenanceScheduler,
+  desktopDimensionIndexMaintenanceScheduler
+);
 
 ipcDisposers.add(
   'logging',
@@ -1453,24 +1447,16 @@ if (singleInstanceLockAcquired) {
           if (isDesktopShuttingDown()) {
             return;
           }
-          const databaseMaintenance = desktopDatabaseMaintenanceScheduler;
-          if (databaseMaintenance) {
-            await databaseMaintenance.start();
-            logger.debug('Scheduled desktop database maintenance started');
-          }
-          // Shutdown may have sealed and removed both owners while the first
-          // scoped acquisition was settling. Never restart a retired owner.
-          if (isDesktopShuttingDown()) {
-            return;
-          }
-          const dimensionMaintenance = desktopDimensionIndexMaintenanceScheduler;
-          if (dimensionMaintenance) {
-            await dimensionMaintenance.start();
-            logger.debug('Scheduled desktop dimension index maintenance started');
+          const maintenance = desktopMaintenanceTriggerGraph;
+          if (maintenance) {
+            await maintenance.start();
+            logger.debug('Scheduled desktop maintenance triggers started');
           }
         })
         .catch((error) => {
-          logger.error('Failed to start desktop maintenance schedulers', { error });
+          logger.error('Failed to start desktop maintenance schedulers', {
+            error: serializeDesktopError(error),
+          });
         });
 
       // Setup security before creating windows

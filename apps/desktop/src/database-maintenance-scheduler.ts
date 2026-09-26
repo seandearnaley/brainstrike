@@ -5,6 +5,7 @@ import {
   type ScheduledDatabaseMaintenanceOptions,
   type ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
+import type { Effect, Scope } from 'effect';
 import { isCorruptionError } from './db-main';
 import {
   type RuntimeDatabaseCorruptionHandler,
@@ -17,7 +18,10 @@ import {
   type MaintenanceSchedulerSnapshot,
   readInFlightAssistantWork,
 } from './maintenance-admission';
-import { createMaintenanceTriggerRuntime } from './maintenance-trigger-runtime';
+import {
+  acquireMaintenanceTriggerResources,
+  createMaintenanceTriggerRuntime,
+} from './maintenance-trigger-runtime';
 
 const DEFAULT_DATABASE_MAINTENANCE_INITIAL_DELAY_MS = 30_000;
 
@@ -87,6 +91,7 @@ export type DesktopDatabaseMaintenanceRunResult =
     };
 
 export interface DesktopDatabaseMaintenanceScheduler {
+  readonly acquireTrigger: (isLive: () => boolean) => Effect.Effect<void, never, Scope.Scope>;
   readonly close: () => Promise<void>;
   readonly runOnce: () => Promise<DesktopDatabaseMaintenanceRunResult>;
   readonly start: () => Promise<void>;
@@ -286,10 +291,10 @@ export function createDesktopDatabaseMaintenanceScheduler(
     return await maintenanceInFlight;
   };
 
-  const trigger = createMaintenanceTriggerRuntime({
+  const triggerOptions = {
     initialDelayMs,
     intervalMs,
-    onCloseError: (error) => {
+    onCloseError: (error: unknown) => {
       options.logger.error({ error }, 'Scheduled database maintenance trigger cleanup failed');
     },
     subscribe: () => {
@@ -302,9 +307,11 @@ export function createDesktopDatabaseMaintenanceScheduler(
         options.logger.error({ error }, 'Scheduled database maintenance failed');
       });
     },
-  });
+  };
+  const trigger = createMaintenanceTriggerRuntime(triggerOptions);
 
   return {
+    acquireTrigger: (isLive) => acquireMaintenanceTriggerResources(triggerOptions, isLive),
     close: trigger.close,
     runOnce,
     start: trigger.start,

@@ -62,7 +62,7 @@ Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`, `timeout
 - Keep `runShutdownSequence` for named graceful shutdown; factory reset retains
   parallel restartable stops, its database barrier and renderer-ready gate.
 - Extraction preserves current startup-failure, reset and stale DB-client behavior.
-  A desktop Layer graph requires a separate decision with measured benefit.
+  A whole-main Layer graph requires a separate decision with measured benefit.
 
 Evidence: `effect-boundary/desktop-composition-root.md`, `effect-boundary/renderer-startup.md`.
 Decision: `docs/adr/0005-desktop-composition-root.md`.
@@ -70,10 +70,10 @@ Guard: `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
 ### Desktop maintenance scopes
 
-- Effect scopes own maintenance triggers and subscriptions, never admitted SQL.
+- A narrow Context/Layer scope owns both maintenance triggers and subscriptions, never admitted SQL.
   Stop fences automatic dispatch synchronously; close joins finalizers before DB drain.
 - Preserve native unref interval cadence, separate admission policies and reset barriers;
-  failed acquisition releases its resources, and cleanup failures stay visible.
+  partial graph acquisition rolls back both triggers, and all cleanup failures stay visible.
 
 Decision: `docs/adr/0006-scoped-desktop-maintenance.md`. Evidence: `effect-boundary/desktop-maintenance-runtime.md`.
 Guard: `apps/desktop/src/__tests__/maintenance-trigger-runtime.test.ts`, `scripts/__tests__/effect-boundary-contract.test.mjs`.

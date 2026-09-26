@@ -17,6 +17,54 @@ export interface MaintenanceTriggerRuntimeOptions {
   readonly tick: () => void;
 }
 
+/** The resource recipe shared by standalone schedulers and the desktop Layer. */
+export function acquireMaintenanceTriggerResources(
+  options: MaintenanceTriggerRuntimeOptions,
+  isLive: () => boolean
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    yield* Effect.acquireRelease(
+      Effect.sync(() => options.subscribe?.() ?? null),
+      (unsubscribe) => Effect.sync(() => unsubscribe?.())
+    );
+    yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        const handles: TimerHandles = { initial: null, interval: null };
+        const fire = (): void => {
+          if (isLive()) {
+            options.tick();
+          }
+        };
+        handles.initial = setTimeout(() => {
+          handles.initial = null;
+          if (!isLive()) {
+            return;
+          }
+          fire();
+          if (!isLive()) {
+            return;
+          }
+          handles.interval = setInterval(fire, options.intervalMs);
+          handles.interval.unref?.();
+        }, options.initialDelayMs);
+        handles.initial.unref?.();
+        return handles;
+      }),
+      (handles) =>
+        Effect.sync(() => {
+          if (handles.initial !== null) {
+            clearTimeout(handles.initial);
+            handles.initial = null;
+          }
+          if (handles.interval !== null) {
+            clearInterval(handles.interval);
+            handles.interval = null;
+          }
+        })
+    );
+  });
+}
+
 interface TriggerState {
   closePromise: Promise<void> | null;
   readonly scope: Scope.Closeable;
@@ -65,50 +113,12 @@ export function createMaintenanceTriggerRuntime(
         stopped: false,
       };
       current = state;
-      const acquire = Effect.gen(function* () {
-        yield* Effect.acquireRelease(
-          Effect.sync(() => options.subscribe?.() ?? null),
-          (unsubscribe) => Effect.sync(() => unsubscribe?.())
-        );
-        yield* Effect.acquireRelease(
-          Effect.sync(() => {
-            const handles: TimerHandles = { initial: null, interval: null };
-            const isLive = (): boolean => current === state && !state.stopped;
-            const fire = (): void => {
-              if (isLive()) {
-                options.tick();
-              }
-            };
-            handles.initial = setTimeout(() => {
-              handles.initial = null;
-              if (!isLive()) {
-                return;
-              }
-              fire();
-              if (!isLive()) {
-                return;
-              }
-              handles.interval = setInterval(fire, options.intervalMs);
-              handles.interval.unref?.();
-            }, options.initialDelayMs);
-            handles.initial.unref?.();
-            return handles;
-          }),
-          (handles) =>
-            Effect.sync(() => {
-              if (handles.initial !== null) {
-                clearTimeout(handles.initial);
-                handles.initial = null;
-              }
-              if (handles.interval !== null) {
-                clearInterval(handles.interval);
-                handles.interval = null;
-              }
-            })
-        );
-      });
       state.startPromise = runAtPromiseBoundary(
-        Effect.provideService(acquire, Scope.Scope, state.scope)
+        Effect.provideService(
+          acquireMaintenanceTriggerResources(options, () => current === state && !state.stopped),
+          Scope.Scope,
+          state.scope
+        )
       ).catch(async (error: unknown) => {
         try {
           await closeState(state);
