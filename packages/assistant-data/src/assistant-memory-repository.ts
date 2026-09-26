@@ -698,14 +698,14 @@ export interface AssistantThreadRepository {
     options?: AssistantThreadRunEventListOptions
   ) => Promise<readonly AssistantRunEvent[]>;
   listThreads: (resourceId: string) => Promise<readonly AssistantMemoryThread[]>;
-  /** Exact host-leg mapping recorded when a native root run starts. */
-  ownsNativeRun?: (hostRunId: string, nativeRunId: string) => Promise<boolean>;
   /** Required by history-adapter append; optional only for read-only/test repositories. */
   recordMessageParent?: (input: RecordAssistantMessageParentInput) => Promise<void>;
   /** Task Ledger: upsert the per-run outcome label. Optional only for read-only/test repositories. */
   recordRunOutcome?: (input: RecordRunOutcomeInput) => Promise<void>;
   recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
   renameThread: (threadId: string, title: string) => Promise<void>;
+  /** The first host owner and later legs in its scoped generation. */
+  sharesNativeRunGeneration?: (hostRunId: string, nativeRunId: string) => Promise<boolean>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
   updateThreadsMetadata?: (
     threadIds: readonly string[],
@@ -2827,15 +2827,16 @@ export async function readPausedActionReplayPrefix(input: {
       candidate &&
       hostRunId &&
       repository.getMessageParent &&
-      repository.ownsNativeRun &&
+      repository.sharesNativeRunGeneration &&
       repository.hasResolvedToolCallInGeneration
     ) {
-      const [transientParent, turnMessageId, ownsNativeRun, hasTerminal] = await Promise.all([
-        repository.getMessageParent(pausedMessageId, threadId, resourceId),
-        repository.getThreadRunTurnMessageId(hostRunId, threadId),
-        repository.ownsNativeRun(hostRunId, nativeRunId),
-        repository.hasResolvedToolCallInGeneration(hostRunId, toolCallId),
-      ]);
+      const [transientParent, turnMessageId, sharesNativeRunGeneration, hasTerminal] =
+        await Promise.all([
+          repository.getMessageParent(pausedMessageId, threadId, resourceId),
+          repository.getThreadRunTurnMessageId(hostRunId, threadId),
+          repository.sharesNativeRunGeneration(hostRunId, nativeRunId),
+          repository.hasResolvedToolCallInGeneration(hostRunId, toolCallId),
+        ]);
       const hasExactHostPause = hasHostPauseEvidence({
         events: runEvents,
         hostRunId,
@@ -2843,7 +2844,7 @@ export async function readPausedActionReplayPrefix(input: {
         toolCallId,
       });
       if (
-        ownsNativeRun &&
+        sharesNativeRunGeneration &&
         transientParent !== undefined &&
         transientParent !== null &&
         transientParent === candidate.parentId &&
@@ -3658,19 +3659,6 @@ export function createPgliteAssistantThreadRepository(
         });
       });
     },
-    async ownsNativeRun(hostRunId, nativeRunId) {
-      requireString(hostRunId, 'hostRunId');
-      requireString(nativeRunId, 'nativeRunId');
-      await initialize();
-      const result = await database.query<{ owns: boolean }>(
-        `SELECT EXISTS (
-           SELECT 1 FROM brainstrike_assistant_native_runs
-           WHERE host_run_id = $1 AND native_run_id = $2
-         ) AS owns`,
-        [hostRunId, nativeRunId]
-      );
-      return result.rows[0]?.owns === true;
-    },
     async recordMessageParent(input: RecordAssistantMessageParentInput): Promise<void> {
       const messageId = requireNonEmptyTopologyId(input.messageId, 'messageId');
       const threadId = requireNonEmptyTopologyId(input.threadId, 'threadId');
@@ -3789,6 +3777,29 @@ export function createPgliteAssistantThreadRepository(
          WHERE id = $1`,
         [threadId, normalizedTitle, THREAD_TITLE_SOURCE_METADATA_KEY, new Date()]
       );
+    },
+    async sharesNativeRunGeneration(hostRunId, nativeRunId) {
+      requireString(hostRunId, 'hostRunId');
+      requireString(nativeRunId, 'nativeRunId');
+      await initialize();
+      const result = await database.query<{ owns: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM brainstrike_assistant_thread_runs host
+           JOIN brainstrike_assistant_native_runs mapped ON mapped.native_run_id = $2
+           JOIN brainstrike_assistant_thread_runs owner ON owner.id = mapped.host_run_id
+           WHERE host.id = $1
+             AND host.thread_id = owner.thread_id
+             AND host.resource_id = owner.resource_id
+             AND (
+               -- Legacy null-generation rows can still prove their exact first owner.
+               mapped.host_run_id = host.id OR
+               (host.generation_run_id IS NOT NULL AND
+                host.generation_run_id = owner.generation_run_id)
+             )
+         ) AS owns`,
+        [hostRunId, nativeRunId]
+      );
+      return result.rows[0]?.owns === true;
     },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
       assertPersistableThreadMetadata(metadata);

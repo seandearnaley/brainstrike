@@ -41,7 +41,7 @@ afterEach(() => {
   resetDesktopMastraMemoryCacheForTests();
 });
 
-it('replays a distinct live paused owner through the HTTP action host leg', async () => {
+it('replays a typed Gate B suspension on the Gate A approval continuation host leg', async () => {
   const database = await wasmLoader.createPGlite('memory://http-action-replay');
   try {
     await migrate(database);
@@ -164,6 +164,182 @@ it('replays a distinct live paused owner through the HTTP action host leg', asyn
         }),
       })
     );
+
+    // Gate A resumed the original native run on a new host leg. The native
+    // mapping stays with its first leg; Gate B is suspended on this second leg.
+    await repository.createThreadRun({
+      decision: { delegated: false, runId: 'native-run', toolCallId: 'canvas-call' },
+      id: 'gate-b-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    await repository.recordMessageParent?.({
+      messageId: 'gate-b-paused-ui-owner',
+      parentId: 'user-a',
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    await repository.appendThreadRunEvent('gate-b-host', {
+      id: 'gate-b-started',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:03Z',
+    });
+
+    const resumeGateB = (
+      hostRunId: string,
+      threadId: string,
+      pausedId: string
+    ): ReturnType<typeof runRequest> =>
+      runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', runId: `answer-${hostRunId}`, threadId },
+            provider: 'openai',
+          },
+          messages: [],
+          pausedMessageId: pausedId,
+          runConfig: {
+            custom: {
+              brainstrikeToolSuspend: {
+                hostRunId,
+                resumeData: { answer: 'continue' },
+                runId: 'native-run',
+                toolCallId: 'canvas-call',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+    const gateBResponse = await resumeGateB('gate-b-host', thread.id, 'gate-b-paused-ui-owner');
+    expect(gateBResponse.status).toBe(200);
+    const { streamMastraToolResumeAction } = await import('@brainstrike/agent');
+    expect(streamMastraToolResumeAction).toHaveBeenCalledTimes(1);
+    expect(streamMastraToolResumeAction).toHaveBeenCalledWith(
+      expect.objectContaining({ hostRunId: 'gate-b-host', runId: 'native-run' }),
+      expect.anything()
+    );
+    expect(assistantDataStreamSessions.create).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        discovery: expect.objectContaining({
+          actionReplay: expect.objectContaining({ pausedMessageId: 'native-owner' }),
+        }),
+      })
+    );
+
+    // The same thread and turn are insufficient when the host leg opened a
+    // different generation, even with a matching transient parent and event.
+    await repository.createThreadRun({
+      id: 'other-generation-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    await repository.appendThreadRunEvent('other-generation-host', {
+      id: 'other-generation-started',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:04Z',
+    });
+    const wrongGeneration = await resumeGateB(
+      'other-generation-host',
+      thread.id,
+      'gate-b-paused-ui-owner'
+    );
+    expect(wrongGeneration.status).toBe(500);
+    expect(JSON.parse(wrongGeneration.body)).toEqual({
+      error: 'assistant_admission_rejected',
+      message: 'Assistant stream failed.',
+    });
+    expect(streamMastraToolResumeAction).toHaveBeenCalledTimes(1);
+
+    const otherThread = await repository.createThread('workspace-a');
+    await database.query(
+      `INSERT INTO mastra_messages
+        (id, thread_id, content, role, type, "createdAt", "resourceId")
+       VALUES ($1, $2, $3::jsonb, 'user', 'v2', $4, 'workspace-a'),
+              ($5, $2, $6::jsonb, 'assistant', 'v2', $7, 'workspace-a')`,
+      [
+        'other-user',
+        otherThread.id,
+        JSON.stringify({ format: 2, parts: [{ text: 'Other thread', type: 'text' }] }),
+        new Date('2026-08-10T17:00:00Z'),
+        'other-native-owner',
+        JSON.stringify({
+          format: 2,
+          parts: [
+            {
+              toolInvocation: {
+                args: {},
+                state: 'input-available',
+                toolCallId: 'canvas-call',
+                toolName: 'brainstrike_manageCanvas',
+              },
+              type: 'tool-invocation',
+            },
+          ],
+        }),
+        new Date('2026-08-10T17:00:01Z'),
+      ]
+    );
+    await repository.recordMessageParent?.({
+      messageId: 'other-paused-ui-owner',
+      parentId: 'other-user',
+      resourceId: 'workspace-a',
+      threadId: otherThread.id,
+    });
+    await repository.createThreadRun({
+      id: 'other-thread-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: otherThread.id,
+      turnMessageId: 'other-user',
+    });
+    // Give it the same generation ID to isolate thread ownership as the guard.
+    await database.query(
+      `UPDATE brainstrike_assistant_thread_runs SET generation_run_id = 'host-leg'
+       WHERE id = 'other-thread-host'`
+    );
+    await repository.appendThreadRunEvent('other-thread-host', {
+      id: 'other-thread-started',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'canvas-call', toolName: 'brainstrike.manageCanvas' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:04Z',
+    });
+    const wrongThread = await resumeGateB(
+      'other-thread-host',
+      otherThread.id,
+      'other-paused-ui-owner'
+    );
+    expect(wrongThread.status).toBe(500);
+    expect(JSON.parse(wrongThread.body)).toEqual({
+      error: 'assistant_admission_rejected',
+      message: 'Assistant stream failed.',
+    });
+    expect(streamMastraToolResumeAction).toHaveBeenCalledTimes(1);
   } finally {
     await database.close();
   }

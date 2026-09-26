@@ -48,6 +48,134 @@ function toolPart(toolCallId: string): Record<string, unknown> {
 }
 
 describe('action replay prefix', () => {
+  it('accepts a typed pause on an approval resume leg in the native owner generation', async () => {
+    fixtureIndex += 1;
+    const db = (await createMigratedTestPGlite(
+      `memory://action-prefix-${fixtureIndex}`
+    )) as DbHandle;
+    const repository = createPgliteAssistantThreadRepository(db);
+    const thread = await repository.createThread('workspace-a');
+    await insertMessage(
+      db,
+      thread.id,
+      'user-a',
+      'user',
+      [{ text: 'prompt', type: 'text' }],
+      '2026-08-10T17:00:00Z'
+    );
+    await insertMessage(
+      db,
+      thread.id,
+      'native-owner',
+      'assistant',
+      [toolPart('canvas-call')],
+      '2026-08-10T17:00:01Z'
+    );
+    await repository.recordMessageParent?.({
+      messageId: 'paused-gate-b-ui',
+      parentId: 'user-a',
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+    await repository.createThreadRun({
+      id: 'first-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    await db.query(
+      `INSERT INTO brainstrike_assistant_native_runs (native_run_id, host_run_id)
+       VALUES ('native-run', 'first-host')`
+    );
+    await repository.appendThreadRunEvent('first-host', {
+      id: 'gate-a-approval',
+      kind: 'tool.approval.requested',
+      label: 'Awaiting approval',
+      metadata: { toolCallId: 'canvas-call' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:02Z',
+    });
+    await repository.createThreadRun({
+      decision: { delegated: false, runId: 'native-run', toolCallId: 'canvas-call' },
+      id: 'resume-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    await repository.appendThreadRunEvent('resume-host', {
+      id: 'gate-b-started',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'canvas-call' },
+      sequence: 1,
+      status: 'running',
+      timestamp: '2026-08-10T17:00:03Z',
+    });
+    const action = {
+      hostRunId: 'resume-host',
+      nativeRunId: 'native-run',
+      pausedMessageId: 'paused-gate-b-ui',
+      pauseKind: 'suspend' as const,
+      repository,
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+      toolCallId: 'canvas-call',
+    };
+    expect((await readPausedActionReplayPrefix(action)).pausedMessageId).toBe('native-owner');
+    expect(
+      (
+        await db.query<{ hostRunId: string }>(
+          `SELECT host_run_id AS "hostRunId" FROM brainstrike_assistant_native_runs
+           WHERE native_run_id = 'native-run'`
+        )
+      ).rows[0]?.hostRunId
+    ).toBe('first-host');
+
+    const otherThread = await repository.createThread('workspace-a');
+    await repository.createThreadRun({
+      id: 'other-thread-host' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: otherThread.id,
+      turnMessageId: 'user-a',
+    });
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs
+       SET generation_run_id = 'first-host' WHERE id = 'other-thread-host'`
+    );
+    expect(await repository.sharesNativeRunGeneration?.('other-thread-host', 'native-run')).toBe(
+      false
+    );
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs
+       SET thread_id = $1, resource_id = 'another-workspace' WHERE id = 'other-thread-host'`,
+      [thread.id]
+    );
+    expect(await repository.sharesNativeRunGeneration?.('other-thread-host', 'native-run')).toBe(
+      false
+    );
+
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs SET generation_run_id = id WHERE id = 'resume-host'`
+    );
+    await expect(readPausedActionReplayPrefix(action)).rejects.toThrow('disagrees');
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs SET generation_run_id = NULL
+       WHERE id IN ('first-host', 'resume-host')`
+    );
+    expect(await repository.sharesNativeRunGeneration?.('resume-host', 'native-run')).toBe(false);
+    await expect(readPausedActionReplayPrefix(action)).rejects.toThrow('disagrees');
+  });
+
   it('resolves a live paused UI owner through its exact host leg and durable parent', async () => {
     fixtureIndex += 1;
     const db = (await createMigratedTestPGlite(
