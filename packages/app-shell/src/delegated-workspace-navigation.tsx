@@ -100,6 +100,8 @@ export function DelegatedWorkspaceNavigation({
     },
     [db, ownerResourceId, rootThreadId, currentThreadId]
   );
+  // Consumers invalidate cached identity when this resolver changes. The color
+  // revision deliberately changes its identity after a committed color refresh.
   const presentation = useCallback(
     async (threadId: string) => {
       if (!(db && rootThreadId)) {
@@ -121,6 +123,8 @@ export function DelegatedWorkspaceNavigation({
     },
     [db, ownerResourceId, rootThreadId, currentThreadId, colorRevision]
   );
+  // Approval-owner consumers also key their cache by resolver identity so late
+  // results from a previous color revision cannot restore the old presentation.
   const approvalOwner = useCallback(
     async (approval: AssistantToolApprovalRequest): Promise<ApprovalOwner | undefined> => {
       if (!(db && rootThreadId)) {

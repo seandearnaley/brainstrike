@@ -45,4 +45,17 @@ describe('saved agent color refresh client', () => {
       'Finish or stop the active agent run.'
     );
   });
+  it('reports non-JSON host failures without exposing parser errors', async () => {
+    vi.stubGlobal('fetch', async () => new Response('not found', { status: 404 }));
+    await expect(refreshAgentColors('root', 'owner')).rejects.toThrow(
+      'Agent colors could not be refreshed (HTTP 404).'
+    );
+  });
+
+  it('rejects malformed success responses explicitly', async () => {
+    vi.stubGlobal('fetch', async () => new Response('invalid', { status: 200 }));
+    await expect(refreshAgentColors('root', 'owner')).rejects.toThrow(
+      'Agent color refresh returned an invalid response.'
+    );
+  });
 });

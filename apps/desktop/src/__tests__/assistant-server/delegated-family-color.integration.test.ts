@@ -210,6 +210,57 @@ describe('durable delegated family colors', () => {
     expect((await repository.get(scope, 'child'))?.color).toBe(before);
   });
 
+  it('refuses saved child pauses after the root host run completes', async () => {
+    await createBudgetedHost(database, 'initial-leg').persist(identity);
+    await database.query(
+      `UPDATE brainstrike_assistant_thread_runs SET status = 'completed'
+       WHERE thread_id = 'root'`
+    );
+    await database.query(
+      `INSERT INTO brainstrike_assistant_thread_runs
+       (id, resource_id, thread_id, provider, model, runtime_kind, status,
+        started_at, created_at, updated_at)
+       VALUES ('child-projection', 'native-child-owner', 'child', 'openai', 'test', 'desktop',
+        'awaiting-approval', NOW(), NOW(), NOW())`
+    );
+    await database.query(
+      `INSERT INTO brainstrike_delegated_continuations
+       (id, owner_resource_id, root_thread_id, thread_id, host_run_id,
+        active_host_run_id, turn_message_id, input_text, native_run_id, state)
+       VALUES ('child-continuation', 'owner', 'root', 'child', 'initial-leg',
+        'initial-leg', 'user-turn', 'Continue', 'native-child-run', 'awaiting-approval')`
+    );
+    const repository = createDelegatedConversationRepository(database);
+    const before = (await repository.get(scope, 'child'))?.color;
+    await expect(refreshDelegatedFamilyColors(database, scope)).rejects.toMatchObject({
+      reason: 'agent-colors-active-run',
+    });
+    await database.query(
+      `UPDATE brainstrike_assistant_thread_runs SET status = 'completed'
+       WHERE id = 'child-projection'`
+    );
+    await expect(refreshDelegatedFamilyColors(database, scope)).rejects.toMatchObject({
+      reason: 'agent-colors-active-run',
+    });
+    await database.query(
+      `UPDATE brainstrike_delegated_continuations SET state = 'completed'
+       WHERE id = 'child-continuation'`
+    );
+    await database.query(
+      `UPDATE brainstrike_assistant_thread_runs SET status = 'awaiting-input'
+       WHERE id = 'child-projection'`
+    );
+    await expect(refreshDelegatedFamilyColors(database, scope)).rejects.toMatchObject({
+      reason: 'agent-colors-active-run',
+    });
+    expect((await repository.get(scope, 'child'))?.color).toBe(before);
+    await database.query(
+      `UPDATE brainstrike_assistant_thread_runs SET status = 'completed'
+       WHERE id = 'child-projection'`
+    );
+    await expect(refreshDelegatedFamilyColors(database, scope)).resolves.toBe(0);
+  });
+
   it('does not recolor while a concurrent delegation is admitted', async () => {
     const host = createBudgetedHost(database, 'initial-leg');
     const [refresh, admission] = await Promise.allSettled([

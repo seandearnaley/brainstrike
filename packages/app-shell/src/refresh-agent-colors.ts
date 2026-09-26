@@ -23,7 +23,17 @@ export async function refreshAgentColors(
     headers: { ...authHeaders, 'content-type': 'application/json' },
     method: 'POST',
   });
-  const body: unknown = await response.json();
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (cause) {
+    throw new Error(
+      response.ok
+        ? 'Agent color refresh returned an invalid response.'
+        : `Agent colors could not be refreshed (HTTP ${response.status}).`,
+      { cause }
+    );
+  }
   if (!response.ok) {
     const message =
       body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'

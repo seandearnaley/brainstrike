@@ -1810,8 +1810,9 @@ describe('ThreadsPanel groups', () => {
       'border-spacing-0'
     );
     expect(screen.getByTestId('thread-group-color-rose')).toHaveClass(
-      'border-rose-300',
-      'bg-rose-50'
+      'bs-agent-solid-mark',
+      'bg-rose-500',
+      'text-black'
     );
     // Group surfaces are soft tinted fills only — the hairline outline borders
     // are gone so grouped threads read as one calm slab.

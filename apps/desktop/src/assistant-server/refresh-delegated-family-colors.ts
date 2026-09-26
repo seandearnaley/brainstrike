@@ -73,6 +73,41 @@ async function updateColor(
   }
 }
 
+async function assertNoActiveAgentWork(
+  tx: DelegatedConversationDatabase,
+  scope: DelegatedConversationScope,
+  descendants: readonly DelegatedConversationNode[]
+): Promise<void> {
+  const addresses = JSON.stringify(
+    descendants.map((node) => ({ resourceId: node.resourceId, threadId: node.threadId }))
+  );
+  const active = await tx.query(
+    `WITH addresses AS (
+       SELECT $1::text AS thread_id, $2::text AS resource_id
+       UNION ALL
+       SELECT node."threadId", node."resourceId"
+       FROM jsonb_to_recordset($3::jsonb) AS node("threadId" text, "resourceId" text)
+     )
+     SELECT 1 FROM brainstrike_assistant_thread_runs run
+     JOIN addresses address ON address.thread_id = run.thread_id
+       AND address.resource_id = run.resource_id
+     WHERE run.status IN ('running', 'cancelling', 'awaiting-approval', 'awaiting-input')
+     UNION ALL
+     SELECT 1 FROM brainstrike_delegated_continuations continuation
+     JOIN addresses address ON address.thread_id = continuation.thread_id
+     WHERE continuation.root_thread_id = $1 AND continuation.owner_resource_id = $2
+       AND continuation.state IN ('claimed', 'running', 'awaiting-approval', 'awaiting-input')
+     LIMIT 1`,
+    [scope.rootThreadId, scope.ownerResourceId, addresses]
+  );
+  if (active.rows.length > 0) {
+    throw new DelegatedConversationIdentityError(
+      'agent-colors-active-run',
+      'Finish or stop the active agent run before refreshing saved colors.'
+    );
+  }
+}
+
 /** Reassign only saved colors; native identities, names, runs, and permissions stay intact. */
 export async function refreshDelegatedFamilyColors(
   database: DelegatedConversationDatabase,
@@ -83,21 +118,9 @@ export async function refreshDelegatedFamilyColors(
   }
   return await database.transaction(async (tx) => {
     const color = await readRootColor(tx, scope);
-    const active = await tx.query(
-      `SELECT 1 FROM brainstrike_assistant_thread_runs
-       WHERE thread_id = $1 AND resource_id = $2
-         AND status IN ('running', 'cancelling', 'awaiting-approval', 'awaiting-input')
-       LIMIT 1`,
-      [scope.rootThreadId, scope.ownerResourceId]
-    );
-    if (active.rows.length > 0) {
-      throw new DelegatedConversationIdentityError(
-        'agent-colors-active-run',
-        'Finish or stop the active agent run before refreshing saved colors.'
-      );
-    }
     const repository = createDelegatedConversationRepository(tx);
     const descendants = await repository.listDescendants(scope);
+    await assertNoActiveAgentWork(tx, scope, descendants);
     if (descendants.length === 0) {
       return 0;
     }

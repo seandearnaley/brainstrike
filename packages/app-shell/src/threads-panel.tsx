@@ -1659,6 +1659,15 @@ function ThreadsPanelToolbar({
   );
 }
 
+async function handleRefreshAgentColors(
+  threadId: string,
+  ownerResourceId: string
+): Promise<number> {
+  const changed = await refreshAgentColors(threadId, ownerResourceId);
+  publishDelegatedColorRefresh();
+  return changed;
+}
+
 export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = {}): ReactElement {
   const database = usePGliteDatabase();
   const databaseInitializing = useDbInitializing();
@@ -2010,14 +2019,6 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       return;
     }
     await updateThreadMetadata(repository, resourceId, threadId, metadata);
-  };
-  const handleRefreshAgentColors = async (
-    threadId: string,
-    ownerResourceId: string
-  ): Promise<number> => {
-    const changed = await refreshAgentColors(threadId, ownerResourceId);
-    publishDelegatedColorRefresh();
-    return changed;
   };
   const handleBulkColor = async (
     threadIds: readonly string[],

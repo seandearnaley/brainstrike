@@ -73,3 +73,9 @@ their saved accents, the ancestor cue matched the saved parent, and both convers
 backdrops had `box-shadow: none`. All 18 semantic mark inks measured at least 4.58:1.
 These are bounded fixture results, not a claim that arbitrarily large trees remain
 perceptually distinct. Names and ancestry remain available alongside color.
+
+Color refresh keeps the same-database child view mounted while its reread is pending.
+A failed reread still replaces it with a visible failure: repository failures do not
+reliably distinguish transient storage problems from invalid persisted identity or
+configuration. Retaining cached child content after every failure would violate
+the existing fail-closed ownership boundary.

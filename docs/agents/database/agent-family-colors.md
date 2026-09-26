@@ -15,3 +15,8 @@ The 28-degree descendant window produced nearly identical cousin accents despite
 The user can explicitly refresh saved child colors from root customization. The desktop host validates the owned graph and performs the read, allocation and color-only writes inside the existing callback transaction. Active or paused work rejects refresh. Saved names, native identities, configuration, messages, invocations and permissions are unchanged; opening a conversation or retrying admission never recolors it. No schema or persistent preference is added. Renderer invalidation rereads the saved colors while retaining mounted child conversation state.
 
 Guards: shared color tests; desktop delegated family-color and refresh endpoint tests; app-shell saved sidebar and workspace repaint tests; desktop delegated-workspace reload smoke.
+
+The 2026-09-25 rendering update also changes how existing `family:` tokens are
+painted: they use the brighter, gamut-fitted theme mapping without requiring a
+refresh. Refresh explicitly reallocates stored tokens; it is not required to
+receive the updated visual treatment. Names and execution identity are unchanged.
