@@ -82,3 +82,17 @@ Paired:
 
 Removing the in-flight skip, the quiet gate, the busy seed at start, the subscription, or the
 boot reap of background tasks each fails its own rows.
+
+## Interrupted HNSW maintenance at desktop boot (2026-09-26)
+
+An interrupted index build can leave a durable maintenance row in `running` alongside
+its index suspension. A real PGlite restart reproduced a permanent skip: suspension
+reconciliation treats `running` as owned, while the scheduler claims only `pending`.
+The single-instance desktop boot now moves those rows back to `pending` before
+starting maintenance triggers. It preserves the consumed in-flight attempt and
+retry limit, keeps the suspension, and makes the row due at boot. Exhausted
+`failed` rows are not silently reset by routine reconciliation; an explicit
+maintenance request can still reset them for a deliberate retry.
+This recovery cannot run on routine ticks: a long live build has no heartbeat,
+so elapsed time cannot prove abandonment. The persisted-database service test and
+desktop boot-order test guard the two halves of this ownership rule.

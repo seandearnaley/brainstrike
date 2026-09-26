@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
+import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
   addLogListener,
@@ -380,9 +381,38 @@ try {
 loggingPreferences.applyInitial();
 
 async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
+  let db: Awaited<ReturnType<typeof getDatabase>>;
+  let recovered: number;
+  try {
+    db = await getDatabase();
+    if (isDesktopShuttingDown()) {
+      return;
+    }
+    // This process owns the single-instance lock and maintenance triggers have
+    // not started. Only here can a persisted `running` build be proven orphaned.
+    recovered = await recoverInterruptedDimensionIndexMaintenanceAtStartup(db, {
+      now: () => mainProcessStartedAt,
+    });
+  } catch (error) {
+    if (!isDesktopShuttingDown()) {
+      throw error;
+    }
+    logger.info('Dimension index maintenance initialization aborted by shutdown', {
+      error: serializeDesktopError(error),
+    });
+    return;
+  }
+  if (recovered > 0) {
+    logger.info('Recovered interrupted dimension index maintenance at startup', {
+      recovered,
+    });
+  }
+  if (isDesktopShuttingDown()) {
+    return;
+  }
   try {
     const capabilities = await probeDimensionIndexRuntimeCapabilities({
-      db: await getDatabase(),
+      db,
       initialMemoryBytes: null,
       now: () => new Date(),
       scratchTableName: `brainstrike_hnsw_probe_${randomUUID().replaceAll('-', '_')}`,
@@ -1439,9 +1469,8 @@ if (singleInstanceLockAcquired) {
       // visible window needs none of it to paint, and renderer DB calls
       // coalesce on the same getDatabase() promise. Only the maintenance
       // schedulers wait for the probe (they consume the selected strategy).
-      // initializeDesktopDimensionIndexStrategy never rejects (it catches and
-      // degrades internally); the .catch guards the scheduler start() calls so
-      // a future throw there can never become an unhandled rejection.
+      // The capability probe catches its own failures. The outer catch keeps
+      // startup recovery and scheduler start failures visible and handled.
       void initializeDesktopDimensionIndexStrategy()
         .then(async () => {
           if (isDesktopShuttingDown()) {
