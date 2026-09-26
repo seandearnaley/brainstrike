@@ -333,6 +333,7 @@ export class TransformersBackend {
       const metadata = await client.stream(
         this.createWorkerRequest(texts, modelId, options?.streamBatchSize),
         {
+          ...(options?.signal ? { signal: options.signal } : {}),
           onBatch: async (event) => {
             const results = event.vectors.map((vector) => {
               const embedding = Array.from(vector) as number[];

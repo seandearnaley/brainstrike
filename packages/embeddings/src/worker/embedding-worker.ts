@@ -158,6 +158,17 @@ function createSimpleEmbeddingServiceOptions(
   };
 }
 
+function createStopAwareStreamOptions(
+  signal: AbortSignal,
+  overrideBatchSize: boolean,
+  streamBatchSize: number
+): EmbeddingStreamOptions {
+  return {
+    signal,
+    ...(overrideBatchSize ? { streamBatchSize } : {}),
+  };
+}
+
 const DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS = 5000;
 const DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD = 512;
 const EMBED_REINIT_EVERY_ENV = 'EMBED_REINIT_EVERY';
@@ -787,6 +798,17 @@ export async function startEmbeddingWorker(
         : new Error(message);
   }
 
+  function throwLocalExecutionFailureUnlessStopping(
+    modelId: string,
+    compositeKey: string,
+    error: unknown
+  ): never {
+    if (stopController.signal.aborted && error === stopController.signal.reason) {
+      throw error;
+    }
+    throw latchLocalModelExecutionFailure(modelId, compositeKey, error);
+  }
+
   async function ensureLocalModel(
     targetModelId: string,
     targetCompositeKey: string,
@@ -904,10 +926,18 @@ export async function startEmbeddingWorker(
     // Casting to allow array input which we added support for
     const embedResult = await providerInstance.embed({
       modelId,
+      signal: stopController.signal,
       text: texts,
     });
 
     if (!embedResult.ok) {
+      if (
+        stopController.signal.aborted &&
+        embedResult.error.type === 'network_error' &&
+        embedResult.error.originalError === stopController.signal.reason
+      ) {
+        throw stopController.signal.reason;
+      }
       handleHostedError(supportedProvider, embedResult.error);
       throw new Error('Unreachable'); // handleHostedError always throws
     }
@@ -1049,7 +1079,7 @@ export async function startEmbeddingWorker(
           expectedDimension
         );
       } catch (error) {
-        throw latchLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey, error);
+        throwLocalExecutionFailureUnlessStopping(jobModel.modelId, jobModel.compositeKey, error);
       }
       localModelExecutionFailure = null;
       generatedEmbeddings = results.map((r) => r.embedding);
@@ -1481,9 +1511,11 @@ export async function startEmbeddingWorker(
                 throw new LocalEmbeddingStreamCallbackError(error);
               }
             },
-            shouldOverrideStreamBatchSize
-              ? { streamBatchSize: pipelineCapacity.streamBatchSize }
-              : undefined
+            createStopAwareStreamOptions(
+              stopController.signal,
+              shouldOverrideStreamBatchSize,
+              pipelineCapacity.streamBatchSize
+            )
           )
         );
         reportRuntimeMetadata(parseRuntimeMetadata(runtimeMetadata));
@@ -1491,7 +1523,7 @@ export async function startEmbeddingWorker(
         if (error instanceof LocalEmbeddingStreamCallbackError) {
           throw error.originalError instanceof Error ? error.originalError : error;
         }
-        throw latchLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey, error);
+        throwLocalExecutionFailureUnlessStopping(jobModel.modelId, jobModel.compositeKey, error);
       }
 
       await completionWriter.flush();
@@ -1730,6 +1762,20 @@ export async function startEmbeddingWorker(
     checkLease: () => boolean,
     onJobsSettled?: (jobIds: Set<string>) => Promise<void>
   ): Promise<void> {
+    if (
+      stopController.signal.aborted &&
+      (error === stopController.signal.reason ||
+        (error instanceof JobProcessingError &&
+          error.originalError === stopController.signal.reason))
+    ) {
+      // Stop owns this interruption. Leave unfinished jobs under their durable
+      // leases so the next worker can reclaim them; do not consume a retry or
+      // turn a user quit into a terminal embedding failure.
+      workerLogger.info('Embedding batch interrupted by worker stop', {
+        jobCount: jobs.length,
+      });
+      return;
+    }
     if (checkLease()) {
       workerLogger.warn('Aborting batch processing due to lost lease');
       return;
@@ -1831,6 +1877,9 @@ export async function startEmbeddingWorker(
     let groupFailed = false;
     try {
       for (const group of groups.values()) {
+        if (stopController.signal.aborted) {
+          break;
+        }
         const checkLease = () => group.some((job) => leaseLost.has(job.id));
         if (checkLease()) {
           workerLogger.warn('Skipping group due to lost lease before processing', {

@@ -275,15 +275,15 @@ complementary application-level proof, not a pre-streaming baseline. Evidence:
 
 ### Embedding host lifecycle and shutdown
 
-- Disposing a host during `starting` cancels its lifecycle directly; the renderer may
-  still be awaiting DB setup with no command listener. Do not send Stop and wait for an
-  acknowledgement in that state.
+- During `starting`, cancel host lifecycle directly; DB setup may lack a Stop listener.
 - A running host uses the worker Stop protocol with a 3s acknowledgement bound inside
-  the application's 5s shutdown deadline. A missing acknowledgement or explicit renderer
-  error destroys the owned renderer and stays a reported stop failure.
-- Desktop test teardown quits while hidden host windows still exist; do not pre-close
-  every Playwright window. Why: removing renderer command listeners before the shutdown
-  coordinator drains owners races Stop acknowledgements.
+  the 5s app shutdown deadline. A missing acknowledgement or renderer error destroys
+  the owned renderer and remains a reported stop failure.
+- Stop aborts hosted requests/local streams; never start another group after abort.
+- A queued abort terminates the client and settles all streams with its exact reason.
+- Only the exact Stop reason leaves unfinished jobs leased; independent errors still fail/retry, and reclaim adds an attempt.
+- Desktop test teardown quits with hidden host windows open; pre-closing them removes
+  command listeners and races the shutdown coordinator's Stop acknowledgement.
 
 Evidence: `local-inference/host-lifecycle-and-shutdown.md`.
 
