@@ -278,6 +278,7 @@ async function createInitialTurnAttempt(
     const streamResult = driveBackgroundWork(
       runtime,
       runtimeData,
+      memory,
       nativeWake
         ? await wakeNativeConversation(
             runtime.agent,
@@ -625,6 +626,7 @@ async function createToolApprovalTurnAttempt({
         : driveBackgroundWork(
             runtime,
             runtimeData,
+            memory,
             action.action === 'approve'
               ? await runtime.agent.approveToolCall(resumedOptions as AgentToolApprovalOptions)
               : await runtime.agent.declineToolCall(resumedOptions as AgentToolApprovalOptions),
@@ -922,6 +924,7 @@ async function createToolResumeTurnAttempt({
         : driveBackgroundWork(
             runtime,
             runtimeData,
+            memory,
             await runtime.agent.resumeStream(
               resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
               resumedOptions as AgentResumeStreamOptions

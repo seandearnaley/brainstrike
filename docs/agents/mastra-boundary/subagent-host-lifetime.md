@@ -72,6 +72,16 @@ cancelled task. The installed `streamUntilIdle()` declaration is deprecated. Thi
 authorize a Mastra HTTP server, replacement workspace tools, or a second
 permission/persistence system.
 
+Mastra 1.64 retains a suspended task's executor context in its original
+runtime, while a reconstructed runtime must register one before `resume`.
+`createResumedExecutors` reads `manager.taskContexts.has(task.id)` only to
+preserve that existing native stream/result owner. `taskContexts` is marked
+`@internal` in the installed declaration; this is a version-sensitive,
+read-only compatibility seam, not a public Mastra API or a fallback executor.
+The same-runtime and reconstructed-root native guards in
+`background-resume.spec.ts` and
+`reconstructed-root-live-approval.integration.spec.ts` must pass on upgrade.
+
 BST-1718 publication boundary: `conversationBinding.bindRun` is a direct,
 process-local host callback. `streamAttemptChunks` awaits its native identity
 binding before mapping a child event, with a fresh authorization cache for each

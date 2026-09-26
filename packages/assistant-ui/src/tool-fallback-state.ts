@@ -18,6 +18,7 @@ import {
   TOOL_EXECUTION_FAILED_MESSAGE,
   toolStepStateFor,
 } from './activity-trace-model';
+import { readDelegatedTaskTerminalError } from './delegated-terminal-status';
 import {
   narrowRunPythonDisplayResult,
   type RunPythonDisplayResult,
@@ -109,6 +110,11 @@ export const resolveErrorMessage = (
 
   if (typeof status.error === 'string') {
     return status.error;
+  }
+
+  const delegatedTerminal = readDelegatedTaskTerminalError(status.error);
+  if (delegatedTerminal) {
+    return delegatedTerminal.message;
   }
 
   if (status.error !== undefined) {

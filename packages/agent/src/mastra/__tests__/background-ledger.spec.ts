@@ -416,9 +416,12 @@ describe('ledgerLabel + makeBackgroundLedgerChunk', () => {
     ]).source.read(new Set(['root-run']));
     expect(ledgerLabel(mixed)).toBe('1 of 3 specialists returned · 1 failed · 1 cancelled');
     const chunk = makeBackgroundLedgerChunk(mixed) as RunEventChunk;
-    expect(chunk.event.status).toBe('completed');
+    expect(chunk.event.status).toBe('failed');
     const single = await sourceOf([task('c1', 'completed')]).source.read(new Set(['root-run']));
     expect(ledgerLabel(single)).toBe('1 of 1 specialist returned');
+    expect((makeBackgroundLedgerChunk(single) as RunEventChunk).event.status).toBe('completed');
+    const cancelled = await sourceOf([task('c1', 'cancelled')]).source.read(new Set(['root-run']));
+    expect((makeBackgroundLedgerChunk(cancelled) as RunEventChunk).event.status).toBe('cancelled');
   });
 
   it('keeps prompts and reasons out of the persisted row', async () => {

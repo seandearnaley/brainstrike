@@ -41,6 +41,28 @@ const envelope = (output: Record<string, unknown>, toolCallId = 'call-1') => ({
 // emits a parent-level pause for the delegation call on the turn before the
 // task parks. Every chunk below is in that arrival order.
 describe('projectBackgroundStream: one delivery per background call', () => {
+  it('keeps a resumed task background-owned when its fresh root leg never saw its start', async () => {
+    const owners = new Set<string>();
+    const out: unknown[] = [];
+    for await (const part of projectBackgroundStream(
+      (async function* () {
+        yield start;
+        yield lifecycle('background-task-resumed');
+        yield lifecycle('background-task-output', {
+          payload: envelope({ payload: { toolCallId: 'leaf-1' }, type: 'tool-call-approval' }),
+        });
+        yield lifecycle('background-task-suspended', { suspendedAt: 'parked' });
+        yield finish;
+      })(),
+      true,
+      owners
+    )) {
+      out.push(part);
+    }
+    expect(out.map(typeOf)).toContain('background-task-suspended');
+    expect(owners).toContain(JSON.stringify(['root-run', 'call-1']));
+  });
+
   it("projects a background call's child output from its task", async () => {
     const frames = [envelope({ type: 'start' }), envelope({ type: 'step-start' })];
     const out = await collect([

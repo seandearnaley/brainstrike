@@ -211,6 +211,8 @@ export async function createBackgroundFixture(
     readonly permissionPolicy?: PermissionToolGateSnapshot;
     /** Dispatch this many independent children in one root step (`background-child-<n>`). */
     readonly siblings?: number;
+    /** Admit every sibling concurrently; otherwise the two-slot refusal guard remains active. */
+    readonly concurrentSiblings?: boolean;
     /** Use production-style durable work admission without forcing synthesis in the model. */
     readonly durableWork?: boolean;
     /**
@@ -529,8 +531,12 @@ export async function createBackgroundFixture(
     if (!hasToolResult(options, 'brainstrike_grepSearch')) {
       return toolCallParts('brainstrike_grepSearch', readId, { pattern: 'evidence' });
     }
-    if (gatedReads === 2 && !JSON.stringify(options.prompt).includes('background-read-2')) {
-      return toolCallParts('brainstrike_grepSearch', 'background-read-2', {
+    const secondReadId =
+      fanout.siblings && fanout.siblings > 2 && sibling !== undefined
+        ? `background-read-${sibling}-second`
+        : 'background-read-2';
+    if (gatedReads === 2 && !JSON.stringify(options.prompt).includes(secondReadId)) {
+      return toolCallParts('brainstrike_grepSearch', secondReadId, {
         pattern: 'evidence-2',
       });
     }
@@ -568,7 +574,12 @@ export async function createBackgroundFixture(
     ...(signal ? { signal } : {}),
     ...(fanout.requestOmitsSubagentSettings
       ? {}
-      : { subagentSettings: BACKGROUND_FIXTURE_SUBAGENT_SETTINGS }),
+      : {
+          subagentSettings: {
+            ...BACKGROUND_FIXTURE_SUBAGENT_SETTINGS,
+            ...(fanout.concurrentSiblings ? { maxConcurrentWork: siblings } : {}),
+          },
+        }),
   } as const;
   let cancel: DelegatedCancellationControl | undefined;
   let decide: DelegatedDecisionControl | undefined;

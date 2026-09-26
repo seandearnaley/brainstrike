@@ -209,6 +209,7 @@ export function armLiveDecisions(
     ]);
     let answered: readonly StreamChunkToolApprovalAnswered[];
     try {
+      await reservation.prepare();
       // The user's answer and every granted sibling's are ONE all-or-none
       // host write: a refused sibling must never leave the user's own pause
       // consumed with nothing resumed (BST-1749 review).

@@ -1143,11 +1143,11 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   concurrency 1. Remember the grant once the host has recorded the decision and
   strictly BEFORE every `manager.resume`. Persisted "Always allow" policies work
   through the same flag.
-- **RESUMED EXECUTORS:** a resume leg OWNS its live decision seam
-  (`channel.own`) before it registers anything, and registers every executor it
-  resumes BEFORE asking Mastra to resume any task — ownership cannot wait on
-  registration, and Mastra looks an executor up only when its workflow runs the
-  task. A registration failure fails the leg before any task is resumed, every
+- **RESUMED EXECUTORS:** every background phase (including the root's idle
+  phase) owns its live decision seam (`channel.own`) before preparation. Before
+  recording any approval answer, prepare every selected executor; register it
+  before asking Mastra to resume. Preserve a native context still owned by the
+  same runtime. A preparation failure leaves approvals answerable; every
   context the leg registered but Mastra never accepted is deregistered when the
   leg ends, and a refusal drops ONLY a context the leg still owns.
 - Registration is SINGLE-FLIGHT per task: every caller shares the one live

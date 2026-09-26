@@ -161,6 +161,22 @@ function createTurnCopyFilter(backgroundCalls: ReadonlySet<string>): {
 }
 
 /** Fold the host idle loop's turns into one host-owned stream, retaining native child envelopes. */
+function rememberBackgroundCall(
+  callId: string | undefined,
+  callKey: string,
+  kind: 'task' | 'resumed task',
+  calls: Set<string>,
+  backgroundCalls: Set<string> | undefined,
+  acknowledge?: () => void
+): void {
+  if (!callId) {
+    throw new Error(`Native background ${kind} omitted its tool-call identity.`);
+  }
+  acknowledge?.();
+  calls.add(callKey);
+  backgroundCalls?.add(callKey);
+}
+
 export async function* projectBackgroundStream(
   source: AsyncIterable<unknown>,
   enabled = true,
@@ -196,12 +212,9 @@ export async function* projectBackgroundStream(
       }
       case 'background-task-started':
       case 'background-task-running':
-        if (!callId) {
-          throw new Error('Native background task omitted its tool-call identity.');
-        }
-        turnCopies.acknowledge(decoded, callKey);
-        calls.add(callKey);
-        backgroundCalls?.add(callKey);
+        rememberBackgroundCall(callId, callKey, 'task', calls, backgroundCalls, () =>
+          turnCopies.acknowledge(decoded, callKey)
+        );
         continue;
       case 'tool-result':
       case 'tool-output':
@@ -243,7 +256,10 @@ export async function* projectBackgroundStream(
         continue;
       case 'background-task-resumed':
         // A parked child continues in this leg (a live decision): its held
-        // pause terminal is dropped, its own finish will follow.
+        // pause terminal is dropped, its own finish will follow. A fresh root
+        // leg did not see this task's original start: it still owns background
+        // child output and must release its next pause when the task parks.
+        rememberBackgroundCall(callId, callKey, 'resumed task', calls, backgroundCalls);
         yield part;
         continue;
       case 'background-task-cancelled':

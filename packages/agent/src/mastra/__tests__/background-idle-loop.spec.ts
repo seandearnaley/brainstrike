@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ActiveBackgroundResultsProcessor } from '../active-background-results-processor';
 import { withBackgroundIdleLoop } from '../background-idle-loop';
 import { createBackgroundLedgerSource } from '../background-ledger';
+import type { ResumedExecutors } from '../background-resume';
 import { createLiveDecisionChannel } from '../live-decision-channel';
 
 /**
@@ -73,6 +74,23 @@ function fakeManager(events: unknown[], onResume: (taskId: string) => void) {
   return { ledger, manager, push: (event: unknown) => push?.(event), setTask };
 }
 
+/** Native executor ownership is covered by the real Mastra integration tests. */
+function fakeExecutors(manager: BackgroundTaskManager): () => ResumedExecutors {
+  const executor = { executed: Promise.resolve(), terminal: () => {} };
+  return () => ({
+    deregisterUnresumed: () => {},
+    join: async () => {},
+    prepare: async () => {},
+    register: async () => executor,
+    registerAll: async () => {},
+    resume: async (task, _registered, data) => {
+      await manager.resume(task.id, data);
+    },
+    resumeAll: async () => {},
+    terminal: () => {},
+  });
+}
+
 /** The host port that maps each native root run this leg starts (migration 140). */
 const recordNativeRootRun = async () => {};
 
@@ -132,6 +150,42 @@ function isLedgerRow(chunk: unknown): chunk is LedgerRow {
 const ANY_TURN_INVOCATIONS = 8;
 
 describe('withBackgroundIdleLoop', () => {
+  it('releasing one reservation twice cannot release a concurrent reservation', async () => {
+    const channel = createLiveDecisionChannel();
+    const { ledger, manager } = fakeManager([], () => {});
+    const output = withBackgroundIdleLoop(turn('suspended'), {
+      agent,
+      channel,
+      createResumedExecutors: fakeExecutors(manager),
+      ledger,
+      manager,
+      maxInvocations: ANY_TURN_INVOCATIONS,
+      options: {} as never,
+      recordNativeRootRun,
+      rejectedDelegations: undefined,
+      scope: { resourceId: 'r', threadId: 't' },
+    });
+    const owner = channel.owner;
+    if (!owner) {
+      throw new Error('The leg must own live decisions.');
+    }
+    const task = { id: 't1' } as BackgroundTask;
+    const first = owner.reserve([task]);
+    const second = owner.reserve([task]);
+    first.release();
+    first.release();
+    const reader = output.fullStream.getReader();
+    let ended = false;
+    const end = reader.read().then((result) => {
+      ended = result.done;
+      return result;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(ended).toBe(false);
+    second.release();
+    expect((await end).done).toBe(true);
+  });
+
   it('keeps a presented outcome queued when the parent request fails', async () => {
     const { ledger, manager, push, setTask } = fakeManager([], () => {});
     setTask('t1', 'completed');
@@ -182,6 +236,7 @@ describe('withBackgroundIdleLoop', () => {
     const output = withBackgroundIdleLoop(emptyTurn, {
       agent,
       channel,
+      createResumedExecutors: fakeExecutors(manager),
       ledger,
       manager,
       maxInvocations: ANY_TURN_INVOCATIONS,
@@ -276,6 +331,7 @@ describe('withBackgroundIdleLoop', () => {
     const output = withBackgroundIdleLoop(emptyTurn, {
       agent,
       channel,
+      createResumedExecutors: fakeExecutors(manager),
       ledger,
       manager,
       maxInvocations: ANY_TURN_INVOCATIONS,
@@ -312,6 +368,7 @@ describe('withBackgroundIdleLoop', () => {
       {
         agent: { id: 'root', stream } as unknown as Agent,
         channel,
+        createResumedExecutors: fakeExecutors(manager),
         ledger,
         manager,
         maxInvocations: ANY_TURN_INVOCATIONS,
@@ -343,6 +400,7 @@ describe('withBackgroundIdleLoop', () => {
       {
         agent: { id: 'root', stream } as unknown as Agent,
         channel,
+        createResumedExecutors: fakeExecutors(manager),
         ledger,
         manager,
         maxInvocations: ANY_TURN_INVOCATIONS,
@@ -392,6 +450,7 @@ describe('withBackgroundIdleLoop', () => {
       {
         agent,
         channel,
+        createResumedExecutors: fakeExecutors(manager),
         ledger,
         manager,
         maxInvocations: ANY_TURN_INVOCATIONS,
@@ -444,6 +503,7 @@ describe('withBackgroundIdleLoop', () => {
       {
         agent: { id: 'root', stream } as unknown as Agent,
         channel,
+        createResumedExecutors: fakeExecutors(manager),
         ledger,
         manager,
         maxInvocations: ANY_TURN_INVOCATIONS,
@@ -490,6 +550,7 @@ describe('withBackgroundIdleLoop', () => {
       {
         agent: { id: 'root', stream } as unknown as Agent,
         channel,
+        createResumedExecutors: fakeExecutors(manager),
         ledger,
         manager,
         maxInvocations: ANY_TURN_INVOCATIONS,
@@ -545,6 +606,7 @@ describe('withBackgroundIdleLoop', () => {
       {
         agent: { id: 'root', stream } as unknown as Agent,
         channel,
+        createResumedExecutors: fakeExecutors(manager),
         ledger,
         manager,
         maxInvocations: ANY_TURN_INVOCATIONS,
@@ -582,6 +644,7 @@ describe('withBackgroundIdleLoop', () => {
       {
         agent: { id: 'root', stream } as unknown as Agent,
         channel,
+        createResumedExecutors: fakeExecutors(manager),
         ledger,
         manager,
         maxInvocations: ANY_TURN_INVOCATIONS,

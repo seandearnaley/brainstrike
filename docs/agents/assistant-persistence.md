@@ -637,8 +637,8 @@ before every parent wakeup, built from DURABLE task rows — never in-memory set
 - Shape: a FRESH `id` per row, the same `metadata.ledgerId`, and the counts.
   Content-free by construction — prompts and failure reasons stay in the
   model-facing wakeup.
-- `status` is `'running'` while anything runs and `'completed'` otherwise. A
-  failed specialist is a count in the label, never `run.failed`.
+- `status` is `running` while anything runs, then `failed` if any task failed,
+  `cancelled` if only cancellations remain, else `completed`; this is the fan-out, never `run.failed`.
 - Rendering is LATEST-ROW-WINS and the lookup is RUN-AGNOSTIC: live parts carry no
   `runId` while hydrated parts do, and the resume leg publishing the final row is
   a different host run from the leg that published the stale one.
@@ -1666,21 +1666,21 @@ thread-run and run-event tables.
 - A native invocation plus current root host leg gets its own opaque child host-run
   id; the root turn id is not a child user message id, so the nullable child header
   field stays unset. Usage stays in the root-attributed writer.
-- A terminal authorized event atomically settles prior running headers of the same
-  invocation to the same outcome. The match requires child resource/thread plus
-  native parent run, tool call, child run and persona, so it cannot close a
-  different invocation in the same thread. No duplicate terminal event is minted,
-  existing terminal headers are immutable, and a rejected current event cannot
-  settle prior headers.
+- An authorized terminal settles prior running headers of the same invocation.
+  Match child resource/thread, native parent run/call, child run and persona;
+  terminal headers stay immutable, with no duplicate event; rejected events settle nothing.
+- A persisted `subagent.failed` from a root, delegated parent, or child
+  continuation closes only exact failed/cancelled native task legs in its parent
+  scope, root turn, and bound continuation run. Its typed terminal retires live
+  waits; transport errors alone never do. Siblings and genuinely parked tasks stay open.
 - Child lifecycle persistence is deliberately AWAITED before publication: it
   revalidates the invocation and makes the published event durable, and an
   exhausted write or identity failure propagates through the root error path. The
   root's queued writer also fails at final flush rather than tolerating lost
   events. Ordinary text and reasoning deltas perform no database round trips.
-- The shared history adapter assigns events by observed native row id BEFORE the
-  legacy run-window heuristic, so several resume legs can share one assistant
-  group; an observed message outside the loaded window is never assigned to a
-  different turn.
+- The history adapter assigns events by observed native row id before its
+  run-window heuristic. Resumed legs share one assistant group; a message
+  outside the loaded window never crosses turns.
 - **Anchor a scoped `tool.started` after its persisted tool part**, keyed by
   observed native message id and tool-call id — millisecond timestamps cannot
   establish that boundary, and timestamp weaving alone moved the event ahead of
@@ -1698,7 +1698,7 @@ thread-run and run-event tables.
   parent call and persona; projection uses it until Mastra supplies the current
   one. A missing identity fails BEFORE child projection state is registered.
 
-Evidence: `assistant-persistence/scoped-child-stream-hydration.md`.
+Evidence: `assistant-persistence/scoped-child-stream-hydration.md`, `assistant-persistence/background-child-terminal-reconciliation.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/delegated-stream-parity.integration.test.ts`,
 `delegated-runtime.integration.test.ts`,
 `delegated-conversation-host.integration.test.ts`,

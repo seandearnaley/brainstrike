@@ -68,3 +68,17 @@ case even using the historical 9.5x Linux/local ratio (about 99 seconds).
 This is a headroom estimate, not a new full-lane measurement; PR CI measures
 the new complete lane. The provider endpoint is a Chat Completions shim;
 the app runtime, database, approval, filesystem writes, and reload are real.
+
+## 2026-09-26: parent approval with parked Workers
+
+The delegated smoke lane adds one real Electron case that parks three Workers
+at read approvals, approves a root write in a fresh leg, grants reads while
+that root inference is held, then requires three live edit cards. The case
+grants edits and verifies all three Worker writes, their distinct edit
+checkpoints and terminal native tasks before releasing root synthesis. On macOS
+the case took 10.1 seconds, 26.6 seconds for its one-spec Playwright command
+including setup. The previously measured 440-second Linux lane has estimated
+headroom under its unchanged 900-second ceiling even at the historical 9.5x
+Linux/local case ratio (about 96 added seconds; roughly 536 seconds total).
+This is a case measurement and headroom estimate; PR CI will measure the new
+complete lane. The external model endpoint alone is scripted.

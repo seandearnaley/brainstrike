@@ -6,6 +6,7 @@ import type {
 import { createLogger } from '@brainstrike/logging';
 import type { Agent } from '@mastra/core/agent';
 import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
+import type { MastraMemory } from '@mastra/core/memory';
 import type { RuntimeData, StreamChunkToolApprovalAnswered } from '../types';
 import type { MastraAgentRuntime } from './agent-runtime';
 import type { ResumedApprovalToolCall } from './agent-streaming';
@@ -16,7 +17,11 @@ import {
   requireBackgroundGeneration,
   requireNativeRootRunRecorder,
 } from './background-ledger';
-import { type BackgroundResume, findPendingBackgroundTask } from './background-resume';
+import {
+  type BackgroundResume,
+  createResumedExecutors,
+  findPendingBackgroundTask,
+} from './background-resume';
 import type {
   DelegatedToolActionAnswer,
   DelegatedToolActionLeaf,
@@ -362,6 +367,7 @@ export async function recordGrantedBackgroundApprovals(params: {
 export function driveBackgroundWork<Output extends Parameters<typeof withBackgroundIdleLoop>[0]>(
   runtime: MastraAgentRuntime,
   runtimeData: RuntimeData | undefined,
+  memory: MastraMemory | undefined,
   output: Output,
   options: ReturnType<typeof buildStreamOptions>,
   abortSignal: AbortSignal,
@@ -372,6 +378,9 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
   if (!manager) {
     return output;
   }
+  if (!memory) {
+    throw new Error('Background work requires native memory for resumed executors.');
+  }
   const scope = runtimeData?.memory;
   if (!scope) {
     throw new Error('Background work requires the original root memory scope.');
@@ -380,6 +389,16 @@ export function driveBackgroundWork<Output extends Parameters<typeof withBackgro
     abortSignal,
     agent: runtime.agent,
     channel: runtime.liveDecisions,
+    createResumedExecutors: (publish, onDeliveryError) =>
+      createResumedExecutors({
+        manager,
+        memory,
+        onDeliveryError,
+        options,
+        publish,
+        runtime,
+        scope,
+      }),
     ledger: createBackgroundLedgerSource({
       generation: requireBackgroundGeneration(runtime.conversationBinding),
       manager,

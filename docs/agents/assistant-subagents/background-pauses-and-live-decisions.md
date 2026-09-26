@@ -347,6 +347,24 @@ drain set). The full state table —
 registered, in flight, accepted, drained against every event, with the pin for
 each cell — is the module doc of `createResumedExecutors` in
 `background-resume.ts`; keep it in step with that code.
+
+2026-09-26 reconstructed-root approval failure: three Explorer children parked
+on read asks while the root paused on its own glob approval. That approval
+started a fresh root runtime; its live session grant resumed all three children
+through `background-idle-loop` without restoring their native task executors.
+All three durable task rows failed with `No executor registered for tool
+"agent-explore"`. The same executor owner now serves dedicated resume and idle
+phases. A live decision prepares every selected task before its durable approval
+answer, so a failed preparation leaves the cards answerable, then registers
+before native resume. In the original runtime Mastra still owns a suspended
+task's context; replacing it misroutes output to the root. A reconstructed
+runtime has no such context and restores the task through the shared executor.
+The real Mastra guard `reconstructed-root-live-approval.integration.spec.ts`
+parks three Explorer children behind a root approval, reconstructs the root,
+answers one read plus two granted siblings while the root provider is held,
+and verifies six reads and three completed native tasks. The live resumed-owner
+guard in `background-stream.spec.ts` also pins child write pauses reaching the
+approval UI before the held parent model finishes.
 The leg's pause branch joins each resumed execution (`Promise.all(settled)`),
 and a join exists only for a task Mastra accepted. A join settles when its
 executor settles, or when Mastra publishes a terminal that ends the task.

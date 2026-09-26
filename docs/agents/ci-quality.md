@@ -586,10 +586,10 @@ Guard: `scripts/__tests__/e2e-lane-coverage.test.mjs`,
 
 ### Delegated workspace smoke coverage
 
-- The required desktop lane `test:e2e:lane:smoke-delegated` includes
-  `delegated-workspace-reload.desktop.test.ts` (`@smoke`): reload restores child
-  histories without running inference or offering edit/regenerate. The lane's
-  deadline and zero-retry policy stand.
+- Required `test:e2e:lane:smoke-delegated` runs both
+  `delegated-workspace-reload.desktop.test.ts` and
+  `parent-approval-with-parked-workers.desktop.test.ts` (`@smoke`): child reload
+  and live root/Worker read/edit grants and writes. Deadline/zero retries stand.
 
 Evidence: `ci-quality/delegated-workspace-smoke.md`.
 

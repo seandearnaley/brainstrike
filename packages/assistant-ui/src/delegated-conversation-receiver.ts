@@ -1,4 +1,5 @@
 import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
   CHILD_CONTINUATION_DATA_NAME,
   DELEGATED_CONVERSATION_DATA_NAME,
   type DelegatedConversationBaseline,
@@ -14,6 +15,7 @@ import {
   DataStreamDecoder,
 } from 'assistant-stream';
 import { deferMessageFinishUntilFlush } from './defer-message-finish';
+import { delegatedTaskTerminalError } from './delegated-terminal-status';
 
 const logger = createLogger('DelegatedConversationReceiver');
 
@@ -152,6 +154,45 @@ function readChildEnvelopes(chunk: AssistantStreamChunk): ChildEnvelope[] {
   });
 }
 
+function readFailedDelegations(chunk: AssistantStreamChunk): {
+  readonly parentRuntimeRunId: string;
+  readonly parentToolCallId: string;
+  readonly personaId: string;
+  readonly status: 'cancelled' | 'failed';
+}[] {
+  const entries =
+    chunk.type === 'data'
+      ? chunk.data
+      : chunk.type === 'part-start' && chunk.part.type === 'data'
+        ? [chunk.part]
+        : [];
+  const failures: ReturnType<typeof readFailedDelegations> = [];
+  for (const entry of entries) {
+    if (!(isRecord(entry) && entry['name'] === ASSISTANT_RUN_EVENT_DATA_NAME)) {
+      continue;
+    }
+    const event = entry['data'];
+    if (!(isRecord(event) && event['kind'] === 'subagent.failed' && isRecord(event['metadata']))) {
+      continue;
+    }
+    const { metadata } = event;
+    if (
+      (event['status'] === 'failed' || event['status'] === 'cancelled') &&
+      isNonemptyString(metadata['parentRuntimeRunId']) &&
+      isNonemptyString(metadata['parentToolCallId']) &&
+      isNonemptyString(metadata['personaId'])
+    ) {
+      failures.push({
+        parentRuntimeRunId: metadata['parentRuntimeRunId'],
+        parentToolCallId: metadata['parentToolCallId'],
+        personaId: metadata['personaId'],
+        status: event['status'],
+      });
+    }
+  }
+  return failures;
+}
+
 /**
  * Out-of-band `data` entries own no parent part index, so an envelope routed
  * to its child receiver is consumed here (CONSUMED CHILD ENVELOPES,
@@ -183,12 +224,15 @@ class ChildReceiver {
   private readonly encoder = new TextEncoder();
   private baseline?: DelegatedConversationBaseline;
   private receivedFrames = false;
+  private lastMessage?: AssistantMessage;
+  private incompletePublished = false;
+  private terminalReason: 'cancelled' | 'failed' | undefined;
   private readonly nested: DelegatedConversationTap;
 
   constructor(
     readonly owner: ChildConversationOwner,
     messageId: string,
-    onUpdate: (update: DelegatedConversationUpdate) => void,
+    private readonly onUpdate: (update: DelegatedConversationUpdate) => void,
     private readonly abortSignal: AbortSignal
   ) {
     this.messageId = messageId;
@@ -208,18 +252,22 @@ class ChildReceiver {
               return;
             }
             try {
-              const snapshot: AssistantMessage =
-                this.closed && !this.terminalObserved
-                  ? {
-                      ...message,
-                      status: {
-                        error: 'Parent stream ended before a delegated conversation terminal.',
-                        reason: 'error',
-                        type: 'incomplete',
-                      },
-                    }
-                  : message;
-              onUpdate({
+              const incomplete = this.closed && !this.terminalObserved;
+              const snapshot: AssistantMessage = incomplete
+                ? {
+                    ...message,
+                    status: {
+                      error: this.terminalReason
+                        ? delegatedTaskTerminalError(this.terminalReason)
+                        : 'Parent stream ended before a delegated conversation terminal.',
+                      reason: this.terminalReason === 'cancelled' ? 'cancelled' : 'error',
+                      type: 'incomplete',
+                    },
+                  }
+                : message;
+              this.lastMessage = snapshot;
+              this.incompletePublished ||= incomplete;
+              this.onUpdate({
                 ...(this.baseline ? { baseline: this.baseline } : {}),
                 ...this.owner,
                 message: snapshot,
@@ -287,6 +335,11 @@ class ChildReceiver {
     return this.closed;
   }
 
+  async fail(status: 'cancelled' | 'failed'): Promise<void> {
+    this.terminalReason = status;
+    await this.close();
+  }
+
   async close(): Promise<void> {
     if (!this.closed) {
       this.closed = true;
@@ -297,6 +350,25 @@ class ChildReceiver {
       }
     }
     await this.drained;
+    if (!(this.terminalObserved || this.incompletePublished) && this.lastMessage) {
+      const message: AssistantMessage = {
+        ...this.lastMessage,
+        status: {
+          error: this.terminalReason
+            ? delegatedTaskTerminalError(this.terminalReason)
+            : 'Parent stream ended before a delegated conversation terminal.',
+          reason: this.terminalReason === 'cancelled' ? 'cancelled' : 'error',
+          type: 'incomplete',
+        },
+      };
+      this.onUpdate({
+        ...(this.baseline ? { baseline: this.baseline } : {}),
+        ...this.owner,
+        message,
+        messageId: this.messageId,
+      });
+      this.incompletePublished = true;
+    }
     try {
       await this.nested.settle();
     } catch (error) {
@@ -411,6 +483,18 @@ export function createDelegatedConversationTap(
         // write so its baseline/start is committed before deltas and finish.
         for (const envelope of readChildEnvelopes(chunk)) {
           await receiveEnvelope(envelope);
+        }
+        for (const failure of readFailedDelegations(chunk)) {
+          for (const child of children.values()) {
+            if (
+              !child.isClosed &&
+              child.owner.identity?.parentRuntimeRunId === failure.parentRuntimeRunId &&
+              child.owner.identity.parentToolCallId === failure.parentToolCallId &&
+              child.owner.identity.personaId === failure.personaId
+            ) {
+              await child.fail(failure.status);
+            }
+          }
         }
       } catch (error) {
         await settleAfterFailure();

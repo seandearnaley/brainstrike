@@ -53,6 +53,7 @@ const DESKTOP_DELEGATED_SMOKE_SPECS = [
   'e2e/delegated-child-interactive.desktop.test.ts',
   'e2e/delegated-worker-write.desktop.test.ts',
   'e2e/delegated-workspace-reload.desktop.test.ts',
+  'e2e/parent-approval-with-parked-workers.desktop.test.ts',
   'e2e/workers-after-canvas-approval.desktop.test.ts',
 ];
 

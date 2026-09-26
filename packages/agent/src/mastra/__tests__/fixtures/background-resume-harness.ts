@@ -222,6 +222,7 @@ export function createNativeManager(
           );
         },
       }),
+    taskContexts: contexts,
   };
   const add = (taskId: string, toolName: string = TOOL): BackgroundTask => {
     const task: BackgroundTask = {
