@@ -6,6 +6,8 @@ import ts from 'typescript';
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 function parse(source) {
   const file = ts.createSourceFile('fixture.ts', source, ts.ScriptTarget.Latest, true);
+  // TypeScript exposes parser diagnostics at runtime, outside its public interface.
+  assert.ok(Array.isArray(file.parseDiagnostics), 'TypeScript parser diagnostics unavailable');
   assert.equal(file.parseDiagnostics.length, 0, 'Telemetry guard requires valid TypeScript');
   return file;
 }
@@ -24,7 +26,8 @@ function scope(source, name) {
   const matches = descendants(
     parse(source),
     (node) =>
-      (ts.isMethodDeclaration(node) ||
+      (ts.isVariableDeclaration(node) ||
+        ts.isMethodDeclaration(node) ||
         ts.isFunctionDeclaration(node) ||
         ts.isInterfaceDeclaration(node) ||
         ts.isClassDeclaration(node)) &&
@@ -33,7 +36,24 @@ function scope(source, name) {
   assert.equal(matches.length, 1, `Expected exactly one ${name}`);
   return matches[0];
 }
-function expressionName(node) {
+function unwrap(expression) {
+  let node = expression;
+  assert.ok(node, 'Expected expression argument');
+  while (
+    ts.isAsExpression(node) ||
+    ts.isParenthesizedExpression(node) ||
+    ts.isSatisfiesExpression(node)
+  ) {
+    node = node.expression;
+  }
+  return node;
+}
+function memberName(member) {
+  assert.ok(member.name, 'Unnamed members require explicit telemetry classification');
+  return member.name.getText();
+}
+function expressionName(expression) {
+  const node = unwrap(expression);
   if (ts.isPropertyAccessExpression(node)) {
     return `${expressionName(node.expression)}.${node.name.text}`;
   }
@@ -61,8 +81,19 @@ function assertMeasured(scopeNode, operation, wrapper, feature) {
         continue;
       }
       const parent = ancestor.parent;
-      if (!ts.isCallExpression(parent) || expressionName(parent.expression) !== wrapper) {
+      if (!ts.isCallExpression(parent)) {
+        break;
+      }
+      // The scheduler owns and awaits this callback; no arbitrary deferred closures.
+      if (
+        expressionName(parent.expression) === 'scheduler.run' &&
+        parent.arguments[0] === ancestor &&
+        ts.isAwaitExpression(parent.parent)
+      ) {
         continue;
+      }
+      if (expressionName(parent.expression) !== wrapper) {
+        break;
       }
       const callbackIndex = feature === undefined ? 0 : 1;
       if (parent.arguments[callbackIndex] !== ancestor) {
@@ -82,6 +113,27 @@ function assertMeasured(scopeNode, operation, wrapper, feature) {
       `${operation} outside measured callback ${wrapper}(${feature ?? 'callback'})`
     );
   }
+}
+
+function isMutation(owner, argument) {
+  let sql = argument;
+  if (sql && ts.isIdentifier(sql)) {
+    const declarations = descendants(
+      owner,
+      (node) => ts.isVariableDeclaration(node) && node.name.getText() === sql.text
+    );
+    assert.equal(declarations.length, 1, 'SQL variable must have one declaration');
+    sql = declarations[0].initializer;
+  }
+  if (!sql) {
+    return false;
+  }
+  const prefix = ts.isTemplateExpression(sql)
+    ? sql.head.text
+    : ts.isStringLiteralLike(sql)
+      ? sql.text
+      : '';
+  return /^\s*(INSERT|UPDATE|DELETE)\b/u.test(prefix);
 }
 
 const basePath = 'packages/db/src/repositories/base-repository.ts';
@@ -115,7 +167,7 @@ describe('database telemetry seams', () => {
       read('packages/db/src/repositories/interfaces.ts'),
       'IFileRecordRepository'
     )
-      .members.map((member) => member.name.getText())
+      .members.map(memberName)
       .sort();
     assert.deepEqual(declared, [...readMethods, ...writeMethods].sort());
   });
@@ -130,14 +182,16 @@ describe('database telemetry seams', () => {
       const publicMethods = scope(source, className)
         .members.filter(
           (member) =>
-            ts.isMethodDeclaration(member) &&
-            !member.modifiers?.some(
-              (modifier) =>
-                modifier.kind === ts.SyntaxKind.PrivateKeyword ||
-                modifier.kind === ts.SyntaxKind.ProtectedKeyword
+            !(
+              ts.isConstructorDeclaration(member) ||
+              member.modifiers?.some(
+                (modifier) =>
+                  modifier.kind === ts.SyntaxKind.PrivateKeyword ||
+                  modifier.kind === ts.SyntaxKind.ProtectedKeyword
+              )
             )
         )
-        .map((member) => member.name.getText())
+        .map(memberName)
         .sort();
       assert.deepEqual(
         publicMethods,
@@ -149,6 +203,15 @@ describe('database telemetry seams', () => {
         `${className}: classify every public method`
       );
 
+      for (const method of writeMethods) {
+        const owner = scope(source, method);
+        for (const call of calls(owner, operation)) {
+          if (path === basePath && isMutation(owner, call.arguments[0])) {
+            continue;
+          }
+          assertMeasured(call, operation, 'measureDatabaseQuery', 'file-tree');
+        }
+      }
       const methods = path === drizzlePath ? [...readMethods, 'findByNameSubstring'] : readMethods;
       for (const method of methods) {
         assertMeasured(scope(source, method), operation, 'measureDatabaseQuery', 'file-tree');
@@ -156,10 +219,20 @@ describe('database telemetry seams', () => {
     });
   }
   it('measures token-cache aggregate reads through the injected telemetry port', () => {
+    for (const name of ['get', 'getBatch', 'getAllForFolder', 'getTotalTokens']) {
+      assertMeasured(
+        scope(read('packages/token-cache/src/token-cache-store.ts'), name),
+        'this.db.query',
+        'this.measureLookup'
+      );
+    }
+  });
+  it('measures the single embedding queue poller', () => {
     assertMeasured(
-      scope(read('packages/token-cache/src/token-cache-store.ts'), 'getTotalTokens'),
-      'this.db.query',
-      'this.measureLookup'
+      scope(read('packages/vector-management/src/embedding-job-queue-tracker.tsx'), 'fetchStats'),
+      'jobQueue.getQueueStats',
+      'measureDatabaseQuery',
+      'queue-stats'
     );
   });
   it('measures live-query creation and refresh at the scheduler owner', () => {
@@ -172,8 +245,8 @@ describe('database telemetry seams', () => {
     );
     const handle = scope(source, 'createScheduledLiveQueryHandle');
     // Subscribe/unsubscribe Reflect.apply calls have lifecycle counters instead.
-    const refresh = calls(handle, 'Reflect.apply').filter((call) =>
-      call.arguments[0].getText().startsWith('refresh ')
+    const refresh = calls(handle, 'Reflect.apply').filter(
+      (call) => expressionName(call.arguments[0]) === 'refresh'
     );
     assert.equal(refresh.length, 1);
     assertMeasured(refresh[0], 'Reflect.apply', 'measureDatabaseQuery', 'live-query');
@@ -216,6 +289,8 @@ describe('telemetry guard negative controls', () => {
     "await this.db.query('SELECT 1'); return measureDatabaseQuery('file-tree', async () => []);",
     "// measureDatabaseQuery('file-tree', async () => this.db.query('SELECT 1'))\nreturn this.db.query('SELECT 1');",
     "return measureDatabaseQuery('file-tree', this.db.query('SELECT 1'));",
+    "return measureDatabaseQuery('file-tree', () => setTimeout(() => this.db.query('SELECT 1'), 0));",
+    "return measureDatabaseQuery('file-tree', () => () => this.db.query('SELECT 1'));",
   ]) {
     it(`rejects unmeasured work: ${body}`, () => {
       assert.throws(

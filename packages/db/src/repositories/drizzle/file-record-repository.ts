@@ -715,7 +715,10 @@ export class DrizzleFileRecordRepository {
   }
 
   async clearAll(): Promise<number> {
-    const [countResult] = await this.db.select({ count: count() }).from(fileRecords);
+    const [countResult] = await measureDatabaseQuery(
+      'file-tree',
+      async () => await this.db.select({ count: count() }).from(fileRecords)
+    );
     const totalCount = countResult?.count ?? 0;
 
     await this.db.delete(fileRecords);
