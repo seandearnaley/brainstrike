@@ -7,7 +7,10 @@ import {
 import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
 import type { StreamChunk } from '../types';
 import { createBackgroundFixture } from './fixtures/background-worker-runtime';
-import { hasGrantedShellProgressOrder } from './fixtures/delegated-progress-order';
+import {
+  hasGrantedShellProgressOrder,
+  shellOutputOwners,
+} from './fixtures/delegated-progress-order';
 
 // Host policy over the model-facing background knobs and over Mastra's
 // documented `untilIdle` terminals, driven through the production stream entry
@@ -417,17 +420,14 @@ it('a session grant answers every parked background sibling in the same approval
     expect(fixture.policyAnswers).toEqual(['background-child-2']);
     // Both children ran their read, both returned, the parent woke once with both.
     expect(effect).toHaveBeenCalledTimes(2);
+    expect(shellOutputOwners(chunks)).toEqual(['background-child-1', 'background-child-2']);
     expect(hasGrantedShellProgressOrder(chunks, 'background-read-2', 'background-child-2')).toBe(
       true
     );
     const parked = await runtime.backgroundTaskManager?.listTasks({ status: 'suspended' });
     expect(parked?.tasks).toEqual([]);
     expect(JSON.stringify(chunks)).toContain('PARENT_FINAL_OUTCOME');
-    // Debug-pack evidence (swarm diagnostics): the approval leg's resume stream
-    // recorded ONE resume-leg wakeup naming both returned siblings, carrying the
-    // exact text the parent then received, before that inference ran.
-    // MUTATION: recording after `agent.stream` moves `promptsAtRecord` past the
-    // wakeup prompt.
+    // The wakeup is recorded before the parent inference it names.
     expect(fixture.wakeups.map((row) => row.kind)).toEqual(['resume-leg']);
     const directive = fixture.wakeups[0]?.directive;
     const wakeupPrompt = fixture.model.prompts.findIndex((call) =>

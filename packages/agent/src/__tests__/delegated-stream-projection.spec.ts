@@ -383,13 +383,21 @@ it('attributes only an active child tool’s known custom output to its observed
         finished: value.type === 'finish',
       };
     },
-    personas: new Map([['agent-explore', 'explore']]),
+    personas: new Map([
+      ['agent-explore', 'explore'],
+      ['agent-worker', 'worker'],
+    ]),
   });
   if (!projection) {
     throw new Error('Missing projection');
   }
-  const wrap = (output: unknown, runId = 'parent-run', callId = 'call') => ({
-    payload: { output, toolCallId: callId, toolName: 'agent-explore' },
+  const wrap = (
+    output: unknown,
+    runId = 'parent-run',
+    callId = 'call',
+    toolName = 'agent-explore'
+  ) => ({
+    payload: { output, toolCallId: callId, toolName },
     runId,
     type: 'tool-output',
   });
@@ -414,6 +422,9 @@ it('attributes only an active child tool’s known custom output to its observed
   expect(await projection.project(wrap(custom), new Map())).toMatchObject([
     { chunk: { type: 'shell-output' }, identity, messageId: 'observed-message' },
   ]);
+  await expect(
+    projection.project(wrap(custom, 'parent-run', 'call', 'agent-worker'), new Map())
+  ).rejects.toThrow('no observed active native owner');
   expect(
     await projection.project(wrap({ ...custom, messageId: 'observed-message' }), new Map())
   ).toMatchObject([{ messageId: 'observed-message' }]);
@@ -465,6 +476,9 @@ it('attributes only an active child tool’s known custom output to its observed
   activeCalls.get('call')?.add('native-call');
   await projection.project(wrap({ runId: 'child-run', type: 'finish' }), new Map());
   expect(await projection.project(wrap(custom), new Map())).toEqual([]);
+  await expect(
+    projection.project(wrap(custom, 'parent-run', 'call', 'agent-worker'), new Map())
+  ).rejects.toThrow('no observed active native owner');
   await expect(
     projection.project(wrap({ ...custom, toolCallId: 'unknown-after-terminal' }), new Map())
   ).rejects.toThrow('no observed active native owner');

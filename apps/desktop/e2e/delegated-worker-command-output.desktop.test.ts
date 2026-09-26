@@ -244,9 +244,8 @@ test('delegated command asks by default, then a per-tool grant streams output an
       }
     }
     for (const cleanup of [
-      async () => {
-        await Promise.all([waitForOwnedExit(ownedProcess), electron.dispose()]);
-      },
+      async () => electron.dispose(),
+      async () => waitForOwnedExit(ownedProcess),
       async () => provider.close(),
       async () => {
         for (const key of Object.keys(environment)) {
@@ -258,7 +257,12 @@ test('delegated command asks by default, then a per-tool grant streams output an
           }
         }
       },
-      async () => rm(workspace, { force: true, recursive: true }),
+      async () => {
+        if (ownedProcess && ownedProcess.exitCode === null && ownedProcess.signalCode === null) {
+          throw new Error('Workspace retained because the Electron process is still running');
+        }
+        await rm(workspace, { force: true, recursive: true });
+      },
     ]) {
       try {
         await cleanup();
