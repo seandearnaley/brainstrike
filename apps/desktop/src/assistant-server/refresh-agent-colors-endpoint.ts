@@ -1,5 +1,6 @@
 import type http from 'node:http';
-import { respondJson } from '@brainstrike/assistant-service/http';
+import { AssistantRequestBodyTooLargeError } from '@brainstrike/agent';
+import { respondAssistantRejection, respondJson } from '@brainstrike/assistant-service/http';
 import { DelegatedConversationIdentityError } from '@brainstrike/db';
 import { z } from 'zod';
 import { getDatabase } from '../db-main';
@@ -19,7 +20,15 @@ export async function handleRefreshAgentColorsRequest(
   let input: unknown;
   try {
     input = JSON.parse(await readRequestBody(req, { maxBodyBytes: 4096 })) as unknown;
-  } catch {
+  } catch (error) {
+    if (error instanceof AssistantRequestBodyTooLargeError) {
+      respondAssistantRejection(res, {
+        closeConnection: true,
+        payload: { error: error.code, message: error.message },
+        status: 413,
+      });
+      return;
+    }
     input = null;
   }
   const parsed = requestSchema.safeParse(input);
