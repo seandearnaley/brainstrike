@@ -607,8 +607,31 @@ test('worker envelope Schema uses a dedicated subpath outside root and preload i
   const root = readRepoFile('packages/worker-runtime/src/index.ts');
   const validation = readRepoFile('packages/worker-runtime/src/validation.ts');
   assert.match(contract, /effect-boundary\/worker-envelope-schema\.md/u);
+  assert.match(
+    contract,
+    /predicate-only\s+`Schema\.is` boundaries preserve existing errors in caller code/u
+  );
   assert.equal(manifest.exports['./validation'].default, './dist/validation.js');
-  assert.doesNotMatch(root, /from ['"]effect['"]|from ['"]\.\/validation\.js['"]/u);
+  const importedSpecifiers = (source) =>
+    ts.preProcessFile(source, true, true).importedFiles.map(({ fileName }) => fileName);
+  for (const [source, specifier] of [
+    ["import { Schema } from 'effect/Schema'", 'effect/Schema'],
+    ["import '@effect/platform'", '@effect/platform'],
+    ["export * from './validation.js'", './validation.js'],
+    ["const module = import('effect')", 'effect'],
+    ["const module = require('./validation.js')", './validation.js'],
+  ]) {
+    assert.deepEqual(importedSpecifiers(source), [specifier]);
+  }
+  assert.deepEqual(
+    importedSpecifiers(root).filter(
+      (specifier) =>
+        isEffectModule(specifier) ||
+        specifier.startsWith('@effect/') ||
+        /(?:^|\/)validation(?:\.[cm]?[jt]s)?$/u.test(specifier)
+    ),
+    []
+  );
   assert.match(validation, /Schema\.Struct\(/u);
   assert.match(validation, /Schema\.makeFilter\(/u);
   assert.match(validation, /Schema\.is\(/u);
@@ -625,7 +648,7 @@ test('worker envelope Schema uses a dedicated subpath outside root and preload i
 test('Python manifest decodes with Schema and keeps its domain error boundary', () => {
   assert.match(
     readRepoFile('docs/agents/effect-boundary.md'),
-    /Each field schema's `message` is its old hand-check sentence/u
+    /Decoded fields annotate `message` with old hand-check sentences/u
   );
   const source = readRepoFile('apps/desktop/src/python-runtime/resolve-python-binary.ts');
   assert.match(source, /const manifestSchema = Schema\.Struct\(/u);

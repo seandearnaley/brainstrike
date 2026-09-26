@@ -8,6 +8,8 @@ The validators now use cached Schema field predicates from typed `Schema.Struct`
 
 The compatibility tests pin error class and exact sentence order, all six type literals, dynamic request kinds, whitespace, array roots, extra keys, arbitrary object payloads, and reference identity. The two-way compile-time schema/interface check also compares key sets so adding an optional field on only one side fails type checking. The paired contract test checks exports and direct imports; the existing desktop preload import-graph test supplies the transitive check.
 
+This `Schema.is` boundary intentionally throws its existing contextual plain `Error` sentences from code; predicate calls do not surface decoded Schema issues, so field `message` annotations would be unused. Decoder boundaries still annotate their field messages and use `makeThrowingDecoder`, with the documented Python domain-error adapter.
+
 ## Verification (2026-09-26)
 
 Baseline: `b5776b8cc69ea29567b02f4bb5ec157ed2552a9d`, after the transactional embedding admission PR. The implementation changes validation ownership and adds schema/interface drift detection; it does not claim the previous guards accepted invalid messages.
@@ -31,5 +33,7 @@ Clean baseline and candidate builds use the same checkout and toolchain. JavaScr
 | Desktop main bundle | 2,714,307 / 579,402 | 2,714,569 / 579,454 | +262 / +52 |
 
 Both preload bundles and the other five main-process entry outputs are unchanged. Main externalizes packages, so its small bundle delta does not measure the separately loaded Schema package. Desktop visible and hidden hosts share one static renderer entry: the 14,965-byte gzip startup increase applies to that shared graph. The larger startup delta than total delta reflects shared chunks moving into the static closure. The worker-runtime root itself remains Effect-free; this does not imply the desktop entry avoids Schema.
+
+The measured desktop startup increase is 0.685% of its baseline gzip closure. That cost is accepted for one Schema-owned set of field predicates and compile-time schema/interface drift checks shared by three host protocols, while keeping the package root and preload graph clear. Effect is allowed in renderers; the separate roughly 74 KB brand-decoding cost in the contract is a reason to keep renderer-minted IDs as type-only brands, not a blanket renderer ban.
 
 A synthetic Node 26.10.0 probe warmed each validator with 10,000 calls, then measured three samples of 100,000 valid calls while asserting original candidate/payload identity. Envelope baseline samples were 3.874 / 3.222 / 3.172 ms; candidate samples were 15.063 / 12.849 / 12.905 ms. Request baseline samples were 1.725 / 1.292 / 1.333 ms; candidate samples were 3.486 / 2.957 / 3.013 ms. Schema adds validation overhead. These are diagnostic loops, not end-to-end IPC latency, cold application startup, or a throughput improvement claim.

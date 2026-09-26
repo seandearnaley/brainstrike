@@ -82,10 +82,10 @@ Guard: `apps/desktop/src/__tests__/maintenance-trigger-runtime.test.ts`, `script
 
 - Decode PGlite rows, worker messages, and main-only IPC payloads with Effect
   Schema on arrival; derive row types, never cast. Check cross-field invariants in code.
-- Each field schema's `message` is its old hand-check sentence. Throwing code uses
+- Decoded fields annotate `message` with old hand-check sentences; predicate-only
+  `Schema.is` boundaries preserve existing errors in caller code. Throwing decoders use
   `makeThrowingDecoder`: `TypeError` with message/path and `SchemaError` cause.
-  Python manifests map issue paths to legacy `PythonManifestInvalidError` messages;
-  missing targets stay unsupported-platform errors.
+  Python maps issue paths to legacy `PythonManifestInvalidError` messages; missing targets stay unsupported-platform errors.
 - Count affected rows from `RETURNING`, never a driver row count. Why: the desktop DB host surfaces only `rows`.
 - A renderer-minted id is a type-only `Brand.Brand`, asserted once by its sole producer; Schema decoding adds about 74 KB gzipped.
 - Worker envelope Schema lives behind `@brainstrike/worker-runtime/validation`; keep the root import light and preserve plain `Error` sentences, array roots, and object identity.
