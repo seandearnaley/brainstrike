@@ -87,3 +87,19 @@ seams, per surface:
   transport's own reset contract, with the real transport);
   `factory-reset.test.tsx` and `db-provider-lifecycle.test.tsx` stay as the
   thin mount-level wiring checks.
+
+## Structured close failures (BST-404, 2026-09-26)
+
+The direct transport keeps teardown non-throwing but emits one error-level
+`database_close_failed` record through the existing logger. While the diagnostic listener is mounted, it
+can convert the record into a diagnostic event. After renderer unmount, the
+logger still emits it, but the database sink has detached; durability in the
+database being closed is not guaranteed.
+Its storage dimension is only `direct` or `browser-persistent`; it does not add
+the data directory as a dimension. The existing error payload is preserved
+and may itself contain a path; this is not an error-redaction guarantee. Only the exact PGlite closed message sentinel (including cross-realm errors) is
+ignored, not arbitrary failures mentioning "closed". Guards:
+`pglite-close-diagnostics.test.ts` (both ownership paths, benign/success and
+unexpected/non-Error failures) and `db-provider.test.tsx` (normal unmount). The cached loader reports at its
+non-throwing catch boundary; reset uses the same close helper.
+`wasm-loader.test.ts` and `factory-reset.test.tsx` cover these real ownership paths.

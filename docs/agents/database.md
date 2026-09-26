@@ -550,8 +550,8 @@ which proves the patched loop is under test before it simulates a trap.
   `factoryReset` runs barrier → idle → seal → unsubscribeAll → purge → close, and
   `dispose()` joins the in-flight initialization promise plus `drainDatabaseWorkForClose`
   before running the closer `DatabaseTransport.detachConnection()` handed back.
-- A failed idle join aborts or skips the close LOUDLY; past the seal the close is
-  committed and unsubscribe failures warn and proceed.
+- A failed idle join aborts/skips close loudly; past seal, close is committed: unsubscribe failures warn and proceed.
+- Direct close failures emit `database_close_failed`; only exact `PGlite is closed` is benign.
 - A desktop reset never reaches that leg: `electron-ipc-transport.ts` THROWS from both
   `hardReset()` and `purgeAndClose()` rather than handing back a local purge that would
   resolve having destroyed nothing. Why: the caller reloads on success, so a
