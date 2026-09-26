@@ -116,6 +116,7 @@ Guard: `packages/mcp-test-lab/__tests__/runner-manifest.test.ts`,
   clears ephemeral OAuth state, and rejects a non-empty cleanup report. The
   headless opener accepts only an HTTP `localhost`/`127.0.0.1` authorization
   endpoint and one exact `127.0.0.1` `/mcp/oauth/callback` redirect.
+- Negative auth proof requires real resource/metadata requests, the intended rejection and natural exit. Keep production-host/process tests and an early-exit control: alpha.10 `auth/resource-mismatch` can pass a client that never starts.
 - `conformance/expected-failures/` holds exactly `2025-11-25.json` and
   `2026-07-28.json`, both the closed `{ "client": string[] }` shape and both
   empty. Accepting a failure takes a reviewed contract change plus a named
@@ -132,8 +133,7 @@ Guard: `packages/mcp-test-lab/__tests__/runner-manifest.test.ts`,
   Captured output is line-bounded and sanitized, prints only for a failed
   scenario, and never enters the evidence artifact.
 
-Evidence: `mcp-conformance/official-conformance-client.md`,
-`mcp-conformance/official-runner-driver.md`.
+Evidence: `mcp-conformance/official-conformance-client.md`, `mcp-conformance/official-runner-driver.md`, `mcp-conformance/resource-mismatch-process-proof.md`.
 Guard: `scripts/__tests__/run-official-mcp-client-core.test.mjs`,
 `scripts/__tests__/run-official-mcp-client-modern-auth.test.mjs`,
 `scripts/__tests__/run-official-mcp-client-conformance-diagnostics.test.mjs`.
