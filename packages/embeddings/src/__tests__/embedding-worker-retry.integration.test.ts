@@ -449,4 +449,173 @@ describe('embedding-worker hosted-provider retries', () => {
       })
     );
   });
+
+  async function seedHostedStopJob(db: PGlite): Promise<string> {
+    const modelKey = 'openai::text-embedding-3-small';
+    const now = new Date().toISOString();
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ('stop-hosted-set', $1, 'text-embedding-3-small', 768, 'cosine', $2)`,
+      [modelKey, now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+       VALUES ('stop-hosted-file', 'hosted.ts', '/hosted.ts', 100, 'embed me', 'stop-hosted-hash', 10, $1, $1)`,
+      [now]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+       VALUES ('stop-hosted-chunk', 'stop-hosted-file', 0, 'embed me', 'stop-hosted-hash', 10, 'text', 10, $1, $1)`,
+      [now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+       VALUES ('stop-hosted-job', 'embeddings', 'embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [
+        JSON.stringify({
+          chunkId: 'stop-hosted-chunk',
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
+          embeddingSetId: 'stop-hosted-set',
+          expectedDimension: 768,
+          modelKey,
+          sourceContentHash: 'stop-hosted-hash',
+        }),
+        now,
+      ]
+    );
+
+    return modelKey;
+  }
+
+  it('aborts an active hosted request on Stop without consuming another attempt', async () => {
+    const started = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+    let abortObserved = false;
+    const modelKey = await seedHostedStopJob(db);
+
+    const provider: IEmbeddingProvider = {
+      async embed(input) {
+        started.resolve();
+        try {
+          await new Promise<void>((resolve, reject) => {
+            input.signal?.addEventListener(
+              'abort',
+              () => {
+                abortObserved = true;
+                reject(input.signal?.reason);
+              },
+              { once: true }
+            );
+            void released.promise.then(resolve);
+          });
+        } catch (error) {
+          return {
+            error: {
+              originalError: error instanceof Error ? error : new Error(String(error)),
+              provider: 'openai',
+              type: 'network_error',
+            },
+            ok: false,
+          };
+        }
+        throw new Error('A stopped request cannot complete.');
+      },
+      getMetadata: () => null,
+      getModelInfo: () => null,
+      isAvailable: () => Promise.resolve(true),
+      validateDimensions: () => ({ ok: true, value: undefined }),
+    };
+    vi.spyOn(EmbeddingProviderFactory, 'createProvider').mockResolvedValue({
+      ok: true,
+      value: provider,
+    });
+    const controller = await startEmbeddingWorker({
+      db,
+      leaseMs: 10_000,
+      modelKey,
+      service: createFlakyService({
+        embeddingValue: 0.3,
+        errorMessage: 'unused-by-hosted-path',
+        shouldFail: () => false,
+        totalTokens: 10,
+      }),
+    });
+    await started.promise;
+    const stopping = controller.stop();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const stopped = await Promise.race([
+        stopping.then(() => true),
+        new Promise<false>((resolve) => {
+          timer = setTimeout(() => resolve(false), 2000);
+        }),
+      ]);
+      expect(stopped).toBe(true);
+      expect(abortObserved).toBe(true);
+      const job = await db.query<{ attempts: number; state: string }>(
+        `SELECT state, attempts FROM job_queue WHERE id = 'stop-hosted-job'`
+      );
+      expect(job.rows[0]).toMatchObject({ attempts: 1, state: 'running' });
+    } finally {
+      clearTimeout(timer);
+      released.resolve();
+      await stopping;
+    }
+  });
+
+  it('records an independent hosted failure racing Stop', async () => {
+    const started = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+    const modelKey = await seedHostedStopJob(db);
+    const provider: IEmbeddingProvider = {
+      async embed(input) {
+        started.resolve();
+        input.signal?.addEventListener('abort', () => released.resolve(), { once: true });
+        await released.promise;
+        return {
+          error: {
+            originalError: new Error('Independent provider failure'),
+            provider: 'openai',
+            type: 'network_error',
+          },
+          ok: false,
+        };
+      },
+      getMetadata: () => null,
+      getModelInfo: () => null,
+      isAvailable: () => Promise.resolve(true),
+      validateDimensions: () => ({ ok: true, value: undefined }),
+    };
+    vi.spyOn(EmbeddingProviderFactory, 'createProvider').mockResolvedValue({
+      ok: true,
+      value: provider,
+    });
+    const controller = await startEmbeddingWorker({
+      db,
+      leaseMs: 10_000,
+      modelKey,
+      service: createFlakyService({
+        embeddingValue: 0.3,
+        errorMessage: 'unused-by-hosted-path',
+        shouldFail: () => false,
+        totalTokens: 10,
+      }),
+    });
+    await started.promise;
+    const stopping = controller.stop();
+    try {
+      await stopping;
+      const job = await db.query<{ attempts: number; error: string; state: string }>(
+        `SELECT state, attempts, error FROM job_queue WHERE id = 'stop-hosted-job'`
+      );
+      expect(job.rows[0]).toMatchObject({
+        attempts: 1,
+        error: expect.stringContaining('Independent provider failure'),
+        state: 'queued',
+      });
+    } finally {
+      released.resolve();
+      await stopping;
+    }
+  });
 });

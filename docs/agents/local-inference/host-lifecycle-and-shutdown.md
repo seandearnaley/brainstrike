@@ -23,3 +23,24 @@ Desktop test teardown requests application quit while hidden host windows still
 exist. Do not pre-close every Playwright window: removing hidden renderer command
 listeners before the main shutdown coordinator drains owners races Stop acknowledgements.
 Foreground child decision coverage asserts actual process exit zero as well as UI success.
+
+## Active embedding requests during Stop (2026-09-26)
+
+The controller previously aborted admission and idle waits but did not pass its Stop
+signal to a hosted provider's active `embed` request or to the dedicated local
+streaming worker. Its loop join could therefore outlive the host's 3s Stop bound.
+The active hosted and local PGlite job tests now block inference until the signal
+arrives, prove prompt Stop, and verify the claimed job remains `running` with one
+attempt. The streaming client tests prove termination rejects both the active and
+queued promises. A later worker reclaims the durable lease; interrupted inference
+is not recorded as a failed embedding attempt.
+Cancellation is recognized only when the failed request carries the exact Stop
+signal reason through the provider or streaming client. A separate provider
+failure arriving after Stop still records its normal queue failure and retry.
+The real Electron regression `embedding-host-active-stop.desktop.test.ts` held an
+Ollama-compatible HTTP embedding request open while the hidden renderer was
+running. The Stop bridge returned its command-matched `stopped` status within
+3s, the request socket closed, and the job retained its first running lease.
+The 2026-09-26 run passed 1/1; its subsequent app shutdown reported a 6ms
+embedding-host step after explicit Stop. This proves active hosted Stop, not
+model initialization or a still-active request during app quit.

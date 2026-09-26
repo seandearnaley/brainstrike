@@ -51,6 +51,8 @@ export interface StreamingEmbedOptions {
   readonly onDiagnostic?: (event: EmbedWorkerPipelineCacheDiagnostic) => void;
   readonly onError?: (event: EmbedWorkerError) => void;
   readonly onProgress?: (event: EmbedWorkerProgress) => void;
+  /** Terminating this dedicated worker cancels its active and queued streams. */
+  readonly signal?: AbortSignal;
 }
 
 export interface StreamingEmbeddingWorkerClientOptions {
@@ -258,7 +260,7 @@ function validateStreamMessage(
 export class StreamingEmbeddingWorkerClient {
   private activeStream: {
     readonly cleanup: () => void;
-    readonly reject: (error: Error) => void;
+    readonly reject: (reason: unknown) => void;
     readonly requestId: string;
   } | null = null;
   private readonly worker: Worker;
@@ -266,6 +268,8 @@ export class StreamingEmbeddingWorkerClient {
   private readonly transport: ReturnType<typeof createWorkerRuntimeClient>['transport'];
   private executionChain: Promise<void> = Promise.resolve();
   private telemetryCleanup: (() => void) | null = null;
+  private terminated = false;
+  private terminationReason: unknown;
   private readonly telemetrySourceId = `streaming-embedding-worker-${nextTelemetrySourceId++}`;
 
   /**
@@ -344,8 +348,15 @@ export class StreamingEmbeddingWorkerClient {
     request: EmbedWorkerRequest,
     options: StreamingEmbedOptions = {}
   ): Promise<EmbedWorkerComplete['metadata']> {
+    if (this.terminated) {
+      throw this.terminationReason ?? new Error('Embedding worker was terminated.');
+    }
     this.runtime.throwIfFailed();
     const run = async (): Promise<EmbedWorkerComplete['metadata']> => {
+      if (this.terminated) {
+        throw this.terminationReason ?? new Error('Embedding worker was terminated.');
+      }
+      options.signal?.throwIfAborted();
       // A prior stream can fail while this request is waiting on executionChain. Recheck at
       // execution time so a queued request never posts to the worker after onFailure terminates it.
       this.runtime.throwIfFailed();
@@ -356,7 +367,7 @@ export class StreamingEmbeddingWorkerClient {
           expectedVectorDimensions: null,
           maximumObservedBatchSize: 0,
         };
-        const cleanup = this.transport.onMessage((message) => {
+        const cleanupMessage = this.transport.onMessage((message) => {
           if (
             !validateStreamMessage(message, request, batchSequence, (error) =>
               this.runtime.markFailed(error)
@@ -367,11 +378,21 @@ export class StreamingEmbeddingWorkerClient {
 
           this.handleStreamEvent(message, request, options, cleanup, resolve, reject);
         });
+        const onAbort = (): void => this.terminate(options.signal?.reason);
+        const cleanup = (): void => {
+          cleanupMessage();
+          options.signal?.removeEventListener('abort', onAbort);
+        };
         this.activeStream = {
           cleanup,
           reject,
           requestId: request.id,
         };
+        options.signal?.addEventListener('abort', onAbort, { once: true });
+        if (options.signal?.aborted) {
+          onAbort();
+          return;
+        }
         this.postMessage({
           request,
           type: 'stream-embed',
@@ -387,12 +408,19 @@ export class StreamingEmbeddingWorkerClient {
     return await execution;
   }
 
-  terminate(): void {
+  terminate(reason?: unknown): void {
+    if (this.terminated) {
+      return;
+    }
+    this.terminated = true;
+    this.terminationReason = reason;
     const activeStream = this.activeStream;
     if (activeStream) {
       this.activeStream = null;
       activeStream.cleanup();
-      activeStream.reject(new Error('Embedding worker terminated during an active stream.'));
+      activeStream.reject(
+        reason ?? new Error('Embedding worker terminated during an active stream.')
+      );
     }
     this.runtime.clearFailure();
     this.cleanupTelemetryListener();
