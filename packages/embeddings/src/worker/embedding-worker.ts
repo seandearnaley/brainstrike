@@ -968,15 +968,17 @@ export async function startEmbeddingWorker(
     const { backoffMs, isTerminal, truncated } = classifyFailure(error);
 
     // Fail all jobs in one batched call (2-3 queries instead of 2N)
-    await jq.failBatch({
+    const failedJobs = await jq.failBatch({
       error: truncated,
       jobs: jobs.map((j) => ({ id: j.id, leaseToken: j.lease_token })),
       terminal: isTerminal,
       ...(backoffMs === undefined ? {} : { backoffMs }),
     });
-    await onJobsFailed?.(new Set(jobs.map((job) => job.id)));
+    if (failedJobs.length > 0) {
+      await onJobsFailed?.(new Set(failedJobs.map((job) => job.id)));
+    }
 
-    metrics.jobsFailed += jobs.length;
+    metrics.jobsFailed += failedJobs.length;
     consecutiveFailures += 1;
 
     if (fatalWorkerError) {

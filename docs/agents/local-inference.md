@@ -58,10 +58,10 @@ Guard: `vector-preferences-store.hidden-host.test.ts`,
   changed chunks terminally, and never recomputes the hash on the claim path. Add no
   legacy hashing fallback: migration 105 backfills provable jobs and visibly cancels
   those whose chunk/model identity cannot be proven.
-- Desktop backfill admission bounds queued/running jobs for the target
-  `embedding_set_id` and takes earliest runnable jobs. Same-set backfills stay
-  single-flight at IPC; the runtime-wide budget remains the inference ceiling.
-- For already embedded chunks, count and settle only `completeBatch` returned jobs, never stale leases.
+- Desktop backfill admission bounds queued/running jobs by target `embedding_set_id`,
+  takes earliest runnable jobs, and stays single-flight per set at IPC; the runtime budget is global.
+- Count and settle already embedded completions and ordinary batch failures only from
+  rows returned by token-guarded `completeBatch`/`failBatch`, never stale leases.
 
 Evidence: `local-inference/job-queue-input-hash.md`.
 Guard: `packages/embeddings/src/__tests__/embedding-worker-already-completed-lease.integration.test.ts`.
