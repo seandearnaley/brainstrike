@@ -70,3 +70,14 @@ All 48,717 packed file checksums matched. An earlier attempt was invalid because
 an agent edited a source test during packaging; the first checksum mismatch
 identified that file and later offsets shifted. Rebuilding from unchanged inputs
 removed that execution error. No packaging assertion or timeout was relaxed.
+
+The next Linux package run passed startup, bridge and real restart, then rejected
+its unchanged official MCP Apps fixture at the existing 1 MiB resource boundary.
+The Mastra dependency refresh had auto-resolved the Apps SDK's peer to Zod 4.6.5
+while the extension used 4.5.4. The same unminified fixture grew from 975,274 to
+1,186,193 bytes. Supplying the required Zod peer explicitly from the existing
+workspace catalog restores one schema runtime and a 970,720-byte fixture; no
+resource limit, minification setting or lifecycle assertion changes. The new
+`official-app-resource.test.ts` builds a real official SDK app and submits it to
+the production provenance authority: RED on the published dependency graph,
+GREEN after the declaration. All 167 Apps host tests pass.

@@ -2726,7 +2726,10 @@ importers:
         version: 2.0.0
       '@modelcontextprotocol/ext-apps':
         specifier: 1.7.5
-        version: 1.7.5(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.5.4)
+        version: 1.7.5(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.5.4)
+      zod:
+        specifier: 'catalog:'
+        version: 4.5.4
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
@@ -17638,7 +17641,7 @@ snapshots:
 
   '@modelcontextprotocol/conformance@0.2.0-alpha.10(supports-color@10.2.2)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.5.4)
+      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.6.5)
       '@octokit/rest': 22.0.1
       commander: 14.0.3
       eventsource-parser: 3.1.0
@@ -17646,7 +17649,7 @@ snapshots:
       jose: 6.2.3
       undici: 7.29.1
       yaml: 2.9.0
-      zod: 4.5.4
+      zod: 4.6.5
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - supports-color
@@ -17655,9 +17658,9 @@ snapshots:
     dependencies:
       zod: 4.5.4
 
-  '@modelcontextprotocol/ext-apps@1.7.5(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.5.4)':
+  '@modelcontextprotocol/ext-apps@1.7.5(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.5.4)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.6.5)
+      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.5.4)
       '@standard-schema/spec': 1.1.0
       zod: 4.5.4
     optionalDependencies:
@@ -20657,7 +20660,7 @@ snapshots:
       tar-stream: 3.1.7
       undici: 7.29.1
       xdg-app-paths: 5.1.0
-      zod: 4.5.4
+      zod: 4.6.5
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
@@ -24196,7 +24199,7 @@ snapshots:
 
   mutation-server-protocol@0.4.1:
     dependencies:
-      zod: 4.5.4
+      zod: 4.6.5
 
   mutation-testing-elements@3.8.4: {}
 
@@ -25561,7 +25564,7 @@ snapshots:
       async-retry: 1.3.3
       debug: 4.4.3(supports-color@10.2.2)
       ws: 8.21.3
-      zod: 4.5.4
+      zod: 4.6.5
     transitivePeerDependencies:
       - bare-abort-controller
       - bufferutil
@@ -26875,7 +26878,7 @@ snapshots:
 
   zod-from-json-schema@0.5.3:
     dependencies:
-      zod: 4.5.4
+      zod: 4.6.5
 
   zod-to-json-schema@3.25.2(zod@4.5.4):
     dependencies:
