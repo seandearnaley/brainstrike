@@ -68,8 +68,8 @@ Guard: `packages/mcp-test-lab/__tests__/scenario-provenance.integration.test.ts`
   Settings/OAuth/assistant/cancel/restart/config/concurrency/disconnect matrix,
   with declared artifacts per result, one screenshot plus one durable log or
   trace, and a secret-scan claim covering each artifact exactly once.
-- Scenario id, protocol, capabilities, versions, and fixture provenance must
-  match the closed manifest exactly.
+- Runtime SDK versions match installed packages; fixture source tags and commits stay historical.
+  Scenario, protocol, capabilities, versions and provenance match the closed manifest exactly.
 
 Evidence: `mcp-conformance/evidence-integrity.md`.
 Guard: `packages/mcp-test-lab/__tests__/evidence-artifact-integrity.test.ts`,
