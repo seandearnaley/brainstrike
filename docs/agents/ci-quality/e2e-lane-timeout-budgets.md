@@ -83,3 +83,26 @@ Linux/local case ratio: about 99 seconds for the canvas case above plus 96 for
 this case, or roughly 635 seconds total (71% of the ceiling).
 This is a case measurement and headroom estimate; PR CI will measure the new
 complete lane. The external model endpoint alone is scripted.
+
+## 2026-09-27: parked Worker terminal observation
+
+Test run [36295030240](https://github.com/seandearnaley/brainstrike/actions/runs/36295030240)
+passed 12 delegated cases, then failed the immediate child-run completion
+assertion in the parked-Workers case. Native task polling completed at
+04:59:28.079 UTC; the separate child-run assertion failed at 04:59:28.092,
+before the host's background wakeup log at 04:59:28.149. The test had waited
+only for `mastra_background_tasks`, then assumed the host run rows were already
+terminal. `observeDesktopAssistantRunEvents` instead awaits each child event's
+`persistDelegatedRunEvent` while consuming the native stream;
+`recordInvocationEvent` marks the host child run complete on `run.finished`.
+Native task completion does not join that downstream consumption.
+
+The corrected poll requires all three native tasks AND all three host child
+runs to be completed inside the same existing 45-second bound, with root
+synthesis still held. Every subsequent completion, checkpoint, exactly-once
+write and parent-output assertion remains. No runtime, timeout, retry or lane
+selection changed. The focused real-Electron case passed in 7.1 seconds
+(19.9 seconds including setup), with zero retries. This is a synchronization
+correction to the test, not evidence of another Mastra defect.
+The full delegated smoke lane then passed all 14 cases in 1.9 minutes on macOS,
+including the corrected case in 6.2 seconds, with zero retries.

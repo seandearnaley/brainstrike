@@ -312,12 +312,23 @@ test('root approval resumes while three Workers are parked, then live grants com
       });
     }
     await root.getByTestId('approval-strip-grant-edit').click();
+    // Native task completion and host consumption of the child's terminal are
+    // separate commits. Require both while root synthesis is still held.
     await expect
       .poll(
-        async () => (await readNativeState(window, rootThreadId)).tasks.map((task) => task.status),
+        async () => {
+          const state = await readNativeState(window, rootThreadId);
+          return {
+            children: state.children.map((child) => child.status),
+            tasks: state.tasks.map((task) => task.status),
+          };
+        },
         { timeout: 45_000 }
       )
-      .toEqual(['completed', 'completed', 'completed']);
+      .toEqual({
+        children: ['completed', 'completed', 'completed'],
+        tasks: ['completed', 'completed', 'completed'],
+      });
     const settled = await readNativeState(window, rootThreadId);
     expect(settled.children).toHaveLength(3);
     expect(settled.children.every((child) => child.status === 'completed')).toBe(true);
