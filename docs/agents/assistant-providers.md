@@ -1505,15 +1505,15 @@ normalizes the same way. Automatic attempts may reuse or refresh credentials, bu
 the provider rejects browser authorization before arming a callback or calling
 openExternal, so config loading and startup discovery cannot spawn a browser.
 User-paced stdio auth omits Brainstrike's absolute request budget and uses the
-Node platform-maximum timer required by the SDK 2.0.0 public request API; that is
+Node platform-maximum timer required by the SDK public request API; that is
 an SDK constraint, not a product auth deadline.
 
-Production migrates atomically to `@modelcontextprotocol/client@2.0.0`; v1 and v2
-class instances never cross the host boundary. The release tag used by this
-contract peels to `cc4b41617ce3601b1290d67216ea0b194a3cd9ac`, and modern
-negotiation targets MCP `2026-07-28` while retaining explicit legacy policy.
-Post-release SDK behavior requires an explicit dependency update and its own
-regression proof; a transitive package or later upstream `main` is not evidence.
+Production uses `@modelcontextprotocol/client@2.1.0`; v1 and v2 class instances
+never cross the host boundary. The five split SDK packages stay in lockstep and
+share Zod 4.6.5 so composed schemas have compatible types. Modern negotiation
+targets MCP `2026-07-28` with explicit legacy policy. The reference fixture
+remains pinned at `cc4b41617ce3601b1290d67216ea0b194a3cd9ac`.
+Post-release SDK behavior needs explicit upgrade proof; upstream `main` is not evidence.
 
 Remote OAuth is owned entirely by Electron main through the SDK OAuth provider
 and a dedicated encrypted MCP credential store, separate from model-provider

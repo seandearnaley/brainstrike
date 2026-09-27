@@ -277,7 +277,8 @@ describe('MCP test lab package contract', () => {
       '`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, `control`, and `close`'
     );
     expect(normalizedContract).toContain('dedicated encrypted MCP credential store');
-    expect(normalizedContract).toContain('`@modelcontextprotocol/client@2.0.0`');
+    expect(normalizedContract).toContain('`@modelcontextprotocol/client@2.1.0`');
+    expect(normalizedContract).toContain('share Zod 4.6.5');
     expect(normalizedContract).toContain('`cc4b41617ce3601b1290d67216ea0b194a3cd9ac`');
     expect(normalizedContract).toContain('`2026-07-28`');
     expect(research).toContain('Status: historical research evidence; decisions promoted to');
