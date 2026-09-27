@@ -31,6 +31,7 @@ import {
   type ToolApprovalGrantHandlers,
   ToolApprovalGrantProvider,
 } from '../tool-approval-grant-context';
+import { expandApprovalRow } from './approval-row-helpers';
 
 const appendMock = vi.hoisted(() => vi.fn());
 // Held by reference so a test can hand the provider a NEW array identity
@@ -216,14 +217,15 @@ describe('ApprovalQueueStrip', () => {
       })
     );
     await user.keyboard('{Escape}');
-    const button = screen.queryByRole('button', { name: 'Approve brainstrike.grepSearch' });
-    if (button) {
-      expect(button).toBeDisabled();
-    }
     expect(screen.getByTestId('assistant-tool-approval-notice')).toHaveAttribute(
       'data-approval-presentation',
       'row'
     );
+    await expandApprovalRow(user);
+    const button = screen.getByRole('button', { name: 'Approve brainstrike.grepSearch' });
+    expect(button).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Decline brainstrike.grepSearch' })).toBeDisabled();
+    await user.click(button);
     expect(transport).toHaveBeenCalledTimes(1);
     delivery.resolve('delivered');
   });

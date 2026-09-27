@@ -152,6 +152,13 @@ describe('useAssistantRunNotifications', () => {
       toolCallId: 'first-command',
     });
     expect(NotificationMock).toHaveBeenCalledTimes(1);
+    // Both the decorated child projection and the native child request share the decision key.
+    result.current.onToolApprovalRequired({
+      runId: 'child',
+      toolCallId: 'first-command',
+      toolName: 'brainstrike.executeCommand',
+    });
+    expect(NotificationMock).toHaveBeenCalledTimes(1);
     result.current.onToolApprovalRequired({
       ...request,
       delegation: { ...request.delegation, toolCallId: 'second-command' },
