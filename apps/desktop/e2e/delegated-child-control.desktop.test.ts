@@ -85,7 +85,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(
       root.getByRole('button', { exact: true, name: 'Approve brainstrike.readWorkspaceFile' })
     ).toBeVisible();
-    await root.getByRole('button', { exact: true, name: 'Expand activity' }).click();
+    await expect(root.getByText('Waiting for approval', { exact: true })).toHaveCount(0);
     const openChild = root.getByRole('button', { name: /Open .* conversation/ });
     await expect(openChild).toBeVisible();
     await openChild.click();

@@ -1023,12 +1023,12 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   generation-scoped ledger and compact saved terminal outcomes before each input
   step, continuations included, because the idle loop queues terminal wakeups
   while a parent turn is streaming. One owned native `context` message is
-  replaced before the input token limiter; it stays user-role tool data, is not
-  drained into durable history, and starts no inference. Child-runtime legs do
-  not install this processor, durable read failures propagate rather than
-  publishing from a stale ledger, and the loop drops queued wakeups only after
-  the active native turn SUCCEEDS — failed, aborted, unknown-status or parked
-  turns retain pending delivery, and an altered notice stays unacknowledged.
+  replaced before the input token limiter, anchored to its owning user input's
+  timestamp (retained across compaction), never the latest step's wall clock.
+  User-role context stays ephemeral. Child legs omit it; durable read failures
+  propagate. Drop queued wakeups only after native success; failed, aborted,
+  unknown or parked turns and altered notices retain pending delivery.
+  Evidence: `assistant-subagents/background-context-order.md`.
 - An approval for work parked before migration 140 can lack the durable native
   run mapping that names its generation. Approval preparation validates that
   mapping before recording policy-granted sibling answers or starting a native

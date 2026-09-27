@@ -15,6 +15,7 @@ import { deriveStepMeta } from './activity-step-meta';
 import { StepRowHeader } from './activity-step-row';
 import { ActivityTrace, type ActivityTraceProps } from './activity-trace';
 import { deriveActivitySteps, summarizeActivity } from './activity-trace-model';
+import { approvalCardToolCallIds } from './approval-history';
 import {
   ACTIVITY_GROUP_KEY,
   type ActivityGroupKey,
@@ -29,6 +30,7 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { ShellOutputProvider } from './shell-output-context';
+import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
 import { useChainActivityDerivations } from './use-chain-activity-derivations';
@@ -254,9 +256,22 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
   const isMessageRunning = useAuiState(
     (state) => state.message.role === 'assistant' && state.message.status.type === 'running'
   );
+  const cardedCalls = useMemo(() => approvalCardToolCallIds(messageParts), [messageParts]);
   const groupParts = useMemo(
-    () => indices.map((index) => messageParts[index]).filter((part) => part !== undefined),
-    [indices, messageParts]
+    () =>
+      indices
+        .map((index) => messageParts[index])
+        .filter(
+          (part): part is PartState =>
+            part !== undefined &&
+            !(
+              part.type === 'tool-call' &&
+              part.result === undefined &&
+              part.status.type === 'requires-action' &&
+              cardedCalls.has(part.toolCallId)
+            )
+        ),
+    [indices, messageParts, cardedCalls]
   );
   const hasActivityParts = groupParts.some(isActivityPart);
   // A group's own member statuses can all already read "complete" (e.g. a
@@ -285,28 +300,12 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
     ? ({ type: 'running' } as const)
     : activityPartStatus(activityParts.at(-1));
   const incompleteReason = toIncompleteReason(activityStatus);
-  // `requires-action` is a genuine live pause, not a settled state: a call
-  // paused at its approval gate carries this status on the message (and
-  // therefore on its own resultless tool-call part / the group that mirrors
-  // it — see `trailingGroupHasActivity`'s doc comment) for as long as the
-  // gate is open, never `running`. Without this branch the group reads as
-  // finished ("Worked") the instant a call reaches its gate, and the model's
-  // `toolStepState`/`liveLabel` 'waiting' → 'Waiting for approval' branch
-  // (already unit-pinned in activity-trace-model.test.ts) never becomes
-  // observable (BST-1679 task 6). Read from the group's ACTIVITY parts, not
-  // from the raw `status`: that mirrors the group's LAST member, which a
-  // group-transparent run-event data part (or a settled sibling call) can be,
-  // so the raw read darkened the whole wait in the same shape finding 1 fixed
-  // for the headline. `.some` rather than `activityStatus`, matching
-  // `liveLabel`'s own `findLast(waiting)`: ANY gated call holds the pause.
-  // No message-status gate is needed on top of this (review finding 8): a
-  // resultless tool call has no status of its own — it inherits the MESSAGE's
-  // (the library's `toMessagePartStatus`) — so when the runtime settles the
-  // message on stop or stream error the part settles with it and
-  // `requires-action` cannot outlive the pause. Hydration is the same story
-  // from the other side: reloaded messages land `complete`, pinned by
-  // assistant-hydration-liveness.test.tsx's "abandoned approval" case.
-  const hasGatedActivity = activityParts.some((part) => part.status.type === 'requires-action');
+  // An uncarded paused tool still owns a waiting trace. A dedicated approval
+  // card owns the paused tool's controls/history instead; completed reasoning
+  // beside it must not inherit the message's obsolete waiting state.
+  const hasGatedActivity = activityParts.some(
+    (part) => part.type === 'tool-call' && part.status.type === 'requires-action'
+  );
   const isActivityActive =
     status.type === 'running' ||
     hasGatedActivity ||
@@ -409,6 +408,8 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
  * `MessagePrimitive.Parts` path shared.
  */
 export function AssistantActivityParts(): ReactNode {
+  const messageParts = useAuiState((state) => state.message.parts);
+  const cardedCalls = useMemo(() => approvalCardToolCallIds(messageParts), [messageParts]);
   const trailingGroupHoldsActivity = useAuiState((state) =>
     trailingGroupHasActivity(state.message.parts)
   );
@@ -430,6 +431,14 @@ export function AssistantActivityParts(): ReactNode {
           case 'reasoning':
             return <ActivityReasoningBlock part={part} />;
           case 'tool-call':
+            if (
+              part.result === undefined &&
+              part.status.type === 'requires-action' &&
+              cardedCalls.has(part.toolCallId) &&
+              !isSubagentDelegationToolName(part.toolName)
+            ) {
+              return null;
+            }
             return (
               <ActivityPartLayout>
                 {part.toolUI ?? <ActivityToolPart {...part} />}

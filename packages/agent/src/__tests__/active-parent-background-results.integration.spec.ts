@@ -18,7 +18,7 @@ it.each([false, true])(
       undefined,
       false,
       1,
-      continuation ? { heldSibling: 2, siblings: 2 } : {}
+      continuation ? { heldSibling: 2, siblings: 2, workingMemory: true } : { workingMemory: true }
     );
     const parentEntered = Promise.withResolvers<void>();
     const parentRelease = Promise.withResolvers<void>();
@@ -53,6 +53,8 @@ it.each([false, true])(
     const parentRead = scriptedAgentModel(() =>
       toolCallParts('brainstrike_grepSearch', 'parent-read', { pattern: 'parent-evidence' })
     );
+    let memoryCalls = 0;
+    const memoryPrompts: Parameters<typeof fixture.model.model.doStream>[0]['prompt'][] = [];
     const parentAnswer = scriptedAgentModel(() => textParts('PARENT_REPORT'));
     const spy = vi.spyOn(fixture.model.model, 'doStream').mockImplementation(async (options) => {
       const root = options.tools?.some((tool) => tool.name === 'agent-explore');
@@ -70,6 +72,18 @@ it.each([false, true])(
         if (nextPrompt === undefined) {
           nextPrompt = options.prompt;
           runsAtNextStep = fixture.nativeRootRuns.length;
+        }
+        memoryPrompts.push(options.prompt);
+        const lastUser = options.prompt.findLastIndex((message) => message.role === 'user');
+        const lastTool = options.prompt.findLastIndex((message) => message.role === 'tool');
+        if ((memoryCalls === 0 || lastUser > lastTool) && memoryCalls < 4) {
+          expect(options.tools?.some((tool) => tool.name === 'updateWorkingMemory')).toBe(true);
+          memoryCalls += 1;
+          return scriptedAgentModel(() =>
+            toolCallParts('updateWorkingMemory', `memory-${memoryCalls}`, {
+              memory: '# Session\nAll child work returned. Final report due.',
+            })
+          ).model.doStream(options);
         }
         return parentAnswer.model.doStream(options);
       }
@@ -102,6 +116,8 @@ it.each([false, true])(
       expect(runsAtNextStep).toBe(continuation ? 2 : 1);
       expect(fixture.nativeRootRuns).toHaveLength(runsAtNextStep);
       expect(parentAnswer.prompts).toHaveLength(1);
+      expect(memoryCalls).toBe(1);
+      expect(JSON.stringify(memoryPrompts.at(-1))).toContain('success');
       expect(JSON.stringify(nextPrompt)).toContain('Nothing is still running');
       expect(JSON.stringify(nextPrompt)).toContain('CHILD_FINAL_EVIDENCE');
       const notice = nextPrompt?.filter((message) => message.role === 'user').at(-1);

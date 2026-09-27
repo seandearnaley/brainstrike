@@ -149,11 +149,26 @@ test('delegated command asks by default, then a per-tool grant streams output an
       );
       const approvalName = 'Approve brainstrike.executeCommand';
       await expect(first.getByRole('button', { exact: true, name: approvalName })).toBeVisible();
+      for (const surface of [root, first]) {
+        await expect(surface.getByText('Waiting for approval', { exact: true })).toHaveCount(0);
+        await expect(surface.getByText('Awaiting your approval', { exact: true })).toHaveCount(0);
+      }
       await expect(readFile(path.join(workspace, 'started-first.txt'))).rejects.toMatchObject({
         code: 'ENOENT',
       });
-      await expandActivity(first);
       const viewport = first.getByTestId('assistant-ui-viewport');
+      // Let initial bottom-follow finish, then establish the user's scroll
+      // position before checking that the review dialog leaves it alone.
+      await expect
+        .poll(() =>
+          viewport.evaluate(
+            (element) => element.scrollHeight - element.clientHeight - element.scrollTop
+          )
+        )
+        .toBeLessThanOrEqual(1);
+      await viewport.hover();
+      await window.mouse.wheel(0, -(await viewport.evaluate((element) => element.scrollHeight)));
+      await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBe(0);
       const scrollTop = await viewport.evaluate((element) => element.scrollTop);
       await first.getByRole('button', { name: 'Review 1 pending approval' }).click();
       const review = window.getByRole('dialog', { name: 'Pending approvals' });
@@ -165,13 +180,21 @@ test('delegated command asks by default, then a per-tool grant streams output an
         "printf 'STREAM_DONE_FIRST\\n'"
       );
       expect(await viewport.evaluate((element) => element.scrollTop)).toBe(scrollTop);
-      await review.screenshot({ path: testInfo.outputPath('pending-command-review.png') });
+      await testInfo.attach('pending-review-layout', {
+        body: JSON.stringify({ dialog: await review.boundingBox(), viewportScrollTop: scrollTop }),
+        contentType: 'application/json',
+      });
+      await testInfo.attach('pending-command-review', {
+        body: await review.screenshot(),
+        contentType: 'image/png',
+      });
       // This grants the exact tool in this test's disposable profile, leaving
       // the execute category at ask for other commands.
       await review
         .getByRole('button', { exact: true, name: 'Always allow brainstrike.executeCommand' })
         .click();
       await review.getByRole('button', { name: 'Close pending approvals' }).click();
+      await expandActivity(first);
       await expect(first.getByRole('log', { name: 'Live command output' })).toContainText(
         'STREAM_STDOUT_FIRST',
         { timeout: 15_000 }
@@ -184,6 +207,25 @@ test('delegated command asks by default, then a per-tool grant streams output an
       await expect(root.getByText('ROOT_FIRST_COMMAND_COMPLETE', { exact: true })).toBeVisible();
       await expect(root.getByText('ROOT_FIRST_COMMAND_COMPLETE', { exact: true })).toHaveCount(1);
       expect(await readFile(path.join(workspace, 'started-first.txt'), 'utf8')).toBe('started');
+      for (const surface of [root, first]) {
+        await expect(surface.getByText('Waiting for approval', { exact: true })).toHaveCount(0);
+        await expect(surface.getByText('Awaiting your approval', { exact: true })).toHaveCount(0);
+        await expect(surface.getByRole('button', { exact: true, name: approvalName })).toHaveCount(
+          0
+        );
+        await expect(
+          surface.getByRole('button', { exact: true, name: 'Decline brainstrike.executeCommand' })
+        ).toHaveCount(0);
+      }
+      const history = root.getByTestId('assistant-tool-approval-notice');
+      await expect(history).toContainText('Approved');
+      await history.getByRole('button', { name: /show approval details/i }).click();
+      await expect(history.getByRole('button', { exact: true, name: approvalName })).toHaveCount(0);
+      await expect(history).toContainText("printf 'started' > started-first.txt");
+      await testInfo.attach('answered-command-history', {
+        body: await window.screenshot(),
+        contentType: 'image/png',
+      });
       const firstTab = window
         .getByRole('tablist', { name: 'Workspace tabs' })
         .getByRole('tab', { selected: true });

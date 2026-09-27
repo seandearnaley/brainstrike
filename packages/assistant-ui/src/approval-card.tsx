@@ -290,43 +290,45 @@ export function ApprovalCard({
             </p>
           ) : null}
           <p className="mt-1 truncate text-muted-foreground text-xs">{approval.toolName}</p>
-          {approvalReason ? (
+          {approvalReason && !state.decisionLocked ? (
             <p className="bs-approval-reason mt-0.5 truncate text-xs">
               Requires approval: {approvalReason}
             </p>
           ) : null}
           <RediscoveredPauseLines display={state.rediscovered} />
           <ApprovalPreview approval={approval} showOtherArguments={presentation === 'review'} />
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              aria-label={`Approve ${approval.toolName}`}
-              disabled={state.actionButtonsDisabled}
-              onClick={() => state.submitApprovalAction('approve')}
-              size="sm"
-              title={`Approve ${approval.toolName}`}
-              variant="default"
-            >
-              <Check className="size-3.5" />
-              Approve
-            </Button>
-            <Button
-              aria-label={`Decline ${approval.toolName}`}
-              disabled={state.actionButtonsDisabled}
-              onClick={() => state.submitApprovalAction('decline')}
-              size="sm"
-              title={`Decline ${approval.toolName}`}
-              variant="outline"
-            >
-              <X className="size-3.5" />
-              Decline
-            </Button>
-            <ApprovalGrantButtons
-              approve={() => state.submitApprovalAction('approve')}
-              disabled={state.actionButtonsDisabled}
-              grantCategory={grantCategory}
-              toolName={approval.toolName}
-            />
-          </div>
+          {state.decisionLocked ? null : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                aria-label={`Approve ${approval.toolName}`}
+                disabled={state.actionButtonsDisabled}
+                onClick={() => state.submitApprovalAction('approve')}
+                size="sm"
+                title={`Approve ${approval.toolName}`}
+                variant="default"
+              >
+                <Check className="size-3.5" />
+                Approve
+              </Button>
+              <Button
+                aria-label={`Decline ${approval.toolName}`}
+                disabled={state.actionButtonsDisabled}
+                onClick={() => state.submitApprovalAction('decline')}
+                size="sm"
+                title={`Decline ${approval.toolName}`}
+                variant="outline"
+              >
+                <X className="size-3.5" />
+                Decline
+              </Button>
+              <ApprovalGrantButtons
+                approve={() => state.submitApprovalAction('approve')}
+                disabled={state.actionButtonsDisabled}
+                grantCategory={grantCategory}
+                toolName={approval.toolName}
+              />
+            </div>
+          )}
           {state.sendError === null ? null : (
             <p className="mt-2 break-words text-destructive text-xs" role="alert">
               Decision not sent: {state.sendError}

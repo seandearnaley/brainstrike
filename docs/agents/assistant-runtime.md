@@ -809,6 +809,8 @@ The library's legacy `components.ChainOfThought` path is gone and must not retur
   context-breakdown and child-run-usage are transparent; tool-approval /
   tool-suspend cards, `text` and unknown data parts are standalone, because a
   pause is a real boundary.
+- A valid approval card replaces generic paused-tool/event chrome, preserving
+  child navigation cards, reasoning and results. Historical events use past tense.
 - MCP-app tool calls stay inside the group: Brainstrike detects apps by RESULT
   shape only, and a call must not change groups when its result lands.
 - A `group-activity` node holding only transparent data parts renders its children
@@ -822,7 +824,7 @@ The library's legacy `components.ChainOfThought` path is gone and must not retur
   parts into an earlier group or suppress later groups.
 - `ActivityGroup`'s `isActivityActive` is true when the group's own status is
   `running`; OR any of the group's ACTIVITY parts is `requires-action` (read the
-  activity parts, never the raw `GroupPart.status`, which mirrors the group's LAST
+  tool parts, never raw `GroupPart.status`, which mirrors the group's LAST
   member); OR the message is still running, this group holds its last part, and
   the group's own status has not resolved to `incomplete`. Only the trailing group
   gets that last treatment.
@@ -1703,7 +1705,7 @@ Previews and grants:
 - **SWARM-AWARE PRESENTATION.** The thread shows ONE full approval card per risk
   category while a decision is pending; every already-answered approval and every
   pending approval BEHIND its category's card renders as a one-line row
-  (`approval-row.tsx`) whose expanded body is the full card. A row for a durable
+  (`approval-row.tsx`). Answered details contain no decision/grant controls. A row for a durable
   `decisionState` ALSO renders its recovery status under the collapsed line, and
   the embedded card omits it — that status is safety information with no control
   beside it, so it must be readable without opening the row. Pending-since and
@@ -1715,15 +1717,13 @@ Previews and grants:
   use neutral `unresolved`; root approvals inherit the panel. Parts remain standalone.
   Both forms carry `data-testid="assistant-tool-approval-notice"` and
   `data-approval-presentation="card|row"`; `approval-delegation-owner` names the
-  persona chain. The notice file is a chooser; `use-approval-notice-state.ts` owns
-  outcome/lock/submit logic and `approval-preview.tsx` the structured previews.
-- **OPTIMISTIC LOCK.** The lock a click takes is STAMPED with the run outcome it
-  was taken in (`ApprovalRunOutcomeKey`) and DERIVED during render, never adjusted
-  in an effect. It holds while the thread still reads that outcome and is spent as
-  soon as the outcome moves on. The key must be an IDENTITY, not a value: testing
-  `state !== 'retryable'` drops the lock a RETRY click just took, and keying on
-  `{action, state}` alone RESURRECTS a spent lock, so `resolveApprovalRunOutcome`
-  also reports `decisionIndex`.
+  persona chain; `use-approval-notice-state.ts` owns outcome/lock/submit logic.
+- A host acknowledgement permanently locks that exact decision in root and child
+  views. A later run failure or Stop cannot undo admission. Only an unacknowledged
+  submission uses the outcome-stamped optimistic lock and retry lifecycle.
+  Its key includes `decisionIndex`: action/state alone resurrects spent locks.
+  Evidence: `assistant-runtime/approval-history-and-memory-context.md`.
+  Guards: `assistant-tool-approval-live-answer.test.tsx`, `child-view-owner-approval-answers.test.tsx`, `assistant-activity-parts.test.tsx`.
 - **APPROVALS STRIP.** `approval-queue-strip.tsx` stays at the composer and counts
   every pending approval from the same ranks provider, including non-policy asks.
   Its shared Radix review popup lists requests in timeline order with flat cards,

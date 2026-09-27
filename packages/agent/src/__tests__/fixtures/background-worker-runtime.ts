@@ -209,6 +209,7 @@ export async function createBackgroundFixture(
   fanout: {
     /** Gate the child's read through the ROOT permission policy instead of the tool flag. */
     readonly permissionPolicy?: PermissionToolGateSnapshot;
+    readonly workingMemory?: boolean;
     /** Dispatch this many independent children in one root step (`background-child-<n>`). */
     readonly siblings?: number;
     /** Admit every sibling concurrently; otherwise the two-slot refusal guard remains active. */
@@ -298,7 +299,10 @@ export async function createBackgroundFixture(
           })
         ),
     },
-    memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
+    memoryOptions: {
+      generateTitle: false,
+      workingMemory: { enabled: fanout.workingMemory ?? false },
+    },
   });
   const release = Promise.withResolvers<void>();
   const hold = Promise.withResolvers<void>();

@@ -5,6 +5,9 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
+import { AnsweredApprovalsProvider } from '../answered-approvals-index';
+import { ApprovalSubmissionProvider } from '../approval-submission-provider';
+import { AssistantDataRendererRegistration } from '../assistant-data-renderer-registration';
 import { Harness, runEventPart } from './assistant-activity-timeline-fixtures';
 
 const neverRun = {
@@ -667,3 +670,87 @@ function indicatorsOutsideGroups(): Element[] {
     (element) => element.closest('[data-testid="assistant-activity-group"]') === null
   );
 }
+
+it('uses the approval card as the single pause surface, without a second waiting activity box', async () => {
+  render(
+    <Harness
+      adapter={neverRun}
+      initialMessages={[
+        {
+          content: [
+            completedReasoning,
+            tool('paused-call', { result: undefined }),
+            runEventPart({
+              id: 'approval-event',
+              kind: 'tool.approval.requested',
+              status: 'running',
+              timestamp: '2026-09-27T20:21:00Z',
+              toolCallId: 'paused-call',
+            }),
+            {
+              data: {
+                runId: 'run',
+                toolCallId: 'paused-call',
+                toolName: 'brainstrike.executeCommand',
+              },
+              name: 'brainstrike.tool-approval',
+              type: 'data',
+            },
+          ],
+          role: 'assistant',
+          status: { reason: 'interrupt', type: 'requires-action' },
+        },
+      ]}
+    >
+      {(content) => (
+        <ApprovalSubmissionProvider>
+          <AnsweredApprovalsProvider>
+            <AssistantDataRendererRegistration />
+            {content}
+          </AnsweredApprovalsProvider>
+        </ApprovalSubmissionProvider>
+      )}
+    </Harness>
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Approve brainstrike.executeCommand' })
+  ).toBeEnabled();
+  expect(screen.queryByText('Approval requested')).not.toBeInTheDocument();
+  expect(screen.queryByText('Waiting for approval')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('tool-fallback')).not.toBeInTheDocument();
+  expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-state', 'done');
+});
+
+it('retains the foreground child card when its approval replaces the waiting wrapper', () => {
+  render(
+    <Harness
+      adapter={neverRun}
+      initialMessages={[
+        {
+          content: [
+            tool('delegate', {
+              args: { prompt: 'Inspect evidence.' },
+              result: undefined,
+              toolName: 'agent-explore',
+            }),
+            {
+              data: {
+                runId: 'root',
+                toolCallId: 'delegate',
+                toolName: 'brainstrike.readWorkspaceFile',
+              },
+              name: 'brainstrike.tool-approval',
+              type: 'data',
+            },
+          ],
+          role: 'assistant',
+          status: { reason: 'interrupt', type: 'requires-action' },
+        },
+      ]}
+    />
+  );
+  expect(screen.getByText('Delegating to Explorer')).toBeInTheDocument();
+  expect(screen.getByText('Inspect evidence.')).toBeInTheDocument();
+  expect(screen.queryByTestId('assistant-activity-group')).not.toBeInTheDocument();
+  expect(screen.queryByText('Waiting for approval')).not.toBeInTheDocument();
+});
