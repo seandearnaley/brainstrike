@@ -872,7 +872,9 @@ async function handleAssistantPostOwned(
         ? {
             resolveDiscovery: async () => {
               const action = toolApprovalAction ?? toolResumeAction;
-              if (!action) {
+              // Child continuations restore their own transcript from the durable
+              // continuation receipt. The root replay prefix cannot own that call.
+              if (!action || action.continuationId) {
                 return discovery;
               }
               const actionReplay = await readPausedActionReplayPrefix({

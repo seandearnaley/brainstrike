@@ -1,24 +1,27 @@
-# SemanticRecall xxhash-wasm leak — evidence
+# SemanticRecall WASM allocation evidence
 
-Supports `docs/agents/mastra-boundary.md` § "First-class subagents: host lifetime
-decision". Read this before removing the xxhash hunk from
-`patches/@mastra__core@1.64.0.patch` or when diagnosing "Cannot allocate Wasm
-memory for new instance" in a long desktop session.
+Supports `docs/agents/mastra-boundary.md` § "First-class subagents: host lifetime decision".
 
-The core patch also shares ONE xxhash-wasm instance across every
-`SemanticRecall` (settled 2026-09-15, proven upstream defect, present on
-1.66.0 and `main`, reported upstream): `SemanticRecall` initialized
-`hasher = xxhash()` per instance while `MastraMemory.getInputProcessors` and
-`getOutputProcessors` construct a new `SemanticRecall` on every model step, so
-each step was a fresh `WebAssembly.instantiate` holding a V8 guard-region
-reservation. A WebAssembly probe on the desktop main process counted 139
-instantiations in one four-specialist turn; across a session the process
-exhausted V8's WebAssembly budget and EVERY later instantiation failed with
-"Cannot allocate Wasm memory for new instance" — the retrieval tool, message
-persistence and the memory observer died with it (thread-debug pack
-2026-09-15T02-25-01Z; the failing call is the one from the embedding host's
-error, rebuilt frameless by `deserializeRuntimeError`, which misled a first
-diagnosis toward the embedding host). Paired:
-`mastra-semantic-recall-hasher.spec.ts` (25 instances, at most one
-instantiation; 25 without the hunk). Remove the hunk when upstream memoizes the
-hasher or the processor.
+The old filename is retained for existing links. Historical desktop reports
+associated repeated xxhash instances with WASM exhaustion. Those reports do not
+by themselves prove retained-memory leakage in the current release.
+
+The current 1.71.0 probe is
+`packages/agent/src/__tests__/semantic-recall-lifecycle.integration.spec.ts`.
+Four Agents run eight turns each against real engine-configured PGlite, the
+production memory adapter, deterministic embeddings and native processors. It
+checks 64 persisted messages and retrieval outside the two-message history
+window. It uses no private processor fields or invalid fake constructor options.
+
+Before the hasher repair, 32 turns created **160 WebAssembly instances**. After
+lazy sharing of the stateless hasher, the same probe creates **one**. Initialization
+failure still rejects, and a failed initialization is not cached permanently.
+The old private-field allocation test is replaced by this stronger public
+lifecycle test with the same at-most-one allocation assertion.
+
+Observed RSS deltas in the single matched local runs were 13,598,720 bytes before
+and 8,093,696 after; array-buffer deltas were 1,761,370 and 1,677,406. These noisy
+whole-process measurements are recorded, not asserted as memory savings or leak
+proof. The demonstrated defect and patch reason is repeated WASM initialization
+in normal supported memory use. Remove the hunk when an upstream version passes
+the public allocation-and-behavior regression.

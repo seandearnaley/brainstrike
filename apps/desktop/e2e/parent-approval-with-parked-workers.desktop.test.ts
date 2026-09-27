@@ -24,6 +24,7 @@ async function readNativeState(
   checkpoints: { path: string; threadId: string }[];
   tasks: { error: unknown; status: string }[];
   children: { status: string; threadId: string }[];
+  rootFinalMessages: { id: string; content: unknown }[];
 }> {
   return await page.evaluate(async (threadId) => {
     const api = (
@@ -41,7 +42,7 @@ async function readNativeState(
     if (!api?.db?.query) {
       throw new Error('Native database bridge unavailable');
     }
-    const [taskRows, childRows, checkpointRows, approvalRows] = await Promise.all([
+    const [taskRows, childRows, checkpointRows, approvalRows, rootFinalRows] = await Promise.all([
       api.db.query(
         'SELECT status, error FROM mastra_background_tasks WHERE thread_id = $1 ORDER BY tool_call_id',
         [threadId]
@@ -73,11 +74,20 @@ async function readNativeState(
           ORDER BY event.occurred_at, event.id`,
         [threadId]
       ),
+      api.db.query(
+        `SELECT id, content FROM mastra_messages
+          WHERE thread_id = $1 AND role = 'assistant'
+            AND (content::text LIKE '%ROOT_WRITE_COMPLETE%'
+              OR content::text LIKE '%ROOT_AND_WORKERS_COMPLETE%')
+          ORDER BY "createdAt", id`,
+        [threadId]
+      ),
     ]);
     return {
       approvalEvents: approvalRows.rows as { toolName: string | null; threadId: string }[],
       checkpoints: checkpointRows.rows as { path: string; threadId: string }[],
       children: childRows.rows as { status: string; threadId: string }[],
+      rootFinalMessages: rootFinalRows.rows as { id: string; content: unknown }[],
       tasks: taskRows.rows as { error: unknown; status: string }[],
     };
   }, rootThreadId);
@@ -101,6 +111,16 @@ test('root approval resumes while three Workers are parked, then live grants com
   let rootContinuationRequested = false;
   let workersDispatched = false;
   let rootWriteRequested = false;
+  let rootFinalRequests = 0;
+  const failures: unknown[] = [];
+  const requireAdvertisedTool = (toolNames: readonly string[], name: string): void => {
+    try {
+      expect(toolNames).toContain(name);
+    } catch (error) {
+      failures.push(error);
+      throw error;
+    }
+  };
   const provider = await startModelProviderShim(({ messages, toolNames }) => {
     if (toolNames.length === 0) {
       return { finalText: 'Parked Workers' };
@@ -117,8 +137,8 @@ test('root approval resumes while three Workers are parked, then live grants com
     );
     for (const worker of WORKERS) {
       if (userTask.includes(worker.marker)) {
-        expect(toolNames).toContain('brainstrike_readWorkspaceFile');
-        expect(toolNames).toContain('brainstrike_writeWorkspaceFile');
+        requireAdvertisedTool(toolNames, 'brainstrike_readWorkspaceFile');
+        requireAdvertisedTool(toolNames, 'brainstrike_writeWorkspaceFile');
         return {
           finalText: `${worker.marker}_DONE`,
           toolCallStages: [
@@ -133,8 +153,8 @@ test('root approval resumes while three Workers are parked, then live grants com
         };
       }
     }
-    expect(toolNames).toContain('agent-worker');
-    expect(toolNames).toContain('brainstrike_writeWorkspaceFile');
+    requireAdvertisedTool(toolNames, 'agent-worker');
+    requireAdvertisedTool(toolNames, 'brainstrike_writeWorkspaceFile');
     const toolResults = messages.filter(
       (message) =>
         message && typeof message === 'object' && 'role' in message && message.role === 'tool'
@@ -166,7 +186,13 @@ test('root approval resumes while three Workers are parked, then live grants com
         },
       };
     }
-    return { beforeFinalText: rootContinuationGate, finalText: 'ROOT_AND_WORKERS_COMPLETE' };
+    rootFinalRequests += 1;
+    // The root finishes the approved write, then its background ledger wakes
+    // a separate model turn after all three Workers return.
+    return {
+      beforeFinalText: rootContinuationGate,
+      finalText: rootFinalRequests === 1 ? 'ROOT_WRITE_COMPLETE' : 'ROOT_AND_WORKERS_COMPLETE',
+    };
   });
   const environment = {
     BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
@@ -177,7 +203,6 @@ test('root approval resumes while three Workers are parked, then live grants com
     Object.keys(environment).map((key) => [key, process.env[key]])
   );
   Object.assign(process.env, environment);
-  const failures: unknown[] = [];
   try {
     const window = await electron.ensureWindow();
     const assistantPosts: { body: unknown; path: string }[] = [];
@@ -309,7 +334,19 @@ test('root approval resumes while three Workers are parked, then live grants com
       );
     }
     releaseRootContinuation();
+    await expect(root.getByText('ROOT_WRITE_COMPLETE', { exact: true })).toHaveCount(1);
     await expect(root.getByText('ROOT_AND_WORKERS_COMPLETE', { exact: true })).toBeVisible();
+    await expect(root.getByText('ROOT_AND_WORKERS_COMPLETE', { exact: true })).toHaveCount(1);
+    expect(rootFinalRequests).toBe(2);
+    expect(provider.transcript().filter((turn) => turn.decision === 'final-text')).toHaveLength(5);
+    const finalState = await readNativeState(window, rootThreadId);
+    expect(finalState.rootFinalMessages).toHaveLength(2);
+    expect(JSON.stringify(finalState.rootFinalMessages[0]?.content)).toContain(
+      'ROOT_WRITE_COMPLETE'
+    );
+    expect(JSON.stringify(finalState.rootFinalMessages[1]?.content)).toContain(
+      'ROOT_AND_WORKERS_COMPLETE'
+    );
     expect(
       provider
         .transcript()

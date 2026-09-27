@@ -1,4 +1,5 @@
 import type { DelegatedConversationDatabase } from '@brainstrike/db';
+import { runCriticalDatabaseOperation } from './run-critical-database';
 
 /** A parent terminal is durable while the child task has already ended, but
  * native startup failures can leave every child host leg without a run terminal.
@@ -10,8 +11,11 @@ export async function settleFailedDelegationChildRuns(
   eventId: string,
   eventHostRunId = hostRunId
 ): Promise<void> {
-  await database.query(
-    `WITH RECURSIVE reported AS (
+  await runCriticalDatabaseOperation({
+    label: 'assistant-delegated-failure-settlement',
+    operation: () =>
+      database.query(
+        `WITH RECURSIVE reported AS (
        SELECT event.metadata, event.status, root.thread_id AS root_thread_id,
          root.resource_id AS owner_resource_id, root.turn_message_id,
          parent_host.thread_id AS parent_thread_id, parent_host.resource_id AS parent_resource_id
@@ -70,7 +74,7 @@ export async function settleFailedDelegationChildRuns(
      ), settled AS (
        UPDATE brainstrike_assistant_thread_runs run
        SET status = matched.status,
-         error = CASE WHEN matched.status = 'failed' THEN matched.error ELSE run.error END,
+         error = CASE WHEN matched.status = 'failed' THEN COALESCE(matched.error, run.error) ELSE run.error END,
          completed_at = NOW(), updated_at = NOW()
        FROM matched WHERE run.id = matched.id AND run.status = 'running'
        RETURNING run.id, run.resource_id, run.thread_id, run.completed_at,
@@ -85,8 +89,11 @@ export async function settleFailedDelegationChildRuns(
          COALESCE(settled.error, 'Native background task ended before its child stream emitted a terminal event.'),
          settled.metadata, settled.completed_at, NOW(), NOW()
        FROM settled`,
-    [hostRunId, eventId, eventHostRunId]
-  );
+        [hostRunId, eventId, eventHostRunId]
+      ),
+    retry: 'idempotent',
+    runId: hostRunId,
+  });
 }
 
 /** The stream has joined native cleanup before the host records its failure.

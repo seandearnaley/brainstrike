@@ -94,3 +94,15 @@ eligible-only loading and fresh-runtime approval execution; actual Electron
 `delegated-worker-write.desktop.test.ts` reloads the pending decision and checks
 a disposable file, parent continuation and history navigation without execution.
 These prove the worker layer, not recursion/background/worktree coordination.
+
+## Mastra 1.71 migration
+
+Native `messageFilter` receives generated parent system instructions as well as
+ordinary history. Forwarding them gave read-only Explorer the parent's working
+memory write instructions despite its correctly disabled memory-write tool.
+The filter now excludes all system messages; the existing trusted-context input
+processor remains the single authority channel. The real stream regression
+proves child tools/task/history remain present and generated memory instructions
+are absent. Oversized host context still rejects before any child inference or
+tool execution. Its parent error assertion now checks Brainstrike's explicit
+failed-deliverable message, preserving the error-text requirement.

@@ -1,5 +1,6 @@
+import { setImmediate as nextTurn } from 'node:timers/promises';
 import { TOOL_APPROVAL_ANSWERED_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { createStreamIteratorFromRuntime } from '../mastra/attempt-legs';
 import { DataStreamMapper } from '../stream/data-stream-mapper';
 import type { StreamChunk } from '../types';
@@ -151,5 +152,111 @@ it('delivers four specialist results after consuming each read approval without 
     } finally {
       await database.close();
     }
+  }
+});
+
+it('keeps an accepted approval through durable commit after the final running sibling finishes', async () => {
+  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+    concurrentSiblings: true,
+    heldSibling: 2,
+    permissionPolicy: {
+      ...READ_ASK_POLICY,
+      perToolOverrides: { 'brainstrike.readWorkspaceFile': 'allow' },
+    },
+    siblings: 2,
+    slowRootTurn: true,
+  });
+  const { runtime, backing, runtimeData, release, hold, database } = fixture;
+  const commitEntered = Promise.withResolvers<void>();
+  const commitRelease = Promise.withResolvers<void>();
+  const ready = Promise.withResolvers<Extract<StreamChunk, { type: 'tool-approval-required' }>>();
+  const siblingReturned = Promise.withResolvers<void>();
+  const binding = runtime.conversationBinding;
+  if (!binding?.recordToolActionAnswers) {
+    throw new Error('Missing host answer recorder');
+  }
+  const record = binding.recordToolActionAnswers;
+  const recording = vi
+    .spyOn(binding, 'recordToolActionAnswers')
+    .mockImplementation(async (answers) => {
+      commitEntered.resolve();
+      await commitRelease.promise;
+      await record(answers);
+    });
+  let ended = false;
+  let parentText = '';
+  let decision: Promise<void> | undefined;
+  release.resolve();
+  const consuming = (async () => {
+    for await (const chunk of await createStreamIteratorFromRuntime({
+      memory: backing.memory,
+      messages: [
+        { id: 'commit-boundary', parts: [{ text: 'Survey', type: 'text' }], role: 'user' },
+      ],
+      runtime,
+      runtimeData,
+    })) {
+      if (chunk.type === 'tool-approval-required') {
+        ready.resolve(chunk);
+      }
+      if (chunk.type === 'text-delta') {
+        parentText += chunk.value;
+      }
+      if (
+        chunk.type === 'run-event' &&
+        chunk.event.kind === 'delegation.ledger' &&
+        chunk.event.metadata?.['returned'] === 1
+      ) {
+        siblingReturned.resolve();
+      }
+    }
+    ended = true;
+  })();
+  consuming.catch(() => {});
+  try {
+    const notice = await Promise.race([
+      ready.promise,
+      consuming.then(() => {
+        throw new Error('No approval');
+      }),
+    ]);
+    if (!notice.delegation) {
+      throw new Error('Missing child approval address');
+    }
+    decision = fixture.decide({
+      action: {
+        action: 'approve',
+        delegation: notice.delegation,
+        runId: notice.runId,
+        toolCallId: notice.toolCallId,
+      },
+    });
+    decision.catch(() => {});
+    await commitEntered.promise;
+    hold.resolve();
+    await Promise.race([
+      siblingReturned.promise,
+      consuming.then(() => {
+        throw new Error('Closed before the accepted decision');
+      }),
+    ]);
+    await nextTurn();
+    expect(ended).toBe(false);
+    expect(fixture.effect).not.toHaveBeenCalled();
+    commitRelease.resolve();
+    await decision;
+    await consuming;
+    expect(fixture.effect).toHaveBeenCalledTimes(1);
+    expect(parentText).toContain('PARENT_FINAL_OUTCOME');
+    const tasks = (await database.query('SELECT status FROM mastra_background_tasks')).rows;
+    expect(tasks).toEqual([{ status: 'completed' }, { status: 'completed' }]);
+  } finally {
+    recording.mockRestore();
+    commitRelease.resolve();
+    hold.resolve();
+    release.resolve();
+    await Promise.allSettled([decision, consuming]);
+    await runtime.dispose();
+    await database.close();
   }
 });

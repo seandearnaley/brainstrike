@@ -24,12 +24,14 @@ import {
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
+import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { SkillsProcessor } from '@mastra/core/processors';
 import type { ToolHooks } from '@mastra/core/tools';
 import { getDefaultModel } from '../../providers/provider-factory';
 import type { RuntimeData } from '../../types';
 import { createActiveBackgroundResultsProcessor } from '../active-background-results-processor';
 import type { MastraAgentRuntime, MastraAgentRuntimeOptions } from '../agent-runtime';
+import { observeNativeBackgroundExecutor } from '../background-executor-identity';
 import { buildBedrockMessageHygieneInputProcessor } from '../bedrock-message-hygiene';
 import { buildCompactionOverlayInputProcessor } from '../compaction-overlay-processor';
 import { buildProviderHistoryCompatInputProcessor } from '../error-processors';
@@ -55,13 +57,6 @@ const logger = createLogger('MastraAgent');
 export type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
 
 export interface BrainstrikeAgentStreamOptions {
-  /**
-   * Return the turn as soon as its background dispatches are acknowledged;
-   * the host loop (`withBackgroundIdleLoop`) drives the continuations, so the
-   * native step never blocks on running children. Mastra's own `untilIdle`
-   * loop is NOT used: it wakes the parent on a child's suspension.
-   */
-  _skipBgTaskWait?: boolean;
   abortSignal?: AbortSignal;
   delegation?: DelegationConfig;
   // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
@@ -324,7 +319,8 @@ export interface BuildStreamOptionsParams {
 /** Both owners must settle even when either after-call hook fails. */
 function composeDelegatedHooks(
   binding: ToolHooks | undefined,
-  persistence: ToolHooks | undefined
+  persistence: ToolHooks | undefined,
+  manager: BackgroundTaskManager | undefined
 ): ToolHooks {
   return {
     ...binding,
@@ -343,6 +339,11 @@ function composeDelegatedHooks(
       if (errors.length > 1) {
         throw new AggregateError(errors, 'Delegated after-call owners failed.');
       }
+    },
+    beforeToolCall: async (call) => {
+      observeNativeBackgroundExecutor(manager, call.context);
+      await binding?.beforeToolCall?.(call);
+      await persistence?.beforeToolCall?.(call);
     },
   };
 }
@@ -392,18 +393,19 @@ export function buildStreamOptions(
   const loop = buildRuntimeToolLoopOptions(runtime, runtimeData);
   const options: BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } = {
     ...loop,
-    ...(runtime.backgroundTaskManager ? { _skipBgTaskWait: true } : {}),
     ...(!runtime.childExecution && runtime.rootDelegatedContextProcessor
       ? {
           inputProcessors: [runtime.rootDelegatedContextProcessor, ...(loop.inputProcessors ?? [])],
         }
       : {}),
     abortSignal,
-    ...(delegationUsage && (runtime.delegatedTurnPersistence || runtime.conversationBinding?.hooks)
+    ...(runtime.backgroundTaskManager ||
+    (delegationUsage && (runtime.delegatedTurnPersistence || runtime.conversationBinding?.hooks))
       ? {
           hooks: composeDelegatedHooks(
             runtime.conversationBinding?.hooks,
-            runtime.delegatedTurnPersistence?.hooks(abortSignal)
+            runtime.delegatedTurnPersistence?.hooks(abortSignal),
+            runtime.backgroundTaskManager
           ),
         }
       : {}),

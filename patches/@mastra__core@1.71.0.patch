@@ -1,0 +1,504 @@
+diff --git a/dist/agent-B0HTHdrj.cjs b/dist/agent-B0HTHdrj.cjs
+index a659625a54f5309f959123c27a54cc284a2eefd2..75368d3437ae0853e4f5d35d334253483e0a0750 100644
+--- a/dist/agent-B0HTHdrj.cjs
++++ b/dist/agent-B0HTHdrj.cjs
+@@ -20062,6 +20062,7 @@ const DEFAULT_MESSAGE_RANGE = 1;
+ * });
+ * ```
+ */
++let semanticRecallHasher;
+ var SemanticRecall = class {
+ 	id = "semantic-recall";
+ 	name = "SemanticRecall";
+@@ -20075,7 +20076,10 @@ var SemanticRecall = class {
+ 	indexName;
+ 	logger;
+ 	embedderOptions;
+-	hasher = (0, xxhash_wasm.default)();
++	hasher = semanticRecallHasher ??= (0, xxhash_wasm.default)().catch((error) => {
++		semanticRecallHasher = void 0;
++		throw error;
++	});
+ 	indexValidationCache = /* @__PURE__ */ new Map();
+ 	constructor(options) {
+ 		this.storage = options.storage;
+@@ -30107,7 +30111,7 @@ function createToolCallStep({ tools, messageList, options, outputWriter, control
+ 											},
+ 											outputWriter: async (chunk) => {
+ 												await opts?.onProgress?.(chunk);
+-												return toolOptions.outputWriter?.(chunk);
++												// Background output is delivered by the task stream only.
+ 											},
+ 											abortSignal: opts?.abortSignal
+ 										})
+@@ -39149,7 +39153,10 @@ var Agent = class Agent extends require_base.MastraBase {
+ 							role: "user",
+ 							content: effectivePrompt
+ 						}];
+-						const subAgentAbortOptions = context?.abortSignal ? { abortSignal: context.abortSignal } : {};
++						const childAbortSignal = resolvedDefaultOptions?.abortSignal;
++						const parentAbortSignal = context?.abortSignal;
++						const subAgentAbortSignal = childAbortSignal && parentAbortSignal ? AbortSignal.any([childAbortSignal, parentAbortSignal]) : childAbortSignal ?? parentAbortSignal;
++						const subAgentAbortOptions = subAgentAbortSignal ? { abortSignal: subAgentAbortSignal } : {};
+ 						if ((methodType === "generate" || methodType === "generateLegacy") && require_trip_wire.supportedLanguageModelSpecifications.includes(resolvedModelVersion)) {
+ 							const generateResult = shouldResumeSubAgent ? await resolvedAgent.resumeGenerate(resumeData, {
+ 								runId: suspendedToolRunId,
+diff --git a/dist/agent-BOxKOk3n.js b/dist/agent-BOxKOk3n.js
+index 20808d18e0d490d5f745c85ec943e62cd8aa0d02..b0f870db01e1aac9ec8a6db61479395f0e6caf4e 100644
+--- a/dist/agent-BOxKOk3n.js
++++ b/dist/agent-BOxKOk3n.js
+@@ -20060,6 +20060,7 @@ const DEFAULT_MESSAGE_RANGE = 1;
+ * });
+ * ```
+ */
++let semanticRecallHasher;
+ var SemanticRecall = class {
+ 	id = "semantic-recall";
+ 	name = "SemanticRecall";
+@@ -20073,7 +20074,10 @@ var SemanticRecall = class {
+ 	indexName;
+ 	logger;
+ 	embedderOptions;
+-	hasher = xxhash();
++	hasher = semanticRecallHasher ??= xxhash().catch((error) => {
++		semanticRecallHasher = void 0;
++		throw error;
++	});
+ 	indexValidationCache = /* @__PURE__ */ new Map();
+ 	constructor(options) {
+ 		this.storage = options.storage;
+@@ -30105,7 +30109,7 @@ function createToolCallStep({ tools, messageList, options, outputWriter, control
+ 											},
+ 											outputWriter: async (chunk) => {
+ 												await opts?.onProgress?.(chunk);
+-												return toolOptions.outputWriter?.(chunk);
++												// Background output is delivered by the task stream only.
+ 											},
+ 											abortSignal: opts?.abortSignal
+ 										})
+@@ -39147,7 +39151,10 @@ var Agent = class Agent extends MastraBase {
+ 							role: "user",
+ 							content: effectivePrompt
+ 						}];
+-						const subAgentAbortOptions = context?.abortSignal ? { abortSignal: context.abortSignal } : {};
++						const childAbortSignal = resolvedDefaultOptions?.abortSignal;
++						const parentAbortSignal = context?.abortSignal;
++						const subAgentAbortSignal = childAbortSignal && parentAbortSignal ? AbortSignal.any([childAbortSignal, parentAbortSignal]) : childAbortSignal ?? parentAbortSignal;
++						const subAgentAbortOptions = subAgentAbortSignal ? { abortSignal: subAgentAbortSignal } : {};
+ 						if ((methodType === "generate" || methodType === "generateLegacy") && supportedLanguageModelSpecifications.includes(resolvedModelVersion)) {
+ 							const generateResult = shouldResumeSubAgent ? await resolvedAgent.resumeGenerate(resumeData, {
+ 								runId: suspendedToolRunId,
+diff --git a/dist/background-tasks-BcWw6v_H.cjs b/dist/background-tasks-BcWw6v_H.cjs
+index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..012aa172164cf2dd89d8aacaeaeaa9f2978b2a15 100644
+--- a/dist/background-tasks-BcWw6v_H.cjs
++++ b/dist/background-tasks-BcWw6v_H.cjs
+@@ -39,6 +39,48 @@ var BackgroundTaskManager = class {
+ 	initPromise;
+ 	shutdownPromise;
+ 	shutdownDeadline;
++	taskWork = new Map();
++	shutdownErrors = [];
++	// Internal execution ownership shared with the background workflow step.
++	trackTaskWork(taskId, promise, reportFailure = false) {
++		let work = this.taskWork.get(taskId);
++		if (!work) {
++			work = { pending: new Set(), errors: new Set() };
++			this.taskWork.set(taskId, work);
++		}
++		const settled = promise.then(() => {}, (error) => {
++			if (reportFailure) work.errors.add(error);
++		}).finally(() => {
++			work.pending.delete(settled);
++			if (!work.pending.size && !work.errors.size) this.taskWork.delete(taskId);
++		});
++		work.pending.add(settled);
++		return promise;
++	}
++	async #joinTaskWork(taskId, deadline) {
++		let timer;
++		const drain = async () => {
++			for (;;) {
++				const work = this.taskWork.get(taskId);
++				if (!work) return;
++				if (work.pending.size) {
++					await Promise.all([...work.pending]);
++					continue;
++				}
++				if (work.errors.size === 1) throw [...work.errors][0];
++				if (work.errors.size) throw new AggregateError([...work.errors], 'Background task cleanup failed');
++				return;
++			}
++		};
++		try {
++			if (deadline <= Date.now() && this.taskWork.get(taskId)?.pending.size) throw new Error('Background task cancellation cleanup exceeded the deadline');
++			await Promise.race([drain(), new Promise((_, reject) => {
++				timer = setTimeout(() => reject(new Error('Background task cancellation cleanup exceeded the deadline')), Math.max(0, deadline - Date.now()));
++			})]);
++		} finally {
++			clearTimeout(timer);
++		}
++	}
+ 	constructor(config = { enabled: false }) {
+ 		this.config = {
+ 			...config,
+@@ -231,12 +273,13 @@ var BackgroundTaskManager = class {
+ 		}
+ 	}
+ 	async cancel(taskId) {
++		const deadline = this.shutdownDeadline ?? Date.now() + SHUTDOWN_GRACE_PERIOD_MS;
+ 		if (this.initPromise) await this.initPromise;
+ 		const storage = await this.getStorage();
+ 		let task = await storage.getTask(taskId);
+ 		if (!task) throw new Error(`Task not found: ${taskId}`);
+ 		while (true) {
+-			if (task.status === "completed" || task.status === "failed" || task.status === "cancelled" || task.status === "timed_out") return;
++			if (task.status === "completed" || task.status === "failed" || task.status === "cancelled" || task.status === "timed_out") return this.#joinTaskWork(taskId, deadline);
+ 			const previousStatus = task.status;
+ 			const isProcessAffine = this.taskContexts.has(taskId);
+ 			if (!await storage.updateTask(taskId, {
+@@ -262,9 +305,13 @@ var BackgroundTaskManager = class {
+ 				if (this.#mastra) try {
+ 					await (await this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).createRun({ runId: taskId })).cancel();
+ 				} catch (err) {
+-					this.#mastra?.getLogger?.()?.warn(`background-task workflow cancel failed for ${taskId}:`, err);
++					throw err;
+ 				}
+ 			}
++			if (previousStatus === "suspended" && this.#mastra) {
++				this.trackTaskWork(taskId, this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).deleteWorkflowRunById(taskId), true);
++			}
++			await this.#joinTaskWork(taskId, deadline);
+ 			const cancelledTask = await storage.getTask(taskId);
+ 			if (cancelledTask) {
+ 				await this.publishLifecycleEvent("task.cancelled", cancelledTask);
+@@ -599,7 +646,7 @@ var BackgroundTaskManager = class {
+ 		const activeTaskIds = [...this.activeAbortControllers.keys()];
+ 		this.#abortActiveControllers();
+ 		(await this.#waitForShutdownStep("background task cancellation", Promise.allSettled(activeTaskIds.map((taskId) => this.#cancelTaskForShutdown(taskId)))))?.forEach((result, index) => {
+-			if (result.status === "rejected") this.#mastra?.getLogger?.()?.warn(`Failed to cancel background task ${activeTaskIds[index]} during shutdown:`, result.reason);
++			if (result.status === "rejected") this.shutdownErrors.push(result.reason);
+ 		});
+ 		if (this.cleanupInterval) {
+ 			clearInterval(this.cleanupInterval);
+@@ -612,7 +659,7 @@ var BackgroundTaskManager = class {
+ 		}
+ 		if (this.resultCallback) subscriptions.push([TOPIC_RESULT, this.resultCallback]);
+ 		(await this.#waitForShutdownStep("background task subscription cleanup", Promise.allSettled(subscriptions.map(([topic, callback]) => this.pubsub.unsubscribe(topic, callback)))))?.forEach((result, index) => {
+-			if (result.status === "rejected") this.#mastra?.getLogger?.()?.warn(`Failed to unsubscribe from ${subscriptions[index]?.[0]} during background task shutdown:`, result.reason);
++			if (result.status === "rejected") this.shutdownErrors.push(result.reason);
+ 		});
+ 		this.#abortActiveControllers();
+ 		this.taskContexts.clear();
+@@ -620,6 +667,11 @@ var BackgroundTaskManager = class {
+ 		this.localPendingTaskIds.clear();
+ 		this.staticExecutors.clear();
+ 		if (this.initPromise) await this.#waitForShutdownStep("background task pubsub flush", this.pubsub.flush());
++		for (const taskId of this.taskWork.keys()) {
++			try { await this.#joinTaskWork(taskId, this.shutdownDeadline); }
++			catch (error) { this.shutdownErrors.push(error); }
++		}
++		if (this.shutdownErrors.length) throw new AggregateError([...new Set(this.shutdownErrors)], "Background task shutdown cleanup failed");
+ 	}
+ 	async #cancelTaskForShutdown(taskId) {
+ 		const task = await (await this.getStorage()).getTask(taskId);
+@@ -640,7 +692,7 @@ var BackgroundTaskManager = class {
+ 		const remainingMs = this.#remainingShutdownBudgetMs();
+ 		if (remainingMs <= 0) {
+ 			promise.catch(() => {});
+-			this.#mastra?.getLogger?.()?.warn(`${description} left running in the background: the shutdown budget is spent`);
++			this.shutdownErrors.push(new Error(`${description} cleanup exceeded the shutdown deadline`));
+ 			return;
+ 		}
+ 		let timeoutHandle;
+@@ -653,13 +705,13 @@ var BackgroundTaskManager = class {
+ 				timeoutHandle = setTimeout(() => resolve({ status: "timed-out" }), remainingMs);
+ 			})]);
+ 		} catch (error) {
+-			this.#mastra?.getLogger?.()?.warn(`${description} failed during shutdown:`, error);
++			this.shutdownErrors.push(error);
+ 			return;
+ 		} finally {
+ 			if (timeoutHandle) clearTimeout(timeoutHandle);
+ 		}
+ 		if (outcome.status === "timed-out") {
+-			this.#mastra?.getLogger?.()?.warn(`${description} exhausted the remaining ${remainingMs}ms of the graceful shutdown budget`);
++			this.shutdownErrors.push(new Error(`${description} cleanup exceeded the shutdown deadline`));
+ 			return;
+ 		}
+ 		return outcome.value;
+@@ -768,14 +820,12 @@ var BackgroundTaskManager = class {
+ 			const shouldRestart = isRestart && prevWorkflowRun?.status === "running";
+ 			const run = await workflow.createRun({ runId: taskId });
+ 			if (this.shuttingDown) return false;
+-			(shouldRestart ? run.restart() : run.start({ inputData: { taskId } })).then((result) => {
+-				if (result.status !== "suspended") workflow.deleteWorkflowRunById(taskId);
+-			}).catch((err) => {
+-				this.#mastra?.getLogger?.()?.error(`background-task workflow ${shouldRestart ? "restart" : "start"} failed for ${taskId}:`, err);
++			this.trackTaskWork(taskId, (shouldRestart ? run.restart() : run.start({ inputData: { taskId } })).then(async (result) => {
++				if (result.status !== "suspended") await workflow.deleteWorkflowRunById(taskId);
+ 			}).finally(() => {
+ 				this.releaseLocalSlot(taskId);
+ 				this.drainPending();
+-			});
++			}), true);
+ 		} catch (error) {
+ 			this.releaseLocalSlot(taskId);
+ 			if (await storage.updateTask(taskId, {
+@@ -827,14 +877,12 @@ var BackgroundTaskManager = class {
+ 			return true;
+ 		}
+ 		const workflow = this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID);
+-		(await workflow.createRun({ runId: taskId })).resume({ resumeData }).then((result) => {
+-			if (result.status !== "suspended") workflow.deleteWorkflowRunById(taskId);
+-		}).catch((err) => {
+-			this.#mastra?.getLogger?.()?.error(`background-task workflow resume failed for ${taskId}:`, err);
++		this.trackTaskWork(taskId, (await workflow.createRun({ runId: taskId })).resume({ resumeData }).then(async (result) => {
++			if (result.status !== "suspended") await workflow.deleteWorkflowRunById(taskId);
+ 		}).finally(() => {
+ 			this.releaseLocalSlot(taskId);
+ 			this.drainPending();
+-		});
++		}), true);
+ 		return true;
+ 	}
+ 	/**
+diff --git a/dist/background-tasks-CH6bZtEa.js b/dist/background-tasks-CH6bZtEa.js
+index de86aa89de4a77fb67e449c07c080c065e655483..58fd6c87422c4e6fc03b12efebff74279c4aad78 100644
+--- a/dist/background-tasks-CH6bZtEa.js
++++ b/dist/background-tasks-CH6bZtEa.js
+@@ -39,6 +39,48 @@ var BackgroundTaskManager = class {
+ 	initPromise;
+ 	shutdownPromise;
+ 	shutdownDeadline;
++	taskWork = new Map();
++	shutdownErrors = [];
++	// Internal execution ownership shared with the background workflow step.
++	trackTaskWork(taskId, promise, reportFailure = false) {
++		let work = this.taskWork.get(taskId);
++		if (!work) {
++			work = { pending: new Set(), errors: new Set() };
++			this.taskWork.set(taskId, work);
++		}
++		const settled = promise.then(() => {}, (error) => {
++			if (reportFailure) work.errors.add(error);
++		}).finally(() => {
++			work.pending.delete(settled);
++			if (!work.pending.size && !work.errors.size) this.taskWork.delete(taskId);
++		});
++		work.pending.add(settled);
++		return promise;
++	}
++	async #joinTaskWork(taskId, deadline) {
++		let timer;
++		const drain = async () => {
++			for (;;) {
++				const work = this.taskWork.get(taskId);
++				if (!work) return;
++				if (work.pending.size) {
++					await Promise.all([...work.pending]);
++					continue;
++				}
++				if (work.errors.size === 1) throw [...work.errors][0];
++				if (work.errors.size) throw new AggregateError([...work.errors], 'Background task cleanup failed');
++				return;
++			}
++		};
++		try {
++			if (deadline <= Date.now() && this.taskWork.get(taskId)?.pending.size) throw new Error('Background task cancellation cleanup exceeded the deadline');
++			await Promise.race([drain(), new Promise((_, reject) => {
++				timer = setTimeout(() => reject(new Error('Background task cancellation cleanup exceeded the deadline')), Math.max(0, deadline - Date.now()));
++			})]);
++		} finally {
++			clearTimeout(timer);
++		}
++	}
+ 	constructor(config = { enabled: false }) {
+ 		this.config = {
+ 			...config,
+@@ -231,12 +273,13 @@ var BackgroundTaskManager = class {
+ 		}
+ 	}
+ 	async cancel(taskId) {
++		const deadline = this.shutdownDeadline ?? Date.now() + SHUTDOWN_GRACE_PERIOD_MS;
+ 		if (this.initPromise) await this.initPromise;
+ 		const storage = await this.getStorage();
+ 		let task = await storage.getTask(taskId);
+ 		if (!task) throw new Error(`Task not found: ${taskId}`);
+ 		while (true) {
+-			if (task.status === "completed" || task.status === "failed" || task.status === "cancelled" || task.status === "timed_out") return;
++			if (task.status === "completed" || task.status === "failed" || task.status === "cancelled" || task.status === "timed_out") return this.#joinTaskWork(taskId, deadline);
+ 			const previousStatus = task.status;
+ 			const isProcessAffine = this.taskContexts.has(taskId);
+ 			if (!await storage.updateTask(taskId, {
+@@ -262,9 +305,13 @@ var BackgroundTaskManager = class {
+ 				if (this.#mastra) try {
+ 					await (await this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).createRun({ runId: taskId })).cancel();
+ 				} catch (err) {
+-					this.#mastra?.getLogger?.()?.warn(`background-task workflow cancel failed for ${taskId}:`, err);
++					throw err;
+ 				}
+ 			}
++			if (previousStatus === "suspended" && this.#mastra) {
++				this.trackTaskWork(taskId, this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).deleteWorkflowRunById(taskId), true);
++			}
++			await this.#joinTaskWork(taskId, deadline);
+ 			const cancelledTask = await storage.getTask(taskId);
+ 			if (cancelledTask) {
+ 				await this.publishLifecycleEvent("task.cancelled", cancelledTask);
+@@ -599,7 +646,7 @@ var BackgroundTaskManager = class {
+ 		const activeTaskIds = [...this.activeAbortControllers.keys()];
+ 		this.#abortActiveControllers();
+ 		(await this.#waitForShutdownStep("background task cancellation", Promise.allSettled(activeTaskIds.map((taskId) => this.#cancelTaskForShutdown(taskId)))))?.forEach((result, index) => {
+-			if (result.status === "rejected") this.#mastra?.getLogger?.()?.warn(`Failed to cancel background task ${activeTaskIds[index]} during shutdown:`, result.reason);
++			if (result.status === "rejected") this.shutdownErrors.push(result.reason);
+ 		});
+ 		if (this.cleanupInterval) {
+ 			clearInterval(this.cleanupInterval);
+@@ -612,7 +659,7 @@ var BackgroundTaskManager = class {
+ 		}
+ 		if (this.resultCallback) subscriptions.push([TOPIC_RESULT, this.resultCallback]);
+ 		(await this.#waitForShutdownStep("background task subscription cleanup", Promise.allSettled(subscriptions.map(([topic, callback]) => this.pubsub.unsubscribe(topic, callback)))))?.forEach((result, index) => {
+-			if (result.status === "rejected") this.#mastra?.getLogger?.()?.warn(`Failed to unsubscribe from ${subscriptions[index]?.[0]} during background task shutdown:`, result.reason);
++			if (result.status === "rejected") this.shutdownErrors.push(result.reason);
+ 		});
+ 		this.#abortActiveControllers();
+ 		this.taskContexts.clear();
+@@ -620,6 +667,11 @@ var BackgroundTaskManager = class {
+ 		this.localPendingTaskIds.clear();
+ 		this.staticExecutors.clear();
+ 		if (this.initPromise) await this.#waitForShutdownStep("background task pubsub flush", this.pubsub.flush());
++		for (const taskId of this.taskWork.keys()) {
++			try { await this.#joinTaskWork(taskId, this.shutdownDeadline); }
++			catch (error) { this.shutdownErrors.push(error); }
++		}
++		if (this.shutdownErrors.length) throw new AggregateError([...new Set(this.shutdownErrors)], "Background task shutdown cleanup failed");
+ 	}
+ 	async #cancelTaskForShutdown(taskId) {
+ 		const task = await (await this.getStorage()).getTask(taskId);
+@@ -640,7 +692,7 @@ var BackgroundTaskManager = class {
+ 		const remainingMs = this.#remainingShutdownBudgetMs();
+ 		if (remainingMs <= 0) {
+ 			promise.catch(() => {});
+-			this.#mastra?.getLogger?.()?.warn(`${description} left running in the background: the shutdown budget is spent`);
++			this.shutdownErrors.push(new Error(`${description} cleanup exceeded the shutdown deadline`));
+ 			return;
+ 		}
+ 		let timeoutHandle;
+@@ -653,13 +705,13 @@ var BackgroundTaskManager = class {
+ 				timeoutHandle = setTimeout(() => resolve({ status: "timed-out" }), remainingMs);
+ 			})]);
+ 		} catch (error) {
+-			this.#mastra?.getLogger?.()?.warn(`${description} failed during shutdown:`, error);
++			this.shutdownErrors.push(error);
+ 			return;
+ 		} finally {
+ 			if (timeoutHandle) clearTimeout(timeoutHandle);
+ 		}
+ 		if (outcome.status === "timed-out") {
+-			this.#mastra?.getLogger?.()?.warn(`${description} exhausted the remaining ${remainingMs}ms of the graceful shutdown budget`);
++			this.shutdownErrors.push(new Error(`${description} cleanup exceeded the shutdown deadline`));
+ 			return;
+ 		}
+ 		return outcome.value;
+@@ -768,14 +820,12 @@ var BackgroundTaskManager = class {
+ 			const shouldRestart = isRestart && prevWorkflowRun?.status === "running";
+ 			const run = await workflow.createRun({ runId: taskId });
+ 			if (this.shuttingDown) return false;
+-			(shouldRestart ? run.restart() : run.start({ inputData: { taskId } })).then((result) => {
+-				if (result.status !== "suspended") workflow.deleteWorkflowRunById(taskId);
+-			}).catch((err) => {
+-				this.#mastra?.getLogger?.()?.error(`background-task workflow ${shouldRestart ? "restart" : "start"} failed for ${taskId}:`, err);
++			this.trackTaskWork(taskId, (shouldRestart ? run.restart() : run.start({ inputData: { taskId } })).then(async (result) => {
++				if (result.status !== "suspended") await workflow.deleteWorkflowRunById(taskId);
+ 			}).finally(() => {
+ 				this.releaseLocalSlot(taskId);
+ 				this.drainPending();
+-			});
++			}), true);
+ 		} catch (error) {
+ 			this.releaseLocalSlot(taskId);
+ 			if (await storage.updateTask(taskId, {
+@@ -827,14 +877,12 @@ var BackgroundTaskManager = class {
+ 			return true;
+ 		}
+ 		const workflow = this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID);
+-		(await workflow.createRun({ runId: taskId })).resume({ resumeData }).then((result) => {
+-			if (result.status !== "suspended") workflow.deleteWorkflowRunById(taskId);
+-		}).catch((err) => {
+-			this.#mastra?.getLogger?.()?.error(`background-task workflow resume failed for ${taskId}:`, err);
++		this.trackTaskWork(taskId, (await workflow.createRun({ runId: taskId })).resume({ resumeData }).then(async (result) => {
++			if (result.status !== "suspended") await workflow.deleteWorkflowRunById(taskId);
+ 		}).finally(() => {
+ 			this.releaseLocalSlot(taskId);
+ 			this.drainPending();
+-		});
++		}), true);
+ 		return true;
+ 	}
+ 	/**
+diff --git a/dist/create-durable-agent-DrUvhzKE.js b/dist/create-durable-agent-DrUvhzKE.js
+index c5260198a4587c47ad079c4ac3fe6aee746948de..061e952eaf6cefe66758a60508b9e28b3e678031 100644
+--- a/dist/create-durable-agent-DrUvhzKE.js
++++ b/dist/create-durable-agent-DrUvhzKE.js
+@@ -4368,7 +4368,7 @@ function createDurableToolCallStep() {
+ 											},
+ 											outputWriter: async (chunk) => {
+ 												await taskContext?.onProgress?.(chunk);
+-												return toolOptions.outputWriter?.(chunk);
++												// Background output is delivered by the task stream only.
+ 											},
+ 											abortSignal: taskContext?.abortSignal ?? toolOptions.abortSignal
+ 										})
+diff --git a/dist/create-durable-agent-f7FFJ8pU.cjs b/dist/create-durable-agent-f7FFJ8pU.cjs
+index 085b33ed17633d5cfbbf8324fb992255f67b709d..668368397cefc7a3c3ebd7ec9995c0c37ae2f98c 100644
+--- a/dist/create-durable-agent-f7FFJ8pU.cjs
++++ b/dist/create-durable-agent-f7FFJ8pU.cjs
+@@ -4368,7 +4368,7 @@ function createDurableToolCallStep() {
+ 											},
+ 											outputWriter: async (chunk) => {
+ 												await taskContext?.onProgress?.(chunk);
+-												return toolOptions.outputWriter?.(chunk);
++												// Background output is delivered by the task stream only.
+ 											},
+ 											abortSignal: taskContext?.abortSignal ?? toolOptions.abortSignal
+ 										})
+diff --git a/dist/workflow-DLhRNxEW.js b/dist/workflow-DLhRNxEW.js
+index d73027c3b90cab676908db6a5401fbff276f2121..eb6f346df6f4a019dc626e117d65b4be92a85b9b 100644
+--- a/dist/workflow-DLhRNxEW.js
++++ b/dist/workflow-DLhRNxEW.js
+@@ -135,13 +135,13 @@ function buildBackgroundTaskWorkflow(manager) {
+ 				delete args.suspendedToolRunId;
+ 				const suspendedToolRunId = resolveSuspendedToolRunId(suspendData?.suspendedToolRunId);
+ 				if (resumeData !== void 0 && suspendedToolRunId) args.suspendedToolRunId = suspendedToolRunId;
+-				const result = await executor.execute(args, {
++				const result = await manager.trackTaskWork(taskId, Promise.resolve().then(() => executor.execute(args, {
+ 					abortSignal: abortController.signal,
+ 					onProgress,
+ 					suspend: wrappedSuspend,
+ 					resumeData,
+ 					suspendedToolRunId: resumeData !== void 0 ? suspendedToolRunId : void 0
+-				});
++				})));
+ 				if (pendingSuspend) {
+ 					const opts = pendingSuspend.suspendOptions;
+ 					const agentRunId = opts?.isAgentSuspend && typeof opts.runId === "string" ? opts.runId : void 0;
+diff --git a/dist/workflow-zcuE8UoE.cjs b/dist/workflow-zcuE8UoE.cjs
+index 9ef3f7595320155e506e6d7be0c3085d44567b14..714c69b9b1d68956415a4331e06bdcbedc2c7478 100644
+--- a/dist/workflow-zcuE8UoE.cjs
++++ b/dist/workflow-zcuE8UoE.cjs
+@@ -135,13 +135,13 @@ function buildBackgroundTaskWorkflow(manager) {
+ 				delete args.suspendedToolRunId;
+ 				const suspendedToolRunId = require_trip_wire.resolveSuspendedToolRunId(suspendData?.suspendedToolRunId);
+ 				if (resumeData !== void 0 && suspendedToolRunId) args.suspendedToolRunId = suspendedToolRunId;
+-				const result = await executor.execute(args, {
++				const result = await manager.trackTaskWork(taskId, Promise.resolve().then(() => executor.execute(args, {
+ 					abortSignal: abortController.signal,
+ 					onProgress,
+ 					suspend: wrappedSuspend,
+ 					resumeData,
+ 					suspendedToolRunId: resumeData !== void 0 ? suspendedToolRunId : void 0
+-				});
++				})));
+ 				if (pendingSuspend) {
+ 					const opts = pendingSuspend.suspendOptions;
+ 					const agentRunId = opts?.isAgentSuspend && typeof opts.runId === "string" ? opts.runId : void 0;

@@ -174,7 +174,7 @@ it('rejects oversized trusted child context before child inference while the par
           expect.objectContaining({
             output: {
               type: 'error-text',
-              value: expect.stringContaining('Failed agent tool execution'),
+              value: expect.stringContaining('failed before completing the task'),
             },
             toolName: 'agent-explore',
           }),

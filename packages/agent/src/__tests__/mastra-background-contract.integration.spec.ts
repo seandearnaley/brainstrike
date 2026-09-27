@@ -784,6 +784,9 @@ describe('native background delegation (BST-1723)', () => {
                 toolCallId: task.toolCallId,
                 ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
                 ...(options?.resumeData === undefined ? {} : { resumeData: options.resumeData }),
+                ...(options?.suspendedToolRunId
+                  ? { suspendedToolRunId: options.suspendedToolRunId }
+                  : {}),
                 ...(options?.suspend ? { suspend: options.suspend } : {}),
               }),
           },

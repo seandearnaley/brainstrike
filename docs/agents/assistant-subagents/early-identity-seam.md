@@ -56,3 +56,25 @@ The first storage layer adds the host-only delegated conversation graph in
 immutable child configuration/workspace binding, and explicit legacy absence.
 Desktop production delegation now uses this graph together with invocation/run
 identity, branch cleanup, publication/resume checks and usage reconciliation. See `assistant-persistence.md` and `database.md`.
+
+
+### 2026-09-26: unpatched 1.71 executing-input boundary
+
+`beforeToolCall.context.messages` is the pre-model prompt on core 1.71.0;
+`onDelegationStart.messages` also omits parent tool parts. Neither is an
+executing-call registry. Native foreground integration failed before child
+admission because Brainstrike scanned that history for the current call.
+Capture the public hook's `input` with its native context identities instead,
+clone it immediately, and check the persona and prompt again at admission.
+Model-authored thread/call fields never substitute for native context identity.
+
+Guards: `packages/agent/src/mastra/__tests__/delegated-observed-input.spec.ts`
+and `packages/agent/src/__tests__/delegated-conversation-stream.integration.spec.ts`.
+The former rejects absent native identity, duplicate capture and mismatched
+persona/prompt, and checks input snapshotting. The latter exercises the real
+native stream, including concurrent calls to the same persona.
+
+This correction does not establish background output ownership, selected Stop
+cleanup, or desktop approval recovery. The upgrade remains a candidate until
+those assembled paths pass; native capability tests do not establish desktop
+or process-restart correctness.

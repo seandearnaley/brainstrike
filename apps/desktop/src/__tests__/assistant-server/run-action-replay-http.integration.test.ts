@@ -165,6 +165,44 @@ it('replays a typed Gate B suspension on the Gate A approval continuation host l
       })
     );
 
+    // A continuation tool belongs to the child's receipt/transcript, not a
+    // parent message. Its native decision still runs through the normal action
+    // stream; only root transcript replay is inapplicable.
+    const childResponse = await runRequest({
+      body: JSON.stringify({
+        data: {
+          memory: { resourceId: 'workspace-a', runId: 'child-answer-leg', threadId: thread.id },
+          provider: 'openai',
+        },
+        messages: [],
+        runConfig: {
+          custom: {
+            brainstrikeToolApproval: {
+              action: 'approve',
+              continuationId: 'child-continuation',
+              hostRunId: 'host-leg',
+              runId: 'child-native-run',
+              toolCallId: 'child-only-call',
+            },
+          },
+        },
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      url: '/',
+    });
+    expect(childResponse.status).toBe(200);
+    expect(streamMastraToolApprovalAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        continuationId: 'child-continuation',
+        toolCallId: 'child-only-call',
+      }),
+      expect.anything()
+    );
+    const childSession = vi.mocked(assistantDataStreamSessions.create).mock.calls.at(-1);
+    expect(childSession?.[1]?.discovery).toBeDefined();
+    expect(childSession?.[1]?.discovery).not.toHaveProperty('actionReplay');
+
     // Gate A resumed the original native run on a new host leg. The native
     // mapping stays with its first leg; Gate B is suspended on this second leg.
     await repository.createThreadRun({

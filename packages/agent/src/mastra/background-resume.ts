@@ -9,6 +9,7 @@ import type { RuntimeData, StreamChunk } from '../types';
 import type { attachAbortedTurnMessageList } from './aborted-turn-persistence';
 import type { MastraAgentRuntime } from './agent-runtime';
 import type { HostExecutionWatch } from './background-child-watchdog';
+import { hasObservedNativeBackgroundExecutor } from './background-executor-identity';
 import {
   type BackgroundIdleLoopParams,
   createSuspensionLedger,
@@ -384,7 +385,10 @@ export function createResumedExecutors(params: {
     // decision in that SAME runtime must keep its existing stream/result owner:
     // replacing it would also write the background result onto the dispatching
     // root turn. A reconstructed runtime has no context and is registered below.
-    if (params.manager.taskContexts.has(task.id) && !ownedContexts.has(task.id)) {
+    if (
+      hasObservedNativeBackgroundExecutor(params.manager, task.id) &&
+      !ownedContexts.has(task.id)
+    ) {
       const ready = Promise.resolve(retained);
       registrations.set(task.id, ready);
       return ready;
@@ -406,7 +410,10 @@ export function createResumedExecutors(params: {
       }
       // Another native producer may have restored the task while tools were
       // resolving. Preserve that observed owner instead of overwriting it.
-      if (params.manager.taskContexts.has(task.id) && !ownedContexts.has(task.id)) {
+      if (
+        hasObservedNativeBackgroundExecutor(params.manager, task.id) &&
+        !ownedContexts.has(task.id)
+      ) {
         return retained;
       }
       const executor = commit();
@@ -490,7 +497,10 @@ export function createResumedExecutors(params: {
       if (drained) {
         throw new LiveDecisionUnavailableError('The resume leg has released its executors.');
       }
-      if (params.manager.taskContexts.has(task.id) && !ownedContexts.has(task.id)) {
+      if (
+        hasObservedNativeBackgroundExecutor(params.manager, task.id) &&
+        !ownedContexts.has(task.id)
+      ) {
         return;
       }
       const generation = generations.get(task.id) ?? 0;
@@ -928,9 +938,8 @@ interface ResumedExecutor {
   /**
    * Settles once the executor settles (returned, threw or parked), after the
    * host join for its original dispatch address — or once Mastra published a
-   * terminal that ends the task, which can arrive before the executor ever
-   * started (cancelled before it ran) or while it is still in flight (a
-   * cancel), neither of which the execution itself would settle.
+   * terminal that ends the task, including cancellation before this registration
+   * ever started. Native cancellation joins its running executor and cleanup.
    */
   readonly executed: Promise<void>;
   /**
@@ -938,9 +947,8 @@ interface ResumedExecutor {
    * (Mastra passes `suspend` into `execute`), so a suspension is never this
    * registration's end and never settles it — the executor that parked settles
    * it after its host join. Every other terminal ends the task: completed,
-   * failed and timed-out are published after the execution settled, and a
-   * cancel is published before it, Mastra joining the aborted execution itself
-   * under its shutdown grace exactly as this leg's `manager.shutdown()` does.
+   * failed, timed-out and cancelled. The patched native manager owns the
+   * execution and cleanup join; this registration owns host persistence.
    */
   readonly terminal: (event: TaskEvent) => void;
 }
@@ -1051,6 +1059,9 @@ async function prepareResumedExecutor(params: {
             ...(nativeOptions?.resumeData === undefined
               ? {}
               : { resumeData: nativeOptions.resumeData }),
+            ...(nativeOptions?.suspendedToolRunId
+              ? { suspendedToolRunId: nativeOptions.suspendedToolRunId }
+              : {}),
             ...(nativeOptions?.suspend ? { suspend: nativeOptions.suspend } : {}),
           });
           nativeOptions?.abortSignal?.throwIfAborted();

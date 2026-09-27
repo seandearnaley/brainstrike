@@ -96,3 +96,15 @@ maintenance request can still reset them for a deliberate retry.
 This recovery cannot run on routine ticks: a long live build has no heartbeat,
 so elapsed time cannot prove abandonment. The persisted-database service test and
 desktop boot-order test guard the two halves of this ownership rule.
+
+## Node-safe scheduler ownership
+
+The scheduler and reset barrier live in `desktop-database-work-scheduler.ts`.
+`desktop-database-work.ts` adds Electron sender-window/priority adaptation and
+re-exports that same owner for existing IPC consumers. The critical-database
+helper imports the Node-safe owner and leaf timeout error directly. This keeps
+real process-restart fixtures able to load the production failure-settlement
+closure without importing Electron's runtime under Node. No policy, queue,
+retry rule or reset behavior is duplicated or bypassed. Existing scheduler,
+critical-operation and IPC tests prove shared admission; both actual-process
+restart suites guard the import boundary.

@@ -45,8 +45,8 @@ Guard: `packages/agent/src/mastra/__tests__/persona-recursion-gate.spec.ts`,
   provider is visibly omitted before model resolution. Derive the worker input
   budget from its resolved context window with the shared output reservation.
 - Store only host-projected system text in the native RequestContext snapshot
-  before inference and restore it on approval and question resume. Never
-  serialize callbacks, RuntimeData, tool results or execution capabilities; a
+  before inference and restore it on resume; exclude parent-generated system
+  instructions from conversation history. Never serialize runtime capabilities; a
   legacy snapshot without that context rejects new children visibly.
 - Validate trusted context size only when a child starts: invalid or oversized
   context rejects that delegation before child inference and Mastra returns the
@@ -293,10 +293,10 @@ Guard: `packages/assistant-contract/src/__tests__/personas.test.ts`,
 
 ### Early identity seam
 
-- Bind the child thread scope during INPUT preparation through
-  `createDelegatedConversationBinding`, keyed by the child RequestContext object
-  supplied to `onDelegationStart` in a host-owned WeakMap. Never establish the
-  relationship from persona name, completion order or parsed generated ids.
+- Bind child scope during INPUT preparation using `onDelegationStart`'s
+  RequestContext as a host-owned WeakMap key, never persona/order/parsed ids.
+  Capture `beforeToolCall.input` with native context IDs; recheck persona/prompt
+  on admission. Prompt history is not the executing call.
 - An output processor is too late — the first native `start` bypasses it and
   `onChunk` runs after enqueue. An input binding error is visible and prevents
   child model and tool execution.
@@ -980,7 +980,7 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   non-envelope chunk is a contract break. A forwarded `data-*` part keeps the
   CHILD's `runId` — attribute by that id, never by position in the host stream.
 - **ONE DELIVERY PER BACKGROUND CALL** (settled 2026-09-15, do not relitigate).
-  `patches/@mastra__core@1.64.0.patch` makes the background executor's
+  `patches/@mastra__core@1.71.0.patch` makes the background executor's
   `outputWriter` publish to the TASK only, and `projectBackgroundStream` throws
   on a background call's `tool-output` on its dispatching turn as the backstop if
   that patch stops applying. It also DROPS a turn's `tool-call-approval` /
@@ -1002,7 +1002,7 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   withheld child notice publishes.
 - **The parent model is NEVER woken by a child's suspension** (settled
   2026-09-14, do not relitigate). The host does not pass `untilIdle`; every
-  parent inference passes `_skipBgTaskWait` and is wrapped by
+  parent inference uses public `waitTimeoutMs: 0` and is wrapped by
   `withBackgroundIdleLoop` (`background-idle-loop.ts`), which mirrors Mastra's
   loop except that only a RETURNED, FAILED or CANCELLED task queues a wakeup. A
   suspension is a host-surfaced approval prompt; the model is not the messenger.

@@ -127,10 +127,10 @@ Guard: `packages/db/__tests__/managed-cache-batch-parameter-limit.test.ts`.
   per-task latency ceiling; clock and pending-turn requirement reset when every
   queue drains. `forcedBackgroundAdmissionCount` counts starvation-rule admissions
   only and is the authoritative diagnostic that the bound fired.
-- Run-scoped assistant operations enter this SAME scheduler as `foreground` and own no
-  second policy; a sanctioned retry is another foreground admission. A wedged host and
-  a transaction timeout are not retryable, and exhaustion surfaces
-  `DbHostRequestTimeoutError`.
+- Run-scoped assistant operations enter the SAME scheduler as `foreground`.
+  State/reset ownership lives in Node-safe `desktop-database-work-scheduler.ts`;
+  Electron only adapts IPC. Saturated-host retry re-enters foreground; wedges and
+  transaction timeouts fail visibly as `DbHostRequestTimeoutError`.
 - `backgroundStarvationMs` must be positive and finite, `foregroundQuietMs`
   non-negative and finite; invalid values throw rather than disabling a fairness rule.
   All fairness, wait, and service timing is monotonic, and snapshots carry elapsed

@@ -79,6 +79,7 @@ checkpoints and terminal native tasks before releasing root synthesis. On macOS
 the case took 10.1 seconds, 26.6 seconds for its one-spec Playwright command
 including setup. The previously measured 440-second Linux lane has estimated
 headroom under its unchanged 900-second ceiling even at the historical 9.5x
-Linux/local case ratio (about 96 added seconds; roughly 536 seconds total).
+Linux/local case ratio: about 99 seconds for the canvas case above plus 96 for
+this case, or roughly 635 seconds total (71% of the ceiling).
 This is a case measurement and headroom estimate; PR CI will measure the new
 complete lane. The external model endpoint alone is scripted.

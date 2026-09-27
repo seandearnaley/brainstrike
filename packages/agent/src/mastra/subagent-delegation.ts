@@ -631,15 +631,11 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
     messageFilter: ({ messages, primitiveId, toolCallId }) => {
       const persona = params.personasById.get(primitiveId);
       const specialist = persona && personaMode(persona) !== 'worker';
-      const protectedMessages = messages.filter((message) => message.role === 'system');
-      let bytes = protectedMessages.reduce(
-        (sum, message) => sum + Buffer.byteLength(JSON.stringify(message), 'utf8') + 1,
-        2
-      );
-      if (bytes > MAX_DELEGATED_CONTEXT_BYTES) {
-        throw new Error('Trusted delegated context exceeds its 64 KiB budget.');
-      }
-      const selected = new Map(protectedMessages.map((message) => [message, message]));
+      // Host authority is supplied once by createDelegatedSystemContextProcessor.
+      // Native history also contains the parent's generated system instructions;
+      // forwarding those would give specialists supervisor and memory-write duties.
+      let bytes = 2;
+      const selected = new Map<MastraDBMessage, MastraDBMessage>();
       let ordinary = 0;
       for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];

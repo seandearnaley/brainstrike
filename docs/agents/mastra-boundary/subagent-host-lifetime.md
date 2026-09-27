@@ -128,3 +128,26 @@ refuses any host value Node would fire immediately. The parent idle loop's
 timer and the stream watchdog judges liveness.
 Guard: `pglite-background-store.integration.spec.ts`,
 `delegated-deadlines.integration.test.ts`.
+
+## 1.71 upgrade: accepted decision lifetime
+
+On 2026-09-26 the user selected retaining and simplifying the existing host
+parent-turn coordinator after the native reference probe demonstrated EOF during
+an accepted decision's durable commit. `untilIdle` observes native running tasks,
+not asynchronous host decision admission; an out-of-band resume after its EOF
+executes the child but cannot publish through the closed parent stream.
+
+The coordinator uses public `Agent.stream`, `BackgroundTaskManager.stream`,
+`registerTaskContext`, `resume` and `cancel`. Mastra owns both agent loops and
+native executions. Brainstrike holds decision reservations through commit and
+resume, records the generation, and derives wakeups from durable task rows.
+One symbol per decision replaces separate reservation counts and generation
+counters: releasing an old decision cannot release a newer one. There is no
+second child loop, dummy keepalive task, native-method interception or private
+`_skipBgTaskWait`/`taskContexts` access. Public `waitTimeoutMs: 0` suffices.
+
+The application lifetime probe in `background-grant-wire.integration.spec.ts`
+holds the decision commit until the final running sibling returns, then verifies
+one resumed effect and the final parent outcome on the same stream. Native
+`untilIdle` policy patches were removed. The reference tests retain both the
+native capability boundary and the working host composition; neither is skipped.

@@ -682,13 +682,12 @@ describe('delegated instruction and context authority', () => {
     const invocation = startContext();
     const filtered = await config().messageFilter?.({ ...invocation, messages });
     expect(filtered?.map((message) => message.id)).toEqual([
-      trusted.id,
       ...messages
         .slice(5, 21)
         .map((message) => `parent-reference:${invocation.toolCallId}:${message.id}`),
     ]);
-    expect(filtered?.[0]).toEqual(trusted);
-    for (const [index, reference] of (filtered?.slice(1) ?? []).entries()) {
+    expect(filtered).not.toContainEqual(trusted);
+    for (const [index, reference] of (filtered ?? []).entries()) {
       const part = reference.content.parts[0];
       if (part?.type !== 'text') {
         throw new Error('Missing parent reference');
@@ -699,8 +698,7 @@ describe('delegated instruction and context authority', () => {
         role: messages[index + 5]?.role,
       });
     }
-    expect(filtered?.[0]?.role).toBe('system');
-    expect(filtered?.slice(1).every((message) => message.role === 'user')).toBe(true);
+    expect(filtered?.every((message) => message.role === 'user')).toBe(true);
     expect(JSON.stringify(messages)).toBe(before);
     expect(Buffer.byteLength(JSON.stringify(filtered), 'utf8')).toBeLessThan(65_536);
   });
@@ -728,7 +726,7 @@ describe('delegated instruction and context authority', () => {
     expect(filtered?.[0]?.resourceId).toBeUndefined();
     expect(filtered?.[0]?.content.parts).toContainEqual(image);
   });
-  it('fails closed instead of truncating oversized trusted instructions', async () => {
+  it('does not forward generated parent instructions through conversation history', async () => {
     const trusted: MastraDBMessage = {
       content: { format: 2, parts: [{ text: '☃'.repeat(30_000), type: 'text' }] },
       createdAt: new Date(0),
@@ -736,9 +734,7 @@ describe('delegated instruction and context authority', () => {
       role: 'system',
     };
     const filter = config().messageFilter;
-    expect(() => filter?.({ ...startContext(), messages: [trusted] })).toThrow(
-      'Trusted delegated context exceeds'
-    );
+    expect(await filter?.({ ...startContext(), messages: [trusted] })).toEqual([]);
   });
 });
 

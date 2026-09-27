@@ -60,7 +60,68 @@ describe('model provider shim', () => {
       method: 'POST',
     });
     expect(response.status).toBe(400);
-    expect(await response.text()).toContain('either toolCall or toolCalls');
+    expect(await response.text()).toContain('scripts must select one tool-call shape');
+  });
+
+  it.each([
+    ['single and stages', { ...parent, toolCallStages: [] }],
+    ['batch and stages', { finalText: 'Done', toolCallStages: [], toolCalls: [] }],
+    ['all three forms', { ...parent, toolCallStages: [], toolCalls: [] }],
+  ])('rejects conflicting %s tool-call shapes, including empty lists', async (_name, script) => {
+    shim = await startModelProviderShim(script);
+    const response = await fetch(`${shim.baseUrl}/chat/completions`, {
+      body: JSON.stringify({ messages: [], stream: false }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain('scripts must select one tool-call shape');
+  });
+
+  it('rejects an empty stage rather than silently advancing to a later stage', async () => {
+    shim = await startModelProviderShim({ finalText: 'Done', toolCallStages: [[]] });
+    const response = await fetch(`${shim.baseUrl}/chat/completions`, {
+      body: JSON.stringify({ messages: [], stream: false }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain('tool-call stages cannot be empty');
+  });
+
+  it('advances through complete staged tool results before final text', async () => {
+    shim = await startModelProviderShim({
+      finalText: 'Both stages complete',
+      toolCallStages: [
+        [{ arguments: { path: 'fixture.txt' }, name: 'read_file' }],
+        [{ arguments: { path: 'result.txt' }, name: 'write_file' }],
+      ],
+    });
+    const messages = [{ content: 'Read then write', role: 'user' }];
+    expect(await request({ messages })).toMatchObject({
+      choices: [{ message: { tool_calls: [{ function: { name: 'read_file' } }] } }],
+    });
+    expect(
+      await request({
+        messages: [...messages, { content: 'read', role: 'tool', tool_call_id: 'read' }],
+      })
+    ).toMatchObject({
+      choices: [{ message: { tool_calls: [{ function: { name: 'write_file' } }] } }],
+    });
+    expect(
+      await request({
+        messages: [
+          ...messages,
+          { content: 'read', role: 'tool', tool_call_id: 'read' },
+          { content: 'written', role: 'tool', tool_call_id: 'write' },
+        ],
+      })
+    ).toMatchObject({ choices: [{ message: { content: 'Both stages complete' } }] });
+    expect(shim.transcript().map(({ decision }) => decision)).toEqual([
+      'tool:read_file',
+      'tool:write_file',
+      'final-text',
+    ]);
   });
 
   it('returns JSON when a non-streaming title request omits stream', async () => {

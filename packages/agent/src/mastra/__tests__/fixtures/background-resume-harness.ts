@@ -25,6 +25,7 @@ export type ToolExecute = (
   options: {
     readonly outputWriter?: (chunk: unknown) => Promise<void>;
     readonly suspend?: (data?: unknown) => Promise<void>;
+    readonly suspendedToolRunId?: string;
   }
 ) => Promise<unknown>;
 
@@ -74,6 +75,8 @@ export function createNativeManager(
      * `handleResume` flipped the row to running before this one read it.
      */
     readonly refuseConcurrentResume?: ReadonlySet<string>;
+    /** Native 1.71 restores this identity from the persisted tool suspension. */
+    readonly suspendedToolRunId?: string;
   } = {}
 ) {
   const calls: string[] = [];
@@ -132,6 +135,7 @@ export function createNativeManager(
     // (`prepareResumedExecutor`), which is the write path under test.
     await context.executor.execute(running.args, {
       resumeData,
+      ...(behaviour.suspendedToolRunId ? { suspendedToolRunId: behaviour.suspendedToolRunId } : {}),
       suspend: async () => {
         stamp += 1;
         publish('background-task-suspended', update(taskId, 'suspended'), {
@@ -222,7 +226,6 @@ export function createNativeManager(
           );
         },
       }),
-    taskContexts: contexts,
   };
   const add = (taskId: string, toolName: string = TOOL): BackgroundTask => {
     const task: BackgroundTask = {

@@ -95,7 +95,7 @@ async function* separateParentTurns(source: AsyncIterable<unknown>): AsyncGenera
  * (a parent-level `tool-call-approval` / `tool-call-suspended` for the
  * delegation call) before parking the task. It delivered every child output
  * twice as well, through the task and the step's own writer, until
- * `patches/@mastra__core@1.64.0.patch` made the task the only output delivery:
+ * `patches/@mastra__core@1.71.0.patch` made the task the only output delivery:
  * a child's raw `data-*` part carries no call identity, so no filter here could
  * drop its turn copy. Live GLM run 19 projected both copies: every child view
  * showed each frame twice and the root thread eight cards for four decisions.
@@ -160,7 +160,6 @@ function createTurnCopyFilter(backgroundCalls: ReadonlySet<string>): {
   };
 }
 
-/** Fold the host idle loop's turns into one host-owned stream, retaining native child envelopes. */
 function rememberBackgroundCall(
   callId: string | undefined,
   callKey: string,
@@ -177,6 +176,7 @@ function rememberBackgroundCall(
   backgroundCalls?.add(callKey);
 }
 
+/** Fold the host idle loop's turns into one host-owned stream, retaining native child envelopes. */
 export async function* projectBackgroundStream(
   source: AsyncIterable<unknown>,
   enabled = true,

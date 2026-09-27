@@ -1,11 +1,12 @@
 import type { DelegatedRunIdentity, StreamChunk } from '@brainstrike/agent';
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   completeFailedRootRun,
   settleFailedDelegationChildRuns,
 } from '../../assistant-server/delegated-stream-failure';
 import { observeDesktopAssistantRunEvents } from '../../assistant-server/run-persistence';
+import { DbHostRequestTimeoutError } from '../../db-host-manager';
 import { createBudgetedHost } from './fixtures/budgeted-host';
 import { createHostDatabase } from './fixtures/delegated-host-fixtures';
 
@@ -96,6 +97,25 @@ describe('failed stream native cancellation reconciliation', () => {
       throw new Error('Missing child host run');
     }
     return { identity, runId: event.runId };
+  }
+
+  async function reportFailedInvocation(
+    identity: DelegatedRunIdentity,
+    eventId: string
+  ): Promise<void> {
+    await database.query(
+      `INSERT INTO brainstrike_assistant_run_events
+       (id,run_id,resource_id,thread_id,sequence,kind,status,label,metadata,occurred_at,created_at,updated_at)
+       VALUES ($1,'resume-leg','owner','root',0,'subagent.failed','failed','Subagent failed',$2::jsonb,NOW(),NOW(),NOW())`,
+      [
+        eventId,
+        JSON.stringify({
+          parentRuntimeRunId: identity.parentRuntimeRunId,
+          parentToolCallId: identity.parentToolCallId,
+          personaId: identity.personaId,
+        }),
+      ]
+    );
   }
 
   it('settles only cancelled native invocation trees once, preserving parked, active, completed and unrelated work', async () => {
@@ -323,6 +343,95 @@ describe('failed stream native cancellation reconciliation', () => {
         )
       ).rows
     ).toEqual([{ kind: 'run.cancelled', status: 'cancelled' }]);
+  });
+
+  it('retries one saturated-host settlement without writing duplicate terminals', async () => {
+    const failed = await child('retry-failed', { nativeStatus: 'failed' });
+    await reportFailedInvocation(failed.identity, 'retry-parent-failed');
+    const query = vi.spyOn(database, 'query').mockRejectedValueOnce(
+      new DbHostRequestTimeoutError({
+        pendingCount: 2,
+        requestKind: 'query',
+        timeoutMs: 30_000,
+        willTerminateHost: false,
+      })
+    );
+    try {
+      await settleFailedDelegationChildRuns(database, 'resume-leg', 'retry-parent-failed');
+      expect(query).toHaveBeenCalledTimes(2);
+    } finally {
+      query.mockRestore();
+    }
+    expect(
+      (
+        await database.query('SELECT status FROM brainstrike_assistant_thread_runs WHERE id=$1', [
+          failed.runId,
+        ])
+      ).rows
+    ).toEqual([{ status: 'failed' }]);
+    expect(
+      (
+        await database.query('SELECT kind FROM brainstrike_assistant_run_events WHERE id=$1', [
+          `${failed.runId}:background-task-terminal`,
+        ])
+      ).rows
+    ).toEqual([{ kind: 'run.failed' }]);
+  });
+
+  it('retains a prior child error when the native failure has no message', async () => {
+    const failed = await child('missing-message', { nativeStatus: 'failed' });
+    await database.query('UPDATE brainstrike_assistant_thread_runs SET error=$1 WHERE id=$2', [
+      'Earlier child failure detail',
+      failed.runId,
+    ]);
+    await reportFailedInvocation(failed.identity, 'missing-message-parent-failed');
+    await settleFailedDelegationChildRuns(database, 'resume-leg', 'missing-message-parent-failed');
+    expect(
+      (
+        await database.query(
+          'SELECT status,error FROM brainstrike_assistant_thread_runs WHERE id=$1',
+          [failed.runId]
+        )
+      ).rows
+    ).toEqual([{ error: 'Earlier child failure detail', status: 'failed' }]);
+  });
+
+  it('keeps a failed child terminal immutable when a queued nonterminal event arrives later', async () => {
+    const failed = await child('late-child-event', { nativeStatus: 'failed' });
+    await database.query('UPDATE mastra_background_tasks SET error=$1::jsonb WHERE id=$2', [
+      JSON.stringify({ message: 'No executor registered' }),
+      'late-child-event',
+    ]);
+    await reportFailedInvocation(failed.identity, 'late-child-parent-failed');
+    await settleFailedDelegationChildRuns(database, 'resume-leg', 'late-child-parent-failed');
+    await createBudgetedHost(database, 'initial-leg').persistEvent(
+      failed.identity,
+      'late-child-event-message',
+      {
+        id: 'late-child-tool-started',
+        kind: 'tool.started',
+        label: 'Late child tool',
+        status: 'running',
+        timestamp: '2026-09-17T00:00:03Z',
+      },
+      1
+    );
+    expect(
+      (
+        await database.query(
+          'SELECT status,error FROM brainstrike_assistant_thread_runs WHERE id=$1',
+          [failed.runId]
+        )
+      ).rows
+    ).toEqual([{ error: 'No executor registered', status: 'failed' }]);
+    expect(
+      (
+        await database.query(
+          'SELECT kind,status FROM brainstrike_assistant_run_events WHERE id=$1',
+          [`${failed.runId}:background-task-terminal`]
+        )
+      ).rows
+    ).toEqual([{ kind: 'run.failed', status: 'failed' }]);
   });
 
   it('settles a failed grandchild reported by its immediate child host run', async () => {

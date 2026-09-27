@@ -82,7 +82,7 @@ describe('projectBackgroundStream: one delivery per background call', () => {
   });
 
   it("reports a background call's output on its dispatching turn as a contract break", async () => {
-    // patches/@mastra__core@1.64.0.patch makes the task a background call's
+    // patches/@mastra__core@1.71.0.patch makes the task a background call's
     // only output delivery. A turn copy means that patch no longer applies,
     // and every child part the filter cannot attribute would project twice.
     await expect(

@@ -29,52 +29,15 @@ import {
 const logger = createLogger('BackgroundIdleLoop');
 
 /**
- * Host-owned replacement for Mastra's `untilIdle` loop (BST-1723, settled
- * 2026-09-14).
+ * Coordinates parent turns and durable human decisions; Mastra owns every
+ * parent/child model loop and task execution. A reserved decision keeps this
+ * stream open until its durable commit and native resume have settled.
+ * Native `untilIdle` cannot represent that host reservation (see the public
+ * reproduction and decision in docs/agents/mastra-boundary/subagent-host-lifetime.md).
  *
- * Mastra's loop counts `background-task-suspended` as a terminal and answers
- * it with a parent inference whose directive tells the model to "let the user
- * know they are waiting for explicit resume input". The production root
- * parroted that line for every suspended specialist and refused to compile
- * its report (thread-1dab3290). A child's suspension is an approval prompt the
- * HOST surfaces; the parent model is woken only by a returned result, a
- * failure or a cancellation, exactly as the resume path
- * (`createBackgroundResumeStream`) already does. Everything else mirrors
- * Mastra's loop: the leg's first turn is piped as-is, native lifecycle chunks
- * are forwarded so `projectBackgroundStream` folds them, one continuation runs
- * per batch of wakeups, and the combined stream closes once no task is running
- * and nothing is queued. The loop judges no silence: running work keeps the
- * leg open until its terminal. Each child's liveness belongs to its own
- * watchdog (`background-child-watchdog.ts`), which ends a stalled child as a
- * failed task, and the stream watchdog wrapping this combined stream judges
- * only the parent. A second, shorter timer here closed a leg whose child was
- * healthy but quiet, and the leg's disposal cancelled it.
- *
- * While it runs, the loop owns the leg's live decision channel: a decision
- * delivered into the leg reserves the parked tasks (which keeps the loop from
- * settling), resumes them in-process, and their later terminals wake the
- * parent exactly like any other. A task resumed this way may park AGAIN
- * (its next gated read), so its earlier terminal is forgotten on resume — a
- * second suspension is a new pause with a new card, never a seen duplicate.
- *
- * A turn that ends on the PARENT's own pause (its native status is
- * `suspended`) parks the run on the user: no wakeup ever runs a continuation
- * on a parked run. Run 6 of the live-app verifier (2026-09-15) had the root
- * pause on its canvas write with one child's wakeup still queued; the
- * continuation re-prompted the parked root, which proposed the write AGAIN,
- * and the thread carried two canvas cards, one orphaned for good. Children
- * still running keep the leg open until they return (their results land in
- * the parent's history, which the resumed leg reads); the leg then closes as
- * the pause it is.
- *
- * A delegation REFUSED at start is not returned work (REJECTED ADMISSION IS
- * NO INVOCATION, settled 2026-09-15). Mastra runs the delegation hook inside
- * the background task it already created, so the refusal completes as a task
- * row; the leg's delegation outcome capture names it, and its terminal wakes
- * nothing. A leg woken for more invocations than one turn may admit FAILS:
- * the next wakeup would be one more parent inference on work that never ran
- * (the 2026-09-15 E2E ledger reached "1160 total: 1160 returned" and the root
- * made 2337 model calls before the test timed out).
+ * Only returned, failed or cancelled admitted work wakes an unpaused parent.
+ * Durable ledger rows supply the wakeup; these sets only track this stream's
+ * outstanding work. Running children own their watchdogs, not an idle timer.
  */
 
 export const WAKING_TASK_EVENTS: ReadonlySet<string> = new Set([
@@ -321,8 +284,7 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   const priorContext = readContextMessages(params.options);
   const running = new Set<string>();
   /** A concurrent reservation cannot release another caller's resumed task. */
-  const reservations = new Map<string, number>();
-  const reservationEpochs = new Map<string, number>();
+  const reservations = new Map<string, Set<symbol>>();
   const settled = new Set<string>();
   const pending: TaskEvent[] = [];
   const seenTerminals = new Set<string>();
@@ -347,34 +309,23 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   let controller!: ReadableStreamDefaultController<unknown>;
   let resumed: ResumedExecutors | undefined;
 
-  const close = () => {
+  const finish = (outcome: 'close' | 'cancel' | { readonly error: unknown }) => {
     if (closed) {
       return;
     }
     closed = true;
+    params.abortSignal?.removeEventListener('abort', close);
     releaseOwner?.();
     resumed?.deregisterUnresumed();
     loopAbort.abort();
-    try {
+    if (typeof outcome === 'object') {
+      controller.error(outcome.error);
+    } else if (outcome === 'close') {
       controller.close();
-    } catch {
-      // Already errored or cancelled by the consumer.
     }
   };
-  const fail = (error: unknown) => {
-    if (closed) {
-      return;
-    }
-    closed = true;
-    releaseOwner?.();
-    resumed?.deregisterUnresumed();
-    loopAbort.abort();
-    try {
-      controller.error(error);
-    } catch {
-      // Already errored or cancelled by the consumer.
-    }
-  };
+  const close = () => finish('close');
+  const fail = (error: unknown) => finish({ error });
   const enqueue = (chunk: unknown): boolean => {
     if (closed) {
       return false;
@@ -602,7 +553,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       });
       const continuation = await params.agent.stream([], {
         ...params.options,
-        _skipBgTaskWait: true,
         context: [...priorContext, { content: directive, role: 'user' }],
       } as AgentStreamOptions);
       abandoned = continuation;
@@ -660,7 +610,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     seenTerminals.add(terminalKey);
     resumed?.terminal(taskId, event);
     reservations.delete(taskId);
-    reservationEpochs.set(taskId, (reservationEpochs.get(taskId) ?? 0) + 1);
     settled.add(taskId);
     running.delete(taskId);
     if (isParentWakeup(event) && !isRejectedDelegation(event, params.rejectedDelegations)) {
@@ -699,10 +648,11 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
         throw new LiveDecisionUnavailableError('The leg has settled.');
       }
       reservationVersion += 1;
-      const epochs = new Map(tasks.map((task) => [task.id, reservationEpochs.get(task.id) ?? 0]));
-      const claimed = new Set(epochs.keys());
+      const claim = Symbol('live-decision');
       for (const task of tasks) {
-        reservations.set(task.id, (reservations.get(task.id) ?? 0) + 1);
+        const claims = reservations.get(task.id) ?? new Set<symbol>();
+        claims.add(claim);
+        reservations.set(task.id, claims);
         running.add(task.id);
         settled.delete(task.id);
         for (const type of TERMINAL_TASK_EVENTS) {
@@ -711,16 +661,13 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       }
       const release = (ids: readonly string[]) => {
         for (const id of ids) {
-          if (!claimed.delete(id)) {
+          const claims = reservations.get(id);
+          // A repeated release or a terminal from an older execution cannot
+          // release a newer decision's reservation for the same task.
+          if (!claims?.delete(claim)) {
             continue;
           }
-          if (epochs.get(id) !== (reservationEpochs.get(id) ?? 0)) {
-            continue;
-          }
-          const remaining = (reservations.get(id) ?? 1) - 1;
-          if (remaining > 0) {
-            reservations.set(id, remaining);
-          } else {
+          if (claims.size === 0) {
             reservations.delete(id);
             running.delete(id);
           }
@@ -817,7 +764,7 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
 
   const combined = new ReadableStream<unknown>({
     cancel() {
-      close();
+      finish('cancel');
     },
     start(streamController) {
       controller = streamController;
