@@ -19,6 +19,7 @@ import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recove
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
 import { useLiveDecisionTransport } from './live-decision-transport';
+import { PendingApprovalReview } from './pending-approval-review';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 
 const logger = createLogger('ApprovalQueueStrip');
@@ -43,11 +44,11 @@ function countLabel(category: ToolRiskCategory, count: number): string {
  * category. Records the session grant FIRST, then submits ONE approve for
  * the first pending approval of that category — the runtime answers the
  * siblings (PARKED SIBLINGS on an idle thread, `allowedBySnapshot` on a live
- * leg) and streams `tool-approval-answered` per sibling, which the index
+ * leg) and streams `tool-approval-answered` per accepted decision, which the index
  * turns into rows. Never N decisions: the ledger permits one active claim
  * per root. Grants are capability-gated exactly like the card's buttons: no
  * `ToolApprovalGrantProvider` → counts only. Non-policy pauses (`tool:*`
- * buckets) are never grantable and are not listed here; their cards stay.
+ * buckets) appear in Review but never receive category-grant controls.
  */
 export function ApprovalQueueStrip() {
   const pending = usePendingApprovalsByCategory();
@@ -60,15 +61,20 @@ export function ApprovalQueueStrip() {
   const decisionRoute = useDecisionRoute();
   const recoveryBlocked = useAssistantDecisionRecoveryBlocked();
   const [inFlight, setInFlight] = useState<ReadonlySet<ToolRiskCategory>>(() => new Set());
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const pendingKeys = new Set([...pending.values()].flat());
+  const requests = [...index.requests]
+    .filter(([key]) => pendingKeys.has(key))
+    .map(([, entry]) => entry.request);
 
   const entries = [...pending].flatMap(([key, keys]) => {
     const category = readCategory(key);
     return category !== null && keys.length > 0 ? [{ category, keys }] : [];
   });
-  if (entries.length === 0) {
+  if (requests.length === 0 && !reviewOpen) {
     return null;
   }
-  const total = entries.reduce((sum, entry) => sum + entry.keys.length, 0);
+  const total = requests.length;
 
   const allowCategory = (category: ToolRiskCategory, keys: readonly string[]): void => {
     const firstKey = keys[0];
@@ -115,6 +121,7 @@ export function ApprovalQueueStrip() {
       <span className="bs-approval-strip-label">
         {total === 1 ? '1 approval waiting' : `${total} approvals waiting`}
       </span>
+      <PendingApprovalReview onOpenChange={setReviewOpen} open={reviewOpen} requests={requests} />
       {entries.map(({ category, keys }) => (
         <span className="bs-approval-strip-category" key={category}>
           <span data-testid={`approval-strip-count-${category}`}>

@@ -165,7 +165,7 @@ export interface ApprovalCardProps {
    * `data-approval-presentation="card"`). `'embedded'`: the body of a
    * collapsed row (`approval-row.tsx`), which owns the test id itself.
    */
-  readonly presentation: 'card' | 'embedded';
+  readonly presentation: 'card' | 'embedded' | 'review';
   readonly state: ApprovalNoticeState;
 }
 
@@ -189,6 +189,12 @@ function resolveApprovalCardNesting(
   presentation: ApprovalCardProps['presentation']
 ): ApprovalCardNesting {
   switch (presentation) {
+    case 'review':
+      return {
+        style: { '--bs-approval-depth': 0 } as CSSProperties,
+        surfaceClassName: 'bs-approval',
+        testId: 'assistant-tool-approval-notice',
+      };
     case 'card': {
       return {
         style: { '--bs-approval-depth': approvalDepth(approval) } as CSSProperties,
@@ -243,11 +249,11 @@ export function ApprovalCard({
   return (
     <div
       className={cn(nesting.surfaceClassName, 'bs-approval-card my-2 rounded-lg border')}
-      data-agent-color={presentation === 'card' ? colorId : undefined}
+      data-agent-color={presentation === 'embedded' ? undefined : colorId}
       data-approval-presentation={presentation}
       data-testid={nesting.testId}
       style={
-        presentation === 'card' ? { ...nesting.style, ...agentColorStyle(colorId) } : undefined
+        presentation === 'embedded' ? undefined : { ...nesting.style, ...agentColorStyle(colorId) }
       }
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
@@ -271,7 +277,7 @@ export function ApprovalCard({
           </p>
           {approval.delegation &&
           (ownerDisplayName || state.delegationOwner) &&
-          presentation === 'card' ? (
+          presentation !== 'embedded' ? (
             <p
               className="mt-1 truncate font-medium text-xs"
               data-testid="approval-delegation-owner"
@@ -287,7 +293,7 @@ export function ApprovalCard({
             </p>
           ) : null}
           <RediscoveredPauseLines display={state.rediscovered} />
-          <ApprovalPreview approval={approval} />
+          <ApprovalPreview approval={approval} showOtherArguments={presentation === 'review'} />
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               aria-label={`Approve ${approval.toolName}`}

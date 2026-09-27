@@ -312,10 +312,10 @@ Electron module, no new IPC.
 - `shouldNotify` is a PURE gate: master on, event on, permission granted, window
   unfocused — all evaluated AT EVENT TIME. Request permission ONLY from the
   Settings toggle-on click, and never persist `masterEnabled: true` without it.
-- Coalescing keys are `runId:kind`, and `runId:kind:toolCallId` for
-  `toolApprovalRequired` so one run alerts on each distinct approval. The
-  dispatcher input is a discriminated union of ids plus an optional thread title —
-  never message content or tool args.
+- Coalescing keys are `runId:kind`; approval alerts use `getToolActionIdentityKey`
+  so root/child copies coalesce and each later leaf alerts independently. Dispatcher
+  inputs contain identifiers and an optional title, never message content or args.
+  Evidence: `assistant-runtime/approval-attention.md`.
 - Triggers are pure selectors over thread messages; report each new event exactly
   once and DEFER seeding the "seen" baseline until `state.thread.isLoading` is
   false, so replayed history does not fire stale notifications.

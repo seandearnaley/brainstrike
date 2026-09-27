@@ -3,7 +3,8 @@ import {
   type AssistantToolApprovalRequest,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
-import { render, screen, waitFor } from '@testing-library/react';
+import { TooltipProvider } from '@brainstrike/ui';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActiveThreadKeyContext } from '../active-thread-key-context';
@@ -24,6 +25,7 @@ import {
 } from '../follow-up-queue-store';
 import { LiveDecisionProvider } from '../live-decision-context';
 import type { LiveDecisionTransport } from '../live-decision-transport';
+import { DelegatedApprovalOwnerContext } from '../subagent-conversation-navigation';
 import {
   type ToolApprovalGrantHandlers,
   ToolApprovalGrantProvider,
@@ -124,6 +126,64 @@ function Tree({
 }
 
 describe('ApprovalQueueStrip', () => {
+  it('reviews requests in timeline order with the child identity and exact command', async () => {
+    const command = {
+      ...approval(2, 'edit'),
+      args: { command: 'git status --short && git diff --stat', cwd: 'packages/worker' },
+      riskCategory: 'execute',
+      toolName: 'brainstrike.executeCommand',
+    } satisfies AssistantToolApprovalRequest;
+    pushMessage({
+      content: [
+        requestPart({ ...approval(1, 'read'), args: { maxDepth: 1, path: 'src' } }),
+        requestPart(command),
+        requestPart(approval(3, 'read')),
+      ],
+      role: 'assistant',
+    });
+    const transport = vi.fn<LiveDecisionTransport>().mockResolvedValue('delivered');
+    const handlers = makeHandlers();
+    const user = userEvent.setup();
+    render(
+      <TooltipProvider>
+        <DelegatedApprovalOwnerContext
+          value={async (request) => ({
+            colorId: 'amber',
+            displayName: request.toolCallId === 'delegate-2' ? 'Orbit-0ac2b6' : 'Opal-445bc0',
+          })}
+        >
+          <Tree handlers={handlers} transport={transport} />
+        </DelegatedApprovalOwnerContext>
+      </TooltipProvider>
+    );
+    await user.click(screen.getByRole('button', { name: 'Review 3 pending approvals' }));
+    const review = screen.getByRole('dialog', { name: 'Pending approvals' });
+    expect(within(review).getByTestId('approval-arguments-preview')).toHaveTextContent(
+      '"path": "src"'
+    );
+    expect(await within(review).findByText('Orbit-0ac2b6')).toBeVisible();
+    expect(within(review).getByTestId('approval-command-code')).toHaveTextContent(
+      command.args.command
+    );
+    expect(within(review).getByTestId('approval-command-cwd')).toHaveTextContent(command.args.cwd);
+    expect(
+      within(review)
+        .getAllByTestId('approval-delegation-owner')
+        .map((node) => node.textContent)
+    ).toEqual(['Opal-445bc0', 'Orbit-0ac2b6', 'Opal-445bc0']);
+    await user.click(
+      within(review).getByRole('button', {
+        name: 'Approve brainstrike.executeCommand',
+      })
+    );
+    expect(transport).toHaveBeenCalledExactlyOnceWith(
+      buildApprovalDecisionMessage(command, 'approve').message
+    );
+    expect(handlers.grantCategoryForSession).not.toHaveBeenCalled();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review 3 pending approvals' })).toHaveFocus();
+  });
   beforeEach(() => {
     resetFollowUpQueueStore();
     appendMock.mockReset();
@@ -133,6 +193,34 @@ describe('ApprovalQueueStrip', () => {
 
   it('renders nothing when no approval is pending', () => {
     render(<Tree handlers={makeHandlers()} transport={null} />);
+    expect(screen.queryByTestId('approval-queue-strip')).not.toBeInTheDocument();
+  });
+
+  it('reviews non-policy requests and removes their actions when answered', async () => {
+    const request = {
+      args: { target: 'report' },
+      runId: 'root',
+      toolCallId: 'external-1',
+      toolName: 'external.inspect',
+    };
+    pushMessage({ content: [requestPart(request)], role: 'assistant' });
+    const tree = () => (
+      <TooltipProvider>
+        <Tree handlers={null} transport={null} />
+      </TooltipProvider>
+    );
+    const view = render(tree());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Review 1 pending approval' }));
+    expect(screen.getByTestId('approval-arguments-preview')).toHaveTextContent('report');
+    expect(screen.queryByTestId('approval-grant-category-session')).not.toBeInTheDocument();
+    pushMessage({ content: [answeredPart(request)], role: 'assistant' });
+    view.rerender(tree());
+    expect(await screen.findByText('All approvals handled.')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Approve external.inspect' })
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Close pending approvals' }));
     expect(screen.queryByTestId('approval-queue-strip')).not.toBeInTheDocument();
   });
 

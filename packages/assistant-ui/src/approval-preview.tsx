@@ -613,7 +613,13 @@ function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
  * Every other tool renders `null`. Known preview tools whose args fail strict
  * narrowing show a visible parse error and keep the raw-JSON view.
  */
-export function ApprovalPreview({ approval }: { approval: AssistantToolApprovalRequest }) {
+export function ApprovalPreview({
+  approval,
+  showOtherArguments = false,
+}: {
+  approval: AssistantToolApprovalRequest;
+  showOtherArguments?: boolean;
+}) {
   const { args, toolName } = approval;
   if (toolName === EXECUTE_COMMAND_TOOL_ID) {
     return <ExecuteCommandPreview args={args} />;
@@ -678,5 +684,20 @@ export function ApprovalPreview({ approval }: { approval: AssistantToolApprovalR
     );
   }
 
-  return null;
+  if (!showOtherArguments || args === undefined) {
+    return null;
+  }
+  const preview = truncatePreviewText(JSON.stringify(args, null, 2));
+  return (
+    <div className="mt-3">
+      <p className="mb-1 font-medium text-xs">Requested arguments</p>
+      <pre
+        className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border bg-muted/40 p-2 text-xs"
+        data-testid="approval-arguments-preview"
+      >
+        {preview.text}
+      </pre>
+      {preview.truncated ? <PreviewTruncatedNote preview={preview} /> : null}
+    </div>
+  );
 }

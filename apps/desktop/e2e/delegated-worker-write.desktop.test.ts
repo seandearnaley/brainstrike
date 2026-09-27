@@ -329,12 +329,16 @@ async function assertWorkerWrite(
         await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       } else {
         if (!autoApprove) {
-          await child
+          await child.getByRole('button', { name: 'Review 1 pending approval' }).click();
+          const review = window.getByRole('dialog', { name: 'Pending approvals' });
+          await expect(review.getByTestId('approval-delegation-owner')).toHaveText(childName);
+          await review
             .getByRole('button', {
               exact: true,
               name: `${decision} brainstrike.writeWorkspaceFile`,
             })
             .click();
+          await review.getByRole('button', { name: 'Close pending approvals' }).click();
         }
         await expect(child.getByText(childResult, { exact: true })).toBeVisible();
         await expect(root.getByText(parentResult, { exact: true })).toBeVisible();

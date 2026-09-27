@@ -21,9 +21,10 @@ import {
 } from '@brainstrike/app-state/notifications/run-notification-dispatcher';
 import type { AssistantNotificationFocusState } from '@brainstrike/app-state/notifications/should-notify';
 import { useNotificationPreferencesStore } from '@brainstrike/app-state/stores/notification-preferences-store';
-import type {
-  AssistantRunEvent,
-  AssistantToolApprovalRequest,
+import {
+  type AssistantRunEvent,
+  type AssistantToolApprovalRequest,
+  getToolActionIdentityKey,
 } from '@brainstrike/assistant-contract';
 import { useMemo, useRef } from 'react';
 
@@ -75,9 +76,9 @@ export function useAssistantRunNotifications(): AssistantRunNotificationCallback
       },
       onToolApprovalRequired: (request) => {
         dispatcherRef.current.dispatch({
+          decisionKey: getToolActionIdentityKey(request),
           kind: 'toolApprovalRequired',
           runId: request.runId,
-          toolCallId: request.toolCallId,
         });
       },
     }),

@@ -153,11 +153,25 @@ test('delegated command asks by default, then a per-tool grant streams output an
         code: 'ENOENT',
       });
       await expandActivity(first);
+      const viewport = first.getByTestId('assistant-ui-viewport');
+      const scrollTop = await viewport.evaluate((element) => element.scrollTop);
+      await first.getByRole('button', { name: 'Review 1 pending approval' }).click();
+      const review = window.getByRole('dialog', { name: 'Pending approvals' });
+      await expect(review).toBeInViewport({ ratio: 1 });
+      await expect(review.getByTestId('approval-command-code')).toContainText(
+        "printf 'started' > started-first.txt"
+      );
+      await expect(review.getByTestId('approval-command-code')).toContainText(
+        "printf 'STREAM_DONE_FIRST\\n'"
+      );
+      expect(await viewport.evaluate((element) => element.scrollTop)).toBe(scrollTop);
+      await review.screenshot({ path: testInfo.outputPath('pending-command-review.png') });
       // This grants the exact tool in this test's disposable profile, leaving
       // the execute category at ask for other commands.
-      await first
+      await review
         .getByRole('button', { exact: true, name: 'Always allow brainstrike.executeCommand' })
         .click();
+      await review.getByRole('button', { name: 'Close pending approvals' }).click();
       await expect(first.getByRole('log', { name: 'Live command output' })).toContainText(
         'STREAM_STDOUT_FIRST',
         { timeout: 15_000 }

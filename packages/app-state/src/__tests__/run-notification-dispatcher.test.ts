@@ -129,30 +129,30 @@ describe('createRunNotificationDispatcher', () => {
   it('coalesces repeated approvals for the same run + tool call to one notification', () => {
     const harness = createHarness();
     harness.dispatcher.dispatch({
+      decisionKey: 'call-1',
       kind: 'toolApprovalRequired',
       runId: 'run-1',
-      toolCallId: 'call-1',
     });
     harness.dispatcher.dispatch({
+      decisionKey: 'call-1',
       kind: 'toolApprovalRequired',
       runId: 'run-1',
-      toolCallId: 'call-1',
     });
 
     expect(harness.notificationFactory).toHaveBeenCalledTimes(1);
   });
 
-  it('notifies again for a distinct approval in the same run (different toolCallId)', () => {
+  it('notifies again for a distinct approval in the same run (different decisionKey)', () => {
     const harness = createHarness();
     harness.dispatcher.dispatch({
+      decisionKey: 'call-1',
       kind: 'toolApprovalRequired',
       runId: 'run-1',
-      toolCallId: 'call-1',
     });
     harness.dispatcher.dispatch({
+      decisionKey: 'call-2',
       kind: 'toolApprovalRequired',
       runId: 'run-1',
-      toolCallId: 'call-2',
     });
 
     expect(harness.notificationFactory).toHaveBeenCalledTimes(2);
@@ -172,6 +172,7 @@ describe('createRunNotificationDispatcher', () => {
   it('never includes message content or tool args in the notification body', () => {
     const harness = createHarness();
     harness.dispatcher.dispatch({
+      decisionKey: 'call-1',
       kind: 'toolApprovalRequired',
       // @ts-expect-error -- intentionally passing a field the event contract
       // does not declare, to prove the dispatcher cannot leak it even if a
@@ -179,7 +180,6 @@ describe('createRunNotificationDispatcher', () => {
       messageText: 'the secret model output',
       runId: 'run-1',
       toolArgs: { apiKey: 'sk-should-never-appear' },
-      toolCallId: 'call-1',
     });
 
     const [call] = harness.constructed;
@@ -198,9 +198,9 @@ describe('createRunNotificationDispatcher', () => {
     });
     harness.dispatcher.dispatch({ kind: 'runFailed', runId: 'run-2' });
     harness.dispatcher.dispatch({
+      decisionKey: 'call-1',
       kind: 'toolApprovalRequired',
       runId: 'run-3',
-      toolCallId: 'call-1',
     });
 
     expect(harness.constructed[0]?.title).toBe('Refactor plan');
