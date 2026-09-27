@@ -1639,8 +1639,8 @@ export async function* streamAttemptChunks({
     if (resumedApprovalToolCall) {
       yield* makeResumedStartChunks(resumedApprovalToolCall, toolNames, lifecycleState);
     }
-    // Lock the grant-answered sibling cards before projecting their resumed
-    // native tool starts. Both precede any output from the resumed stream.
+    // Publish the accepted decision and its grant-answered siblings before
+    // their resumed child starts. Never rely on a transient UI action echo.
     yield* answeredApprovals ?? [];
     yield* resumedDelegatedStartChunks(
       delegatedProjection,

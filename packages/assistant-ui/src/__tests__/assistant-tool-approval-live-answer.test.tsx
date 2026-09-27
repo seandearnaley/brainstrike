@@ -86,6 +86,34 @@ describe('AssistantToolApprovalNotice live answers', () => {
     expect(screen.getByRole('button', { name: /approve brainstrike/i })).toBeDisabled();
   });
 
+  it('keeps a completed initiating approval settled without its transient user echo', async () => {
+    const answeredRun = answer('approve', 'user');
+    answeredRun.status = { reason: 'stop', type: 'complete' };
+    messages.push(answeredRun, {
+      content: [{ text: 'Both specialists finished.', type: 'text' }],
+      role: 'assistant',
+      status: { reason: 'stop', type: 'complete' },
+    });
+    const view = renderNotice();
+    expect(await screen.findByText('Approved')).toBeInTheDocument();
+    await expandApprovalRow(userEvent.setup());
+    expect(screen.getByRole('button', { name: /approve brainstrike/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline brainstrike/i })).toBeDisabled();
+
+    // A later pause from the same delegation is still an independent decision.
+    view.rerender(
+      <AnsweredApprovalsProvider>
+        <AssistantToolApprovalNotice
+          data={{
+            ...approval,
+            delegation: { ...delegation, toolCallId: 'next-read' },
+          }}
+        />
+      </AnsweredApprovalsProvider>
+    );
+    expect(screen.getByRole('button', { name: /approve brainstrike/i })).toBeEnabled();
+  });
+
   it('unlocks the host answer when its resumed run fails', async () => {
     const answeredRun = answer('approve', 'user');
     messages.push(answeredRun);

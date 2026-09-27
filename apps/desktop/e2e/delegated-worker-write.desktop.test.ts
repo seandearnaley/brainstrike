@@ -338,6 +338,16 @@ async function assertWorkerWrite(
         }
         await expect(child.getByText(childResult, { exact: true })).toBeVisible();
         await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
+        if (!autoApprove) {
+          // Both views retain the chronological request, but neither may offer
+          // a second decision after the leaf has finished.
+          for (const panel of [root, child]) {
+            await expect(
+              panel.getByRole('button', { disabled: false, exact: true, name: approvalName })
+            ).toHaveCount(0);
+            await expect(panel.getByTestId('approval-queue-strip')).toHaveCount(0);
+          }
+        }
         expect(observed).toEqual({
           backgroundStarted: true,
           parentResult: true,

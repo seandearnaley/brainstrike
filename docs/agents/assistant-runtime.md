@@ -2770,9 +2770,9 @@ This boundary does not itself claim UI selective-Stop acceptance.
   the text boundary.
 - Still-streaming tool arguments retain their existing deferral until the argument
   boundary; an answer must never truncate them.
-- Do NOT defer answers behind a root text part. A root can wait there for
-  background children while a session grant has already consumed its sibling
-  approvals.
+- Emit the initiating answer on reconstructed approval legs as well as live legs;
+  a transient user echo is not an acknowledgement. Never defer answers behind root
+  text. Evidence: `assistant-runtime/initiating-approval-answer.md`.
 
 Guard: `packages/agent/src/__tests__/data-stream-approval-answered.spec.ts`,
 `data-stream-text-continuity.spec.ts`, and the live three-child grant in
