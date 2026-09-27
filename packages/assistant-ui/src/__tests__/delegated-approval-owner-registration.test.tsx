@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract';
 import '@testing-library/jest-dom/vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import type { ComponentType } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AssistantDataRendererRegistration } from '../assistant-data-renderer-registration';
 import { DelegatedApprovalOwnerContext } from '../subagent-conversation-navigation';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 const useAssistantDataUI = vi.hoisted(() => vi.fn());
 vi.mock('@assistant-ui/react', () => ({ useAssistantDataUI }));

@@ -684,6 +684,7 @@ async function createToolApprovalTurnAttempt({
         answeredApprovals: [
           {
             decision: action.action,
+            ...(action.continuationId ? { continuationId: action.continuationId } : {}),
             ...(action.delegation ? { delegation: action.delegation } : {}),
             reason: 'user',
             runId: action.runId,

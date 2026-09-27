@@ -18,13 +18,17 @@ export function PendingApprovalReview({
     <Popover onOpenChange={onOpenChange} open={open}>
       <PopoverTrigger asChild>
         <Button
-          aria-label={`Review ${requests.length} pending ${requests.length === 1 ? 'approval' : 'approvals'}`}
+          aria-label={
+            requests.length === 0
+              ? 'Close approval review'
+              : `Review ${requests.length} pending ${requests.length === 1 ? 'approval' : 'approvals'}`
+          }
           className="gap-2"
           size="sm"
           variant="outline"
         >
           <BellRing aria-hidden="true" className="size-3.5" />
-          Review {requests.length}
+          {requests.length === 0 ? 'Approvals handled' : `Review ${requests.length}`}
         </Button>
       </PopoverTrigger>
       <PopoverContent

@@ -10,7 +10,11 @@ timeline order across risk categories and use flat cards rather than recursive
 indentation. Non-policy approvals are included, without inventing category grants.
 
 The review uses the same owner resolver, previews and decision hook as the
-timeline. Commands and working directories remain visible; other tool arguments
+timeline. Submission locks and delivery errors are lifted from each card into
+one thread-scoped React provider, keyed by leaf and attempt outcome. Closing
+the popup cannot unlock the timeline or hide a rejected delivery; late responses
+from a previous attempt cannot overwrite a newer one. Thread changes reset the
+provider and close the popup. Commands and working directories remain visible; other tool arguments
 are shown with the existing explicit preview-size bound. No decision store,
 execution route, polling loop or persistence was added. Answered requests leave
 the pending view while their timeline records remain.

@@ -3,7 +3,7 @@ import {
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActiveThreadKeyContext } from '../active-thread-key-context';
@@ -12,6 +12,7 @@ import { ApprovalRanksProvider } from '../approval-presentation-context';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
 import { resetFollowUpQueueStore } from '../follow-up-queue-store';
 import { expandApprovalRow } from './approval-row-helpers';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 const appendMock = vi.hoisted(() => vi.fn());
 // Held by reference so a test can hand the provider a NEW array identity

@@ -16,6 +16,7 @@ import {
 } from '../approval-owner-thread-context';
 import { ApprovalRanksProvider } from '../approval-presentation-context';
 import { ApprovalQueueStrip } from '../approval-queue-strip';
+import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
 import type { DecisionRoute } from '../decision-route-context';
 import { DecisionRouteContext } from '../decision-route-context';
 import {
@@ -100,21 +101,26 @@ function Tree({
   handlers,
   ownerThread = null,
   transport,
+  timelineRequest,
+  threadKey = 'thread-1',
 }: {
+  threadKey?: string;
+  timelineRequest?: AssistantToolApprovalRequest;
   decisionRoute?: DecisionRoute | null;
   ownerThread?: ApprovalOwnerThread | null;
   handlers: ToolApprovalGrantHandlers | null;
   transport: LiveDecisionTransport | null;
 }) {
   return (
-    <ActiveThreadKeyContext.Provider value="thread-1">
+    <ActiveThreadKeyContext.Provider value={threadKey}>
       <DecisionRouteContext value={decisionRoute}>
         <ApprovalOwnerThreadContext value={ownerThread}>
           <AnsweredApprovalsProvider>
             <ApprovalRanksProvider>
               <ToolApprovalGrantProvider handlers={handlers}>
                 <LiveDecisionProvider transport={transport}>
-                  <ApprovalQueueStrip />
+                  {timelineRequest ? <AssistantToolApprovalNotice data={timelineRequest} /> : null}
+                  <ApprovalQueueStrip key={threadKey} />
                 </LiveDecisionProvider>
               </ToolApprovalGrantProvider>
             </ApprovalRanksProvider>
@@ -126,6 +132,13 @@ function Tree({
 }
 
 describe('ApprovalQueueStrip', () => {
+  beforeEach(() => {
+    resetFollowUpQueueStore();
+    appendMock.mockReset();
+    threadMessagesMock.current = [];
+    threadRunningMock.isRunning = true;
+  });
+
   it('reviews requests in timeline order with the child identity and exact command', async () => {
     const command = {
       ...approval(2, 'edit'),
@@ -184,11 +197,72 @@ describe('ApprovalQueueStrip', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Review 3 pending approvals' })).toHaveFocus();
   });
-  beforeEach(() => {
-    resetFollowUpQueueStore();
-    appendMock.mockReset();
-    threadMessagesMock.current = [];
-    threadRunningMock.isRunning = true;
+
+  it('locks the timeline copy when a review decision is still in flight', async () => {
+    const request = approval(1, 'read');
+    pushMessage({ content: [requestPart(request)], role: 'assistant' });
+    const delivery = Promise.withResolvers<'delivered'>();
+    const transport = vi.fn<LiveDecisionTransport>().mockReturnValue(delivery.promise);
+    const user = userEvent.setup();
+    render(
+      <TooltipProvider>
+        <Tree handlers={null} timelineRequest={request} transport={transport} />
+      </TooltipProvider>
+    );
+    await user.click(screen.getByRole('button', { name: 'Review 1 pending approval' }));
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Pending approvals' })).getByRole('button', {
+        name: 'Approve brainstrike.grepSearch',
+      })
+    );
+    await user.keyboard('{Escape}');
+    const button = screen.queryByRole('button', { name: 'Approve brainstrike.grepSearch' });
+    if (button) {
+      expect(button).toBeDisabled();
+    }
+    expect(screen.getByTestId('assistant-tool-approval-notice')).toHaveAttribute(
+      'data-approval-presentation',
+      'row'
+    );
+    expect(transport).toHaveBeenCalledTimes(1);
+    delivery.resolve('delivered');
+  });
+
+  it('shows a rejected review delivery on the timeline after closing the popup', async () => {
+    const request = approval(1, 'read');
+    pushMessage({ content: [requestPart(request)], role: 'assistant' });
+    const delivery = Promise.withResolvers<'delivered'>();
+    const transport = vi.fn<LiveDecisionTransport>().mockReturnValue(delivery.promise);
+    const user = userEvent.setup();
+    render(
+      <TooltipProvider>
+        <Tree handlers={null} timelineRequest={request} transport={transport} />
+      </TooltipProvider>
+    );
+    await user.click(screen.getByRole('button', { name: 'Review 1 pending approval' }));
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Pending approvals' })).getByRole('button', {
+        name: 'Approve brainstrike.grepSearch',
+      })
+    );
+    await user.keyboard('{Escape}');
+    delivery.reject(new Error('Decision delivery refused'));
+    expect(await screen.findByText(/Decision delivery refused/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Approve brainstrike.grepSearch' })).toBeEnabled();
+  });
+
+  it('closes review when switching threads', async () => {
+    pushMessage({ content: [requestPart(approval(1, 'read'))], role: 'assistant' });
+    const tree = (threadKey: string) => (
+      <TooltipProvider>
+        <Tree handlers={null} threadKey={threadKey} transport={null} />
+      </TooltipProvider>
+    );
+    const view = render(tree('first'));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Review 1 pending approval' }));
+    view.rerender(tree('second'));
+    expect(screen.queryByRole('dialog', { name: 'Pending approvals' })).not.toBeInTheDocument();
   });
 
   it('renders nothing when no approval is pending', () => {
@@ -217,6 +291,8 @@ describe('ApprovalQueueStrip', () => {
     pushMessage({ content: [answeredPart(request)], role: 'assistant' });
     view.rerender(tree());
     expect(await screen.findByText('All approvals handled.')).toBeVisible();
+    expect(screen.queryByText('0 approvals waiting')).not.toBeInTheDocument();
+    expect(screen.queryByText('Review 0')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Approve external.inspect' })
     ).not.toBeInTheDocument();

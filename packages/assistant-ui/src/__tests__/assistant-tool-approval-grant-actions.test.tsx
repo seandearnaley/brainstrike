@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { expandApprovalRow } from './approval-row-helpers';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 const appendMock = vi.fn().mockResolvedValue(undefined);
 

@@ -30,3 +30,9 @@ The one-shot case requires only its own answer and leaves the sibling parked.
 an action echo and independence of a later leaf on the same delegation.
 `delegated-worker-write.desktop.test.ts` requires no actionable approval in either
 root or child view after completion.
+
+Review also reproduced lost acknowledgement identity on independent child
+continuations: the continuation projection now stamps approval answers with
+the same continuation ID as requests, and the answered-event contract retains
+it through the existing wire mapper. The real continuation integration requires
+matching request/answer keys for approve, decline and parallel approval.

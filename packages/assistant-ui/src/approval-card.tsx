@@ -174,7 +174,10 @@ interface ApprovalCardNesting {
   readonly style: CSSProperties | undefined;
   /** `.bs-approval`: the indent surface that reads `--bs-approval-depth`. */
   readonly surfaceClassName: 'bs-approval' | undefined;
-  readonly testId: 'approval-row-card' | 'assistant-tool-approval-notice';
+  readonly testId:
+    | 'approval-row-card'
+    | 'assistant-tool-approval-notice'
+    | 'pending-approval-review-card';
 }
 
 /**
@@ -193,7 +196,7 @@ function resolveApprovalCardNesting(
       return {
         style: { '--bs-approval-depth': 0 } as CSSProperties,
         surfaceClassName: 'bs-approval',
-        testId: 'assistant-tool-approval-notice',
+        testId: 'pending-approval-review-card',
       };
     case 'card': {
       return {

@@ -226,6 +226,9 @@ async function projectContinuationChunk(
     state.status = chunk.type === 'tool-approval-required' ? 'awaiting-approval' : 'awaiting-input';
     chunk = { ...chunk, continuationId: id };
   }
+  if (chunk.type === 'tool-approval-answered') {
+    chunk = { ...chunk, continuationId: id };
+  }
   if (chunk.type === 'text-delta') {
     state.text.push(chunk.value);
   }

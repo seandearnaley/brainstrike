@@ -63,9 +63,9 @@ export function ApprovalQueueStrip() {
   const [inFlight, setInFlight] = useState<ReadonlySet<ToolRiskCategory>>(() => new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
   const pendingKeys = new Set([...pending.values()].flat());
-  const requests = [...index.requests]
-    .filter(([key]) => pendingKeys.has(key))
-    .map(([, entry]) => entry.request);
+  const requests = [...index.requests].flatMap(([key, entry]) =>
+    pendingKeys.has(key) ? [entry.request] : []
+  );
 
   const entries = [...pending].flatMap(([key, keys]) => {
     const category = readCategory(key);
@@ -118,9 +118,11 @@ export function ApprovalQueueStrip() {
       data-testid="approval-queue-strip"
       role="status"
     >
-      <span className="bs-approval-strip-label">
-        {total === 1 ? '1 approval waiting' : `${total} approvals waiting`}
-      </span>
+      {total > 0 ? (
+        <span className="bs-approval-strip-label">
+          {total === 1 ? '1 approval waiting' : `${total} approvals waiting`}
+        </span>
+      ) : null}
       <PendingApprovalReview onOpenChange={setReviewOpen} open={reviewOpen} requests={requests} />
       {entries.map(({ category, keys }) => (
         <span className="bs-approval-strip-category" key={category}>

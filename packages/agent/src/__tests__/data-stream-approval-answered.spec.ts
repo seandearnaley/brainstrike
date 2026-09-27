@@ -13,6 +13,7 @@ describe('tool-approval-answered mapping', () => {
     (type) => {
       const mapper = new DataStreamMapper('assistant-message');
       const chunk: StreamChunk = {
+        continuationId: 'independent-child',
         decision: 'approve',
         delegation: {
           path: [
@@ -43,6 +44,7 @@ describe('tool-approval-answered mapping', () => {
           code: DataStreamCode.auiDataPart,
           value: {
             data: {
+              continuationId: 'independent-child',
               decision: 'approve',
               delegation: chunk.delegation,
               reason: 'session-grant',

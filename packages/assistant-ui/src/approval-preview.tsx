@@ -684,7 +684,11 @@ export function ApprovalPreview({
     );
   }
 
-  if (!showOtherArguments || args === undefined) {
+  return <OtherArgumentsPreview args={args} enabled={showOtherArguments} />;
+}
+
+function OtherArgumentsPreview({ args, enabled }: { args: unknown; enabled: boolean }) {
+  if (!enabled || args === undefined) {
     return null;
   }
   const preview = truncatePreviewText(JSON.stringify(args, null, 2));

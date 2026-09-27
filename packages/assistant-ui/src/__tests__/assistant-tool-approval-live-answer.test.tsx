@@ -1,11 +1,12 @@
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { AssistantDecisionRecoveryProvider } from '../assistant-decision-recovery-provider';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
 import { expandApprovalRow } from './approval-row-helpers';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 const messages = vi.hoisted(
   () =>

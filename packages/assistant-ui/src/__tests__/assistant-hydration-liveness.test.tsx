@@ -8,7 +8,7 @@ import {
 } from '@assistant-ui/react';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -19,6 +19,7 @@ import {
 import { AssistantRunEventProvider } from '../assistant-run-event-context';
 import { AssistantRunTimelineDataPart } from '../assistant-run-timeline-data-part';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 import {
   completedPartsWithEvents,
   Harness,

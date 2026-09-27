@@ -1,5 +1,5 @@
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import type { UserEvent } from '@testing-library/user-event';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +13,7 @@ import {
 } from '../follow-up-queue-store';
 import { LiveDecisionProvider } from '../live-decision-context';
 import { expandApprovalRow } from './approval-row-helpers';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
 const threadMessagesMock = vi.hoisted(

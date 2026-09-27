@@ -111,6 +111,20 @@ describe('useAssistantRunNotifications', () => {
     expect(serialized).not.toContain('should-not-leak');
   });
 
+  it('notifies distinct root runs that reuse a provider tool-call id', () => {
+    const { NotificationMock } = stubNotification();
+    useNotificationPreferencesStore.getState().setMasterEnabled(true);
+    const { result } = renderHook(() => useAssistantRunNotifications());
+    for (const runId of ['first-run', 'second-run']) {
+      result.current.onToolApprovalRequired({
+        runId,
+        toolCallId: 'call_0',
+        toolName: 'brainstrike.executeCommand',
+      });
+    }
+    expect(NotificationMock).toHaveBeenCalledTimes(2);
+  });
+
   it('alerts for each new child decision while coalescing its root and child copies', () => {
     const { NotificationMock } = stubNotification();
     useNotificationPreferencesStore.getState().setMasterEnabled(true);

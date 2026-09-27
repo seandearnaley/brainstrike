@@ -14,6 +14,7 @@ import {
   type ApprovalOwnerThread,
   ApprovalOwnerThreadContext,
 } from './approval-owner-thread-context';
+import { ApprovalSubmissionProvider } from './approval-submission-provider';
 
 /*
  * Mounts the thread's incremental approvals index over the thread. The fold
@@ -100,7 +101,7 @@ export function AnsweredApprovalsProvider({ children }: { children: ReactNode })
   return (
     <ApprovalOwnerMessagesContext value={ownerMessages}>
       <AnsweredApprovalsContext.Provider value={value}>
-        {children}
+        <ApprovalSubmissionProvider>{children}</ApprovalSubmissionProvider>
       </AnsweredApprovalsContext.Provider>
     </ApprovalOwnerMessagesContext>
   );

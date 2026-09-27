@@ -289,6 +289,7 @@ export const TOOL_APPROVAL_ANSWERED_DATA_NAME = 'brainstrike.tool-approval-answe
 export type AssistantToolApprovalAnsweredReason = 'session-grant' | 'user';
 
 export interface AssistantToolApprovalAnswered {
+  readonly continuationId?: string;
   readonly decision: AssistantToolApprovalDecision;
   readonly delegation?: DelegatedToolActionIdentity;
   readonly reason: AssistantToolApprovalAnsweredReason;
@@ -305,6 +306,9 @@ export function isAssistantToolApprovalAnswered(
   }
   const candidate = value as Record<string, unknown>;
   return (
+    (candidate['continuationId'] === undefined ||
+      (typeof candidate['continuationId'] === 'string' &&
+        candidate['continuationId'].length > 0)) &&
     (candidate['decision'] === 'approve' || candidate['decision'] === 'decline') &&
     (candidate['reason'] === 'session-grant' || candidate['reason'] === 'user') &&
     typeof candidate['runId'] === 'string' &&

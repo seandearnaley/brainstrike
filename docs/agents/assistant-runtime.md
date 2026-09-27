@@ -1728,7 +1728,7 @@ Previews and grants:
   every pending approval from the same ranks provider, including non-policy asks.
   Its shared Radix review popup lists requests in timeline order with flat cards,
   verified child identity and action previews; opening it never scrolls the timeline.
-  Both views use the same decision hook and host route, with no second queue.
+  Both views share transient submission/error state, the decision hook and host route; no second queue.
   Category grants record policy FIRST and submit ONE decision; only policy buckets
   offer grants. Preserve the label suffix "…for the N waiting approvals" so it
   differs from card grants. Evidence: `assistant-runtime/approval-attention.md`.
@@ -2771,7 +2771,7 @@ This boundary does not itself claim UI selective-Stop acceptance.
 - Still-streaming tool arguments retain their existing deferral until the argument
   boundary; an answer must never truncate them.
 - Emit the initiating answer on reconstructed approval legs as well as live legs;
-  a transient user echo is not an acknowledgement. Never defer answers behind root
+  preserve continuation identity; a transient echo is not an acknowledgement. Never defer behind root
   text. Evidence: `assistant-runtime/initiating-approval-answer.md`.
 
 Guard: `packages/agent/src/__tests__/data-stream-approval-answered.spec.ts`,
