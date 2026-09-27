@@ -153,6 +153,11 @@ catalog:
 overrides:
   react: ^19.3.0
   react-dom: ^19.3.0
+  # BST-886: node-gyp and other compatible tar 7.x owners can take the patched
+  # release. @vercel/fun@1.3.0 pins vulnerable 7.5.7 exactly, so scope the
+  # exception to that owner until it publishes a fixed dependency.
+  'tar@': 7.5.22
+  '@vercel/fun@1.3.0>tar': 7.5.22
   # @swc/core 1.16.0 BREAKS the desktop build (BST-1311). vite-plugin-top-level-await
   # constructs SWC AST nodes in JS, and 1.16.0's Rust-side AST change makes
   # Compiler.printSync reject them with "missing field `type`". Proven by A/B:
