@@ -158,6 +158,11 @@ overrides:
   # exception to that owner until it publishes a fixed dependency.
   'tar@': 7.5.22
   '@vercel/fun@1.3.0>tar': 7.5.22
+  # BST-881: qs 6.16.0 fixes the comma-stringify and parser DoS advisories.
+  # Converge compatible Express/body-parser edges; typed-rest-client@2.3.1
+  # pins 6.15.1 exactly, so keep that exception scoped to its current owner.
+  'qs@': 6.16.0
+  'typed-rest-client@2.3.1>qs': 6.16.0
   # @swc/core 1.16.0 BREAKS the desktop build (BST-1311). vite-plugin-top-level-await
   # constructs SWC AST nodes in JS, and 1.16.0's Rust-side AST change makes
   # Compiler.printSync reject them with "missing field `type`". Proven by A/B:
