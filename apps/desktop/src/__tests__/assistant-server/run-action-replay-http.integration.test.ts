@@ -203,6 +203,55 @@ it('replays a typed Gate B suspension on the Gate A approval continuation host l
     expect(childSession?.[1]?.discovery).toBeDefined();
     expect(childSession?.[1]?.discovery).not.toHaveProperty('actionReplay');
 
+    // Exercise the real approval router for an untrusted continuation ID. It
+    // must reject at the durable child owner, never fall through to root resume.
+    await repository.createThreadRun({
+      id: 'forged-answer-leg' as HostRunId,
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      threadId: thread.id,
+      turnMessageId: 'user-a',
+    });
+    const actualAgent =
+      await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
+    vi.mocked(streamMastraToolApprovalAction).mockImplementationOnce(
+      actualAgent.streamMastraToolApprovalAction
+    );
+    const forged = await runRequest({
+      body: JSON.stringify({
+        data: {
+          memory: { resourceId: 'workspace-a', runId: 'forged-answer-leg', threadId: thread.id },
+          provider: 'openai',
+        },
+        messages: [],
+        runConfig: {
+          custom: {
+            brainstrikeToolApproval: {
+              action: 'approve',
+              continuationId: 'unknown-child-receipt',
+              hostRunId: 'host-leg',
+              runId: 'native-run',
+              toolCallId: 'canvas-call',
+            },
+          },
+        },
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      url: '/',
+    });
+    expect(forged.status).toBe(502);
+    expect(JSON.parse(forged.body)).toMatchObject({
+      error: 'agent_stream_init_failed',
+      stage: 'stream_construction',
+    });
+    expect(assistantDataStreamSessions.create).toHaveBeenCalledTimes(2);
+    expect(
+      (await database.query('SELECT * FROM brainstrike_delegated_continuation_decisions')).rows
+    ).toEqual([]);
+
     // Gate A resumed the original native run on a new host leg. The native
     // mapping stays with its first leg; Gate B is suspended on this second leg.
     await repository.createThreadRun({

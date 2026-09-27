@@ -89,7 +89,7 @@ index 20808d18e0d490d5f745c85ec943e62cd8aa0d02..b0f870db01e1aac9ec8a6db61479395f
  							const generateResult = shouldResumeSubAgent ? await resolvedAgent.resumeGenerate(resumeData, {
  								runId: suspendedToolRunId,
 diff --git a/dist/background-tasks-BcWw6v_H.cjs b/dist/background-tasks-BcWw6v_H.cjs
-index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..012aa172164cf2dd89d8aacaeaeaa9f2978b2a15 100644
+index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..3c2444e62668af4f31cf87b944903213773b18a7 100644
 --- a/dist/background-tasks-BcWw6v_H.cjs
 +++ b/dist/background-tasks-BcWw6v_H.cjs
 @@ -39,6 +39,48 @@ var BackgroundTaskManager = class {
@@ -156,22 +156,73 @@ index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..012aa172164cf2dd89d8aacaeaeaa9f2
  			const previousStatus = task.status;
  			const isProcessAffine = this.taskContexts.has(taskId);
  			if (!await storage.updateTask(taskId, {
-@@ -262,9 +305,13 @@ var BackgroundTaskManager = class {
- 				if (this.#mastra) try {
- 					await (await this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).createRun({ runId: taskId })).cancel();
- 				} catch (err) {
--					this.#mastra?.getLogger?.()?.warn(`background-task workflow cancel failed for ${taskId}:`, err);
-+					throw err;
+@@ -258,31 +301,44 @@ var BackgroundTaskManager = class {
+ 					this.activeAbortControllers.delete(taskId);
  				}
  			}
-+			if (previousStatus === "suspended" && this.#mastra) {
-+				this.trackTaskWork(taskId, this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).deleteWorkflowRunById(taskId), true);
-+			}
-+			await this.#joinTaskWork(taskId, deadline);
- 			const cancelledTask = await storage.getTask(taskId);
- 			if (cancelledTask) {
- 				await this.publishLifecycleEvent("task.cancelled", cancelledTask);
-@@ -599,7 +646,7 @@ var BackgroundTaskManager = class {
+-			if (previousStatus === "running" || previousStatus === "suspended") {
+-				if (this.#mastra) try {
+-					await (await this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).createRun({ runId: taskId })).cancel();
+-				} catch (err) {
+-					this.#mastra?.getLogger?.()?.warn(`background-task workflow cancel failed for ${taskId}:`, err);
++			const cancellationErrors = [];
++			try {
++				if (previousStatus === "running" || previousStatus === "suspended") {
++					if (this.#mastra) {
++						await (await this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).createRun({ runId: taskId })).cancel();
++					}
+ 				}
+-			}
+-			const cancelledTask = await storage.getTask(taskId);
+-			if (cancelledTask) {
+-				await this.publishLifecycleEvent("task.cancelled", cancelledTask);
+-				try {
+-					await this.config.onTaskCancelled?.(cancelledTask);
+-				} catch (error) {
+-					this.#mastra?.getLogger?.()?.warn(`background-task cancellation callback failed for ${taskId}:`, error);
++				if (previousStatus === "suspended" && this.#mastra) {
++					this.trackTaskWork(taskId, this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).deleteWorkflowRunById(taskId), true);
+ 				}
++				await this.#joinTaskWork(taskId, deadline);
++			} catch (error) {
++				cancellationErrors.push(error);
+ 			}
+-			this.deregisterTaskContext(taskId);
+-			if (previousStatus === "running") {
+-				const dispatchTopic = isProcessAffine ? this.processAffineDispatchTopic : TOPIC_DISPATCH;
+-				await this.pubsub.publish(dispatchTopic, {
+-					type: "task.cancel",
+-					data: { taskId },
+-					runId: taskId
+-				});
++			try {
++				const cancelledTask = await storage.getTask(taskId);
++				if (cancelledTask) {
++					await this.publishLifecycleEvent("task.cancelled", cancelledTask);
++					try {
++						await this.config.onTaskCancelled?.(cancelledTask);
++					} catch (error) {
++						this.#mastra?.getLogger?.()?.warn(`background-task cancellation callback failed for ${taskId}:`, error);
++					}
++				}
++				this.deregisterTaskContext(taskId);
++				if (previousStatus === "running") {
++					const dispatchTopic = isProcessAffine ? this.processAffineDispatchTopic : TOPIC_DISPATCH;
++					await this.pubsub.publish(dispatchTopic, {
++						type: "task.cancel",
++						data: { taskId },
++						runId: taskId
++					});
++				}
++			} catch (error) {
++				cancellationErrors.push(error);
+ 			}
++			if (cancellationErrors.length === 1) throw cancellationErrors[0];
++			if (cancellationErrors.length) throw new AggregateError(cancellationErrors, "Background task cancellation failed");
+ 			return;
+ 		}
+ 	}
+@@ -599,7 +655,7 @@ var BackgroundTaskManager = class {
  		const activeTaskIds = [...this.activeAbortControllers.keys()];
  		this.#abortActiveControllers();
  		(await this.#waitForShutdownStep("background task cancellation", Promise.allSettled(activeTaskIds.map((taskId) => this.#cancelTaskForShutdown(taskId)))))?.forEach((result, index) => {
@@ -180,7 +231,7 @@ index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..012aa172164cf2dd89d8aacaeaeaa9f2
  		});
  		if (this.cleanupInterval) {
  			clearInterval(this.cleanupInterval);
-@@ -612,7 +659,7 @@ var BackgroundTaskManager = class {
+@@ -612,7 +668,7 @@ var BackgroundTaskManager = class {
  		}
  		if (this.resultCallback) subscriptions.push([TOPIC_RESULT, this.resultCallback]);
  		(await this.#waitForShutdownStep("background task subscription cleanup", Promise.allSettled(subscriptions.map(([topic, callback]) => this.pubsub.unsubscribe(topic, callback)))))?.forEach((result, index) => {
@@ -189,7 +240,7 @@ index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..012aa172164cf2dd89d8aacaeaeaa9f2
  		});
  		this.#abortActiveControllers();
  		this.taskContexts.clear();
-@@ -620,6 +667,11 @@ var BackgroundTaskManager = class {
+@@ -620,6 +676,11 @@ var BackgroundTaskManager = class {
  		this.localPendingTaskIds.clear();
  		this.staticExecutors.clear();
  		if (this.initPromise) await this.#waitForShutdownStep("background task pubsub flush", this.pubsub.flush());
@@ -201,7 +252,7 @@ index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..012aa172164cf2dd89d8aacaeaeaa9f2
  	}
  	async #cancelTaskForShutdown(taskId) {
  		const task = await (await this.getStorage()).getTask(taskId);
-@@ -640,7 +692,7 @@ var BackgroundTaskManager = class {
+@@ -640,7 +701,7 @@ var BackgroundTaskManager = class {
  		const remainingMs = this.#remainingShutdownBudgetMs();
  		if (remainingMs <= 0) {
  			promise.catch(() => {});
@@ -210,7 +261,7 @@ index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..012aa172164cf2dd89d8aacaeaeaa9f2
  			return;
  		}
  		let timeoutHandle;
-@@ -653,13 +705,13 @@ var BackgroundTaskManager = class {
+@@ -653,13 +714,13 @@ var BackgroundTaskManager = class {
  				timeoutHandle = setTimeout(() => resolve({ status: "timed-out" }), remainingMs);
  			})]);
  		} catch (error) {
@@ -226,7 +277,7 @@ index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..012aa172164cf2dd89d8aacaeaeaa9f2
  			return;
  		}
  		return outcome.value;
-@@ -768,14 +820,12 @@ var BackgroundTaskManager = class {
+@@ -768,14 +829,12 @@ var BackgroundTaskManager = class {
  			const shouldRestart = isRestart && prevWorkflowRun?.status === "running";
  			const run = await workflow.createRun({ runId: taskId });
  			if (this.shuttingDown) return false;
@@ -244,7 +295,7 @@ index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..012aa172164cf2dd89d8aacaeaeaa9f2
  		} catch (error) {
  			this.releaseLocalSlot(taskId);
  			if (await storage.updateTask(taskId, {
-@@ -827,14 +877,12 @@ var BackgroundTaskManager = class {
+@@ -827,14 +886,12 @@ var BackgroundTaskManager = class {
  			return true;
  		}
  		const workflow = this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID);
@@ -263,7 +314,7 @@ index 81d0e10d65b5454597ccb78b5dad4675d4f91fba..012aa172164cf2dd89d8aacaeaeaa9f2
  	}
  	/**
 diff --git a/dist/background-tasks-CH6bZtEa.js b/dist/background-tasks-CH6bZtEa.js
-index de86aa89de4a77fb67e449c07c080c065e655483..58fd6c87422c4e6fc03b12efebff74279c4aad78 100644
+index de86aa89de4a77fb67e449c07c080c065e655483..214b060ba1ec2b66c96dbe2754a41d3465647da7 100644
 --- a/dist/background-tasks-CH6bZtEa.js
 +++ b/dist/background-tasks-CH6bZtEa.js
 @@ -39,6 +39,48 @@ var BackgroundTaskManager = class {
@@ -330,22 +381,73 @@ index de86aa89de4a77fb67e449c07c080c065e655483..58fd6c87422c4e6fc03b12efebff7427
  			const previousStatus = task.status;
  			const isProcessAffine = this.taskContexts.has(taskId);
  			if (!await storage.updateTask(taskId, {
-@@ -262,9 +305,13 @@ var BackgroundTaskManager = class {
- 				if (this.#mastra) try {
- 					await (await this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).createRun({ runId: taskId })).cancel();
- 				} catch (err) {
--					this.#mastra?.getLogger?.()?.warn(`background-task workflow cancel failed for ${taskId}:`, err);
-+					throw err;
+@@ -258,31 +301,44 @@ var BackgroundTaskManager = class {
+ 					this.activeAbortControllers.delete(taskId);
  				}
  			}
-+			if (previousStatus === "suspended" && this.#mastra) {
-+				this.trackTaskWork(taskId, this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).deleteWorkflowRunById(taskId), true);
-+			}
-+			await this.#joinTaskWork(taskId, deadline);
- 			const cancelledTask = await storage.getTask(taskId);
- 			if (cancelledTask) {
- 				await this.publishLifecycleEvent("task.cancelled", cancelledTask);
-@@ -599,7 +646,7 @@ var BackgroundTaskManager = class {
+-			if (previousStatus === "running" || previousStatus === "suspended") {
+-				if (this.#mastra) try {
+-					await (await this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).createRun({ runId: taskId })).cancel();
+-				} catch (err) {
+-					this.#mastra?.getLogger?.()?.warn(`background-task workflow cancel failed for ${taskId}:`, err);
++			const cancellationErrors = [];
++			try {
++				if (previousStatus === "running" || previousStatus === "suspended") {
++					if (this.#mastra) {
++						await (await this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).createRun({ runId: taskId })).cancel();
++					}
+ 				}
+-			}
+-			const cancelledTask = await storage.getTask(taskId);
+-			if (cancelledTask) {
+-				await this.publishLifecycleEvent("task.cancelled", cancelledTask);
+-				try {
+-					await this.config.onTaskCancelled?.(cancelledTask);
+-				} catch (error) {
+-					this.#mastra?.getLogger?.()?.warn(`background-task cancellation callback failed for ${taskId}:`, error);
++				if (previousStatus === "suspended" && this.#mastra) {
++					this.trackTaskWork(taskId, this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID).deleteWorkflowRunById(taskId), true);
+ 				}
++				await this.#joinTaskWork(taskId, deadline);
++			} catch (error) {
++				cancellationErrors.push(error);
+ 			}
+-			this.deregisterTaskContext(taskId);
+-			if (previousStatus === "running") {
+-				const dispatchTopic = isProcessAffine ? this.processAffineDispatchTopic : TOPIC_DISPATCH;
+-				await this.pubsub.publish(dispatchTopic, {
+-					type: "task.cancel",
+-					data: { taskId },
+-					runId: taskId
+-				});
++			try {
++				const cancelledTask = await storage.getTask(taskId);
++				if (cancelledTask) {
++					await this.publishLifecycleEvent("task.cancelled", cancelledTask);
++					try {
++						await this.config.onTaskCancelled?.(cancelledTask);
++					} catch (error) {
++						this.#mastra?.getLogger?.()?.warn(`background-task cancellation callback failed for ${taskId}:`, error);
++					}
++				}
++				this.deregisterTaskContext(taskId);
++				if (previousStatus === "running") {
++					const dispatchTopic = isProcessAffine ? this.processAffineDispatchTopic : TOPIC_DISPATCH;
++					await this.pubsub.publish(dispatchTopic, {
++						type: "task.cancel",
++						data: { taskId },
++						runId: taskId
++					});
++				}
++			} catch (error) {
++				cancellationErrors.push(error);
+ 			}
++			if (cancellationErrors.length === 1) throw cancellationErrors[0];
++			if (cancellationErrors.length) throw new AggregateError(cancellationErrors, "Background task cancellation failed");
+ 			return;
+ 		}
+ 	}
+@@ -599,7 +655,7 @@ var BackgroundTaskManager = class {
  		const activeTaskIds = [...this.activeAbortControllers.keys()];
  		this.#abortActiveControllers();
  		(await this.#waitForShutdownStep("background task cancellation", Promise.allSettled(activeTaskIds.map((taskId) => this.#cancelTaskForShutdown(taskId)))))?.forEach((result, index) => {
@@ -354,7 +456,7 @@ index de86aa89de4a77fb67e449c07c080c065e655483..58fd6c87422c4e6fc03b12efebff7427
  		});
  		if (this.cleanupInterval) {
  			clearInterval(this.cleanupInterval);
-@@ -612,7 +659,7 @@ var BackgroundTaskManager = class {
+@@ -612,7 +668,7 @@ var BackgroundTaskManager = class {
  		}
  		if (this.resultCallback) subscriptions.push([TOPIC_RESULT, this.resultCallback]);
  		(await this.#waitForShutdownStep("background task subscription cleanup", Promise.allSettled(subscriptions.map(([topic, callback]) => this.pubsub.unsubscribe(topic, callback)))))?.forEach((result, index) => {
@@ -363,7 +465,7 @@ index de86aa89de4a77fb67e449c07c080c065e655483..58fd6c87422c4e6fc03b12efebff7427
  		});
  		this.#abortActiveControllers();
  		this.taskContexts.clear();
-@@ -620,6 +667,11 @@ var BackgroundTaskManager = class {
+@@ -620,6 +676,11 @@ var BackgroundTaskManager = class {
  		this.localPendingTaskIds.clear();
  		this.staticExecutors.clear();
  		if (this.initPromise) await this.#waitForShutdownStep("background task pubsub flush", this.pubsub.flush());
@@ -375,7 +477,7 @@ index de86aa89de4a77fb67e449c07c080c065e655483..58fd6c87422c4e6fc03b12efebff7427
  	}
  	async #cancelTaskForShutdown(taskId) {
  		const task = await (await this.getStorage()).getTask(taskId);
-@@ -640,7 +692,7 @@ var BackgroundTaskManager = class {
+@@ -640,7 +701,7 @@ var BackgroundTaskManager = class {
  		const remainingMs = this.#remainingShutdownBudgetMs();
  		if (remainingMs <= 0) {
  			promise.catch(() => {});
@@ -384,7 +486,7 @@ index de86aa89de4a77fb67e449c07c080c065e655483..58fd6c87422c4e6fc03b12efebff7427
  			return;
  		}
  		let timeoutHandle;
-@@ -653,13 +705,13 @@ var BackgroundTaskManager = class {
+@@ -653,13 +714,13 @@ var BackgroundTaskManager = class {
  				timeoutHandle = setTimeout(() => resolve({ status: "timed-out" }), remainingMs);
  			})]);
  		} catch (error) {
@@ -400,7 +502,7 @@ index de86aa89de4a77fb67e449c07c080c065e655483..58fd6c87422c4e6fc03b12efebff7427
  			return;
  		}
  		return outcome.value;
-@@ -768,14 +820,12 @@ var BackgroundTaskManager = class {
+@@ -768,14 +829,12 @@ var BackgroundTaskManager = class {
  			const shouldRestart = isRestart && prevWorkflowRun?.status === "running";
  			const run = await workflow.createRun({ runId: taskId });
  			if (this.shuttingDown) return false;
@@ -418,7 +520,7 @@ index de86aa89de4a77fb67e449c07c080c065e655483..58fd6c87422c4e6fc03b12efebff7427
  		} catch (error) {
  			this.releaseLocalSlot(taskId);
  			if (await storage.updateTask(taskId, {
-@@ -827,14 +877,12 @@ var BackgroundTaskManager = class {
+@@ -827,14 +886,12 @@ var BackgroundTaskManager = class {
  			return true;
  		}
  		const workflow = this.#mastra.__getInternalWorkflow(BACKGROUND_TASK_WORKFLOW_ID);

@@ -343,9 +343,29 @@ function composeDelegatedHooks(
     beforeToolCall: async (call) => {
       observeNativeBackgroundExecutor(manager, call.context);
       await binding?.beforeToolCall?.(call);
-      await persistence?.beforeToolCall?.(call);
     },
   };
+}
+
+function buildStreamHooks({
+  runtime,
+  delegationUsage,
+  abortSignal,
+}: Pick<BuildStreamOptionsParams, 'runtime' | 'delegationUsage' | 'abortSignal'>):
+  | ToolHooks
+  | undefined {
+  const manager = runtime.backgroundTaskManager;
+  if (!delegationUsage) {
+    return manager ? composeDelegatedHooks(undefined, undefined, manager) : undefined;
+  }
+  if (!(manager || runtime.delegatedTurnPersistence || runtime.conversationBinding?.hooks)) {
+    return;
+  }
+  return composeDelegatedHooks(
+    runtime.conversationBinding?.hooks,
+    runtime.delegatedTurnPersistence?.hooks(abortSignal),
+    manager
+  );
 }
 
 function externalStopSignalOption(runtimeData: RuntimeData | undefined): {
@@ -391,6 +411,7 @@ export function buildStreamOptions(
   } = params;
 
   const loop = buildRuntimeToolLoopOptions(runtime, runtimeData);
+  const hooks = buildStreamHooks(params);
   const options: BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } = {
     ...loop,
     ...(!runtime.childExecution && runtime.rootDelegatedContextProcessor
@@ -399,16 +420,7 @@ export function buildStreamOptions(
         }
       : {}),
     abortSignal,
-    ...(runtime.backgroundTaskManager ||
-    (delegationUsage && (runtime.delegatedTurnPersistence || runtime.conversationBinding?.hooks))
-      ? {
-          hooks: composeDelegatedHooks(
-            runtime.conversationBinding?.hooks,
-            runtime.delegatedTurnPersistence?.hooks(abortSignal),
-            runtime.backgroundTaskManager
-          ),
-        }
-      : {}),
+    ...(hooks ? { hooks } : {}),
     ...(runId === undefined ? {} : { runId }),
     ...(toolCallId === undefined ? {} : { toolCallId }),
     ...buildAssistantStreamMessageIdOption(runtimeData),

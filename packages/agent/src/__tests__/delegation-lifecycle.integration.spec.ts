@@ -8,7 +8,7 @@ import { Agent } from '@mastra/core/agent';
 import { Mastra } from '@mastra/core/mastra';
 import type { ChunkType } from '@mastra/core/stream';
 import { createTool, ToolStream } from '@mastra/core/tools';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { withBackgroundIdleLoop } from '../mastra/background-idle-loop';
 import { createBackgroundLedgerSource } from '../mastra/background-ledger';
@@ -32,16 +32,25 @@ async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
 }
 
 /** Exercise the production parent coordinator against native task/storage APIs. */
-async function coordinatedStream(parent: Agent, host: Mastra, threadId: string) {
+async function coordinatedStream(
+  parent: Agent,
+  host: Mastra,
+  threadId: string,
+  abortSignal?: AbortSignal
+) {
   const manager = host.backgroundTaskManager;
   if (!manager) {
     throw new Error('Missing native manager');
   }
   const scope = { resourceId: 'owner', threadId };
-  const options = { memory: { resource: scope.resourceId, thread: scope.threadId } };
+  const options = {
+    ...(abortSignal ? { abortSignal } : {}),
+    memory: { resource: scope.resourceId, thread: scope.threadId },
+  };
   const first = await parent.stream('Run', options);
   const nativeRunIds = new Set([first.runId]);
   return withBackgroundIdleLoop(first, {
+    abortSignal,
     agent: parent,
     ledger: createBackgroundLedgerSource({
       generation: async () => ({ generationRunId: first.runId, nativeRunIds: [...nativeRunIds] }),
@@ -559,156 +568,190 @@ describe('native public delegation lifecycle', () => {
     }
     expect([...counts.values()]).toEqual([2, 2]);
   });
-  it('joins selected child effects through native cancellation while its sibling continues', async () => {
-    const started = new Map(
-      ['alpha', 'beta'].map((job) => [
-        job,
-        Promise.withResolvers<{ threadId: string; resourceId: string; signal: AbortSignal }>(),
-      ])
-    );
-    const release = new Map(['alpha', 'beta'].map((job) => [job, Promise.withResolvers<void>()]));
-    const cleaned = new Map(['alpha', 'beta'].map((job) => [job, Promise.withResolvers<void>()]));
-    const runningJobs = new Set<string>();
-    const cleanupEntered = Promise.withResolvers<void>();
-    const cleanupRelease = Promise.withResolvers<void>();
-    const child = new Agent({
-      defaultOptions: { maxSteps: 4 },
-      id: 'worker',
-      instructions: 'Work once',
-      memory: backing.memory,
-      model: scriptedAgentModel((options) => {
-        const lastUser = JSON.stringify(
-          options.prompt.findLast((message) => message.role === 'user')
-        );
-        const job = ['alpha', 'beta'].find((candidate) => lastUser?.includes(candidate));
-        if (!job) {
-          throw new Error('Missing exact scripted child task');
-        }
-        return hasToolResult(options, 'work')
-          ? textParts(`${job} done`)
-          : toolCallParts('work', `${job}-work`, { job });
-      }).model,
-      name: 'Worker',
-      tools: {
-        work: createTool({
-          description: 'Held filesystem effect',
-          execute: async ({ job }, context) => {
-            const signal = context?.['abortSignal'];
-            const scope = context?.['agent'];
-            if (!(signal && scope?.threadId && scope.resourceId)) {
-              throw new Error('Missing child execution scope');
-            }
-            runningJobs.add(job);
-            started
-              .get(job)
-              ?.resolve({ resourceId: scope.resourceId, signal, threadId: scope.threadId });
-            const aborted = Promise.withResolvers<void>();
-            const onAbort = (): void => {
-              aborted.resolve();
-            };
-            signal.addEventListener('abort', onAbort, { once: true });
-            try {
-              await Promise.race([release.get(job)?.promise, aborted.promise]);
-              signal.throwIfAborted();
-              await appendFile(join(workspace, `${job}.txt`), `${job}\n`);
-              return { written: job };
-            } finally {
-              signal.removeEventListener('abort', onAbort);
-              if (job === 'alpha') {
-                cleanupEntered.resolve();
-                await cleanupRelease.promise;
+  it.each([false, true])(
+    'joins selected child effects and settles the parent even when cleanup fails (%s)',
+    async (failDeletion) => {
+      const started = new Map(
+        ['alpha', 'beta'].map((job) => [
+          job,
+          Promise.withResolvers<{ threadId: string; resourceId: string; signal: AbortSignal }>(),
+        ])
+      );
+      const release = new Map(['alpha', 'beta'].map((job) => [job, Promise.withResolvers<void>()]));
+      const cleaned = new Map(['alpha', 'beta'].map((job) => [job, Promise.withResolvers<void>()]));
+      const runningJobs = new Set<string>();
+      const cleanupEntered = Promise.withResolvers<void>();
+      const cleanupRelease = Promise.withResolvers<void>();
+      const child = new Agent({
+        defaultOptions: { maxSteps: 4 },
+        id: 'worker',
+        instructions: 'Work once',
+        memory: backing.memory,
+        model: scriptedAgentModel((options) => {
+          const lastUser = JSON.stringify(
+            options.prompt.findLast((message) => message.role === 'user')
+          );
+          const job = ['alpha', 'beta'].find((candidate) => lastUser?.includes(candidate));
+          if (!job) {
+            throw new Error('Missing exact scripted child task');
+          }
+          return hasToolResult(options, 'work')
+            ? textParts(`${job} done`)
+            : toolCallParts('work', `${job}-work`, { job });
+        }).model,
+        name: 'Worker',
+        tools: {
+          work: createTool({
+            description: 'Held filesystem effect',
+            execute: async ({ job }, context) => {
+              const signal = context?.['abortSignal'];
+              const scope = context?.['agent'];
+              if (!(signal && scope?.threadId && scope.resourceId)) {
+                throw new Error('Missing child execution scope');
               }
-              cleaned.get(job)?.resolve();
-            }
-          },
-          id: 'work',
-          inputSchema: z.object({ job: z.enum(['alpha', 'beta']) }),
-        }),
-      },
-    });
-    const parentStop = new AbortController();
-    const parent = new Agent({
-      agents: { worker: child },
-      backgroundTasks: { tools: { worker: { enabled: true } }, waitTimeoutMs: 0 },
-      defaultOptions: { maxSteps: 4 },
-      id: 'parent',
-      instructions: 'Delegate both',
-      memory: backing.memory,
-      model: scriptedAgentModel((options) =>
-        hasToolResult(options, 'agent-worker')
-          ? textParts('Parent available')
-          : parallelToolCallParts(
-              ['alpha', 'beta'].map((job) => ({
-                args: { prompt: job },
-                toolCallId: `delegate-${job}`,
-                toolName: 'agent-worker',
-              }))
-            )
-      ).model,
-      name: 'Parent',
-    });
-    const host = new Mastra({
-      agents: { parent },
-      backgroundTasks: { defaultRetries: { maxRetries: 0 }, enabled: true },
-      storage: backing.storage,
-    });
-    hosts.add(host);
-    const output = await parent.stream('Run both', {
-      abortSignal: parentStop.signal,
-      memory: { resource: 'owner', thread: 'stop-root' },
-      untilIdle: true,
-    });
-    const consuming = collect(output.fullStream);
-    try {
-      const [alpha, beta] = await Promise.race([
-        Promise.all([started.get('alpha')?.promise, started.get('beta')?.promise]),
-        consuming.then((chunks) => {
-          throw new Error(`Stream ended before both jobs: ${JSON.stringify(chunks)}`);
-        }),
-      ]);
-      if (!(alpha && beta)) {
-        throw new Error('Missing started children');
-      }
-      let acknowledged = false;
-      const manager = host.backgroundTaskManager;
-      if (!manager) {
-        throw new Error('Missing native task manager');
-      }
-      const tasks = await manager.listTasks({ threadId: 'stop-root' });
-      const selected = tasks.tasks.find((task) => task.toolCallId === 'delegate-alpha');
-      if (!selected) {
-        throw new Error('Missing selected native task');
-      }
-      const joined = manager.cancel(selected.id).then(() => {
-        acknowledged = true;
+              runningJobs.add(job);
+              started
+                .get(job)
+                ?.resolve({ resourceId: scope.resourceId, signal, threadId: scope.threadId });
+              const aborted = Promise.withResolvers<void>();
+              const onAbort = (): void => {
+                aborted.resolve();
+              };
+              signal.addEventListener('abort', onAbort, { once: true });
+              try {
+                await Promise.race([release.get(job)?.promise, aborted.promise]);
+                signal.throwIfAborted();
+                await appendFile(join(workspace, `${job}.txt`), `${job}\n`);
+                return { written: job };
+              } finally {
+                signal.removeEventListener('abort', onAbort);
+                if (job === 'alpha') {
+                  cleanupEntered.resolve();
+                  await cleanupRelease.promise;
+                }
+                cleaned.get(job)?.resolve();
+              }
+            },
+            id: 'work',
+            inputSchema: z.object({ job: z.enum(['alpha', 'beta']) }),
+          }),
+        },
       });
-      await cleanupEntered.promise;
-      await nextTurn();
-      expect(acknowledged).toBe(false);
-      expect(alpha.signal.aborted).toBe(true);
-      expect(beta.signal.aborted).toBe(false);
-      expect(parentStop.signal.aborted).toBe(false);
-      // Sibling effects remain runnable even while selected cleanup is held.
-      release.get('beta')?.resolve();
-      await cleaned.get('beta')?.promise;
-      expect(await readFile(join(workspace, 'beta.txt'), 'utf8')).toBe('beta\n');
-      cleanupRelease.resolve();
-      await joined;
-      release.get('alpha')?.resolve();
-      await consuming;
-      await expect(readFile(join(workspace, 'alpha.txt'), 'utf8')).rejects.toMatchObject({
-        code: 'ENOENT',
+      const cleanupFailure = new Error('Selected cancellation storage cleanup failed');
+      let failedTaskId: string | undefined;
+      const remove = backing.workflows.deleteWorkflowRunById.bind(backing.workflows);
+      const deletion = vi
+        .spyOn(backing.workflows, 'deleteWorkflowRunById')
+        .mockImplementation(async (input) => {
+          if (failDeletion && input.runId === failedTaskId) {
+            throw cleanupFailure;
+          }
+          await remove(input);
+        });
+      const parentStop = new AbortController();
+      const parent = new Agent({
+        agents: { worker: child },
+        backgroundTasks: { tools: { worker: { enabled: true } }, waitTimeoutMs: 0 },
+        defaultOptions: { maxSteps: 4 },
+        id: 'parent',
+        instructions: 'Delegate both',
+        memory: backing.memory,
+        model: scriptedAgentModel((options) =>
+          hasToolResult(options, 'agent-worker')
+            ? textParts('Parent available')
+            : parallelToolCallParts(
+                ['alpha', 'beta'].map((job) => ({
+                  args: { prompt: job },
+                  toolCallId: `delegate-${job}`,
+                  toolName: 'agent-worker',
+                }))
+              )
+        ).model,
+        name: 'Parent',
       });
-      expect(acknowledged).toBe(true);
-    } finally {
-      cleanupRelease.resolve();
-      for (const entry of release.values()) {
-        entry.resolve();
+      const host = new Mastra({
+        agents: { parent },
+        backgroundTasks: { defaultRetries: { maxRetries: 0 }, enabled: true },
+        storage: backing.storage,
+      });
+      hosts.add(host);
+      const output = failDeletion
+        ? await coordinatedStream(parent, host, 'stop-root', parentStop.signal)
+        : await parent.stream('Run both', {
+            abortSignal: parentStop.signal,
+            memory: { resource: 'owner', thread: 'stop-root' },
+            untilIdle: true,
+          });
+      let streamSettled = false;
+      const consuming = collect(output.fullStream).finally(() => {
+        streamSettled = true;
+      });
+      try {
+        const [alpha, beta] = await Promise.race([
+          Promise.all([started.get('alpha')?.promise, started.get('beta')?.promise]),
+          consuming.then((chunks) => {
+            throw new Error(`Stream ended before both jobs: ${JSON.stringify(chunks)}`);
+          }),
+        ]);
+        if (!(alpha && beta)) {
+          throw new Error('Missing started children');
+        }
+        let acknowledged = false;
+        const manager = host.backgroundTaskManager;
+        if (!manager) {
+          throw new Error('Missing native task manager');
+        }
+        const tasks = await manager.listTasks({ threadId: 'stop-root' });
+        const selected = tasks.tasks.find((task) => task.toolCallId === 'delegate-alpha');
+        if (!selected) {
+          throw new Error('Missing selected native task');
+        }
+        failedTaskId = selected.id;
+        const joined = manager.cancel(selected.id).then(() => {
+          acknowledged = true;
+        });
+        const outcome = joined.then(
+          () => undefined,
+          (error: unknown) => error
+        );
+        await cleanupEntered.promise;
+        await nextTurn();
+        expect(acknowledged).toBe(false);
+        expect(alpha.signal.aborted).toBe(true);
+        expect(beta.signal.aborted).toBe(false);
+        expect(parentStop.signal.aborted).toBe(false);
+        // Sibling effects remain runnable even while selected cleanup is held.
+        release.get('beta')?.resolve();
+        await cleaned.get('beta')?.promise;
+        expect(await readFile(join(workspace, 'beta.txt'), 'utf8')).toBe('beta\n');
+        cleanupRelease.resolve();
+        if (failDeletion) {
+          expect(await outcome).toBe(cleanupFailure);
+        } else {
+          await joined;
+        }
+        await expect.poll(() => streamSettled, { timeout: 1500 }).toBe(true);
+        release.get('alpha')?.resolve();
+        await consuming;
+        await expect(readFile(join(workspace, 'alpha.txt'), 'utf8')).rejects.toMatchObject({
+          code: 'ENOENT',
+        });
+        expect(acknowledged).toBe(!failDeletion);
+      } finally {
+        parentStop.abort();
+        cleanupRelease.resolve();
+        for (const entry of release.values()) {
+          entry.resolve();
+        }
+        await consuming;
+        await Promise.all([...runningJobs].map((job) => cleaned.get(job)?.promise));
+        deletion.mockRestore();
+        if (failDeletion) {
+          await expect(shutdownHost(host)).rejects.toMatchObject({ errors: [cleanupFailure] });
+        }
       }
-      await consuming;
-      await Promise.all([...runningJobs].map((job) => cleaned.get(job)?.promise));
     }
-  });
+  );
   it('documents native EOF during a host decision commit, with resume continuing outside that stream', async () => {
     const siblingRelease = Promise.withResolvers<void>();
     const decisionCommit = Promise.withResolvers<void>();

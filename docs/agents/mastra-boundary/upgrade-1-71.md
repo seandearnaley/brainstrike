@@ -39,3 +39,34 @@ of vendor endorsement. No issue or PR was posted to Mastra during this work.
 
 Expanded issue/PR drafts and the existing-report search are recorded in
 `upstream-1-71-drafts.md`; no report was submitted.
+
+Exact-head review added a failure-path guard: selected cancellation publishes its
+durable terminal even when cleanup rejects, then returns that cleanup error. A
+RED/GREEN native-plus-host-coordinator regression holds the selected cleanup,
+lets its sibling write, rejects deletion, and proves the parent stream settles.
+
+Packaged CI exposed electron-builder 26.15.3 dropping deduplicated pnpm
+transitives (`zod-from-json-schema` and `@ai-sdk/provider-v6`). The official stable
+v26 release 26.17.0 includes [the upstream fix](https://github.com/electron-userland/electron-builder/pull/10207).
+That update alone still misses both packages in the real asar. The residual
+[upstream #10000](https://github.com/electron-userland/electron-builder/issues/10000)
+reproduction matches: the visited-package cache prunes a later occurrence with
+the only expanded descendant tree. The explicit app-builder-lib pnpm patch adds
+one traversal call for cached packages; package resolution stays memoized. It
+also retains a deduplicated npm alias under its requested name and actual path,
+so the existing production graph walk can read its manifest. pnpm exposes
+`@ai-sdk/provider-v6` only as a deduplicated alias of `@ai-sdk/provider`; skipping
+that entry leaves no alias in the collector's index. Both
+builder packages are pinned together; no dependency is manually copied or added
+as a spurious application dependency. `allowMissingDependencies: false` makes
+missing production modules a packaging failure. Four exact-version, time-limited
+release-age exceptions record npm publish times and verified official provenance.
+Remove the collector patch when a stable release packages the complete closure
+and passes the real packaged MCP acceptance tests without it.
+
+Local packaged acceptance: the normally signed macOS arm64 app passed the
+unchanged `test:e2e:lane:packaged-mcp-apps-bridge` test (8.1 seconds, zero retries).
+All 48,717 packed file checksums matched. An earlier attempt was invalid because
+an agent edited a source test during packaging; the first checksum mismatch
+identified that file and later offsets shifted. Rebuilding from unchanged inputs
+removed that execution error. No packaging assertion or timeout was relaxed.

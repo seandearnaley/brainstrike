@@ -302,9 +302,14 @@ minimumReleaseAge: 1440
 # The guard exists because an earlier entry ('@mastra/core@1.50.0') outlived its
 # justification by a month: its cleanup note pointed at a minimumReleaseAge floor
 # that was never configured, so nothing ever triggered the removal.
-minimumReleaseAgeExclude: []
+minimumReleaseAgeExclude:
+  - app-builder-lib@26.17.0
+  - dmg-builder@26.17.0
+  - electron-builder@26.17.0
+  - electron-builder-squirrel-windows@26.17.0
 patchedDependencies:
   '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
   '@electric-sql/pglite@0.5.8': patches/@electric-sql__pglite@0.5.8.patch
   '@mastra/core@1.71.0': patches/@mastra__core@1.71.0.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
+  app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch

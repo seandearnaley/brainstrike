@@ -50,7 +50,8 @@
       "executableName": "brainstrike-desktop",
       "target": "AppImage",
       "icon": "build/icons"
-    }
+    },
+    "allowMissingDependencies": false
   },
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
@@ -141,8 +142,8 @@
     "assistant-stream": "catalog:",
     "concurrently": "catalog:",
     "electron": "catalog:",
-    "electron-builder": "^26.15.3",
-    "electron-builder-squirrel-windows": "^26.15.3",
+    "electron-builder": "26.17.0",
+    "electron-builder-squirrel-windows": "26.17.0",
     "esbuild": "catalog:",
     "idb": "catalog:",
     "jsdom": "catalog:",

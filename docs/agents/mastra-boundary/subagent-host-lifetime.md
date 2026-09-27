@@ -15,8 +15,8 @@ duplicate existing permission, workspace, run and thread responsibilities.
 
 **BST-1723 background ownership:** the service acquires the root conversation's
 FIFO execution owner before constructing Mastra or opening a turn checkpoint.
-The host-owned `withBackgroundIdleLoop` (`background-idle-loop.ts`, passing
-Mastra's typed `_skipBgTaskWait`) keeps that owner through native background
+The host-owned `withBackgroundIdleLoop` (`background-idle-loop.ts`, with
+public `waitTimeoutMs: 0`) keeps that owner through native background
 work and parent continuations; release follows session closure and
 terminal persistence, including when the transport subscriber detaches. The
 PGlite composite store registers a resource/thread-scoped background domain;
@@ -72,15 +72,13 @@ cancelled task. The installed `streamUntilIdle()` declaration is deprecated. Thi
 authorize a Mastra HTTP server, replacement workspace tools, or a second
 permission/persistence system.
 
-Mastra 1.64 retains a suspended task's executor context in its original
+Mastra 1.71 retains a suspended task's executor context in its original
 runtime, while a reconstructed runtime must register one before `resume`.
-`createResumedExecutors` reads `manager.taskContexts.has(task.id)` only to
-preserve that existing native stream/result owner. `taskContexts` is marked
-`@internal` in the installed declaration; this is a version-sensitive,
-read-only compatibility seam, not a public Mastra API or a fallback executor.
-The same-runtime and reconstructed-root native guards in
-`background-resume.spec.ts` and
-`reconstructed-root-live-approval.integration.spec.ts` must pass on upgrade.
+`createResumedExecutors` preserves native owners observed through public
+`beforeToolCall` context, scoped to the concrete manager instance. It never reads
+private `taskContexts`. Host-restored registrations remain phase-owned and are
+renewed after a pause, with the native manager joining actual execution/cleanup.
+The same-runtime and reconstructed-root guards must pass on upgrade.
 
 BST-1718 publication boundary: `conversationBinding.bindRun` is a direct,
 process-local host callback. `streamAttemptChunks` awaits its native identity

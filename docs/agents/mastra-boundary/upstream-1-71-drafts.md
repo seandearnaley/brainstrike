@@ -43,7 +43,9 @@ implementation, retain the promises for actual executor and workflow lifetimes.
 Await workflow deletion in the dispatch/resume chain. Cancel joins the task's
 owned work even if its durable status already became terminal. Shutdown drains
 those promises within its existing deadline and rejects accumulated cleanup
-errors. Tests cover normal completion, suspension/cancel, deletion rejection,
+errors. Cancellation still publishes its durable terminal if cleanup fails, then
+rejects; the host must not hang waiting for that event. Cleanup and publication
+failures are aggregated when both fail. Tests cover normal completion, suspension/cancel, deletion rejection,
 deadline and pubsub-flush failure. No new public API is needed.
 
 **Related reports checked:** [#20193](https://github.com/mastra-ai/mastra/issues/20193)
@@ -123,3 +125,34 @@ Do not change embedding caches, retrieval scope, indexing or memory features.
 Searches for `xxhash` and SemanticRecall PRs found related cache/collision and
 embedding-provider work, but no exact shared-instantiation repair. Removal should
 follow a stable release passing this allocation-and-recall regression.
+
+## Packaging report draft (electron-builder, separate from Mastra)
+
+**Title:** pnpm collector drops an expanded duplicate subtree and deduplicated npm aliases.
+
+**Existing report:** [electron-builder #10000](https://github.com/electron-userland/electron-builder/issues/10000).
+Stable v26 26.17.0 includes #10207, but the public `electron-builder --dir`
+command still omitted `zod-from-json-schema` and `@ai-sdk/provider-v6` from this
+workspace's asar. The former crashes packaged Linux startup in Test run
+36291894676; both omissions were independently confirmed in the macOS archive.
+
+**Cause:** `collectDepsRecursively` returns for a previously indexed name/version,
+although a later JSON occurrence can contain the only expanded child tree. It
+also discards the sole `@ai-sdk/provider-v6` occurrence because pnpm marks the
+alias as deduplicated against its target `@ai-sdk/provider`.
+
+**Proposed repair:** Keep package resolution memoized, but visit descendants of
+all finite JSON occurrences. Index alias entries using their requested name and
+resolved target path so the existing manifest-based production graph walk can
+recover their children. No application dependencies or package files are copied
+by hand. `allowMissingDependencies: false` independently fails incomplete builds.
+The explicit build-time patch is `patches/app-builder-lib@26.17.0.patch`.
+
+**Validation:** The traversal change alone eliminated the missing JSON-schema
+package but strict packaging still rejected the alias. Retaining the alias then
+passed strict collection and put both actual packages in the asar. Real packaged
+Electron acceptance is the final gate; an archive inspection alone is insufficient.
+
+The signed macOS package subsequently passed the unchanged packaged MCP Apps
+bridge acceptance test with zero retries, and all 48,717 packed file checksums
+matched. Final Linux packaged coverage runs in the normal PR workflow.
