@@ -868,6 +868,14 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(approveGate({ toolName: 'brainstrike_runPython' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
     expect(chunks).toContainEqual({
+      decision: 'approve',
+      reason: 'user',
+      runId: 'run-approval-1',
+      toolCallId: 'tool-call-1',
+      toolName: 'workspace.writeFile',
+      type: 'tool-approval-answered',
+    });
+    expect(chunks).toContainEqual({
       finishReason: 'stop',
       path: [],
       type: 'message-finish',
@@ -1518,6 +1526,14 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       chunks.push(chunk as StreamChunk);
     }
 
+    expect(chunks).toContainEqual({
+      decision: 'decline',
+      reason: 'user',
+      runId: 'run-approval-2',
+      toolCallId: 'tool-call-2',
+      toolName: 'shell_tool',
+      type: 'tool-approval-answered',
+    });
     // Stage 1 — the Mastra boundary maps it to the TERMINAL decline tool event,
     // carrying the shared `DeclinedToolCallResult` envelope (with the user's
     // own reason) rather than an error string.

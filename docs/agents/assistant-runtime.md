@@ -1724,14 +1724,14 @@ Previews and grants:
   `state !== 'retryable'` drops the lock a RETRY click just took, and keying on
   `{action, state}` alone RESURRECTS a spent lock, so `resolveApprovalRunOutcome`
   also reports `decisionIndex`.
-- **APPROVALS STRIP.** `approval-queue-strip.tsx` sits at the composer and lists
-  PENDING approvals per risk category from the same ranks provider. "Allow
-  <category> this session" records the grant FIRST then submits ONE approve —
-  byte-identical to the card's button — and the runtime answers the siblings. It
-  never submits N decisions. Capability-gated like the card: no provider → counts
-  only. Non-policy `tool:*` buckets are never listed. Its label ends "…for the N
-  waiting approvals" on purpose, because the live verifier selects a CARD's grant
-  by `[aria-label$="for this session"]`.
+- **APPROVALS STRIP.** `approval-queue-strip.tsx` stays at the composer and counts
+  every pending approval from the same ranks provider, including non-policy asks.
+  Its shared Radix review popup lists requests in timeline order with flat cards,
+  verified child identity and action previews; opening it never scrolls the timeline.
+  Both views share transient submission/error state, the decision hook and host route; no second queue.
+  Category grants record policy FIRST and submit ONE decision; only policy buckets
+  offer grants. Preserve the label suffix "…for the N waiting approvals" so it
+  differs from card grants. Evidence: `assistant-runtime/approval-attention.md`.
 - **CHILD VIEWS READ THE ROOT'S ANSWERS.** The host publishes
   `tool-approval-answered` on the ROOT leg only, so a child view reads its owning
   root's answers BY IDENTITY (`getToolActionIdentityKey`): the delegated
@@ -2770,9 +2770,9 @@ This boundary does not itself claim UI selective-Stop acceptance.
   the text boundary.
 - Still-streaming tool arguments retain their existing deferral until the argument
   boundary; an answer must never truncate them.
-- Do NOT defer answers behind a root text part. A root can wait there for
-  background children while a session grant has already consumed its sibling
-  approvals.
+- Emit the initiating answer on reconstructed approval legs as well as live legs;
+  preserve continuation identity; a transient echo is not an acknowledgement. Never defer behind root
+  text. Evidence: `assistant-runtime/initiating-approval-answer.md`.
 
 Guard: `packages/agent/src/__tests__/data-stream-approval-answered.spec.ts`,
 `data-stream-text-continuity.spec.ts`, and the live three-child grant in

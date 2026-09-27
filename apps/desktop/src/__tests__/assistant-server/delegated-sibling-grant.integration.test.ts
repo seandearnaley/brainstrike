@@ -105,7 +105,7 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
       ...READ_ASK,
       sessionGrants: ['read'],
     });
-    expect(result.answered).toEqual(['delegate-2']);
+    expect(result.answered).toEqual(['delegate-1', 'delegate-2']);
     expect(fanout.execute).toHaveBeenCalledTimes(2);
     expect(await fanout.decisions()).toEqual([
       { parent_tool_call_id: 'delegate-1', state: 'consumed' },
@@ -118,12 +118,12 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
   it('a one-shot Approve answers only its card; approving the sibling next completes the turn', async () => {
     const fanout = await setupFanout(database, TWO);
     const first = await fanout.decide(fanout.notice('1'), 'approve');
-    expect(first.answered).toEqual([]);
+    expect(first.answered).toEqual(['delegate-1']);
     expect(fanout.execute).toHaveBeenCalledTimes(1);
     expect(await fanout.parkedTasks()).toEqual(['delegate-2']);
     expect(first.text).toContain('Parent: waiting');
     const second = await fanout.decide(fanout.notice('2'), 'approve');
-    expect(second.answered).toEqual([]);
+    expect(second.answered).toEqual(['delegate-2']);
     expect(fanout.execute).toHaveBeenCalledTimes(2);
     expect(await fanout.parkedTasks()).toEqual([]);
     expect(await fanout.decisions()).toEqual([
@@ -136,15 +136,15 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
   it('declining one card never runs its tool; a later grant on the sibling touches only the sibling', async () => {
     const fanout = await setupFanout(database, TWO);
     const declined = await fanout.decide(fanout.notice('1'), 'decline');
-    expect(declined.answered).toEqual([]);
+    expect(declined.answered).toEqual(['delegate-1']);
     expect(fanout.execute).not.toHaveBeenCalled();
     expect(await fanout.parkedTasks()).toEqual(['delegate-2']);
     const granted = await fanout.decide(fanout.notice('2'), 'approve', {
       ...READ_ASK,
       sessionGrants: ['read'],
     });
-    // The declined child is no longer parked, so there is nothing to answer.
-    expect(granted.answered).toEqual([]);
+    // Only the initiating sibling is answered; the declined child stays settled.
+    expect(granted.answered).toEqual(['delegate-2']);
     expect(fanout.execute).toHaveBeenCalledTimes(1);
     expect(await fanout.parkedTasks()).toEqual([]);
     expect(await fanout.decisions()).toEqual([
@@ -164,7 +164,7 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
       ...READ_ASK,
       perToolOverrides: { 'brainstrike.grepSearch': 'allow' },
     });
-    expect(result.answered).toEqual(['delegate-2']);
+    expect(result.answered).toEqual(['delegate-1', 'delegate-2']);
     expect(fanout.execute).toHaveBeenCalledTimes(2);
     expect(fanout.readFile).not.toHaveBeenCalled();
     expect(await fanout.parkedTasks()).toEqual(['delegate-3']);
@@ -193,7 +193,7 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
       ...READ_ASK,
       sessionGrants: ['read'],
     });
-    expect(result.answered).toEqual(['delegate-2']);
+    expect(result.answered).toEqual(['delegate-1', 'delegate-2']);
     expect(await fanout.parkedTasks()).toEqual([]);
     expect(result.text).toContain('Parent: ALL-FLAGS');
   });
@@ -215,7 +215,7 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
       ...EDIT_ASK,
       sessionGrants: ['edit'],
     });
-    expect(result.answered).toEqual(['delegate-2']);
+    expect(result.answered).toEqual(['delegate-1', 'delegate-2']);
     expect(fanout.writeFile).toHaveBeenCalledTimes(2);
     expect(await fanout.parkedTasks()).toEqual([]);
     expect(result.text).toContain('Parent: ALL-FLAGS');
@@ -225,14 +225,14 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
     const fanout = await setupFanout(database, TWO_WRITERS, { persona: worker, policy: EDIT_ASK });
     const declined = await fanout.decide(fanout.notice('1'), 'decline');
     expect(fanout.writeFile).not.toHaveBeenCalled();
-    expect(declined.answered).toEqual([]);
+    expect(declined.answered).toEqual(['delegate-1']);
     expect(await fanout.parkedTasks()).toEqual(['delegate-2']);
-    // A grant for a DIFFERENT category never answers an edit.
+    // A read grant adds no edit answers; the explicit approval still answers its own write.
     const second = await fanout.decide(fanout.notice('2'), 'approve', {
       ...EDIT_ASK,
       sessionGrants: ['read'],
     });
-    expect(second.answered).toEqual([]);
+    expect(second.answered).toEqual(['delegate-2']);
     expect(fanout.writeFile).toHaveBeenCalledTimes(1);
     expect(await fanout.parkedTasks()).toEqual([]);
   });

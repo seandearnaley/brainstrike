@@ -25,19 +25,14 @@ interface RunNotificationEventBase {
 
 type RunNotificationEventKind = Exclude<NotificationEventKind, 'prChecks' | 'prOpened'>;
 
-/**
- * A tool-approval pause carries the `toolCallId` so a run that suspends for
- * more than one distinct approval coalesces per approval, not per run — the
- * `toolCallId` is required on this variant (no fallback), mirroring the UI
- * bridge which always reports approvals by `runId:toolCallId`.
- */
+/** The canonical decision key coalesces root and child views of the same leaf. */
 export type RunNotificationEvent =
   | (RunNotificationEventBase & {
       readonly kind: Exclude<RunNotificationEventKind, 'toolApprovalRequired'>;
     })
   | (RunNotificationEventBase & {
       readonly kind: 'toolApprovalRequired';
-      readonly toolCallId: string;
+      readonly decisionKey: string;
     });
 
 /**
@@ -144,7 +139,7 @@ function coalesceKey(event: ForgeNotificationEvent | RunNotificationEvent): stri
   if (event.kind === 'toolApprovalRequired') {
     // Per-approval, not per-run: a second distinct approval pause in the same
     // run must still notify a backgrounded user.
-    return `${event.runId}:${event.kind}:${event.toolCallId}`;
+    return `${event.kind}:${event.decisionKey}`;
   }
   return `${event.runId}:${event.kind}`;
 }

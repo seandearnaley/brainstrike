@@ -329,15 +329,29 @@ async function assertWorkerWrite(
         await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       } else {
         if (!autoApprove) {
-          await child
+          await child.getByRole('button', { name: 'Review 1 pending approval' }).click();
+          const review = window.getByRole('dialog', { name: 'Pending approvals' });
+          await expect(review.getByTestId('approval-delegation-owner')).toHaveText(childName);
+          await review
             .getByRole('button', {
               exact: true,
               name: `${decision} brainstrike.writeWorkspaceFile`,
             })
             .click();
+          await review.getByRole('button', { name: 'Close pending approvals' }).click();
         }
         await expect(child.getByText(childResult, { exact: true })).toBeVisible();
         await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
+        if (!autoApprove) {
+          // Both views retain the chronological request, but neither may offer
+          // a second decision after the leaf has finished.
+          for (const panel of [root, child]) {
+            await expect(
+              panel.getByRole('button', { disabled: false, exact: true, name: approvalName })
+            ).toHaveCount(0);
+            await expect(panel.getByTestId('approval-queue-strip')).toHaveCount(0);
+          }
+        }
         expect(observed).toEqual({
           backgroundStarted: true,
           parentResult: true,

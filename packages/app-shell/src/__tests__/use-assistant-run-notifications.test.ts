@@ -111,6 +111,61 @@ describe('useAssistantRunNotifications', () => {
     expect(serialized).not.toContain('should-not-leak');
   });
 
+  it('notifies distinct root runs that reuse a provider tool-call id', () => {
+    const { NotificationMock } = stubNotification();
+    useNotificationPreferencesStore.getState().setMasterEnabled(true);
+    const { result } = renderHook(() => useAssistantRunNotifications());
+    for (const runId of ['first-run', 'second-run']) {
+      result.current.onToolApprovalRequired({
+        runId,
+        toolCallId: 'call_0',
+        toolName: 'brainstrike.executeCommand',
+      });
+    }
+    expect(NotificationMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('alerts for each new child decision while coalescing its root and child copies', () => {
+    const { NotificationMock } = stubNotification();
+    useNotificationPreferencesStore.getState().setMasterEnabled(true);
+    const { result } = renderHook(() => useAssistantRunNotifications());
+    const request = {
+      delegation: {
+        path: [
+          {
+            childRuntimeRunId: 'child',
+            parentRuntimeRunId: 'root',
+            parentToolCallId: 'delegate',
+            personaId: 'worker',
+          },
+        ],
+        toolCallId: 'first-command',
+      },
+      runId: 'root',
+      toolCallId: 'delegate',
+      toolName: 'brainstrike.executeCommand',
+    };
+    result.current.onToolApprovalRequired(request);
+    result.current.onToolApprovalRequired({
+      ...request,
+      runId: 'child',
+      toolCallId: 'first-command',
+    });
+    expect(NotificationMock).toHaveBeenCalledTimes(1);
+    // Both the decorated child projection and the native child request share the decision key.
+    result.current.onToolApprovalRequired({
+      runId: 'child',
+      toolCallId: 'first-command',
+      toolName: 'brainstrike.executeCommand',
+    });
+    expect(NotificationMock).toHaveBeenCalledTimes(1);
+    result.current.onToolApprovalRequired({
+      ...request,
+      delegation: { ...request.delegation, toolCallId: 'second-command' },
+    });
+    expect(NotificationMock).toHaveBeenCalledTimes(2);
+  });
+
   it('notifies a local run event that has no runId, coalescing on the event id', () => {
     // Web local-runtime events carry no runId (createLocalRunEvent assigns only
     // an event id). They must still notify; the stable event id is the honest

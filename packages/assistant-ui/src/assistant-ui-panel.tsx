@@ -1014,7 +1014,7 @@ export const ChatThreadUI = ({
                 <BudgetGuardrailControl />
                 {localLoadingState && <LocalModelStatus state={localLoadingState} />}
                 <FollowUpQueueChips threadKey={threadKey} />
-                <ApprovalQueueStrip />
+                <ApprovalQueueStrip key={threadKey} />
                 <ComposerPrimitive.Root
                   className="aui-composer-root"
                   onSubmitCapture={onThreadRunStart}

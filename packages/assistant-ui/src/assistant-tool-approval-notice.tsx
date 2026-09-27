@@ -12,6 +12,7 @@ interface AssistantToolApprovalNoticeProps {
   colorId?: string | undefined;
   data: unknown;
   ownerDisplayName?: string | undefined;
+  presentation?: 'timeline' | 'review' | undefined;
 }
 
 /**
@@ -24,6 +25,7 @@ export function AssistantToolApprovalNotice({
   data,
   colorId,
   ownerDisplayName,
+  presentation = 'timeline',
 }: AssistantToolApprovalNoticeProps) {
   if (!isAssistantToolApprovalRequest(data)) {
     return null;
@@ -34,6 +36,7 @@ export function AssistantToolApprovalNotice({
       colorId={colorId}
       key={getToolActionIdentityKey(data)}
       ownerDisplayName={ownerDisplayName}
+      presentation={presentation}
     />
   );
 }
@@ -42,15 +45,17 @@ function ToolApprovalNotice({
   approval,
   colorId,
   ownerDisplayName,
+  presentation: surface,
 }: {
   approval: AssistantToolApprovalRequest;
   colorId?: string | undefined;
   ownerDisplayName?: string | undefined;
+  presentation: 'timeline' | 'review';
 }) {
   const state = useApprovalNoticeState(approval);
   const pendingRank = useApprovalRank(getToolActionIdentityKey(approval));
   const presentation = resolveApprovalPresentation({ answered: state.answered, pendingRank });
-  if (presentation.mode === 'row') {
+  if (surface === 'timeline' && presentation.mode === 'row') {
     return (
       <ApprovalRow
         approval={approval}
@@ -65,7 +70,7 @@ function ToolApprovalNotice({
       approval={approval}
       colorId={colorId}
       ownerDisplayName={ownerDisplayName}
-      presentation="card"
+      presentation={surface === 'review' ? 'review' : 'card'}
       state={state}
     />
   );

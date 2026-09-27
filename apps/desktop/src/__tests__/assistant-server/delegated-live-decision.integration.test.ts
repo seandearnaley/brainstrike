@@ -468,7 +468,7 @@ describe('desktop live decisions through the real host ledger', () => {
     // behind as a consumed row instead of no row at all.
     expect(await decisionRowIds(database, 'delegate-1')).toEqual([]);
     const retried = await fanout.decide(fanout.notice('1'), 'approve');
-    expect(retried.answered).toEqual([]);
+    expect(retried.answered).toEqual(['delegate-1']);
     expect(fanout.execute).toHaveBeenCalledTimes(1);
     expect(await fanout.decisions()).toEqual([
       { parent_tool_call_id: 'delegate-1', state: 'consumed' },
@@ -515,7 +515,7 @@ describe('desktop live decisions through the real host ledger', () => {
     );
     await expect(delivered).resolves.toBe('delivered');
     expect(result.cards).toEqual([]);
-    expect(result.answered).toEqual(['delegate-2']);
+    expect(result.answered).toEqual(['delegate-1', 'delegate-2']);
     expect(fanout.execute).toHaveBeenCalledTimes(1);
     expect(fanout.readFile).toHaveBeenCalledTimes(2);
     expect(await fanout.decisions()).toEqual([

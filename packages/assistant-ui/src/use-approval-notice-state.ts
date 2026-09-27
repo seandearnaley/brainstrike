@@ -1,4 +1,5 @@
 import { useAui, useAuiState } from '@assistant-ui/react';
+import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
 import type {
   AssistantToolApprovalAnswered,
   AssistantToolApprovalDecision,
@@ -6,7 +7,7 @@ import type {
 } from '@brainstrike/assistant-contract/tool-approval';
 import { createLogger } from '@brainstrike/logging';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { buildApprovalDecisionMessage } from './approval-decision-message';
 import {
   resolveNoticeStatus,
@@ -14,6 +15,7 @@ import {
   useDelegatedNoticeContext,
 } from './approval-notice-status';
 import { useApprovalOwnerMessages } from './approval-owner-thread-context';
+import { useApprovalSubmission } from './approval-submission-context';
 import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recovery-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
@@ -61,35 +63,6 @@ function fromApprovalRunOutcomeKey(
   return { action: action === 'none' ? null : action, state };
 }
 
-/**
- * A decision this notice could not send, stamped with the run outcome the
- * ATTEMPT was made in — the same instant for a synchronous throw, while a live
- * delivery can be refused after the thread has moved on, and that message is
- * then dropped because the new status is authoritative.
- *
- * The stamp is what makes a message spend itself: any later answer for this
- * pause moves the outcome on — to a different DECISION, not merely a different
- * state, which is why the key carries the decision's index — and a failure
- * from before it no longer describes the card. The derivation MASKS a spent
- * failure rather than clearing it; clearing would take an effect, which is the
- * thing this shape avoids.
- */
-interface SendFailure {
-  readonly message: string;
-  readonly outcomeKey: ApprovalRunOutcomeKey;
-}
-
-/**
- * A decision this notice has submitted, stamped with the run outcome it was
- * submitted in. The stamp is what spends the optimistic lock: the click takes
- * it in the outcome it saw, and any later answer for this pause moves the
- * outcome on and hands the card back.
- */
-interface SubmittedDecision {
-  readonly action: AssistantToolApprovalDecision;
-  readonly outcomeKey: ApprovalRunOutcomeKey;
-}
-
 export interface ApprovalNoticeState {
   /** Approve / Decline / grant buttons disabled (queued, locked, in flight, or already run). */
   readonly actionButtonsDisabled: boolean;
@@ -130,8 +103,6 @@ export function useApprovalNoticeState(
   approval: AssistantToolApprovalRequest
 ): ApprovalNoticeState {
   const aui = useAui();
-  const [submittedDecision, setSubmittedDecision] = useState<SubmittedDecision | null>(null);
-  const [sendFailure, setSendFailure] = useState<SendFailure | null>(null);
   const rediscovered = readRediscoveredPauseDisplay(approval);
   const localApprovalRunOutcomeKey = useAuiState((state) =>
     toApprovalRunOutcomeKey('child', resolveApprovalRunOutcome(state.thread.messages, approval))
@@ -141,6 +112,12 @@ export function useApprovalNoticeState(
     ownerApprovalRunOutcome.state === 'none'
       ? localApprovalRunOutcomeKey
       : toApprovalRunOutcomeKey('owner', ownerApprovalRunOutcome);
+  // Share submission and failure state across timeline/review copies. The
+  // outcome stamp keeps a late response from overwriting a newer retry.
+  const { submittedDecision, setSubmittedDecision, sendFailure, setSendFailure } =
+    useApprovalSubmission(
+      JSON.stringify([getToolActionIdentityKey(approval), approvalRunOutcomeKey])
+    );
   const approvalRunOutcome = useMemo(
     () => fromApprovalRunOutcomeKey(approvalRunOutcomeKey),
     [approvalRunOutcomeKey]
@@ -240,6 +217,8 @@ export function useApprovalNoticeState(
       isRunning,
       recoveryBlocked,
       submittedAction,
+      setSubmittedDecision,
+      setSendFailure,
       threadKey,
     ]
   );

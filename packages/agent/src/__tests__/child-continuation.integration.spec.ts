@@ -1,4 +1,8 @@
-import { buildNativeToolRiskMap, getToolActionTarget } from '@brainstrike/assistant-contract';
+import {
+  buildNativeToolRiskMap,
+  getToolActionIdentityKey,
+  getToolActionTarget,
+} from '@brainstrike/assistant-contract';
 import { createTool } from '@mastra/core/tools';
 import { expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -391,6 +395,16 @@ it.each([
       for await (const chunk of resumed) {
         chunks.push(chunk);
       }
+      const answered = chunks.flatMap((chunk) =>
+        chunk.type === 'child-continuation-chunk' && chunk.chunk.type === 'tool-approval-answered'
+          ? [chunk.chunk]
+          : []
+      );
+      expect(
+        answered.some(
+          (answer) => getToolActionIdentityKey(answer) === getToolActionIdentityKey(pending)
+        )
+      ).toBe(true);
       if (mode === 'parallel-approve') {
         expect(parallelEffect).toHaveBeenCalledTimes(1);
         expect(parallelEffect.mock.calls[0]?.[0]).toEqual(
