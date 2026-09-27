@@ -167,7 +167,7 @@ test('delegated command asks by default, then a per-tool grant streams output an
         )
         .toBeLessThanOrEqual(1);
       await viewport.hover();
-      await window.mouse.wheel(0, -500);
+      await window.mouse.wheel(0, -(await viewport.evaluate((element) => element.scrollHeight)));
       await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBe(0);
       const scrollTop = await viewport.evaluate((element) => element.scrollTop);
       await first.getByRole('button', { name: 'Review 1 pending approval' }).click();

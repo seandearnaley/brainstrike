@@ -14,7 +14,7 @@ import {
 } from './background-ledger';
 import type { DelegationOutcomeCapture } from './subagent-delegation';
 
-/** Refresh the current generation at each model step, including inside an active continuation. */
+/** Created by buildStreamOptions for each stream/resume leg; never shared across turns. */
 export function createActiveBackgroundResultsProcessor(
   runtime: MastraAgentRuntime,
   runtimeData: RuntimeData | undefined,
@@ -81,7 +81,8 @@ export class ActiveBackgroundResultsProcessor implements Processor<'active-backg
     state['terminalTaskIds'] = ledger.entries.flatMap((entry) =>
       entry.outcome && entry.taskId ? [entry.taskId] : []
     );
-    // This is context for the current input, not a new user turn. Native
+    // This is a refreshed state snapshot for the current input, not a
+    // chronological execution event or a new user turn. Native
     // response rows can span many steps, so a wall-clock timestamp here would
     // place the same notice AFTER every memory update in that response.
     const input = messageList.get.all

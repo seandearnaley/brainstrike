@@ -46,15 +46,14 @@ export const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data })
   // Default detail keeps hidden rows out of the shared derivation context.
   // Terminal failures/cancellations retain their established per-row path.
   const { detailLevel } = useAssistantDetailLevel();
-  const hasApprovalCard = useAuiState((state) => {
-    const event = readAssistantRunEvent(data);
-    const toolCallId = event?.metadata?.['toolCallId'];
-    return (
+  const event = readAssistantRunEvent(data);
+  const toolCallId = event?.metadata?.['toolCallId'];
+  const hasApprovalCard = useAuiState(
+    (state) =>
       event?.kind === 'tool.approval.requested' &&
       typeof toolCallId === 'string' &&
       approvalCardToolCallIds(state.message.parts).has(toolCallId)
-    );
-  });
+  );
   if (hasApprovalCard) {
     return null;
   }
