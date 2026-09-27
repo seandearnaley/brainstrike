@@ -114,15 +114,24 @@ const ChildView = memo(function ChildView({
 /** The owning root's real external-store runtime; its thread is registered once. */
 function RootOwningChildView({
   initialAnswers,
+  terminalReason,
 }: {
   readonly initialAnswers: readonly AssistantToolApprovalAnswered[];
+  readonly terminalReason?: 'error' | 'cancelled';
 }) {
   const [answers, setAnswers] = useState(initialAnswers);
   answerFromRoot = setAnswers;
   const owner = useExternalStoreRuntime({
     convertMessage: asMessage,
-    isRunning: true,
-    messages: [rootTurn(answers)],
+    isRunning: terminalReason === undefined,
+    messages: [
+      {
+        ...rootTurn(answers),
+        ...(terminalReason
+          ? { status: { reason: terminalReason, type: 'incomplete' as const } }
+          : {}),
+      },
+    ],
     onNew: startsNothing,
   });
   const [registered] = useState(() => owner.thread);
@@ -150,8 +159,8 @@ describe('child view approvals answered by the owning root', () => {
       expect(screen.queryByText('Pending')).not.toBeInTheDocument();
       await expandApprovalRow(userEvent.setup());
       expect(
-        screen.getByRole('button', { name: 'Approve brainstrike.readWorkspaceFile' })
-      ).toBeDisabled();
+        screen.queryByRole('button', { name: 'Approve brainstrike.readWorkspaceFile' })
+      ).not.toBeInTheDocument();
     }
   );
 
@@ -175,3 +184,23 @@ describe('child view approvals answered by the owning root', () => {
     ).toBeEnabled();
   });
 });
+
+it.each(['error', 'cancelled'] as const)(
+  'keeps the child decision read-only after the root ends with %s',
+  async (terminalReason) => {
+    render(
+      <RootOwningChildView
+        initialAnswers={[rootAnswer('2', 'user')]}
+        terminalReason={terminalReason}
+      />
+    );
+    expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
+    await expandApprovalRow(userEvent.setup());
+    expect(
+      screen.queryByRole('button', { name: 'Approve brainstrike.readWorkspaceFile' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Decline brainstrike.readWorkspaceFile' })
+    ).not.toBeInTheDocument();
+  }
+);

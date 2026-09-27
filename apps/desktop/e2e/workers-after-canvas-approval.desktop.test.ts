@@ -227,6 +227,9 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
         canvasLoaded = true;
         return {
           finalText: 'ROOT_CANVAS_CREATED',
+          // This stateful script advances explicitly; earlier delegation
+          // results remain after the owning input when context is refreshed.
+          ignorePriorToolResults: true,
           toolCall: {
             arguments: { toolName: 'brainstrike_manageCanvas' },
             name: 'load_tool',
@@ -238,6 +241,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
         canvasCreated = true;
         return {
           finalText: 'ROOT_CANVAS_CREATED',
+          ignorePriorToolResults: true,
           toolCall: {
             arguments: {
               action: 'create',
@@ -256,6 +260,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
         workersDispatched = true;
         return {
           finalText: 'ROOT_WORKERS_STARTED',
+          ignorePriorToolResults: true,
           toolCalls: WORKERS.map((worker) => ({
             arguments: {
               _background: { enabled: true },

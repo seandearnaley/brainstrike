@@ -1,9 +1,11 @@
 import { MessageList } from '@mastra/core/agent';
 import type { BackgroundTask } from '@mastra/core/background-tasks';
 import type { ProcessInputStepArgs, ProcessLLMRequestArgs } from '@mastra/core/processors';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createActiveBackgroundResultsProcessor } from '../active-background-results-processor';
 import type { MastraAgentRuntime } from '../agent-runtime';
+
+afterEach(() => vi.useRealTimers());
 
 function task(id: string, status: BackgroundTask['status'], runId = 'current'): BackgroundTask {
   return {
@@ -133,4 +135,50 @@ it('propagates a failed durable read and excludes child-runtime legs', async () 
       undefined
     )
   ).toBeUndefined();
+});
+
+it('keeps unchanged background context before the assistant response instead of posing a new user turn', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-27T20:36:00Z'));
+  const f = fixture([task('alpha', 'completed')]);
+  await f.step();
+  const notice = f.messageList.get.all.db().at(-1);
+  if (!notice) {
+    throw new Error('Missing context');
+  }
+  vi.setSystemTime(new Date('2026-09-27T20:36:01Z'));
+  f.messageList.add(
+    { content: 'Working memory updated.', id: 'memory-update', role: 'assistant' },
+    'response'
+  );
+  vi.setSystemTime(new Date('2026-09-27T20:36:02Z'));
+  await f.step();
+  vi.useRealTimers();
+  const messages = f.messageList.get.all.db();
+  expect(messages.map((message) => message.id)).toEqual([
+    expect.any(String),
+    notice.id,
+    'memory-update',
+  ]);
+});
+
+it('retains the input anchor when compaction removes the input and context, without moving evidence after the response', async () => {
+  const f = fixture([task('alpha', 'completed')]);
+  await f.step();
+  const inputIds = f.messageList.get.all.db().map((message) => message.id);
+  f.messageList.add(
+    {
+      content: 'Memory saved.',
+      createdAt: new Date(Date.now() + 1000),
+      id: 'response',
+      role: 'assistant',
+    },
+    'response'
+  );
+  f.messageList.removeByIds(inputIds);
+  await f.step();
+  expect(f.messageList.get.all.db().map((message) => message.id)).toEqual([
+    'active-background-results:generation',
+    'response',
+  ]);
 });

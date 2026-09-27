@@ -604,18 +604,18 @@ describe('child view after renderer restart', () => {
     );
     // A durable decision is answered, so it renders as a collapsed row
     // (SWARM-AWARE PRESENTATION). Its recovery status is readable before the
-    // row opens; the locked buttons live in the row's expanded body.
+    // row opens; expanded history has no controls to resubmit the decision.
     expect(screen.getByTestId('delegated-decision-recovery-status')).toHaveTextContent(
       'Decision interrupted. Processing stopped and the outcome is unknown.'
     );
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /show approval details/i }));
-    const approve = screen.getByRole('button', { name: 'Approve workspace.writeFile' });
-    const decline = screen.getByRole('button', { name: 'Decline workspace.writeFile' });
-    expect(approve).toBeDisabled();
-    expect(decline).toBeDisabled();
-    await user.click(approve);
-    await user.click(decline);
+    expect(
+      screen.queryByRole('button', { name: 'Approve workspace.writeFile' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Decline workspace.writeFile' })
+    ).not.toBeInTheDocument();
     expect(append).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('heading', { name: 'Saved read result' })).toBeVisible();

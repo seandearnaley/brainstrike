@@ -231,7 +231,7 @@ async function assertWorkerWrite(
       for (let level = 1; level < depth; level += 1) {
         const currentName = (await selectedTab.innerText()).trim();
         const current = window.getByRole('region', { exact: true, name: currentName });
-        await current.getByRole('button', { exact: true, name: 'Expand activity' }).click();
+        await expect(current.getByText('Waiting for approval', { exact: true })).toHaveCount(0);
         await current.getByRole('button', { name: /Open .* conversation/ }).click();
         await expect(selectedTab).not.toHaveText(currentName);
         await expect(selectedTab).toBeFocused();

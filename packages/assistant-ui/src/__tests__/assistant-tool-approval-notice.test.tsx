@@ -437,11 +437,11 @@ describe('durable delegated approval recovery', () => {
       await expandApprovalRow(userEvent.setup());
       expect(screen.getByTestId('approval-command-code')).toHaveTextContent('pnpm build');
       expect(
-        screen.getByRole('button', { name: 'Approve brainstrike.executeCommand' })
-      ).toBeDisabled();
+        screen.queryByRole('button', { name: 'Approve brainstrike.executeCommand' })
+      ).not.toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: 'Decline brainstrike.executeCommand' })
-      ).toBeDisabled();
+        screen.queryByRole('button', { name: 'Decline brainstrike.executeCommand' })
+      ).not.toBeInTheDocument();
       expect(screen.getByText('Tool decision')).toBeInTheDocument();
       expect(screen.getByTestId('delegated-decision-recovery-status')).toBeInTheDocument();
       expect(screen.queryByText(/re-running it may be safer/i)).not.toBeInTheDocument();

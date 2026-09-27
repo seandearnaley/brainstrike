@@ -42,6 +42,7 @@ export function createActiveBackgroundResultsProcessor(
 export class ActiveBackgroundResultsProcessor implements Processor<'active-background-results'> {
   readonly id = 'active-background-results';
   private readonly presented = new Set<string>();
+  private inputCreatedAt: Date | undefined;
   constructor(private readonly source: BackgroundLedgerSource) {}
 
   hasPresented(taskId: string): boolean {
@@ -51,10 +52,10 @@ export class ActiveBackgroundResultsProcessor implements Processor<'active-backg
   async processInputStep({ messageList, state }: ProcessInputStepArgs) {
     const ledger = await this.source.read(new Set());
     const messageId = `active-background-results:${ledger.ledgerId}`;
-    messageList.removeByIds([messageId]);
     state['notice'] = undefined;
     state['terminalTaskIds'] = [];
     if (ledger.entries.length === 0) {
+      messageList.removeByIds([messageId]);
       return messageList;
     }
     // Native context is not drained as a new user/response message. Replace this
@@ -80,11 +81,24 @@ export class ActiveBackgroundResultsProcessor implements Processor<'active-backg
     state['terminalTaskIds'] = ledger.entries.flatMap((entry) =>
       entry.outcome && entry.taskId ? [entry.taskId] : []
     );
+    // This is context for the current input, not a new user turn. Native
+    // response rows can span many steps, so a wall-clock timestamp here would
+    // place the same notice AFTER every memory update in that response.
+    const input = messageList.get.all
+      .db()
+      .findLast((message) => message.role === 'user' && message.id !== messageId);
+    if (input) {
+      this.inputCreatedAt = input.createdAt;
+    }
+    if (!this.inputCreatedAt) {
+      throw new Error('Background context requires an owning user input.');
+    }
+    messageList.removeByIds([messageId]);
     messageList.add(
       [
         {
           content: { format: 2, parts: [{ text: content, type: 'text' }] },
-          createdAt: new Date(),
+          createdAt: this.inputCreatedAt,
           id: messageId,
           role: 'user',
         },

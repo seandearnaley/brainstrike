@@ -887,7 +887,7 @@ describe('tool.approval.requested resolution (BST-1402)', () => {
 
   it('renders the pause label', () => {
     renderTimeline(approval('call-1', '2026-06-20T00:00:00.000Z'));
-    expect(screen.getByText('Awaiting your approval')).toBeTruthy();
+    expect(screen.getByText('Approval requested')).toBeTruthy();
   });
 });
 

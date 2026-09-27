@@ -251,7 +251,11 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
     await mockFileSystemOperations(window);
     await ensureMockWorkspaceOpen(window);
     await waitForAssistantChat(window);
-    await window.getByRole('button', { exact: true, name: title }).click();
+    await window
+      .getByRole('treegrid', { name: 'Workspace threads' })
+      .getByRole('button')
+      .filter({ has: window.getByText(title, { exact: true }) })
+      .click();
 
     // One linear stream: all four turns visible, no branch carousel anywhere.
     for (const text of [FIRST_PROMPT, 'Network decision resumed.', FOLLOW_UP_PROMPT]) {
@@ -302,7 +306,11 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
       await ensureMockWorkspaceOpen(window);
       await setupAssistantMock(window, { variant: 'simple' });
       await waitForAssistantChat(window);
-      await window.getByRole('button', { exact: true, name: title }).click();
+      await window
+        .getByRole('treegrid', { name: 'Workspace threads' })
+        .getByRole('button')
+        .filter({ has: window.getByText(title, { exact: true }) })
+        .click();
       await expect(window.getByText(prompt).first()).toBeVisible({
         timeout: E2E_TIMEOUTS.messageVisibility,
       });
@@ -389,7 +397,11 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
       await ensureMockWorkspaceOpen(window);
       await setupAssistantMock(window, { variant: 'simple' });
       await waitForAssistantChat(window);
-      await window.getByRole('button', { exact: true, name: title }).click();
+      await window
+        .getByRole('treegrid', { name: 'Workspace threads' })
+        .getByRole('button')
+        .filter({ has: window.getByText(title, { exact: true }) })
+        .click();
       await expect(window.getByText(reply).first()).toBeVisible();
       const approval = window.getByTestId('assistant-tool-approval-notice');
       const question = window.getByTestId('assistant-ask-user-notice');
@@ -400,18 +412,18 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
       }[state];
       // A rediscovered approval with a durable decision state is answered, so
       // it renders as a collapsed row. Its recovery status is safety
-      // information, readable before the row opens; the locked buttons live
-      // in the expanded body.
+      // information, readable before the row opens; expanded history exposes
+      // no controls to submit the decision again.
       await expect(approval).toHaveAttribute('data-approval-presentation', 'row');
       await expect(approval.getByTestId('delegated-decision-recovery-status')).toContainText(label);
       await approval.getByRole('button', { name: /show approval details/i }).click();
       await expect(approval.getByTestId('delegated-decision-recovery-status')).toHaveCount(1);
       await expect(
         approval.getByRole('button', { name: 'Approve brainstrike.executeCommand' })
-      ).toBeDisabled();
+      ).toHaveCount(0);
       await expect(
         approval.getByRole('button', { name: 'Decline brainstrike.executeCommand' })
-      ).toBeDisabled();
+      ).toHaveCount(0);
       await expect(question.getByTestId('delegated-decision-recovery-status')).toContainText(label);
       await expect(question.getByRole('textbox', { name: 'Your answer' })).toBeDisabled();
       await expect(question.getByRole('button', { name: 'Send' })).toBeDisabled();

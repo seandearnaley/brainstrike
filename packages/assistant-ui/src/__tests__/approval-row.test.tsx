@@ -238,8 +238,8 @@ describe('approval presentation: card vs row', () => {
     await expandApprovalRow(user);
     expect(screen.getByTestId('approval-row-card')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Approve brainstrike.readWorkspaceDirectory' })
-    ).toBeDisabled();
+      screen.queryByRole('button', { name: 'Approve brainstrike.readWorkspaceDirectory' })
+    ).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /hide approval details/i }));
     expect(screen.queryByTestId('approval-row-card')).not.toBeInTheDocument();
   });
@@ -372,11 +372,11 @@ describe('approval presentation: card vs row', () => {
       await expandApprovalRow(user);
       expect(screen.getAllByTestId('delegated-decision-recovery-status')).toHaveLength(1);
       expect(
-        screen.getByRole('button', { name: 'Approve brainstrike.readWorkspaceDirectory' })
-      ).toBeDisabled();
+        screen.queryByRole('button', { name: 'Approve brainstrike.readWorkspaceDirectory' })
+      ).not.toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: 'Decline brainstrike.readWorkspaceDirectory' })
-      ).toBeDisabled();
+        screen.queryByRole('button', { name: 'Decline brainstrike.readWorkspaceDirectory' })
+      ).not.toBeInTheDocument();
       expect(appendMock).not.toHaveBeenCalled();
     }
   );

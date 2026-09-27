@@ -1,4 +1,7 @@
-import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  type AssistantToolApprovalRequest,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-approval';
 import { screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +15,7 @@ const messages = vi.hoisted(
   () =>
     [] as Array<{
       content?: readonly unknown[];
+      metadata?: unknown;
       role: 'assistant' | 'user';
       status?: { error?: unknown; reason?: string; type: string };
     }>
@@ -75,8 +79,8 @@ describe('AssistantToolApprovalNotice live answers', () => {
     renderNotice();
     await waitFor(() => expect(screen.getByText('Allowed by session grant')).toBeInTheDocument());
     await expandApprovalRow(userEvent.setup());
-    expect(screen.getByRole('button', { name: /approve brainstrike/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /decline brainstrike/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /approve brainstrike/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /decline brainstrike/i })).not.toBeInTheDocument();
   });
 
   it("locks once the host applies the user's live answer", async () => {
@@ -84,7 +88,7 @@ describe('AssistantToolApprovalNotice live answers', () => {
     renderNotice();
     await waitFor(() => expect(screen.getByText('Declined')).toBeInTheDocument());
     await expandApprovalRow(userEvent.setup());
-    expect(screen.getByRole('button', { name: /approve brainstrike/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /approve brainstrike/i })).not.toBeInTheDocument();
   });
 
   it('keeps a completed initiating approval settled without its transient user echo', async () => {
@@ -98,8 +102,8 @@ describe('AssistantToolApprovalNotice live answers', () => {
     const view = renderNotice();
     expect(await screen.findByText('Approved')).toBeInTheDocument();
     await expandApprovalRow(userEvent.setup());
-    expect(screen.getByRole('button', { name: /approve brainstrike/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /decline brainstrike/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /approve brainstrike/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /decline brainstrike/i })).not.toBeInTheDocument();
 
     // A later pause from the same delegation is still an independent decision.
     view.rerender(
@@ -115,27 +119,44 @@ describe('AssistantToolApprovalNotice live answers', () => {
     expect(screen.getByRole('button', { name: /approve brainstrike/i })).toBeEnabled();
   });
 
-  it('unlocks the host answer when its resumed run fails', async () => {
-    const answeredRun = answer('approve', 'user');
-    messages.push(answeredRun);
-    const view = renderNotice();
-    await waitFor(() => expect(screen.getByText('Approved')).toBeInTheDocument());
-
-    answeredRun.status = { error: 'resume_failed', reason: 'error', type: 'incomplete' };
-    view.rerender(
-      <AnsweredApprovalsProvider>
-        <AssistantToolApprovalNotice data={approval} />
-      </AnsweredApprovalsProvider>
-    );
-
-    expect(screen.getByRole('button', { name: /approve brainstrike/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /decline brainstrike/i })).toBeEnabled();
-  });
+  it.each(['error', 'cancelled'])(
+    'keeps an acknowledged decision locked after the containing run ends with %s',
+    async (reason) => {
+      const answeredRun = answer('approve', 'user');
+      answeredRun.status = { type: 'running' };
+      messages.push(answeredRun);
+      const view = renderNotice();
+      expect(await screen.findByText('Approved')).toBeInTheDocument();
+      answeredRun.status = { error: 'later_failure', reason, type: 'incomplete' };
+      view.rerender(
+        <AnsweredApprovalsProvider>
+          <AssistantToolApprovalNotice data={approval} />
+        </AnsweredApprovalsProvider>
+      );
+      await expandApprovalRow(userEvent.setup());
+      expect(
+        screen.queryByRole('button', { name: /approve brainstrike/i })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /decline brainstrike/i })
+      ).not.toBeInTheDocument();
+    }
+  );
 
   it('waits for hosted run reconciliation before retrying a failed approval', async () => {
     const answeredRun = answer('approve', 'user');
     answeredRun.status = { error: 'resume_failed', reason: 'error', type: 'incomplete' };
-    messages.push(answeredRun);
+    // No acknowledgement: this is a failed request, not an applied decision.
+    messages.push(
+      {
+        metadata: {
+          custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: { ...approval, action: 'approve' } },
+        },
+        role: 'user',
+      },
+      answeredRun
+    );
+    answeredRun.content = [];
     const view = render(
       <AssistantDecisionRecoveryProvider blocked>
         <AnsweredApprovalsProvider>

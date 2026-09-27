@@ -127,9 +127,7 @@ export function useApprovalNoticeState(
   const deliverLive = useLiveDecisionTransport();
   const decisionRoute = useDecisionRoute();
   const recoveryBlocked = useAssistantDecisionRecoveryBlocked();
-  const decisionLocked =
-    rediscovered?.decisionState !== undefined ||
-    (hostAnswer !== null && approvalRunOutcome.state !== 'retryable');
+  const decisionLocked = rediscovered?.decisionState !== undefined || hostAnswer !== null;
   const actionLockedByRun =
     approvalRunOutcome.state === 'pending' || approvalRunOutcome.state === 'completed';
   // Derived, not adjusted in an effect: the optimistic lock belongs to the run
