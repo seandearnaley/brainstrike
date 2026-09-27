@@ -51,7 +51,7 @@ breadcrumb) reaches the executor through the subagent tool's `writer.custom()`
 with no call identity, so no host filter can tell its turn copy from the root's
 own data parts, and that turn copy also ran the ROOT's data-part pipeline,
 which stored a non-transient child part in the root's own message.
-`patches/@mastra__core@1.64.0.patch` therefore makes the executor's
+`patches/@mastra__core@1.71.0.patch` therefore makes the executor's
 `outputWriter` publish to the task only, and `projectBackgroundStream` throws on
 a background call's `tool-output` on its dispatching turn (the patch no longer
 applies). The task output is now the only copy, so the background manager's

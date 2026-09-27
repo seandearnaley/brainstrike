@@ -3,7 +3,10 @@ import type {
   DelegatedConversationBaseline,
   DelegatedConversationStreamData,
 } from '@brainstrike/assistant-contract';
-import { DELEGATED_CONVERSATION_DATA_NAME } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  DELEGATED_CONVERSATION_DATA_NAME,
+} from '@brainstrike/assistant-contract';
 import type { AssistantMessage } from 'assistant-stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrainstrikeDataStreamRuntimeAdapter } from '../data-stream-runtime';
@@ -410,6 +413,58 @@ async function consume(adapter: BrainstrikeDataStreamRuntimeAdapter): Promise<vo
 }
 
 describe('delegated receiver settlement and replay', () => {
+  it('closes the exact live child when its parent reports a failed delegation', async () => {
+    const updates: DelegatedConversationUpdate[] = [];
+    serve([
+      frame('f', { messageId: 'root' }),
+      child('failed-child', [
+        { code: 'f', value: { messageId: 'native-failed-child' } },
+        { code: '0', value: 'Partial work.' },
+      ]),
+      child('active-sibling', [
+        { code: 'f', value: { messageId: 'native-active-sibling' } },
+        { code: '0', value: 'Sibling work.' },
+      ]),
+      frame('aui-data', {
+        data: {
+          id: 'parent-failed',
+          kind: 'subagent.failed',
+          label: 'Subagent failed',
+          metadata: {
+            parentRuntimeRunId: 'parent-run',
+            parentToolCallId: 'parent-call-failed-child',
+            personaId: 'explorer',
+          },
+          status: 'failed',
+          timestamp: '2026-09-17T00:00:02Z',
+        },
+        name: ASSISTANT_RUN_EVENT_DATA_NAME,
+      }),
+      child('active-sibling', [finish]),
+      frame('d', { finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } }),
+    ]);
+    await consume(
+      new BrainstrikeDataStreamRuntimeAdapter({
+        api: 'http://assistant.test',
+        onDelegatedConversation: (update) => updates.push(update),
+      })
+    );
+    expect(
+      updates.filter((update) => update.identity?.childRuntimeRunId === 'failed-child').at(-1)
+        ?.message.status
+    ).toMatchObject({
+      error: {
+        code: 'delegated-task-ended-before-stream-terminal',
+        outcome: 'failed',
+      },
+      reason: 'error',
+      type: 'incomplete',
+    });
+    expect(
+      updates.filter((update) => update.identity?.childRuntimeRunId === 'active-sibling').at(-1)
+        ?.message.status.type
+    ).toBe('complete');
+  });
   it('routes a descendant carried inside a child through the same conversation decoder', async () => {
     const updates = new Map<string, DelegatedConversationUpdate>();
     const nested = JSON.parse(

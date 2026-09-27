@@ -44,8 +44,12 @@ export interface ModelProviderScript {
    */
   readonly deferredTool?: true;
   readonly finalText: string;
+  /** For a selector that begins a new scripted stage in an existing model turn. */
+  readonly ignorePriorToolResults?: true;
   /** Omit for a response-only turn, including native background wakeups. */
   readonly toolCall?: ScriptedToolCall;
+  /** Emit successive tool turns as each preceding stage's results arrive. */
+  readonly toolCallStages?: readonly (readonly ScriptedToolCall[])[];
   /** Emit one model turn containing independent parallel tool calls. */
   readonly toolCalls?: readonly ScriptedToolCall[];
 }
@@ -143,18 +147,42 @@ function countToolResultMessages(messages: unknown[] | undefined): number {
 }
 
 /**
- * Decide what this turn emits from the number of tool-result messages seen
- * so far. Without `deferredTool` this is the original 2-turn shape
- * (toolCall, then finalText). With it, a `load_tool` call is inserted first
- * so Mastra loads the deferred `toolCall` target by exact name before it is
- * called.
+ * Decide what this turn emits from the observed tool results. Staged scripts
+ * advance after each stage's complete results. Ordinary scripts retain their
+ * single tool-call turn; a deferred script first calls `load_tool` so Mastra
+ * advertises the requested tool on the following model turn.
  */
+function resolveStagedTurn(
+  stages: readonly (readonly ScriptedToolCall[])[],
+  toolResultCount: number,
+  finalText: string
+): { calls: readonly ScriptedToolCall[] } | { finalText: string } {
+  let completedCalls = 0;
+  for (const calls of stages) {
+    if (calls.length === 0) {
+      throw new Error('Model provider shim tool-call stages cannot be empty.');
+    }
+    if (toolResultCount === completedCalls) {
+      return { calls };
+    }
+    if (toolResultCount < completedCalls + calls.length) {
+      throw new Error('Model provider shim requires all stage tool results before continuing.');
+    }
+    completedCalls += calls.length;
+  }
+  return { finalText };
+}
+
 function resolveTurn(
   script: ModelProviderScript,
   toolResultCount: number
 ): { calls: readonly ScriptedToolCall[] } | { finalText: string } {
-  if (script.toolCalls && script.toolCall) {
-    throw new Error('Model provider shim scripts must use either toolCall or toolCalls.');
+  const observedResults = script.ignorePriorToolResults ? 0 : toolResultCount;
+  if ([script.toolCall, script.toolCalls, script.toolCallStages].filter(Boolean).length > 1) {
+    throw new Error('Model provider shim scripts must select one tool-call shape.');
+  }
+  if (script.toolCallStages) {
+    return resolveStagedTurn(script.toolCallStages, observedResults, script.finalText);
   }
   const calls = script.toolCalls ?? (script.toolCall ? [script.toolCall] : []);
   if (script.deferredTool && calls.length !== 1) {
@@ -164,15 +192,15 @@ function resolveTurn(
     return { finalText: script.finalText };
   }
   if (!script.deferredTool) {
-    if (toolResultCount > 0 && toolResultCount < calls.length) {
+    if (observedResults > 0 && observedResults < calls.length) {
       throw new Error('Model provider shim requires all parallel tool results before continuing.');
     }
-    return toolResultCount === 0 ? { calls } : { finalText: script.finalText };
+    return observedResults === 0 ? { calls } : { finalText: script.finalText };
   }
-  if (toolResultCount === 0) {
+  if (observedResults === 0) {
     return { calls: [{ arguments: { toolName: calls[0]?.name }, name: 'load_tool' }] };
   }
-  if (toolResultCount === 1) {
+  if (observedResults === 1) {
     return { calls };
   }
   return { finalText: script.finalText };

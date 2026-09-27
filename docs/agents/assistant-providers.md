@@ -1237,12 +1237,12 @@ Evidence: `assistant-providers/mcp-elicitation-and-compat.md`,
 
 ### Production Apps host
 
-`registerMcpAppsClientCapability` defines the capability-only
-`io.modelcontextprotocol/ui` contract at stable revision `2026-01-26`. It has no
-extension requests or notifications and works on legacy-era connections;
-`createDefaultMcpExtensionRegistry` registers it beside Tasks on every fresh
-stdio or streamable-http generation, and legacy `sse` receives no registry.
-Initialize advertises exactly `{ mimeTypes: ['text/html;profile=mcp-app'] }`.
+`registerMcpAppsClientCapability` declares `io.modelcontextprotocol/ui` revision
+`2026-01-26`, with no extension requests/notifications and legacy compatibility.
+`createDefaultMcpExtensionRegistry` registers Apps beside Tasks for each stdio or
+streamable-http generation; legacy `sse` has no registry. Initialize advertises exactly
+`{ mimeTypes: ['text/html;profile=mcp-app'] }`. The host supplies its required Zod
+peer from the catalog. Guard: `packages/mcp-app-host/__tests__/official-app-resource.test.ts`.
 
 - **Sandbox boundary (settled; do not reintroduce a partition).** Electron never
   creates a WebContents for an in-page `<iframe>`, so a `web-contents-created` or

@@ -15,7 +15,7 @@ import {
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { AssistantRunErrorRepository } from '@brainstrike/db';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
-import { completeFailedRootRun } from './delegated-stream-failure';
+import { completeFailedRootRun, settleFailedDelegationChildRuns } from './delegated-stream-failure';
 import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { runCriticalDatabaseOperation } from './run-critical-database';
@@ -131,6 +131,9 @@ export async function* observeDesktopAssistantRunEvents(
       };
       sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
       persistEvent(event);
+      if (event.kind === 'subagent.failed') {
+        await flushPersistedEvents();
+      }
       yield { event, type: 'run-event' };
     }
   };
@@ -163,6 +166,11 @@ export async function* observeDesktopAssistantRunEvents(
       };
       sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
       persistEvent(event);
+      // The receiver closes a still-open child when this parent terminal is
+      // published. Its exact native task/child rows must settle first.
+      if (event.kind === 'subagent.failed') {
+        await flushPersistedEvents();
+      }
       yield { event, type: 'run-event' };
     }
     yield* drainQueuedEvents();
@@ -202,7 +210,7 @@ async function persistDelegatedRunEvent(
   }
   const { event } = chunk.chunk;
   const messageId = chunk.messageId;
-  return await runCriticalDatabaseOperation({
+  const persisted = await runCriticalDatabaseOperation({
     label: 'assistant-delegated-run-event-write',
     operation: async () =>
       createDesktopDelegatedConversationHost(await getDatabase(), runId).persistEvent(
@@ -214,6 +222,18 @@ async function persistDelegatedRunEvent(
     retry: 'idempotent',
     runId,
   });
+  if (persisted.kind === 'subagent.failed') {
+    if (!persisted.runId) {
+      throw new Error('Delegated failure has no host run identity.');
+    }
+    await settleFailedDelegationChildRuns(
+      await getDatabase(),
+      runId,
+      persisted.id,
+      persisted.runId
+    );
+  }
+  return persisted;
 }
 
 /** Use the existing foreground scheduler and diagnosed saturated-host recovery.
@@ -777,6 +797,9 @@ export async function recordDesktopAssistantRunEvent(
     retry: 'idempotent',
     runId,
   });
+  if (event.kind === 'subagent.failed') {
+    await settleFailedDelegationChildRuns(database, runId, event.id);
+  }
   if (event.kind !== 'run.failed') {
     return;
   }

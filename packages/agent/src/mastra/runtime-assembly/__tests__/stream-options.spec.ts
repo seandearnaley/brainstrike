@@ -19,6 +19,7 @@
  * building blocks are invoked with the right arguments, rather than folded
  * into the whole-object comparison.
  */
+import { BackgroundTaskManager } from '@mastra/core/background-tasks';
 import type { MastraMemory } from '@mastra/core/memory';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeData } from '../../../types';
@@ -231,6 +232,43 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
       expect(hooks).not.toHaveBeenCalled();
     }
   );
+
+  it('observes background execution without enabling inactive delegation hooks', async () => {
+    const hooks = vi.fn(() => ({}));
+    const binding = createDelegatedConversationBinding(async () => undefined);
+    if (!binding.hooks?.beforeToolCall) {
+      throw new Error('Missing binding hook');
+    }
+    const persistence = createDelegatedTurnPersistence({} as MastraMemory, {
+      resourceId: 'owner',
+      threadId: 'root',
+    });
+    if (!persistence) {
+      throw new Error('Missing persistence');
+    }
+    const capture = vi.spyOn(binding.hooks, 'beforeToolCall');
+    const runtime = makeRuntime({
+      backgroundTaskManager: new BackgroundTaskManager({ enabled: true }),
+      conversationBinding: {
+        ...binding,
+        readBackgroundGeneration: async () => ({ generationRunId: 'run', nativeRunIds: ['run'] }),
+      },
+      delegatedTurnPersistence: { ...persistence, hooks },
+    });
+    const options = buildStreamOptions({
+      abortSignal: new AbortController().signal,
+      delegationOutcomes: undefined,
+      delegationUsage: undefined,
+      leg: 'initial',
+      memoryOption: undefined,
+      requireToolApproval: undefined,
+      runtime,
+      runtimeData: { memory: { resourceId: 'owner', threadId: 'root' } },
+    });
+    await options.hooks?.beforeToolCall?.({ context: {}, input: {}, toolName: 'root-tool' });
+    expect(hooks).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+  });
 
   it.each(['initial', 'approval', 'resume'] as const)(
     'preserves the real input-capture and persistence hooks on the %s leg',

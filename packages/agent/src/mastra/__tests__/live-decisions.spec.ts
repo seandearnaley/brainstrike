@@ -54,6 +54,7 @@ const readGrant = {
 
 function harness(options: {
   readonly listTasks?: () => Promise<{ tasks: BackgroundTask[]; total: number }>;
+  readonly prepare?: () => Promise<void>;
   readonly recordLiveDecision?: (record: unknown) => Promise<void>;
   readonly recordToolActionAnswers?: () => Promise<void>;
 }) {
@@ -81,6 +82,7 @@ function harness(options: {
   channel.own({
     publish: () => true,
     reserve: () => ({
+      prepare: options.prepare ?? (async () => {}),
       release: () => undefined,
       resume: async (resumes) => {
         resumed.push(...resumes.map((entry) => entry.task.id));
@@ -121,6 +123,24 @@ function harness(options: {
 }
 
 describe('armLiveDecisions remembered grant records', () => {
+  it('leaves the durable answer untouched when its native executor cannot be prepared', async () => {
+    let recorded = false;
+    const { channel, records, resumed } = harness({
+      prepare: async () => {
+        throw new Error('The original background executor is unavailable.');
+      },
+      recordToolActionAnswers: async () => {
+        recorded = true;
+      },
+    });
+    await channel.suspended('t1');
+    expect(recorded).toBe(false);
+    expect(resumed).toEqual([]);
+    expect(records).toEqual([
+      expect.objectContaining({ outcome: 'remembered-failed', taskId: 't1' }),
+    ]);
+  });
+
   it('records a pause the remembered grant answered, with the grant it applied', async () => {
     const { channel, records, resumed } = harness({});
     await channel.suspended('t1');

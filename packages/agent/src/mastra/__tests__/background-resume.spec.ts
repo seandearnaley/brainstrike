@@ -12,6 +12,25 @@ import {
 } from './fixtures/background-resume-harness';
 
 describe('createBackgroundResumeStream executor registration (BST-1749)', () => {
+  it('forwards the native suspended child run identity to a restored executor', async () => {
+    const native = createNativeManager({ suspendedToolRunId: 'observed-child-run' });
+    let receivedRunId: string | undefined;
+    const { ended } = startLeg({
+      manager: native.manager,
+      resumes: [native.add('restored')],
+      tools: Promise.resolve({
+        [TOOL]: {
+          execute: async (_args, options) => {
+            receivedRunId = options.suspendedToolRunId;
+            await options.suspend?.({ reason: 'next gate' });
+          },
+        },
+      }),
+    });
+    await expect(ended).resolves.toEqual({ error: undefined });
+    expect(receivedRunId).toBe('observed-child-run');
+  });
+
   it('registers every resumed executor before Mastra is asked to resume any task', async () => {
     // Mastra reads the task context when its workflow runs the task; a resume
     // issued before registration lands races that lookup and can fail the

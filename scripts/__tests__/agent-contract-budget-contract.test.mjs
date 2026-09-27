@@ -106,7 +106,7 @@ const CONTRACT_LINE_BUDGETS = {
   'explorer-search-tapestry.md': 638,
   'issue-tracker.md': 56,
   'local-inference.md': 403,
-  'mastra-boundary.md': 403,
+  'mastra-boundary.md': 402,
   'mcp-conformance.md': 199,
   'platform-contracts.md': 955,
   'README.md': 70,

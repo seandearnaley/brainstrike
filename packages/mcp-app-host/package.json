@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "dependencies": {
     "@modelcontextprotocol/core": "catalog:",
-    "@modelcontextprotocol/ext-apps": "1.7.5"
+    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

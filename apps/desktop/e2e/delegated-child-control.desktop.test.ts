@@ -245,13 +245,9 @@ test('sends human input to the active child and reloads its rich conversation', 
       return { finalText: 'Child input task' };
     }
     const history = JSON.stringify(messages);
-    const userMessages = JSON.stringify(
-      messages.filter(
-        (message) =>
-          message && typeof message === 'object' && 'role' in message && message.role === 'user'
-      )
-    );
-    if (!userMessages.includes('CHILD_ACTIVE_INPUT_TASK')) {
+    // Native background signals include the child task in a parent user message.
+    // The root exposes delegation; Explorer's read-only tool set does not.
+    if (toolNames.includes('agent-explore')) {
       if (history.includes('CHILD_IDLE_APPROVAL_COMPLETE')) {
         return { finalText: 'PARENT_IDLE_APPROVAL_OUTCOME' };
       }
@@ -338,7 +334,8 @@ test('sends human input to the active child and reloads its rich conversation', 
     await expect.poll(() => childCalls).toBeGreaterThan(0);
     await entered.promise;
     await expect(
-      root.getByText('Parent continues while the child reads.', { exact: true })
+      root.getByText('Parent continues while the child reads.', { exact: true }),
+      JSON.stringify(provider.transcript())
     ).toBeVisible();
     await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
     await root.getByRole('button', { name: /Open .* conversation/ }).click();

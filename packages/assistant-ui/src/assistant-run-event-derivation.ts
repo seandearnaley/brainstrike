@@ -13,6 +13,7 @@ import {
   TOOL_SUSPEND_DATA_NAME,
   UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '@brainstrike/assistant-contract/tool-suspend';
+import { readDelegatedTaskTerminalError } from './delegated-terminal-status';
 
 /**
  * Pure run-event derivation: pairing `.started` rows with their terminal
@@ -176,6 +177,22 @@ function isSettledMessage(message: unknown): boolean {
   return status['type'] === 'complete' || status['type'] === 'incomplete';
 }
 
+/** A failed child receiver leaves its last pause card in a terminally incomplete message. */
+function isTerminallyIncompleteMessage(message: unknown): boolean {
+  if (!(isRecord(message) && isRecord(message['status']))) {
+    return false;
+  }
+  const status = message['status'];
+  if (status['type'] !== 'incomplete') {
+    return false;
+  }
+  const terminal = readDelegatedTaskTerminalError(status['error']);
+  return (
+    (status['reason'] === 'error' && terminal?.outcome === 'failed') ||
+    (status['reason'] === 'cancelled' && terminal?.outcome === 'cancelled')
+  );
+}
+
 /**
  * The `toolCallId` a pending pause card (live approval/suspend notice, or the
  * synthetic message `appendSuspendedPauseMessages` re-appends for a pause
@@ -208,6 +225,9 @@ function pendingPauseToolCallIdFromPart(part: unknown): string | null {
 function collectPendingPauseToolCallIds(messages: readonly unknown[]): Set<string> {
   const ids = new Set<string>();
   for (const message of messages) {
+    if (isTerminallyIncompleteMessage(message)) {
+      continue;
+    }
     for (const part of getMessageParts(message)) {
       const toolCallId = pendingPauseToolCallIdFromPart(part);
       if (toolCallId) {
@@ -379,6 +399,7 @@ function collectIndexedRunEvents(messages: readonly unknown[]): {
   const pendingPauseToolCallIds = new Set<string>();
   for (const message of messages) {
     const settled = isSettledMessage(message);
+    const terminallyIncomplete = isTerminallyIncompleteMessage(message);
     for (const part of getMessageParts(message)) {
       const event = getRunEventFromPart(part);
       if (event) {
@@ -394,7 +415,7 @@ function collectIndexedRunEvents(messages: readonly unknown[]): {
         continue;
       }
       const pendingToolCallId = pendingPauseToolCallIdFromPart(part);
-      if (pendingToolCallId) {
+      if (pendingToolCallId && !terminallyIncomplete) {
         pendingPauseToolCallIds.add(pendingToolCallId);
       }
     }

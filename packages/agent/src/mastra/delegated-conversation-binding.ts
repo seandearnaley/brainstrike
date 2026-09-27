@@ -7,7 +7,7 @@ import type {
   DelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
 import { admittedPersonaConfigurationSchema } from '@brainstrike/assistant-contract';
-import { type DelegationStartContext, MessageList } from '@mastra/core/agent';
+import type { DelegationStartContext } from '@mastra/core/agent';
 import { parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor } from '@mastra/core/processors';
 import type { ToolHooks } from '@mastra/core/tools';
@@ -323,30 +323,6 @@ function requireIdentity(value: string | undefined): string {
   return value;
 }
 
-function readOriginalToolCall(
-  input: DelegationStartContext['messages'],
-  toolCallId: string,
-  expectedToolName: string
-): DelegatedOriginalToolCall | undefined {
-  // The native before-tool hook carries the current model call in AI SDK
-  // format. Normalize through Mastra's public adapter before reading it.
-  const messages = new MessageList();
-  messages.add(input, 'input');
-  for (const message of messages.get.all.db().toReversed()) {
-    for (const part of message.content.parts.toReversed()) {
-      if (part.type !== 'tool-invocation' || part.toolInvocation.toolCallId !== toolCallId) {
-        continue;
-      }
-      const { args, toolName } = part.toolInvocation;
-      if (toolName !== expectedToolName || args === undefined) {
-        throw new Error('Observed delegation input does not match its native invocation.');
-      }
-      return { args: structuredClone(args), toolName };
-    }
-  }
-  return undefined;
-}
-
 /**
  * Correlate concurrent native calls without copying RuntimeData into RequestContext.
  * Requires parent and child memory scope. Configuration must be structured-cloneable.
@@ -454,26 +430,30 @@ export function createDelegatedConversationBinding(
         }
         const threadId = requireIdentity(readToolExecutionThreadId([input, context]));
         const toolCallId = requireIdentity(readToolCallId([input, context]));
+        // The public hook carries the executing input. Its messages are the
+        // pre-model prompt and need not contain this call (including eager execution).
         if (
           !(
-            context &&
-            typeof context === 'object' &&
-            'messages' in context &&
-            Array.isArray(context.messages)
+            input &&
+            typeof input === 'object' &&
+            'prompt' in input &&
+            typeof input.prompt === 'string'
           )
         ) {
-          throw new Error('Delegation input capture requires the native tool message list.');
+          throw new Error('Delegation input capture requires the native prompt.');
         }
-        const original = readOriginalToolCall(context.messages, toolCallId, toolName);
-        if (!original) {
-          throw new Error('The native delegation tool call is absent from its message list.');
-        }
+        const original: DelegatedOriginalToolCall = { args: structuredClone(input), toolName };
         const key = inputKey(threadId, toolCallId);
         if (inputs.has(key)) {
           throw new Error('Delegation input capture already owns this native call.');
         }
         inputs.set(key, original);
-        if ('abortSignal' in context && context.abortSignal instanceof AbortSignal) {
+        if (
+          context &&
+          typeof context === 'object' &&
+          'abortSignal' in context &&
+          context.abortSignal instanceof AbortSignal
+        ) {
           pendingExecutionSignals.set(key, context.abortSignal);
         }
       },
@@ -503,6 +483,15 @@ export function createDelegatedConversationBinding(
       inputs.delete(key);
       if (originalToolCall && originalToolCall.toolName !== `agent-${context.primitiveId}`) {
         throw new Error('Captured delegation input belongs to a different native agent.');
+      }
+      if (
+        originalToolCall &&
+        (!originalToolCall.args ||
+          typeof originalToolCall.args !== 'object' ||
+          !('prompt' in originalToolCall.args) ||
+          originalToolCall.args.prompt !== context.prompt)
+      ) {
+        throw new Error('Captured delegation input belongs to a different native prompt.');
       }
       const nativeKey = invocationKey({
         parentRuntimeRunId: requireIdentity(context.runId),

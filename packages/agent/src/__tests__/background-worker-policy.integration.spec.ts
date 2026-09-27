@@ -317,7 +317,7 @@ it("a background child's decision reaches each view ONCE while the dispatching r
   // dispatching step's own suspend, to the turn itself (a parent-level
   // `tool-call-approval` for the delegation call). It delivered every child
   // output twice too (`background-task-output` and a raw `tool-output`
-  // envelope on the turn) until patches/@mastra__core@1.64.0.patch made the
+  // envelope on the turn) until patches/@mastra__core@1.71.0.patch made the
   // task the only output delivery. Projecting both gave every child view each
   // frame twice and the root thread eight cards for four decisions. A root that answers instantly closes its turn
   // before any child output exists, so only a held-open turn delivers the

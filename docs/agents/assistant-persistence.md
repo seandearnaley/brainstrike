@@ -199,7 +199,7 @@ Guard: `packages/assistant-data/src/__tests__/assistant-approval-topology.integr
   second authority: `prepareRequest` reconciles it against the durable run row
   through `GET /assistant/run-status`. A terminal or missing run reclaims it with
   a warning; a `running` row keeps the guard; a FAILED probe keeps the guard.
-  Replay-retry exhaustion also reconciles; `GET /assistant/active-run` publishes `initializing` after envelope parsing and before credential work, restores exact ordinary or child-followup input and host-validated approval prefix/paused-leaf ancestry after reload, waits through initialization, and rejects unknown ancestry. Discovery is an abortable per-attempt external resource keyed by scope/retry that reads the latest auth callback; stale attempts cannot publish snapshots or mutate storage after awaited work, and status probes share their abort signal. Capture a prepared request's scope before async work; a headerless request settles from discovery in that scope unless the host explicitly rejects before stream initialization, and a scope switch remains visibly blocked until it reconciles. A paused UI ID selects its exact action data; if it has no Mastra row, replay accepts its parent edge only with a unique native tool owner, the same turn, and unresolved host call evidence (approval request or root-owned typed tool start). Its native run must belong to the host leg's exact thread, resource and nonnull generation; the first mapped host remains the owner when a later approval leg pauses again. A null-generation legacy leg proves only its exact first-owner mapping. An ID belonging to another durable row, a reused tool call, or an unproven edge fails visibly. Evidence: `assistant-persistence/paused-action-replay-ownership.md`.
+  Replay-retry exhaustion also reconciles; `GET /assistant/active-run` publishes `initializing` after envelope parsing and before credential work, restores exact ordinary or child-followup input and host-validated approval prefix/paused-leaf ancestry after reload, waits through initialization, and rejects unknown ancestry. Discovery is an abortable per-attempt external resource keyed by scope/retry that reads the latest auth callback; stale attempts cannot publish snapshots or mutate storage after awaited work, and status probes share their abort signal. Capture a prepared request's scope before async work; a headerless request settles from discovery in that scope unless the host explicitly rejects before stream initialization, and a scope switch remains visibly blocked until it reconciles. A paused UI ID selects its exact action data; if it has no Mastra row, replay accepts its parent edge only with a unique native tool owner, the same turn, and unresolved host call evidence (approval request or root-owned typed tool start). Its native run must belong to the host leg's exact thread, resource and nonnull generation; the first mapped host remains the owner when a later approval leg pauses again. A null-generation legacy leg proves only its exact first-owner mapping. An ID belonging to another durable row, a reused tool call, or an unproven edge fails visibly. Child-continuation decisions use their durable child receipt/transcript, never a root action-replay prefix. Evidence: `assistant-persistence/paused-action-replay-ownership.md`.
 - Remap the generated streaming leaf to the durable id after `runEnd` through
   thread `export`/`import`. Missing leaves and leaves with descendants fail
   visibly.
@@ -637,8 +637,8 @@ before every parent wakeup, built from DURABLE task rows — never in-memory set
 - Shape: a FRESH `id` per row, the same `metadata.ledgerId`, and the counts.
   Content-free by construction — prompts and failure reasons stay in the
   model-facing wakeup.
-- `status` is `'running'` while anything runs and `'completed'` otherwise. A
-  failed specialist is a count in the label, never `run.failed`.
+- `status` is `running` while anything runs, then `failed` if any task failed,
+  `cancelled` if only cancellations remain, else `completed`; this is the fan-out, never `run.failed`.
 - Rendering is LATEST-ROW-WINS and the lookup is RUN-AGNOSTIC: live parts carry no
   `runId` while hydrated parts do, and the resume leg publishing the final row is
   a different host run from the leg that published the stale one.
@@ -1666,21 +1666,21 @@ thread-run and run-event tables.
 - A native invocation plus current root host leg gets its own opaque child host-run
   id; the root turn id is not a child user message id, so the nullable child header
   field stays unset. Usage stays in the root-attributed writer.
-- A terminal authorized event atomically settles prior running headers of the same
-  invocation to the same outcome. The match requires child resource/thread plus
-  native parent run, tool call, child run and persona, so it cannot close a
-  different invocation in the same thread. No duplicate terminal event is minted,
-  existing terminal headers are immutable, and a rejected current event cannot
-  settle prior headers.
+- An authorized terminal settles prior running headers of the same invocation.
+  Match child resource/thread, native parent run/call, child run and persona;
+  terminal headers stay immutable, with no duplicate event; rejected events settle nothing.
+- A persisted `subagent.failed` from a root, delegated parent, or child
+  continuation closes only exact failed/cancelled native task legs in its parent
+  scope, root turn, and bound continuation run. Its critical write is idempotent
+  and retains prior errors; typed terminals retire live waits, not transport errors. Siblings and parked tasks stay open.
 - Child lifecycle persistence is deliberately AWAITED before publication: it
   revalidates the invocation and makes the published event durable, and an
   exhausted write or identity failure propagates through the root error path. The
   root's queued writer also fails at final flush rather than tolerating lost
   events. Ordinary text and reasoning deltas perform no database round trips.
-- The shared history adapter assigns events by observed native row id BEFORE the
-  legacy run-window heuristic, so several resume legs can share one assistant
-  group; an observed message outside the loaded window is never assigned to a
-  different turn.
+- The history adapter assigns events by observed native row id before its
+  run-window heuristic. Resumed legs share one assistant group; a message
+  outside the loaded window never crosses turns.
 - **Anchor a scoped `tool.started` after its persisted tool part**, keyed by
   observed native message id and tool-call id — millisecond timestamps cannot
   establish that boundary, and timestamp weaving alone moved the event ahead of
@@ -1698,7 +1698,7 @@ thread-run and run-event tables.
   parent call and persona; projection uses it until Mastra supplies the current
   one. A missing identity fails BEFORE child projection state is registered.
 
-Evidence: `assistant-persistence/scoped-child-stream-hydration.md`.
+Evidence: `assistant-persistence/scoped-child-stream-hydration.md`, `assistant-persistence/background-child-terminal-reconciliation.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/delegated-stream-parity.integration.test.ts`,
 `delegated-runtime.integration.test.ts`,
 `delegated-conversation-host.integration.test.ts`,

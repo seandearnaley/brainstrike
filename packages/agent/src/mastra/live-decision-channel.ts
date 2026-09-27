@@ -34,6 +34,8 @@ export interface LiveBackgroundResume {
 
 /** A phase's hold on parked tasks it agreed to resume; the phase cannot settle until each is resumed or released. */
 export interface LiveBackgroundReservation {
+  /** Resolve every executor while the durable decision is still unanswered. */
+  prepare(): Promise<void>;
   /** Give the tasks back unresumed (a host record failed before any native effect). */
   release(): void;
   /** Resume every reserved task in-process; a task whose resume fails is released. */

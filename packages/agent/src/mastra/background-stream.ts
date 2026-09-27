@@ -95,7 +95,7 @@ async function* separateParentTurns(source: AsyncIterable<unknown>): AsyncGenera
  * (a parent-level `tool-call-approval` / `tool-call-suspended` for the
  * delegation call) before parking the task. It delivered every child output
  * twice as well, through the task and the step's own writer, until
- * `patches/@mastra__core@1.64.0.patch` made the task the only output delivery:
+ * `patches/@mastra__core@1.71.0.patch` made the task the only output delivery:
  * a child's raw `data-*` part carries no call identity, so no filter here could
  * drop its turn copy. Live GLM run 19 projected both copies: every child view
  * showed each frame twice and the root thread eight cards for four decisions.
@@ -160,6 +160,22 @@ function createTurnCopyFilter(backgroundCalls: ReadonlySet<string>): {
   };
 }
 
+function rememberBackgroundCall(
+  callId: string | undefined,
+  callKey: string,
+  kind: 'task' | 'resumed task',
+  calls: Set<string>,
+  backgroundCalls: Set<string> | undefined,
+  acknowledge?: () => void
+): void {
+  if (!callId) {
+    throw new Error(`Native background ${kind} omitted its tool-call identity.`);
+  }
+  acknowledge?.();
+  calls.add(callKey);
+  backgroundCalls?.add(callKey);
+}
+
 /** Fold the host idle loop's turns into one host-owned stream, retaining native child envelopes. */
 export async function* projectBackgroundStream(
   source: AsyncIterable<unknown>,
@@ -196,12 +212,9 @@ export async function* projectBackgroundStream(
       }
       case 'background-task-started':
       case 'background-task-running':
-        if (!callId) {
-          throw new Error('Native background task omitted its tool-call identity.');
-        }
-        turnCopies.acknowledge(decoded, callKey);
-        calls.add(callKey);
-        backgroundCalls?.add(callKey);
+        rememberBackgroundCall(callId, callKey, 'task', calls, backgroundCalls, () =>
+          turnCopies.acknowledge(decoded, callKey)
+        );
         continue;
       case 'tool-result':
       case 'tool-output':
@@ -243,7 +256,10 @@ export async function* projectBackgroundStream(
         continue;
       case 'background-task-resumed':
         // A parked child continues in this leg (a live decision): its held
-        // pause terminal is dropped, its own finish will follow.
+        // pause terminal is dropped, its own finish will follow. A fresh root
+        // leg did not see this task's original start: it still owns background
+        // child output and must release its next pause when the task parks.
+        rememberBackgroundCall(callId, callKey, 'resumed task', calls, backgroundCalls);
         yield part;
         continue;
       case 'background-task-cancelled':

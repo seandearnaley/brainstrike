@@ -1465,7 +1465,7 @@ describe('mastra memory persistence through the live stream path', () => {
       .find((part) => part.type === 'tool-invocation');
     expect(invocationPart).toMatchObject({
       providerExecuted: true,
-      providerMetadata: { openai: { itemId: outputItemId } },
+      providerMetadata: { openai: { itemId: callItemId, resultItemId: outputItemId } },
       toolInvocation: {
         state: 'result',
         toolCallId: callItemId,

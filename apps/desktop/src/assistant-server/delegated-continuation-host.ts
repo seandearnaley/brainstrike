@@ -10,6 +10,7 @@ import {
 } from '@brainstrike/db';
 import { prepareDelegatedChildBranch } from './delegated-child-branch';
 import { continuationProjectionId } from './delegated-continuation-identity';
+import { settleFailedDelegationChildRuns } from './delegated-stream-failure';
 import { reserveDelegatedInvocation } from './delegated-tree-admission';
 
 /** One managed host leg owns every mutation; human input never supplies authority. */
@@ -101,6 +102,14 @@ export function createDesktopDelegatedContinuationHost(
         runId: projectionId(input.id),
         sequence: input.sequence,
       });
+      if (input.event.kind === 'subagent.failed') {
+        await settleFailedDelegationChildRuns(
+          database,
+          hostRunId,
+          input.event.id,
+          projectionId(input.id)
+        );
+      }
     },
     async persistContinuationUsage(input) {
       await (await repository()).recordUsage(input.id, input);

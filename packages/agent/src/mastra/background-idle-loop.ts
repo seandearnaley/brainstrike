@@ -1,18 +1,20 @@
 import { createLogger } from '@brainstrike/logging';
 import type { Agent } from '@mastra/core/agent';
-import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
+import type { BackgroundTask, BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { wasBackgroundOutcomePresented } from './active-background-results-processor';
 import {
   type BackgroundLedgerSource,
   createLedgerPublisher,
   describeBackgroundWakeup,
 } from './background-ledger';
+import type { ResumedExecutors } from './background-resume';
 import type {
   DelegatedWakeupInvocation,
   DelegatedWakeupRecord,
 } from './delegated-conversation-binding';
 import {
   type LiveBackgroundOwner,
+  type LiveBackgroundResume,
   type LiveDecisionChannel,
   LiveDecisionUnavailableError,
 } from './live-decision-channel';
@@ -27,52 +29,15 @@ import {
 const logger = createLogger('BackgroundIdleLoop');
 
 /**
- * Host-owned replacement for Mastra's `untilIdle` loop (BST-1723, settled
- * 2026-09-14).
+ * Coordinates parent turns and durable human decisions; Mastra owns every
+ * parent/child model loop and task execution. A reserved decision keeps this
+ * stream open until its durable commit and native resume have settled.
+ * Native `untilIdle` cannot represent that host reservation (see the public
+ * reproduction and decision in docs/agents/mastra-boundary/subagent-host-lifetime.md).
  *
- * Mastra's loop counts `background-task-suspended` as a terminal and answers
- * it with a parent inference whose directive tells the model to "let the user
- * know they are waiting for explicit resume input". The production root
- * parroted that line for every suspended specialist and refused to compile
- * its report (thread-1dab3290). A child's suspension is an approval prompt the
- * HOST surfaces; the parent model is woken only by a returned result, a
- * failure or a cancellation, exactly as the resume path
- * (`createBackgroundResumeStream`) already does. Everything else mirrors
- * Mastra's loop: the leg's first turn is piped as-is, native lifecycle chunks
- * are forwarded so `projectBackgroundStream` folds them, one continuation runs
- * per batch of wakeups, and the combined stream closes once no task is running
- * and nothing is queued. The loop judges no silence: running work keeps the
- * leg open until its terminal. Each child's liveness belongs to its own
- * watchdog (`background-child-watchdog.ts`), which ends a stalled child as a
- * failed task, and the stream watchdog wrapping this combined stream judges
- * only the parent. A second, shorter timer here closed a leg whose child was
- * healthy but quiet, and the leg's disposal cancelled it.
- *
- * While it runs, the loop owns the leg's live decision channel: a decision
- * delivered into the leg reserves the parked tasks (which keeps the loop from
- * settling), resumes them in-process, and their later terminals wake the
- * parent exactly like any other. A task resumed this way may park AGAIN
- * (its next gated read), so its earlier terminal is forgotten on resume — a
- * second suspension is a new pause with a new card, never a seen duplicate.
- *
- * A turn that ends on the PARENT's own pause (its native status is
- * `suspended`) parks the run on the user: no wakeup ever runs a continuation
- * on a parked run. Run 6 of the live-app verifier (2026-09-15) had the root
- * pause on its canvas write with one child's wakeup still queued; the
- * continuation re-prompted the parked root, which proposed the write AGAIN,
- * and the thread carried two canvas cards, one orphaned for good. Children
- * still running keep the leg open until they return (their results land in
- * the parent's history, which the resumed leg reads); the leg then closes as
- * the pause it is.
- *
- * A delegation REFUSED at start is not returned work (REJECTED ADMISSION IS
- * NO INVOCATION, settled 2026-09-15). Mastra runs the delegation hook inside
- * the background task it already created, so the refusal completes as a task
- * row; the leg's delegation outcome capture names it, and its terminal wakes
- * nothing. A leg woken for more invocations than one turn may admit FAILS:
- * the next wakeup would be one more parent inference on work that never ran
- * (the 2026-09-15 E2E ledger reached "1160 total: 1160 returned" and the root
- * made 2337 model calls before the test timed out).
+ * Only returned, failed or cancelled admitted work wakes an unpaused parent.
+ * Durable ledger rows supply the wakeup; these sets only track this stream's
+ * outstanding work. Running children own their watchdogs, not an idle timer.
  */
 
 export const WAKING_TASK_EVENTS: ReadonlySet<string> = new Set([
@@ -233,11 +198,9 @@ function readContextMessages(options: LegStreamOptions): readonly unknown[] {
 /** The options a leg built for its native call (`buildStreamOptions`). */
 type LegStreamOptions = BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string };
 
-export interface BackgroundIdleLoopParams {
+interface BackgroundIdleLoopBaseParams {
   readonly abortSignal?: AbortSignal | undefined;
   readonly agent: Agent;
-  /** The leg's live decision channel; the loop owns it while it runs. */
-  readonly channel?: LiveDecisionChannel | undefined;
   /** The durable ledger this leg's wakeups and status rows are built from. */
   readonly ledger: BackgroundLedgerSource;
   readonly manager: BackgroundTaskManager;
@@ -270,6 +233,26 @@ export interface BackgroundIdleLoopParams {
   readonly scope: { readonly threadId: string; readonly resourceId: string };
 }
 
+type ResumedExecutorFactory = (
+  publish: (chunk: unknown) => void,
+  onDeliveryError: (error: unknown) => void
+) => ResumedExecutors;
+
+interface RegisteredResume {
+  readonly executor: Awaited<ReturnType<ResumedExecutors['register']>>;
+  readonly task: BackgroundTask;
+}
+
+export type BackgroundIdleLoopParams = BackgroundIdleLoopBaseParams &
+  (
+    | {
+        /** The leg owns live decisions only with their native executor lifecycle. */
+        readonly channel: LiveDecisionChannel;
+        readonly createResumedExecutors: ResumedExecutorFactory;
+      }
+    | { readonly channel?: undefined; readonly createResumedExecutors?: undefined }
+  );
+
 /** Native and host streams differ only in chunk type; the loop reads them alike. */
 interface ReadableChunks {
   getReader(): ReadableStreamDefaultReader<unknown>;
@@ -300,6 +283,8 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
 ): Output {
   const priorContext = readContextMessages(params.options);
   const running = new Set<string>();
+  /** A concurrent reservation cannot release another caller's resumed task. */
+  const reservations = new Map<string, Set<symbol>>();
   const settled = new Set<string>();
   const pending: TaskEvent[] = [];
   const seenTerminals = new Set<string>();
@@ -317,35 +302,30 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
   let parked = false;
   /** Pauses whose remembered-grant answer is still being decided. */
   let answering = 0;
+  let reservationVersion = 0;
+  let joinedVersion = -1;
+  let joining = false;
   let releaseOwner: (() => void) | undefined;
   let controller!: ReadableStreamDefaultController<unknown>;
+  let resumed: ResumedExecutors | undefined;
 
-  const close = () => {
+  const finish = (outcome: 'close' | 'cancel' | { readonly error: unknown }) => {
     if (closed) {
       return;
     }
     closed = true;
+    params.abortSignal?.removeEventListener('abort', close);
     releaseOwner?.();
+    resumed?.deregisterUnresumed();
     loopAbort.abort();
-    try {
+    if (typeof outcome === 'object') {
+      controller.error(outcome.error);
+    } else if (outcome === 'close') {
       controller.close();
-    } catch {
-      // Already errored or cancelled by the consumer.
     }
   };
-  const fail = (error: unknown) => {
-    if (closed) {
-      return;
-    }
-    closed = true;
-    releaseOwner?.();
-    loopAbort.abort();
-    try {
-      controller.error(error);
-    } catch {
-      // Already errored or cancelled by the consumer.
-    }
-  };
+  const close = () => finish('close');
+  const fail = (error: unknown) => finish({ error });
   const enqueue = (chunk: unknown): boolean => {
     if (closed) {
       return false;
@@ -357,6 +337,13 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       return false;
     }
   };
+  if (params.createResumedExecutors) {
+    resumed = params.createResumedExecutors((chunk) => {
+      if (!enqueue(chunk)) {
+        throw new Error('The background leg closed before child output was published.');
+      }
+    }, fail);
+  }
   /** Deferral records a parked leg makes before it closes; `settle` joins them. */
   let recording = 0;
   const recordDeferral = (deferred: readonly TaskEvent[]) => {
@@ -369,7 +356,7 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
     );
     const record = params.recordWakeup;
     if (!record) {
-      close();
+      settle();
       return;
     }
     // Debug-pack evidence joined like a ledger row: the leg closes only once
@@ -406,12 +393,35 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       }
     }
   };
+  const joinResumed = (): boolean => {
+    if (!(running.size === 0 && resumed && joinedVersion !== reservationVersion)) {
+      return false;
+    }
+    if (!joining) {
+      joining = true;
+      const version = reservationVersion;
+      void resumed.join().then(
+        () => {
+          joining = false;
+          if (version === reservationVersion) {
+            joinedVersion = version;
+          }
+          settle();
+        },
+        (error: unknown) => fail(error)
+      );
+    }
+    return true;
+  };
   const settle = () => {
     // An in-flight ledger read is joined before the leg can close: a leg
     // settling right after the last terminal would otherwise close before
     // the final "4 of 4" row was enqueued, and reload would show "3 of 4".
     // A parked leg's deferral record is joined the same way.
     if (closed || processing || answering > 0 || publisher.inFlight > 0 || recording > 0) {
+      return;
+    }
+    if (joinResumed()) {
       return;
     }
     discardPresentedWakeups();
@@ -543,7 +553,6 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       });
       const continuation = await params.agent.stream([], {
         ...params.options,
-        _skipBgTaskWait: true,
         context: [...priorContext, { content: directive, role: 'user' }],
       } as AgentStreamOptions);
       abandoned = continuation;
@@ -599,6 +608,8 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       return;
     }
     seenTerminals.add(terminalKey);
+    resumed?.terminal(taskId, event);
+    reservations.delete(taskId);
     settled.add(taskId);
     running.delete(taskId);
     if (isParentWakeup(event) && !isRejectedDelegation(event, params.rejectedDelegations)) {
@@ -636,7 +647,12 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       if (closed) {
         throw new LiveDecisionUnavailableError('The leg has settled.');
       }
+      reservationVersion += 1;
+      const claim = Symbol('live-decision');
       for (const task of tasks) {
+        const claims = reservations.get(task.id) ?? new Set<symbol>();
+        claims.add(claim);
+        reservations.set(task.id, claims);
         running.add(task.id);
         settled.delete(task.id);
         for (const type of TERMINAL_TASK_EVENTS) {
@@ -645,29 +661,81 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
       }
       const release = (ids: readonly string[]) => {
         for (const id of ids) {
-          running.delete(id);
+          const claims = reservations.get(id);
+          // A repeated release or a terminal from an older execution cannot
+          // release a newer decision's reservation for the same task.
+          if (!claims?.delete(claim)) {
+            continue;
+          }
+          if (claims.size === 0) {
+            reservations.delete(id);
+            running.delete(id);
+          }
         }
         settle();
       };
-      return {
-        release: () => release(tasks.map((task) => task.id)),
-        async resume(resumes) {
-          const failures: unknown[] = [];
-          for (const { resumeData, task } of resumes) {
-            try {
-              await params.manager.resume(task.id, resumeData);
-            } catch (error) {
-              failures.push(error);
-              release([task.id]);
+      const registerReserved = async (
+        resumes: readonly LiveBackgroundResume[],
+        executors: ResumedExecutors
+      ): Promise<RegisteredResume[]> => {
+        const registered: RegisteredResume[] = [];
+        for (const { task } of resumes) {
+          registered.push({ executor: await executors.register(task), task });
+        }
+        return registered;
+      };
+      const resumeRegistered = async (
+        resumes: readonly LiveBackgroundResume[],
+        registered: readonly RegisteredResume[],
+        executors: ResumedExecutors
+      ): Promise<unknown[]> => {
+        const failures: unknown[] = [];
+        for (const [index, { resumeData, task }] of resumes.entries()) {
+          try {
+            const executor = registered[index]?.executor;
+            if (!executor) {
+              throw new Error('The background task has no registered executor.');
             }
+            await executors.resume(task, executor, resumeData);
+          } catch (error) {
+            failures.push(error);
+            release([task.id]);
           }
-          if (failures.length === 1) {
-            throw failures[0];
+        }
+        return failures;
+      };
+      const resumeReserved = async (resumes: readonly LiveBackgroundResume[]): Promise<void> => {
+        const executors = resumed;
+        if (!executors) {
+          release(resumes.map(({ task }) => task.id));
+          throw new LiveDecisionUnavailableError('The leg has no native executor owner.');
+        }
+        let registered: RegisteredResume[];
+        try {
+          registered = await registerReserved(resumes, executors);
+        } catch (error) {
+          release(resumes.map(({ task }) => task.id));
+          throw error;
+        }
+        const failures = await resumeRegistered(resumes, registered, executors);
+        if (failures.length === 1) {
+          throw failures[0];
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(failures, 'Live background resume failed.');
+        }
+      };
+      return {
+        prepare: async () => {
+          if (!resumed) {
+            throw new LiveDecisionUnavailableError('The leg has no native executor owner.');
           }
-          if (failures.length > 1) {
-            throw new AggregateError(failures, 'Live background resume failed.');
+          for (const task of tasks) {
+            await resumed.prepare(task);
           }
         },
+        release: () => release(tasks.map((task) => task.id)),
+        resume: resumeReserved,
       };
     },
   };
@@ -696,7 +764,7 @@ export function withBackgroundIdleLoop<Output extends NativeOutput>(
 
   const combined = new ReadableStream<unknown>({
     cancel() {
-      close();
+      finish('cancel');
     },
     start(streamController) {
       controller = streamController;

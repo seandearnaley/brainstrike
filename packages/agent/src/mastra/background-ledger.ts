@@ -322,14 +322,20 @@ export function ledgerLabel(ledger: BackgroundLedger): string {
 /**
  * The user's row. Content-free: persona and state only — the prompt and the
  * failure reason are workspace text and stay in the model-facing wakeup.
- * `status` is `running` while anything runs and `completed` otherwise (a
- * failure is a fact in the label, not a failed row: the turn is healthy).
+ * Status describes the fan-out, not the parent turn: running while any task
+ * runs, then failed/cancelled if any task ended that way, else completed.
  */
 export function makeBackgroundLedgerChunk(ledger: BackgroundLedger): StreamChunk {
   const metadata: AssistantRunEventMetadata = { ledgerId: ledger.ledgerId, ...ledger.counts };
   return makeRunDetailEventChunk(
     DELEGATION_LEDGER_RUN_EVENT_KIND,
-    ledger.counts.running > 0 ? 'running' : 'completed',
+    ledger.counts.running > 0
+      ? 'running'
+      : ledger.counts.failed > 0
+        ? 'failed'
+        : ledger.counts.cancelled > 0
+          ? 'cancelled'
+          : 'completed',
     ledgerLabel(ledger),
     ledger.entries.map((entry) => `${entry.persona ?? entry.toolName} ${entry.state}`).join(' · '),
     metadata

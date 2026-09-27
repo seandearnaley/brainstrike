@@ -1,9 +1,7 @@
 # Mastra Boundary: Server, Workspace, Browser, RequestContext, Streaming, Observability
 
-> Read before adding a `@mastra/*` package, registering anything new on the
-> `Mastra` instance, or moving a Brainstrike-owned surface behind a Mastra one.
-> Rules here are true now; the record behind each is in `mastra-boundary/<topic>.md`.
-> Installed: `@mastra/core@1.64.0` (patched) and `@mastra/memory@1.28.2`.
+> Read before changing Mastra integration. Evidence lives in `mastra-boundary/`.
+> Installed: `@mastra/core@1.71.0` (patched) and `@mastra/memory@1.32.1`.
 
 ## SCOPE AND STATUS
 
@@ -62,20 +60,21 @@ Evidence: `mastra-boundary/why-not-mastra-server.md`.
   stopped; a held flush raises an explicit cleanup error at the native shutdown
   deadline rather than succeeding or waiting forever.
 - Compose a delegated child's `abortSignal` with its parent tool signal. Why:
-  core 1.64.0 otherwise overwrites the child signal with the parent's.
+  core 1.71.0 otherwise overwrites the child signal with the parent's.
 - Remove a patch hunk only when its native regression passes against the upstream
   replacement.
-- Do not pass `untilIdle`. Why: Mastra's loop wakes the parent model on a child's
-  suspension; the host loop wakes it only for a returned, failed, or cancelled
-  task.
+- Keep one host parent-turn coordinator using public `Agent.stream` and task
+  manager APIs. Do not pass `untilIdle`: it cannot hold an accepted decision
+  across the host's durable commit. Mastra owns child execution and cleanup;
+  host reservations own only decision admission and parent continuation.
 
 Settled: this lifecycle authorizes no Mastra HTTP server, no replacement
 workspace tools, and no second permission or persistence system. Evidence:
-`mastra-boundary/subagent-host-lifetime.md`.
-Settled: the patch shares one xxhash-wasm instance across every `SemanticRecall`
-(proven upstream defect, reported). Evidence:
+`mastra-boundary/subagent-host-lifetime.md`, `mastra-boundary/upgrade-1-71.md`, `mastra-boundary/upstream-1-71-drafts.md`.
+Settled: share one stateless xxhash-wasm instance across `SemanticRecall`
+processors. Evidence:
 `mastra-boundary/semantic-recall-wasm-leak.md`.
-Guard: `packages/agent/src/mastra/__tests__/mastra-semantic-recall-hasher.spec.ts`.
+Guard: `packages/agent/src/__tests__/semantic-recall-lifecycle.integration.spec.ts`.
 
 ## R2 NODE-BUILTIN CONTAINMENT (CRITICAL) — NEW
 
@@ -347,7 +346,7 @@ Guard: `packages/agent/src/__tests__/mastra-tool-approval-chunks.spec.ts`,
 
 ### `@mastra/memory` hold at 1.26.0 (BST-1320) — SUPERSEDED BY BST-1667
 
-- `@mastra/memory` is pinned at 1.28.2 alongside `@mastra/core` ^1.64.0; the
+- `@mastra/memory` is pinned at 1.32.1 alongside `@mastra/core` 1.71.0; the
   1.26.0 hold is history.
 - Join `consumeStream()` at every attempt's cleanup boundary
   (`settleNativeStream`, contract in `docs/agents/assistant-persistence.md`).
