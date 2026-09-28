@@ -8,6 +8,12 @@ export {
   type GroupedActionMenuDescriptors,
   type GroupedActions,
 } from './registry.js';
+export {
+  createTabStripActions,
+  moveTabId,
+  type TabMoveDirection,
+  type TabStripActionOperations,
+} from './tab-strip-actions.js';
 export { createTestActionRegistry } from './testing.js';
 export {
   type ActionGroup,

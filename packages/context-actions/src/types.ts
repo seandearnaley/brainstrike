@@ -68,6 +68,11 @@ export type ContextTarget =
       readonly searchRangeCount: number;
       readonly startLine: number;
     }
+  /**
+   * The empty background of a tab strip (BST-1836 §6.4). Strip-level local
+   * actions (New, Close All) claim it; `stripId` names the owning strip.
+   */
+  | { readonly kind: 'tab-strip'; readonly stripId: string }
   | { kind: 'collection'; id: string; name: string }
   | { kind: 'collection-file'; id: string; name: string; path: string | null }
   | { kind: 'chunk'; id: string; content: string }
