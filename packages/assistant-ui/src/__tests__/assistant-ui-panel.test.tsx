@@ -39,6 +39,7 @@ interface MockAuiState {
   };
   thread: {
     capabilities: { edit: boolean; reload: boolean };
+    isRunning?: boolean;
     messages: Array<{ id: string }>;
   };
 }
@@ -2237,5 +2238,89 @@ describe('AssistantUiPanel composer attachments availability', () => {
       | undefined;
     expect(lastRuntimeOptions?.adapters?.attachments).toBeUndefined();
     expect(container.querySelector('.bs-composer-attachments')).toBeNull();
+  });
+});
+
+describe('AssistantUiPanel reports its own run state (BST-1844)', () => {
+  const localGroups: ProviderGroupConfig[] = [
+    {
+      label: 'Local',
+      providers: [
+        {
+          capabilities: {
+            embeddings: false,
+            llm: true,
+            streaming: false,
+            supportsStandardEmbeddingDimension: false,
+          },
+          id: 'local',
+          models: [
+            {
+              default: true,
+              enabled: true,
+              id: 'onnx-community/gemma-4-E2B-it-ONNX',
+              label: 'Gemma 4 E2B',
+              type: 'llm',
+            },
+          ],
+          name: 'Local',
+          runtime: 'local',
+        },
+      ],
+      runtime: 'local',
+    },
+  ];
+  const localProps = {
+    pickerModels: [],
+    pickerProviders: [{ icon: null, id: 'local', name: 'Local' }],
+    providerGroups: localGroups,
+    selectedModel: 'local::onnx-community/gemma-4-E2B-it-ONNX',
+    selectedProvider: 'local',
+  };
+  // The in-renderer local runtime and the data-stream runtime are separate
+  // chat components; both must hand the owner the runtime's `thread.isRunning`.
+  const variants = [
+    { name: 'the in-renderer local runtime', props: localProps },
+    { name: 'the data-stream runtime', props: baseProps },
+  ] as const;
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it.each(variants)('reports the run state of $name, and false when it unmounts', ({ props }) => {
+    const onRunningChange = vi.fn();
+    mockAuiState = createMockAuiState([completedReasoningPart]);
+    mockAuiState.thread.isRunning = true;
+    const { unmount } = render(
+      <AssistantUiPanel
+        {...props}
+        onModelChange={() => {}}
+        onRunningChange={onRunningChange}
+        threadKey="thread-1"
+      />
+    );
+
+    expect(onRunningChange.mock.calls).toEqual([['thread-1', true]]);
+
+    unmount();
+
+    expect(onRunningChange.mock.calls).toEqual([
+      ['thread-1', true],
+      ['thread-1', false],
+    ]);
+  });
+
+  it('reports nothing for a session with no thread to key the report by', () => {
+    const onRunningChange = vi.fn();
+    mockAuiState = createMockAuiState([completedReasoningPart]);
+    mockAuiState.thread.isRunning = true;
+
+    render(
+      <AssistantUiPanel {...baseProps} onModelChange={() => {}} onRunningChange={onRunningChange} />
+    );
+
+    expect(onRunningChange).not.toHaveBeenCalled();
   });
 });

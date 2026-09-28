@@ -100,6 +100,7 @@ import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
+import { RunningStateBridge } from './running-state-bridge';
 import {
   buildSlashCommandIconMap,
   type SlashCommand,
@@ -302,6 +303,8 @@ export interface AssistantUiPanelProps
   onRunFailed?: (event: AssistantRunEvent) => void;
   /** Reports a `run.finished` run event exactly once (deduped by event id). */
   onRunFinished?: (event: AssistantRunEvent) => void;
+  /** Reports `thread.isRunning` for `threadKey`, and `false` on unmount (BST-1844). */
+  onRunningChange?: (threadKey: string, running: boolean) => void;
   /** Register this runtime with its owning workspace; cleanup follows runtime disposal. */
   onRuntimeReady?: ((runtime: AssistantRuntime) => undefined | (() => void)) | undefined;
   /** Mid-run steer transport (BST-588); absent = queue-only (web/local). */
@@ -426,6 +429,7 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
   onRunEditActivity?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
+  onRunningChange?: ((threadKey: string, running: boolean) => void) | undefined;
   onRuntimeReady?: AssistantUiPanelProps['onRuntimeReady'];
   /** Mid-run steer transport (BST-588); absent = queue-only composer. */
   onSteerActiveRun?: (() => Promise<boolean>) | undefined;
@@ -481,6 +485,7 @@ const LocalRuntimeChat = ({
   onRunEditActivity,
   onRunFailed,
   onRunFinished,
+  onRunningChange,
   onStreamActivity,
   onThreadRunStart,
   onToolApprovalRequired,
@@ -588,6 +593,7 @@ const LocalRuntimeChat = ({
           onRunEditActivity={onRunEditActivity}
           onRunFailed={onRunFailed}
           onRunFinished={onRunFinished}
+          onRunningChange={onRunningChange}
           onThreadRunStart={onThreadRunStart}
           onToolApprovalRequired={onToolApprovalRequired}
           {...(workspaceBar ? { workspaceBar } : {})}
@@ -634,6 +640,7 @@ const DataStreamRuntimeChat = ({
   onRunEditActivity,
   onRunFailed,
   onRunFinished,
+  onRunningChange,
   onStreamActivity,
   onThreadRunStart,
   onToolApprovalRequired,
@@ -778,6 +785,7 @@ const DataStreamRuntimeChat = ({
             onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
             onRunFinished={onRunFinished}
+            onRunningChange={onRunningChange}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
             {...(onSteerActiveRun ? { onSteerActiveRun } : {})}
@@ -835,6 +843,7 @@ export const ChatThreadUI = ({
   onRunEditActivity,
   onRunFailed,
   onRunFinished,
+  onRunningChange,
   onThreadRunStart,
   onToolApprovalRequired,
   isComposerDisabled,
@@ -877,6 +886,7 @@ export const ChatThreadUI = ({
   onRunEditActivity?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
+  onRunningChange?: ((threadKey: string, running: boolean) => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   isComposerDisabled: boolean;
@@ -945,6 +955,9 @@ export const ChatThreadUI = ({
                 onComposerDraftCommandApplied={onComposerDraftCommandApplied}
                 onComposerTextChange={onComposerTextChange}
               />
+              {onRunningChange && threadKey ? (
+                <RunningStateBridge onRunningChange={onRunningChange} threadKey={threadKey} />
+              ) : null}
               <RunLifecycleNotificationBridge
                 {...(onRunEditActivity ? { onRunEditActivity } : {})}
                 {...(onRunFailed ? { onRunFailed } : {})}
@@ -1115,6 +1128,7 @@ export const AssistantUiPanel = ({
   onRunEditActivity,
   onRunFailed,
   onRunFinished,
+  onRunningChange,
   onStreamActivity,
   onThreadRunStart,
   onTogglePlanMode,
@@ -1235,6 +1249,7 @@ export const AssistantUiPanel = ({
             onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
             onRunFinished={onRunFinished}
+            onRunningChange={onRunningChange}
             onRuntimeReady={onRuntimeReady}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
@@ -1293,6 +1308,7 @@ export const AssistantUiPanel = ({
             onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
             onRunFinished={onRunFinished}
+            onRunningChange={onRunningChange}
             onRuntimeReady={onRuntimeReady}
             onSteerActiveRun={onSteerActiveRun}
             onStepUsage={onStepUsage}
