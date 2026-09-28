@@ -119,7 +119,13 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1837 raised it from 612 to 652: § TAB STRIPS is a new subsystem area
   // (the shared TabStrip primitives every document strip renders), not growth
   // of an existing section; its record lives in ui-conventions/tab-strips.md.
-  'ui-conventions.md': 652,
+  //
+  // BST-1841 raised it by 30 more, to 682: the new VIEW SWITCHERS (Tabs)
+  // section is a new area — one `Tabs` idiom for every fixed switcher — whose
+  // rules (sizes, manual activation, `TabsContent` visibility, transitions only
+  // for React state) an agent must meet before touching any switcher. Each
+  // "Why" is one clause; the detail lives in `packages/ui/src/tabs.tsx` comments.
+  'ui-conventions.md': 682,
   'workspace-context.md': 1071,
 };
 

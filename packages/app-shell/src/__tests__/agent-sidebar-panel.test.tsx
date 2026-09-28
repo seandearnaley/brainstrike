@@ -1,4 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { type ReactElement, Suspense, use } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentSidebarPanel } from '../agent-sidebar-panel';
 
@@ -45,7 +47,7 @@ describe('AgentSidebarPanel', () => {
     expect(await screen.findByText('Database content')).toBeVisible();
   });
 
-  it('uses the shared segmented tab treatment for whichever Library tab is active', async () => {
+  it('uses the shared panel-header (sm) switcher for every Library tab', async () => {
     render(
       <AgentSidebarPanel
         databaseContent={<div>Database content</div>}
@@ -54,16 +56,15 @@ describe('AgentSidebarPanel', () => {
       />
     );
 
+    expect(screen.getByTestId('agent-sidebar-tabs')).toHaveAttribute('data-size', 'sm');
     const threadsTab = screen.getByRole('tab', { name: 'Threads' });
     const collectionsTab = screen.getByRole('tab', { name: 'Collections' });
     const promptsTab = screen.getByRole('tab', { name: 'Prompts' });
     for (const tab of [threadsTab, collectionsTab, promptsTab]) {
-      // Stock shadcn active treatment from the shared TabsTrigger — the local
-      // primary-tint override is gone so Library matches Explorer|Search.
-      expect(tab).toHaveClass('data-[state=active]:bg-background');
-      // Triggers must fill the list's padded slot exactly; an intrinsic-height
-      // trigger overflows the 24px slot and hangs off the list's bottom edge.
-      expect(tab).toHaveClass('h-full');
+      // Geometry and states come from the shared `sm` variant, never a local
+      // override, so Library matches Explorer|Search and Git.
+      expect(tab).toHaveAttribute('data-slot', 'tabs-trigger');
+      expect(tab).toHaveAttribute('data-size', 'sm');
       expect(tab).not.toHaveClass(
         'data-[state=active]:bg-primary/10',
         'data-[state=active]:text-primary'
@@ -75,6 +76,92 @@ describe('AgentSidebarPanel', () => {
     await waitFor(() => {
       expect(promptsTab).toHaveAttribute('data-state', 'active');
     });
+  });
+
+  it('activates manually: arrows rove focus, Enter selects and persists', async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        promptsContent={<div>Prompts content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    act(() => screen.getByRole('tab', { name: 'Threads' }).focus());
+    await user.keyboard('{ArrowRight}');
+
+    const collectionsTab = screen.getByRole('tab', { name: 'Collections' });
+    expect(collectionsTab).toHaveFocus();
+    expect(collectionsTab).toHaveAttribute('aria-selected', 'false');
+    expect(screen.queryByText('Database content')).not.toBeInTheDocument();
+    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBeNull();
+
+    await user.keyboard('{Enter}');
+
+    expect(collectionsTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Database content')).toBeVisible();
+    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBe(
+      JSON.stringify('database')
+    );
+  });
+
+  it('switches in a transition and marks the incoming trigger data-pending until it commits', async () => {
+    let resolvePrompts: () => void = () => undefined;
+    const promptsReady = new Promise<void>((resolve) => {
+      resolvePrompts = resolve;
+    });
+    function SlowPrompts(): ReactElement {
+      use(promptsReady);
+      return <div>Prompts content</div>;
+    }
+
+    render(
+      <Suspense fallback={<div>Library fallback</div>}>
+        <AgentSidebarPanel
+          databaseContent={<div>Database content</div>}
+          promptsContent={<SlowPrompts />}
+          threadsContent={<div>Threads content</div>}
+        />
+      </Suspense>
+    );
+
+    const threadsTab = screen.getByRole('tab', { name: 'Threads' });
+    const promptsTab = screen.getByRole('tab', { name: 'Prompts' });
+    expect(promptsTab).not.toHaveAttribute('data-pending');
+
+    // Awaited: React only retries a suspended render that `act` is awaiting.
+    await act(async () => {
+      fireEvent.mouseDown(promptsTab, { button: 0, ctrlKey: false });
+    });
+
+    // The suspended transition keeps the committed tab on screen instead of
+    // blanking the Library behind a fallback; only the incoming trigger says so.
+    expect(promptsTab).toHaveAttribute('data-pending');
+    expect(promptsTab).toHaveAttribute('data-state', 'inactive');
+    expect(threadsTab).toHaveAttribute('data-state', 'active');
+    expect(threadsTab).not.toHaveAttribute('data-pending');
+    expect(screen.getByText('Threads content')).toBeVisible();
+    expect(screen.queryByText('Library fallback')).not.toBeInTheDocument();
+
+    // Re-selecting the committed tab mid-switch is not a change (Radix emits
+    // none), so the pending mark never lands on the tab that is already shown.
+    await act(async () => {
+      fireEvent.mouseDown(threadsTab, { button: 0, ctrlKey: false });
+    });
+    expect(threadsTab).not.toHaveAttribute('data-pending');
+    expect(promptsTab).toHaveAttribute('data-pending');
+
+    await act(async () => {
+      resolvePrompts();
+      await promptsReady;
+    });
+
+    await waitFor(() => {
+      expect(promptsTab).toHaveAttribute('data-state', 'active');
+    });
+    expect(promptsTab).not.toHaveAttribute('data-pending');
+    expect(screen.getByText('Prompts content')).toBeVisible();
   });
 
   it('preloads the database chunk when requested', async () => {
@@ -90,6 +177,10 @@ describe('AgentSidebarPanel', () => {
     await waitFor(() => {
       expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
     });
+    // Preloading also mounts the panel ahead of activation, hidden.
+    expect(screen.getByText('Database content')).toBeInTheDocument();
+    expect(screen.getByText('Database content')).not.toBeVisible();
+    expect(screen.getByTestId('database-tab-content')).toHaveAttribute('hidden');
   });
 
   it('prefetches the database chunk on pointer and keyboard intent', async () => {

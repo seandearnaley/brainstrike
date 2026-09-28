@@ -525,6 +525,36 @@ the Static CI job).
 
 ---
 
+## VIEW SWITCHERS (Tabs)
+
+A switcher over a fixed set of views (Library, Explorer|Search, Git, Settings
+Tools) is `Tabs` from `packages/ui/src/tabs.tsx`; document tab strips are not.
+
+- `TabsList size="sm"` sits in a 36px panel header (`h-9 border-b px-2`): 28px
+  track, 24px trigger, 12px/500. `size="md"` is for full pages: 36px track, 32px
+  trigger, 14px/500. Consumers add layout classes, never trigger geometry.
+- State changes colour, never weight; the selected trigger takes the page
+  surface (`bg-background`, `ring-border/70`) in both themes. Keep the compound
+  `focus-visible:data-[state=active]:` ring pair. Why: `data-*` variants sort
+  after `focus-visible`, so the selected ring would repaint the focus ring.
+- Activation is manual (the default): arrows move focus, Enter or Space selects.
+- `TabsContent` owns visibility: an inactive panel is always `hidden`;
+  `keepMounted` mounts on first activation and never unmounts; `forceMount`
+  mounts before that. Never hand-roll a latch around Radix `forceMount`. Why:
+  Radix `Presence` mounts an incoming panel in a sync layout-effect pass,
+  outside the switch's transition.
+- Use a transition only for a React-state value (Library): `startTransition`,
+  with `data-pending` on the incoming trigger. A store-backed switcher
+  (Explorer|Search) renders synchronously anyway.
+- No context menu (a switcher has no actions); each lazily loaded panel keeps
+  its own `Suspense` boundary.
+
+Guard: `packages/ui/src/__tests__/tabs.test.tsx`; in app-shell,
+`agent-sidebar-panel.test.tsx`, `explorer-search-tabs.test.tsx`,
+`git-panel.test.tsx`.
+
+---
+
 ## Motion
 
 Motion inside the assistant thread (`.assistant-ui-panel`) is CSS-only — no
