@@ -144,6 +144,14 @@ describe('AgentSidebarPanel', () => {
     expect(screen.getByText('Threads content')).toBeVisible();
     expect(screen.queryByText('Library fallback')).not.toBeInTheDocument();
 
+    // Re-selecting the committed tab mid-switch is not a change (Radix emits
+    // none), so the pending mark never lands on the tab that is already shown.
+    await act(async () => {
+      fireEvent.mouseDown(threadsTab, { button: 0, ctrlKey: false });
+    });
+    expect(threadsTab).not.toHaveAttribute('data-pending');
+    expect(promptsTab).toHaveAttribute('data-pending');
+
     await act(async () => {
       resolvePrompts();
       await promptsReady;
