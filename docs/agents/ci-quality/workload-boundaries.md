@@ -56,6 +56,16 @@ close hook is removed or runs after RTL cleanup. Keep this ownership local to
 the fixture: do not suppress unhandled exceptions, replace Event constructors,
 add global sleeps, or discard pending timers to make the suite pass.
 
+The September 28 BST-879 minimatch refresh hit the same failure in
+`indexing-status-item.test.tsx` (run `36362962548`, Unit heavy): all 253 files
+and 2,789 assertions passed, but an open popover's deferred FocusScope callback
+outlived its jsdom realm. That fixture now closes the actual Workspace Index
+popover with Escape and awaits its trigger focus in its own `afterEach`.
+Its regression leaves the popover open, records the trigger's real focus event,
+and checks completion in `afterAll`; without the hook, all 11 test bodies pass
+but the lifecycle suite fails. This is a separate fixture fix from the
+minimatch dependency resolution.
+
 ## Draft-to-ready does not rerun Test; plain workflows, no planner
 
 Draft PRs already run the full Test workflow on opened/synchronize. Marking a
