@@ -46,7 +46,13 @@ export function useTabStripFocus({
     });
   });
   const handleTablistPointerDown = useEventCallback((): void => {
+    // Focus from a press lands in the same task as pointerdown; clear the flag
+    // on the next frame so a press that yields NO focus (the mouse-only close
+    // button, Safari buttons) cannot suppress a later keyboard reveal.
     pointerFocusRef.current = true;
+    window.requestAnimationFrame(() => {
+      pointerFocusRef.current = false;
+    });
   });
   const handleTablistFocus = useEventCallback((event: FocusEvent<HTMLDivElement>): void => {
     const fromPointer = pointerFocusRef.current;

@@ -1,4 +1,4 @@
-import type { TabStripItem } from './types';
+import type { TabAppearance, TabStripItem } from './types';
 
 function areRecordsEqual(
   left: Readonly<Record<string, string>> | undefined,
@@ -34,6 +34,32 @@ const IDENTITY_KEYS = [
   'tooltip',
 ] as const satisfies readonly (keyof TabStripItem)[];
 
+/** `TabAppearance` fields, compared by identity inside the structural check. */
+const APPEARANCE_KEYS = [
+  'idleClassName',
+  'selectedClassName',
+  'style',
+] as const satisfies readonly (keyof TabAppearance)[];
+type UncomparedAppearanceKey = Exclude<keyof TabAppearance, (typeof APPEARANCE_KEYS)[number]>;
+const EVERY_APPEARANCE_FIELD_COMPARED: [UncomparedAppearanceKey] extends [never]
+  ? true
+  : UncomparedAppearanceKey = true;
+
+function areAppearancesEqual(
+  left: TabAppearance | undefined,
+  right: TabAppearance | undefined
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!(left && right)) {
+    return false;
+  }
+  return (
+    EVERY_APPEARANCE_FIELD_COMPARED && APPEARANCE_KEYS.every((key) => left[key] === right[key])
+  );
+}
+
 /** Fields compared structurally below. */
 type StructuralKey = 'appearance' | 'dataAttributes';
 
@@ -58,9 +84,7 @@ export function areTabStripItemsEqual(left: TabStripItem, right: TabStripItem): 
   return (
     EVERY_FIELD_COMPARED &&
     IDENTITY_KEYS.every((key) => left[key] === right[key]) &&
-    left.appearance?.idleClassName === right.appearance?.idleClassName &&
-    left.appearance?.selectedClassName === right.appearance?.selectedClassName &&
-    left.appearance?.style === right.appearance?.style &&
+    areAppearancesEqual(left.appearance, right.appearance) &&
     areRecordsEqual(left.dataAttributes, right.dataAttributes)
   );
 }

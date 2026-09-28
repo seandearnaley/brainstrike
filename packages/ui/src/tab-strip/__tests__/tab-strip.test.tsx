@@ -443,6 +443,14 @@ describe('TabStrip reveal', () => {
 
       tab('Tab c').focus();
       expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+      // A press that never produces focus (the mouse-only close button, or
+      // Safari buttons) must not leave the next keyboard focus unrevealed.
+      scrollIntoView.mockClear();
+      fireEvent.pointerDown(tab('Tab a'));
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      tab('Tab a').focus();
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
     } finally {
       Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
     }
