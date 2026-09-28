@@ -305,6 +305,10 @@ test('PR and exhaustive lanes use the same command apart from profile and output
 test('living contracts publish the exact local and CI commands', () => {
   // BST-1590: conformance prose lives in mcp-conformance.md, not the provider contract.
   const conformanceContract = readRepoFile('docs/agents/mcp-conformance.md');
+  assert.match(
+    conformanceContract,
+    /Runtime SDK versions match installed packages; fixture source tags and commits stay historical/u
+  );
   const ciContract = readRepoFile('docs/agents/ci-quality.md');
 
   for (const command of [representativeCommand, exhaustiveCommand]) {

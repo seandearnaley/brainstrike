@@ -115,4 +115,21 @@ host, sanitized manual CDT evidence, SECURITY.md/support-matrix changes, and
 production registration remain owner-gated and are not claimed here.
 
 The private artifact-integrity core reads each unique reference once and in
-order, passes an explicit positive byte limit to the reader, rejects an
+order, passes an explicit positive byte limit to the reader, and rejects an
+artifact above that limit before hashing or decoding it.
+
+## SDK 2.1 runtime alignment (2026-09-27)
+
+`MCP_LAB_SDK_VERSION` records the installed client/server release, now 2.1.0.
+The upstream fixture source remains the 2.0.0 tag and peeled commit above; its
+profile bytes did not change. These are separate authorities: advancing the
+runtime must not move historical fixture provenance to an unverified source.
+The scenario test compares installed packages to the runtime declaration, the
+built-package verifier checks both public entries, and valid evidence fixtures
+obtain their SDK version from the closed scenario manifest.
+
+The initial full lab unit run on SDK 2.1 failed because its runtime declaration
+still named 2.0.0. The SDK split-package boundary guard also retains an explicit
+lockstep assertion, now including `@modelcontextprotocol/core`. Fixture-advertised
+`serverInfo.version: '2.0.0'` is the Brainstrike-owned fixture identity, not the
+SDK package version, and remains unchanged.
