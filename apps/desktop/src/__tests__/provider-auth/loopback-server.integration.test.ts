@@ -1,5 +1,6 @@
-import { createServer, request as httpRequest, type Server } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { createServer, Server as HttpServer, request as httpRequest, type Server } from 'node:http';
+import { addLogListener } from '@brainstrike/logging';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isProviderAuthFlowCancelled, ProviderAuthFlowError } from '../../provider-auth/errors';
 import { startLoopbackServer } from '../../provider-auth/loopback-server';
 
@@ -81,6 +82,267 @@ function rawGet(
 }
 
 describe('startLoopbackServer', () => {
+  it('rejects a duplicate wait without replacing the original callback owner', async () => {
+    const handle = await start();
+    const first = handle.waitForCallback();
+    const firstOutcome = first.then(
+      (value) => value,
+      (error: unknown) => error
+    );
+    let duplicateSettled = false;
+    const duplicate = captureRejection(handle.waitForCallback()).then((error) => {
+      duplicateSettled = true;
+      return error;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(duplicateSettled).toBe(true);
+    await expect(duplicate).resolves.toMatchObject({ code: 'flow_failed' });
+    const response = await fetch(`${handle.redirectUri}?code=original-owner&state=expected-state`);
+    await response.text();
+    await expect(firstOutcome).resolves.toEqual({ code: 'original-owner' });
+  });
+
+  it('joins the original server close from every concurrent close call', async () => {
+    const handle = await start();
+    const originalClose = HttpServer.prototype.close;
+    let releaseClose: (() => void) | undefined;
+    const closeSpy = vi.spyOn(HttpServer.prototype, 'close').mockImplementation(function (
+      this: Server,
+      callback?: (error?: Error) => void
+    ): Server {
+      expect(this.listenerCount('error')).toBe(0);
+      return originalClose.call(this, (error?: Error) => {
+        releaseClose = () => callback?.(error);
+      });
+    });
+    const first = handle.close();
+    let secondCompleted = false;
+    const second = handle.close().then(() => {
+      secondCompleted = true;
+    });
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(releaseClose).toBeTypeOf('function');
+      expect(secondCompleted).toBe(false);
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseClose?.();
+      closeSpy.mockRestore();
+      await Promise.all([first, second]);
+    }
+    await expect(fetch(handle.redirectUri)).rejects.toThrow();
+  });
+
+  it('keeps an early callback terminal and rejects a later wait with the existing error', async () => {
+    const handle = await start();
+    const response = await fetch(`${handle.redirectUri}?code=early-code&state=expected-state`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('Authorization successful');
+    await expect(handle.waitForCallback()).rejects.toMatchObject({
+      code: 'flow_failed',
+      message: 'Loopback callback wait already settled.',
+    });
+    await handle.close();
+    await expect(fetch(handle.redirectUri)).rejects.toThrow();
+  });
+
+  it('cancel before a wait closes the listener and keeps the settled-wait error', async () => {
+    const handle = await start();
+    handle.cancel();
+    await handle.close();
+    await expect(handle.waitForCallback()).rejects.toMatchObject({
+      code: 'flow_failed',
+      message: 'Loopback callback wait already settled.',
+    });
+    await expect(fetch(handle.redirectUri)).rejects.toThrow();
+  });
+
+  it('close cancels the active wait and joins listener shutdown and timer release', async () => {
+    const handle = await start({ timeoutMs: 10_000 });
+    const scheduleTimer = vi.spyOn(globalThis, 'setTimeout');
+    const clearTimer = vi.spyOn(globalThis, 'clearTimeout');
+    const outcome = captureRejection(handle.waitForCallback());
+    const ownedTimerIndex = scheduleTimer.mock.calls.findIndex(([, delay]) => delay === 10_000);
+    const ownedTimer = scheduleTimer.mock.results[ownedTimerIndex]?.value;
+    try {
+      expect(ownedTimerIndex).toBeGreaterThanOrEqual(0);
+      expect(ownedTimer).toBeDefined();
+      await handle.close();
+      expect(clearTimer).toHaveBeenCalledWith(ownedTimer);
+      await expect(outcome).resolves.toSatisfy(isProviderAuthFlowCancelled);
+    } finally {
+      clearTimer.mockRestore();
+      scheduleTimer.mockRestore();
+    }
+    await expect(fetch(handle.redirectUri)).rejects.toThrow();
+  });
+
+  it('timeout owns the terminal outcome when cancel and close arrive afterward', async () => {
+    const handle = await start({ timeoutMs: 20 });
+    const outcome = captureRejection(handle.waitForCallback());
+    const error = await outcome;
+    handle.cancel();
+    await handle.close();
+    expect(error).toMatchObject({
+      code: 'callback_timeout',
+      message: 'OAuth callback was not received within 20ms.',
+    });
+    await expect(fetch(handle.redirectUri)).rejects.toThrow();
+  });
+
+  it('allows repeated cancel and close after the wait rejects as cancelled', async () => {
+    const handle = await start({ timeoutMs: 20 });
+    const outcome = captureRejection(handle.waitForCallback());
+    handle.cancel();
+    const error = await outcome;
+    handle.cancel();
+    await Promise.all([handle.close(), handle.close()]);
+    expect(isProviderAuthFlowCancelled(error)).toBe(true);
+  });
+
+  it('a completed callback remains successful when cancellation arrives afterward', async () => {
+    const handle = await start();
+    const pending = handle.waitForCallback();
+    const response = await fetch(`${handle.redirectUri}?code=winner&state=expected-state`);
+    expect(await response.text()).toContain('Authorization successful');
+    const result = await pending;
+    handle.cancel();
+    await handle.close();
+    expect(result).toEqual({ code: 'winner' });
+    await expect(handle.waitForCallback()).rejects.toThrow('already settled');
+  });
+
+  it('rejects duplicate waits without replacing the original timeout owner', async () => {
+    const handle = await start({ timeoutMs: 20 });
+    const original = captureRejection(handle.waitForCallback());
+    await expect(handle.waitForCallback()).rejects.toThrow('already in progress');
+    await expect(handle.waitForCallback()).rejects.toThrow('already in progress');
+    await expect(original).resolves.toMatchObject({ code: 'callback_timeout' });
+    await handle.close();
+  });
+
+  it('removes the acquisition error listener when listen throws synchronously', async () => {
+    const originalClose = HttpServer.prototype.close;
+    const errorListenerCounts: number[] = [];
+    const closeSpy = vi.spyOn(HttpServer.prototype, 'close').mockImplementation(function (
+      this: Server,
+      callback?: (error?: Error) => void
+    ): Server {
+      errorListenerCounts.push(this.listenerCount('error'));
+      return originalClose.call(this, callback);
+    });
+    try {
+      await expect(start({ port: -1 })).rejects.toBeInstanceOf(RangeError);
+      expect(errorListenerCounts).toEqual([0]);
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      closeSpy.mockRestore();
+    }
+  });
+
+  it('retains acquisition and cleanup failures together when both fail', async () => {
+    const cleanupError = new Error('synthetic close failure');
+    const originalClose = HttpServer.prototype.close;
+    const closeSpy = vi.spyOn(HttpServer.prototype, 'close').mockImplementation(function (
+      this: Server,
+      callback?: (error?: Error) => void
+    ): Server {
+      return originalClose.call(this, () => callback?.(cleanupError));
+    });
+    try {
+      const error = await captureRejection(start({ port: -1 }));
+      expect(error).toBeInstanceOf(AggregateError);
+      if (!(error instanceof AggregateError)) {
+        throw new Error('expected acquisition and cleanup failure');
+      }
+      expect(error.errors[0]).toBeInstanceOf(RangeError);
+      expect(error.errors[1]).toBe(cleanupError);
+      expect(error.message).toBe('Provider OAuth loopback acquisition and cleanup failed.');
+    } finally {
+      closeSpy.mockRestore();
+    }
+  });
+
+  it('every close caller observes a cleanup failure and automatic cleanup logs no token material', async () => {
+    const handle = await start();
+    // This fixture deliberately fails close, so its failure is asserted here.
+    openHandles.splice(openHandles.indexOf(handle), 1);
+    const secret = 'sensitive-callback-code-not-for-logs';
+    const cleanupError = new Error(secret);
+    const originalClose = HttpServer.prototype.close;
+    const records: string[] = [];
+    const removeLogListener = addLogListener((record) => records.push(JSON.stringify(record)));
+    const closeSpy = vi.spyOn(HttpServer.prototype, 'close').mockImplementation(function (
+      this: Server,
+      callback?: (error?: Error) => void
+    ): Server {
+      return originalClose.call(this, () => callback?.(cleanupError));
+    });
+    const outcome = captureRejection(handle.waitForCallback());
+    try {
+      const first = captureRejection(handle.close());
+      const second = captureRejection(handle.close());
+      await expect(first).resolves.toBe(cleanupError);
+      await expect(second).resolves.toBe(cleanupError);
+      await expect(outcome).resolves.toSatisfy(isProviderAuthFlowCancelled);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+      const cleanupRecords = records.filter((record) =>
+        record.includes('Provider OAuth loopback listener cleanup failed')
+      );
+      expect(cleanupRecords).toHaveLength(1);
+      expect(cleanupRecords.join('')).not.toContain(secret);
+    } finally {
+      removeLogListener();
+      closeSpy.mockRestore();
+    }
+    await expect(fetch(handle.redirectUri)).rejects.toThrow();
+  });
+
+  it('joins the close callback even when dropping connections throws and retains both failures', async () => {
+    const handle = await start();
+    openHandles.splice(openHandles.indexOf(handle), 1);
+    const callbackError = new Error('close callback failure');
+    const connectionsError = new Error('close connections failure');
+    const originalClose = HttpServer.prototype.close;
+    let releaseClose: (() => void) | undefined;
+    const closeSpy = vi.spyOn(HttpServer.prototype, 'close').mockImplementation(function (
+      this: Server,
+      callback?: (error?: Error) => void
+    ): Server {
+      return originalClose.call(this, () => {
+        releaseClose = () => callback?.(callbackError);
+      });
+    });
+    const connectionsSpy = vi
+      .spyOn(HttpServer.prototype, 'closeAllConnections')
+      .mockImplementation(() => {
+        throw connectionsError;
+      });
+    let completed = false;
+    const outcome = captureRejection(handle.close()).then((error) => {
+      completed = true;
+      return error;
+    });
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(releaseClose).toBeTypeOf('function');
+      expect(completed).toBe(false);
+      expect(connectionsSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseClose?.();
+      closeSpy.mockRestore();
+      connectionsSpy.mockRestore();
+    }
+    const error = await outcome;
+    expect(error).toBeInstanceOf(AggregateError);
+    if (!(error instanceof AggregateError)) {
+      throw new Error('expected both listener cleanup failures');
+    }
+    expect(error.errors).toEqual([callbackError, connectionsError]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
+
   it('resolves the authorization code and serves the branded success page with hardened headers', async () => {
     const handle = await start();
     const pending = handle.waitForCallback();

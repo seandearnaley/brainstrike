@@ -693,3 +693,20 @@ test('renderer startup adopts Effect retry and always finalizes readiness waits'
     /effect-boundary\/renderer-startup\.md/u
   );
 });
+
+test('provider OAuth loopback scope owns the listener and one callback wait', () => {
+  const contract = readRepoFile('docs/agents/effect-boundary.md');
+  const source = readRepoFile('apps/desktop/src/provider-auth/loopback-server.ts');
+  assert.match(contract, /Provider OAuth loopback Scope owns listener cleanup/u);
+  assert.match(contract, /effect-boundary\/provider-loopback-scope\.md/u);
+  assert.match(source, /Deferred\.makeUnsafe<LoopbackCallbackResult, Error>/u);
+  assert.match(source, /Deferred\.await\(callback\)/u);
+  assert.match(source, /Scope\.addFinalizer\(/u);
+  assert.match(source, /Scope\.close\(scope, Exit\.void\)/u);
+  assert.match(source, /Effect\.acquireRelease\(/u);
+  assert.match(source, /Promise\.allSettled\(\[closing, connections\]\)/u);
+  assert.match(source, /await waitCleanup/u);
+  assert.match(source, /Loopback callback wait already in progress/u);
+  assert.match(source, /runAtPromiseBoundary\(/u);
+  assert.doesNotMatch(source, /interface PendingWait|let pending: PendingWait/u);
+});

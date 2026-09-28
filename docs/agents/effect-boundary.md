@@ -49,10 +49,10 @@ Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`,
 - Retry token-cache transactions with `Effect.retry` and a bounded `Schedule`:
   preserve rollback, failure identity and logs; reject out-of-range delays.
 - Provider auth and assistant provider probes bound fetch and body reading together; cancellation aborts fetch and polling sleeps, preserving typed failures, verdicts and cache provenance.
-- The MCP OAuth callback Scope owns listener teardown; each wait uses `Effect.ensuring` for timer cleanup, and close joins all active waits.
+- The MCP OAuth callback Scope owns listener teardown; each wait uses `Effect.ensuring` for timer cleanup, and close joins all active waits. Provider OAuth loopback Scope owns listener cleanup; reject duplicate waits, and close joins its callback timer and both socket cleanup operations.
 - Embedding admission reserves partial permits transactionally; abort only capacity waits, never committed grants.
 
-Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`, `effect-boundary/mcp-oauth-callback-scope.md`, `effect-boundary/embedding-admission-permits.md`.
+Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`, `effect-boundary/mcp-oauth-callback-scope.md`, `effect-boundary/embedding-admission-permits.md`, `effect-boundary/provider-loopback-scope.md`.
 Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`, `timeout.test.ts`, `shutdown-sequence.test.ts`, `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
 ### Desktop composition refactors
