@@ -31,7 +31,6 @@ Layers:
   from the preload — sandboxed preloads (sandbox is on outside test mode)
   cannot require it, which silently breaks every write on real builds.
 
-
 ---
 
 - **2026-09-27: workspace app tabs gain a context menu (BST-1839, BST-1836 D4).**
