@@ -147,17 +147,24 @@ export function useAssistantUsageLedger({
   // terminal status; 'completed' rides handleUsage's own post-refresh clear.
   // Thread attribution uses the CURRENT selection — a mid-run thread switch
   // could miss, acceptable for a transient display sum.
+  //
+  // The thread list is refreshed here, once the run row's TERMINAL write has
+  // settled (BST-1844): the finished/failed badge reads `latestRun` from that
+  // list, and the only earlier refresh (`handleUsage`, from the usage tap) fires
+  // before this write and reads the row still `running`. A failed write skips
+  // the refresh: nothing changed to read.
   const completeRequestAndSettleLiveUsage = useCallback<CompletePreparedRequest>(
     async (preparedRequestData, status, error, hostOwnsRun) => {
       try {
         await completePreparedRequest(preparedRequestData, status, error, hostOwnsRun);
+        refreshThreadsAfterRun();
       } finally {
         if (status !== 'completed') {
           clearThreadLiveRunUsage();
         }
       }
     },
-    [clearThreadLiveRunUsage, completePreparedRequest]
+    [clearThreadLiveRunUsage, completePreparedRequest, refreshThreadsAfterRun]
   );
 
   // Run-start reset (review fix): the run about to be composed owns this
