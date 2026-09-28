@@ -373,7 +373,7 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   idle backoff, inter-batch delay, claim-size retry, or error backoff, and a
   stopped permit waiter returns before claiming a job. The stop signal does not
   cancel an embedding already executing.
-- Parser host Stop joins every owned generation’s exit and listeners; a failed kill remains visible and retryable, blocks parsing on that generation, and never acknowledges successful cleanup.
+- Parser host Stop joins every owned generation’s exit and listeners with a 500ms caller wait; timeout rejects while actual cleanup stays owned. A failed kill remains visible and retryable, blocks parsing on that generation, and never acknowledges successful cleanup.
 - The assistant HTTP server's stop ends live connections after `close()`; an
   already-closed listener (`ERR_SERVER_NOT_RUNNING`) is a successful repeated
   stop and other close failures stay visible. Why: plain `server.close()` waits

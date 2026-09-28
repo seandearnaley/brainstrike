@@ -15,7 +15,7 @@
  * See: docs/prd-chunking-wasm-parser-2026-05.md §4
  */
 
-import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
+import { runAtPromiseBoundary, runWithTimeout } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
 import { Effect, Exit, Scope } from 'effect';
 import { type UtilityProcess, utilityProcess } from 'electron';
@@ -26,12 +26,15 @@ import { createHostRequestChannel, type HostRequestChannel } from './platform/ho
 
 const logger = createLogger('ParserHostManager');
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_STOP_TIMEOUT_MS = 500;
 
 export interface ParserHostManagerOptions {
   /** Path to the parser-host-entry.js bundled output. Defaults to a sibling lookup. */
   readonly entryPath?: string;
   /** Per-request timeout in milliseconds. */
   readonly requestTimeoutMs?: number;
+  /** Maximum caller wait for Stop; owned cleanup continues until actual exit. */
+  readonly stopTimeoutMs?: number;
 }
 
 export function resolveParserHostEntryPath(currentModuleFilename?: string): string {
@@ -97,11 +100,16 @@ interface ParserGeneration {
 export class ParserHostManager {
   readonly #entryPath: string;
   readonly #requestTimeoutMs: number;
+  readonly #stopTimeoutMs: number;
   #current: ParserGeneration | null = null;
   readonly #owned = new Set<ParserGeneration>();
   readonly #requests: HostRequestChannel<ParserHostParseRequest, ParserHostParseResponse>;
 
   constructor(options: ParserHostManagerOptions = {}) {
+    this.#stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
+    if (!(Number.isFinite(this.#stopTimeoutMs) && this.#stopTimeoutMs > 0)) {
+      throw new RangeError('parser host stopTimeoutMs must be positive and finite');
+    }
     this.#entryPath = options.entryPath ?? resolveParserHostEntryPath();
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.#requests = createHostRequestChannel<ParserHostParseRequest, ParserHostParseResponse>({
@@ -148,9 +156,17 @@ export class ParserHostManager {
     // Each call includes detached generations still closing, plus any replacement.
     const generations = [...this.#owned];
     this.#requests.rejectAll(new Error('parser host stopped'));
-    const outcomes = await Promise.allSettled(
+    if (generations.length === 0) {
+      return;
+    }
+    // Initiate kill synchronously; only the caller wait is bounded, never Scope.close.
+    const closing = Promise.allSettled(
       generations.map((generation) => this.#stopGeneration(generation))
     );
+    const outcomes = await runWithTimeout(() => closing, {
+      onTimeout: () => new Error(`parser host stop timeout after ${this.#stopTimeoutMs}ms`),
+      timeoutMs: this.#stopTimeoutMs,
+    });
     const failures = outcomes.flatMap((outcome) =>
       outcome.status === 'rejected' ? [outcome.reason as unknown] : []
     );
@@ -286,7 +302,9 @@ export class ParserHostManager {
       })
     );
     void generation.setup.catch((error: unknown) => {
-      generation.state = 'stop-failed';
+      if (generation.state === 'live') {
+        generation.state = 'stop-failed';
+      }
       if (this.#current === generation) {
         this.#requests.rejectAll(error instanceof Error ? error : new Error(String(error)));
       }

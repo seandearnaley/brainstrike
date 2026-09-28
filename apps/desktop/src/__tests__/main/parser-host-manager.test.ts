@@ -44,7 +44,6 @@ vi.mock('electron', () => ({
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
-  actual.configureLogger({ console: false });
   return {
     ...actual,
     createLogger: (scope: string) => ({
@@ -86,6 +85,17 @@ describe('ParserHostManager', () => {
   afterEach(() => {
     vi.resetModules();
   });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid stop timeout %s',
+    async (stopTimeoutMs) => {
+      const { ParserHostManager } = await import('../../parser-host-manager');
+      expect(() => new ParserHostManager({ entryPath: '/fake/entry.js', stopTimeoutMs })).toThrow(
+        'parser host stopTimeoutMs must be positive and finite'
+      );
+      expect(forkMock).not.toHaveBeenCalled();
+    }
+  );
 
   it('joins process exit before stop resolves and removes its listeners', async () => {
     const { ParserHostManager } = await import('../../parser-host-manager');
