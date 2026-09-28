@@ -1266,7 +1266,7 @@ describe('GitPanel', () => {
     render(<GitPanel />);
 
     const tablist = await screen.findByRole('tablist', { name: 'Changes and history' });
-    const changesTab = within(tablist).getByRole('tab', { name: /Changes/ });
+    const changesTab = within(tablist).getByRole('tab', { name: 'Changes, 3 changed files' });
     const historyTab = within(tablist).getByRole('tab', { name: 'History' });
     // Same `sm` switcher and 36px header row as Library and Explorer|Search.
     expect(tablist).toHaveAttribute('data-size', 'sm');
@@ -1275,7 +1275,7 @@ describe('GitPanel', () => {
     // The changed-file count stays inside the Changes trigger.
     expect(within(changesTab).getByText('3')).toBeInTheDocument();
     // Roving tabindex: focus entering the list lands on the selected tab.
-    tablist.focus();
+    act(() => tablist.focus());
     expect(changesTab).toHaveFocus();
     expect(historyTab).toHaveAttribute('tabindex', '-1');
 

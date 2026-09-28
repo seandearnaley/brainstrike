@@ -1,5 +1,5 @@
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -76,7 +76,7 @@ describe('ExplorerSearchTabs', () => {
     const user = userEvent.setup();
     render(<ExplorerSearchTabs />);
 
-    screen.getByRole('tab', { name: 'Explorer' }).focus();
+    act(() => screen.getByRole('tab', { name: 'Explorer' }).focus());
     await user.keyboard('{ArrowRight}');
 
     // Manual activation: focus roves without selecting, so the expensive

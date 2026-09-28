@@ -39,9 +39,19 @@ export function GitWorkbenchTabs({
           <TabsTrigger value="changes">
             Changes
             {changedFiles > 0 ? (
-              <span className="rounded-full bg-foreground/10 px-1.5 text-[10px] tabular-nums leading-4">
-                {changedFiles}
-              </span>
+              <>
+                {/* Visual count only; the sr-only text names it, so the tab reads
+                    "Changes, 3 changed files" rather than "Changes3". */}
+                <span
+                  aria-hidden="true"
+                  className="rounded-full bg-foreground/10 px-1.5 text-[10px] tabular-nums leading-4"
+                >
+                  {changedFiles}
+                </span>
+                <span className="sr-only">
+                  {`, ${changedFiles} changed ${changedFiles === 1 ? 'file' : 'files'}`}
+                </span>
+              </>
             ) : null}
           </TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>

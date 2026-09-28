@@ -88,7 +88,7 @@ describe('AgentSidebarPanel', () => {
       />
     );
 
-    screen.getByRole('tab', { name: 'Threads' }).focus();
+    act(() => screen.getByRole('tab', { name: 'Threads' }).focus());
     await user.keyboard('{ArrowRight}');
 
     const collectionsTab = screen.getByRole('tab', { name: 'Collections' });

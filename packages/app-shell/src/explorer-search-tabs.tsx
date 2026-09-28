@@ -106,7 +106,6 @@ export function ExplorerSearchTabs({
         className="min-h-0 flex-1"
         data-testid="explorer-search-panel-explorer"
         forceMount
-        keepMounted
         value="explorer"
       >
         <FileExplorerPanel rootActions={rootActions} selectionActions={importAction} />

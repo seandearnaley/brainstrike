@@ -219,7 +219,7 @@ describe('Tabs', () => {
 
       const one = screen.getByRole('tab', { name: 'One' });
       const two = screen.getByRole('tab', { name: 'Two' });
-      one.focus();
+      act(() => one.focus());
       await user.keyboard('{ArrowRight}');
 
       expect(two).toHaveFocus();
@@ -248,7 +248,7 @@ describe('Tabs', () => {
         </Tabs>
       );
 
-      screen.getByRole('tab', { name: 'One' }).focus();
+      act(() => screen.getByRole('tab', { name: 'One' }).focus());
       await user.keyboard('{ArrowRight}');
 
       expect(screen.getByRole('tab', { name: 'Two' })).toHaveAttribute('aria-selected', 'true');
