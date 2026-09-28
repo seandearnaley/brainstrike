@@ -286,21 +286,76 @@ describe('createFileTreeWorkerPort', () => {
     port.terminate();
   });
 
-  it('public abort does not cancel a replacement admitted by an abort callback', async () => {
+  it.each(['signal', 'transport'] as const)(
+    'public abort orders %s replacement after remote cancellation',
+    async (mode) => {
+      const worker = new MockWorker();
+      const port = createFileTreeWorkerPort(worker as unknown as Worker);
+      const held = createDeferred<BatchLoadResult[]>();
+      let replacement: ReturnType<typeof port.loadPaths> | undefined;
+      let replacementSignal: AbortSignal | undefined;
+      const admit = (): void => {
+        replacement = port.loadPaths(['/replacement']);
+        worker.emit({
+          operationId: 2,
+          payload: { paths: ['/replacement'], requestId: 'new' },
+          type: 'requestLoad',
+        });
+      };
+      port.onRequestLoad((id, _paths, signal) => {
+        if (id === 'new') {
+          replacementSignal = signal;
+        } else if (mode === 'signal') {
+          signal.addEventListener('abort', admit, { once: true });
+        }
+        return held.promise;
+      });
+      const first = port.loadPaths(['/first']);
+      const rejected = expect(first).rejects.toThrow('Operation aborted');
+      worker.emit({
+        operationId: 1,
+        payload: { paths: ['/first'], requestId: 'held' },
+        type: 'requestLoad',
+      });
+      if (mode === 'transport') {
+        vi.spyOn(worker, 'postMessage').mockImplementationOnce((message) => {
+          worker.postedMessages.push(message);
+          admit();
+        });
+      }
+      port.abort();
+      await rejected;
+      expect(worker.postedMessages.map((message) => message.type)).toEqual([
+        'loadPaths',
+        'abort',
+        'loadPaths',
+      ]);
+      expect(replacementSignal?.aborted).toBe(false);
+      worker.emit({
+        operationId: 2,
+        payload: { expandedPaths: [], loadedCount: 1 },
+        type: 'complete',
+      });
+      await expect(replacement).resolves.toMatchObject({ loadedCount: 1 });
+      held.resolve([{ children: [], path: '/replacement' }]);
+      await flushMicrotasks();
+      expect(worker.postedMessages.filter((message) => message.type === 'loadResult')).toEqual([
+        { payload: { children: [], path: '/replacement', requestId: 'new' }, type: 'loadResult' },
+      ]);
+      port.terminate();
+    }
+  );
+
+  it('cleans captured request loads when public abort posting throws', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
     const held = createDeferred<BatchLoadResult[]>();
-    let replacement: ReturnType<typeof port.loadPaths> | undefined;
-    port.onRequestLoad((_id, _paths, signal) => {
-      signal.addEventListener(
-        'abort',
-        () => {
-          replacement = port.loadPaths(['/replacement']);
-        },
-        { once: true }
-      );
+    let signal: AbortSignal | undefined;
+    port.onRequestLoad((_id, _paths, value) => {
+      signal = value;
       return held.promise;
     });
+    const failure = { message: 'abort send failed' };
     const first = port.loadPaths(['/first']);
     const rejected = expect(first).rejects.toThrow('Operation aborted');
     worker.emit({
@@ -308,18 +363,17 @@ describe('createFileTreeWorkerPort', () => {
       payload: { paths: ['/first'], requestId: 'held' },
       type: 'requestLoad',
     });
-    port.abort();
-    await rejected;
-    expect(worker.postedMessages.map((message) => message.type)).toEqual([
-      'loadPaths',
-      'loadPaths',
-    ]);
-    worker.emit({
-      operationId: 2,
-      payload: { expandedPaths: [], loadedCount: 1 },
-      type: 'complete',
+    vi.spyOn(worker, 'postMessage').mockImplementationOnce(() => {
+      throw failure;
     });
-    await expect(replacement).resolves.toMatchObject({ loadedCount: 1 });
+    try {
+      port.abort();
+      throw new Error('Expected throw');
+    } catch (error) {
+      expect(error).toBe(failure);
+    }
+    expect(signal?.aborted).toBe(true);
+    await rejected;
     held.resolve([]);
     port.terminate();
   });

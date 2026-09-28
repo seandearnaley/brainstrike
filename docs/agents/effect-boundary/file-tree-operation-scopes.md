@@ -76,3 +76,48 @@ pnpm --filter @brainstrike/desktop test:e2e e2e/file-explorer-selection.desktop.
 ## Final publication base
 
 Folded once onto parser merge `ee73b9bba4fb3d8d73342700564b581d88a40233`, preserving both parser and file-tree contracts and guards at the 105-line contract budget. The fold changes no file-tree source or tests. Frozen installation, all 151 package tests, production TypeScript, strict Effect diagnostics across 18 files, the isolated changed-port-test TypeScript check, and the combined 30-test guard suite pass. The additional guard is the merged parser ownership guard. A fresh desktop build validates the parser base and passes its renderer cycle check; renderer measurements remain identical to the final rc.118 candidate above. Web and worker source/dependencies are unchanged, so their recorded build, size and real-worker E2E proofs remain applicable. The lockfile delta against the merged base is still only nine file-tree importer lines.
+
+## Public-abort review correction
+
+The completed initial review found that skipping the remote abort after a
+signal callback admits a replacement leaves the old worker operation running.
+A new ordering regression fails on the reviewed head (one failure, 151 passes).
+Public abort now snapshots and detaches old request-load controllers before
+posting or calling user callbacks, rejects the pending owner, and posts remote
+abort before invoking the captured controllers' abort callbacks. Controller
+cleanup runs in finally even if runtime failure or posting throws; arbitrary
+posting failures keep their synchronous thrown identity.
+
+Signal-callback and transport-post reentry both prove the worker receives
+loadPaths, abort, loadPaths in that order. The replacement's request-load signal
+stays live and its result completes, while old results remain detached. A
+posting-failure test proves captured native work is aborted even when posting
+throws. This replaces the earlier epoch-skip public-abort policy; supersession,
+termination admission and scoped first-outcome ownership remain unchanged.
+
+The correction passes 153 package tests in nine files, production TypeScript,
+strict diagnostics on 18/18 files with zero diagnostics, the isolated port-test
+TypeScript check, and all 30 contract guards. Removing the public-abort map
+clear makes the paired guard fail; restoration returns it to green. Fresh
+49-task dependency, package, desktop renderer and web builds pass, including
+cross-chunk cycle checks. The new final size totals, compared with the same
+saved rc.118 SDK baseline, are:
+
+| Output | Candidate JS files | Candidate raw / gzip bytes | Raw / gzip delta |
+| --- | ---: | ---: | ---: |
+| File-tree package | 2 | 104410 / 24394 | +1797 / +468 |
+| Desktop renderer | 400 | 22735720 / 5259596 | +3887 / +1245 |
+| Web | 415 | 17880824 / 4975149 | +3344 / +1311 |
+| Desktop startup closure | 81 | 10343206 / 2233517 | +3863 / +1239 |
+| Web startup closure | 3 | 16792 / 6818 | 0 / +1 |
+
+The actual file-tree worker entry remains unchanged. Web startup retains its
+three-file static graph and unchanged raw total; gzip varies with hashed import
+filenames. No latency claim is made.
+
+Both existing real module-Worker Electron regressions pass again on the correction
+(25.7s including setup, one worker and zero retries). Full-tree Ultracite applies
+no fixes and reports only the existing 15 warnings. Package ordering remains as
+formatted. The broad port-level no-Promise structural assertion is retained as a
+nonblocking review nit; ownership regressions and the scoped-owner guard provide
+the decisive behavior proof, and no unrelated Promise path is added here.

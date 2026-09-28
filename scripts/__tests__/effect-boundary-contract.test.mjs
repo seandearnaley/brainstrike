@@ -826,7 +826,10 @@ test('file-tree bulk operations own one scoped pending entry and retain the Prom
   assert.match(source, /Effect\.scoped/u);
   assert.match(source, /pending\.operation === owner/u);
   assert.match(source, /pending\.operation !== owner/u);
-  assert.match(source, /operationIdCounter !== operationEpoch/u);
+  assert.match(
+    source,
+    /abort\(\) \{\s*const controllers = \[\.\.\.activeRequestLoads\.values\(\)\];\s*activeRequestLoads\.clear\(\)/u
+  );
   assert.match(source, /terminated = true/u);
   assert.match(source, /runAtPromiseBoundary\(operation\)/u);
   assert.equal((source.match(/return runOperation\(/gu) ?? []).length, 3);

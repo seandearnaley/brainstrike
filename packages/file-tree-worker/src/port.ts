@@ -539,18 +539,17 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
   return {
     abort() {
-      const operationEpoch = operationIdCounter;
-      if (pending.operation) {
-        pending.operation.reject(new Error('Operation aborted'));
+      const controllers = [...activeRequestLoads.values()];
+      activeRequestLoads.clear();
+      rejectPendingOperation(new Error('Operation aborted'));
+      try {
+        runtime.throwIfFailed();
+        transport.postMessage({ type: 'abort' } satisfies MainToWorkerMessage);
+      } finally {
+        for (const controller of controllers) {
+          controller.abort(new DOMException('Operation aborted', 'AbortError'));
+        }
       }
-      abortActiveRequestLoads(new DOMException('Operation aborted', 'AbortError'));
-      runtime.throwIfFailed();
-      if (operationIdCounter !== operationEpoch) {
-        return;
-      }
-      transport.postMessage({
-        type: 'abort',
-      } satisfies MainToWorkerMessage);
     },
 
     collapseAll() {
