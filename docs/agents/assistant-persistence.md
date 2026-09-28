@@ -1618,17 +1618,17 @@ Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
   — that transient absence is never an unbound thread. A terminal database
   initialization error always outranks the transient loading reason.
 - The non-reloading **Clear Database** path deletes `mastra_threads`, so its
-  composition must synchronously reset the thread and thread-groups stores
-  immediately after the clear succeeds and before collection reloads.
-  `DatabaseDemoPanel` requires and preflights that callback; capability absence
-  blocks the clear visibly. Both stores invalidate in-flight hydration generations
-  during reset.
+  composition must synchronously reset the thread and thread-groups stores immediately
+  after the clear succeeds and before collection reloads. `DatabaseDemoPanel` requires
+  and preflights that callback; capability absence blocks the clear visibly. Both
+  stores invalidate in-flight hydration generations during reset.
 
 Evidence: `assistant-persistence/assistant-thread-tabs.md`.
 Guard: `packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`,
 `packages/app-shell/src/__tests__/database-demo-panel.test.tsx`,
-`assistant-thread-tabs-workspace.test.tsx`, `use-assistant-thread-root-binding.test.ts`;
-the live customize-and-reload contract is `apps/web/e2e/assistant-ui-panel.test.ts`.
+`assistant-thread-tabs-workspace.test.tsx`, `use-assistant-thread-root-binding.test.ts`,
+`assistant-thread-tabs-workspace-status.test.tsx`; the live customize-and-reload
+contract is `apps/web/e2e/assistant-ui-panel.test.ts`.
 
 ---
 

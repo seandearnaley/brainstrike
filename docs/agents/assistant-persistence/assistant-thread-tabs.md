@@ -69,7 +69,6 @@ Paired tests: `assistant-thread-store.test.ts`,
 `use-assistant-thread-root-binding.test.ts`; the live customize-and-reload browser
 contract is `apps/web/e2e/assistant-ui-panel.test.ts`.
 
-
 ## 2026-09-27: TabStrip migration (BST-1838)
 
 The hand-rolled controller above (automatic activation, 56px of scroll chevrons,
