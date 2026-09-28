@@ -42,15 +42,14 @@ import {
   ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
   THREAD_CONTROL_ACTION_CLASS_NAME,
-  THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_TITLE_CLASS_NAME,
   type ThreadRowStatusState,
 } from './assistant-thread-presentation';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { ThreadColorFamilyPreview } from './thread-color-family-preview';
+import { ThreadIdentityMark } from './thread-identity-mark';
 import { ThreadExpandedDetails, ThreadMetadataBadges } from './thread-row-metadata';
-import { ThreadRowStatusGlyph } from './thread-row-status-glyph';
 import { ThreadRowDndShell } from './threads-panel-dnd-elements';
 
 function getThreadIconId(thread: AssistantMemoryThread): AssistantThreadIconId {
@@ -869,28 +868,6 @@ function ThreadRowDisplay({
       ) : null}
       {expanded ? <ThreadExpandedDetails thread={thread} /> : null}
     </>
-  );
-}
-
-function ThreadIdentityMark({
-  status,
-  thread,
-}: {
-  readonly status: ThreadRowStatusState | null;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const iconId = getThreadIconId(thread);
-  const colorId = getThreadColorId(thread);
-  const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
-  const colorConfig = getThreadColorConfig(thread);
-  return (
-    <span
-      className={`relative ${THREAD_CONTROL_MARK_CLASS_NAME} ${colorConfig.markClassName}`}
-      data-testid={`thread-color-${colorId ?? 'unassigned'}`}
-    >
-      <Icon className="size-3" data-testid={`thread-icon-${iconId}`} />
-      <ThreadRowStatusGlyph state={status} title={thread.title} />
-    </span>
   );
 }
 
