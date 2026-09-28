@@ -1,4 +1,9 @@
-/* Real Tailwind for the browser lane: the app's tokens plus this package's classes. */
+/*
+ * Real Tailwind for the browser lane: utilities + this package's classes, so
+ * painted GEOMETRY is real. Colour utilities (bg-background, ring-ring, …)
+ * emit nothing here: the `--color-*` theme mapping lives in the app entry, not
+ * in ui's globals.css. Colour is verified on the built app, not in this lane.
+ */
 @import "tailwindcss";
 @import "../../globals.css";
 @source "../";
