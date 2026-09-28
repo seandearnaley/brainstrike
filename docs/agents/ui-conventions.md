@@ -286,6 +286,46 @@ Guard: `thread-row.test.tsx`.
 
 Evidence: `ui-conventions/terminal-surfaces.md`.
 
+## TAB STRIPS
+
+Every document strip (assistant threads, the workspace, the browser pane) renders
+`TabStrip` from `packages/ui/src/tab-strip`; fixed view switchers use `Tabs`. Do not
+hand-roll a tablist.
+
+- The primitives are presentational. Consumers pass `items`/`pinnedItems` plus
+  intents (`onActivate`, `onClose`, `onReorder`) and a `contextMenu` descriptor.
+  The strip owns roving focus, overflow, drag-and-drop and menu claiming, and never
+  reads a store or decides what closing means. A host drawn over a native view
+  occludes it through `onMenuOpenChange` while any strip menu is open.
+- Geometry comes from `tab-strip-tokens.ts`: a 36px row, 28px pill tabs with a 6px
+  radius, a 4px gap, 12px/500 labels whose weight never changes with state, and a
+  20px close slot whose space is always reserved. The neutral selected state is the
+  segmented control's raised surface; identity tabs pass `appearance` tints.
+- Keyboard is APG with MANUAL activation: arrows/Home/End move focus, and
+  Enter/Space activate. Delete closes the tab and focuses the next tab, else the
+  previous one, else the first trailing control. ⌥⇧←/→ reorders the scroll group
+  and announces the move. Shift+F10 and the ContextMenu key open the tab menu
+  anchored at the tab. Middle-click closes.
+- The close ✕ is a mouse-only sibling (`aria-hidden`, `tabIndex=-1`): the tablist
+  owns only tabs, which axe `aria-required-children` checks.
+- Menus: tab menus come from `createTabStripActions` (`@brainstrike/context-actions`)
+  plus the global actions for that target kind; the empty strip background claims a
+  `tab-strip` target. Focus returns to the origin tab after a menu closes.
+- Overflow has no chevrons: wheel-to-horizontal through a NATIVE non-passive
+  listener (React's `onWheel` is passive), inline edge fades, `scroll-px-8` reveal,
+  and the always-present All-tabs menu.
+- Wrap each tab panel in `TabPanelBoundary`; the strip wraps itself. A render crash
+  stays in its panel. Keep-alive and `<Activity>` choices are per surface: see
+  spec §7.1, and never hide a panel whose effects own still-running work with
+  `<Activity>`.
+
+Settled: BST-1836 decisions D1–D9 (2026-09-27). Evidence: `ui-conventions/tab-strips.md`.
+Guard: `packages/ui/src/tab-strip/__tests__/tab-strip.test.tsx`,
+`tab-strip.browser.test.tsx` (painted geometry, axe, keyboard menu, native drag),
+`packages/context-actions/src/__tests__/tab-strip-actions.test.ts`.
+
+---
+
 ## CONTEXT ACTION SYSTEM
 
 Right-click menus are projections of a shared action system; do not hand-roll a

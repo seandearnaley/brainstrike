@@ -116,7 +116,10 @@ const CONTRACT_LINE_BUDGETS = {
   // new token cannot live in an evidence file without the scale going stale.
   // It then rose to 615: § Scroll ownership names the Model Catalog as the
   // second sanctioned shared-scroller consumer, next to the rule it applies.
-  'ui-conventions.md': 612,
+  // BST-1837 raised it from 612 to 652: § TAB STRIPS is a new subsystem area
+  // (the shared TabStrip primitives every document strip renders), not growth
+  // of an existing section; its record lives in ui-conventions/tab-strips.md.
+  'ui-conventions.md': 652,
   'workspace-context.md': 1071,
 };
 
