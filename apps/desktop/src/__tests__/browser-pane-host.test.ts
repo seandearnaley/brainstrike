@@ -70,32 +70,61 @@ vi.mock('electron', async (importOriginal) => {
   return { ...actual, WebContentsView: FakeWebContentsView };
 });
 
-/** A host window that captures its `did-start-navigation` listener. */
+/**
+ * A host window that captures its `did-start-navigation` listener and BEHAVES
+ * LIKE ELECTRON once `destroy()`ed (BST-1843): `isDestroyed()` turns true and
+ * every other property read (`contentView`, `webContents`) throws
+ * `TypeError('Object has been destroyed')`, exactly as a destroyed
+ * `BrowserWindow` does.
+ */
 function fakeHostWindow() {
   const navListeners: Listener[] = [];
   const attached: unknown[] = [];
-  const window = {
-    contentView: {
-      addChildView: (view: unknown) => attached.push(view),
-      removeChildView: (view: unknown) => {
-        const idx = attached.indexOf(view);
-        if (idx !== -1) {
-          attached.splice(idx, 1);
-        }
-      },
-    },
-    isDestroyed: () => false,
-    webContents: {
-      off: vi.fn(),
-      on: (event: string, listener: Listener) => {
-        if (event === 'did-start-navigation') {
-          navListeners.push(listener);
-        }
-      },
-      send: vi.fn(),
+  let destroyed = false;
+  const contentView = {
+    addChildView: (view: unknown) => attached.push(view),
+    removeChildView: (view: unknown) => {
+      const idx = attached.indexOf(view);
+      if (idx !== -1) {
+        attached.splice(idx, 1);
+      }
     },
   };
-  return { attached, navListeners, window };
+  const webContents = {
+    off: vi.fn(),
+    on: (event: string, listener: Listener) => {
+      if (event === 'did-start-navigation') {
+        navListeners.push(listener);
+      }
+    },
+    send: vi.fn(),
+  };
+  const guard = <T>(value: T): T => {
+    if (destroyed) {
+      throw new TypeError('Object has been destroyed');
+    }
+    return value;
+  };
+  const window = {
+    get contentView() {
+      return guard(contentView);
+    },
+    isDestroyed: () => destroyed,
+    get webContents() {
+      return guard(webContents);
+    },
+  };
+  return {
+    attached,
+    destroy: () => {
+      destroyed = true;
+    },
+    navListeners,
+    // Captured up front so assertions can still read them after `destroy()`.
+    send: webContents.send,
+    window,
+    windowWebContents: webContents,
+  };
 }
 
 describe('createBrowserPaneHost — dispose on renderer reload', () => {
@@ -154,6 +183,57 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
     host.dispose();
     disposeActiveBrowserPaneViews();
     expect(host.manager.listTabs()).toHaveLength(0); // already disposed by host.dispose, not resurrected
+  });
+});
+
+describe('createBrowserPaneHost — dispose after the window closed (BST-1843)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('host.dispose() on a destroyed window (win "closed") throws nothing and still releases every page', async () => {
+    // main.ts runs `browserPaneHost.dispose()` from `win.once('closed', …)`,
+    // when the BrowserWindow is already destroyed. A throw there aborts the
+    // rest of the handler (the browser IPC handlers would never be disposed)
+    // and surfaces as an uncaught main-process exception at every close.
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { attached, destroy, send, window } = fakeHostWindow();
+    const host = createBrowserPaneHost(window as never);
+    host.manager.createTab('https://a.example');
+    host.manager.createTab('https://b.example');
+    expect(attached).toHaveLength(2);
+    const views = attached.slice() as FakeWebContentsView[];
+
+    destroy();
+    send.mockClear();
+
+    expect(() => host.dispose()).not.toThrow();
+
+    // Electron does not destroy a WebContentsView's webContents with its
+    // window: they must be closed explicitly on this path too.
+    for (const view of views) {
+      expect(view.webContents.close).toHaveBeenCalledTimes(1);
+    }
+    expect(host.manager.listTabs()).toEqual([]);
+    // Nothing is sent to the dead renderer.
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('host.dispose() on a live window still detaches the views and unhooks the reload listener', async () => {
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { attached, window, windowWebContents } = fakeHostWindow();
+    const host = createBrowserPaneHost(window as never);
+    host.manager.createTab('https://a.example');
+    const [view] = attached as FakeWebContentsView[];
+
+    host.dispose();
+
+    expect(attached).toHaveLength(0);
+    expect(view?.webContents.close).toHaveBeenCalledTimes(1);
+    expect(windowWebContents.off).toHaveBeenCalledWith(
+      'did-start-navigation',
+      expect.any(Function)
+    );
   });
 });
 

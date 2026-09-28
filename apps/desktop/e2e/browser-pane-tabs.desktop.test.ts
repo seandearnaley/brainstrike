@@ -9,9 +9,14 @@
  * (`View.getVisible()`), filtered to the pane's dedicated session partition.
  *
  * Pages are `data:` URLs with a <title>, so no network is involved.
+ *
+ * BST-1843: closing the window with a tab open must tear the pane down without
+ * a main-process error — `dispose()` runs from the window's `closed` event,
+ * when the BrowserWindow is already destroyed.
  */
 import type { ElectronApplication, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 /** `BROWSER_PANE_PARTITION` in `src/browser/browser-session.ts`. */
 const PANE_PARTITION = 'persist:browser-pane';
@@ -38,6 +43,66 @@ function readPaneViews(app: ElectronApplication): Promise<readonly PaneViewState
         .map((view) => ({ url: view.webContents.getURL(), visible: view.getVisible() }))
     );
   }, PANE_PARTITION);
+}
+
+/** Pane-session `webContents` still alive in main (a closed tab's page is gone). */
+function countPaneWebContents(app: ElectronApplication): Promise<number> {
+  return app.evaluate(({ session, webContents }, partition) => {
+    const paneSession = session.fromPartition(partition);
+    return webContents
+      .getAllWebContents()
+      .filter((contents) => !contents.isDestroyed() && contents.session === paneSession).length;
+  }, PANE_PARTITION);
+}
+
+/**
+ * Close the window that hosts the browser pane (not the app) and wait until
+ * it is destroyed. Returns after main has run the window's `closed` handlers.
+ *
+ * The pane host is the app's only window: macOS keeps the process alive when
+ * its last window closes, but every other platform quits on
+ * `window-all-closed`. A hidden second window gives all platforms the macOS
+ * lifecycle, so the test observes the window's own teardown, not app shutdown
+ * (which the harness's exit guard would also flag as an unexpected exit).
+ */
+async function closePaneHostWindow(app: ElectronApplication): Promise<void> {
+  const windowId = await app.evaluate(({ BrowserWindow, session, WebContentsView }, partition) => {
+    const paneSession = session.fromPartition(partition);
+    const host = BrowserWindow.getAllWindows().find((window) =>
+      window.contentView.children.some(
+        (view) => view instanceof WebContentsView && view.webContents.session === paneSession
+      )
+    );
+    if (!host) {
+      throw new Error('No window hosts a browser pane view');
+    }
+    new BrowserWindow({ show: false });
+    host.close();
+    return host.id;
+  }, PANE_PARTITION);
+  await expect
+    .poll(
+      () => app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id) === null, windowId),
+      { timeout: 15_000 }
+    )
+    .toBe(true);
+}
+
+/**
+ * Wait until everything main wrote to STDERR before this call has reached the
+ * test: main emits a sentinel on stderr and we poll for it. A pipe is ordered,
+ * so an uncaught exception (main's handler `console.error`s it) cannot arrive
+ * after the sentinel — the absence check below is not a race against a flush.
+ */
+async function flushMainStdio(app: ElectronApplication): Promise<void> {
+  const sentinel = `[e2e-flush ${crypto.randomUUID()}]`;
+  await app.evaluate((_electron, marker) => {
+    process.stderr.write(`${marker}\n`);
+  }, sentinel);
+  const { getBufferedElectronOutput } = await loadElectronHelpers();
+  await expect
+    .poll(async () => (await getBufferedElectronOutput(app)).stderr.join('\n'), { timeout: 10_000 })
+    .toContain(sentinel);
 }
 
 async function expectDrawnPaneViews(app: ElectronApplication, drawn: number): Promise<void> {
@@ -119,5 +184,29 @@ test.describe('Browser pane tabs (desktop)', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByRole('menu')).toHaveCount(0);
     await expectDrawnPaneViews(app, 1);
+  });
+
+  test('closing the window with a tab open releases the pane without a main-process error (BST-1843)', async ({
+    electronApp,
+    window: page,
+  }) => {
+    test.setTimeout(120_000);
+    const app = electronApp.app;
+    await openBrowserRoute(page);
+    await openTitledTab(page, 'Alpha');
+    await expect.poll(() => countPaneWebContents(app)).toBe(1);
+
+    await closePaneHostWindow(app);
+    await flushMainStdio(app);
+
+    const { getBufferedElectronOutput } = await loadElectronHelpers();
+    const output = await getBufferedElectronOutput(app);
+    const destroyedErrors = [...output.stderr, ...output.stdout].filter((line) =>
+      line.includes('Object has been destroyed')
+    );
+    expect(destroyedErrors).toEqual([]);
+    // Electron does not destroy a WebContentsView's page with its window: the
+    // close path must release it itself.
+    await expect.poll(() => countPaneWebContents(app)).toBe(0);
   });
 });

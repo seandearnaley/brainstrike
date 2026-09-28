@@ -153,6 +153,7 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
       addChildView: (view) => hostWindow.contentView.addChildView(resolveNativeView(view)),
       removeChildView: (view) => hostWindow.contentView.removeChildView(resolveNativeView(view)),
     },
+    isDestroyed: () => hostWindow.isDestroyed(),
   };
 
   const createView = (partition: string): BrowserPaneView => {
