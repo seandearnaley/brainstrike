@@ -14,8 +14,15 @@ import { startModelProviderShim } from './utils/model-provider-shim';
  * Only the external model provider is simulated; the run, its durable row, the
  * Threads panel and the tab strip are the real ones. The provider holds the
  * final response until released, so the close lands mid-run.
+ *
+ * The held run is the SECOND turn of a thread that already has its title. A
+ * thread's first run writes its title, and that write happens to refresh the
+ * loaded thread list; a second turn has no such write, so the finished badge
+ * then depends on the list refreshing for the run row's terminal write alone.
  */
+const FIRST_TEXT = 'CLOSE_HIDES_FIRST_TURN';
 const FINAL_TEXT = 'CLOSE_HIDES_COMPLETE';
+const THREAD_TITLE = 'Close hides a running thread';
 const MODEL = 'openrouter::openai/gpt-5.4';
 
 async function openThreadsPanel(page: Page): Promise<void> {
@@ -27,33 +34,42 @@ async function openThreadsPanel(page: Page): Promise<void> {
   await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 30_000 });
 }
 
-async function readLatestRunStatus(page: Page): Promise<string | null> {
-  return await page.evaluate(async () => {
+async function readLatestRunStatus(page: Page, threadId: string): Promise<string | null> {
+  return await page.evaluate(async (id) => {
     const { query } = (
       window as unknown as {
         electronAPI: {
-          db: { query: (sql: string) => Promise<{ rows: Array<{ status: string }> }> };
+          db: {
+            query: (sql: string, params: unknown[]) => Promise<{ rows: Array<{ status: string }> }>;
+          };
         };
       }
     ).electronAPI.db;
     const result = await query(
-      'SELECT status FROM brainstrike_assistant_thread_runs ORDER BY started_at DESC LIMIT 1'
+      'SELECT status FROM brainstrike_assistant_thread_runs WHERE thread_id = $1 ORDER BY started_at DESC LIMIT 1',
+      [id]
     );
     return result.rows[0]?.status ?? null;
-  });
+  }, threadId);
 }
 
-test('closing a running root thread tab hides it: no cancel, the run completes, reopening shows the response', async ({
+test('closing a running second turn of a titled thread hides it: no cancel, the run completes, reopening shows the response', async ({
   electron,
 }) => {
   test.setTimeout(180_000);
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-close-running-'));
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
+  let rootTurns = 0;
   const provider = await startModelProviderShim(({ toolNames }) => {
-    // Title generation runs without tools; only the root turn is held.
+    // Title generation runs without tools; only root turns carry them.
     if (toolNames.length === 0) {
-      return { finalText: 'Close hides a running thread' };
+      return { finalText: THREAD_TITLE };
+    }
+    rootTurns += 1;
+    // The first root turn completes at once; the second is the one held.
+    if (rootTurns === 1) {
+      return { finalText: FIRST_TEXT };
     }
     entered.resolve();
     return { beforeFinalText: release.promise, finalText: FINAL_TEXT };
@@ -88,6 +104,18 @@ test('closing a running root thread tab hides it: no cancel, the run completes, 
     const threadsPanel = window.getByTestId('threads-panel');
     const spinners = threadsPanel.getByTestId('thread-active-spinner');
 
+    // Turn 1 runs to completion in the foreground, and the thread gets its title.
+    await panel.getByRole('textbox', { name: 'Message input' }).fill('Say the first sentence.');
+    await panel.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(panel.getByText(FIRST_TEXT, { exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect
+      .poll(() => readLatestRunStatus(window, threadId), { timeout: 60_000 })
+      .toBe('completed');
+    await expect(strip.getByRole('tab', { name: THREAD_TITLE })).toHaveCount(1, {
+      timeout: 30_000,
+    });
+
+    // Turn 2 is held mid-run, and its tab closed.
     await panel.getByRole('textbox', { name: 'Message input' }).fill('Say the closing sentence.');
     await panel.getByRole('button', { exact: true, name: 'Send' }).click();
     await entered.promise;
@@ -102,7 +130,9 @@ test('closing a running root thread tab hides it: no cancel, the run completes, 
     await expect(spinners).toHaveCount(1);
 
     release.resolve();
-    await expect.poll(() => readLatestRunStatus(window), { timeout: 60_000 }).toBe('completed');
+    await expect
+      .poll(() => readLatestRunStatus(window, threadId), { timeout: 60_000 })
+      .toBe('completed');
     await expect(spinners).toHaveCount(0);
     await expect(threadsPanel.getByTestId('thread-unseen-glyph')).toHaveCount(1);
 

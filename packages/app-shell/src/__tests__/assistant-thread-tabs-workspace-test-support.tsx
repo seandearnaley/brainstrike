@@ -33,6 +33,8 @@ const harness = vi.hoisted(() => ({
     initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
     initializing: false,
     providerError: null as Error | null,
+    /** The run-completion projection: one aggregate row over the resource's terminal runs. */
+    runCompletionRows: [{ lastCompletedAt: null, terminalCount: 0 }] as Record<string, unknown>[],
   },
   fileExplorerMocks: {
     rootDirectoryHandle: {
@@ -80,7 +82,7 @@ vi.mock('@brainstrike/db/react', () => ({
   useDbProviderError: () => harness.dbMocks.providerError,
   usePGliteDatabase: () =>
     harness.dbMocks.database === undefined ? harness.mockDb : harness.dbMocks.database,
-  // Routed BY cacheKey: both run-state projections return `{ threadId }` rows.
+  // Routed BY cacheKey: the two run-state projections return `{ threadId }` rows.
   usePGliteLiveQuery: (options: { readonly cacheKey: string; readonly enabled: boolean }) => {
     if (options.cacheKey.startsWith('["threads-awaiting-approval"')) {
       return {
@@ -96,6 +98,14 @@ vi.mock('@brainstrike/db/react', () => ({
         loading: false,
         refresh: vi.fn(),
         rows: options.enabled ? harness.dbMocks.activeRunRows : [],
+      };
+    }
+    if (options.cacheKey.startsWith('["assistant-thread-run-completions"')) {
+      return {
+        error: null,
+        loading: false,
+        refresh: vi.fn(),
+        rows: options.enabled ? harness.dbMocks.runCompletionRows : [],
       };
     }
     throw new Error(`Unrouted thread tab live query: ${options.cacheKey}`);
@@ -241,6 +251,7 @@ beforeEach(() => {
   dbMocks.activeRunRows = [];
   dbMocks.awaitingApprovalError = null;
   dbMocks.awaitingApprovalRows = [];
+  dbMocks.runCompletionRows = [{ lastCompletedAt: null, terminalCount: 0 }];
   markRenders.clear();
   wrapperCrashThreadIds.clear();
   wrapperLifecycle.splice(0, wrapperLifecycle.length);

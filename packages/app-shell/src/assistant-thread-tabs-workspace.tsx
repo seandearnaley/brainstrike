@@ -43,6 +43,7 @@ import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approva
 import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { ThreadIdentityMark } from './thread-identity-mark';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
+import { useAssistantThreadRunCompletionSync } from './use-assistant-thread-run-completion-sync';
 import { useAssistantThreadTabChords } from './use-assistant-thread-tab-chords';
 import { useRetainedThreadPanels } from './use-retained-thread-panels';
 
@@ -140,6 +141,7 @@ export function AssistantThreadTabsWorkspace({
   const lastViewedAtByThreadId = useAssistantThreadStore((state) => state.lastViewedAtByThreadId);
   const unseenBaselineAt = useAssistantThreadStore((state) => state.unseenBaselineAt);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
+  const refreshResourceThreads = useAssistantThreadStore((state) => state.refreshResourceThreads);
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const openThreadTab = useAssistantThreadStore((state) => state.openThreadTab);
   const reorderThreadTabs = useAssistantThreadStore((state) => state.reorderThreadTabs);
@@ -170,6 +172,14 @@ export function AssistantThreadTabsWorkspace({
     unseenBaselineAt,
   });
   useMarkActiveThreadViewed({ activeThreadId, threads });
+  // The badges above read `latestRun` from the loaded list: this is the list's one
+  // refresh on run completions, whatever mounted panels exist (BST-1844).
+  useAssistantThreadRunCompletionSync({
+    enabled: repository !== null && schemaReady,
+    refreshResourceThreads,
+    repository,
+    resourceId,
+  });
 
   // A failed projection reports an empty set. The strip says so, as the Threads
   // panel does, rather than let every tab read as idle.
