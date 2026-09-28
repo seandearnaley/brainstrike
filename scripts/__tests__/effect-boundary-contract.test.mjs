@@ -785,3 +785,35 @@ test('OXC IPC requests scope correlation and preserve Schema field compatibility
     /OXC IPC request Scope owns its correlation entry and timer/u
   );
 });
+
+test('parser host generations scope exit and listeners without replacing the request channel', () => {
+  const source = readRepoFile('apps/desktop/src/parser-host-manager.ts');
+  assert.match(source, /Scope\.makeUnsafe\(\)/u);
+  assert.match(source, /Scope\.addFinalizer\(\s*generation\.scope/u);
+  assert.match(source, /Effect\.promise\(\(\) => exited\)/u);
+  assert.match(source, /runAtPromiseBoundary\(Scope\.close\(generation\.scope/u);
+  assert.match(source, /this\.#current === generation/u);
+  assert.match(
+    source,
+    /void generation\.setup\.catch\(\(error: unknown\) => \{\s*if \(generation\.state === 'live'\) \{\s*generation\.state = 'stop-failed';/u
+  );
+  assert.match(source, /\[\.\.\.this\.#owned\]/u);
+  assert.match(source, /Promise\.allSettled/u);
+  assert.match(source, /generation\.host\.kill\(\)/u);
+  assert.match(source, /retry stop before parsing/u);
+  assert.match(source, /DEFAULT_STOP_TIMEOUT_MS = 500/u);
+  assert.match(source, /runWithTimeout\(\(\) => closing/u);
+  assert.match(source, /this\.#current === generation && generation\.state === 'live'/u);
+  assert.match(source, /removeListener\('message', onMessage\)/u);
+  assert.match(source, /removeListener\('exit', onExit\)/u);
+  assert.match(source, /createHostRequestChannel/u);
+  assert.doesNotMatch(source, /\.pid|Effect\.run|Layer\./u);
+  assert.match(
+    readRepoFile('docs/agents/effect-boundary.md'),
+    /Parser host generation Scope joins actual exit/u
+  );
+  assert.match(
+    readRepoFile('docs/agents/platform-contracts.md'),
+    /Parser host Stop joins every owned generation/u
+  );
+});

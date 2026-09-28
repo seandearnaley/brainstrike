@@ -373,6 +373,7 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   idle backoff, inter-batch delay, claim-size retry, or error backoff, and a
   stopped permit waiter returns before claiming a job. The stop signal does not
   cancel an embedding already executing.
+- Parser host Stop joins every owned generation’s exit and listeners with a 500ms caller wait; timeout rejects while actual cleanup stays owned. A failed kill remains visible and retryable, blocks parsing on that generation, and never acknowledges successful cleanup.
 - The assistant HTTP server's stop ends live connections after `close()`; an
   already-closed listener (`ERR_SERVER_NOT_RUNNING`) is a successful repeated
   stop and other close failures stay visible. Why: plain `server.close()` waits
@@ -380,10 +381,9 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
 
 Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:
-`platform-contracts/graceful-shutdown-ownership.md`.
-Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`,
-`ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
-`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`.
+`platform-contracts/graceful-shutdown-ownership.md`, `effect-boundary/parser-generation-scope.md`.
+Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`, `ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
+`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`.
 
 ### Browser preference hydration
 
