@@ -153,8 +153,7 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
   carry `@packaged @destructive`, full-regression grep-inverts `@packaged`, and
   the launcher forwards an explicit env allowlist, never ambient CI env. The
   harness injects into the REAL main window (production preload, default session,
-  production header CSP) — never a harness window on a private partition, which
-  escapes the header stamp and once hid a `frame-src` regression.
+  production header CSP) — never a private-partition harness window.
 - A proof's diagnostic branch reads text and never clicks; both racers of its
   `Promise.race` are `.catch`-handled. Do not widen the core lane to hide
   skip-on-failure MCP discovery.
@@ -165,10 +164,11 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
   `memory-baseline` dispatch suite. That suite is evidence collection only — it
   never replaces or routes a required PR check.
 - AI Tools settings specs stay in both required PR smoke lanes and in nightly.
+- E2E collection selection waits for the picker or the requested quiet label; an absent picker alone is not readiness.
 
 Evidence: `ci-quality/desktop-electron-provisioning.md`,
 `ci-quality/packaged-mcp-lanes.md`, `ci-quality/desktop-memory-calibration.md`,
-`ci-quality/ai-tools-smoke-lanes.md`.
+`ci-quality/ai-tools-smoke-lanes.md`, `ci-quality/electron-collection-readiness.md`.
 Guard: `scripts/__tests__/desktop-electron-provisioning-contract.test.mjs`,
 `e2e-lane-coverage.test.mjs`, `mcp-*-packaged-ci-contract.test.mjs`,
 `ai-tools-e2e-pr-gate-contract.test.mjs`; desktop `desktop-e2e-harness-contract.test.ts`.
