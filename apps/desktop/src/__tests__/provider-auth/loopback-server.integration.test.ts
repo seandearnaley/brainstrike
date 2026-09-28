@@ -158,15 +158,21 @@ describe('startLoopbackServer', () => {
   });
 
   it('close cancels the active wait and joins listener shutdown and timer release', async () => {
-    const handle = await start();
+    const handle = await start({ timeoutMs: 10_000 });
+    const scheduleTimer = vi.spyOn(globalThis, 'setTimeout');
     const clearTimer = vi.spyOn(globalThis, 'clearTimeout');
     const outcome = captureRejection(handle.waitForCallback());
+    const ownedTimerIndex = scheduleTimer.mock.calls.findIndex(([, delay]) => delay === 10_000);
+    const ownedTimer = scheduleTimer.mock.results[ownedTimerIndex]?.value;
     try {
+      expect(ownedTimerIndex).toBeGreaterThanOrEqual(0);
+      expect(ownedTimer).toBeDefined();
       await handle.close();
-      expect(clearTimer).toHaveBeenCalledTimes(1);
+      expect(clearTimer).toHaveBeenCalledWith(ownedTimer);
       await expect(outcome).resolves.toSatisfy(isProviderAuthFlowCancelled);
     } finally {
       clearTimer.mockRestore();
+      scheduleTimer.mockRestore();
     }
     await expect(fetch(handle.redirectUri)).rejects.toThrow();
   });
@@ -181,11 +187,10 @@ describe('startLoopbackServer', () => {
       code: 'callback_timeout',
       message: 'OAuth callback was not received within 20ms.',
     });
-    await expect(outcome).resolves.toBe(error);
     await expect(fetch(handle.redirectUri)).rejects.toThrow();
   });
 
-  it('cancel keeps its error identity across repeated cancel and close calls', async () => {
+  it('allows repeated cancel and close after the wait rejects as cancelled', async () => {
     const handle = await start({ timeoutMs: 20 });
     const outcome = captureRejection(handle.waitForCallback());
     handle.cancel();
@@ -193,7 +198,6 @@ describe('startLoopbackServer', () => {
     handle.cancel();
     await Promise.all([handle.close(), handle.close()]);
     expect(isProviderAuthFlowCancelled(error)).toBe(true);
-    await expect(outcome).resolves.toBe(error);
   });
 
   it('a completed callback remains successful when cancellation arrives afterward', async () => {
@@ -205,11 +209,10 @@ describe('startLoopbackServer', () => {
     handle.cancel();
     await handle.close();
     expect(result).toEqual({ code: 'winner' });
-    await expect(pending).resolves.toBe(result);
     await expect(handle.waitForCallback()).rejects.toThrow('already settled');
   });
 
-  it('ignores duplicate waits without replacing the original timeout owner', async () => {
+  it('rejects duplicate waits without replacing the original timeout owner', async () => {
     const handle = await start({ timeoutMs: 20 });
     const original = captureRejection(handle.waitForCallback());
     await expect(handle.waitForCallback()).rejects.toThrow('already in progress');

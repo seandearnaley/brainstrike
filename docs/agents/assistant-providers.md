@@ -826,7 +826,8 @@ work.
 
 Desktop-main-only, provider-agnostic engine at `apps/desktop/src/provider-auth/`,
 bound by the signed `docs/OAUTH_LEGAL_REVIEW_GATE.md`, whose 8 constraints are
-acceptance criteria; Anthropic subscription OAuth is PERMANENTLY REJECTED.
+acceptance criteria. Do not relitigate its settled rulings (Anthropic
+subscription OAuth is PERMANENTLY REJECTED).
 
 - The descriptor contract pins the EXACT redirect URI: a busy port is a typed
   visible `port_in_use` error naming the port, NEVER a random-port fallback, and
@@ -847,7 +848,7 @@ acceptance criteria; Anthropic subscription OAuth is PERMANENTLY REJECTED.
   retry-loops. Rotation-then-persist-failure holds the rotated pair in memory as
   the active credential; disconnect bumps a per-provider epoch so a late refresh
   persists nothing.
-- Engine-written credentials use the shared secrets store and factory reset wipes them.
+- Engine-written credentials are `{ type: 'oauth', … }` in the shared secrets store; factory reset wipes them.
 - Loopback waits have one owner; duplicates fail visibly. Close joins listener, sockets and timer cleanup.
 
 Threat model and loopback hygiene live in `apps/desktop/SECURITY.md`; when

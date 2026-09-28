@@ -17,8 +17,7 @@ The original implementation assigned one mutable pending waiter and timer on
 every wait call. A second wait orphaned the first. Its closed flag also became
 true before server.close completed, allowing a concurrent close to resolve
 before listener teardown. Two real-socket regression tests failed against that
-implementation while all 13 existing security/socket tests passed. RED log:
-`/tmp/bst-1846-red.log`.
+implementation while all 13 existing security/socket tests passed.
 
 The implementation retains native Node HTTP operations and the existing
 Promise handle. Effect owns resources and the callback cell rather than
@@ -51,9 +50,7 @@ response flushing remains before automatic teardown.
 
 - RED: two intended failures, 13 existing tests passed.
 - GREEN: `pnpm exec vitest run src/__tests__/provider-auth/loopback-server.integration.test.ts`
-  from apps/desktop; 26 tests passed (`/tmp/bst-1846-green.log`).
-- Additional whole-provider, strict typing, contract/preload guards and bundle
-  measurements are recorded by delivery after independent review.
+  from apps/desktop; 26 tests passed.
 - Whole-provider unit plus preload boundary: 14 files, 171 tests passed.
 - Provider integration lane: 2 files, 27 tests passed (26 loopback plus the
   real fake-provider flow).
@@ -65,9 +62,10 @@ response flushing remains before automatic teardown.
 
 ## Bundle measurement
 
-Compared the same checkout at base `5fd53f7a2` with this change using the normal
-production builds. Gzip is level 9 per JavaScript file; renderer totals include
-workers, not just startup-loaded modules.
+Compared this change with its measured branchpoint `5fd53f7a2` using the normal
+production builds. That revision identifies the fixed measurement baseline;
+PR #3351's upstream base subsequently advanced to `abc33f6`. Gzip is level 9
+per JavaScript file; renderer totals include workers, not just startup-loaded modules.
 
 | Output | Before bytes / gzip bytes | After bytes / gzip bytes | Delta bytes / gzip bytes |
 | --- | ---: | ---: | ---: |
