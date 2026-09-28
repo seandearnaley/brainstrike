@@ -15,7 +15,9 @@
  * See: docs/prd-chunking-wasm-parser-2026-05.md §4
  */
 
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
+import { Effect, Exit, Scope } from 'effect';
 import { type UtilityProcess, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { isParserHostParseResponse } from './parser-host-schema';
@@ -82,10 +84,21 @@ function summarizeMalformedMessage(value: unknown): Record<string, unknown> {
   };
 }
 
+interface ParserGeneration {
+  closePromise: Promise<void> | null;
+  readonly exited: Promise<void>;
+  exitObserved: boolean;
+  readonly host: UtilityProcess;
+  readonly scope: Scope.Closeable;
+  setup: Promise<void>;
+  state: 'live' | 'stop-failed' | 'closing' | 'closed';
+}
+
 export class ParserHostManager {
   readonly #entryPath: string;
   readonly #requestTimeoutMs: number;
-  #host: UtilityProcess | null = null;
+  #current: ParserGeneration | null = null;
+  readonly #owned = new Set<ParserGeneration>();
   readonly #requests: HostRequestChannel<ParserHostParseRequest, ParserHostParseResponse>;
 
   constructor(options: ParserHostManagerOptions = {}) {
@@ -132,27 +145,165 @@ export class ParserHostManager {
   }
 
   async stop(): Promise<void> {
-    const host = this.#host;
-    if (host) {
-      host.kill();
-      this.#host = null;
-    }
+    // Each call includes detached generations still closing, plus any replacement.
+    const generations = [...this.#owned];
     this.#requests.rejectAll(new Error('parser host stopped'));
-    await Promise.resolve();
+    const outcomes = await Promise.allSettled(
+      generations.map((generation) => this.#stopGeneration(generation))
+    );
+    const failures = outcomes.flatMap((outcome) =>
+      outcome.status === 'rejected' ? [outcome.reason as unknown] : []
+    );
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Failed to stop parser host generations');
+    }
+  }
+
+  #stopGeneration(generation: ParserGeneration): Promise<void> {
+    if (generation.closePromise) {
+      return generation.closePromise;
+    }
+    if (generation.exitObserved) {
+      return this.#closeGeneration(generation);
+    }
+    generation.state = 'stop-failed';
+    try {
+      if (!generation.host.kill()) {
+        return Promise.reject(new Error('parser host could not be stopped'));
+      }
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    generation.state = 'closing';
+    if (this.#current === generation) {
+      this.#current = null;
+    }
+    return this.#closeGeneration(generation);
+  }
+
+  #closeGeneration(generation: ParserGeneration): Promise<void> {
+    if (generation.closePromise) {
+      return generation.closePromise;
+    }
+    generation.state = 'closing';
+    if (this.#current === generation) {
+      this.#current = null;
+    }
+    const closing = (async () => {
+      // Registration is synchronous, but its Promise must still be observed/joined.
+      let setupFailure: unknown;
+      let setupFailed = false;
+      try {
+        await generation.setup;
+      } catch (error) {
+        setupFailed = true;
+        setupFailure = error;
+      }
+      try {
+        await runAtPromiseBoundary(Scope.close(generation.scope, Exit.void));
+      } catch (cleanupError) {
+        if (setupFailed) {
+          throw new AggregateError(
+            [setupFailure, cleanupError],
+            'Parser host setup and cleanup failed'
+          );
+        }
+        throw cleanupError;
+      } finally {
+        generation.state = 'closed';
+        this.#owned.delete(generation);
+      }
+      if (setupFailed) {
+        throw setupFailure;
+      }
+    })();
+    generation.closePromise = closing;
+    return closing;
   }
 
   #ensureHost(): UtilityProcess {
-    if (this.#host) {
-      return this.#host;
+    if (this.#current) {
+      if (this.#current.state !== 'live') {
+        throw new Error('parser host stop failed; retry stop before parsing');
+      }
+      return this.#current.host;
     }
     const host = utilityProcess.fork(this.#entryPath);
-    host.on('message', (message: unknown) => {
-      this.#handleResponse(message);
+    const { promise: exited, resolve: markExited } = Promise.withResolvers<void>();
+    const generation: ParserGeneration = {
+      closePromise: null,
+      exited,
+      exitObserved: false,
+      host,
+      scope: Scope.makeUnsafe(),
+      setup: Promise.resolve(),
+      state: 'live',
+    };
+    this.#owned.add(generation);
+    this.#current = generation;
+    const onExit = (): void => {
+      generation.exitObserved = true;
+      markExited();
+      if (this.#current === generation) {
+        this.#current = null;
+        this.#requests.rejectAll(new Error('parser host exited unexpectedly'));
+      }
+      // Finish synchronous acquisition/kill before closing its registered Scope.
+      queueMicrotask(() => {
+        void this.#closeGeneration(generation).catch((error: unknown) => {
+          logger.error('Parser host generation cleanup failed', { error });
+        });
+      });
+    };
+    const onMessage = (message: unknown): void => {
+      if (this.#current === generation && generation.state === 'live') {
+        this.#handleResponse(message);
+      }
+    };
+    // Observe exit before any later listener acquisition can fail; PID is not proof.
+    host.on('exit', onExit);
+    generation.setup = runAtPromiseBoundary(
+      Effect.gen(function* () {
+        yield* Scope.addFinalizer(
+          generation.scope,
+          Effect.sync(() => {
+            host.removeListener('exit', onExit);
+          })
+        );
+        yield* Scope.addFinalizer(
+          generation.scope,
+          Effect.sync(() => {
+            host.removeListener('message', onMessage);
+          })
+        );
+        yield* Scope.addFinalizer(
+          generation.scope,
+          Effect.promise(() => exited)
+        );
+      })
+    );
+    void generation.setup.catch((error: unknown) => {
+      generation.state = 'stop-failed';
+      if (this.#current === generation) {
+        this.#requests.rejectAll(error instanceof Error ? error : new Error(String(error)));
+      }
+      logger.error('Parser host resource registration failed', { error });
     });
-    host.on('exit', () => {
-      this.#handleExit();
-    });
-    this.#host = host;
+    try {
+      host.on('message', onMessage);
+    } catch (error) {
+      generation.state = 'stop-failed';
+      void this.#stopGeneration(generation).catch((cleanupError: unknown) => {
+        logger.error('Parser host acquisition cleanup failed', { error: cleanupError });
+      });
+      throw error;
+    }
+    if (generation.exitObserved) {
+      throw new Error('parser host exited unexpectedly');
+    }
     return host;
   }
 
@@ -162,10 +313,5 @@ export class ParserHostManager {
       return;
     }
     this.#requests.accept(message);
-  }
-
-  #handleExit(): void {
-    this.#host = null;
-    this.#requests.rejectAll(new Error('parser host exited unexpectedly'));
   }
 }

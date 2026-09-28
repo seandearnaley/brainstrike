@@ -50,10 +50,11 @@ Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`, `scripts/__
 - Provider auth and assistant provider probes bound fetch and body reading together; cancellation aborts fetch and polling sleeps, preserving typed failures, verdicts and cache provenance.
 - The MCP OAuth callback Scope owns listener teardown; each wait uses `Effect.ensuring` for timer cleanup, and close joins all active waits. Provider OAuth loopback Scope owns listener cleanup; reject duplicate waits, and close joins its callback timer and both socket cleanup operations.
 - Embedding admission reserves partial permits transactionally; abort only capacity waits, never committed grants.
+- Parser host generation Scope joins actual exit and listener cleanup; failed kills retain ownership and block reuse until retry or exit, and stale callbacks never affect replacements.
 - OXC IPC request Scope owns its correlation entry and timer; first terminal outcome wins, malformed or mismatched replies remain pending, and local cleanup never cancels remote parsing.
 - Python cold-install scopes join hash-stream and tar-child close before staging cleanup; preserve first-caller ownership; committed installs win only over late abort, and cleanup failures remain visible.
 
-Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`, `effect-boundary/mcp-oauth-callback-scope.md`, `effect-boundary/embedding-admission-permits.md`, `effect-boundary/provider-loopback-scope.md`, `effect-boundary/python-resource-scopes.md`, `effect-boundary/oxc-request-scopes.md`.
+Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`, `effect-boundary/mcp-oauth-callback-scope.md`, `effect-boundary/embedding-admission-permits.md`, `effect-boundary/provider-loopback-scope.md`, `effect-boundary/python-resource-scopes.md`, `effect-boundary/oxc-request-scopes.md`, `effect-boundary/parser-generation-scope.md`.
 Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`, `timeout.test.ts`, `shutdown-sequence.test.ts`, `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
 ### Desktop composition refactors
@@ -62,8 +63,7 @@ Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`, `timeout
   acquisition; early handlers resolve app-ready services at call time.
 - Keep `runShutdownSequence` for named graceful shutdown; factory reset retains
   parallel restartable stops, its database barrier and renderer-ready gate.
-- Extraction preserves current startup-failure, reset and stale DB-client behavior.
-  A whole-main Layer graph requires a separate decision with measured benefit.
+- Extraction preserves current startup-failure, reset and stale DB-client behavior. A whole-main Layer graph requires a separate decision with measured benefit.
 
 Evidence: `effect-boundary/desktop-composition-root.md`, `effect-boundary/renderer-startup.md`.
 Decision: `docs/adr/0005-desktop-composition-root.md`.

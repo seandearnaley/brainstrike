@@ -1,0 +1,87 @@
+# Parser utility-process generation Scope
+
+Supports `docs/agents/effect-boundary.md` § "Shared helpers" and
+`docs/agents/platform-contracts.md` § "Graceful shutdown ownership (hidden hosts and background indexing)".
+
+## Rule
+
+Own each parser process generation independently. Attach exit observation
+immediately after fork, keep synchronous lazy startup/send, and register separate
+Scope finalizers for the exit join and each listener. Stop snapshots every owned
+generation, including older detached generations still closing. Successful kill
+detaches the current generation so a replacement can start; public Stop joins
+actual exit and resource finalizers. Concurrent calls join per-generation close.
+
+A false or throwing kill fails visibly and retains the live owner, refusing
+further parse sends until explicit Stop retry succeeds or natural exit is
+observed. PID absence proves neither spawn nor exit. Message and exit callbacks
+from retired generations cannot settle or reject replacement requests, even
+when request IDs are reused. No request-channel, preload or parser protocol
+change is involved; parse retains its always-answer response/error contract.
+
+## Evidence (2026-09-28, BST-1853)
+
+Three new tests failed against base 19cd6eb75 with all 17 prior tests passing:
+Stop resolved before held exit, an old exit rejected a replacement with reused
+request ID, and an old response supplied that replacement's AST. The tests
+release held exits in cleanup rather than leaving test-owned processes pending.
+
+The implementation owns listener removers and the actual exit barrier through
+Scope. Its registration Promise is retained, observed and joined, while fork,
+exit-listener attachment and postMessage stay synchronous. Partial message
+listener attachment failure preserves the original send failure and invokes
+owned cleanup. A failed cleanup remains logged through the real logging path
+and its process remains owned for Stop retry.
+
+Lifecycle tests cover false/throwing kill, blocked parse, explicit retry,
+natural exit after failed Stop, concurrent Stops, later Stop including both
+old and replacement generations, PID absence, synchronous exit during kill,
+and partial message attachment that first registers the listener then throws.
+The logger proof observes the existing addLogListener interface.
+
+The held-exit integration test uses the existing runShutdownSequence with a
+short test deadline: the parser step remains named, the following database step
+does not run, and the timeout returns while the underlying process owner remains
+alive for later exit cleanup. Production keeps the existing five-second overall
+forced-exit budget. Parser remains omitted from the factory-reset runtime list;
+this stateless process change adds no persisted state or reset policy.
+
+The Effect and platform contract line budgets stay unchanged by joining existing
+reference/reflow lines; no settled policy is removed. Publication waits for the
+separate rc118 qualification PR and refresh of the branch base.
+
+## Verification
+
+- Desktop dependencies: `pnpm exec turbo run build --filter='@brainstrike/desktop^...'`.
+- Baseline main: `pnpm --filter @brainstrike/desktop build:main`.
+- Unit: `pnpm exec vitest run src/__tests__/main/parser-host-manager.test.ts` from apps/desktop.
+- Integration: `pnpm exec vitest run --config vitest.integration.config.mts src/__tests__/main/parser-host-shutdown.integration.test.ts`.
+- Types: desktop `type-check:main`, `type-check:test`, and strict Effect diagnostics against tsconfig.test.json.
+
+Initial qualification uses the exact rc117 pin at the measured branch point;
+final delivery qualifies the refreshed rc118 base. pnpm runs configured Node
+26.8.2, with host PATH pinned to Node 26.10.0.
+
+Initial focused results: 27 unit tests and one deadline integration test pass.
+Desktop main type-check passes; the test program selects/type-checks 579 test
+files; strict Effect diagnostics cover 584/584 files with zero errors, warnings
+or messages. All 29 Effect/budget guards pass. Removing the owned exit await
+makes the new structural guard fail, then restoration returns it to green.
+
+## Initial bundle measurement
+
+On the rc117 branch point and the parser candidate, `build:main` passes.
+Main moves from 2,742,205 raw / 584,738 gzip bytes to 2,747,159 / 585,692
+(+4,954 raw, +954 gzip). The other seven main/preload outputs are byte-size
+unchanged, including parser-host-entry.js at 21,057 raw / 6,519 gzip.
+These main-only imports do not add a renderer entry; Effect remains external
+in main. Final rc118 qualification is recorded after the base refresh.
+
+The existing real Electron/OXC routing E2E passes on the initial candidate:
+`playwright test e2e/chunking-host-renderer.test.ts --project=regression
+--workers=1 --retries=0 --grep 'engages the native oxc parser'` reports one
+pass (18.6s including setup, test 4.6s). Normal fixture shutdown records the
+parser-host step successful in 13ms and exits with code 0. This exercises the
+production preload, manager and utilityProcess rather than its unit fake.
+An unchanged snapshot startup sweep logged a database-retired error during
+shutdown; that separate owner is tracked in BST-1859 outside this parser change.
