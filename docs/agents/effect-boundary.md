@@ -10,10 +10,10 @@ Update this file and `scripts/__tests__/effect-boundary-contract.test.mjs` toget
 - `effect` and every `@effect/*` package are catalogued at one EXACT version;
   consumers use `catalog:`. Bump separately: read release notes for import-path
   renames, run every consumer's tests, re-measure bundles.
-- Import from `effect` and `effect/testing` only. `effect/unstable/*` needs a
-  contract change first. Why: unstable modules move between release candidates.
+- Import from `effect` and `effect/testing` only; all other subpaths need a
+  contract change first, including renamed unstable APIs without `/unstable/`.
 
-Evidence: `effect-boundary/adoption-review.md`.
+Evidence: `effect-boundary/adoption-review.md`, `effect-boundary/rc118-qualification.md`.
 Guard: `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
 ### Where Effect runs

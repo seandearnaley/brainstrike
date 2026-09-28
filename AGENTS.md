@@ -44,6 +44,7 @@ Cross-cutting invariants (full detail + rationale in the docs):
 
 ## Stack & style
 
+- Effect 4 is part of the essential runtime stack for typed boundaries and structured resource ownership; follow the Effect boundary contract above for version pins, Promise APIs, preload exclusion and deferred subsystems. Read `packages/effect-kit/node_modules/effect/AGENTS.md` completely before writing Effect code; the repository contract takes precedence.
 - TypeScript strict. Never `any` — prefer `unknown` + narrowing; discriminated unions over enums; annotate params and return types.
 - React 19 + Vite, Tailwind CSS v4, pnpm workspaces (Turborepo), shared `@brainstrike/ui` components, PGlite-backed local-first persistence.
 - Filenames kebab-case; components export PascalCase; hooks are `use-*.ts` exporting camelCase.

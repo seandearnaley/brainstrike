@@ -455,6 +455,13 @@ test('the effect usage detector fires on known violations and ignores look-alike
     analyzeEffectUsage('probe.ts', "import { Rpc } from 'effect/unstable/rpc';").disallowedImports,
     ['effect/unstable/rpc']
   );
+  for (const specifier of ['effect/rpc', 'effect/sql', 'effect/process', 'effect/http-api']) {
+    assert.deepEqual(
+      analyzeEffectUsage('probe.ts', `import * as Unsupported from '${specifier}';`)
+        .disallowedImports,
+      [specifier]
+    );
+  }
   assert.equal(
     analyzeEffectUsage('probe.ts', "const tag = 'effect';\nexport { tag };").importsEffect,
     false
@@ -467,6 +474,11 @@ test('the effect usage detector fires on known violations and ignores look-alike
 test('AGENTS.md routes the effect boundary contract exactly once', () => {
   const agents = readRepoFile('AGENTS.md');
   assert.equal(agents.split('docs/agents/effect-boundary.md').length - 1, 1);
+  assert.match(agents, /Effect 4 is part of the essential runtime stack/u);
+  assert.match(
+    agents,
+    /Read `packages\/effect-kit\/node_modules\/effect\/AGENTS.md` completely before writing Effect code/u
+  );
 });
 
 test('token-cache retry adoption records its bounded schedule and timer decision', () => {
