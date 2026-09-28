@@ -2,6 +2,13 @@ import { adjacentTabId, type TabCycleDirection } from '../tab-strip-actions.js';
 import type { ActionOutcome } from '../types.js';
 import type { Command, RunCommand } from './types.js';
 
+export interface TabCommandTab {
+  /** Tells same-label tabs apart (a file's relative path, a page's URL). */
+  readonly detail?: string;
+  readonly id: string;
+  readonly label: string;
+}
+
 /**
  * The focus-scoped tab strip the tab commands act on (BST-1842): the strip
  * whose panel held focus when the palette opened. Consumers register these
@@ -14,7 +21,7 @@ export interface TabCommandStrip {
   readonly close: (id: string) => Promise<void>;
   readonly getActiveId: () => string | null;
   /** Every tab in strip order. */
-  readonly getTabs: () => readonly { readonly id: string; readonly label: string }[];
+  readonly getTabs: () => readonly TabCommandTab[];
   /** Whether the strip's closed-tab history has an entry to reopen. */
   readonly hasClosedTabs: () => boolean;
   readonly reopenClosed: () => Promise<ActionOutcome>;
@@ -117,7 +124,11 @@ export function createTabCommands(getStrip: () => TabCommandStrip | undefined): 
       page: () => ({
         commands: (getStrip()?.getTabs() ?? []).map(
           (tab): RunCommand => ({
+            // The unique tab id is the palette item's value, never the label:
+            // two open index.ts files must not select each other.
             id: `tab.go-to:${tab.id}`,
+            // The palette shows the first keyword as the item's hint.
+            ...(tab.detail ? { keywords: [tab.detail] } : {}),
             label: tab.label,
             run: withStrip((strip) => settleTabOperation(() => strip.activate(tab.id))),
           })

@@ -170,6 +170,33 @@ describe('createTabCommands', () => {
     });
   });
 
+  it('Go to Tab… keeps same-label tabs apart by id, with their detail as the hint', async () => {
+    const scoped = {
+      ...strip([], null),
+      getTabs: () => [
+        { detail: 'src/a/index.ts', id: 'root|@|src/a/index.ts', label: 'index.ts' },
+        { detail: 'src/b/index.ts', id: 'root|@|src/b/index.ts', label: 'index.ts' },
+        { id: 'thread-1', label: 'New Thread' },
+      ],
+    };
+    const goTo = command(
+      createTabCommands(() => scoped),
+      'tab.go-to'
+    );
+    if (!goTo.page) {
+      throw new Error('Go to Tab… must open a page');
+    }
+
+    const items = goTo.page(CTX).commands;
+    expect(items.map((item) => [item.id, item.label, item.keywords])).toEqual([
+      ['tab.go-to:root|@|src/a/index.ts', 'index.ts', ['src/a/index.ts']],
+      ['tab.go-to:root|@|src/b/index.ts', 'index.ts', ['src/b/index.ts']],
+      ['tab.go-to:thread-1', 'New Thread', undefined],
+    ]);
+    await items[1]?.run(CTX);
+    expect(scoped.activate).toHaveBeenCalledExactlyOnceWith('root|@|src/b/index.ts');
+  });
+
   it('reads the strip at run time, not when the commands were built', async () => {
     let scoped = strip(['a', 'b'], 'a');
     const commands = createTabCommands(() => scoped);

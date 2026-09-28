@@ -678,7 +678,11 @@ export function WorkspaceTabsProvider({
     for (const app of openApps) {
       (app.placement === 'pinned' ? pinned : dynamic).push({ id: app.id, label: app.label });
     }
-    const files = tabs.map((tab) => ({ id: tab.id, label: getFileName(tab.path) }));
+    const files = tabs.map((tab) => ({
+      detail: tab.path,
+      id: tab.id,
+      label: getFileName(tab.path),
+    }));
     return [...pinned, ...dynamic, ...files];
   }, [openApps, tabs]);
 

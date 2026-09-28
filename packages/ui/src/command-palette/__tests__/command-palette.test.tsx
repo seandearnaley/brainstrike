@@ -282,6 +282,36 @@ describe('CommandPalette', () => {
       await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     });
 
+    it('runs the right one of two same-label entries', async () => {
+      const first = vi.fn(() => Promise.resolve<ActionOutcome>({ ok: true }));
+      const second = vi.fn(() => Promise.resolve<ActionOutcome>({ ok: true }));
+      const twins: PageCommand = {
+        id: 'tab.go-to',
+        label: 'Go to Tab…',
+        page: () => ({
+          commands: [
+            makeCommand({ id: 'tab.go-to:a', keywords: ['src/a'], label: 'index.ts', run: first }),
+            makeCommand({ id: 'tab.go-to:b', keywords: ['src/b'], label: 'index.ts', run: second }),
+          ],
+          heading: 'Tabs',
+          placeholder: 'Go to tab…',
+        }),
+      };
+      render(
+        <CommandPalette commands={[twins]} context={EMPTY_CONTEXT} onOpenChange={vi.fn()} open />
+      );
+      fireEvent.keyDown(await screen.findByPlaceholderText('Type a command…'), { key: 'Enter' });
+      const input = await screen.findByPlaceholderText('Go to tab…');
+      expect(screen.getByText('src/a')).toBeTruthy();
+      expect(screen.getByText('src/b')).toBeTruthy();
+
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      await waitFor(() => expect(second).toHaveBeenCalledOnce());
+      expect(first).not.toHaveBeenCalled();
+    });
+
     it('says so when nothing on the page matches', async () => {
       const input = await openPage();
 

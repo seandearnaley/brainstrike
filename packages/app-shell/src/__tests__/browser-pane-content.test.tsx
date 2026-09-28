@@ -585,9 +585,9 @@ describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
     const strip = chordStrip();
 
     expect(strip.getTabs()).toEqual([
-      { id: 'a', label: 'Alpha' },
-      { id: 'b', label: 'Beta' },
-      { id: 'c', label: 'Gamma' },
+      { detail: 'https://a.test/', id: 'a', label: 'Alpha' },
+      { detail: 'https://b.test/', id: 'b', label: 'Beta' },
+      { detail: 'https://c.test/', id: 'c', label: 'Gamma' },
     ]);
     expect(strip.getActiveId()).toBe('a');
     expect(resolveTabChordScope(screen.getByTestId('browser-url-input'))).toBe('browser');

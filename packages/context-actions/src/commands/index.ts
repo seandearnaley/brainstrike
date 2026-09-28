@@ -10,6 +10,7 @@ export {
   settleTabOperation,
   settleTabOutcome,
   type TabCommandStrip,
+  type TabCommandTab,
 } from './tab-commands.js';
 export type {
   Command,

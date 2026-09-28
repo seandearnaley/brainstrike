@@ -122,7 +122,11 @@ export function useBrowserTabChords({
       getActiveId: () => liveBrowserTabs().find((tab) => tab.active)?.tabId ?? null,
       getPanel: () => paneRootRef.current,
       getTabs: () =>
-        liveBrowserTabs().map((tab) => ({ id: tab.tabId, label: browserTabLabel(tab) })),
+        liveBrowserTabs().map((tab) => ({
+          ...(tab.url ? { detail: tab.url } : {}),
+          id: tab.tabId,
+          label: browserTabLabel(tab),
+        })),
       hasClosedTabs,
       reopenClosed,
     };

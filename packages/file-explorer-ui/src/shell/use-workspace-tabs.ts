@@ -9,6 +9,8 @@ import type { WorkspaceApp } from './workspace-app';
 
 /** A workspace strip tab by id and label, app or file. */
 export interface WorkspaceTabRef {
+  /** A file tab's relative path: tells two same-named files apart. */
+  readonly detail?: string;
   readonly id: string;
   readonly label: string;
 }

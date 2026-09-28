@@ -133,9 +133,10 @@ describe('workspace strip — tab order and dispatch for chords (BST-1842)', () 
       { id: FILES_APP.id, label: 'Files' },
       { id: CHANGES_APP.id, label: 'Changes' },
       { id: CHILD_CEDAR_APP.id, label: 'Cedar' },
-      { id: key('a.ts'), label: 'a.ts' },
-      { id: key('b.ts'), label: 'b.ts' },
-      { id: key('c.ts'), label: 'c.ts' },
+      // A file's relative path tells two same-named files apart in Go to Tab….
+      { detail: 'src/a.ts', id: key('a.ts'), label: 'a.ts' },
+      { detail: 'src/b.ts', id: key('b.ts'), label: 'b.ts' },
+      { detail: 'src/c.ts', id: key('c.ts'), label: 'c.ts' },
     ]);
     expect(workspace().tabOrder.map((tab) => tab.label)).toEqual(stripTabs);
   });
