@@ -101,14 +101,19 @@ async function clickUndo(): Promise<void> {
 describe('bulk change + Undo against the real store and PGlite (BST-1805)', () => {
   let db: EnginePglite;
 
-  beforeEach(async () => {
-    toast.mockReset();
-    db = await createEnginePglite();
-    await migrate(db);
-    database.current = db;
-    __resetModelRegistryStoreForTests();
-    useModelRegistryStore.setState({ models: (await readRows(db)).map(toStoreModel) });
-  });
+  beforeEach(
+    async () => {
+      toast.mockReset();
+      db = await createEnginePglite();
+      await migrate(db);
+      database.current = db;
+      __resetModelRegistryStoreForTests();
+      useModelRegistryStore.setState({ models: (await readRows(db)).map(toStoreModel) });
+    },
+    // Cold WASM initialization and the real migration chain need a bounded
+    // setup budget; this does not change either test's assertion timeout.
+    30_000
+  );
 
   afterEach(async () => {
     await db.close();

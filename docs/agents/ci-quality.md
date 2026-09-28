@@ -453,7 +453,7 @@ Evidence: `ci-quality/embeddings-integration-serialized.md`.
   worker; the lane fails. In a `threads` lane that stderr line is the only
   attribution. It stays off under `--inspect*`.
 
-Evidence: `ci-quality/event-loop-watchdog.md`.
+Evidence: `ci-quality/event-loop-watchdog.md`, `ci-quality/settings-pglite-integration.md`.
 Guard: `scripts/verify-event-loop-watchdog.mjs`.
 
 #### A test file with no verdict fails the lane

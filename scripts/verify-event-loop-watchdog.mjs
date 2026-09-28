@@ -44,10 +44,12 @@ export const PGLITE_LANES = Object.freeze([
   { config: 'packages/embeddings/vitest.integration.config.mts' },
   { config: 'packages/file-import/vitest.config.mts' },
   { config: 'packages/file-import/vitest.integration.config.mts' },
+  { config: 'packages/settings-ui/vitest.config.mts' },
+  { config: 'packages/settings-ui/vitest.integration.config.mts' },
 ]);
 
 /** A shrunken lane list means the contract was edited, not that fewer lanes host PGlite. */
-export const MIN_LANES = 16;
+export const MIN_LANES = 18;
 
 /** True only when the watchdog setup is the FIRST effective setup file. */
 export function leadsWithWatchdog(setupFiles) {
