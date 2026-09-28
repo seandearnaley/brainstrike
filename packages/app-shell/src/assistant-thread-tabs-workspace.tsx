@@ -70,6 +70,7 @@ function getTabPanelId(threadId: string): string {
  * reference, so a fresh element per render would re-render every tab; keying
  * on the loaded thread object means a metadata or title write still repaints.
  */
+// Relies on the thread store REPLACING a thread object on any title or metadata change.
 const threadTabMarks = new WeakMap<
   AssistantMemoryThread,
   Map<ThreadRowStatusState | 'none', ReactElement>
@@ -154,9 +155,11 @@ export function AssistantThreadTabsWorkspace({
   const activeThreadId = activeThreadIdByResourceId[resourceId] ?? null;
   const newThreadDisabled = loadState.status === 'loading';
 
-  // The Threads panel's three list-wide run-state projections, one live query
-  // (or derivation) per signal and never per tab. The active tab IS the thread
-  // on screen, so the strip advances its viewed watermark too: a Library showing
+  // The Threads panel's three list-wide run-state projections: one live query
+  // (or derivation) per signal per mounted surface, never per tab. `cacheKey`
+  // does not share a query across hook instances, so with the Threads panel
+  // mounted too each signal runs twice. The active tab IS the thread on screen,
+  // so the strip advances its viewed watermark too: a Library showing
   // Collections leaves no Threads panel mounted to do it.
   const schemaReady = Object.hasOwn(threadsByResourceId, resourceId);
   const threadsAwaitingApproval = useThreadsAwaitingApproval({ database, resourceId, schemaReady });
