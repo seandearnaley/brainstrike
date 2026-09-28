@@ -152,3 +152,94 @@ export async function mockAssistantApi(
     { chunks: buildChunks(), status: statusPayload }
   );
 }
+
+/** The held-run ledger `mockGatedLocalLlmHost` exposes as `window.__assistantGatedRuns`. */
+interface GatedRunLedger {
+  readonly cancelledRequestIds: string[];
+  readonly releases: Array<() => void>;
+  started: number;
+}
+
+interface GatedHostProgressEvent {
+  readonly payload: Record<string, unknown>;
+  readonly requestId: string;
+  readonly type: 'progress';
+}
+
+export const GATED_RUN_RESPONSE = 'Assistant: Gated response released.';
+
+/**
+ * A mocked browser-local model host (`window.llmHost`) whose every turn HOLDS
+ * until the test calls `releaseGatedRuns`, so tab switches and closes land
+ * deterministically mid-run. `cancel` records each host abort the local runtime
+ * issues. Pair with `openAssistantWorkspace(page, { enableLocalAssistantModel: true })`.
+ */
+export async function mockGatedLocalLlmHost(page: Page): Promise<void> {
+  await page.addInitScript((responseText: string) => {
+    window.__assistantAvailabilityOverride = { state: 'enabled' };
+    const ledger: GatedRunLedger = { cancelledRequestIds: [], releases: [], started: 0 };
+    Object.defineProperty(window, '__assistantGatedRuns', { configurable: true, value: ledger });
+    const progressListeners = new Set<(event: GatedHostProgressEvent) => void>();
+    const emit = (requestId: string, payload: Record<string, unknown>): void => {
+      for (const listener of progressListeners) {
+        listener({
+          payload: { clientRequestId: requestId, ...payload },
+          requestId,
+          type: 'progress',
+        });
+      }
+    };
+
+    // @ts-expect-error local runtime host mock for e2e
+    window.llmHost = {
+      cancel(requestId: string) {
+        ledger.cancelledRequestIds.push(requestId);
+      },
+      async generate({ requestId }: { readonly requestId: string }) {
+        emit(requestId, { kind: 'stage', message: 'responding' });
+        ledger.started += 1;
+        await new Promise<void>((resolve) => {
+          ledger.releases.push(resolve);
+        });
+        emit(requestId, { kind: 'text', text: responseText });
+        return {
+          finishReason: 'stop',
+          text: responseText,
+          usage: { completionTokens: 8, promptTokens: 12, totalTokens: 20 },
+        };
+      },
+      onProgress(callback: (event: GatedHostProgressEvent) => void) {
+        progressListeners.add(callback);
+        return () => progressListeners.delete(callback);
+      },
+      warmup: async () => undefined,
+    };
+  }, GATED_RUN_RESPONSE);
+}
+
+// page.evaluate bodies are serialized, so each reads the ledger inline.
+export async function readGatedRuns(
+  page: Page
+): Promise<{ readonly cancelled: readonly string[]; readonly started: number }> {
+  return await page.evaluate(() => {
+    const ledger = (window as unknown as { __assistantGatedRuns?: GatedRunLedger })
+      .__assistantGatedRuns;
+    if (!ledger) {
+      throw new Error('Expected mockGatedLocalLlmHost to install the gated-run ledger');
+    }
+    return { cancelled: [...ledger.cancelledRequestIds], started: ledger.started };
+  });
+}
+
+export async function releaseGatedRuns(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const ledger = (window as unknown as { __assistantGatedRuns?: GatedRunLedger })
+      .__assistantGatedRuns;
+    if (!ledger) {
+      throw new Error('Expected mockGatedLocalLlmHost to install the gated-run ledger');
+    }
+    for (const release of ledger.releases.splice(0)) {
+      release();
+    }
+  });
+}
