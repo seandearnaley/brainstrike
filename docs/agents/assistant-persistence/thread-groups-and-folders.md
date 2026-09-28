@@ -87,7 +87,8 @@ Where state lives (do not relitigate):
   timestamp) plus `useMarkActiveThreadViewed`, which stamps the watermark on the
   way in AND out of a thread and again whenever the active thread's run reaches a
   new `completedAt` while it is still active — so a run finishing in the
-  foreground can never later read as unseen. Folder branch chips come from
+  foreground can never later read as unseen. (Superseded 2026-09-28: see
+  "Seen means on screen in an active window" at the end of this file.) Folder branch chips come from
   `use-thread-branch-by-root-path.ts`: ONE `useGitInventory()` GATED on
   `enabled` (`active: enabled`, `deferInitialLoad: !enabled`) because one load is a full
   repo/worktree scan across every workspace root (BST-1116 W6 finding 4) and the
@@ -266,3 +267,50 @@ Paired tests: `migration-054-assistant-thread-groups.test.ts` and
 `thread-list-sections.test.ts`, `threads-panel-dnd.test.ts`, and the
 `ThreadsPanel groups` suite in `threads-panel.test.tsx`.
 
+## Seen means on screen in an active window (2026-09-28, BST-1845)
+
+Supersedes the `useMarkActiveThreadViewed` design above. The bug: the explorer
+surface stays MOUNTED but hidden under every other shell route (the route wrapper in
+`root-layout-content.tsx` only sets `hidden`/`aria-hidden`), and a transcript stays
+mounted in a background window. "The active thread" therefore stayed true while
+nobody could see it, so a run that finished under Settings or in an unfocused window
+was stamped as viewed on completion (and again on leaving) and its finished/failed
+badge never appeared.
+
+Rule, settled by the ticket's research (Codex/ChatGPT desktop, Claude desktop,
+VS Code, Apple HIG; as recorded there, not re-verified here): a finished run is
+unseen until its transcript has been on screen in an active window at or after its
+`completedAt`. No click, scroll or dwell time.
+
+- Codex/ChatGPT desktop keep a finished thread unread until it is opened and gate
+  the window-level alert on the window not being active. Claude desktop shows a
+  blue dot for an unviewed completion and notifies for sessions the user is not
+  currently viewing. VS Code gates its notification surfaces on `windowNotFocused`.
+  Apple HIG: alert about what the user is not already looking at. Our OS-notification
+  gate (`use-assistant-run-notifications.ts`) already reads focus and visibility, so
+  reusing `useAppActive()` makes every completion either "seen, no alert" or "unseen,
+  alert if enabled" — never both.
+- Focus, not just visibility: on Windows and Linux a covered window still reports
+  `visible`.
+- One publisher. `usePublishOnScreenThreadId`, called only by
+  `AssistantThreadTabsWorkspace`, folds route (`usePanelLayoutStore().activeTab`),
+  whether the workspace renders the transcript (not its database/load state cards)
+  and `useAppActive()` into `useOnScreenThreadStore`; the strip, the Threads panel
+  and the stamper read it back. The Threads panel renders rows, never a transcript
+  (the transcripts are the strip's `ThreadPanels`), so it stopped stamping: selecting
+  a row there shows nothing. A Threads panel mounted without the strip has nothing
+  on screen. The assistant is the main panel of `IdeLayout` and cannot be collapsed
+  (only the Library and Workspace side panels can), so the only "transcript not
+  visible" states are the workspace's own state cards.
+- The fact lives in an app-shell session store, not `assistant-thread-store.ts`:
+  it is UI presence, never persisted, and the thread store sits at the 1000-line
+  Biome cap. It is drained by `APP_SHELL_SESSION_STORE_RESETTERS`.
+- Stamps are the run's own `completedAt`, never `Date.now()`, so host/renderer clock
+  skew cannot leave a watermark below the completion it observed. They fire on
+  transitions (a thread coming on screen, a new completion while on screen) and
+  never on leaving: the old cleanup stamp marked a run seen that finished off screen.
+  Never continuous either — Codex issue #13115 (per the ticket) is a continuous stamp
+  defeating a manual mark-unread; there is no mark-unread here yet.
+- Unverified: whether a focused MCP Apps iframe keeps `document.hasFocus()` true.
+  The HTML spec counts an ancestor of the focused document, so it should, but jsdom
+  does not model iframe focus and this was not checked in a live browser.
