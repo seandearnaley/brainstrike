@@ -55,3 +55,20 @@ The same measurement helpers and gzip level-9 method compare fresh candidate out
 | Web startup closure | 3 | 3 | 16792 / 6817 | 16792 / 6817 | 0 / 0 |
 
 The actual `file-tree.worker.js` remains 85444 raw / 20185 gzip bytes. The package port entry grows from 17169 / 3741 to 18956 / 4222 raw / gzip bytes. The SDK baseline change is included on both sides of this comparison.
+
+## Real worker E2E qualification
+
+On the rc.118 candidate, two existing Electron regression tests pass with one
+worker and zero retries (24.7s including setup): progressive Expand All cancellation
+(3.6s) and expanded-path restoration after app restart (7.2s). The first drives
+`expandAll` through the actual module Worker and port with deterministic filesystem
+fixtures; the second exercises multi-path `loadPaths` restoration. This does not
+claim UI coverage of `loadSubtree`, which has no production port caller and retains
+its package-level tests. The known snapshot-startup retired-database log remained
+visible during fixture shutdown and is tracked separately in BST-1859.
+
+Command from the repository root:
+
+```sh
+pnpm --filter @brainstrike/desktop test:e2e e2e/file-explorer-selection.desktop.test.ts e2e/file-explorer-selection-restore.desktop.test.ts --project=regression --grep 'expand all progressively reveals directories|restored explicit folders can be deselected'
+```
