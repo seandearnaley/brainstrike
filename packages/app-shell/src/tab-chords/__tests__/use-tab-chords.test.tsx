@@ -379,6 +379,16 @@ describe('useTabChords', () => {
       expect(strips.workspace.close).toHaveBeenCalledOnce();
     });
 
+    it('never falls back to the physical key for an accented Latin letter (é on KeyW)', () => {
+      mount({ claimWindowChords: true, isMac: true });
+      outside.focus();
+
+      const event = press(outside, { code: 'KeyW', key: 'é', metaKey: true });
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(strips.workspace.close).not.toHaveBeenCalled();
+    });
+
     it('Ctrl+W closes on Windows and Linux', () => {
       mount({ claimWindowChords: true, isMac: false });
       outside.focus();
@@ -510,18 +520,28 @@ describe('useTabChords', () => {
       }
     });
 
-    it('reports a close that rejected', async () => {
+    it('reports a close that rejected, exactly once (BST-1852)', async () => {
+      const records: LogRecord[] = [];
+      const release = addLogListener((record) => records.push(record));
       strips.workspace.close.mockRejectedValueOnce(new Error('unknown tab b.ts'));
       mount({ claimWindowChords: true, isMac: false });
       outside.focus();
 
-      press(outside, { ctrlKey: true, key: 'w' });
+      try {
+        press(outside, { ctrlKey: true, key: 'w' });
 
-      await vi.waitFor(() =>
-        expect(toastSpy).toHaveBeenCalledWith(
-          expect.objectContaining({ description: 'unknown tab b.ts', variant: 'destructive' })
-        )
-      );
+        await vi.waitFor(() =>
+          expect(toastSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ description: 'unknown tab b.ts', variant: 'destructive' })
+          )
+        );
+        // A workspace (or assistant) chord failure has no lower layer that
+        // also logs it: the router is the sole reporter, so it must produce
+        // exactly one error-level record, never zero and never two.
+        expect(records.filter((record) => record.level === 'error')).toHaveLength(1);
+      } finally {
+        release();
+      }
     });
 
     it('reports a reopen that threw', async () => {

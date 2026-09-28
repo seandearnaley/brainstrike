@@ -51,15 +51,17 @@ const PHYSICAL_LETTER = /^Key([A-Z])$/;
 
 /**
  * The letter a chord names. `event.key` wins, so a Latin layout matches what
- * its keycap says. Only when `key` is a letter of another script (Russian ц on
- * the W key) does the physical `event.code` stand in. Never for punctuation:
- * Dvorak's KeyW is ",", and ⌘, is macOS Preferences.
+ * its keycap says — an accented Latin letter (é, ğ, ü) is still Latin script,
+ * so it is never redirected to the physical key underneath it. Only when
+ * `key` is a letter of a non-Latin script (Russian ц on the W key) does the
+ * physical `event.code` stand in. Never for punctuation: Dvorak's KeyW is
+ * ",", and ⌘, is macOS Preferences.
  */
 function chordLetter(event: KeyboardEvent): string | null {
   if (/^[a-z]$/i.test(event.key)) {
     return event.key.toLowerCase();
   }
-  if (/^\p{L}$/u.test(event.key)) {
+  if (/^\p{L}$/u.test(event.key) && !/^\p{Script=Latin}$/u.test(event.key)) {
     return PHYSICAL_LETTER.exec(event.code)?.[1]?.toLowerCase() ?? null;
   }
   return null;
