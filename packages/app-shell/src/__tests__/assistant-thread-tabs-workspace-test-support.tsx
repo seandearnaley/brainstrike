@@ -1,5 +1,10 @@
-import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import {
+  createPgliteAssistantThreadRepository,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import type { DbHandle } from '@brainstrike/db/react';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, render } from '@testing-library/react';
 import { beforeEach, vi } from 'vitest';
@@ -188,6 +193,31 @@ export function latestRunColumns(
     latestRunTurnMessageId: null,
     latestRunUpdatedAt: completedAt,
   };
+}
+
+/**
+ * A run finished: the joined list query now returns the thread's terminal
+ * latest-run columns, and the store re-reads it exactly as it does when a run's
+ * final turn lands. (The repository is cached per database handle, so this is
+ * the very repository the workspace built.)
+ */
+export async function finishRun(
+  threadId: string,
+  completedAt: Date,
+  status: 'completed' | 'failed' = 'completed'
+): Promise<void> {
+  const row = threadRows.find((candidate) => candidate['id'] === threadId);
+  if (!row) {
+    throw new Error(`No thread row ${threadId} to finish a run on.`);
+  }
+  Object.assign(row, latestRunColumns(threadId, status, completedAt));
+  await act(async () => {
+    await useAssistantThreadStore.getState().refreshResourceThreads(
+      // The mock answers the repository's queries with untyped rows, as PGlite does.
+      createPgliteAssistantThreadRepository(mockDb as unknown as DbHandle),
+      WORKSPACE_MEMORY_RESOURCE_ID
+    );
+  });
 }
 
 export function addThreadRow(id: string, title: string, extra: Record<string, unknown> = {}): void {

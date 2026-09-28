@@ -39,8 +39,9 @@ import {
 } from './assistant-thread-presentation';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
+import { useOnScreenThreadId, usePublishOnScreenThreadId } from './hooks/use-on-screen-thread';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
-import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
+import { useMarkOnScreenThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { ThreadIdentityMark } from './thread-identity-mark';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 import { useAssistantThreadTabChords } from './use-assistant-thread-tab-chords';
@@ -152,23 +153,34 @@ export function AssistantThreadTabsWorkspace({
   const openThreadIds = openThreadIdsByResourceId[resourceId] ?? EMPTY_THREAD_IDS;
   const activeThreadId = activeThreadIdByResourceId[resourceId] ?? null;
   const newThreadDisabled = loadState.status === 'loading';
+  // The thread whose transcript this component renders: the active tab, unless
+  // the database or load gates below replace the panels with a state card. (The
+  // store keeps the active thread among the open tabs, so its panel is the one
+  // not `hidden`.)
+  const transcriptThreadId = repository && loadState.status !== 'error' ? activeThreadId : null;
 
   // The Threads panel's three list-wide run-state projections: one live query
   // (or derivation) per signal per mounted surface, never per tab. `cacheKey`
   // does not share a query across hook instances, so with the Threads panel
-  // mounted too each signal runs twice. The active tab IS the thread on screen,
-  // so the strip advances its viewed watermark too: a Library showing
-  // Collections leaves no Threads panel mounted to do it.
+  // mounted too each signal runs twice.
+  //
+  // This surface renders the transcripts, so it is the ONE publisher of which
+  // thread is on screen and the ONE stamper of the viewed watermark: with the
+  // Library showing Collections no Threads panel is mounted to do either, and a
+  // Threads panel mounted without this surface means nothing is on screen. It
+  // reads its own claim back like every other consumer, so none can disagree.
   const schemaReady = Object.hasOwn(threadsByResourceId, resourceId);
   const threadsAwaitingApproval = useThreadsAwaitingApproval({ database, resourceId, schemaReady });
   const activeThreads = useActiveAssistantThreadIds({ database, resourceId, schemaReady });
+  usePublishOnScreenThreadId(transcriptThreadId);
+  const onScreenThreadId = useOnScreenThreadId();
   const unseenThreadIds = useUnseenThreadIds({
-    activeThreadId,
     lastViewedAtByThreadId,
+    onScreenThreadId,
     threads,
     unseenBaselineAt,
   });
-  useMarkActiveThreadViewed({ activeThreadId, threads });
+  useMarkOnScreenThreadViewed({ onScreenThreadId, threads });
 
   // A failed projection reports an empty set. The strip says so, as the Threads
   // panel does, rather than let every tab read as idle.
