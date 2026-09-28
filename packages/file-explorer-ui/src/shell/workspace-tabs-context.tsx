@@ -84,6 +84,7 @@ export function WorkspaceTabsProvider({
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
   const closeOtherTabs = useTabManagerStore((state) => state.closeOtherTabs);
   const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
+  const reorderTabs = useTabManagerStore((state) => state.reorderTabs);
   const fileContentLoadAuthority = useFileContentLoadAuthority();
   const retainedErrorOwnerRef = useRef<object>({});
 
@@ -144,6 +145,7 @@ export function WorkspaceTabsProvider({
   const mountedAppIdList = useWorkspaceTabSelectionStore((s) => s.mountedAppIds);
   const openApp = useWorkspaceTabSelectionStore((s) => s.openApp);
   const closeApp = useWorkspaceTabSelectionStore((s) => s.closeApp);
+  const closeApps = useWorkspaceTabSelectionStore((s) => s.closeApps);
   const selectEmpty = useWorkspaceTabSelectionStore((s) => s.selectEmpty);
   const selectFile = useWorkspaceTabSelectionStore((s) => s.selectFile);
   const selectionIntentRef = useRef(0);
@@ -293,24 +295,41 @@ export function WorkspaceTabsProvider({
     }
   }, [apps, invalidatePendingSelection, openApp, selectEmpty]);
 
+  /**
+   * The store falls back app→app or app→empty on its own; when it landed on
+   * empty but file tabs remain, prefer the most recent file tab over the
+   * launcher (the store cannot see file tabs).
+   */
+  const preferActiveFileTabOverEmpty = useCallback(
+    (appSuccessor: string | null): void => {
+      if (appSuccessor !== null) {
+        return;
+      }
+      if (useWorkspaceTabSelectionStore.getState().selection.kind !== 'empty') {
+        return;
+      }
+      const { activeTabId } = useTabManagerStore.getState();
+      if (activeTabId !== null) {
+        selectFile(activeTabId);
+      }
+    },
+    [selectFile]
+  );
+
   const handleCloseApp = useCallback(
     (appId: string) => {
       invalidatePendingSelection();
-      const successor = closeApp(appId);
-      if (successor !== null) {
-        return;
-      }
-      // The store falls back app→app or app→empty on its own; when it landed on
-      // empty but file tabs remain, prefer the most recent file tab over the
-      // launcher (the store cannot see file tabs).
-      if (useWorkspaceTabSelectionStore.getState().selection.kind === 'empty') {
-        const { activeTabId } = useTabManagerStore.getState();
-        if (activeTabId !== null) {
-          selectFile(activeTabId);
-        }
-      }
+      preferActiveFileTabOverEmpty(closeApp(appId));
     },
-    [closeApp, invalidatePendingSelection, selectFile]
+    [closeApp, invalidatePendingSelection, preferActiveFileTabOverEmpty]
+  );
+
+  const handleCloseApps = useCallback(
+    (appIds: readonly string[]) => {
+      invalidatePendingSelection();
+      preferActiveFileTabOverEmpty(closeApps(appIds));
+    },
+    [closeApps, invalidatePendingSelection, preferActiveFileTabOverEmpty]
   );
 
   const handleCloseFileTab = useCallback(
@@ -524,10 +543,14 @@ export function WorkspaceTabsProvider({
       mountedAppIds,
       onCloseAllFileTabs: handleCloseAllFileTabs,
       onCloseApp: handleCloseApp,
+      onCloseApps: handleCloseApps,
       onCloseFileTab: handleCloseFileTab,
       onCloseFileTabsToRight: handleCloseFileTabsToRight,
       onCloseOtherFileTabs: handleCloseOtherFileTabs,
       onOpenApp: handleOpenApp,
+      // Reordering never writes selection, so it leaves a pending permission-prompt
+      // selection alone (invalidatePendingSelection is for selection writers).
+      onReorderFileTabs: reorderTabs,
       onRetryFileContent: handleRetryFileContent,
       onSelectFileTab: handleSelectFileTab,
       openApps,
@@ -547,6 +570,7 @@ export function WorkspaceTabsProvider({
       mountedAppIds,
       handleCloseAllFileTabs,
       handleCloseApp,
+      handleCloseApps,
       handleCloseFileTab,
       handleCloseFileTabsToRight,
       handleCloseOtherFileTabs,
@@ -554,6 +578,7 @@ export function WorkspaceTabsProvider({
       handleRetryFileContent,
       handleSelectFileTab,
       openApps,
+      reorderTabs,
       rootDescriptors,
       selection,
       tabs,

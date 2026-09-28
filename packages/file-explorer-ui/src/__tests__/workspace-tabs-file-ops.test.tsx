@@ -612,7 +612,7 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    await user.click(await screen.findByRole('button', { name: /close b\.ts/i }));
+    await user.click(await screen.findByTitle('Close b.ts'));
 
     await waitFor(() => {
       expect(useTabManagerStore.getState().activeTabId).toBe('folderA|@|src/c.ts');
@@ -640,7 +640,7 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    await user.click(await screen.findByRole('button', { name: /close only\.ts/i }));
+    await user.click(await screen.findByTitle('Close only.ts'));
 
     await waitFor(() => {
       expect(useTabManagerStore.getState().activeTabId).toBeNull();
@@ -669,7 +669,7 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    await user.click(await screen.findByRole('button', { name: /close only\.ts/i }));
+    await user.click(await screen.findByTitle('Close only.ts'));
 
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({ kind: 'empty' });
@@ -679,7 +679,7 @@ describe('workspace tabs — file tab operations', () => {
     __resetTabManagerStoreForTests();
   });
 
-  it('"Close All Tabs" overflow action clears every file tab and routes to the first open app', async () => {
+  it('the All-tabs menu Close All clears every file tab and routes to the first open app', async () => {
     const tabModule = await import('../hooks/use-tab-manager');
     vi.mocked(tabModule.useTabManager).mockRestore();
 
@@ -692,8 +692,8 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    await user.click(await screen.findByRole('button', { name: /more tab actions/i }));
-    await user.click(await screen.findByRole('menuitem', { name: /close all tabs/i }));
+    await user.click(await screen.findByRole('button', { name: 'All tabs' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
 
     await waitFor(() => {
       expect(useTabManagerStore.getState().tabs).toEqual([]);
@@ -708,13 +708,13 @@ describe('workspace tabs — file tab operations', () => {
     __resetTabManagerStoreForTests();
   });
 
-  it('"Close All Tabs" is disabled when no file tabs are open', async () => {
+  it('the All-tabs menu offers no Close All when no file tabs are open', async () => {
     const user = userEvent.setup();
     renderWorkspace();
 
-    await user.click(await screen.findByRole('button', { name: /more tab actions/i }));
-    const closeAll = await screen.findByRole('menuitem', { name: /close all tabs/i });
-    expect(closeAll).toHaveAttribute('aria-disabled', 'true');
+    await user.click(await screen.findByRole('button', { name: 'All tabs' }));
+    expect(await screen.findByRole('menuitemradio', { name: 'Files' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Close All' })).not.toBeInTheDocument();
   });
 
   it('right-clicking an inactive file tab can close it without activating it', async () => {
@@ -789,7 +789,7 @@ describe('workspace tabs — file tab operations', () => {
     renderWorkspace([FILES_APP, DEMO_APP]);
 
     fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Tabs to the Right' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close to the Right' }));
 
     expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual([
       'folderA|@|src/a.ts',
@@ -806,7 +806,7 @@ describe('workspace tabs — file tab operations', () => {
     renderWorkspace([FILES_APP, DEMO_APP]);
 
     fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All Tabs' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All' }));
 
     expect(useTabManagerStore.getState().tabs).toEqual([]);
     expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({

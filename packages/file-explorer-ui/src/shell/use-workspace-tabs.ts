@@ -20,10 +20,14 @@ export interface WorkspaceTabsValue {
   readonly mountedAppIds: ReadonlySet<string>;
   readonly onCloseAllFileTabs: () => void;
   readonly onCloseApp: (appId: string) => void;
+  /** Close several app tabs atomically (app-tab menu Close Others / Close All). */
+  readonly onCloseApps: (appIds: readonly string[]) => void;
   readonly onCloseFileTab: (tabId: string) => void;
   readonly onCloseFileTabsToRight: (tabId: string) => void;
   readonly onCloseOtherFileTabs: (tabId: string) => void;
   readonly onOpenApp: (appId: string) => void;
+  /** Adopt a new file-tab order; anything but a permutation of the open tabs is rejected. */
+  readonly onReorderFileTabs: (orderedTabIds: readonly string[]) => void;
   readonly onRetryFileContent: (compositeKey: string) => void;
   readonly onSelectFileTab: (tabId: string) => void | Promise<void>;
   /** Registry ∩ openAppIds, in registry order — what the strip renders. */

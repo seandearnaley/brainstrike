@@ -1,5 +1,6 @@
+import type { ActionRegistry } from '@brainstrike/context-actions';
 import { type RenderResult, render } from '@testing-library/react';
-import { GitCompare, LayoutGrid, PanelsTopLeft } from 'lucide-react';
+import { GitCompare, LayoutGrid, MessageSquare, PanelsTopLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { ContextExplorerAppBody } from '../shell/context-explorer-app-body';
 import type { WorkspaceApp } from '../shell/workspace-app';
@@ -41,9 +42,34 @@ export const DEMO_APP: WorkspaceApp = {
   render: () => <div data-testid="demo-app-body">Demo body</div>,
 };
 
-export function WorkspaceHarness({ apps }: { readonly apps: readonly WorkspaceApp[] }): ReactNode {
+/** Child conversations scroll ahead of the file tabs (`placement: 'dynamic'`). */
+export const CHILD_CEDAR_APP: WorkspaceApp = {
+  icon: MessageSquare,
+  id: 'delegated-conversation:cedar',
+  label: 'Cedar',
+  placement: 'dynamic',
+  render: () => <div data-testid="cedar-app-body">Cedar body</div>,
+};
+
+export const CHILD_FLINT_APP: WorkspaceApp = {
+  icon: MessageSquare,
+  id: 'delegated-conversation:flint',
+  label: 'Flint',
+  placement: 'dynamic',
+  render: () => <div data-testid="flint-app-body">Flint body</div>,
+};
+
+export interface WorkspaceHarnessOptions {
+  /** Registry whose global actions join the strip menus (default: none). */
+  readonly actionRegistry?: ActionRegistry;
+}
+
+export function WorkspaceHarness({
+  actionRegistry,
+  apps,
+}: WorkspaceHarnessOptions & { readonly apps: readonly WorkspaceApp[] }): ReactNode {
   return (
-    <FileExplorerTestWrapper>
+    <FileExplorerTestWrapper {...(actionRegistry ? { actionRegistry } : {})}>
       <WorkspaceTabsProvider apps={apps}>
         <div data-testid="header-slot">
           <WorkspaceTabStrip />
@@ -57,9 +83,12 @@ export function WorkspaceHarness({ apps }: { readonly apps: readonly WorkspaceAp
   );
 }
 
-export function renderWorkspace(apps: readonly WorkspaceApp[] = [FILES_APP]): RenderResult {
+export function renderWorkspace(
+  apps: readonly WorkspaceApp[] = [FILES_APP],
+  options: WorkspaceHarnessOptions = {}
+): RenderResult {
   // File tabs mount a resizable Group by default now that the explorer pane
   // is open-by-default (BST-1318) — it probes matchMedia while mounting.
   stubMatchMedia();
-  return render(<WorkspaceHarness apps={apps} />);
+  return render(<WorkspaceHarness apps={apps} {...options} />);
 }
