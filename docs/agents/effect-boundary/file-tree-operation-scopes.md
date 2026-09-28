@@ -121,3 +121,11 @@ no fixes and reports only the existing 15 warnings. Package ordering remains as
 formatted. The broad port-level no-Promise structural assertion is retained as a
 nonblocking review nit; ownership regressions and the scoped-owner guard provide
 the decisive behavior proof, and no unrelated Promise path is added here.
+
+The exact-head Static gate exposed that the repository's canonical type-check
+guard did not yet record this package's intentional transitional command. The
+guard now exempts only this package and separately pins the exact production-tsc
+then widest-config Effect-diagnostics command, so the exemption cannot hide a
+dropped production gate. Its dead-entry check still forces removal when the
+test-program typing debt is retired. The canonical-form and Effect boundary
+guard suites pass after this correction.
