@@ -3,9 +3,29 @@ import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useEffect } from 'react';
 import { matchTabChord, type TabChordEnvironment } from './match-tab-chord';
-import { getTabChordStrip, resolveTabChordScope } from './tab-chord-registry';
+import { getTabChordStrip, resolveTabChordScope, type TabChordStrip } from './tab-chord-registry';
 
 const logger = createLogger('TabChords');
+
+/**
+ * Closing a tab can unmount the element that had focus (its panel, or the tab
+ * itself), dropping focus to body — and the next chord would then act on the
+ * workspace. Once the close has rendered, move LOST focus back into the strip:
+ * its selected tab, else its tablist (the strip's focus target of last resort).
+ */
+function keepFocusInStrip(strip: TabChordStrip): void {
+  window.requestAnimationFrame(() => {
+    const active = document.activeElement;
+    if (active !== null && active !== document.body) {
+      return;
+    }
+    const panel = strip.getPanel();
+    const target =
+      panel?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
+      panel?.querySelector<HTMLElement>('[role="tablist"]');
+    target?.focus();
+  });
+}
 
 /**
  * The one focus-scoped chord router (BST-1842). A chord acts on the strip whose
@@ -44,6 +64,7 @@ export function useTabChords(environment: TabChordEnvironment): void {
         }
         event.preventDefault();
         strip.close(activeId);
+        keepFocusInStrip(strip);
         return;
       }
       event.preventDefault();

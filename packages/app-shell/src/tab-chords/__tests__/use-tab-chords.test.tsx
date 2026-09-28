@@ -186,6 +186,56 @@ describe('useTabChords', () => {
       expect(strips.workspace.close).not.toHaveBeenCalled();
     });
 
+    it('keeps focus in the strip when the close removed the focused element', async () => {
+      const tablist = document.createElement('div');
+      tablist.setAttribute('role', 'tablist');
+      tablist.tabIndex = -1;
+      const nextTab = document.createElement('button');
+      nextTab.setAttribute('role', 'tab');
+      nextTab.setAttribute('aria-selected', 'false');
+      tablist.append(nextTab);
+      assistantPanel.prepend(tablist);
+      strips['assistant-threads'].close.mockImplementation(() => {
+        // The closed thread's panel unmounts with the composer in it.
+        assistantInput.remove();
+        nextTab.setAttribute('aria-selected', 'true');
+      });
+      mount({ claimWindowChords: true, isMac: true });
+      assistantInput.focus();
+
+      press(assistantInput, { key: 'w', metaKey: true });
+
+      await vi.waitFor(() => expect(document.activeElement).toBe(nextTab));
+    });
+
+    it('falls back to the tablist when the close emptied the strip', async () => {
+      const tablist = document.createElement('div');
+      tablist.setAttribute('role', 'tablist');
+      tablist.tabIndex = -1;
+      assistantPanel.prepend(tablist);
+      strips['assistant-threads'].close.mockImplementation(() => assistantInput.remove());
+      mount({ claimWindowChords: true, isMac: true });
+      assistantInput.focus();
+
+      press(assistantInput, { key: 'w', metaKey: true });
+
+      await vi.waitFor(() => expect(document.activeElement).toBe(tablist));
+    });
+
+    it('leaves surviving focus where it was after a close', async () => {
+      const selectedTab = document.createElement('button');
+      selectedTab.setAttribute('role', 'tab');
+      selectedTab.setAttribute('aria-selected', 'true');
+      assistantPanel.prepend(selectedTab);
+      mount({ claimWindowChords: true, isMac: true });
+      assistantInput.focus();
+
+      press(assistantInput, { key: 'w', metaKey: true });
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+
+      expect(document.activeElement).toBe(assistantInput);
+    });
+
     it('Ctrl+W closes on Windows and Linux', () => {
       mount({ claimWindowChords: true, isMac: false });
       outside.focus();
