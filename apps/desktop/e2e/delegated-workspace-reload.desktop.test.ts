@@ -210,8 +210,9 @@ test('restores distinct child tabs and native transcripts without executing a ru
   const flint = window.getByRole('tab', { exact: true, name: 'Flint' });
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
-  await expect(cedar.locator('..')).toHaveAttribute('data-agent-color', 'emerald');
-  await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'family:2000:730');
+  // The shared TabStrip carries the consumer's data-agent-color hook on the tab itself.
+  await expect(cedar).toHaveAttribute('data-agent-color', 'emerald');
+  await expect(flint).toHaveAttribute('data-agent-color', 'family:2000:730');
   await expect(cedar.getByTestId('workspace-agent-mark')).toHaveCSS(
     'background-color',
     'oklch(0.696 0.17 162.48)'
@@ -273,7 +274,12 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(
     childPanel.getByRole('button', { includeHidden: true, name: 'Restore to before this message' })
   ).toHaveCount(0);
-  await window.getByRole('button', { exact: true, name: 'Close Flint' }).click();
+  // The tab ✕ is a mouse-only, aria-hidden sibling of the tab that shows on
+  // hover (TabStrip contract), so point at the inactive Flint tab first.
+  await flint.hover();
+  await window
+    .getByRole('button', { exact: true, includeHidden: true, name: 'Close Flint' })
+    .click();
   await expect(flint).toHaveCount(0);
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
   // Expand the actual shared TreeTable; listing children mounts no transcripts.
@@ -295,7 +301,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
     .toBeLessThanOrEqual(1);
   await window.getByRole('button', { exact: true, name: 'Flint Child' }).click();
   await expect(flint).toHaveAttribute('aria-selected', 'true');
-  await expect(flint.locator('..')).toHaveAttribute('data-agent-color', 'family:2000:730');
+  await expect(flint).toHaveAttribute('data-agent-color', 'family:2000:730');
   await expect(flint.getByTestId('workspace-agent-mark')).toHaveClass(/bs-agent-family-mark/u);
   await expect(flint.getByTestId('workspace-agent-mark')).toHaveCSS(
     'background-color',
