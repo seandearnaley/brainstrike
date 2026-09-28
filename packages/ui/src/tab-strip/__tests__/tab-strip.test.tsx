@@ -432,6 +432,18 @@ describe('TabStrip menu-open reporting on unmount', () => {
   });
 });
 
+describe('TabStrip context-menu open reporting on unmount', () => {
+  it('reports the context menu closed when the strip unmounts while it is open', async () => {
+    const onMenuOpenChange = vi.fn();
+    const view = renderStrip({ initial: ['a', 'b'], onMenuOpenChange, withMenu: true });
+    fireEvent.contextMenu(tab('Tab b'));
+    expect(await screen.findByRole('menuitem', { name: 'Close' })).toBeInTheDocument();
+    expect(onMenuOpenChange.mock.calls).toEqual([[true]]);
+    view.unmount();
+    expect(onMenuOpenChange.mock.calls).toEqual([[true], [false]]);
+  });
+});
+
 describe('TabStrip All-tabs menu', () => {
   it('lists every tab and activates the chosen one', async () => {
     const user = userEvent.setup();

@@ -389,6 +389,50 @@ describe('BrowserPaneContent tab strip (BST-1840)', () => {
     }
   );
 
+  it('duplicates the tab URL as it is when the action runs, and a blank tab as a new tab', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    pushTabs(THREE_TABS);
+
+    fireEvent.contextMenu(browserTab('Beta'));
+    await screen.findByRole('menuitem', { name: 'Duplicate' });
+    // Beta navigates while its menu is open.
+    pushTabs([
+      THREE_TABS[0] ?? tab({ tabId: 'a' }),
+      tab({ tabId: 'b', title: 'Beta', url: 'https://b.test/moved' }),
+      THREE_TABS[2] ?? tab({ tabId: 'c' }),
+    ]);
+    await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    await waitFor(() =>
+      expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith('https://b.test/moved')
+    );
+
+    bridge.createTab.mockClear();
+    pushTabs([tab({ active: true, tabId: 'n', title: '', url: '' })]);
+    fireEvent.contextMenu(browserTab('New Tab'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+    await waitFor(() => expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith());
+  });
+
+  it('reports a bulk close with several failures once, with one resync', async () => {
+    const user = userEvent.setup();
+    bridge.closeTab
+      .mockRejectedValueOnce(new Error('unknown tab a'))
+      .mockRejectedValueOnce(new Error('unknown tab c'));
+    renderPane();
+    pushTabs(THREE_TABS);
+    bridge.listTabs.mockClear();
+
+    fireEvent.contextMenu(browserTab('Beta'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
+
+    expect(
+      await screen.findByText('2 of 3 browser tabs failed to close: unknown tab a')
+    ).toBeInTheDocument();
+    await waitFor(() => expect(bridge.listTabs).toHaveBeenCalledOnce());
+    expect(screen.getAllByText('Action failed')).toHaveLength(1);
+  });
+
   it('disables Reload and Duplicate once the right-clicked tab has closed', async () => {
     renderPane();
     pushTabs(THREE_TABS);

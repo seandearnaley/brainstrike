@@ -1,6 +1,5 @@
-import { useEventCallback } from '@brainstrike/hooks';
 import { ChevronDown } from 'lucide-react';
-import { type ReactElement, useEffect, useRef } from 'react';
+import type { ReactElement } from 'react';
 import { Button } from '../button';
 import {
   DropdownMenu,
@@ -15,6 +14,7 @@ import { TabStatusIcon } from './tab-status';
 import { resolveTabStatusText } from './tab-status-text';
 import { TAB_ICON_CLASS_NAME, TAB_STRIP_ICON_BUTTON_CLASS_NAME } from './tab-strip-tokens';
 import type { TabStripItem } from './types';
+import { useMenuOpenReporter } from './use-menu-open-reporter';
 
 function AllTabsLeading({ item }: { readonly item: TabStripItem }): ReactElement | null {
   if (item.status) {
@@ -55,22 +55,7 @@ export function TabStripAllTabsMenu({
   readonly onCloseAll?: (() => void) | undefined;
   readonly onOpenChange?: ((open: boolean) => void) | undefined;
 }): ReactElement {
-  const openRef = useRef(false);
-  const reportOpenChange = useEventCallback((open: boolean): void => {
-    openRef.current = open;
-    onOpenChange?.(open);
-  });
-  // The menu unmounts with the strip's last tab. Radix reports no close then,
-  // so report it here: a host occluding a native view must not stay occluded.
-  // biome-ignore lint/plugin: unmount cleanup notifying an external host (native-view occlusion), not state used as an event handler
-  useEffect(
-    () => () => {
-      if (openRef.current) {
-        reportOpenChange(false);
-      }
-    },
-    [reportOpenChange]
-  );
+  const reportOpenChange = useMenuOpenReporter(onOpenChange);
   return (
     <DropdownMenu onOpenChange={reportOpenChange}>
       <DropdownMenuTrigger asChild>

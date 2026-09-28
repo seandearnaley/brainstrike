@@ -39,11 +39,11 @@ export function moveTabId(
  * enablement on the live order, and re-validates at execution.
  */
 export interface TabStripActionOperations<K extends ContextTargetKind> {
-  readonly close?: ((id: string) => TabStripOperationResult) | undefined;
+  readonly close?: ((id: string) => unknown) | undefined;
   /** Receives the invoking tab so a strip can scope Close All to that tab's group. */
-  readonly closeAll?: ((id: string) => TabStripOperationResult) | undefined;
-  readonly closeOthers?: ((id: string) => TabStripOperationResult) | undefined;
-  readonly closeToRight?: ((id: string) => TabStripOperationResult) | undefined;
+  readonly closeAll?: ((id: string) => unknown) | undefined;
+  readonly closeOthers?: ((id: string) => unknown) | undefined;
+  readonly closeToRight?: ((id: string) => unknown) | undefined;
   readonly getId: (target: TargetOf<K>) => string;
   readonly getLabel: (target: TargetOf<K>) => string;
   /** Live order of the target's group, read at menu-open AND at execution. */
@@ -53,22 +53,19 @@ export interface TabStripActionOperations<K extends ContextTargetKind> {
   readonly kind: K;
   /** Noun for failure copy: "This thread tab is no longer open". */
   readonly noun: string;
-  readonly reorder?: ((orderedIds: readonly string[]) => TabStripOperationResult) | undefined;
+  readonly reorder?: ((orderedIds: readonly string[]) => unknown) | undefined;
 }
 
 const OK: ActionOutcome = { ok: true };
 
 /**
- * A store operation may be synchronous or return a promise (e.g. an IPC bridge
- * call). A rejection — or a synchronous throw — becomes a failed outcome, so
- * the menu reports it instead of claiming success.
+ * Runs a store operation. Its return value is ignored except as a promise to
+ * await (e.g. an IPC bridge call), so operations may return anything — a
+ * store's `closeTab` returning the next id included. A rejection, or a
+ * synchronous throw, becomes a failed outcome, so the menu reports it instead
+ * of claiming success.
  */
-export type TabStripOperationResult = void | Promise<void>;
-
-function settle(
-  operation: () => TabStripOperationResult,
-  success: ActionOutcome
-): Promise<ActionOutcome> {
+function settle(operation: () => unknown, success: ActionOutcome): Promise<ActionOutcome> {
   return Promise.resolve()
     .then(operation)
     .then(

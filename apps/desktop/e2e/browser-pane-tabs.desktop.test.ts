@@ -22,7 +22,7 @@ interface PaneViewState {
 }
 
 function titledPage(title: string): string {
-  return `data:text/html,<title>${title}</title><p>${title}</p>`;
+  return `data:text/html,${encodeURIComponent(`<title>${title}</title><p>${title}</p>`)}`;
 }
 
 /** Every pane `WebContentsView` in main, with whether it is drawn. */

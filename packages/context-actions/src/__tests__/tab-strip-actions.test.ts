@@ -161,6 +161,13 @@ describe('createTabStripActions', () => {
     await expect(action('close-all').run(threadTab('a'), {})).resolves.toEqual({ ok: true });
   });
 
+  it('accepts operations that return a value (e.g. a store close returning the next id)', async () => {
+    const { action } = setup(['a', 'b'], {
+      close: (id: string): string | null => (id === 'a' ? 'b' : null),
+    });
+    await expect(action('close').run(threadTab('a'), {})).resolves.toEqual({ ok: true });
+  });
+
   it('moves within the live order and reports the move', async () => {
     const { action, getOrder } = setup(['a', 'b', 'c']);
     await expect(action('move-right').run(threadTab('a'), {})).resolves.toEqual({

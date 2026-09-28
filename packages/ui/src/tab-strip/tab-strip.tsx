@@ -26,6 +26,7 @@ import {
   TAB_STRIP_STANDALONE_CLASS_NAME,
 } from './tab-strip-tokens';
 import type { TabStripItem, TabStripProps } from './types';
+import { useMenuOpenReporter } from './use-menu-open-reporter';
 import { useTabStripFocus } from './use-tab-strip-focus';
 import { useTabStripMenu } from './use-tab-strip-menu';
 import { tabStripOverflowMaskStyle, useTabStripOverflow } from './use-tab-strip-overflow';
@@ -131,6 +132,7 @@ function TabStripContent({
     trailingRef,
   });
 
+  const reportContextMenuOpen = useMenuOpenReporter(onMenuOpenChange);
   const handleActivate = useEventCallback((id: string): void => onActivate(id));
   const handleCloseStable = useEventCallback((id: string): void => onClose?.(id));
   const handleClose = onClose ? handleCloseStable : null;
@@ -252,7 +254,7 @@ function TabStripContent({
       controller={menu.controller}
       localActions={contextMenu.localActions}
       onCloseAutoFocus={menu.restoreFocusAfterMenu}
-      {...(onMenuOpenChange ? { onOpenChange: onMenuOpenChange } : {})}
+      onOpenChange={reportContextMenuOpen}
     >
       {strip}
     </ActionContextMenu>

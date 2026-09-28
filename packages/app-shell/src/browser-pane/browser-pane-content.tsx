@@ -103,8 +103,31 @@ function createBrowserTabActions(
       throw new Error(outcome.error);
     }
   };
+  // One bulk close is one action: every close is attempted, then any failures
+  // produce ONE log, ONE re-seed and ONE failed outcome naming the count.
   const closeTabs = async (keep: (tabId: string) => boolean): Promise<void> => {
-    await Promise.all(liveTabs().flatMap(({ tabId }) => (keep(tabId) ? [] : [closeTab(tabId)])));
+    const tabIds = liveTabs().flatMap(({ tabId }) => (keep(tabId) ? [] : [tabId]));
+    const attempt = Promise.allSettled(tabIds.map((tabId) => bridge.closeTab(tabId))).then(
+      (results) => {
+        const failures = results.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        const [first] = failures;
+        if (failures.length === 0) {
+          return;
+        }
+        const firstMessage = first instanceof Error ? first.message : String(first);
+        throw new Error(
+          failures.length === 1
+            ? firstMessage
+            : `${failures.length} of ${tabIds.length} browser tabs failed to close: ${firstMessage}`
+        );
+      }
+    );
+    const outcome = await settleTabAction(attempt, 'closeTabs');
+    if (!outcome.ok) {
+      throw new Error(outcome.error);
+    }
   };
   return [
     ...createTabStripActions({
@@ -135,10 +158,17 @@ function createBrowserTabActions(
       id: 'browser-tab.duplicate',
       isEnabled: (target) => isTabOpen(target.tabId),
       label: 'Duplicate',
-      run: (target) =>
-        isTabOpen(target.tabId)
-          ? settleTabAction(bridge.createTab(target.url), 'duplicate')
-          : Promise.resolve(STALE_TAB_OUTCOME),
+      run: (target) => {
+        // Re-read the live tab: it may have navigated while the menu was open.
+        const live = liveTabs().find((candidate) => candidate.tabId === target.tabId);
+        if (!live) {
+          return Promise.resolve(STALE_TAB_OUTCOME);
+        }
+        return settleTabAction(
+          live.url === '' ? bridge.createTab() : bridge.createTab(live.url),
+          'duplicate'
+        );
+      },
     }),
     defineContextAction<'tab-strip'>({
       appliesTo: ['tab-strip'],
