@@ -5,9 +5,6 @@ import {
   type ShutdownStepOutcome,
 } from '../shutdown-sequence.js';
 
-const pendingTimers = (): number =>
-  process.getActiveResourcesInfo().filter((resource) => resource === 'Timeout').length;
-
 const neverSettles = (): Promise<never> => new Promise<never>(() => undefined);
 
 async function settle(): Promise<void> {
@@ -148,25 +145,54 @@ describe('runShutdownSequence', () => {
     });
   });
 
-  it('clears the deadline timer when every step finishes in time', async () => {
-    const before = pendingTimers();
+  it('clears its owned deadline timer when every step finishes in time', async () => {
+    const nativeClearTimeout = globalThis.clearTimeout;
+    const timerSpy = vi.spyOn(globalThis, 'setTimeout');
+    const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
     const { promise: gate, resolve: open } = Promise.withResolvers<void>();
     const onDeadline = vi.fn();
-
+    let owned: ReturnType<typeof setTimeout> | undefined;
     const running = runShutdownSequence([{ name: 'database', run: () => gate }], {
       deadlineMs: 60_000,
       onDeadline,
     });
-    await settle();
-    // Visible while the sequence runs, so the equality below is not vacuous.
-    expect(pendingTimers()).toBeGreaterThan(before);
+    try {
+      await settle();
+      const deadlineCalls = timerSpy.mock.calls.flatMap(([, delay], index) =>
+        delay === 60_000 ? [index] : []
+      );
+      expect(deadlineCalls).toHaveLength(1);
+      const index = deadlineCalls[0];
+      if (index === undefined) {
+        throw new Error('Shutdown deadline was not armed');
+      }
+      const result = timerSpy.mock.results[index];
+      if (result?.type !== 'return') {
+        throw new Error('Shutdown deadline timer creation failed');
+      }
+      owned = result.value;
+      expect(owned).toBeDefined();
+      expect(clearSpy).not.toHaveBeenCalledWith(owned);
 
-    open();
-    await expect(running).resolves.toMatchObject({ timedOut: false });
-    await settle();
-
-    expect(pendingTimers()).toBe(before);
-    expect(onDeadline).not.toHaveBeenCalled();
+      open();
+      await expect(running).resolves.toMatchObject({ timedOut: false });
+      expect(clearSpy).toHaveBeenCalledWith(owned);
+      expect(onDeadline).not.toHaveBeenCalled();
+    } finally {
+      open();
+      try {
+        await running;
+      } finally {
+        for (const [index, [, delay]] of timerSpy.mock.calls.entries()) {
+          const result = timerSpy.mock.results[index];
+          if (delay === 60_000 && result?.type === 'return') {
+            nativeClearTimeout(result.value);
+          }
+        }
+        timerSpy.mockRestore();
+        clearSpy.mockRestore();
+      }
+    }
   });
 
   it('rejects invalid options without running a step', async () => {

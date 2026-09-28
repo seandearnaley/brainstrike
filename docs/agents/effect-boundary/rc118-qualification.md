@@ -108,3 +108,26 @@ failures without source or assertion changes. Passing files were not rerun just
 to hide the original run: the affected fixtures were rechecked explicitly.
 
 Desktop integration and required remote CI results are recorded in the PR.
+
+## Shutdown timer oracle correction
+
+PR 3358 Unit(rest) job 108800499443 exposed an existing process-wide timer-count
+oracle: the test compared all active Timeout resources before and after its
+shutdown sequence. An unrelated timer expiring during that interval changed
+one to zero despite successful owned deadline cleanup. A controlled unrelated
+25ms timer reproduced the false failure locally (two before versus one after).
+
+The test now spies on the real dynamic setTimeout/clearTimeout calls used by
+rc118 ClockImpl.sleepMillis, captures the single 60,000ms deadline handle,
+proves it remains uncleared while the step gate is held, and checks its exact
+clear immediately after public completion. No fake clock or process-wide
+count is used. Finally opens/joins the step, clears every successfully created 60,000ms native
+handle, and restores both spies even if joining unexpectedly rejects or the
+acquisition-count assertion fails.
+
+A negative control suppresses only the owned deadline clear: the specific
+clear assertion fails with zero observed calls. Its leaked native handle is
+cleared in finally before restoration. Restoring cleanup passes the suite.
+All 39 effect-kit tests pass after restoration; strict Effect diagnostics cover
+12/12 files with zero errors, warnings or messages. This correction changes
+only the test oracle; runtime behavior is unchanged.
