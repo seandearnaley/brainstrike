@@ -793,14 +793,17 @@ test('parser host generations scope exit and listeners without replacing the req
   assert.match(source, /Effect\.promise\(\(\) => exited\)/u);
   assert.match(source, /runAtPromiseBoundary\(Scope\.close\(generation\.scope/u);
   assert.match(source, /this\.#current === generation/u);
-  assert.match(source, /generation\.state === 'live'/u);
+  assert.match(
+    source,
+    /void generation\.setup\.catch\(\(error: unknown\) => \{\s*if \(generation\.state === 'live'\) \{\s*generation\.state = 'stop-failed';/u
+  );
   assert.match(source, /\[\.\.\.this\.#owned\]/u);
   assert.match(source, /Promise\.allSettled/u);
   assert.match(source, /generation\.host\.kill\(\)/u);
   assert.match(source, /retry stop before parsing/u);
   assert.match(source, /DEFAULT_STOP_TIMEOUT_MS = 500/u);
   assert.match(source, /runWithTimeout\(\(\) => closing/u);
-  assert.match(source, /generation\.state === 'live'/u);
+  assert.match(source, /this\.#current === generation && generation\.state === 'live'/u);
   assert.match(source, /removeListener\('message', onMessage\)/u);
   assert.match(source, /removeListener\('exit', onExit\)/u);
   assert.match(source, /createHostRequestChannel/u);

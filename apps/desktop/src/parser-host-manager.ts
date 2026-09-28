@@ -160,11 +160,25 @@ export class ParserHostManager {
       return;
     }
     // Initiate kill synchronously; only the caller wait is bounded, never Scope.close.
+    const observedFailures = new Map<number, unknown>();
     const closing = Promise.allSettled(
-      generations.map((generation) => this.#stopGeneration(generation))
+      generations.map((generation, index) =>
+        this.#stopGeneration(generation).catch((error: unknown) => {
+          observedFailures.set(index, error);
+          throw error;
+        })
+      )
     );
     const outcomes = await runWithTimeout(() => closing, {
-      onTimeout: () => new Error(`parser host stop timeout after ${this.#stopTimeoutMs}ms`),
+      onTimeout: () => {
+        const timeout = new Error(`parser host stop timeout after ${this.#stopTimeoutMs}ms`);
+        const failures = [...observedFailures.entries()]
+          .sort(([left], [right]) => left - right)
+          .map(([, error]) => error);
+        return failures.length === 0
+          ? timeout
+          : new AggregateError([...failures, timeout], 'Failed to stop parser host generations');
+      },
       timeoutMs: this.#stopTimeoutMs,
     });
     const failures = outcomes.flatMap((outcome) =>

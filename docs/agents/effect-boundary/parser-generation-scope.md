@@ -151,3 +151,32 @@ the same rc.118 baseline 2,742,205 / 584,738: +5,655 raw / +1,089 gzip.
 The seven other outputs remain unchanged. The native routing E2E passes again
 in 17.9 seconds including setup (3.8-second test), parser stop succeeds in
 13ms, and Electron exits with code 0. Known BST-1859 logging remains visible.
+
+## Mixed-generation failure precedence correction
+
+The targeted review found that an older held exit plus a replacement's immediate
+false/throwing kill made the all-settled caller deadline hide the known kill
+failure. Both false and arbitrary-throw regressions fail against the reviewed
+head (two failures, 31 existing manager tests passing). Stop now records each
+settled failure separately by original generation index. A timeout aggregates
+those same failure objects, in original order, followed by the timeout error.
+Ordinary completed snapshots retain their existing failure order/identity.
+All close Promises remain observed and owned, and no deadline restarts or
+additional kills are introduced. The desktop serializer proof verifies both
+failure messages remain visible in AggregateError.errors.
+
+The focused suite passes 43 unit tests and two shutdown integrations; all
+29 guards pass. BST-1860 strengthens the setup state-transition guard to anchor
+the actual setup.catch callback rather than the unrelated onMessage live check.
+Deleting only the setup live condition now makes that guard fail; restoring
+it returns the suite to green. Production setup handling is unchanged.
+
+The corrected candidate passes desktop main TypeScript, the 579-test-file
+program and strict diagnostics on 584/584 files with zero diagnostics. The
+fresh main build is 2,748,375 raw / 585,946 gzip bytes, a total delta of +6,170
+raw / +1,208 gzip versus the matching rc.118 baseline. Other seven root outputs
+remain unchanged. Scoped formatting changes only test reflow.
+
+Final native routing proof passes in 18.6 seconds including setup (3.7-second
+test), parser shutdown succeeds in 13ms and Electron exits with code 0.
+Full-tree formatting applies no fixes and reports only the existing 15 warnings.
