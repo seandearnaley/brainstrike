@@ -20,6 +20,7 @@ import {
   resolveTabChordScope,
   type TabChordStrip,
 } from '../tab-chords/tab-chord-registry';
+import { useTabChords } from '../tab-chords/use-tab-chords';
 
 let tabsListener: ((tabs: readonly BrowserTab[]) => void) | null = null;
 const bridge = {
@@ -89,6 +90,23 @@ function renderPane() {
   return render(
     <ActionRegistryProvider registry={registry}>
       <BrowserPaneContent />
+      <Toaster />
+    </ActionRegistryProvider>
+  );
+}
+
+/** Mounts the real chord router (BST-1842) alongside the pane, root-owns ⌘/Ctrl+W. */
+function ChordRouter(): null {
+  useTabChords({ claimWindowChords: true, isMac: true });
+  return null;
+}
+
+function renderPaneWithChordRouter() {
+  const { registry } = createTestActionRegistry();
+  return render(
+    <ActionRegistryProvider registry={registry}>
+      <BrowserPaneContent />
+      <ChordRouter />
       <Toaster />
     </ActionRegistryProvider>
   );
@@ -207,6 +225,8 @@ describe('BrowserPaneContent', () => {
   });
 
   it('logs and resyncs the tab mirror when a tab action rejects (unknown-tab race)', async () => {
+    const records: LogRecord[] = [];
+    onTestFinished(addLogListener((record) => records.push(record)));
     renderPane();
     act(() => {
       tabsListener?.([tab({ active: true, tabId: 'a' })]);
@@ -222,6 +242,19 @@ describe('BrowserPaneContent', () => {
     // The rejected action must not become an unhandledrejection — it re-seeds
     // the mirror from main's authoritative list instead.
     await waitFor(() => expect(bridge.listTabs).toHaveBeenCalled());
+    // The ✕ click has no other consumer of the outcome (no chord router, no
+    // palette, no menu): `runTabAction` must be the one place that logs it,
+    // exactly once, or the failure would go silent (BST-1852).
+    await waitFor(() =>
+      expect(records.filter((record) => record.level === 'error')).toHaveLength(1)
+    );
+    // The record carries the raw failure (stack, cause), not just its message
+    // string, so a toolbar/URL-bar/✕ failure stays diagnosable.
+    const [errorRecord] = records.filter((record) => record.level === 'error');
+    const context = errorRecord?.args.find(
+      (arg): arg is { error: unknown } => typeof arg === 'object' && arg !== null && 'error' in arg
+    );
+    expect(context?.error).toHaveProperty('stack');
   });
 
   it('occludes the native view when the shell navigates to Settings (BST-1668)', async () => {
@@ -444,11 +477,12 @@ describe('BrowserPaneContent tab strip (BST-1840)', () => {
     ).toBeInTheDocument();
     await waitFor(() => expect(bridge.listTabs).toHaveBeenCalledOnce());
     expect(screen.getAllByText('Action failed')).toHaveLength(1);
-    // Every rejection reason reaches the (redacted, serialized) log record.
-    const logged = records.filter(
-      (record) => record.message === 'Browser pane tab action failed; resyncing tabs'
-    );
+    // One-failure-one-record (BST-1852): `settleTabAction` recovers and never
+    // logs; `ActionContextMenu` owns the single log once the outcome reaches
+    // the menu. Every rejection reason still reaches that one record.
+    const logged = records.filter((record) => record.level === 'error');
     expect(logged).toHaveLength(1);
+    expect(logged[0]?.message).toBe('Context action failed');
     expect(JSON.stringify(logged[0]?.args)).toContain('unknown tab a; unknown tab c');
   });
 
@@ -713,5 +747,26 @@ describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
     pushTabs(THREE_TABS);
     await expect(chordStrip().close('c')).resolves.toBeUndefined();
     expect(chordStrip().hasClosedTabs()).toBe(true);
+  });
+
+  it('logs a rejected browser close from a chord exactly once (BST-1852)', async () => {
+    const records: LogRecord[] = [];
+    onTestFinished(addLogListener((record) => records.push(record)));
+    bridge.closeTab.mockRejectedValueOnce(new Error('unknown tab a'));
+    renderPaneWithChordRouter();
+    pushTabs(THREE_TABS);
+    const input = await screen.findByTestId('browser-url-input');
+    input.focus();
+    // Mount seeds the mirror through `listTabs`; clear it so the wait below
+    // proves the failure's resync, not the initial seed.
+    bridge.listTabs.mockClear();
+
+    fireEvent.keyDown(input, { key: 'w', metaKey: true });
+
+    await screen.findByText('unknown tab a');
+    await waitFor(() => expect(bridge.listTabs).toHaveBeenCalled());
+    // `settleTabAction` (browser-pane) used to log this failure and the chord
+    // router's `report` logged it again — exactly one error record must survive.
+    expect(records.filter((record) => record.level === 'error')).toHaveLength(1);
   });
 });
