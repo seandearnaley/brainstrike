@@ -1,5 +1,9 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import { createTestActionRegistry } from '@brainstrike/context-actions';
+import {
+  type ActionOutcome,
+  createTestActionRegistry,
+  NO_CLOSED_TAB_ERROR,
+} from '@brainstrike/context-actions';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -10,6 +14,11 @@ import { BrowserPaneContent } from '../browser-pane/browser-pane-content';
 import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
 import { useQuickOpenStore } from '../stores/quick-open-store';
+import {
+  getTabChordStrip,
+  resolveTabChordScope,
+  type TabChordStrip,
+} from '../tab-chords/tab-chord-registry';
 
 let tabsListener: ((tabs: readonly BrowserTab[]) => void) | null = null;
 const bridge = {
@@ -546,5 +555,111 @@ describe('BrowserPaneContent occlusion while a tab-strip menu is open (BST-1840)
 
     expect(bridge.setOccluded).toHaveBeenLastCalledWith(true);
     expect(bridge.setBounds).not.toHaveBeenCalled();
+  });
+});
+
+describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
+  function chordStrip(): TabChordStrip {
+    const strip = getTabChordStrip('browser');
+    if (!strip) {
+      throw new Error('the browser strip did not register with the chord router');
+    }
+    return strip;
+  }
+
+  async function reopen(): Promise<ActionOutcome | undefined> {
+    let outcome: ActionOutcome | undefined;
+    await act(async () => {
+      outcome = await chordStrip().reopenClosed();
+    });
+    return outcome;
+  }
+
+  it('registers its tabs, active tab and pane with the chord router', () => {
+    renderPane();
+    pushTabs(THREE_TABS);
+    const strip = chordStrip();
+
+    expect(strip.getTabs()).toEqual([
+      { id: 'a', label: 'Alpha' },
+      { id: 'b', label: 'Beta' },
+      { id: 'c', label: 'Gamma' },
+    ]);
+    expect(strip.getActiveId()).toBe('a');
+    expect(resolveTabChordScope(screen.getByTestId('browser-url-input'))).toBe('browser');
+    act(() => strip.activate('c'));
+    expect(bridge.selectTab).toHaveBeenCalledExactlyOnceWith('c');
+  });
+
+  it('reopens a tab closed with the ✕ by creating it at its URL', async () => {
+    renderPane();
+    pushTabs(THREE_TABS);
+
+    fireEvent.click(screen.getByTestId('browser-tab-close-b'));
+    await waitFor(() => expect(bridge.closeTab).toHaveBeenCalledExactlyOnceWith('b'));
+
+    expect(await reopen()).toEqual({ ok: true });
+    expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith('https://b.test/');
+  });
+
+  it('records a Delete-key close and a chord close', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    pushTabs(THREE_TABS);
+
+    browserTab('Gamma').focus();
+    await user.keyboard('{Delete}');
+    act(() => chordStrip().close('a'));
+    await waitFor(() => expect(bridge.closeTab).toHaveBeenCalledTimes(2));
+
+    await reopen();
+    await reopen();
+    expect(bridge.createTab.mock.calls).toEqual([['https://a.test/'], ['https://c.test/']]);
+  });
+
+  it('records a close from the tab menu', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    pushTabs(THREE_TABS);
+
+    fireEvent.contextMenu(browserTab('Beta'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Close' }));
+    await waitFor(() => expect(bridge.closeTab).toHaveBeenCalledExactlyOnceWith('b'));
+
+    expect(await reopen()).toEqual({ ok: true });
+    expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith('https://b.test/');
+  });
+
+  it('records only the tabs main actually closed in a menu bulk close', async () => {
+    const user = userEvent.setup();
+    // Close All closes a, b, c in strip order; main rejects c.
+    bridge.closeTab
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('unknown tab c'));
+    renderPane();
+    pushTabs(THREE_TABS);
+
+    fireEvent.contextMenu(browserTab('Beta'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
+    await screen.findByText('unknown tab c');
+
+    await reopen();
+    await reopen();
+    expect(bridge.createTab.mock.calls).toEqual([['https://a.test/'], ['https://b.test/']]);
+    expect(await reopen()).toEqual({ error: NO_CLOSED_TAB_ERROR, ok: false });
+  });
+
+  it('reopens a blank tab as a new tab and reports a create that failed', async () => {
+    renderPane();
+    pushTabs([tab({ active: true, tabId: 'n', title: '', url: '' }), ...THREE_TABS.slice(1)]);
+    act(() => chordStrip().close('n'));
+    act(() => chordStrip().close('b'));
+    await waitFor(() => expect(bridge.closeTab).toHaveBeenCalledTimes(2));
+    bridge.createTab.mockRejectedValueOnce(new Error('host rejected the view'));
+
+    expect(await reopen()).toEqual({ error: 'host rejected the view', ok: false });
+    expect(await reopen()).toEqual({ ok: true });
+    expect(bridge.createTab.mock.calls).toEqual([['https://b.test/'], []]);
   });
 });

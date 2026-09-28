@@ -5,7 +5,9 @@ export {
   type ClosedTabHistory,
   createClosedTabHistory,
   NO_CLOSED_TAB_ERROR,
+  type OpenTab,
   placeTabAtIndex,
+  recordRemovedTabs,
 } from './closed-tab-history.js';
 export { isAbsolutePath, toRelativePath } from './paths.js';
 export {

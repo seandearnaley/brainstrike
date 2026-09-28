@@ -76,6 +76,12 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   },
 }));
 
+// The provider above is a pass-through stub with no tabs context, so the
+// workspace chord registration (covered in tab-chords/__tests__) is stubbed too.
+vi.mock('../tab-chords/workspace-tab-chords', () => ({
+  WorkspaceTabChords: () => null,
+}));
+
 vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
   FileTreeProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="file-tree-provider">{children}</div>

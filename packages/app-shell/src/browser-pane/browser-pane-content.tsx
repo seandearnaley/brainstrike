@@ -2,8 +2,11 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import {
   type ActionOutcome,
   type AnyContextAction,
+  type ClosedTabHistory,
+  createClosedTabHistory,
   createTabStripActions,
   defineContextAction,
+  NO_CLOSED_TAB_ERROR,
 } from '@brainstrike/context-actions';
 import { createLogger } from '@brainstrike/logging';
 import {
@@ -27,6 +30,7 @@ import {
 } from 'react';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
 import { useQuickOpenStore } from '../stores/quick-open-store';
+import { type TabChordStrip, useTabChordStrip } from '../tab-chords/tab-chord-registry';
 import { type BrowserBridge, type BrowserTab, resolveBrowserBridge } from './browser-bridge';
 import { selectActiveBrowserTab, useBrowserTabsStore } from './browser-tabs-store';
 
@@ -86,6 +90,45 @@ function isTabOpen(tabId: string): boolean {
 
 const STALE_TAB_OUTCOME: ActionOutcome = { error: 'This browser tab is no longer open', ok: false };
 
+/** What Reopen Closed Tab needs to recreate a browser tab. */
+interface ClosedBrowserTab {
+  readonly url: string;
+}
+
+/**
+ * Close tabs in main and record each one main actually closed, so Reopen
+ * Closed Tab can recreate it. Every close is attempted; the promise then
+ * rejects once, naming every failure.
+ */
+async function closeRecorded(
+  bridge: BrowserBridge,
+  history: ClosedTabHistory<ClosedBrowserTab>,
+  tabIds: readonly string[]
+): Promise<void> {
+  const before = liveTabs();
+  const results = await Promise.allSettled(tabIds.map((tabId) => bridge.closeTab(tabId)));
+  history.record(
+    results.flatMap((result, position) => {
+      const index = before.findIndex((candidate) => candidate.tabId === tabIds[position]);
+      const closed = before[index];
+      return result.status === 'fulfilled' && closed ? [{ index, tab: { url: closed.url } }] : [];
+    })
+  );
+  // Every reason goes in the message: the logger serializes errors
+  // (message/stack only), so a separate reasons array would not survive.
+  const reasons = results.flatMap((result) =>
+    result.status === 'rejected' ? [getErrorMessage(result.reason)] : []
+  );
+  if (reasons.length === 0) {
+    return;
+  }
+  throw new Error(
+    reasons.length === 1
+      ? reasons.join('')
+      : `${reasons.length} of ${tabIds.length} browser tabs failed to close: ${reasons.join('; ')}`
+  );
+}
+
 /**
  * The strip's menu actions (spec §8.3). Tab management comes from the shared
  * factory; Reload, Duplicate and the strip's New Tab resolve the bridge call
@@ -93,12 +136,13 @@ const STALE_TAB_OUTCOME: ActionOutcome = { error: 'This browser tab is no longer
  */
 function createBrowserTabActions(
   bridge: BrowserBridge,
+  history: ClosedTabHistory<ClosedBrowserTab>,
   settleTabAction: (action: Promise<unknown>, label: string) => Promise<ActionOutcome>
 ): readonly AnyContextAction[] {
   // Menu closes REJECT on a bridge failure (after settleTabAction has logged
   // and re-seeded), so the shared factory reports them as failed actions.
   const closeTab = async (tabId: string): Promise<void> => {
-    const outcome = await settleTabAction(bridge.closeTab(tabId), 'closeTab');
+    const outcome = await settleTabAction(closeRecorded(bridge, history, [tabId]), 'closeTab');
     if (!outcome.ok) {
       throw new Error(outcome.error);
     }
@@ -107,24 +151,7 @@ function createBrowserTabActions(
   // produce ONE log, ONE re-seed and ONE failed outcome naming the count.
   const closeTabs = async (keep: (tabId: string) => boolean): Promise<void> => {
     const tabIds = liveTabs().flatMap(({ tabId }) => (keep(tabId) ? [] : [tabId]));
-    const attempt = Promise.allSettled(tabIds.map((tabId) => bridge.closeTab(tabId))).then(
-      (results) => {
-        // Every reason goes in the message: the logger serializes errors
-        // (message/stack only), so a separate reasons array would not survive.
-        const reasons = results.flatMap((result) =>
-          result.status === 'rejected' ? [getErrorMessage(result.reason)] : []
-        );
-        if (reasons.length === 0) {
-          return;
-        }
-        throw new Error(
-          reasons.length === 1
-            ? reasons.join('')
-            : `${reasons.length} of ${tabIds.length} browser tabs failed to close: ${reasons.join('; ')}`
-        );
-      }
-    );
-    const outcome = await settleTabAction(attempt, 'closeTabs');
+    const outcome = await settleTabAction(closeRecorded(bridge, history, tabIds), 'closeTabs');
     if (!outcome.ok) {
       throw new Error(outcome.error);
     }
@@ -333,6 +360,19 @@ export function BrowserPaneContent(): ReactElement {
     [settleTabAction]
   );
 
+  // Session-only: the history lives and dies with this pane, so it needs no
+  // factory-reset wiring. Main creates a reopened tab at the END: the bridge
+  // has no reorder operation (spec §8.3), so its old index cannot be restored.
+  const [closedTabs] = useState(() => createClosedTabHistory<ClosedBrowserTab>());
+  const closeTab = useCallback(
+    (tabId: string): void => {
+      if (bridge) {
+        runTabAction(closeRecorded(bridge, closedTabs, [tabId]), 'closeTab');
+      }
+    },
+    [bridge, closedTabs, runTabAction]
+  );
+
   const stripItems = useMemo(() => tabs.map(toTabStripItem), [tabs]);
   const stripContextMenu = useMemo<TabStripContextMenu | undefined>(() => {
     if (!bridge) {
@@ -344,9 +384,35 @@ export function BrowserPaneContent(): ReactElement {
         const tab = liveTabs().find((candidate) => candidate.tabId === tabId);
         return tab ? { kind: 'browser-tab', tabId, title: tab.title, url: tab.url } : null;
       },
-      localActions: createBrowserTabActions(bridge, settleTabAction),
+      localActions: createBrowserTabActions(bridge, closedTabs, settleTabAction),
     };
-  }, [bridge, settleTabAction]);
+  }, [bridge, closedTabs, settleTabAction]);
+
+  const paneRootRef = useRef<HTMLDivElement | null>(null);
+  const chordStrip = useMemo<TabChordStrip | null>(() => {
+    if (!bridge) {
+      return null;
+    }
+    return {
+      activate: (tabId) => runTabAction(bridge.selectTab(tabId), 'selectTab'),
+      close: closeTab,
+      getActiveId: () => liveTabs().find((tab) => tab.active)?.tabId ?? null,
+      getPanel: () => paneRootRef.current,
+      getTabs: () => liveTabs().map((tab) => ({ id: tab.tabId, label: browserTabLabel(tab) })),
+      reopenClosed: () => {
+        const closed = closedTabs.pop();
+        if (!closed) {
+          return Promise.resolve({ error: NO_CLOSED_TAB_ERROR, ok: false });
+        }
+        const { url } = closed.tab;
+        return settleTabAction(
+          url === '' ? bridge.createTab() : bridge.createTab(url),
+          'reopenClosedTab'
+        );
+      },
+    };
+  }, [bridge, closeTab, closedTabs, runTabAction, settleTabAction]);
+  useTabChordStrip('browser', chordStrip);
 
   const handleNavigate = useCallback(
     (event: FormEvent) => {
@@ -372,7 +438,7 @@ export function BrowserPaneContent(): ReactElement {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="browser-pane">
+    <div className="flex h-full min-h-0 flex-col" data-testid="browser-pane" ref={paneRootRef}>
       <TabStrip
         activeId={activeTab?.tabId ?? null}
         aria-label="Browser tabs"
@@ -380,7 +446,7 @@ export function BrowserPaneContent(): ReactElement {
         contextMenu={stripContextMenu}
         items={stripItems}
         onActivate={(tabId) => runTabAction(bridge.selectTab(tabId), 'selectTab')}
-        onClose={(tabId) => runTabAction(bridge.closeTab(tabId), 'closeTab')}
+        onClose={closeTab}
         onMenuOpenChange={handleStripMenuOpenChange}
         trailing={
           <Button

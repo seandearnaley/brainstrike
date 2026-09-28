@@ -44,6 +44,28 @@ export function createClosedTabHistory<T>(
   };
 }
 
+/** A tab as a strip orders it: its id plus what reopening it needs. */
+export interface OpenTab<T> {
+  readonly id: string;
+  readonly tab: T;
+}
+
+/**
+ * Record the tabs one close removed: every tab in `before` whose id is missing
+ * from `afterIds`, at its `before` index. Diffing the store's own order records
+ * exactly what closed, whichever path closed it and whatever the store kept.
+ */
+export function recordRemovedTabs<T>(
+  history: ClosedTabHistory<T>,
+  before: readonly OpenTab<T>[],
+  afterIds: readonly string[]
+): void {
+  const remaining = new Set(afterIds);
+  history.record(
+    before.flatMap(({ id, tab }, index) => (remaining.has(id) ? [] : [{ index, tab }]))
+  );
+}
+
 /**
  * Move a reopened tab (already appended to `orderedIds`) back to `index`. When
  * fewer tabs remain than its old index, it stays at the end.

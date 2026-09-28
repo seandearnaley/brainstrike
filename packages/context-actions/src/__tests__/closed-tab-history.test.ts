@@ -3,6 +3,7 @@ import {
   CLOSED_TAB_HISTORY_LIMIT,
   createClosedTabHistory,
   placeTabAtIndex,
+  recordRemovedTabs,
 } from '../closed-tab-history.js';
 
 describe('createClosedTabHistory', () => {
@@ -58,6 +59,30 @@ describe('createClosedTabHistory', () => {
 
   it('rejects a non-positive limit', () => {
     expect(() => createClosedTabHistory(0)).toThrow(/positive integer/);
+  });
+});
+
+describe('recordRemovedTabs', () => {
+  it('records exactly the ids a close removed, at their old indices', () => {
+    const history = createClosedTabHistory<string>();
+
+    recordRemovedTabs(
+      history,
+      ['a', 'b', 'c', 'd'].map((id) => ({ id, tab: id.toUpperCase() })),
+      ['a', 'c']
+    );
+
+    expect(history.pop()).toEqual({ index: 1, tab: 'B' });
+    expect(history.pop()).toEqual({ index: 3, tab: 'D' });
+    expect(history.pop()).toBeUndefined();
+  });
+
+  it('records nothing when the close removed nothing', () => {
+    const history = createClosedTabHistory<string>();
+
+    recordRemovedTabs(history, [{ id: 'a', tab: 'a' }], ['a']);
+
+    expect(history.size()).toBe(0);
   });
 });
 

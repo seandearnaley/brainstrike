@@ -63,7 +63,10 @@ export function resolveTabChordScope(element: Element | null): TabChordStripId {
   return 'workspace';
 }
 
-/** Keep `strip` registered while the calling component is mounted. Memoize `strip`. */
-export function useTabChordStrip(id: TabChordStripId, strip: TabChordStrip): void {
-  useEffect(() => registerTabChordStrip(id, strip), [id, strip]);
+/**
+ * Keep `strip` registered while the calling component is mounted. Memoize
+ * `strip`; `null` registers nothing (a surface whose capability is absent).
+ */
+export function useTabChordStrip(id: TabChordStripId, strip: TabChordStrip | null): void {
+  useEffect(() => (strip ? registerTabChordStrip(id, strip) : undefined), [id, strip]);
 }

@@ -7,8 +7,12 @@ import {
 import {
   type ActionOutcome,
   type AnyContextAction,
+  createClosedTabHistory,
   createTabStripActions,
   defineContextAction,
+  NO_CLOSED_TAB_ERROR,
+  placeTabAtIndex,
+  recordRemovedTabs,
 } from '@brainstrike/context-actions';
 import {
   useDbInitializationStatus,
@@ -27,7 +31,7 @@ import {
 } from '@brainstrike/ui';
 import { Plus, TriangleAlert } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
@@ -40,6 +44,7 @@ import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper'
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
 import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
+import { type TabChordStrip, useTabChordStrip } from './tab-chords/tab-chord-registry';
 import { ThreadIdentityMark } from './thread-identity-mark';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 
@@ -48,6 +53,12 @@ const logger = createLogger('AssistantThreadTabsWorkspace');
 const EMPTY_THREADS: readonly AssistantMemoryThread[] = [];
 const EMPTY_THREAD_IDS: readonly string[] = [];
 const STRIP_TARGET = { kind: 'tab-strip', stripId: 'assistant-threads' } as const;
+
+/** A closed thread tab, remembered for Reopen Closed Tab (session-only). */
+interface ClosedThreadTab {
+  readonly threadId: string;
+  readonly title: string;
+}
 
 /** Accessible-name text per run state; the mark draws the matching badge. */
 const THREAD_TAB_STATUS_LABELS: Readonly<Record<ThreadRowStatusState, string>> = {
@@ -236,28 +247,114 @@ export function AssistantThreadTabsWorkspace({
     (threadId: string): void => openThreadTab(resourceId, threadId),
     [openThreadTab, resourceId]
   );
-  const handleCloseThreadTab = useCallback(
-    (threadId: string): void => closeThreadTab(resourceId, threadId),
-    [closeThreadTab, resourceId]
-  );
-  const handleCloseAllThreadTabs = useCallback(
-    (): void => closeAllThreadTabs(resourceId),
-    [closeAllThreadTabs, resourceId]
-  );
   const handleReorderThreadTabs = useCallback(
     (orderedThreadIds: readonly string[]): void => reorderThreadTabs(resourceId, orderedThreadIds),
     [reorderThreadTabs, resourceId]
   );
 
+  // Every close path (✕, Delete, the menus, chords) records what it closes, so
+  // Reopen Closed Tab can restore it. Session-only: the history lives and dies
+  // with this strip, so it needs no factory-reset wiring.
+  const [closedTabs] = useState(() => createClosedTabHistory<ClosedThreadTab>());
+  const readOpenThreadIds = useCallback(
+    (): readonly string[] =>
+      useAssistantThreadStore.getState().openThreadIdsByResourceId[resourceId] ?? EMPTY_THREAD_IDS,
+    [resourceId]
+  );
+  /** Run a store close, then record exactly the tabs it removed, at their old indices. */
+  const closeRecorded = useCallback(
+    (close: () => void): void => {
+      const loaded =
+        useAssistantThreadStore.getState().threadsByResourceId[resourceId] ?? EMPTY_THREADS;
+      const before = readOpenThreadIds().map((threadId) => ({
+        id: threadId,
+        tab: {
+          threadId,
+          title: loaded.find((thread) => thread.id === threadId)?.title ?? threadId,
+        },
+      }));
+      close();
+      recordRemovedTabs(closedTabs, before, readOpenThreadIds());
+    },
+    [closedTabs, readOpenThreadIds, resourceId]
+  );
+  const handleCloseThreadTab = useCallback(
+    (threadId: string): void => closeRecorded(() => closeThreadTab(resourceId, threadId)),
+    [closeRecorded, closeThreadTab, resourceId]
+  );
+  const handleCloseAllThreadTabs = useCallback(
+    (): void => closeRecorded(() => closeAllThreadTabs(resourceId)),
+    [closeAllThreadTabs, closeRecorded, resourceId]
+  );
+  const handleCloseOtherThreadTabs = useCallback(
+    (threadId: string): void => closeRecorded(() => closeOtherThreadTabs(resourceId, threadId)),
+    [closeOtherThreadTabs, closeRecorded, resourceId]
+  );
+  const handleCloseThreadTabsToRight = useCallback(
+    (threadId: string): void => closeRecorded(() => closeThreadTabsToRight(resourceId, threadId)),
+    [closeRecorded, closeThreadTabsToRight, resourceId]
+  );
+
+  /**
+   * Reopen the most recently closed tab at its old index (or the end) and
+   * activate it. A thread deleted since it closed is dropped and reported.
+   */
+  const reopenClosedThreadTab = useCallback((): Promise<ActionOutcome> => {
+    const closed = closedTabs.pop();
+    if (!closed) {
+      return Promise.resolve({ error: NO_CLOSED_TAB_ERROR, ok: false });
+    }
+    const { threadId, title } = closed.tab;
+    const loaded = useAssistantThreadStore.getState().threadsByResourceId[resourceId] ?? [];
+    if (!loaded.some((thread) => thread.id === threadId)) {
+      return Promise.resolve({
+        error: `"${title}" was deleted and cannot be reopened`,
+        ok: false,
+      });
+    }
+    const wasOpen = readOpenThreadIds().includes(threadId);
+    openThreadTab(resourceId, threadId);
+    if (!wasOpen) {
+      reorderThreadTabs(resourceId, placeTabAtIndex(readOpenThreadIds(), threadId, closed.index));
+    }
+    return Promise.resolve({ ok: true });
+  }, [closedTabs, openThreadTab, readOpenThreadIds, reorderThreadTabs, resourceId]);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  const chordStrip = useMemo<TabChordStrip>(
+    () => ({
+      activate: handleActivateThreadTab,
+      close: handleCloseThreadTab,
+      getActiveId: () =>
+        useAssistantThreadStore.getState().activeThreadIdByResourceId[resourceId] ?? null,
+      getPanel: () => panelRef.current,
+      getTabs: () => {
+        const loaded =
+          useAssistantThreadStore.getState().threadsByResourceId[resourceId] ?? EMPTY_THREADS;
+        return readOpenThreadIds().map((threadId) => ({
+          id: threadId,
+          label: loaded.find((thread) => thread.id === threadId)?.title ?? threadId,
+        }));
+      },
+      reopenClosed: reopenClosedThreadTab,
+    }),
+    [
+      handleActivateThreadTab,
+      handleCloseThreadTab,
+      readOpenThreadIds,
+      reopenClosedThreadTab,
+      resourceId,
+    ]
+  );
+  useTabChordStrip('assistant-threads', chordStrip);
+
   const contextMenu = useMemo<TabStripContextMenu>(() => {
-    const readOpenThreadIds = (): readonly string[] =>
-      useAssistantThreadStore.getState().openThreadIdsByResourceId[resourceId] ?? EMPTY_THREAD_IDS;
     const localActions: readonly AnyContextAction[] = [
       ...createTabStripActions({
         close: handleCloseThreadTab,
         closeAll: handleCloseAllThreadTabs,
-        closeOthers: (threadId) => closeOtherThreadTabs(resourceId, threadId),
-        closeToRight: (threadId) => closeThreadTabsToRight(resourceId, threadId),
+        closeOthers: handleCloseOtherThreadTabs,
+        closeToRight: handleCloseThreadTabsToRight,
         getId: (target) => target.id,
         getLabel: (target) => target.title,
         getOrderedIds: readOpenThreadIds,
@@ -310,13 +407,14 @@ export function AssistantThreadTabsWorkspace({
       localActions,
     };
   }, [
-    closeOtherThreadTabs,
-    closeThreadTabsToRight,
     createNewThread,
     handleCloseAllThreadTabs,
+    handleCloseOtherThreadTabs,
     handleCloseThreadTab,
+    handleCloseThreadTabsToRight,
     handleReorderThreadTabs,
     newThreadDisabled,
+    readOpenThreadIds,
     resourceId,
     threadById,
   ]);
@@ -369,7 +467,11 @@ export function AssistantThreadTabsWorkspace({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="assistant-thread-tabs-workspace">
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      data-testid="assistant-thread-tabs-workspace"
+      ref={panelRef}
+    >
       <TabStrip
         activeId={activeThreadId}
         aria-label="Open assistant threads"

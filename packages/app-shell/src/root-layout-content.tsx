@@ -73,6 +73,7 @@ import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
 import { QuickOpenHost } from './quick-open-host';
 import { TabChordHost } from './tab-chords/tab-chord-host';
+import { WorkspaceTabChords } from './tab-chords/workspace-tab-chords';
 import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
@@ -529,6 +530,8 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                 per thread and hydrates on switch. Inside FileTreeWrapper so it
                 reaches the file-explorer store; renders nothing. */}
             <ThreadWorkspaceCoordinator />
+            {/* Registers the workspace strip with the tab chord router (BST-1842). */}
+            <WorkspaceTabChords />
             {/* Grants are offered wherever an approval card can render: the root
                 chat panel AND the child conversation views under the workspace
                 (a child card without "Allow reads this session" forces a click
