@@ -60,6 +60,8 @@ export interface TabStripProps {
   readonly onClose?: ((id: string) => void) | undefined;
   /** Adds "Close All" to the All-tabs menu. */
   readonly onCloseAll?: (() => void) | undefined;
+  /** Fires when a tab/strip context menu or the All-tabs menu opens or closes (native-view occlusion hosts). */
+  readonly onMenuOpenChange?: ((open: boolean) => void) | undefined;
   /** Absent ⇒ no drag-and-drop and no ⌥⇧ arrows. Receives the scroll group's new order. */
   readonly onReorder?: ((orderedIds: readonly string[]) => void) | undefined;
   /** Non-scrolling, never reorderable group rendered before `items`. */
