@@ -115,9 +115,14 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
           .last();
         const name = (await heading.innerText()).trim();
         return {
-          close: window.getByRole('button', {
-            name: /^Close [A-Z][a-z]+-/,
-          }),
+          // The tab ✕ is a mouse-only, aria-hidden sibling of the tab that shows on
+          // hover (TabStrip contract), so point at the tab first.
+          close: async () => {
+            await window.getByRole('tab', { exact: true, name }).hover();
+            await window
+              .getByRole('button', { exact: true, includeHidden: true, name: `Close ${name}` })
+              .click();
+          },
           panel: window.getByRole('region', { exact: true, name }),
         };
       };
@@ -144,7 +149,7 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
         )
         .toBe(4);
       expect((await readAssembledPersistence(window)).workspaceReadCompletions).toBe(0);
-      await granted.close.click();
+      await granted.close();
 
       await composer.fill('UNSENT_ASSEMBLED_ROOT_DRAFT_1770');
       const stopped = await openChild(2);
@@ -170,7 +175,7 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
       expect(
         afterStop.children.find((child) => child.taskPrompt === 'STREAM_BETA_TASK_1770')?.taskStatus
       ).toBe('running');
-      await stopped.close.click();
+      await stopped.close();
       await expect(composer).toHaveValue('UNSENT_ASSEMBLED_ROOT_DRAFT_1770');
 
       const beforeReload = fixture.provider.requestCount();
@@ -195,7 +200,7 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
       await expect(
         survivor.panel.getByText(assembledMarkers.streamB, { exact: true })
       ).toBeVisible();
-      await survivor.close.click();
+      await survivor.close();
 
       await expect
         .poll(async () => (await readAssembledPersistence(window)).children.length)
@@ -459,7 +464,12 @@ async function assertChildDecision(
       expect(parentCatalogs).toHaveLength(2);
       expect(parentCatalogs[1]).toEqual(parentCatalogs[0]);
       const completedRequests = provider.requestCount();
-      await window.getByRole('button', { exact: true, name: `Close ${childName}` }).click();
+      // The tab ✕ is a mouse-only, aria-hidden sibling of the tab that shows on
+      // hover (TabStrip contract), so point at the tab first.
+      await window.getByRole('tab', { exact: true, name: childName }).hover();
+      await window
+        .getByRole('button', { exact: true, includeHidden: true, name: `Close ${childName}` })
+        .click();
       await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
       expect(provider.requestCount()).toBe(completedRequests);
       await window.screenshot({

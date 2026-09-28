@@ -230,7 +230,12 @@ test('delegated command asks by default, then a per-tool grant streams output an
         .getByRole('tablist', { name: 'Workspace tabs' })
         .getByRole('tab', { selected: true });
       const firstName = (await firstTab.innerText()).trim();
-      await window.getByRole('button', { exact: true, name: `Close ${firstName}` }).click();
+      // The tab ✕ is a mouse-only, aria-hidden sibling of the tab that shows on
+      // hover (TabStrip contract), so point at the tab first.
+      await window.getByRole('tab', { exact: true, name: firstName }).hover();
+      await window
+        .getByRole('button', { exact: true, includeHidden: true, name: `Close ${firstName}` })
+        .click();
 
       const secondActivityCount = await root.getByTestId('assistant-activity-group').count();
       await root

@@ -283,7 +283,12 @@ async function assertWorkerWrite(
           child.getByRole('button', { exact: true, name: approvalName })
         ).not.toBeVisible();
         await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-        await window.getByRole('button', { exact: true, name: `Close ${childName}` }).click();
+        // The tab ✕ is a mouse-only, aria-hidden sibling of the tab that shows on
+        // hover (TabStrip contract), so point at the tab first.
+        await window.getByRole('tab', { exact: true, name: childName }).hover();
+        await window
+          .getByRole('button', { exact: true, includeHidden: true, name: `Close ${childName}` })
+          .click();
         provider.setScript({ finalText: 'PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723' });
         await root
           .getByRole('textbox', { name: 'Message input' })
@@ -402,7 +407,10 @@ async function assertWorkerWrite(
         } else {
           await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
         }
-        await window.getByRole('button', { exact: true, name: `Close ${childName}` }).click();
+        await window.getByRole('tab', { exact: true, name: childName }).hover();
+        await window
+          .getByRole('button', { exact: true, includeHidden: true, name: `Close ${childName}` })
+          .click();
         await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
         await window.reload();
         await ensureAssistantShellVisible(window);
@@ -467,7 +475,10 @@ async function assertWorkerWrite(
               .getByText('SECOND_CHILD_READ_1725', { exact: true })
           ).toBeVisible();
           const afterSecond = provider.requestCount();
-          await window.getByRole('button', { exact: true, name: `Close ${secondName}` }).click();
+          await window.getByRole('tab', { exact: true, name: secondName }).hover();
+          await window
+            .getByRole('button', { exact: true, includeHidden: true, name: `Close ${secondName}` })
+            .click();
           await root
             .getByRole('button', { name: /Open .* conversation/ })
             .last()

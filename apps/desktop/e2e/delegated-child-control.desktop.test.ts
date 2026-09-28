@@ -154,10 +154,12 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     });
     await expect(child.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     const completedRequests = provider.requestCount();
-    const closeChild = window.getByRole('button', {
-      name: /^Close [A-Z][a-z]+-/,
-    });
-    await closeChild.click();
+    // The tab ✕ is a mouse-only, aria-hidden sibling of the tab that shows on
+    // hover (TabStrip contract), so point at the tab first.
+    await window.getByRole('tab', { exact: true, name: childName }).hover();
+    await window
+      .getByRole('button', { exact: true, includeHidden: true, name: `Close ${childName}` })
+      .click();
     await testInfo.attach('activity-before-reopen', {
       body: await root.innerText(),
       contentType: 'text/plain',
