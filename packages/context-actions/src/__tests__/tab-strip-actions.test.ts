@@ -149,6 +149,18 @@ describe('createTabStripActions', () => {
     });
   });
 
+  it('awaits async operations and reports a rejection as a failed outcome', async () => {
+    const { action } = setup(['a', 'b'], {
+      close: () => Promise.reject(new Error('main refused the close')),
+      closeAll: () => Promise.resolve(),
+    });
+    await expect(action('close').run(threadTab('a'), {})).resolves.toEqual({
+      error: 'main refused the close',
+      ok: false,
+    });
+    await expect(action('close-all').run(threadTab('a'), {})).resolves.toEqual({ ok: true });
+  });
+
   it('moves within the live order and reports the move', async () => {
     const { action, getOrder } = setup(['a', 'b', 'c']);
     await expect(action('move-right').run(threadTab('a'), {})).resolves.toEqual({

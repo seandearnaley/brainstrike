@@ -13,6 +13,7 @@ export {
   moveTabId,
   type TabMoveDirection,
   type TabStripActionOperations,
+  type TabStripOperationResult,
 } from './tab-strip-actions.js';
 export { createTestActionRegistry } from './testing.js';
 export {

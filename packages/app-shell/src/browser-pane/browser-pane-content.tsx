@@ -41,7 +41,7 @@ import { selectActiveBrowserTab, useBrowserTabsStore } from './browser-tabs-stor
  * `setOccluded`:
  * 1. this nav-rail route is not the active shell tab (its DOM is
  *    `display:none`, so the reserved region reports a zero rect);
- * 2. the Settings modal is open;
+ * 2. Settings is the active shell route (BST-1668 made it a route, not a modal);
  * 3. the command palette is open;
  * 4. Quick Open (Cmd/Ctrl+P) is open — a SEPARATE store from the command
  *    palette, and `QuickOpenHost` portals a full-screen dialog on every route;
@@ -93,19 +93,22 @@ const STALE_TAB_OUTCOME: ActionOutcome = { error: 'This browser tab is no longer
  */
 function createBrowserTabActions(
   bridge: BrowserBridge,
-  runTabAction: (action: Promise<unknown>, label: string) => void,
   settleTabAction: (action: Promise<unknown>, label: string) => Promise<ActionOutcome>
 ): readonly AnyContextAction[] {
-  const closeTabs = (keep: (tabId: string) => boolean): void => {
-    for (const { tabId } of liveTabs()) {
-      if (!keep(tabId)) {
-        runTabAction(bridge.closeTab(tabId), 'closeTab');
-      }
+  // Menu closes REJECT on a bridge failure (after settleTabAction has logged
+  // and re-seeded), so the shared factory reports them as failed actions.
+  const closeTab = async (tabId: string): Promise<void> => {
+    const outcome = await settleTabAction(bridge.closeTab(tabId), 'closeTab');
+    if (!outcome.ok) {
+      throw new Error(outcome.error);
     }
+  };
+  const closeTabs = async (keep: (tabId: string) => boolean): Promise<void> => {
+    await Promise.all(liveTabs().flatMap(({ tabId }) => (keep(tabId) ? [] : [closeTab(tabId)])));
   };
   return [
     ...createTabStripActions({
-      close: (tabId) => runTabAction(bridge.closeTab(tabId), 'closeTab'),
+      close: closeTab,
       closeAll: () => closeTabs(() => false),
       closeOthers: (tabId) => closeTabs((candidate) => candidate === tabId),
       getId: (target) => target.tabId,
@@ -311,9 +314,9 @@ export function BrowserPaneContent(): ReactElement {
         const tab = liveTabs().find((candidate) => candidate.tabId === tabId);
         return tab ? { kind: 'browser-tab', tabId, title: tab.title, url: tab.url } : null;
       },
-      localActions: createBrowserTabActions(bridge, runTabAction, settleTabAction),
+      localActions: createBrowserTabActions(bridge, settleTabAction),
     };
-  }, [bridge, runTabAction, settleTabAction]);
+  }, [bridge, settleTabAction]);
 
   const handleNavigate = useCallback(
     (event: FormEvent) => {

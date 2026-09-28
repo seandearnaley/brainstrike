@@ -368,6 +368,9 @@ describe('BrowserPaneContent tab strip (BST-1840)', () => {
   it.each([
     ['Reload', () => bridge.reload.mockRejectedValueOnce(new Error('unknown tab b'))],
     ['Duplicate', () => bridge.createTab.mockRejectedValueOnce(new Error('unknown tab b'))],
+    ['Close', () => bridge.closeTab.mockRejectedValueOnce(new Error('unknown tab b'))],
+    ['Close Others', () => bridge.closeTab.mockRejectedValueOnce(new Error('unknown tab b'))],
+    ['Close All', () => bridge.closeTab.mockRejectedValueOnce(new Error('unknown tab b'))],
   ])(
     'reports a rejected %s as a failed action and re-seeds the tab mirror',
     async (label, reject) => {
@@ -385,18 +388,6 @@ describe('BrowserPaneContent tab strip (BST-1840)', () => {
       await waitFor(() => expect(bridge.listTabs).toHaveBeenCalledOnce());
     }
   );
-
-  it('re-seeds the tab mirror when a menu Close rejects', async () => {
-    const user = userEvent.setup();
-    bridge.closeTab.mockRejectedValueOnce(new Error('unknown tab b'));
-    renderPane();
-    pushTabs(THREE_TABS);
-    bridge.listTabs.mockClear();
-
-    fireEvent.contextMenu(browserTab('Beta'));
-    await user.click(await screen.findByRole('menuitem', { name: 'Close' }));
-    await waitFor(() => expect(bridge.listTabs).toHaveBeenCalledOnce());
-  });
 
   it('disables Reload and Duplicate once the right-clicked tab has closed', async () => {
     renderPane();

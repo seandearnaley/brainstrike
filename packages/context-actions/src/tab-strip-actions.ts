@@ -39,11 +39,11 @@ export function moveTabId(
  * enablement on the live order, and re-validates at execution.
  */
 export interface TabStripActionOperations<K extends ContextTargetKind> {
-  readonly close?: ((id: string) => void) | undefined;
+  readonly close?: ((id: string) => TabStripOperationResult) | undefined;
   /** Receives the invoking tab so a strip can scope Close All to that tab's group. */
-  readonly closeAll?: ((id: string) => void) | undefined;
-  readonly closeOthers?: ((id: string) => void) | undefined;
-  readonly closeToRight?: ((id: string) => void) | undefined;
+  readonly closeAll?: ((id: string) => TabStripOperationResult) | undefined;
+  readonly closeOthers?: ((id: string) => TabStripOperationResult) | undefined;
+  readonly closeToRight?: ((id: string) => TabStripOperationResult) | undefined;
   readonly getId: (target: TargetOf<K>) => string;
   readonly getLabel: (target: TargetOf<K>) => string;
   /** Live order of the target's group, read at menu-open AND at execution. */
@@ -53,10 +53,32 @@ export interface TabStripActionOperations<K extends ContextTargetKind> {
   readonly kind: K;
   /** Noun for failure copy: "This thread tab is no longer open". */
   readonly noun: string;
-  readonly reorder?: ((orderedIds: readonly string[]) => void) | undefined;
+  readonly reorder?: ((orderedIds: readonly string[]) => TabStripOperationResult) | undefined;
 }
 
 const OK: ActionOutcome = { ok: true };
+
+/**
+ * A store operation may be synchronous or return a promise (e.g. an IPC bridge
+ * call). A rejection — or a synchronous throw — becomes a failed outcome, so
+ * the menu reports it instead of claiming success.
+ */
+export type TabStripOperationResult = void | Promise<void>;
+
+function settle(
+  operation: () => TabStripOperationResult,
+  success: ActionOutcome
+): Promise<ActionOutcome> {
+  return Promise.resolve()
+    .then(operation)
+    .then(
+      () => success,
+      (error: unknown): ActionOutcome => ({
+        error: error instanceof Error ? error.message : String(error),
+        ok: false,
+      })
+    );
+}
 
 function fail(error: string): Promise<ActionOutcome> {
   return Promise.resolve({ error, ok: false });
@@ -86,8 +108,7 @@ export function createTabStripActions<K extends ContextTargetKind>(
           if (locate(target).index < 0) {
             return stale();
           }
-          close(getId(target));
-          return Promise.resolve(OK);
+          return settle(() => close(getId(target)), OK);
         },
       })
     );
@@ -111,8 +132,7 @@ export function createTabStripActions<K extends ContextTargetKind>(
           if (orderedIds.length <= 1) {
             return fail(`No other ${noun}s are open`);
           }
-          closeOthers(getId(target));
-          return Promise.resolve(OK);
+          return settle(() => closeOthers(getId(target)), OK);
         },
       })
     );
@@ -136,8 +156,7 @@ export function createTabStripActions<K extends ContextTargetKind>(
           if (index === orderedIds.length - 1) {
             return fail(`No ${noun}s are open to the right`);
           }
-          closeToRight(getId(target));
-          return Promise.resolve(OK);
+          return settle(() => closeToRight(getId(target)), OK);
         },
       })
     );
@@ -154,8 +173,7 @@ export function createTabStripActions<K extends ContextTargetKind>(
           if (locate(target).index < 0) {
             return stale();
           }
-          closeAll(getId(target));
-          return Promise.resolve(OK);
+          return settle(() => closeAll(getId(target)), OK);
         },
       })
     );
@@ -179,8 +197,10 @@ export function createTabStripActions<K extends ContextTargetKind>(
             if (!next) {
               return fail(`${getLabel(target)} cannot move ${direction}`);
             }
-            reorder(next);
-            return Promise.resolve({ message: `Moved ${getLabel(target)} ${direction}`, ok: true });
+            return settle(() => reorder(next), {
+              message: `Moved ${getLabel(target)} ${direction}`,
+              ok: true,
+            });
           },
         })
       );

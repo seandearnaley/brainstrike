@@ -401,6 +401,37 @@ describe('TabStrip context menu', () => {
   });
 });
 
+describe('TabStrip menu-open reporting on unmount', () => {
+  it('reports the All-tabs menu closed when the strip empties while it is open', async () => {
+    const user = userEvent.setup();
+    const onMenuOpenChange = vi.fn();
+    const items = [makeItem('a')];
+    const view = render(
+      <TabStrip
+        activeId="a"
+        aria-label="Emptying"
+        items={items}
+        onActivate={() => undefined}
+        onMenuOpenChange={onMenuOpenChange}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: 'All tabs' }));
+    expect(await screen.findAllByRole('menuitemradio')).toHaveLength(1);
+    expect(onMenuOpenChange.mock.calls).toEqual([[true]]);
+    // The last tab closes from elsewhere: the All-tabs menu unmounts while open.
+    view.rerender(
+      <TabStrip
+        activeId={null}
+        aria-label="Emptying"
+        items={[]}
+        onActivate={() => undefined}
+        onMenuOpenChange={onMenuOpenChange}
+      />
+    );
+    expect(onMenuOpenChange.mock.calls).toEqual([[true], [false]]);
+  });
+});
+
 describe('TabStrip All-tabs menu', () => {
   it('lists every tab and activates the chosen one', async () => {
     const user = userEvent.setup();
