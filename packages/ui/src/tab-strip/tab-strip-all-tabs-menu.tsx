@@ -14,6 +14,7 @@ import { TabStatusIcon } from './tab-status';
 import { resolveTabStatusText } from './tab-status-text';
 import { TAB_ICON_CLASS_NAME, TAB_STRIP_ICON_BUTTON_CLASS_NAME } from './tab-strip-tokens';
 import type { TabStripItem } from './types';
+import { useMenuOpenReporter } from './use-menu-open-reporter';
 
 function AllTabsLeading({ item }: { readonly item: TabStripItem }): ReactElement | null {
   if (item.status) {
@@ -54,8 +55,9 @@ export function TabStripAllTabsMenu({
   readonly onCloseAll?: (() => void) | undefined;
   readonly onOpenChange?: ((open: boolean) => void) | undefined;
 }): ReactElement {
+  const reportOpenChange = useMenuOpenReporter(onOpenChange);
   return (
-    <DropdownMenu {...(onOpenChange ? { onOpenChange } : {})}>
+    <DropdownMenu onOpenChange={reportOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button
           aria-label="All tabs"

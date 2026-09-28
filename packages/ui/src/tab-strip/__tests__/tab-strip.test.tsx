@@ -401,6 +401,90 @@ describe('TabStrip context menu', () => {
   });
 });
 
+describe('TabStrip menu-open reporting on unmount', () => {
+  it('reports the All-tabs menu closed when the strip empties while it is open', async () => {
+    const user = userEvent.setup();
+    const onMenuOpenChange = vi.fn();
+    const items = [makeItem('a')];
+    const view = render(
+      <TabStrip
+        activeId="a"
+        aria-label="Emptying"
+        items={items}
+        onActivate={() => undefined}
+        onMenuOpenChange={onMenuOpenChange}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: 'All tabs' }));
+    expect(await screen.findAllByRole('menuitemradio')).toHaveLength(1);
+    expect(onMenuOpenChange.mock.calls).toEqual([[true]]);
+    // The last tab closes from elsewhere: the All-tabs menu unmounts while open.
+    view.rerender(
+      <TabStrip
+        activeId={null}
+        aria-label="Emptying"
+        items={[]}
+        onActivate={() => undefined}
+        onMenuOpenChange={onMenuOpenChange}
+      />
+    );
+    expect(onMenuOpenChange.mock.calls).toEqual([[true], [false]]);
+  });
+});
+
+describe('TabStrip context-menu open reporting on unmount', () => {
+  it('reports the context menu closed when the strip unmounts while it is open', async () => {
+    const onMenuOpenChange = vi.fn();
+    const view = renderStrip({ initial: ['a', 'b'], onMenuOpenChange, withMenu: true });
+    fireEvent.contextMenu(tab('Tab b'));
+    expect(await screen.findByRole('menuitem', { name: 'Close' })).toBeInTheDocument();
+    expect(onMenuOpenChange.mock.calls).toEqual([[true]]);
+    view.unmount();
+    expect(onMenuOpenChange.mock.calls).toEqual([[true], [false]]);
+  });
+});
+
+describe('TabStrip context-menu open reporting when the menu is withdrawn', () => {
+  it('reports a close when the contextMenu prop is dropped while the menu is open', async () => {
+    const onMenuOpenChange = vi.fn();
+    const { registry } = createTestActionRegistry();
+    const contextMenu: TabStripContextMenu = {
+      getTabTarget: (id) => ({
+        id,
+        kind: 'assistant-thread-tab',
+        resourceId: 'r',
+        title: `Tab ${id}`,
+      }),
+      localActions: createTabStripActions({
+        close: () => undefined,
+        getId: (target) => target.id,
+        getLabel: (target) => target.title,
+        getOrderedIds: () => ['a'],
+        idPrefix: 'withdrawn',
+        kind: 'assistant-thread-tab',
+        noun: 'tab',
+      }),
+    };
+    const strip = (menu: TabStripContextMenu | undefined): ReactElement => (
+      <ActionRegistryProvider registry={registry}>
+        <TabStrip
+          activeId="a"
+          aria-label="Withdrawn"
+          contextMenu={menu}
+          items={[makeItem('a')]}
+          onActivate={() => undefined}
+          onMenuOpenChange={onMenuOpenChange}
+        />
+      </ActionRegistryProvider>
+    );
+    const view = render(strip(contextMenu));
+    fireEvent.contextMenu(tab('Tab a'));
+    expect(await screen.findByRole('menuitem', { name: 'Close' })).toBeInTheDocument();
+    view.rerender(strip(undefined));
+    expect(onMenuOpenChange.mock.calls).toEqual([[true], [false]]);
+  });
+});
+
 describe('TabStrip All-tabs menu', () => {
   it('lists every tab and activates the chosen one', async () => {
     const user = userEvent.setup();

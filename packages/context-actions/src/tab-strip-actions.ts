@@ -39,11 +39,11 @@ export function moveTabId(
  * enablement on the live order, and re-validates at execution.
  */
 export interface TabStripActionOperations<K extends ContextTargetKind> {
-  readonly close?: ((id: string) => void) | undefined;
+  readonly close?: ((id: string) => unknown) | undefined;
   /** Receives the invoking tab so a strip can scope Close All to that tab's group. */
-  readonly closeAll?: ((id: string) => void) | undefined;
-  readonly closeOthers?: ((id: string) => void) | undefined;
-  readonly closeToRight?: ((id: string) => void) | undefined;
+  readonly closeAll?: ((id: string) => unknown) | undefined;
+  readonly closeOthers?: ((id: string) => unknown) | undefined;
+  readonly closeToRight?: ((id: string) => unknown) | undefined;
   readonly getId: (target: TargetOf<K>) => string;
   readonly getLabel: (target: TargetOf<K>) => string;
   /** Live order of the target's group, read at menu-open AND at execution. */
@@ -53,10 +53,33 @@ export interface TabStripActionOperations<K extends ContextTargetKind> {
   readonly kind: K;
   /** Noun for failure copy: "This thread tab is no longer open". */
   readonly noun: string;
-  readonly reorder?: ((orderedIds: readonly string[]) => void) | undefined;
+  readonly reorder?: ((orderedIds: readonly string[]) => unknown) | undefined;
 }
 
 const OK: ActionOutcome = { ok: true };
+
+function toFailure(error: unknown): ActionOutcome {
+  return { error: error instanceof Error ? error.message : String(error), ok: false };
+}
+
+/**
+ * Runs a store operation. Its return value is ignored except as a promise to
+ * await (e.g. an IPC bridge call), so operations may return anything — a
+ * store's `closeTab` returning the next id included. A rejection, or a
+ * synchronous throw, becomes a failed outcome, so the menu reports it instead
+ * of claiming success.
+ */
+function settle(operation: () => unknown, success: ActionOutcome): Promise<ActionOutcome> {
+  // Run synchronously so a store mutation has happened when run() returns
+  // (focus restoration reads the live DOM right after); await only the result.
+  let result: unknown;
+  try {
+    result = operation();
+  } catch (error: unknown) {
+    return Promise.resolve(toFailure(error));
+  }
+  return Promise.resolve(result).then(() => success, toFailure);
+}
 
 function fail(error: string): Promise<ActionOutcome> {
   return Promise.resolve({ error, ok: false });
@@ -86,8 +109,7 @@ export function createTabStripActions<K extends ContextTargetKind>(
           if (locate(target).index < 0) {
             return stale();
           }
-          close(getId(target));
-          return Promise.resolve(OK);
+          return settle(() => close(getId(target)), OK);
         },
       })
     );
@@ -111,8 +133,7 @@ export function createTabStripActions<K extends ContextTargetKind>(
           if (orderedIds.length <= 1) {
             return fail(`No other ${noun}s are open`);
           }
-          closeOthers(getId(target));
-          return Promise.resolve(OK);
+          return settle(() => closeOthers(getId(target)), OK);
         },
       })
     );
@@ -136,8 +157,7 @@ export function createTabStripActions<K extends ContextTargetKind>(
           if (index === orderedIds.length - 1) {
             return fail(`No ${noun}s are open to the right`);
           }
-          closeToRight(getId(target));
-          return Promise.resolve(OK);
+          return settle(() => closeToRight(getId(target)), OK);
         },
       })
     );
@@ -154,8 +174,7 @@ export function createTabStripActions<K extends ContextTargetKind>(
           if (locate(target).index < 0) {
             return stale();
           }
-          closeAll(getId(target));
-          return Promise.resolve(OK);
+          return settle(() => closeAll(getId(target)), OK);
         },
       })
     );
@@ -179,8 +198,10 @@ export function createTabStripActions<K extends ContextTargetKind>(
             if (!next) {
               return fail(`${getLabel(target)} cannot move ${direction}`);
             }
-            reorder(next);
-            return Promise.resolve({ message: `Moved ${getLabel(target)} ${direction}`, ok: true });
+            return settle(() => reorder(next), {
+              message: `Moved ${getLabel(target)} ${direction}`,
+              ok: true,
+            });
           },
         })
       );

@@ -43,6 +43,12 @@ export type ContextTarget =
   | (AssistantThreadContextIdentity & { kind: 'assistant-thread' })
   | (AssistantThreadContextIdentity & { kind: 'assistant-thread-tab' })
   | {
+      readonly kind: 'browser-tab';
+      readonly tabId: string;
+      readonly title: string;
+      readonly url: string;
+    }
+  | {
       readonly allowOverlap: boolean;
       readonly compositeKey: string;
       readonly contentStatus: 'idle' | 'loading' | 'ready';
