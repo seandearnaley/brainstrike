@@ -82,6 +82,11 @@ test.describe('Tab chords by focus scope @stateful @web-assistant-state', () => 
       .click();
     await page.keyboard.press('Control+PageDown');
     await expect.poll(() => selectedTabId(threads)).not.toBe(threadBefore);
+    // The switch hid the composer's panel; focus stays in the assistant strip,
+    // so the next press cycles threads again (wrapping back) rather than the
+    // workspace.
+    await page.keyboard.press('Control+PageDown');
+    await expect.poll(() => selectedTabId(threads)).toBe(threadBefore);
   });
 
   test('leaves ⌘W, ⌘T and Ctrl+Tab to the browser', async ({ page }) => {

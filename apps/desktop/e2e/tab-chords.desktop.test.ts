@@ -117,5 +117,17 @@ test.describe('Tab keyboard chords (desktop)', () => {
     await expect.poll(() => selectedTabId(strip)).toBe(first);
     await page.keyboard.press('Control+Shift+Tab');
     await expect.poll(() => selectedTabId(strip)).toBe(last);
+
+    // From the composer: each switch hides the panel that held focus, and focus
+    // stays in the strip, so repeated chords keep cycling threads.
+    await page
+      .getByTestId('assistant-thread-tabs-workspace')
+      .locator('[role="tabpanel"]:not([hidden])')
+      .getByRole('textbox', { name: 'Message input' })
+      .click();
+    await page.keyboard.press('Control+PageDown');
+    await expect.poll(() => selectedTabId(strip)).toBe(first);
+    await page.keyboard.press('Control+PageDown');
+    await expect.poll(() => selectedTabId(strip)).toBe(middle);
   });
 });
