@@ -1389,11 +1389,11 @@ Where state lives (do not relitigate):
   under "No folder". Its rows carry the RAW `roots.path` while the branch map is
   keyed by NORMALIZED path; a consumer joining them must normalize first.
 - Seen = `threadOnScreen`: explorer route AND the strip renders the thread AND
-  `useAppActive()` (visible + focused, the OS-notification gate's condition). Only the
-  strip publishes `onScreenThreadId` and stamps; the Threads panel reads it.
-  `deriveUnseenThreadIds` (latest terminal run after the watermark; no `completedAt` ⇒
-  excluded; `failedUnseen ⊂ unseen`) skips the ON-SCREEN thread, not the active one.
-  Stamp = `completedAt` on coming on screen or a new on-screen finish; never on leaving.
+  `useAppActive()` (the OS-notification gate). Only the strip publishes `onScreenThreadId`
+  and stamps, from the value it computed this render, not a store read-back; the Threads
+  panel reads the store. `deriveUnseenThreadIds` (latest terminal run after the watermark;
+  no `completedAt` ⇒ excluded; `failedUnseen ⊂ unseen`) skips the ON-SCREEN thread, not the
+  active one. Stamp = `completedAt`, on arrival or a new on-screen finish; never on leaving.
 - Folder branch chips come from ONE `useGitInventory()` GATED on `enabled`, because
   one load is a full repo/worktree scan across every root and the chips exist only
   in folder grouping — entering it is the gesture, so this is a deferral, not a
@@ -1464,7 +1464,7 @@ Guard: `packages/db/__tests__/migration-054-assistant-thread-groups.test.ts`,
 `packages/app-shell/src/__tests__/threads-panel.test.tsx` (its `usePGliteLiveQuery`
 double routes rows BY `cacheKey`; the two projections share a row shape),
 `thread-panel-visible-rows.test.ts`, `threads-panel-dnd.test.ts`, `thread-panel-content-state.test.ts`,
-`use-unseen-thread-ids.test.ts`, `assistant-thread-tabs-workspace-seen.test.tsx`,
+`use-unseen-thread-ids.test.ts`, `use-on-screen-thread.test.tsx`, `assistant-thread-tabs-workspace-seen.test.tsx`,
 `apps/desktop/e2e/threads-panel-folders.desktop.test.ts`,
 `apps/web/e2e/threads-panel-folders.test.ts`.
 
