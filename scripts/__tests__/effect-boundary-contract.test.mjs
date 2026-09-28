@@ -732,9 +732,13 @@ test('Python cold installation scopes actual stream, child and staging resources
   }
   assert.match(hash, /stream\.once\('close'/u);
   assert.match(hash, /stream\.destroy\(\)/u);
+  assert.match(hash, /new Promise<Exit\.Exit<void, unknown>>/u);
+  assert.match(hash, /Effect\.flatten\(Effect\.promise\(\(\) => owned\.result\)\)/u);
   assert.match(hash, /await closed/u);
   assert.match(hash, /signal\?\.removeEventListener\('abort', onAbort\)/u);
   assert.match(extraction, /child\.once\('close'/u);
+  assert.match(extraction, /catch: classifyFailure/u);
+  assert.match(extraction, /reject\(classifyFailure\(error\)\)/u);
   assert.match(extraction, /Effect\.promise\(\(\) => closed\)/u);
   assert.match(extraction, /child\.removeListener\('error', onError\)/u);
   assert.match(staging, /Exit\.isFailure\(exit\)/u);

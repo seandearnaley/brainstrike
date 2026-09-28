@@ -89,11 +89,9 @@ export interface ResolvePythonBinaryOptions {
   readonly resourcesDir: string;
   /**
    * Optional cancellation (e.g. a run_skill_script user Stop, or a caller's
-   * own timeout budget). Checked before hashing and threaded into the
-   * `/usr/bin/tar` child process, so a cold first-run unpack -- the only slow
-   * part of this function -- can actually be interrupted (PR #2205 review:
-   * previously a fired signal reached `runDetachedProcess` but never this
-   * resolver, so Stop could not touch an in-flight extraction).
+   * own timeout budget). Hashing destroys and joins its stream; `/usr/bin/tar`
+   * receives the signal and joins child close. Filesystem operations finish
+   * before cleanup; a committed install still wins over a late abort.
    */
   readonly signal?: AbortSignal | undefined;
   /** Absolute per-user app-data dir; the runtime unpacks under `<dir>/python-runtime/`. */
@@ -224,48 +222,49 @@ async function hashFileSha256(filePath: string, signal: AbortSignal | undefined)
         Effect.sync(() => {
           const stream = createReadStream(filePath);
           const closed = new Promise<void>((resolve) => stream.once('close', resolve));
-          return { closed, stream };
-        }),
-        ({ stream, closed }) =>
-          Effect.promise(async () => {
-            stream.destroy();
-            await closed;
-          })
-      );
-      yield* Effect.tryPromise({
-        catch: (error) => error,
-        try: () =>
-          new Promise<void>((resolve, reject) => {
+          // An Exit-valued Promise retains early failures without an unhandled
+          // rejection before the acquiring fiber can begin awaiting the result.
+          let releaseListeners!: () => void;
+          const result = new Promise<Exit.Exit<void, unknown>>((resolve) => {
             const onData = (chunk: Buffer | string): void => {
               hash.update(chunk);
             };
             const onError = (error: Error): void => {
-              reject(error);
+              resolve(Exit.fail(error));
             };
             const onEnd = (): void => {
-              resolve();
+              resolve(Exit.void);
             };
             const onAbort = (): void => {
-              owned.stream.destroy();
-              reject(signal?.reason);
+              stream.destroy();
+              resolve(Exit.fail(signal?.reason));
             };
-            owned.stream.on('data', onData);
-            owned.stream.on('error', onError);
-            owned.stream.on('end', onEnd);
-            signal?.addEventListener('abort', onAbort, { once: true });
-            // Remove work listeners only after close; late errors from destroy
-            // still have an owner while the descriptor is being released.
-            owned.closed.then(() => {
-              owned.stream.removeListener('data', onData);
-              owned.stream.removeListener('error', onError);
-              owned.stream.removeListener('end', onEnd);
+            releaseListeners = () => {
+              stream.removeListener('data', onData);
+              stream.removeListener('error', onError);
+              stream.removeListener('end', onEnd);
               signal?.removeEventListener('abort', onAbort);
-            });
+            };
+            stream.on('error', onError);
+            stream.on('end', onEnd);
+            // Install failure ownership before subscribing to flowing data.
+            stream.on('data', onData);
+            signal?.addEventListener('abort', onAbort, { once: true });
             if (signal?.aborted) {
               onAbort();
             }
-          }),
-      });
+          });
+          return { closed, releaseListeners, result, stream };
+        }),
+        ({ stream, closed, releaseListeners }) =>
+          Effect.promise(async () => {
+            stream.destroy();
+            await closed;
+            // Keep handlers through close, then join their cleanup in this scope.
+            releaseListeners();
+          })
+      );
+      yield* Effect.flatten(Effect.promise(() => owned.result));
       return hash.digest('hex');
     }).pipe(Effect.scoped)
   );
@@ -276,16 +275,27 @@ async function extractArchive(
   stagingDir: string,
   signal: AbortSignal | undefined
 ): Promise<void> {
-  try {
-    await runAtPromiseBoundary(
-      Effect.gen(function* () {
-        const owned = yield* Effect.acquireRelease(
-          Effect.sync(() => {
+  const classifyFailure = (error: unknown): unknown => {
+    if (signal?.aborted) {
+      return error;
+    }
+    return new PythonUnpackFailedError(
+      `Unpacking the bundled Python runtime failed (${TAR_BINARY} -xzf ${archivePath}): ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  };
+  await runAtPromiseBoundary(
+    Effect.gen(function* () {
+      const owned = yield* Effect.acquireRelease(
+        Effect.try({
+          catch: classifyFailure,
+          try: () => {
             let complete!: (error: Error | null) => void;
             const result = new Promise<void>((resolve, reject) => {
               complete = (error) => {
                 if (error) {
-                  reject(error);
+                  reject(classifyFailure(error));
                 } else {
                   resolve();
                 }
@@ -309,22 +319,13 @@ async function extractArchive(
               })
             );
             return { closed, result };
-          }),
-          ({ closed }) => Effect.promise(() => closed)
-        );
-        yield* Effect.tryPromise({ catch: (error) => error, try: () => owned.result });
-      }).pipe(Effect.scoped)
-    );
-  } catch (error) {
-    if (signal?.aborted) {
-      throw error;
-    }
-    throw new PythonUnpackFailedError(
-      `Unpacking the bundled Python runtime failed (${TAR_BINARY} -xzf ${archivePath}): ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-  }
+          },
+        }),
+        ({ closed }) => Effect.promise(() => closed)
+      );
+      yield* Effect.tryPromise({ catch: (error) => error, try: () => owned.result });
+    }).pipe(Effect.scoped)
+  );
 }
 
 async function isUsableInstall(sentinelPath: string, binaryPath: string, expectedSha256: string) {

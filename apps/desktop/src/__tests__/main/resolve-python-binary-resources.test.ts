@@ -93,6 +93,99 @@ describe('resolvePythonBinary resource lifetimes', () => {
     );
   });
 
+  it('owns errors raised while data listeners are being acquired and cleans every listener', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    const stream = new Readable({ emitClose: false, read() {} });
+    readStreamMock.mockReturnValue(stream);
+    const readError = new Error('read failed during listener acquisition');
+    const originalOn = stream.on;
+    const onSpy = vi.spyOn(stream, 'on').mockImplementation((event, listener) => {
+      originalOn.call(stream, event, listener);
+      if (event === 'data') {
+        stream.emit('error', readError);
+      }
+      return stream;
+    });
+    const { resolvePythonBinary } = await loadModule();
+    const outcome = resolvePythonBinary({
+      arch: 'arm64',
+      platform: 'darwin',
+      resourcesDir,
+      userDataDir,
+    }).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(stream.destroyed).toBe(true));
+    stream.emit('close');
+    try {
+      await expect(outcome).resolves.toBe(readError);
+      expect(stream.eventNames()).toEqual([]);
+      expect(execFileMock).not.toHaveBeenCalled();
+    } finally {
+      onSpy.mockRestore();
+    }
+  });
+
+  it('maps a synchronous tar acquisition throw to its existing typed failure and removes staging', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    const nativeError = new Error('execFile threw before acquiring a child');
+    let stagingDir = '';
+    execFileMock.mockImplementation((_command: string, args: readonly string[]) => {
+      stagingDir = args[args.indexOf('-C') + 1] as string;
+      throw nativeError;
+    });
+    const { resolvePythonBinary, PythonUnpackFailedError } = await loadModule();
+    const error = await resolvePythonBinary({
+      arch: 'arm64',
+      platform: 'darwin',
+      resourcesDir,
+      userDataDir,
+    }).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(PythonUnpackFailedError);
+    expect(error).toMatchObject({ code: 'python_unpack_failed' });
+    expect(error).not.toBe(nativeError);
+    await expect(fsPromises.stat(stagingDir)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('joins actual Node failed-spawn close and removes the staged directory', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    const native = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    const missingBinary = path.join(resourcesDir, 'nonexistent-native-tar');
+    const events: string[] = [];
+    let stagingDir = '';
+    execFileMock.mockImplementation(
+      (_command: string, args: readonly string[], ...rest: unknown[]) => {
+        stagingDir = args[args.indexOf('-C') + 1] as string;
+        const child = native.execFile(missingBinary, [...args], (error, stdout, stderr) => {
+          events.push('callback');
+          lastCallback(rest[0], rest[1])(error, stdout, stderr);
+        });
+        child.on('error', () => {
+          events.push('error');
+        });
+        child.on('close', () => {
+          events.push('close');
+        });
+        return child;
+      }
+    );
+    const { resolvePythonBinary, PythonUnpackFailedError } = await loadModule();
+    const error = await resolvePythonBinary({
+      arch: 'arm64',
+      platform: 'darwin',
+      resourcesDir,
+      userDataDir,
+    }).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(PythonUnpackFailedError);
+    expect(error).toMatchObject({ code: 'python_unpack_failed' });
+    expect(events).toEqual(['callback', 'error', 'close']);
+    await expect(fsPromises.stat(stagingDir)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('destroys an interrupted hash stream and joins its close before rejecting', async () => {
     const { resourcesDir, userDataDir } = await createFixtureDirs();
     writeManifest(resourcesDir);
@@ -135,6 +228,50 @@ describe('resolvePythonBinary resource lifetimes', () => {
     expect(stream.listenerCount('error')).toBe(0);
     expect(stream.listenerCount('end')).toBe(0);
     expect(stream.listenerCount('close')).toBe(0);
+  });
+
+  it('keeps an ordinary tar failure typed when abort arrives after its callback but before close', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    const child = new ChildProcess();
+    const controller = new AbortController();
+    const nativeError = new Error('archive extraction failed first');
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    execFileMock.mockImplementation(
+      (_command: string, _args: readonly string[], ...rest: unknown[]) => {
+        lastCallback(rest[0], rest[1])(nativeError, '', '');
+        started();
+        return child;
+      }
+    );
+    const { resolvePythonBinary, PythonUnpackFailedError } = await loadModule();
+    let settled = false;
+    const outcome = resolvePythonBinary({
+      arch: 'arm64',
+      platform: 'darwin',
+      resourcesDir,
+      signal: controller.signal,
+      userDataDir,
+    }).catch((error: unknown) => {
+      settled = true;
+      return error;
+    });
+    await startedPromise;
+    controller.abort();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    try {
+      expect(settled).toBe(false);
+    } finally {
+      child.emit('close', 1, null);
+    }
+    const error = await outcome;
+    expect(error).toBeInstanceOf(PythonUnpackFailedError);
+    expect(error).toMatchObject({ code: 'python_unpack_failed' });
+    expect(error).not.toBe(nativeError);
   });
 
   it('joins tar close after an abort callback before deleting staging or rejecting', async () => {
