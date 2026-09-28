@@ -133,7 +133,7 @@ function openAppGroupIds(
   placement: WorkspaceApp['placement']
 ): readonly string[] {
   const open = new Set(useWorkspaceTabSelectionStore.getState().openAppIds);
-  return apps.filter((app) => app.placement === placement && open.has(app.id)).map((app) => app.id);
+  return apps.flatMap((app) => (app.placement === placement && open.has(app.id) ? [app.id] : []));
 }
 
 function liveFileTabIds(): readonly string[] {
@@ -169,14 +169,14 @@ export function WorkspaceTabStrip(): ReactElement {
   } = useWorkspaceTabs();
 
   const openAppsById = useMemo(() => new Map(openApps.map((app) => [app.id, app])), [openApps]);
-  const pinnedItems = useMemo(
-    () => openApps.filter((app) => app.placement === 'pinned').map(appTabItem),
-    [openApps]
-  );
-  const dynamicAppItems = useMemo(
-    () => openApps.filter((app) => app.placement === 'dynamic').map(appTabItem),
-    [openApps]
-  );
+  const { dynamicAppItems, pinnedItems } = useMemo(() => {
+    const pinned: TabStripItem[] = [];
+    const dynamic: TabStripItem[] = [];
+    for (const app of openApps) {
+      (app.placement === 'pinned' ? pinned : dynamic).push(appTabItem(app));
+    }
+    return { dynamicAppItems: dynamic, pinnedItems: pinned };
+  }, [openApps]);
   const items = [
     ...dynamicAppItems,
     ...tabs.map((tab) =>
