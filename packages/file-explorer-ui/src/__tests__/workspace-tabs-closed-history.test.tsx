@@ -140,15 +140,15 @@ describe('workspace strip — tab order and dispatch for chords (BST-1842)', () 
     expect(workspace().tabOrder.map((tab) => tab.label)).toEqual(stripTabs);
   });
 
-  it('activates and closes an app or a file tab by id', () => {
+  it('activates and closes an app or a file tab by id', async () => {
     renderHarness();
 
-    act(() => workspace().onActivateTab(CHANGES_APP.id));
+    await act(() => workspace().onActivateTab(CHANGES_APP.id));
     expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
       appId: CHANGES_APP.id,
       kind: 'app',
     });
-    act(() => workspace().onActivateTab(key('c.ts')));
+    await act(() => workspace().onActivateTab(key('c.ts')));
     expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
       kind: 'file',
       tabId: key('c.ts'),
@@ -263,6 +263,65 @@ describe('workspace strip — closed-tab history (BST-1842)', () => {
     await user.click(reopenItem);
 
     await waitFor(() => expect(fileTabIds()).toEqual([key('a.ts'), key('b.ts'), key('c.ts')]));
+    expect(workspace().hasClosedTabs()).toBe(false);
+  });
+
+  it('keeps a file entry when its reopen fails unexpectedly', async () => {
+    renderHarness();
+    act(() => workspace().onCloseTab(key('b.ts')));
+    const { openTab } = useTabManagerStore.getState();
+    act(() => {
+      useTabManagerStore.setState({
+        openTab: () => {
+          throw new Error('The tab store is unavailable');
+        },
+      });
+    });
+
+    try {
+      expect(await reopen()).toEqual({ error: 'The tab store is unavailable', ok: false });
+      expect(workspace().hasClosedTabs()).toBe(true);
+    } finally {
+      act(() => useTabManagerStore.setState({ openTab }));
+    }
+    expect(await reopen()).toEqual({ ok: true });
+    expect(fileTabIds()).toEqual([key('a.ts'), key('b.ts'), key('c.ts')]);
+  });
+
+  it("forgets closed tabs when another thread's workspace is hydrated", async () => {
+    renderHarness();
+    // Thread A closes a.ts, then the coordinator swaps in thread B's workspace.
+    act(() => workspace().onCloseTab(key('a.ts')));
+    act(() => {
+      useTabManagerStore
+        .getState()
+        .hydrateTabs([{ compositeKey: key('z.ts'), path: 'src/z.ts' }], key('z.ts'));
+      useWorkspaceTabSelectionStore
+        .getState()
+        .hydrate([FILES_APP.id], { kind: 'file', tabId: key('z.ts') });
+    });
+
+    expect(workspace().hasClosedTabs()).toBe(false);
+    expect(await reopen()).toEqual(NO_CLOSED_TAB_OUTCOME);
+    expect(fileTabIds()).toEqual([key('z.ts')]);
+  });
+
+  it.each([
+    ['file tabs', () => useTabManagerStore.getState().hydrateTabs([], null)],
+    [
+      'app tabs',
+      () =>
+        useWorkspaceTabSelectionStore
+          .getState()
+          .hydrate([FILES_APP.id], { appId: FILES_APP.id, kind: 'app' }),
+    ],
+  ])('a hydration of the %s alone also clears the history', (_label, hydrate) => {
+    renderHarness();
+    act(() => workspace().onCloseTab(CHANGES_APP.id));
+    expect(workspace().hasClosedTabs()).toBe(true);
+
+    act(hydrate);
+
     expect(workspace().hasClosedTabs()).toBe(false);
   });
 

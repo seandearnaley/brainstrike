@@ -18,8 +18,8 @@ import {
 import { useTabChords } from '../use-tab-chords';
 
 interface FakeStrip extends TabChordStrip {
-  readonly activate: ReturnType<typeof vi.fn<(id: string) => void>>;
-  readonly close: ReturnType<typeof vi.fn<(id: string) => void>>;
+  readonly activate: ReturnType<typeof vi.fn<(id: string) => Promise<void>>>;
+  readonly close: ReturnType<typeof vi.fn<(id: string) => Promise<void>>>;
   readonly reopenClosed: ReturnType<typeof vi.fn<() => Promise<ActionOutcome>>>;
 }
 
@@ -29,8 +29,8 @@ function fakeStrip(
   panel: HTMLElement | null
 ): FakeStrip {
   return {
-    activate: vi.fn<(id: string) => void>(),
-    close: vi.fn<(id: string) => void>(),
+    activate: vi.fn<(id: string) => Promise<void>>(() => Promise.resolve()),
+    close: vi.fn<(id: string) => Promise<void>>(() => Promise.resolve()),
     getActiveId: () => activeId,
     getPanel: () => panel,
     getTabs: () => ids.map((id) => ({ id, label: id.toUpperCase() })),
@@ -202,6 +202,7 @@ describe('useTabChords', () => {
         // The closed thread's panel unmounts with the composer in it.
         assistantInput.remove();
         nextTab.setAttribute('aria-selected', 'true');
+        return Promise.resolve();
       });
       mount({ claimWindowChords: true, isMac: true });
       assistantInput.focus();
@@ -216,7 +217,10 @@ describe('useTabChords', () => {
       tablist.setAttribute('role', 'tablist');
       tablist.tabIndex = -1;
       assistantPanel.prepend(tablist);
-      strips['assistant-threads'].close.mockImplementation(() => assistantInput.remove());
+      strips['assistant-threads'].close.mockImplementation(() => {
+        assistantInput.remove();
+        return Promise.resolve();
+      });
       mount({ claimWindowChords: true, isMac: true });
       assistantInput.focus();
 
@@ -236,6 +240,7 @@ describe('useTabChords', () => {
         // step, AFTER animation frames run, so focus is still on it here.
         assistantInput.hidden = true;
         nextTab.setAttribute('aria-selected', 'true');
+        return Promise.resolve();
       });
       mount({ claimWindowChords: false, isMac: false });
       assistantInput.focus();
@@ -261,6 +266,72 @@ describe('useTabChords', () => {
       press(assistantInput, { key: 'T', metaKey: true, shiftKey: true });
 
       await vi.waitFor(() => expect(document.activeElement).toBe(reopenedTab));
+    });
+
+    it('restores focus only once an asynchronous close has settled', async () => {
+      const tablist = document.createElement('div');
+      tablist.setAttribute('role', 'tablist');
+      const nextTab = document.createElement('button');
+      nextTab.setAttribute('role', 'tab');
+      nextTab.setAttribute('aria-selected', 'false');
+      tablist.append(nextTab);
+      browserPanel.prepend(tablist);
+      let finishClose: () => void = () => undefined;
+      strips.browser.close.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finishClose = () => {
+              // Main closed the tab: the strip re-renders without the focused tab.
+              browserInput.remove();
+              nextTab.setAttribute('aria-selected', 'true');
+              resolve();
+            };
+          })
+      );
+      mount({ claimWindowChords: true, isMac: true });
+      browserInput.focus();
+
+      press(browserInput, { key: 'w', metaKey: true });
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      expect(document.activeElement).toBe(browserInput);
+      finishClose();
+
+      await vi.waitFor(() => expect(document.activeElement).toBe(nextTab));
+    });
+
+    it('restores focus into a strip that scopes by fallback through its focus root', async () => {
+      const workspaceRoot = document.createElement('div');
+      const tablist = document.createElement('div');
+      tablist.setAttribute('role', 'tablist');
+      const focusedTab = document.createElement('button');
+      focusedTab.setAttribute('role', 'tab');
+      const nextTab = document.createElement('button');
+      nextTab.setAttribute('role', 'tab');
+      nextTab.setAttribute('aria-selected', 'false');
+      tablist.append(focusedTab, nextTab);
+      workspaceRoot.append(tablist);
+      document.body.append(workspaceRoot);
+      unregister.push(
+        replaceStrip('workspace', {
+          ...strips.workspace,
+          close: () => {
+            focusedTab.remove();
+            nextTab.setAttribute('aria-selected', 'true');
+            return Promise.resolve();
+          },
+          getFocusRoot: () => workspaceRoot,
+        })
+      );
+      mount({ claimWindowChords: true, isMac: true });
+      focusedTab.focus();
+
+      try {
+        press(focusedTab, { key: 'w', metaKey: true });
+
+        await vi.waitFor(() => expect(document.activeElement).toBe(nextTab));
+      } finally {
+        workspaceRoot.remove();
+      }
     });
 
     it('leaves surviving focus where it was after a close', async () => {
@@ -397,6 +468,58 @@ describe('useTabChords', () => {
             description: '"notes.md" can no longer be reopened: its folder is not connected',
             variant: 'destructive',
           })
+        )
+      );
+    });
+
+    it('reports a strip operation that throws synchronously, without an uncaught error', async () => {
+      const uncaught = vi.fn();
+      window.addEventListener('error', uncaught);
+      strips.workspace.reopenClosed.mockImplementationOnce(() => {
+        throw new Error('Cannot place tab "a.ts": it is not open');
+      });
+      strips.workspace.close.mockImplementationOnce(() => {
+        throw new Error('store rejected the close');
+      });
+      mount({ claimWindowChords: true, isMac: false });
+      outside.focus();
+
+      try {
+        press(outside, { ctrlKey: true, key: 'T', shiftKey: true });
+        press(outside, { ctrlKey: true, key: 'w' });
+
+        await vi.waitFor(() =>
+          expect(toastSpy.mock.calls.map(([toast]) => toast)).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                description: 'Cannot place tab "a.ts": it is not open',
+                title: 'Reopen Closed Tab',
+                variant: 'destructive',
+              }),
+              expect.objectContaining({
+                description: 'store rejected the close',
+                title: 'Close Tab',
+                variant: 'destructive',
+              }),
+            ])
+          )
+        );
+        expect(uncaught).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener('error', uncaught);
+      }
+    });
+
+    it('reports a close that rejected', async () => {
+      strips.workspace.close.mockRejectedValueOnce(new Error('unknown tab b.ts'));
+      mount({ claimWindowChords: true, isMac: false });
+      outside.focus();
+
+      press(outside, { ctrlKey: true, key: 'w' });
+
+      await vi.waitFor(() =>
+        expect(toastSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ description: 'unknown tab b.ts', variant: 'destructive' })
         )
       );
     });

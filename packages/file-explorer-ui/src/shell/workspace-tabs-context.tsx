@@ -1,10 +1,11 @@
 import {
   type ActionOutcome,
   createClosedTabHistory,
-  NO_CLOSED_TAB_OUTCOME,
   type OpenTab,
   placeTabAtIndex,
+  type ReopenAttempt,
   recordRemovedTabs,
+  reopenLastClosed,
 } from '@brainstrike/context-actions';
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
@@ -339,8 +340,25 @@ export function WorkspaceTabsProvider({
 
   // Every close path (✕, Delete, the menus, chords) records what it closed, so
   // Reopen Closed Tab can restore it. Session-only: the history lives and dies
-  // with this provider, so it needs no factory-reset wiring.
+  // with this provider, so it needs no factory-reset wiring. It belongs to ONE
+  // workspace session: when another thread's workspace is hydrated in (a
+  // replacement, not a close), the history is cleared, never recorded.
   const [closedTabs] = useState(() => createClosedTabHistory<WorkspaceClosedTab>());
+  useEffect(() => {
+    const clearOnHydration =
+      <S extends { readonly hydration: object }>() =>
+      (state: S, previous: S): void => {
+        if (state.hydration !== previous.hydration) {
+          closedTabs.clear();
+        }
+      };
+    const unsubscribeTabs = useTabManagerStore.subscribe(clearOnHydration());
+    const unsubscribeApps = useWorkspaceTabSelectionStore.subscribe(clearOnHydration());
+    return () => {
+      unsubscribeTabs();
+      unsubscribeApps();
+    };
+  }, [closedTabs]);
   /** Run an app close, then record exactly the app tabs it removed. */
   const closeAppsRecorded = useCallback(
     (close: () => void): void => {
@@ -601,12 +619,13 @@ export function WorkspaceTabsProvider({
 
   const openAppIdSet = useMemo(() => new Set(openApps.map((app) => app.id)), [openApps]);
   const handleActivateTab = useCallback(
-    (id: string): void => {
+    (id: string): Promise<void> => {
       if (openAppIdSet.has(id)) {
         handleOpenApp(id);
-        return;
+        return Promise.resolve();
       }
-      void handleSelectFileTab(id);
+      // Settles once the file tab is selected (after any permission prompt).
+      return handleSelectFileTab(id);
     },
     [handleOpenApp, handleSelectFileTab, openAppIdSet]
   );
@@ -622,35 +641,36 @@ export function WorkspaceTabsProvider({
   );
 
   const hasClosedTabs = useCallback((): boolean => closedTabs.size() > 0, [closedTabs]);
-  const handleReopenClosedTab = useCallback((): Promise<ActionOutcome> => {
-    const closed = closedTabs.pop();
-    if (!closed) {
-      return Promise.resolve(NO_CLOSED_TAB_OUTCOME);
-    }
-    const entry = closed.tab;
-    if (entry.kind === 'app') {
-      if (!apps.some((app) => app.id === entry.appId)) {
-        return Promise.resolve({
-          error: `${entry.label} can no longer be reopened: it is not available`,
-          ok: false,
-        });
-      }
-      handleOpenApp(entry.appId);
-      return Promise.resolve({ ok: true });
-    }
-    if (getTabRootPath(entry, rootDescriptors) === null) {
-      return Promise.resolve({
-        error: `"${entry.name}" can no longer be reopened: its folder is not connected`,
-        ok: false,
-      });
-    }
-    const wasOpen = liveFileTabIds().includes(entry.compositeKey);
-    handleOpenFileInTab(entry.compositeKey);
-    if (!wasOpen) {
-      reorderTabs(placeTabAtIndex(liveFileTabIds(), entry.compositeKey, closed.index));
-    }
-    return Promise.resolve({ ok: true });
-  }, [apps, closedTabs, handleOpenApp, handleOpenFileInTab, reorderTabs, rootDescriptors]);
+  // Only a confirmed-stale entry (an unregistered app, a disconnected folder)
+  // is dropped; an unexpected failure puts the entry back (reopenLastClosed).
+  const handleReopenClosedTab = useCallback(
+    (): Promise<ActionOutcome> =>
+      reopenLastClosed(closedTabs, ({ index, tab: entry }): ReopenAttempt => {
+        if (entry.kind === 'app') {
+          if (!apps.some((app) => app.id === entry.appId)) {
+            return {
+              error: `${entry.label} can no longer be reopened: it is not available`,
+              status: 'stale',
+            };
+          }
+          handleOpenApp(entry.appId);
+          return { status: 'reopened' };
+        }
+        if (getTabRootPath(entry, rootDescriptors) === null) {
+          return {
+            error: `"${entry.name}" can no longer be reopened: its folder is not connected`,
+            status: 'stale',
+          };
+        }
+        const wasOpen = liveFileTabIds().includes(entry.compositeKey);
+        handleOpenFileInTab(entry.compositeKey);
+        if (!wasOpen) {
+          reorderTabs(placeTabAtIndex(liveFileTabIds(), entry.compositeKey, index));
+        }
+        return { status: 'reopened' };
+      }),
+    [apps, closedTabs, handleOpenApp, handleOpenFileInTab, reorderTabs, rootDescriptors]
+  );
 
   const tabOrder = useMemo<readonly WorkspaceTabRef[]>(() => {
     const pinned: WorkspaceTabRef[] = [];

@@ -15,6 +15,12 @@ export type TabChordStripId = 'assistant-threads' | 'browser' | 'workspace';
  */
 export interface TabChordStrip extends TabCommandStrip {
   /**
+   * Where lost focus returns after a chord (its selected tab, else its
+   * tablist) when that is not `getPanel`: the workspace scopes by fallback, so
+   * it has no panel, but its strip still has a root.
+   */
+  readonly getFocusRoot?: () => HTMLElement | null;
+  /**
    * Focus inside this element scopes chords to the strip. The workspace
    * returns null: it is the strip for focus in no panel.
    */

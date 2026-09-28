@@ -31,6 +31,14 @@ const TITLES = {
 } as const;
 
 /** Three open thread tabs [a, b, c] with `a` active, registered with the chord router. */
+function currentStrip(): TabChordStrip {
+  const strip = getTabChordStrip('assistant-threads');
+  if (!strip) {
+    throw new Error('the assistant strip is not registered');
+  }
+  return strip;
+}
+
 async function renderThreeTabs(): Promise<TabChordStrip> {
   addThreadRow('thread-c', TITLES['thread-c']);
   renderWorkspace();
@@ -137,7 +145,7 @@ describe('assistant thread strip — chords and closed-tab history', () => {
   it('records a chord close', async () => {
     const strip = await renderThreeTabs();
 
-    act(() => strip.close('thread-a'));
+    await act(() => strip.close('thread-a'));
     expect(openThreadIds()).toEqual(['thread-b', 'thread-c']);
 
     await reopen(strip);
@@ -147,8 +155,8 @@ describe('assistant thread strip — chords and closed-tab history', () => {
 
   it('skips a deleted thread and reports it, then reopens the next entry', async () => {
     const strip = await renderThreeTabs();
-    act(() => strip.close('thread-a'));
-    act(() => strip.close('thread-b'));
+    await act(() => strip.close('thread-a'));
+    await act(() => strip.close('thread-b'));
     deleteThreadFromStore('thread-b');
 
     expect(await reopen(strip)).toEqual({
@@ -161,9 +169,55 @@ describe('assistant thread strip — chords and closed-tab history', () => {
     expect(openThreadIds()).toEqual(['thread-a', 'thread-c']);
   });
 
+  it('keeps the entry while threads are still loading, and reopens it once they have', async () => {
+    const strip = await renderThreeTabs();
+    await act(() => strip.close('thread-b'));
+    const loaded = useAssistantThreadStore.getState().threadsByResourceId;
+    act(() => {
+      useAssistantThreadStore.setState({ threadsByResourceId: {} });
+    });
+
+    expect(await reopen(strip)).toEqual({ error: 'Threads are still loading', ok: false });
+    expect(strip.hasClosedTabs()).toBe(true);
+
+    act(() => {
+      useAssistantThreadStore.setState({ threadsByResourceId: loaded });
+    });
+    expect(await reopen(strip)).toEqual({ ok: true });
+    expect(openThreadIds()).toEqual(['thread-a', 'thread-b', 'thread-c']);
+  });
+
+  it('keeps the entry when the reopen fails unexpectedly', async () => {
+    const strip = await renderThreeTabs();
+    await act(() => strip.close('thread-b'));
+    const openThreadTab = useAssistantThreadStore.getState().openThreadTab;
+    act(() => {
+      useAssistantThreadStore.setState({
+        openThreadTab: () => {
+          throw new Error('The thread store is unavailable');
+        },
+      });
+    });
+
+    try {
+      // The strip re-registers with the store's new operation; read the live one.
+      expect(await reopen(currentStrip())).toEqual({
+        error: 'The thread store is unavailable',
+        ok: false,
+      });
+      expect(currentStrip().hasClosedTabs()).toBe(true);
+    } finally {
+      act(() => {
+        useAssistantThreadStore.setState({ openThreadTab });
+      });
+    }
+    expect(await reopen(currentStrip())).toEqual({ ok: true });
+    expect(openThreadIds()).toEqual(['thread-a', 'thread-b', 'thread-c']);
+  });
+
   it('only activates a closed tab that was opened again in the meantime', async () => {
     const strip = await renderThreeTabs();
-    act(() => strip.close('thread-a'));
+    await act(() => strip.close('thread-a'));
     openThreadTabs('thread-a', 'thread-b');
     expect(openThreadIds()).toEqual(['thread-b', 'thread-c', 'thread-a']);
 
@@ -177,7 +231,7 @@ describe('assistant thread strip — chords and closed-tab history', () => {
 
     expect(strip.hasClosedTabs()).toBe(false);
     expect(await reopen(strip)).toEqual(NO_CLOSED_TAB_OUTCOME);
-    act(() => strip.close('thread-b'));
+    await act(() => strip.close('thread-b'));
     expect(strip.hasClosedTabs()).toBe(true);
   });
 

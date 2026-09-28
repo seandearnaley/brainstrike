@@ -7,7 +7,9 @@ export {
   NO_CLOSED_TAB_OUTCOME,
   type OpenTab,
   placeTabAtIndex,
+  type ReopenAttempt,
   recordRemovedTabs,
+  reopenLastClosed,
 } from './closed-tab-history.js';
 export { isAbsolutePath, toRelativePath } from './paths.js';
 export {

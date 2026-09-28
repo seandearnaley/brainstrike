@@ -1,4 +1,9 @@
-import { cycleTab } from '@brainstrike/context-actions/commands';
+import type { ActionOutcome } from '@brainstrike/context-actions';
+import {
+  cycleTab,
+  settleTabOperation,
+  settleTabOutcome,
+} from '@brainstrike/context-actions/commands';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useEffect } from 'react';
@@ -35,10 +40,10 @@ function keepFocusInStrip(strip: TabChordStrip): void {
     if (!isFocusLost(document.activeElement)) {
       return;
     }
-    const panel = strip.getPanel();
+    const root = strip.getFocusRoot?.() ?? strip.getPanel();
     const target =
-      panel?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
-      panel?.querySelector<HTMLElement>('[role="tablist"]');
+      root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
+      root?.querySelector<HTMLElement>('[role="tablist"]');
     target?.focus();
   });
 }
@@ -76,9 +81,29 @@ export function useTabChords(environment: TabChordEnvironment): void {
   const { toast } = useToast();
 
   useEffect(() => {
-    const report = (error: string): void => {
-      logger.error('Reopen Closed Tab failed', { error });
-      toast({ description: error, title: 'Reopen Closed Tab', variant: 'destructive' });
+    const report = (title: string, outcome: ActionOutcome): void => {
+      if (!outcome.ok) {
+        logger.error(`${title} failed`, { error: outcome.error });
+        toast({ description: outcome.error, title, variant: 'destructive' });
+        return;
+      }
+      // A benign no-op (an empty history) informs, as a menu action's success
+      // message does; it is never logged as an error.
+      if (outcome.message) {
+        toast({ description: outcome.message, title });
+      }
+    };
+
+    /**
+     * Run a strip operation to completion (a browser close settles in main),
+     * then restore lost focus and report. A synchronous throw or a rejection
+     * becomes a failed outcome, never an error escaping the keydown listener.
+     */
+    const run = (strip: TabChordStrip, title: string, settled: Promise<ActionOutcome>): void => {
+      void settled.then((outcome) => {
+        keepFocusInStrip(strip);
+        report(title, outcome);
+      });
     };
 
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -93,31 +118,27 @@ export function useTabChords(environment: TabChordEnvironment): void {
           return;
         }
         event.preventDefault();
-        strip.close(activeId);
-        keepFocusInStrip(strip);
+        run(
+          strip,
+          'Close Tab',
+          settleTabOperation(() => strip.close(activeId))
+        );
         return;
       }
       event.preventDefault();
       if (action === 'reopen') {
-        strip.reopenClosed().then(
-          (outcome) => {
-            keepFocusInStrip(strip);
-            if (!outcome.ok) {
-              report(outcome.error);
-              return;
-            }
-            // A benign no-op (an empty history) informs, as a menu action's
-            // success message does; it is never logged as an error.
-            if (outcome.message) {
-              toast({ description: outcome.message, title: 'Reopen Closed Tab' });
-            }
-          },
-          (error: unknown) => report(error instanceof Error ? error.message : String(error))
+        run(
+          strip,
+          'Reopen Closed Tab',
+          settleTabOutcome(() => strip.reopenClosed())
         );
         return;
       }
-      cycleTab(strip, action);
-      keepFocusInStrip(strip);
+      run(
+        strip,
+        action === 'next' ? 'Next Tab' : 'Previous Tab',
+        settleTabOperation(() => cycleTab(strip, action))
+      );
     };
 
     document.addEventListener('keydown', handleKeyDown);

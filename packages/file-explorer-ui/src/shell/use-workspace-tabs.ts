@@ -27,8 +27,8 @@ export interface WorkspaceTabsValue {
   readonly loadingFiles: Set<string>;
   /** Apps activated at least once this session — rendered hidden-but-mounted. */
   readonly mountedAppIds: ReadonlySet<string>;
-  /** Activate any strip tab by id, app or file. */
-  readonly onActivateTab: (id: string) => void;
+  /** Activate any strip tab by id, app or file; settles once it is active. */
+  readonly onActivateTab: (id: string) => Promise<void>;
   readonly onCloseAllFileTabs: () => void;
   readonly onCloseApp: (appId: string) => void;
   /** Close several app tabs atomically (app-tab menu Close Others / Close All). */

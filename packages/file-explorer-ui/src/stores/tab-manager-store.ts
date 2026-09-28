@@ -16,6 +16,12 @@ export interface FileTabState {
 
 interface TabManagerData {
   activeTabId: string | null;
+  /**
+   * A fresh identity per `hydrateTabs` (never persisted): the tab set was
+   * REPLACED by another thread's workspace, which subscribers such as the
+   * closed-tab history must tell apart from closes.
+   */
+  hydration: object;
   tabs: FileTabState[];
 }
 
@@ -257,8 +263,9 @@ export const useTabManagerStore = create<TabManagerStore>()(
           path: tab.path,
         }));
         const activeExists = hydrated.some((tab) => tab.id === activeTabId);
-        set({ activeTabId: activeExists ? activeTabId : null, tabs: hydrated });
+        set({ activeTabId: activeExists ? activeTabId : null, hydration: {}, tabs: hydrated });
       },
+      hydration: {},
 
       openTab: (path, tabId, compositeKey) => {
         set((state) => {

@@ -2,14 +2,16 @@ import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import {
   type ActionOutcome,
   createClosedTabHistory,
-  NO_CLOSED_TAB_OUTCOME,
   placeTabAtIndex,
+  type ReopenAttempt,
   recordRemovedTabs,
+  reopenLastClosed,
 } from '@brainstrike/context-actions';
 import { type RefObject, useCallback, useMemo, useState } from 'react';
 import { type TabChordStrip, useTabChordStrip } from './tab-chords/tab-chord-registry';
 
 const EMPTY_THREAD_IDS: readonly string[] = [];
+const EMPTY_THREADS: readonly { readonly id: string }[] = [];
 
 /** A closed thread tab, remembered for Reopen Closed Tab (session-only). */
 interface ClosedThreadTab {
@@ -95,33 +97,44 @@ export function useAssistantThreadTabChords(
    * Reopen the most recently closed tab at its old index (or the end) and
    * activate it. A thread deleted since it closed is dropped and reported.
    */
-  const reopenClosed = useCallback((): Promise<ActionOutcome> => {
-    const closed = closedTabs.pop();
-    if (!closed) {
-      return Promise.resolve(NO_CLOSED_TAB_OUTCOME);
-    }
-    const { threadId, title } = closed.tab;
-    const loaded = useAssistantThreadStore.getState().threadsByResourceId[resourceId] ?? [];
-    if (!loaded.some((thread) => thread.id === threadId)) {
-      return Promise.resolve({
-        error: `"${title}" was deleted and cannot be reopened`,
-        ok: false,
-      });
-    }
-    const wasOpen = readOpenThreadIds().includes(threadId);
-    openThreadTab(resourceId, threadId);
-    if (!wasOpen) {
-      reorderThreadTabs(resourceId, placeTabAtIndex(readOpenThreadIds(), threadId, closed.index));
-    }
-    return Promise.resolve({ ok: true });
-  }, [closedTabs, openThreadTab, readOpenThreadIds, reorderThreadTabs, resourceId]);
+  /**
+   * `listThreads` is unpaginated, so a LOADED thread list is complete: a thread
+   * missing from it was deleted (the entry is dropped). Before the list has
+   * loaded nothing can be told, so the entry is kept for the next reopen.
+   */
+  const reopenClosed = useCallback(
+    (): Promise<ActionOutcome> =>
+      reopenLastClosed(closedTabs, ({ index, tab: { threadId, title } }): ReopenAttempt => {
+        const { threadsByResourceId } = useAssistantThreadStore.getState();
+        if (!Object.hasOwn(threadsByResourceId, resourceId)) {
+          return { error: 'Threads are still loading', status: 'unavailable' };
+        }
+        const loaded = threadsByResourceId[resourceId] ?? EMPTY_THREADS;
+        if (!loaded.some((thread) => thread.id === threadId)) {
+          return { error: `"${title}" was deleted and cannot be reopened`, status: 'stale' };
+        }
+        const wasOpen = readOpenThreadIds().includes(threadId);
+        openThreadTab(resourceId, threadId);
+        if (!wasOpen) {
+          reorderThreadTabs(resourceId, placeTabAtIndex(readOpenThreadIds(), threadId, index));
+        }
+        return { status: 'reopened' };
+      }),
+    [closedTabs, openThreadTab, readOpenThreadIds, reorderThreadTabs, resourceId]
+  );
 
   const hasClosedTabs = useCallback((): boolean => closedTabs.size() > 0, [closedTabs]);
 
   const chordStrip = useMemo<TabChordStrip>(
     () => ({
-      activate: (threadId) => openThreadTab(resourceId, threadId),
-      close: closes.close,
+      activate: (threadId) => {
+        openThreadTab(resourceId, threadId);
+        return Promise.resolve();
+      },
+      close: (threadId) => {
+        closes.close(threadId);
+        return Promise.resolve();
+      },
       getActiveId: () =>
         useAssistantThreadStore.getState().activeThreadIdByResourceId[resourceId] ?? null,
       getPanel: () => panelRef.current,

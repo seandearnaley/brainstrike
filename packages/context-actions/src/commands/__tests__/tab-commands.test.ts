@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ActionOutcome } from '../../types.js';
 import { createCommandRegistry } from '../command-registry.js';
-import { createTabCommands, type TabCommandStrip } from '../tab-commands.js';
+import { createTabCommands, settleTabOperation, type TabCommandStrip } from '../tab-commands.js';
 import type { Command, CommandContext, RunCommand } from '../types.js';
 
 const CTX: CommandContext = { capabilities: new Set(), services: {} };
 
 function strip(ids: readonly string[], activeId: string | null, closedTabs = 1) {
   return {
-    activate: vi.fn<(id: string) => void>(),
-    close: vi.fn<(id: string) => void>(),
+    activate: vi.fn<(id: string) => Promise<void>>(() => Promise.resolve()),
+    close: vi.fn<(id: string) => Promise<void>>(() => Promise.resolve()),
     getActiveId: () => activeId,
     getTabs: () => ids.map((id) => ({ id, label: `Tab ${id}` })),
     hasClosedTabs: () => closedTabs > 0,
@@ -88,6 +88,36 @@ describe('createTabCommands', () => {
     expect(available.map((candidate) => candidate.id)).toContain('tab.close');
   });
 
+  it('Close Tab waits for the close and reports one that failed', async () => {
+    const scoped = strip(['a', 'b'], 'b');
+    scoped.close.mockRejectedValueOnce(new Error('unknown tab b'));
+
+    await expect(
+      runnable(
+        command(
+          createTabCommands(() => scoped),
+          'tab.close'
+        )
+      ).run(CTX)
+    ).resolves.toEqual({ error: 'unknown tab b', ok: false });
+  });
+
+  it('turns a strip operation that throws into a failed outcome', async () => {
+    const scoped = strip(['a', 'b'], 'a');
+    scoped.activate.mockImplementationOnce(() => {
+      throw new Error('store rejected the order');
+    });
+
+    await expect(
+      runnable(
+        command(
+          createTabCommands(() => scoped),
+          'tab.next'
+        )
+      ).run(CTX)
+    ).resolves.toEqual({ error: 'store rejected the order', ok: false });
+  });
+
   it('Reopen Closed Tab reports the strip outcome', async () => {
     const scoped = strip(['a'], 'a');
     scoped.reopenClosed.mockResolvedValueOnce({ error: 'No closed tab to reopen', ok: false });
@@ -148,5 +178,20 @@ describe('createTabCommands', () => {
     await runnable(command(commands, 'tab.close')).run(CTX);
 
     expect(scoped.close).toHaveBeenCalledExactlyOnceWith('y');
+  });
+});
+
+describe('settleTabOperation', () => {
+  it('settles success, a synchronous throw and a rejection to outcomes', async () => {
+    await expect(settleTabOperation(() => undefined)).resolves.toEqual({ ok: true });
+    await expect(
+      settleTabOperation(() => {
+        throw new Error('thrown');
+      })
+    ).resolves.toEqual({ error: 'thrown', ok: false });
+    await expect(settleTabOperation(() => Promise.reject(new Error('rejected')))).resolves.toEqual({
+      error: 'rejected',
+      ok: false,
+    });
   });
 });

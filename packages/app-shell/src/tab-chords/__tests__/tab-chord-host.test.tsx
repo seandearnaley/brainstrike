@@ -14,9 +14,9 @@ function setLifecycleBridge(bridge: unknown): void {
   Reflect.set(window, 'desktopLifecycle', bridge);
 }
 
-function registerWorkspace(close: (id: string) => void): () => void {
+function registerWorkspace(close: (id: string) => Promise<void>): () => void {
   return registerTabChordStrip('workspace', {
-    activate: vi.fn(),
+    activate: () => Promise.resolve(),
     close,
     getActiveId: () => 'a.ts',
     getPanel: () => null,
@@ -47,7 +47,7 @@ describe('TabChordHost', () => {
       isTestMode: false,
       noteReloadIntent: () => Promise.resolve(),
     });
-    const close = vi.fn();
+    const close = vi.fn(() => Promise.resolve());
     const release = registerWorkspace(close);
     try {
       render(<TabChordHost />);
@@ -59,7 +59,7 @@ describe('TabChordHost', () => {
   });
 
   it('leaves ⌘W to the browser on web', () => {
-    const close = vi.fn();
+    const close = vi.fn(() => Promise.resolve());
     const release = registerWorkspace(close);
     try {
       render(<TabChordHost />);

@@ -2,7 +2,7 @@ import {
   type ActionOutcome,
   type ClosedTabHistory,
   createClosedTabHistory,
-  NO_CLOSED_TAB_OUTCOME,
+  reopenLastClosed,
 } from '@brainstrike/context-actions';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { type RefObject, useCallback, useMemo, useState } from 'react';
@@ -87,28 +87,38 @@ export function useBrowserTabChords({
   );
 
   const hasClosedTabs = useCallback((): boolean => closedTabs.size() > 0, [closedTabs]);
+  /**
+   * Settles once main has done it; rejects after `settleTabAction` has logged
+   * and re-seeded, so a chord or palette command can report the failure.
+   */
+  const settled = useCallback(
+    (action: Promise<unknown>, label: string): Promise<void> =>
+      settleTabAction(action, label).then((outcome) => {
+        if (!outcome.ok) {
+          throw new Error(outcome.error);
+        }
+      }),
+    [settleTabAction]
+  );
   const reopenClosed = useCallback((): Promise<ActionOutcome> => {
     if (!bridge) {
       return Promise.resolve({ error: 'The browser pane is unavailable', ok: false });
     }
-    const closed = closedTabs.pop();
-    if (!closed) {
-      return Promise.resolve(NO_CLOSED_TAB_OUTCOME);
-    }
-    const { url } = closed.tab;
-    return settleTabAction(
-      url === '' ? bridge.createTab() : bridge.createTab(url),
-      'reopenClosedTab'
+    // A failed create puts the entry back (reopenLastClosed): a URL never goes stale.
+    return reopenLastClosed(closedTabs, ({ tab: { url } }) =>
+      settled(url === '' ? bridge.createTab() : bridge.createTab(url), 'reopenClosedTab').then(
+        () => ({ status: 'reopened' }) as const
+      )
     );
-  }, [bridge, closedTabs, settleTabAction]);
+  }, [bridge, closedTabs, settled]);
 
   const chordStrip = useMemo<TabChordStrip | null>(() => {
     if (!bridge) {
       return null;
     }
     return {
-      activate: (tabId) => runTabAction(bridge.selectTab(tabId), 'selectTab'),
-      close: closeTab,
+      activate: (tabId) => settled(bridge.selectTab(tabId), 'selectTab'),
+      close: (tabId) => settled(closeRecorded(bridge, closedTabs, [tabId]), 'closeTab'),
       getActiveId: () => liveBrowserTabs().find((tab) => tab.active)?.tabId ?? null,
       getPanel: () => paneRootRef.current,
       getTabs: () =>
@@ -116,7 +126,7 @@ export function useBrowserTabChords({
       hasClosedTabs,
       reopenClosed,
     };
-  }, [bridge, closeTab, hasClosedTabs, paneRootRef, reopenClosed, runTabAction]);
+  }, [bridge, closedTabs, hasClosedTabs, paneRootRef, reopenClosed, settled]);
   useTabChordStrip('browser', chordStrip);
 
   return { closedTabs, closeTab, hasClosedTabs, reopenClosed };

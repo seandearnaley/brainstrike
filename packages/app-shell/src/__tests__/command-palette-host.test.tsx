@@ -32,8 +32,8 @@ function fakeStrip(
   closedTabs = 0
 ) {
   return {
-    activate: vi.fn<(id: string) => void>(),
-    close: vi.fn<(id: string) => void>(),
+    activate: vi.fn<(id: string) => Promise<void>>(() => Promise.resolve()),
+    close: vi.fn<(id: string) => Promise<void>>(() => Promise.resolve()),
     getActiveId: () => activeId,
     getPanel: () => panel,
     getTabs: () => ids.map((id) => ({ id, label: `Tab ${id}` })),

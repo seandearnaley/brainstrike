@@ -22,6 +22,8 @@ export interface ClosedTab<T> {
 }
 
 export interface ClosedTabHistory<T> {
+  /** Forget every entry: the strip's tab set was replaced, not closed. */
+  readonly clear: () => void;
   /** The tab most recently closed, or `undefined` when the history is empty. */
   readonly pop: () => ClosedTab<T> | undefined;
   /**
@@ -41,6 +43,9 @@ export function createClosedTabHistory<T>(
   // The end of the array is the next pop.
   const entries: ClosedTab<T>[] = [];
   return {
+    clear: () => {
+      entries.length = 0;
+    },
     pop: () => entries.pop(),
     record: (closed) => {
       entries.push(...[...closed].sort((a, b) => b.index - a.index));
@@ -50,6 +55,53 @@ export function createClosedTabHistory<T>(
     },
     size: () => entries.length,
   };
+}
+
+/** How one strip's attempt to reopen a closed tab ended. */
+export type ReopenAttempt =
+  | { readonly status: 'reopened' }
+  /** The target is gone for good (a deleted thread, an unregistered app): drop the entry. */
+  | { readonly error: string; readonly status: 'stale' }
+  /** The target cannot be checked yet (threads still loading): keep the entry. */
+  | { readonly error: string; readonly status: 'unavailable' };
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Reopen the most recently closed tab through `reopen`. An empty history is the
+ * benign `NO_CLOSED_TAB_OUTCOME`. Only a confirmed-stale entry is dropped: an
+ * `unavailable` result, a synchronous throw or a rejection puts the entry back,
+ * so the next reopen retries it and an unexpected failure never loses a tab.
+ */
+export function reopenLastClosed<T>(
+  history: ClosedTabHistory<T>,
+  reopen: (closed: ClosedTab<T>) => ReopenAttempt | Promise<ReopenAttempt>
+): Promise<ActionOutcome> {
+  const closed = history.pop();
+  if (!closed) {
+    return Promise.resolve(NO_CLOSED_TAB_OUTCOME);
+  }
+  const putBack = (error: unknown): ActionOutcome => {
+    history.record([closed]);
+    return { error: errorMessage(error), ok: false };
+  };
+  let attempt: ReopenAttempt | Promise<ReopenAttempt>;
+  try {
+    attempt = reopen(closed);
+  } catch (error: unknown) {
+    return Promise.resolve(putBack(error));
+  }
+  return Promise.resolve(attempt).then((settled): ActionOutcome => {
+    if (settled.status === 'reopened') {
+      return { ok: true };
+    }
+    if (settled.status === 'unavailable') {
+      history.record([closed]);
+    }
+    return { error: settled.error, ok: false };
+  }, putBack);
 }
 
 /** A tab as a strip orders it: its id plus what reopening it needs. */

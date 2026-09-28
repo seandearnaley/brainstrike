@@ -8,8 +8,10 @@ import type { Command, RunCommand } from './types.js';
  * operations; this package holds no tab state.
  */
 export interface TabCommandStrip {
-  readonly activate: (id: string) => void;
-  readonly close: (id: string) => void;
+  /** Settles once the tab is active; rejects when activation failed. */
+  readonly activate: (id: string) => Promise<void>;
+  /** Settles once the tab has closed (a browser tab: in main); rejects on failure. */
+  readonly close: (id: string) => Promise<void>;
   readonly getActiveId: () => string | null;
   /** Every tab in strip order. */
   readonly getTabs: () => readonly { readonly id: string; readonly label: string }[];
@@ -21,12 +23,35 @@ export interface TabCommandStrip {
 const OK: ActionOutcome = { ok: true };
 
 /** Activate the tab beside the active one, by position, wrapping (D7). */
-export function cycleTab(strip: TabCommandStrip, direction: TabCycleDirection): void {
+export function cycleTab(strip: TabCommandStrip, direction: TabCycleDirection): Promise<void> {
   const ids = strip.getTabs().map((tab) => tab.id);
   const target = adjacentTabId(ids, strip.getActiveId(), direction);
-  if (target !== null) {
-    strip.activate(target);
+  return target === null ? Promise.resolve() : strip.activate(target);
+}
+
+function toFailure(error: unknown): ActionOutcome {
+  return { error: error instanceof Error ? error.message : String(error), ok: false };
+}
+
+/**
+ * Run a strip operation that reports its own outcome, to a settled one. It runs
+ * synchronously, so a store mutation has happened on return (and a file
+ * permission prompt still has its user gesture); a synchronous throw and a
+ * rejection both become a failed outcome, never an escaped error.
+ */
+export function settleTabOutcome(
+  operation: () => ActionOutcome | Promise<ActionOutcome>
+): Promise<ActionOutcome> {
+  try {
+    return Promise.resolve(operation()).then((outcome) => outcome, toFailure);
+  } catch (error: unknown) {
+    return Promise.resolve(toFailure(error));
   }
+}
+
+/** `settleTabOutcome` for an operation that only settles: success is `{ ok: true }`. */
+export function settleTabOperation(operation: () => unknown): Promise<ActionOutcome> {
+  return settleTabOutcome(() => Promise.resolve(operation()).then((): ActionOutcome => OK));
 }
 
 /**
@@ -38,13 +63,10 @@ export function createTabCommands(getStrip: () => TabCommandStrip | undefined): 
   const isAvailable = (): boolean => getStrip() !== undefined;
   const withStrip = (run: (strip: TabCommandStrip) => Promise<ActionOutcome>) => () => {
     const strip = getStrip();
-    return strip ? run(strip) : Promise.resolve<ActionOutcome>(NO_STRIP);
+    return strip ? settleTabOutcome(() => run(strip)) : Promise.resolve<ActionOutcome>(NO_STRIP);
   };
   const cycle = (direction: TabCycleDirection): RunCommand['run'] =>
-    withStrip((strip) => {
-      cycleTab(strip, direction);
-      return Promise.resolve(OK);
-    });
+    withStrip((strip) => settleTabOperation(() => cycleTab(strip, direction)));
 
   return [
     {
@@ -58,8 +80,7 @@ export function createTabCommands(getStrip: () => TabCommandStrip | undefined): 
         if (activeId === null) {
           return Promise.resolve<ActionOutcome>({ error: 'No tab is open', ok: false });
         }
-        strip.close(activeId);
-        return Promise.resolve(OK);
+        return settleTabOperation(() => strip.close(activeId));
       }),
     },
     {
@@ -98,10 +119,7 @@ export function createTabCommands(getStrip: () => TabCommandStrip | undefined): 
           (tab): RunCommand => ({
             id: `tab.go-to:${tab.id}`,
             label: tab.label,
-            run: withStrip((strip) => {
-              strip.activate(tab.id);
-              return Promise.resolve(OK);
-            }),
+            run: withStrip((strip) => settleTabOperation(() => strip.activate(tab.id))),
           })
         ),
         heading: 'Tabs',

@@ -491,6 +491,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   // in BST-1270, replacing its nav route). Construction is the pure
   // buildWorkspaceApps helper — capability gating by omission.
   const toolApprovalGrants = useToolApprovalGrantHandlers();
+  const workspaceStripRootRef = useRef<HTMLDivElement>(null);
   const workspaceApps = useMemo<readonly WorkspaceApp[]>(
     () =>
       buildWorkspaceApps({
@@ -531,7 +532,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                 reaches the file-explorer store; renders nothing. */}
             <ThreadWorkspaceCoordinator />
             {/* Registers the workspace strip with the tab chord router (BST-1842). */}
-            <WorkspaceTabChords />
+            <WorkspaceTabChords focusRootRef={workspaceStripRootRef} />
             {/* Grants are offered wherever an approval card can render: the root
                 chat panel AND the child conversation views under the workspace
                 (a child card without "Allow reads this session" forces a click
@@ -576,7 +577,12 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                     <WorkspaceBody />
                   </>
                 }
-                workspaceHeaderContent={<WorkspaceTabStrip />}
+                workspaceHeaderContent={
+                  // Layout-neutral (`contents`): the root chords restore focus into.
+                  <div className="contents" ref={workspaceStripRootRef}>
+                    <WorkspaceTabStrip />
+                  </div>
+                }
               />
             </ToolApprovalGrantProvider>
           </DelegatedWorkspaceTabsProvider>

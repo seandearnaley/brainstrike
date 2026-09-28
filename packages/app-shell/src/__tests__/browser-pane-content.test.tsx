@@ -4,6 +4,7 @@ import {
   createTestActionRegistry,
   NO_CLOSED_TAB_OUTCOME,
 } from '@brainstrike/context-actions';
+import { createTabCommands } from '@brainstrike/context-actions/commands';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -578,7 +579,7 @@ describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
     return outcome;
   }
 
-  it('registers its tabs, active tab and pane with the chord router', () => {
+  it('registers its tabs, active tab and pane with the chord router', async () => {
     renderPane();
     pushTabs(THREE_TABS);
     const strip = chordStrip();
@@ -590,7 +591,7 @@ describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
     ]);
     expect(strip.getActiveId()).toBe('a');
     expect(resolveTabChordScope(screen.getByTestId('browser-url-input'))).toBe('browser');
-    act(() => strip.activate('c'));
+    await act(() => strip.activate('c'));
     expect(bridge.selectTab).toHaveBeenCalledExactlyOnceWith('c');
   });
 
@@ -612,7 +613,7 @@ describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
 
     browserTab('Gamma').focus();
     await user.keyboard('{Delete}');
-    act(() => chordStrip().close('a'));
+    await act(() => chordStrip().close('a'));
     await waitFor(() => expect(bridge.closeTab).toHaveBeenCalledTimes(2));
 
     await reopen();
@@ -672,16 +673,45 @@ describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
     expect(await reopen()).toEqual(NO_CLOSED_TAB_OUTCOME);
   });
 
-  it('reopens a blank tab as a new tab and reports a create that failed', async () => {
+  it('keeps a tab whose reopen failed, and reopens a blank tab as a new tab', async () => {
     renderPane();
     pushTabs([tab({ active: true, tabId: 'n', title: '', url: '' }), ...THREE_TABS.slice(1)]);
-    act(() => chordStrip().close('n'));
-    act(() => chordStrip().close('b'));
-    await waitFor(() => expect(bridge.closeTab).toHaveBeenCalledTimes(2));
+    await act(() => chordStrip().close('n'));
+    await act(() => chordStrip().close('b'));
     bridge.createTab.mockRejectedValueOnce(new Error('host rejected the view'));
 
     expect(await reopen()).toEqual({ error: 'host rejected the view', ok: false });
+    // An unexpected failure never loses the entry: the next reopen retries it.
+    expect(chordStrip().hasClosedTabs()).toBe(true);
     expect(await reopen()).toEqual({ ok: true });
-    expect(bridge.createTab.mock.calls).toEqual([['https://b.test/'], []]);
+    expect(await reopen()).toEqual({ ok: true });
+    expect(bridge.createTab.mock.calls).toEqual([['https://b.test/'], ['https://b.test/'], []]);
+  });
+
+  it('settles a close only once main has closed the tab, and reports a rejection', async () => {
+    renderPane();
+    pushTabs(THREE_TABS);
+    bridge.closeTab.mockRejectedValueOnce(new Error('unknown tab b'));
+    const closeTab = createTabCommands(() => getTabChordStrip('browser')).find(
+      (command) => command.id === 'tab.close'
+    );
+    if (!closeTab || closeTab.page) {
+      throw new Error('tab.close must be a runnable command');
+    }
+    useBrowserTabsStore
+      .getState()
+      .setTabs(THREE_TABS.map((candidate) => ({ ...candidate, active: candidate.tabId === 'b' })));
+
+    let outcome: ActionOutcome | undefined;
+    await act(async () => {
+      outcome = await closeTab.run({ capabilities: new Set(), services: {} });
+    });
+
+    expect(outcome).toEqual({ error: 'unknown tab b', ok: false });
+    expect(chordStrip().hasClosedTabs()).toBe(false);
+    // The failure re-seeded from main (the mock lists none); main pushes again.
+    pushTabs(THREE_TABS);
+    await expect(chordStrip().close('c')).resolves.toBeUndefined();
+    expect(chordStrip().hasClosedTabs()).toBe(true);
   });
 });
