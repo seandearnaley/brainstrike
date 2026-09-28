@@ -37,3 +37,21 @@ Measured from branch point `19cd6eb75` with pnpm's configured Node 26.8.2, fresh
 | Web startup closure | 3 | 3 | 16268 / 6469 | 16268 / 6464 | 0 / -5 |
 
 The actual `file-tree.worker.js` stays 85444 raw / 20185 gzip bytes; only the package port entry grows. Web's startup gzip difference reflects changed emitted filenames at unchanged raw size. These are bundle-size measurements; no latency claim is made.
+
+## Final rc.118 qualification
+
+Rebased onto `99bc2258e` (the SDK 2.1 baseline) and requalified with the exact `4.0.0-rc.118` catalog pin and configured Node 26.8.2. The rc.117 statements above describe the initial qualification only. The lockfile adds only the file-tree importer's nine dependency lines; catalog conformance checks 606 family importer entries, and frozen installation succeeds.
+
+All 151 tests in nine files, production TypeScript, strict Effect diagnostics across 18 source/test files, the isolated changed-port-test TypeScript check, and all 29 contract guards pass. The contract's 105-line budget and rc.118 import restrictions remain intact. Fresh dependency builds pass all 49 tasks. Desktop and web builds pass, including cross-chunk cycle checks (401 chunks / 1288 static edges and 416 chunks / 1196 static edges respectively).
+
+The same measurement helpers and gzip level-9 method compare fresh candidate output with the saved rc.118 baseline. Startup totals follow static imports from HTML module/modulepreload entries; these measurements make no latency claim.
+
+| Output | Baseline JS files | Candidate JS files | Baseline raw / gzip bytes | Candidate raw / gzip bytes | Raw / gzip delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| File-tree package | 2 | 2 | 102613 / 23926 | 104400 / 24407 | +1787 / +481 |
+| Desktop renderer | 399 | 400 | 22731833 / 5258351 | 22735563 / 5259551 | +3730 / +1200 |
+| Web | 415 | 415 | 17877480 / 4973838 | 17880801 / 4975137 | +3321 / +1299 |
+| Desktop startup closure | 80 | 81 | 10339343 / 2232278 | 10343049 / 2233494 | +3706 / +1216 |
+| Web startup closure | 3 | 3 | 16792 / 6817 | 16792 / 6817 | 0 / 0 |
+
+The actual `file-tree.worker.js` remains 85444 raw / 20185 gzip bytes. The package port entry grows from 17169 / 3741 to 18956 / 4222 raw / gzip bytes. The SDK baseline change is included on both sides of this comparison.
