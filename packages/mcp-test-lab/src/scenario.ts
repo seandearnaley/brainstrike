@@ -15,6 +15,7 @@ export const MCP_LAB_CONFORMANCE_SOURCE = Object.freeze({
 export const MCP_LAB_SDK_SOURCE = Object.freeze({
   commitSha: 'cc4b41617ce3601b1290d67216ea0b194a3cd9ac',
   repositoryUrl: 'https://github.com/modelcontextprotocol/typescript-sdk.git',
+  // Historical fixture source; independent of the installed MCP_LAB_SDK_VERSION.
   tag: '@modelcontextprotocol/server@2.0.0',
 } as const);
 

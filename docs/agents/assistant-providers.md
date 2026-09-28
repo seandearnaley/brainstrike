@@ -1510,8 +1510,8 @@ an SDK constraint, not a product auth deadline.
 
 Production uses `@modelcontextprotocol/client@2.1.0`; v1 and v2 class instances
 never cross the host boundary. The five split SDK packages stay in lockstep and
-share Zod 4.6.5 so composed schemas have compatible types. Modern negotiation
-targets MCP `2026-07-28` with explicit legacy policy. The reference fixture
+share one Zod 4 resolution (currently 4.6.5) for compatible composed schemas.
+Modern negotiation targets MCP `2026-07-28` with explicit legacy policy. The reference fixture
 remains pinned at `cc4b41617ce3601b1290d67216ea0b194a3cd9ac`.
 Post-release SDK behavior needs explicit upgrade proof; upstream `main` is not evidence.
 

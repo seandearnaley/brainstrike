@@ -115,7 +115,8 @@ host, sanitized manual CDT evidence, SECURITY.md/support-matrix changes, and
 production registration remain owner-gated and are not claimed here.
 
 The private artifact-integrity core reads each unique reference once and in
-order, passes an explicit positive byte limit to the reader, rejects an
+order, passes an explicit positive byte limit to the reader, and rejects an
+artifact above that limit before hashing or decoding it.
 
 ## SDK 2.1 runtime alignment (2026-09-27)
 
