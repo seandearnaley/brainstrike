@@ -328,4 +328,34 @@ describe('useAssistantUsageLedger', () => {
     expect(useContextUsageStore.getState().liveRunUsageByThread[THREAD_ID]).toBeUndefined();
     expect(completePreparedRequest).toHaveBeenCalledTimes(2);
   });
+
+  it.each(['cancelled', 'completed', 'failed'] as const)(
+    'refreshes the thread list only after the %s terminal write settles',
+    async (status) => {
+      // The Threads panel and the thread tabs badge a finished or failed run from
+      // `latestRun` in that list. A refresh issued before the run row's terminal
+      // write reads `running`, and nothing refreshes again (BST-1844).
+      const order: string[] = [];
+      const terminalWrite = Promise.withResolvers<void>();
+      const input = createInput({
+        completePreparedRequest: async () => {
+          await terminalWrite.promise;
+          order.push('terminal-write');
+        },
+        refreshThreadsAfterRun: () => {
+          order.push('refresh');
+        },
+      });
+      const { result } = renderHook(() => useAssistantUsageLedger(input));
+
+      const settled = result.current.completeRequestAndSettleLiveUsage(undefined, status);
+      expect(order).toEqual([]);
+      terminalWrite.resolve();
+      await act(async () => {
+        await settled;
+      });
+
+      expect(order).toEqual(['terminal-write', 'refresh']);
+    }
+  );
 });
