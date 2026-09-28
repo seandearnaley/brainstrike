@@ -2,7 +2,9 @@ import { createLogger } from '@brainstrike/logging';
 import { AlertTriangle, Copy, RotateCw } from 'lucide-react';
 import { Component, type ErrorInfo, Fragment, type ReactElement, type ReactNode } from 'react';
 import { Button } from '../button';
-import { isChunkLoadError, useAppReloadState, useRequestAppReload } from '../chunk-load';
+import { useRequestAppReload } from '../chunk-load/app-reload-context';
+import { useAppReloadState } from '../chunk-load/app-reload-store';
+import { isChunkLoadError } from '../chunk-load/chunk-load-error';
 import { toast } from '../use-toast';
 
 const logger = createLogger('TabPanelBoundary');

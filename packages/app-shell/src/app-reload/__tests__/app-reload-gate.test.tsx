@@ -1,6 +1,6 @@
 import { useRequestAppReload } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { StrictMode, useSyncExternalStore } from 'react';
+import { StrictMode, useState, useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RunningAssistantRunsState } from '../use-running-assistant-runs';
 
@@ -401,6 +401,61 @@ describe('AppReloadGate on desktop (the main process owns the run)', () => {
     requestReload();
 
     expect(screen.queryByRole('status')).toBeNull();
+  });
+});
+
+describe('the capability that picks the gate', () => {
+  // The two gates are different component types around the whole shell, so an answer
+  // that changed after the first render would unmount and remount the application.
+  let mounts = 0;
+  function MountProbe() {
+    useState(() => {
+      mounts += 1;
+    });
+    return <Trigger />;
+  }
+
+  function renderGate() {
+    return (
+      <AppReloadGate buildId="build-1" reload={reload}>
+        <MountProbe />
+      </AppReloadGate>
+    );
+  }
+
+  beforeEach(() => {
+    mounts = 0;
+  });
+
+  it('is read once, so window.assistant appearing later does not remount the tree, and web keeps asking', () => {
+    projectionStore.set(ready(1));
+    const { rerender } = render(renderGate());
+    expect(mounts).toBe(1);
+
+    window.assistant = { url: 'http://127.0.0.1:4111' };
+    rerender(renderGate());
+    requestReload();
+
+    expect(mounts).toBe(1);
+    expect(dialog()).toBeInTheDocument();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('is read once, so window.assistant going away later does not remount the tree, and desktop keeps reloading at once', () => {
+    window.assistant = { url: 'http://127.0.0.1:4111' };
+    useRunningAssistantRunsMock.mockImplementation(() => {
+      throw new Error('desktop must not read the web run projection');
+    });
+    const { rerender } = render(renderGate());
+    expect(mounts).toBe(1);
+
+    Reflect.deleteProperty(window, 'assistant');
+    rerender(renderGate());
+    requestReload();
+
+    expect(mounts).toBe(1);
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 

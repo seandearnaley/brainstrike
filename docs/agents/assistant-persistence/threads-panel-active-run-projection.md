@@ -36,4 +36,4 @@ active treatment under reduced motion.
 Paired coverage: `packages/app-shell/src/__tests__/threads-panel.test.tsx` and
 the concurrent-run case in `apps/web/e2e/assistant-ui-panel.test.ts`.
 
-**2026-09-28 (BST-1850).** The per-database web startup reap store moved out of `use-active-assistant-thread-ids.ts` into `web-startup-reap.ts` (no behaviour change; its log scope is now `WebStartupReap`). The app reload gate (`app-reload/use-running-assistant-runs.ts`) is its second consumer and counts running rows across every resource; see `ui-conventions/app-reload.md`.
+**2026-09-28 (BST-1850).** The per-database web startup reap store moved out of `use-active-assistant-thread-ids.ts` into `web-startup-reap.ts` (no behaviour change; its log scope is now `WebStartupReap`). The app reload gate (`app-reload/use-running-assistant-runs.ts`) is its second consumer and counts running rows across every resource and starts the reap only behind the same thread-store readiness (`schemaReady`) and once a reload is required; see `ui-conventions/app-reload.md`.

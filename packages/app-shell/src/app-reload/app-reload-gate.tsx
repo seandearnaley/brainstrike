@@ -139,7 +139,10 @@ export function AppReloadGate({
   reload = reloadWindow,
   ...props
 }: AppReloadGateProps): ReactElement {
-  return hasDurableAssistantUsageCapability() ? (
+  // Read once per mount: the two gates are different component types around the whole
+  // shell, so an answer that changed after the first render would remount the application.
+  const [durableRuns] = useState(hasDurableAssistantUsageCapability);
+  return durableRuns ? (
     <ImmediateReloadGate {...props} reload={reload} />
   ) : (
     <ConfirmedReloadGate {...props} reload={reload} />

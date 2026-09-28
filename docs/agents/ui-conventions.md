@@ -335,11 +335,11 @@ reload is always the user's click. Why: a web session holds running work, and a 
 
 - `AppReloadGate` (app-shell) supplies `requestAppReload`; each renderer entry mounts it inside
   `DbProvider` around `RootLayoutContent`, and `AppLayout` renders `AppReloadStrip`.
-- Gate on the capability that a run survives a reload, `hasDurableAssistantUsageCapability()`, never
-  the platform: present reloads at once; absent reads `useRunningAssistantRuns` (every resource).
-- Ready with 0 runs reloads. Ready with n asks: Reload when finished (banner; one reload when the
-  count hits 0), Reload now, Cancel. Loading, error and an unfinished reap are UNKNOWN, never zero:
-  ask with Reload now and Cancel only.
+- Gate on the capability that a run survives a reload, `hasDurableAssistantUsageCapability()` (read
+  once per mount), never the platform: present reloads at once; absent reads `useRunningAssistantRuns`
+  (every resource), which observes only once a chunk failure requires a reload and threads have loaded.
+- Ready with 0 runs reloads. Ready with n asks: Reload when finished (banner; one reload at 0), Reload
+  now, Cancel. Anything else is UNKNOWN, never zero: ask with Reload now and Cancel only.
 - Write `sessionStorage['brainstrike:chunk-reload'] = {buildId}` BEFORE reloading;
   `startAppReloadRecovery` (visible-UI entries, before first render) reads and deletes it, and a
   marker for this `__BRAINSTRIKE_BUILD_ID__` flags `reloadAlreadyAttempted`. Storage failures are

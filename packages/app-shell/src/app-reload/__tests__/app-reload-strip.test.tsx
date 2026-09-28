@@ -57,8 +57,12 @@ describe('AppReloadStrip', () => {
   });
 
   it('fails at mount without an enclosing gate, instead of hiding the button', () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    expect(() => render(<AppReloadStrip />)).toThrow(/AppReload(Provider|Gate)/);
+    try {
+      expect(() => render(<AppReloadStrip />)).toThrow(/AppReload(Provider|Gate)/);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

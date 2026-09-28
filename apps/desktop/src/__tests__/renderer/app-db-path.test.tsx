@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import type { Root as ReactRoot } from 'react-dom/client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock file-explorer packages to avoid Worker import issues
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -95,6 +95,11 @@ beforeEach(() => {
 });
 
 describe('App database path resolution', () => {
+  // This app's vitest config does not set `unstubGlobals`.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('uses Electron IPC for desktop app', async () => {
     // Mock window.electronAPI for this test
     Object.defineProperty(window, 'electronAPI', {

@@ -70,9 +70,11 @@ function startWebStartupReap(database: DbHandle, store: WebStartupReapStore): vo
       // so its schema probe passed) is a WEAKER guarantee than desktop's
       // `getDatabase()`-awaits-`migrate()`, so it is not load-bearing here —
       // the outcome does not depend on it. That is NOT licence to drop the
-      // gate in `useActiveAssistantThreadIds`: its `canReadRuns` also gates its
+      // gate in a consumer (`useActiveAssistantThreadIds`,
+      // `useRunningAssistantRuns`): the `canReadRuns` there also gates its
       // live query, which must not subscribe before the repository has loaded
-      // for this resource.
+      // for this resource, and this store never retries, so an early start
+      // that fails would leave every consumer in `error` for the session.
       const report = await reapOrphanedAssistantThreadRuns(database, getRendererBootedAt());
       if (report.reaped.length > 0) {
         logger.info('Web startup marked orphaned assistant runs failed', {

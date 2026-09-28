@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Utility to dynamically import the main entry after setting up mocks
 const importMain = () => import('../main');
@@ -206,6 +206,11 @@ describe('main entry file', () => {
     window.sessionStorage.clear();
     vi.stubGlobal('__BRAINSTRIKE_BUILD_ID__', 'test-build-id');
     startAppReloadRecoveryMock.mockReturnValue(stopAppReloadRecoveryMock);
+  });
+
+  // This app's vitest config does not set `unstubGlobals`.
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   test('throws an error when root element is missing', async () => {

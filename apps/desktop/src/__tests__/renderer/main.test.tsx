@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The gate and the recovery wiring have their own suites in app-shell; here they are
 // stubs, so main.tsx's own orchestration (order, build id, which windows) stays in focus.
@@ -155,6 +155,11 @@ describe('renderer main entry', () => {
       selectDestination: vi.fn(),
       setPreferences: vi.fn(),
     } as never;
+  });
+
+  // This app's vitest config does not set `unstubGlobals`.
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('should create root and render app', async () => {
