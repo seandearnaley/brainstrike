@@ -300,7 +300,10 @@ export const useTabManagerStore = create<TabManagerStore>()(
           });
           return;
         }
-        if (reordered.every((tab, index) => tab === tabs[index])) {
+        if (
+          reordered.length === tabs.length &&
+          reordered.every((tab, index) => tab === tabs[index])
+        ) {
           return;
         }
         set({ tabs: reordered });
