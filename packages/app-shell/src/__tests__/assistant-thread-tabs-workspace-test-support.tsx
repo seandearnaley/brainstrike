@@ -2,6 +2,7 @@ import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstr
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, render } from '@testing-library/react';
+import { useEffect } from 'react';
 import { beforeEach, vi } from 'vitest';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
@@ -20,6 +21,7 @@ const harness = vi.hoisted(() => ({
   assistantWrapperProps: [] as Array<{
     memoryResourceId?: string;
     memoryThreadId?: string;
+    onRunningChange?: (threadId: string, running: boolean) => void;
     providerKeySources?: unknown;
   }>,
   dbMocks: {
@@ -49,6 +51,8 @@ const harness = vi.hoisted(() => ({
   threadRows: [] as Record<string, unknown>[],
   /** Thread ids whose mocked assistant wrapper throws during render. */
   wrapperCrashThreadIds: new Set<string>(),
+  /** `mount:<threadId>` / `unmount:<threadId>`, in order: a panel that keeps its run owns one mount. */
+  wrapperLifecycle: [] as string[],
 }));
 
 export const {
@@ -59,6 +63,7 @@ export const {
   mockDb,
   threadRows,
   wrapperCrashThreadIds,
+  wrapperLifecycle,
 } = harness;
 
 vi.mock('@brainstrike/db', () => ({
@@ -115,12 +120,22 @@ vi.mock('../assistant-ui-panel-wrapper', () => ({
   AssistantUiPanelWrapper: (props: {
     memoryResourceId?: string;
     memoryThreadId?: string;
+    onRunningChange?: (threadId: string, running: boolean) => void;
     providerKeySources?: unknown;
   }) => {
     harness.assistantWrapperProps.push(props);
     if (props.memoryThreadId && harness.wrapperCrashThreadIds.has(props.memoryThreadId)) {
       throw new Error(`Assistant panel for ${props.memoryThreadId} exploded`);
     }
+    // The real wrapper owns the run through `useLocalRuntime`, whose unmount
+    // cleanup aborts it; the mock records the mount/unmount that would trigger that.
+    const threadId = props.memoryThreadId;
+    useEffect(() => {
+      harness.wrapperLifecycle.push(`mount:${threadId}`);
+      return () => {
+        harness.wrapperLifecycle.push(`unmount:${threadId}`);
+      };
+    }, [threadId]);
     return <div data-testid="assistant-thread-wrapper">{props.memoryThreadId}</div>;
   },
 }));
@@ -154,6 +169,18 @@ export function openThreadTabs(...threadIds: readonly string[]): void {
     for (const threadId of threadIds) {
       useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, threadId);
     }
+  });
+}
+
+/**
+ * Drive a panel's own run state the way its mounted runtime reports it
+ * (`thread.isRunning` through the wrapper's `onRunningChange` seam). The
+ * durable run rows in `dbMocks` are a separate signal.
+ */
+export function setPanelRunning(threadId: string, running: boolean): void {
+  const props = assistantWrapperProps.findLast((entry) => entry.memoryThreadId === threadId);
+  act(() => {
+    props?.onRunningChange?.(threadId, running);
   });
 }
 
@@ -216,6 +243,7 @@ beforeEach(() => {
   dbMocks.awaitingApprovalRows = [];
   markRenders.clear();
   wrapperCrashThreadIds.clear();
+  wrapperLifecycle.splice(0, wrapperLifecycle.length);
   assistantWrapperProps.splice(0, assistantWrapperProps.length);
   threadRows.splice(
     0,
