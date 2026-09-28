@@ -69,7 +69,7 @@ Guard: `packages/config/__tests__/vitest-browser.test.ts`.
   cross-package contract read (docs included) in the consuming package's task
   inputs, never global inputs.
 - Test omits `ready_for_review`: marking a draft ready reruns nothing.
-- A Radix menu fixture finishes close and trigger focus in its own `afterEach`;
+- A Radix menu or popover fixture finishes close and trigger focus in its own `afterEach`;
   never suppress the unhandled error, stub Event, sleep, or drop timers.
 
 Settled: delegated smoke specs stay in the PR gate, not nightly. Evidence:
