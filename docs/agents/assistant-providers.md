@@ -826,8 +826,7 @@ work.
 
 Desktop-main-only, provider-agnostic engine at `apps/desktop/src/provider-auth/`,
 bound by the signed `docs/OAUTH_LEGAL_REVIEW_GATE.md`, whose 8 constraints are
-acceptance criteria. Do not relitigate its settled rulings (Anthropic
-subscription OAuth is PERMANENTLY REJECTED).
+acceptance criteria; Anthropic subscription OAuth is PERMANENTLY REJECTED.
 
 - The descriptor contract pins the EXACT redirect URI: a busy port is a typed
   visible `port_in_use` error naming the port, NEVER a random-port fallback, and
@@ -848,14 +847,14 @@ subscription OAuth is PERMANENTLY REJECTED).
   retry-loops. Rotation-then-persist-failure holds the rotated pair in memory as
   the active credential; disconnect bumps a per-provider epoch so a late refresh
   persists nothing.
-- Engine-written credentials are `{ type: 'oauth', … }` in the shared secrets
-  store, so factory reset already wipes them.
+- Engine-written credentials use the shared secrets store and factory reset wipes them.
+- Loopback waits have one owner; duplicates fail visibly. Close joins listener, sockets and timer cleanup.
 
 Threat model and loopback hygiene live in `apps/desktop/SECURITY.md`; when
 changing the engine, update BOTH docs and the paired tests.
-Evidence: `assistant-providers/provider-oauth-engine.md`.
+Evidence: `assistant-providers/provider-oauth-engine.md`, `effect-boundary/provider-loopback-scope.md`.
 Guard: `apps/desktop/src/__tests__/provider-auth/provider-auth-ipc.test.ts`
-(no-token-over-IPC) and the fake-provider integration test.
+(no-token-over-IPC), the fake-provider integration test and `loopback-server.integration.test.ts`.
 
 ### Env bootstrap visibility
 

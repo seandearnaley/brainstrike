@@ -78,7 +78,7 @@ const CONTRACT_LINE_BUDGETS = {
   // the rule now names its null-only fallback and the audit that enforces it.
   // Then 2338 (+2): the visibility hard rule states why always-on Anthropic
   // rows send `thinking` at Auto.
-  'assistant-providers.md': 2338,
+  'assistant-providers.md': 2337,
   'assistant-runtime.md': 2780,
   'assistant-subagents.md': 1626,
   'changeset-diff.md': 495,

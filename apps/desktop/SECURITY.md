@@ -177,6 +177,16 @@ and runs ONLY in the Electron main process.
 
 ### Loopback callback hygiene
 
+- The callback wait has one owner: a duplicate wait fails visibly without
+  replacing its pending result or timeout. A callback before the first wait is
+  terminal, and a later wait retains the existing already-settled error.
+- Every `close()` caller joins the same owned listener shutdown, connection
+  cleanup and callback timer release. Acquisition rollback removes temporary
+  listeners; if acquisition and rollback both fail, both errors remain visible.
+- Automatic cleanup failure logging contains a fixed message only, never an
+  authorization code, state, token or raw exception. Explicit close callers
+  still receive the original cleanup error (or both cleanup failures together).
+
 - Sign-in always uses the user's own system browser via the validated
   `shell.openExternal` path (http/https/mailto allow-list). Embedded webviews
   are never used for provider auth.
