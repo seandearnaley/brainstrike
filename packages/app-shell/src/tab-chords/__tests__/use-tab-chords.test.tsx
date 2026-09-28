@@ -541,7 +541,7 @@ describe('useTabChords', () => {
 
   describe('modal surfaces own their keys', () => {
     const surfaces: readonly [string, Record<string, string>][] = [
-      ['a modal dialog', { 'aria-modal': 'true', role: 'dialog' }],
+      ['a dialog (Radix sets the role, never aria-modal)', { role: 'dialog' }],
       ['an alert dialog', { role: 'alertdialog' }],
       ['an open menu', { role: 'menu' }],
     ];

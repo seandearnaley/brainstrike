@@ -122,7 +122,8 @@ describe('CommandPaletteHost tab commands (BST-1842)', () => {
 
     expect(event.defaultPrevented).toBe(false);
     expect(workspace.close).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
+    // cmdk's stock Command.Dialog: Radix sets role="dialog" (never aria-modal).
+    expect(screen.getByRole('dialog')).not.toHaveAttribute('aria-modal');
   });
 
   it('Go to Tab… lists the workspace strip when focus was in no panel', async () => {

@@ -13,11 +13,13 @@ import { getTabChordStrip, resolveTabChordScope, type TabChordStrip } from './ta
 const logger = createLogger('TabChords');
 
 /**
- * Surfaces that own every key while focus is inside them: a modal dialog (the
- * ⌘K palette), an alert dialog, an open menu. A chord there would act on a tab
- * behind the surface, so the router leaves the key alone.
+ * Surfaces that own every key while focus is inside them: any dialog (the ⌘K
+ * palette, a popover dialog), an alert dialog, an open menu. Matched by ROLE,
+ * which Radix always sets (cmdk's Command.Dialog included); Radix never sets
+ * aria-modal, it hides the rest of the page instead. A chord there would act
+ * on a tab behind the surface, so the router leaves the key alone.
  */
-const MODAL_SURFACE = '[role="dialog"][aria-modal="true"], [role="alertdialog"], [role="menu"]';
+const MODAL_SURFACE = '[role="dialog"], [role="alertdialog"], [role="menu"]';
 
 /**
  * Focus is lost when nothing holds it, or when it sits inside a `hidden` panel:
