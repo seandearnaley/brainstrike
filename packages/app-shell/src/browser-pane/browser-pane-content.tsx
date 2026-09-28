@@ -1,11 +1,33 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import {
+  type ActionOutcome,
+  type AnyContextAction,
+  createTabStripActions,
+  defineContextAction,
+} from '@brainstrike/context-actions';
 import { createLogger } from '@brainstrike/logging';
-import { Button, Input } from '@brainstrike/ui';
-import { ArrowLeft, ArrowRight, Plus, RotateCw, X } from 'lucide-react';
-import { type FormEvent, type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Button,
+  Input,
+  TAB_STRIP_ICON_BUTTON_CLASS_NAME,
+  TabStrip,
+  type TabStripContextMenu,
+  type TabStripItem,
+} from '@brainstrike/ui';
+import { getErrorMessage } from '@brainstrike/utils/error-utils';
+import { ArrowLeft, ArrowRight, Globe, Plus, RotateCw } from 'lucide-react';
+import {
+  type FormEvent,
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
 import { useQuickOpenStore } from '../stores/quick-open-store';
-import { resolveBrowserBridge } from './browser-bridge';
+import { type BrowserBridge, type BrowserTab, resolveBrowserBridge } from './browser-bridge';
 import { selectActiveBrowserTab, useBrowserTabsStore } from './browser-tabs-store';
 
 /**
@@ -15,18 +37,115 @@ import { selectActiveBrowserTab, useBrowserTabsStore } from './browser-tabs-stor
  * exactly that box.
  *
  * OCCLUSION (novel — a native view paints above all DOM): the pane must hide
- * whenever it would be covered. Four sources, unified into a single
+ * whenever it would be covered. Five sources, unified into a single
  * `setOccluded`:
  * 1. this nav-rail route is not the active shell tab (its DOM is
  *    `display:none`, so the reserved region reports a zero rect);
  * 2. the Settings modal is open;
  * 3. the command palette is open;
  * 4. Quick Open (Cmd/Ctrl+P) is open — a SEPARATE store from the command
- *    palette, and `QuickOpenHost` portals a full-screen dialog on every route.
- * (Smaller transient overlays — toasts, popovers, page context menus — are a
- * documented follow-up; see the ui-conventions native-layer note.)
+ *    palette, and `QuickOpenHost` portals a full-screen dialog on every route;
+ * 5. a tab-strip menu (context or All-tabs) is open — reported by `TabStrip`'s
+ *    `onMenuOpenChange` (BST-1840), since those menus drop into the pane.
+ * (Other transient overlays — toasts, popovers, page context menus — are a
+ * documented follow-up.)
  */
 const logger = createLogger('BrowserPane');
+
+/** DOM id of the reserved region: every tab's `aria-controls` target. */
+const BROWSER_TAB_PANEL_DOM_ID = 'browser-tab-panel';
+
+function browserTabLabel(tab: Pick<BrowserTab, 'title' | 'url'>): string {
+  return tab.title || tab.url || 'New Tab';
+}
+
+function toTabStripItem(tab: BrowserTab): TabStripItem {
+  return {
+    closable: true,
+    closeTestId: `browser-tab-close-${tab.tabId}`,
+    // A constant icon keeps the label still: the loading status replaces it in place.
+    icon: Globe,
+    id: tab.tabId,
+    label: browserTabLabel(tab),
+    panelDomId: BROWSER_TAB_PANEL_DOM_ID,
+    status: tab.isLoading ? 'loading' : undefined,
+    tabDomId: `browser-tab-${tab.tabId}`,
+    testId: `browser-tab-${tab.tabId}`,
+    tooltip: tab.url || undefined,
+  };
+}
+
+/** Main's tab list as last pushed, read live at menu-open and at execution. */
+function liveTabs(): readonly BrowserTab[] {
+  return useBrowserTabsStore.getState().tabs;
+}
+
+function isTabOpen(tabId: string): boolean {
+  return liveTabs().some((tab) => tab.tabId === tabId);
+}
+
+const STALE_TAB_OUTCOME: ActionOutcome = { error: 'This browser tab is no longer open', ok: false };
+
+/**
+ * The strip's menu actions (spec §8.3). Tab management comes from the shared
+ * factory; Reload, Duplicate and the strip's New Tab resolve the bridge call
+ * into an `ActionOutcome`, so a rejection toasts as well as re-seeding.
+ */
+function createBrowserTabActions(
+  bridge: BrowserBridge,
+  runTabAction: (action: Promise<unknown>, label: string) => void,
+  settleTabAction: (action: Promise<unknown>, label: string) => Promise<ActionOutcome>
+): readonly AnyContextAction[] {
+  const closeTabs = (keep: (tabId: string) => boolean): void => {
+    for (const { tabId } of liveTabs()) {
+      if (!keep(tabId)) {
+        runTabAction(bridge.closeTab(tabId), 'closeTab');
+      }
+    }
+  };
+  return [
+    ...createTabStripActions({
+      close: (tabId) => runTabAction(bridge.closeTab(tabId), 'closeTab'),
+      closeAll: () => closeTabs(() => false),
+      closeOthers: (tabId) => closeTabs((candidate) => candidate === tabId),
+      getId: (target) => target.tabId,
+      getLabel: browserTabLabel,
+      getOrderedIds: () => liveTabs().map((tab) => tab.tabId),
+      idPrefix: 'browser-tab',
+      kind: 'browser-tab',
+      noun: 'browser tab',
+    }),
+    defineContextAction<'browser-tab'>({
+      appliesTo: ['browser-tab'],
+      group: 'navigate',
+      id: 'browser-tab.reload',
+      isEnabled: (target) => isTabOpen(target.tabId),
+      label: 'Reload',
+      run: (target) =>
+        isTabOpen(target.tabId)
+          ? settleTabAction(bridge.reload(target.tabId), 'reload')
+          : Promise.resolve(STALE_TAB_OUTCOME),
+    }),
+    defineContextAction<'browser-tab'>({
+      appliesTo: ['browser-tab'],
+      group: 'navigate',
+      id: 'browser-tab.duplicate',
+      isEnabled: (target) => isTabOpen(target.tabId),
+      label: 'Duplicate',
+      run: (target) =>
+        isTabOpen(target.tabId)
+          ? settleTabAction(bridge.createTab(target.url), 'duplicate')
+          : Promise.resolve(STALE_TAB_OUTCOME),
+    }),
+    defineContextAction<'tab-strip'>({
+      appliesTo: ['tab-strip'],
+      group: 'primary',
+      id: 'browser-tab-strip.new-tab',
+      label: 'New Tab',
+      run: () => settleTabAction(bridge.createTab(), 'createTab'),
+    }),
+  ];
+}
 
 export function BrowserPaneContent(): ReactElement {
   const bridge = resolveBrowserBridge();
@@ -39,7 +158,15 @@ export function BrowserPaneContent(): ReactElement {
   const paletteOpen = useCommandPaletteStore((state) => state.isOpen);
   const quickOpenOpen = useQuickOpenStore((state) => state.isOpen);
   const routeActive = activeShellTab === 'browser';
-  const occluded = !routeActive || paletteOpen || quickOpenOpen;
+  // A COUNT, not a flag: opening the All-tabs menu straight from an open tab
+  // menu reports the new open before the old close (Radix reports from commit
+  // effects, child before parent), so a flag would reveal the native view over
+  // the open All-tabs menu. Each menu's reports strictly alternate.
+  const [openStripMenuCount, setOpenStripMenuCount] = useState(0);
+  const handleStripMenuOpenChange = useCallback((open: boolean): void => {
+    setOpenStripMenuCount((count) => count + (open ? 1 : -1));
+  }, []);
+  const occluded = !routeActive || paletteOpen || quickOpenOpen || openStripMenuCount > 0;
 
   // The URL input follows the active tab's url unless the user is editing.
   // `draft === null` means "follow the active tab" (derived, no sync effect);
@@ -145,9 +272,15 @@ export function BrowserPaneContent(): ReactElement {
   // global unhandledrejection with no attribution; instead log it AND resync
   // the tab mirror from main's authoritative list — the mirror going stale is
   // exactly what produced the unknown-tab call, so re-seeding recovers it.
-  const runTabAction = useCallback(
-    (action: Promise<unknown>, label: string) => {
-      action.catch((error: unknown) => {
+  //
+  // `settleTabAction` is that same recovery resolved into an `ActionOutcome`,
+  // for menu runs that must report the failure as well as recover from it.
+  const settleTabAction = useCallback(
+    async (action: Promise<unknown>, label: string): Promise<ActionOutcome> => {
+      try {
+        await action;
+        return { ok: true };
+      } catch (error: unknown) {
         logger.error('Browser pane tab action failed; resyncing tabs', { error, label });
         bridge
           ?.listTabs()
@@ -155,10 +288,32 @@ export function BrowserPaneContent(): ReactElement {
           .catch((resyncError: unknown) =>
             logger.error('Browser pane tab resync failed', { error: resyncError })
           );
-      });
+        return { error: getErrorMessage(error), ok: false };
+      }
     },
     [bridge, setTabs]
   );
+  const runTabAction = useCallback(
+    (action: Promise<unknown>, label: string): void => {
+      void settleTabAction(action, label);
+    },
+    [settleTabAction]
+  );
+
+  const stripItems = useMemo(() => tabs.map(toTabStripItem), [tabs]);
+  const stripContextMenu = useMemo<TabStripContextMenu | undefined>(() => {
+    if (!bridge) {
+      return;
+    }
+    return {
+      getStripTarget: () => ({ kind: 'tab-strip', stripId: 'browser' }),
+      getTabTarget: (tabId) => {
+        const tab = liveTabs().find((candidate) => candidate.tabId === tabId);
+        return tab ? { kind: 'browser-tab', tabId, title: tab.title, url: tab.url } : null;
+      },
+      localActions: createBrowserTabActions(bridge, runTabAction, settleTabAction),
+    };
+  }, [bridge, runTabAction, settleTabAction]);
 
   const handleNavigate = useCallback(
     (event: FormEvent) => {
@@ -185,46 +340,30 @@ export function BrowserPaneContent(): ReactElement {
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="browser-pane">
-      <div className="flex h-8 shrink-0 items-center gap-1 border-border border-b px-1">
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="tablist">
-          {tabs.map((tab) => (
-            <div
-              className={`flex h-6 max-w-40 shrink-0 items-center gap-1 rounded px-2 text-xs ${
-                tab.active ? 'bg-muted' : 'hover:bg-muted/50'
-              }`}
-              key={tab.tabId}
-            >
-              <button
-                aria-selected={tab.active}
-                className="min-w-0 truncate"
-                data-testid={`browser-tab-${tab.tabId}`}
-                onClick={() => runTabAction(bridge.selectTab(tab.tabId), 'selectTab')}
-                role="tab"
-                type="button"
-              >
-                {tab.title || tab.url || 'New Tab'}
-              </button>
-              <button
-                aria-label="Close tab"
-                className="shrink-0 opacity-60 hover:opacity-100"
-                onClick={() => runTabAction(bridge.closeTab(tab.tabId), 'closeTab')}
-                type="button"
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-        <Button
-          aria-label="New tab"
-          data-testid="browser-new-tab"
-          onClick={() => runTabAction(bridge.createTab(), 'createTab')}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <Plus className="size-3.5" />
-        </Button>
-      </div>
+      <TabStrip
+        activeId={activeTab?.tabId ?? null}
+        aria-label="Browser tabs"
+        chrome="standalone"
+        contextMenu={stripContextMenu}
+        items={stripItems}
+        onActivate={(tabId) => runTabAction(bridge.selectTab(tabId), 'selectTab')}
+        onClose={(tabId) => runTabAction(bridge.closeTab(tabId), 'closeTab')}
+        onMenuOpenChange={handleStripMenuOpenChange}
+        trailing={
+          <Button
+            aria-label="New tab"
+            className={TAB_STRIP_ICON_BUTTON_CLASS_NAME}
+            data-testid="browser-new-tab"
+            onClick={() => runTabAction(bridge.createTab(), 'createTab')}
+            size="icon-xs"
+            title="New tab"
+            type="button"
+            variant="ghost"
+          >
+            <Plus className="size-3.5" />
+          </Button>
+        }
+      />
       <div className="flex h-9 shrink-0 items-center gap-1 border-border border-b px-2">
         <Button
           aria-label="Back"
@@ -266,7 +405,14 @@ export function BrowserPaneContent(): ReactElement {
         </form>
       </div>
       {/* Native WebContentsView overlays exactly this reserved region. */}
-      <div className="min-h-0 flex-1" data-testid="browser-pane-viewport" ref={paneRef} />
+      <div
+        aria-labelledby={activeTab ? `browser-tab-${activeTab.tabId}` : undefined}
+        className="min-h-0 flex-1"
+        data-testid="browser-pane-viewport"
+        id={BROWSER_TAB_PANEL_DOM_ID}
+        ref={paneRef}
+        role="tabpanel"
+      />
     </div>
   );
 }
