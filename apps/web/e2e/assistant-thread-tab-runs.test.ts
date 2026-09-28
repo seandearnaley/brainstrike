@@ -115,12 +115,9 @@ test.describe('Assistant thread tabs with runs in flight @stateful @web-assistan
 
     // Releasing the host after the abort lands nothing anywhere.
     await releaseGatedRuns(page);
-    await threadsPanel
-      .getByTestId('thread-row')
-      .filter({ hasNot: page.locator('button[aria-current="true"]') })
-      .locator('button')
-      .first()
-      .click();
+    // Alpha's row is the one still badged running: its select button's name
+    // includes the spinner's "<title> is active" label.
+    await threadsPanel.getByRole('button', { name: / is active/ }).click();
     await expect(alphaTab).toHaveAttribute('aria-selected', 'true');
     const alphaViewport = page
       .getByTestId(`assistant-thread-panel-${alphaId}`)
