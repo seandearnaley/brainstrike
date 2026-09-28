@@ -3,12 +3,11 @@ import { createHash } from 'node:crypto';
 import { createReadStream, constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
-import { Result, Schema, SchemaIssue } from 'effect';
+import { Effect, Exit, Result, Schema, SchemaIssue } from 'effect';
 
 const logger = createLogger('PythonRuntime');
-const execFileAsync = promisify(execFile);
 
 /**
  * BST-1061: resolve the bundled python-build-standalone CPython for agent
@@ -30,8 +29,8 @@ export type PythonRuntimeErrorCode =
 export class PythonRuntimeError extends Error {
   readonly code: PythonRuntimeErrorCode;
 
-  constructor(code: PythonRuntimeErrorCode, message: string) {
-    super(message);
+  constructor(code: PythonRuntimeErrorCode, message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = new.target.name;
     this.code = code;
   }
@@ -72,8 +71,8 @@ export class PythonChecksumMismatchError extends PythonRuntimeError {
 export class PythonUnpackFailedError extends PythonRuntimeError {
   declare readonly code: 'python_unpack_failed';
 
-  constructor(message: string) {
-    super('python_unpack_failed', message);
+  constructor(message: string, options?: ErrorOptions) {
+    super('python_unpack_failed', message, options);
   }
 }
 
@@ -90,11 +89,9 @@ export interface ResolvePythonBinaryOptions {
   readonly resourcesDir: string;
   /**
    * Optional cancellation (e.g. a run_skill_script user Stop, or a caller's
-   * own timeout budget). Checked before hashing and threaded into the
-   * `/usr/bin/tar` child process, so a cold first-run unpack -- the only slow
-   * part of this function -- can actually be interrupted (PR #2205 review:
-   * previously a fired signal reached `runDetachedProcess` but never this
-   * resolver, so Stop could not touch an in-flight extraction).
+   * own timeout budget). Hashing destroys and joins its stream; `/usr/bin/tar`
+   * receives the signal and joins child close. Filesystem operations finish
+   * before cleanup; a committed install still wins over a late abort.
    */
   readonly signal?: AbortSignal | undefined;
   /** Absolute per-user app-data dir; the runtime unpacks under `<dir>/python-runtime/`. */
@@ -217,15 +214,118 @@ export function renderPythonRuntimeAssetFileName(
   return fileName;
 }
 
-async function hashFileSha256(filePath: string): Promise<string> {
-  const hash = createHash('sha256');
-  await new Promise<void>((resolve, reject) => {
-    const stream = createReadStream(filePath);
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('error', reject);
-    stream.on('end', resolve);
-  });
-  return hash.digest('hex');
+async function hashFileSha256(filePath: string, signal: AbortSignal | undefined): Promise<string> {
+  return await runAtPromiseBoundary(
+    Effect.gen(function* () {
+      const hash = createHash('sha256');
+      const owned = yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const stream = createReadStream(filePath);
+          const closed = new Promise<void>((resolve) => stream.once('close', resolve));
+          // An Exit-valued Promise retains early failures without an unhandled
+          // rejection before the acquiring fiber can begin awaiting the result.
+          let releaseListeners!: () => void;
+          const result = new Promise<Exit.Exit<void, unknown>>((resolve) => {
+            const onData = (chunk: Buffer | string): void => {
+              hash.update(chunk);
+            };
+            const onError = (error: Error): void => {
+              resolve(Exit.fail(error));
+            };
+            const onEnd = (): void => {
+              resolve(Exit.void);
+            };
+            const onAbort = (): void => {
+              stream.destroy();
+              resolve(Exit.fail(signal?.reason));
+            };
+            releaseListeners = () => {
+              stream.removeListener('data', onData);
+              stream.removeListener('error', onError);
+              stream.removeListener('end', onEnd);
+              signal?.removeEventListener('abort', onAbort);
+            };
+            stream.on('error', onError);
+            stream.on('end', onEnd);
+            // Install failure ownership before subscribing to flowing data.
+            stream.on('data', onData);
+            signal?.addEventListener('abort', onAbort, { once: true });
+            if (signal?.aborted) {
+              onAbort();
+            }
+          });
+          return { closed, releaseListeners, result, stream };
+        }),
+        ({ stream, closed, releaseListeners }) =>
+          Effect.promise(async () => {
+            stream.destroy();
+            await closed;
+            // Keep handlers through close, then join their cleanup in this scope.
+            releaseListeners();
+          })
+      );
+      yield* Effect.flatten(Effect.promise(() => owned.result));
+      return hash.digest('hex');
+    }).pipe(Effect.scoped)
+  );
+}
+
+async function extractArchive(
+  archivePath: string,
+  stagingDir: string,
+  signal: AbortSignal | undefined
+): Promise<void> {
+  const classifyFailure = (error: unknown): unknown => {
+    if (signal?.aborted) {
+      return error;
+    }
+    return new PythonUnpackFailedError(
+      `Unpacking the bundled Python runtime failed (${TAR_BINARY} -xzf ${archivePath}): ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  };
+  await runAtPromiseBoundary(
+    Effect.gen(function* () {
+      const owned = yield* Effect.acquireRelease(
+        Effect.try({
+          catch: classifyFailure,
+          try: () => {
+            let complete!: (error: Error | null) => void;
+            const result = new Promise<void>((resolve, reject) => {
+              complete = (error) => {
+                if (error) {
+                  reject(classifyFailure(error));
+                } else {
+                  resolve();
+                }
+              };
+            });
+            // The callback can fail on abort before process exit and stdio close.
+            // Attach a handler before invoking execFile, then await the same result.
+            result.catch(() => undefined);
+            const child = execFile(
+              TAR_BINARY,
+              ['-xzf', archivePath, '-C', stagingDir],
+              { signal },
+              complete
+            );
+            const onError = (error: Error): void => complete(error);
+            child.on('error', onError);
+            const closed = new Promise<void>((resolve) =>
+              child.once('close', () => {
+                child.removeListener('error', onError);
+                resolve();
+              })
+            );
+            return { closed, result };
+          },
+        }),
+        ({ closed }) => Effect.promise(() => closed)
+      );
+      yield* Effect.tryPromise({ catch: (error) => error, try: () => owned.result });
+    }).pipe(Effect.scoped)
+  );
 }
 
 async function isUsableInstall(sentinelPath: string, binaryPath: string, expectedSha256: string) {
@@ -260,64 +360,80 @@ async function unpackArchive({
   signal: AbortSignal | undefined;
 }): Promise<void> {
   const stagingDir = `${installDir}.staging-${process.pid}-${Date.now()}`;
-  await fsPromises.rm(stagingDir, { force: true, recursive: true });
-  await fsPromises.mkdir(stagingDir, { recursive: true });
-  try {
-    try {
-      // `signal` lets Node kill the tar child (and reject this call with an
-      // AbortError) the moment it fires -- this is the ONLY step here slow
-      // enough for cancellation to matter (a full CPython tree extraction).
-      await execFileAsync(TAR_BINARY, ['-xzf', archivePath, '-C', stagingDir], { signal });
-    } catch (error) {
-      if (signal?.aborted) {
-        throw error;
-      }
-      throw new PythonUnpackFailedError(
-        `Unpacking the bundled Python runtime failed (${TAR_BINARY} -xzf ${archivePath}): ${
-          error instanceof Error ? error.message : String(error)
-        }`
+  await runAtPromiseBoundary(
+    Effect.gen(function* () {
+      yield* Effect.acquireRelease(Effect.succeed(stagingDir), (ownedDir, exit) =>
+        Effect.promise(async () => {
+          try {
+            await fsPromises.rm(ownedDir, { force: true, recursive: true });
+          } catch (error) {
+            if (Exit.isFailure(exit)) {
+              logger.error('Bundled Python staging cleanup failed after an unsuccessful install', {
+                error,
+                stagingDir: ownedDir,
+              });
+              return;
+            }
+            throw new PythonUnpackFailedError(
+              `Cleaning up the bundled Python staging directory at ${ownedDir} failed.`,
+              { cause: error }
+            );
+          }
+        })
       );
-    }
-    const stagedBinary = path.join(stagingDir, binaryRelativePath);
-    try {
-      await fsPromises.access(stagedBinary, fsConstants.X_OK);
-    } catch {
-      throw new PythonUnpackFailedError(
-        `The bundled Python archive at ${archivePath} did not contain an executable at ${binaryRelativePath}.`
-      );
-    }
-    await fsPromises.writeFile(path.join(stagingDir, SENTINEL_FILE_NAME), `${expectedSha256}\n`, {
-      mode: 0o644,
-    });
-    // A stale install dir only exists here when its sentinel check failed
-    // (partial unpack, older archive hash) — replace it wholesale.
-    await fsPromises.rm(installDir, { force: true, recursive: true });
-    try {
-      await fsPromises.rename(stagingDir, installDir);
-    } catch (error) {
-      // A concurrent process (second app instance) may have won the rename.
-      // Accept its install only if it verifies; otherwise surface the failure.
-      if (
-        await isUsableInstall(
-          path.join(installDir, SENTINEL_FILE_NAME),
-          path.join(installDir, binaryRelativePath),
-          expectedSha256
-        )
-      ) {
-        return;
-      }
-      throw new PythonUnpackFailedError(
-        `Installing the bundled Python runtime into ${installDir} failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
-  } finally {
-    await fsPromises.rm(stagingDir, { force: true, recursive: true }).catch(() => {
-      // Best-effort cleanup; a leftover staging dir is inert and lives under
-      // userData, so factory reset still removes it.
-    });
-  }
+      yield* Effect.tryPromise({
+        catch: (error) => error,
+        try: async () => {
+          // Register removal before mkdir, which may create partial directories
+          // and then reject. Native fs awaits settle before the scope can close.
+          await fsPromises.rm(stagingDir, { force: true, recursive: true });
+          await fsPromises.mkdir(stagingDir, { recursive: true });
+          signal?.throwIfAborted();
+          await extractArchive(archivePath, stagingDir, signal);
+          signal?.throwIfAborted();
+          const stagedBinary = path.join(stagingDir, binaryRelativePath);
+          try {
+            await fsPromises.access(stagedBinary, fsConstants.X_OK);
+          } catch {
+            throw new PythonUnpackFailedError(
+              `The bundled Python archive at ${archivePath} did not contain an executable at ${binaryRelativePath}.`
+            );
+          }
+          await fsPromises.writeFile(
+            path.join(stagingDir, SENTINEL_FILE_NAME),
+            `${expectedSha256}\n`,
+            {
+              mode: 0o644,
+            }
+          );
+          signal?.throwIfAborted();
+          // A stale install dir only exists here when its sentinel check failed
+          // (partial unpack, older archive hash) — replace it wholesale.
+          await fsPromises.rm(installDir, { force: true, recursive: true });
+          signal?.throwIfAborted();
+          try {
+            await fsPromises.rename(stagingDir, installDir);
+          } catch (error) {
+            // A concurrent process (second app instance) may have won the rename.
+            // Accept its install only if it verifies; otherwise surface the failure.
+            const winnerIsUsable = await isUsableInstall(
+              path.join(installDir, SENTINEL_FILE_NAME),
+              path.join(installDir, binaryRelativePath),
+              expectedSha256
+            );
+            if (winnerIsUsable) {
+              return;
+            }
+            throw new PythonUnpackFailedError(
+              `Installing the bundled Python runtime into ${installDir} failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+          }
+        },
+      });
+    }).pipe(Effect.scoped)
+  );
 }
 
 async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions): Promise<string> {
@@ -371,7 +487,7 @@ async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions):
   }
 
   options.signal?.throwIfAborted();
-  const actualSha256 = await hashFileSha256(archivePath);
+  const actualSha256 = await hashFileSha256(archivePath, options.signal);
   if (actualSha256 !== targetEntry.sha256) {
     throw new PythonChecksumMismatchError(
       `The bundled Python runtime archive at ${archivePath} failed checksum verification ` +

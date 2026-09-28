@@ -710,3 +710,47 @@ test('provider OAuth loopback scope owns the listener and one callback wait', ()
   assert.match(source, /runAtPromiseBoundary\(/u);
   assert.doesNotMatch(source, /interface PendingWait|let pending: PendingWait/u);
 });
+
+test('Python cold installation scopes actual stream, child and staging resources', () => {
+  const source = readRepoFile('apps/desktop/src/python-runtime/resolve-python-binary.ts');
+  const hash = source.slice(
+    source.indexOf('async function hashFileSha256'),
+    source.indexOf('async function extractArchive')
+  );
+  const extraction = source.slice(
+    source.indexOf('async function extractArchive'),
+    source.indexOf('async function isUsableInstall')
+  );
+  const staging = source.slice(
+    source.indexOf('async function unpackArchive'),
+    source.indexOf('async function resolvePythonBinaryUncached')
+  );
+  for (const boundary of [hash, extraction, staging]) {
+    assert.match(boundary, /Effect\.acquireRelease\(/u);
+    assert.match(boundary, /Effect\.scoped/u);
+    assert.match(boundary, /runAtPromiseBoundary\(/u);
+  }
+  assert.match(hash, /stream\.once\('close'/u);
+  assert.match(hash, /stream\.destroy\(\)/u);
+  assert.match(hash, /new Promise<Exit\.Exit<void, unknown>>/u);
+  assert.match(hash, /Effect\.flatten\(Effect\.promise\(\(\) => owned\.result\)\)/u);
+  assert.match(hash, /await closed/u);
+  assert.match(hash, /signal\?\.removeEventListener\('abort', onAbort\)/u);
+  assert.match(extraction, /child\.once\('close'/u);
+  assert.match(extraction, /catch: classifyFailure/u);
+  assert.match(extraction, /reject\(classifyFailure\(error\)\)/u);
+  assert.match(extraction, /Effect\.promise\(\(\) => closed\)/u);
+  assert.match(extraction, /child\.removeListener\('error', onError\)/u);
+  assert.match(staging, /Exit\.isFailure\(exit\)/u);
+  assert.match(staging, /cause: error/u);
+  assert.ok(staging.indexOf('Effect.acquireRelease(') < staging.indexOf('await fsPromises.mkdir('));
+  assert.doesNotMatch(source, /promisify|execFileAsync/u);
+  assert.match(
+    readRepoFile('docs/agents/effect-boundary.md'),
+    /Python cold-install scopes join hash-stream and tar-child close/u
+  );
+  assert.match(
+    readRepoFile('docs/agents/code-execution.md'),
+    /retain the primary error and report secondary cleanup failures/u
+  );
+});
