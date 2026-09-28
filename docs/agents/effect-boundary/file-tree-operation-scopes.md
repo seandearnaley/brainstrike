@@ -72,3 +72,7 @@ Command from the repository root:
 ```sh
 pnpm --filter @brainstrike/desktop test:e2e e2e/file-explorer-selection.desktop.test.ts e2e/file-explorer-selection-restore.desktop.test.ts --project=regression --grep 'expand all progressively reveals directories|restored explicit folders can be deselected'
 ```
+
+## Final publication base
+
+Folded once onto parser merge `ee73b9bba4fb3d8d73342700564b581d88a40233`, preserving both parser and file-tree contracts and guards at the 105-line contract budget. The fold changes no file-tree source or tests. Frozen installation, all 151 package tests, production TypeScript, strict Effect diagnostics across 18 files, the isolated changed-port-test TypeScript check, and the combined 30-test guard suite pass. The additional guard is the merged parser ownership guard. A fresh desktop build validates the parser base and passes its renderer cycle check; renderer measurements remain identical to the final rc.118 candidate above. Web and worker source/dependencies are unchanged, so their recorded build, size and real-worker E2E proofs remain applicable. The lockfile delta against the merged base is still only nine file-tree importer lines.
