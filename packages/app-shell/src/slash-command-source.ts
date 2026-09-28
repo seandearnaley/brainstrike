@@ -23,8 +23,9 @@ export function selectSlashCommandSource(
 ): readonly RunCommand[] {
   return registry
     .available(context)
-    .filter((command): command is RunCommand => command.page === undefined)
-    .filter((command) => command.group !== 'danger');
+    .filter(
+      (command): command is RunCommand => command.page === undefined && command.group !== 'danger'
+    );
 }
 
 /**

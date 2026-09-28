@@ -344,17 +344,21 @@ export function WorkspaceTabsProvider({
   /** Run an app close, then record exactly the app tabs it removed. */
   const closeAppsRecorded = useCallback(
     (close: () => void): void => {
-      const openIds = (): readonly string[] => {
+      const openAppTabs = (): readonly OpenTab<WorkspaceClosedTab>[] => {
         const open = new Set(useWorkspaceTabSelectionStore.getState().openAppIds);
-        return apps.flatMap((app) => (open.has(app.id) ? [app.id] : []));
+        return apps.flatMap((app): OpenTab<WorkspaceClosedTab>[] =>
+          open.has(app.id)
+            ? [{ id: app.id, tab: { appId: app.id, kind: 'app', label: app.label } }]
+            : []
+        );
       };
-      const before = apps.flatMap((app): OpenTab<WorkspaceClosedTab>[] =>
-        openIds().includes(app.id)
-          ? [{ id: app.id, tab: { appId: app.id, kind: 'app', label: app.label } }]
-          : []
-      );
+      const before = openAppTabs();
       close();
-      recordRemovedTabs(closedTabs, before, openIds());
+      recordRemovedTabs(
+        closedTabs,
+        before,
+        openAppTabs().map((app) => app.id)
+      );
     },
     [apps, closedTabs]
   );
@@ -647,18 +651,15 @@ export function WorkspaceTabsProvider({
     return Promise.resolve({ ok: true });
   }, [apps, closedTabs, handleOpenApp, handleOpenFileInTab, reorderTabs, rootDescriptors]);
 
-  const tabOrder = useMemo<readonly WorkspaceTabRef[]>(
-    () => [
-      ...openApps
-        .filter((app) => app.placement === 'pinned')
-        .map((app) => ({ id: app.id, label: app.label })),
-      ...openApps
-        .filter((app) => app.placement === 'dynamic')
-        .map((app) => ({ id: app.id, label: app.label })),
-      ...tabs.map((tab) => ({ id: tab.id, label: getFileName(tab.path) })),
-    ],
-    [openApps, tabs]
-  );
+  const tabOrder = useMemo<readonly WorkspaceTabRef[]>(() => {
+    const pinned: WorkspaceTabRef[] = [];
+    const dynamic: WorkspaceTabRef[] = [];
+    for (const app of openApps) {
+      (app.placement === 'pinned' ? pinned : dynamic).push({ id: app.id, label: app.label });
+    }
+    const files = tabs.map((tab) => ({ id: tab.id, label: getFileName(tab.path) }));
+    return [...pinned, ...dynamic, ...files];
+  }, [openApps, tabs]);
 
   const value = useMemo<WorkspaceTabsValue>(
     () => ({
