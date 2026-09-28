@@ -1,5 +1,8 @@
 import type { TabCommandStrip } from '@brainstrike/context-actions/commands';
+import { createLogger } from '@brainstrike/logging';
 import { useEffect } from 'react';
+
+const logger = createLogger('TabChordRegistry');
 
 /** The document strips the keyboard chords and ⌘K tab commands can drive (BST-1842). */
 export type TabChordStripId = 'assistant-threads' | 'browser' | 'workspace';
@@ -21,12 +24,15 @@ export interface TabChordStrip extends TabCommandStrip {
 const strips = new Map<TabChordStripId, TabChordStrip>();
 
 /**
- * Register a mounted strip. Two live registrations of one id are a wiring bug,
- * so the second throws. The returned release removes only this registration.
+ * Register a mounted strip. Two live registrations of one id are a wiring bug:
+ * the second is logged at error level (visible in diagnostics) and ignored, so
+ * the first keeps routing and the UI never goes down over it. The returned
+ * release removes only this registration.
  */
 export function registerTabChordStrip(id: TabChordStripId, strip: TabChordStrip): () => void {
   if (strips.has(id)) {
-    throw new Error(`Tab chord strip "${id}" is already registered`);
+    logger.error(`Tab chord strip "${id}" is already registered; keeping the first`, { id });
+    return () => undefined;
   }
   strips.set(id, strip);
   return () => {

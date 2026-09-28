@@ -10,6 +10,7 @@ vi.mock('@brainstrike/ui', () => ({
 }));
 
 import {
+  getTabChordStrip,
   registerTabChordStrip,
   type TabChordStrip,
   type TabChordStripId,
@@ -419,26 +420,47 @@ describe('useTabChords', () => {
 });
 
 describe('registerTabChordStrip', () => {
-  it('rejects a second live registration of the same strip', () => {
-    const release = registerTabChordStrip('workspace', fakeStrip([], null, null));
+  function errorRecords(run: () => void): LogRecord[] {
+    const records: LogRecord[] = [];
+    const release = addLogListener((record) => records.push(record));
     try {
-      expect(() => registerTabChordStrip('workspace', fakeStrip([], null, null))).toThrow(
-        /already registered/
-      );
+      run();
     } finally {
       release();
     }
+    return records.filter((record) => record.level === 'error');
+  }
+
+  it('logs a second live registration and keeps the first, which still routes', () => {
+    const first = fakeStrip([], 'first', null);
+    const second = fakeStrip([], 'second', null);
+    const releaseFirst = registerTabChordStrip('workspace', first);
+    let releaseSecond: () => void = () => undefined;
+    try {
+      const errors = errorRecords(() => {
+        releaseSecond = registerTabChordStrip('workspace', second);
+      });
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0]?.message).toMatch(/already registered/);
+      expect(getTabChordStrip('workspace')).toBe(first);
+      // The duplicate's release is a no-op: the first registration survives it.
+      releaseSecond();
+      expect(getTabChordStrip('workspace')).toBe(first);
+    } finally {
+      releaseFirst();
+    }
+    expect(getTabChordStrip('workspace')).toBeUndefined();
   });
 
   it('a stale release never removes a newer registration', () => {
     const first = fakeStrip([], null, null);
     const releaseFirst = registerTabChordStrip('browser', first);
     releaseFirst();
-    const releaseSecond = registerTabChordStrip('browser', fakeStrip([], null, null));
+    const second = fakeStrip([], null, null);
+    const releaseSecond = registerTabChordStrip('browser', second);
     releaseFirst();
-    expect(() => registerTabChordStrip('browser', fakeStrip([], null, null))).toThrow(
-      /already registered/
-    );
+    expect(getTabChordStrip('browser')).toBe(second);
     releaseSecond();
   });
 });
