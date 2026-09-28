@@ -1253,6 +1253,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
+      '@brainstrike/hooks':
+        specifier: workspace:*
+        version: link:../hooks
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract

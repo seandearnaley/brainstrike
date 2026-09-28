@@ -19,6 +19,7 @@ import {
   THREAD_CONTROL_ROW_PITCH_PX,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from '../assistant-thread-presentation';
+import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
 import { lookupThreadBranch } from '../thread-branch-resolution';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
@@ -2310,28 +2311,61 @@ describe('ThreadsPanel folders', () => {
     expect(screen.queryAllByTestId('thread-failed-glyph')).toHaveLength(0);
   });
 
-  it('marks a completed thread unseen until it is opened', async () => {
+  // BST-1845: "seen" is a fact about the SCREEN, and only the surface that
+  // renders transcripts can report it (`onScreenThreadId`). A Threads panel
+  // mounted without that surface has nothing on screen — so even the row it has
+  // selected carries its dot.
+  it('marks every finished thread unseen, the selected one included, while nothing is on screen', async () => {
     renderThreadsPanel();
 
-    // The panel opens on the newest thread, and a thread you are looking at is
-    // never unseen — so exactly the other one carries the glyph.
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-unseen-glyph')).toHaveLength(2);
+    });
+    expect(within(rowFor('Second thread')).getByTestId('thread-unseen-glyph')).toBeInTheDocument();
+    expect(within(rowFor('First thread')).getByTestId('thread-unseen-glyph')).toHaveAccessibleName(
+      'First thread has unseen activity'
+    );
+  });
+
+  it('exempts only the thread the transcript surface reports on screen', async () => {
+    act(() => {
+      useOnScreenThreadStore.getState().setOnScreenThreadId('thread-b');
+    });
+    renderThreadsPanel();
+
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-unseen-glyph')).toHaveLength(1);
     });
     expect(within(rowFor('Second thread')).queryByTestId('thread-unseen-glyph')).toBeNull();
-    const firstRow = rowFor('First thread');
-    expect(within(firstRow).getByTestId('thread-unseen-glyph')).toHaveAccessibleName(
-      'First thread has unseen activity'
-    );
+    expect(within(rowFor('First thread')).getByTestId('thread-unseen-glyph')).toBeInTheDocument();
 
-    fireEvent.click(within(firstRow).getByText('First thread'));
+    act(() => {
+      useOnScreenThreadStore.getState().setOnScreenThreadId('thread-a');
+    });
 
     await waitFor(() => {
       expect(within(rowFor('First thread')).queryByTestId('thread-unseen-glyph')).toBeNull();
     });
-    expect(
-      useAssistantThreadStore.getState().lastViewedAtByThreadId['thread-a']
-    ).toBeGreaterThanOrEqual(new Date('2026-04-22T09:00:10Z').getTime());
+    expect(within(rowFor('Second thread')).getByTestId('thread-unseen-glyph')).toBeInTheDocument();
+  });
+
+  // The Threads panel renders no transcript, so selecting a row there shows the
+  // user nothing to have "seen". The transcript surface is the only stamper.
+  it('never stamps the viewed watermark itself when a row is selected', async () => {
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-unseen-glyph')).toHaveLength(2);
+    });
+
+    fireEvent.click(within(rowFor('First thread')).getByText('First thread'));
+
+    await waitFor(() => {
+      expect(useAssistantThreadStore.getState().activeThreadIdByResourceId).toMatchObject({
+        [WORKSPACE_MEMORY_RESOURCE_ID]: 'thread-a',
+      });
+    });
+    expect(useAssistantThreadStore.getState().lastViewedAtByThreadId).toEqual({});
+    expect(within(rowFor('First thread')).getByTestId('thread-unseen-glyph')).toBeInTheDocument();
   });
 
   it('chips the folder branch on the bound row only, and only in folder grouping', async () => {

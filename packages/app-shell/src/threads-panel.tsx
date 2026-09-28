@@ -76,11 +76,12 @@ import { publishDelegatedColorRefresh } from './delegated-color-refresh';
 import { DelegatedSidebarCell } from './delegated-sidebar-cell';
 import { useCreateThreadInFolder } from './hooks/use-create-thread-in-folder';
 import { type ForgePrCacheLookup, useForgePrCache } from './hooks/use-forge-pr-cache';
+import { useOnScreenThreadId } from './hooks/use-on-screen-thread';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
 import { useThreadFolderRows } from './hooks/use-thread-folder-rows';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
-import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
+import { useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { canRefreshAgentColors, refreshAgentColors } from './refresh-agent-colors';
 import { lookupThreadBranch, type ThreadBranchLookup } from './thread-branch-resolution';
 import { ThreadFolderHeader } from './thread-folder-header';
@@ -1781,13 +1782,16 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   });
   const lastViewedAtByThreadId = useAssistantThreadStore((state) => state.lastViewedAtByThreadId);
   const unseenBaselineAt = useAssistantThreadStore((state) => state.unseenBaselineAt);
+  // A list, not a transcript: this panel only READS which thread is on screen
+  // (published by the thread strip's workspace) and never advances the viewed
+  // watermark — selecting a row here shows the user nothing to have seen.
+  const onScreenThreadId = useOnScreenThreadId();
   const unseenThreadIds = useUnseenThreadIds({
-    activeThreadId: selectedThreadId ?? null,
     lastViewedAtByThreadId,
+    onScreenThreadId,
     threads,
     unseenBaselineAt,
   });
-  useMarkActiveThreadViewed({ activeThreadId: selectedThreadId ?? null, threads });
 
   // The folder rows behind folder grouping, and the branch chips beside them.
   // Both are requested only in folder grouping: entering it is the gesture,
