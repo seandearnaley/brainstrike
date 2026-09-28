@@ -144,6 +144,24 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
     expect(wrapperLifecycle).not.toContain('unmount:thread-b');
   });
 
+  it('forgets a retained thread once it is reopened, so a later removal that skips closeRecorded leaves no panel', async () => {
+    const user = await renderWithRunningThreadB();
+    await user.click(screen.getByTitle('Close Amazon Bedrock Converse'));
+    setPanelRunning('thread-b', false);
+    openThreadTabs('thread-b');
+    await screen.findByRole('tab', { name: /Amazon Bedrock Converse/ });
+
+    // A direct store close (not the strip's recorded close): nothing reports the
+    // removal to the retained set, so reopening must already have released it.
+    act(() => {
+      useAssistantThreadStore.getState().closeThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+
+    expect(screen.queryByRole('tab', { name: /Amazon Bedrock Converse/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-thread-panel-thread-b')).not.toBeInTheDocument();
+    expect(wrapperLifecycle).toContain('unmount:thread-b');
+  });
+
   it('keeps every running thread and drops every idle one when Close All empties the strip', async () => {
     const user = await renderWithRunningThreadB();
 

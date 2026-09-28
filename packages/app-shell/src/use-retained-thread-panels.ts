@@ -16,6 +16,13 @@ export interface RetainedThreadPanels {
   readonly onTabsRemoved: (removedThreadIds: readonly string[]) => void;
 }
 
+interface RetainedState {
+  /** The tab list and resource the retained set was last reconciled against. */
+  readonly openThreadIds: readonly string[];
+  readonly resourceId: string;
+  readonly retainedThreadIds: ReadonlySet<string>;
+}
+
 /**
  * Close = hide for a thread whose run is in flight (BST-1844). A thread panel
  * owns its run (the web local runtime aborts it on unmount) and, on web, its
@@ -30,11 +37,40 @@ export interface RetainedThreadPanels {
  * is no factory-reset wiring.
  */
 export function useRetainedThreadPanels(
+  resourceId: string,
   openThreadIds: readonly string[],
   threadById: ReadonlyMap<string, unknown>
 ): RetainedThreadPanels {
-  const [retainedThreadIds, setRetainedThreadIds] = useState<ReadonlySet<string>>(NO_THREAD_IDS);
+  const [state, setState] = useState<RetainedState>({
+    openThreadIds,
+    resourceId,
+    retainedThreadIds: NO_THREAD_IDS,
+  });
   const runningThreadIdsRef = useRef(new Set<string>());
+
+  // Reconciled while rendering, not in an effect: an effect would lag one commit
+  // behind, and a tab removed by anything but `onTabsRemoved` (a direct store
+  // close, a delete) in that gap would find a reopened thread still retained and
+  // leave its tabless panel mounted, hidden, for good. A reopened thread is open
+  // again, so it leaves the set; another resource's retained panels are not ours.
+  let current = state;
+  if (state.resourceId !== resourceId) {
+    current = { openThreadIds, resourceId, retainedThreadIds: NO_THREAD_IDS };
+    setState(current);
+  } else if (state.openThreadIds !== openThreadIds) {
+    const open = new Set(openThreadIds);
+    const stillRetained = [...state.retainedThreadIds].filter((id) => !open.has(id));
+    current = {
+      openThreadIds,
+      resourceId,
+      retainedThreadIds:
+        stillRetained.length === state.retainedThreadIds.size
+          ? state.retainedThreadIds
+          : new Set(stillRetained),
+    };
+    setState(current);
+  }
+  const { retainedThreadIds } = current;
 
   const onRunningChange = useCallback((threadId: string, running: boolean): void => {
     if (running) {
@@ -49,20 +85,23 @@ export function useRetainedThreadPanels(
   // first and abort the run it exists to keep.
   const onTabsRemoved = useCallback((removedThreadIds: readonly string[]): void => {
     const running = removedThreadIds.filter((id) => runningThreadIdsRef.current.has(id));
-    setRetainedThreadIds((current) => {
-      const next = new Set(current);
+    setState((previous) => {
+      const next = new Set(previous.retainedThreadIds);
       for (const id of removedThreadIds) {
         next.delete(id);
       }
       for (const id of running) {
         next.add(id);
       }
-      return next;
+      return { ...previous, retainedThreadIds: next };
     });
   }, []);
 
   // A retained thread absent from the loaded threads was deleted (or the store
-  // was reset by Clear Database): its panel goes with it.
+  // was reset by Clear Database): its panel goes with it. Absence means deletion
+  // only while a load replaces the whole list atomically and `listThreads` is
+  // neither paginated nor filtered; a partial list would unmount (and so abort)
+  // every running panel it omits.
   const mountedThreadIds = useMemo(() => {
     const mounted = new Set(openThreadIds);
     for (const id of retainedThreadIds) {

@@ -241,6 +241,7 @@ export function AssistantThreadTabsWorkspace({
   );
 
   const { mountedThreadIds, onRunningChange, onTabsRemoved } = useRetainedThreadPanels(
+    resourceId,
     openThreadIds,
     threadById
   );
