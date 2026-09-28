@@ -93,6 +93,11 @@ vi.mock('../hooks/use-model-migration-notices', () => ({
   useModelMigrationNotices: useModelMigrationNoticesMock,
 }));
 
+// The strip needs an AppReloadGate; its own tests cover the gate and its states.
+vi.mock('../app-reload/app-reload-strip', () => ({
+  AppReloadStrip: () => <div data-testid="app-reload-strip" />,
+}));
+
 // Mock the status items. AppLayout imports the direct modules so React Doctor
 // can verify there is no status-items barrel import in the production path.
 vi.mock('../status-items/database-status-item', () => ({
@@ -178,6 +183,21 @@ describe('AppLayout', () => {
         .compareDocumentPosition(screen.getByTestId('workspace-root-status-item')) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it('renders the app reload strip as the top row of the shell, above the navigation and content', () => {
+    render(
+      <AppLayout config={mockConfig} currentPath="/">
+        <div>Page Content</div>
+      </AppLayout>
+    );
+
+    const strip = screen.getByTestId('app-reload-strip');
+    const shell = strip.parentElement;
+    expect(shell).toHaveClass('flex', 'h-screen', 'flex-col');
+    expect(shell?.firstElementChild).toBe(strip);
+    expect(shell).toContainElement(screen.getByRole('main'));
+    expect(shell).toContainElement(screen.getByTestId('status-bar'));
   });
 
   it('mounts the session-wide retired-model notice hook exactly once (BST-565)', () => {

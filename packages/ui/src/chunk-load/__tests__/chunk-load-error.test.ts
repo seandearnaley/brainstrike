@@ -135,4 +135,18 @@ describe('installChunkLoadErrorListener', () => {
     expect(appReloadStore.getSnapshot().required).toBe(true);
     expect(event.defaultPrevented).toBe(false);
   });
+
+  it('registers one handler however often it is installed, as an HMR re-execution does', async () => {
+    const { addLogListener, installChunkLoadErrorListener } = await loadFresh();
+    const records: LogRecord[] = [];
+    uninstalls.push(addLogListener((record) => records.push(record)));
+    uninstalls.push(installChunkLoadErrorListener(window), installChunkLoadErrorListener(window));
+
+    dispatchPreloadError('Failed to fetch');
+
+    // A second registration would log the same failed import twice.
+    expect(records.filter((record) => record.message?.includes('non-object payload'))).toHaveLength(
+      1
+    );
+  });
 });
