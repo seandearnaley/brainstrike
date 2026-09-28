@@ -8,10 +8,11 @@ import { getTabChordStrip, resolveTabChordScope, type TabChordStrip } from './ta
 const logger = createLogger('TabChords');
 
 /**
- * Closing a tab can unmount the element that had focus (its panel, or the tab
- * itself), dropping focus to body — and the next chord would then act on the
- * workspace. Once the close has rendered, move LOST focus back into the strip:
- * its selected tab, else its tablist (the strip's focus target of last resort).
+ * Closing, cycling or reopening can unmount or hide the element that had focus
+ * (the tab, or the panel it left), dropping focus to body — and the next chord
+ * would then act on the workspace. Once the change has rendered, move LOST focus
+ * back into the strip: its selected tab, else its tablist (the strip's focus
+ * target of last resort). Focus that survived stays put.
  */
 function keepFocusInStrip(strip: TabChordStrip): void {
   window.requestAnimationFrame(() => {
@@ -71,6 +72,7 @@ export function useTabChords(environment: TabChordEnvironment): void {
       if (action === 'reopen') {
         strip.reopenClosed().then(
           (outcome) => {
+            keepFocusInStrip(strip);
             if (!outcome.ok) {
               report(outcome.error);
             }
@@ -80,6 +82,7 @@ export function useTabChords(environment: TabChordEnvironment): void {
         return;
       }
       cycleTab(strip, action);
+      keepFocusInStrip(strip);
     };
 
     document.addEventListener('keydown', handleKeyDown);

@@ -222,6 +222,44 @@ describe('useTabChords', () => {
       await vi.waitFor(() => expect(document.activeElement).toBe(tablist));
     });
 
+    it('keeps focus in the strip when cycling hid the focused panel', async () => {
+      const nextTab = document.createElement('button');
+      nextTab.setAttribute('role', 'tab');
+      nextTab.setAttribute('aria-selected', 'false');
+      assistantPanel.prepend(nextTab);
+      strips['assistant-threads'].activate.mockImplementation(() => {
+        // The previous thread's panel is hidden with the composer in it.
+        assistantInput.hidden = true;
+        assistantInput.blur();
+        nextTab.setAttribute('aria-selected', 'true');
+      });
+      mount({ claimWindowChords: false, isMac: false });
+      assistantInput.focus();
+
+      press(assistantInput, CTRL_PAGE_DOWN);
+
+      await vi.waitFor(() => expect(document.activeElement).toBe(nextTab));
+    });
+
+    it('keeps focus in the strip when a reopen hid the focused panel', async () => {
+      const reopenedTab = document.createElement('button');
+      reopenedTab.setAttribute('role', 'tab');
+      reopenedTab.setAttribute('aria-selected', 'false');
+      assistantPanel.prepend(reopenedTab);
+      strips['assistant-threads'].reopenClosed.mockImplementation(() => {
+        assistantInput.hidden = true;
+        assistantInput.blur();
+        reopenedTab.setAttribute('aria-selected', 'true');
+        return Promise.resolve({ ok: true });
+      });
+      mount({ claimWindowChords: true, isMac: true });
+      assistantInput.focus();
+
+      press(assistantInput, { key: 'T', metaKey: true, shiftKey: true });
+
+      await vi.waitFor(() => expect(document.activeElement).toBe(reopenedTab));
+    });
+
     it('leaves surviving focus where it was after a close', async () => {
       const selectedTab = document.createElement('button');
       selectedTab.setAttribute('role', 'tab');
