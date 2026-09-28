@@ -328,6 +328,29 @@ Guard: `packages/ui/src/tab-strip/__tests__/tab-strip.test.tsx`, `tab-strip.brow
 
 ---
 
+## APP RELOAD
+
+A failed lazy chunk is fixed only by a full reload (`React.lazy` caches the rejection), and that
+reload is always the user's click. Why: a web session holds running work, and a failing build would loop.
+
+- `AppReloadGate` (app-shell) supplies `requestAppReload`; each renderer entry mounts it inside
+  `DbProvider` around `RootLayoutContent`, and `AppLayout` renders `AppReloadStrip`.
+- Gate on the capability that a run survives a reload, `hasDurableAssistantUsageCapability()`, never
+  the platform: present reloads at once; absent reads `useRunningAssistantRuns` (every resource).
+- Ready with 0 runs reloads. Ready with n asks: Reload when finished (banner; one reload when the
+  count hits 0), Reload now, Cancel. Loading, error and an unfinished reap are UNKNOWN, never zero:
+  ask with Reload now and Cancel only.
+- Write `sessionStorage['brainstrike:chunk-reload'] = {buildId}` BEFORE reloading;
+  `startAppReloadRecovery` (visible-UI entries, before first render) reads and deletes it, and a
+  marker for this `__BRAINSTRIKE_BUILD_ID__` flags `reloadAlreadyAttempted`. Storage failures are
+  logged and the flow continues; factory reset's blanket `sessionStorage.clear()` covers the key.
+- `buildIdPlugin` defines the id: the dev server gets `dev`, an unresolvable production build throws.
+
+Settled: no automatic reload, no silent fallback. Evidence: `ui-conventions/app-reload.md`.
+Guard: `app-shell/src/app-reload/__tests__/`, `build-utils/src/__tests__/build-id.test.ts`.
+
+---
+
 ## CONTEXT ACTION SYSTEM
 
 Right-click menus are projections of a shared action system; do not hand-roll a
