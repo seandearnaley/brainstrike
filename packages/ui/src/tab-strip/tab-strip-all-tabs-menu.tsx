@@ -10,7 +10,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../dropdown-menu';
-import { resolveTabStatusText, TabStatusIcon } from './tab-status';
+import { TabStatusIcon } from './tab-status';
+import { resolveTabStatusText } from './tab-status-text';
 import { TAB_ICON_CLASS_NAME, TAB_STRIP_ICON_BUTTON_CLASS_NAME } from './tab-strip-tokens';
 import type { TabStripItem } from './types';
 

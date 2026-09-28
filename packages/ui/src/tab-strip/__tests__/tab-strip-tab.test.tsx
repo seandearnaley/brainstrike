@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { File } from 'lucide-react';
 import { describe, expect, it, vi } from 'vitest';
-import { areTabStripItemsEqual, TabStripTab, type TabStripTabProps } from '../tab-strip-tab';
+import { areTabStripItemsEqual } from '../tab-strip-item-equality';
+import { TabStripTab, type TabStripTabProps } from '../tab-strip-tab';
 import type { TabStripItem } from '../types';
 
 const baseItem: TabStripItem = {
