@@ -129,6 +129,10 @@ const TYPE_CHECK_ALLOWLIST = new Map([
     '@brainstrike/desktop',
     'app — splits main + test + e2e type-checks via `pnpm type-check:main && pnpm type-check:test && pnpm type-check:e2e`, then the Effect diagnostics',
   ],
+  [
+    '@brainstrike/file-tree-worker',
+    'worker — production tsc remains green while strict Effect diagnostics cover the widest test config; existing BFS fixture typing debt is recorded in the Effect evidence',
+  ],
 ]);
 
 /**
