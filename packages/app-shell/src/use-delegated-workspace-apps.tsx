@@ -147,6 +147,7 @@ export function useDelegatedWorkspaceApps(): readonly WorkspaceApp[] {
           icon: ({ className }) => <MessageSquare className={className} />,
           id: item.id,
           label: node?.displayName ?? 'Child conversation',
+          placement: 'dynamic',
           ...(appearance && node
             ? {
                 tabAppearance: {

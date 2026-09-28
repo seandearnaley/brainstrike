@@ -246,6 +246,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
       icon: LayoutGrid,
       id: 'context-explorer',
       label: 'Files',
+      placement: 'pinned',
       render: () => <MountProbe />,
     };
     renderWorkspace([probeApp, CHANGES_APP]);

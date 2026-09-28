@@ -13,6 +13,7 @@ export const FILES_APP: WorkspaceApp = {
   icon: LayoutGrid,
   id: 'context-explorer',
   label: 'Files',
+  placement: 'pinned',
   render: () => <ContextExplorerAppBody />,
 };
 
@@ -20,6 +21,7 @@ export const CHANGES_APP: WorkspaceApp = {
   icon: GitCompare,
   id: 'changes',
   label: 'Changes',
+  placement: 'pinned',
   render: () => <div data-testid="changes-app-body">Changes body</div>,
 };
 
@@ -27,6 +29,7 @@ export const CANVAS_APP: WorkspaceApp = {
   icon: PanelsTopLeft,
   id: 'canvas',
   label: 'Canvas',
+  placement: 'pinned',
   render: () => <div data-testid="canvas-app-body">Canvas body</div>,
 };
 
@@ -34,6 +37,7 @@ export const DEMO_APP: WorkspaceApp = {
   icon: LayoutGrid,
   id: 'demo-app',
   label: 'Demo App',
+  placement: 'pinned',
   render: () => <div data-testid="demo-app-body">Demo body</div>,
 };
 

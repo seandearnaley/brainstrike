@@ -15,6 +15,13 @@ export interface WorkspaceApp {
   /** Short label rendered next to the icon in the tab strip. */
   readonly label: string;
   /**
+   * Where the tab sits in the workspace strip. `pinned`: the non-scrolling,
+   * never-reordered group of singleton surfaces (Files, Changes, Canvas, …),
+   * in registry order. `dynamic`: scrolls ahead of the file tabs (child
+   * conversations). Required so a new app cannot forget to choose.
+   */
+  readonly placement: 'dynamic' | 'pinned';
+  /**
    * Renders the app's body in the workspace area.
    *
    * Contract: this function is invoked inline on every host re-render (not behind a
