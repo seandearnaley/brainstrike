@@ -122,11 +122,39 @@ test.describe('Unified workspace tab panel', () => {
 
     await page.getByTestId('hide-workspace-panel').click();
     await expect(page.getByTestId('show-workspace-panel')).toBeVisible();
-    await expect(page.getByTestId('workspace-tab-strip')).not.toBeVisible();
+    // The collapsed panel clips the strip: its padded box sits past the
+    // viewport edge, so the user sees none of it.
+    await expect(page.getByTestId('workspace-tab-strip')).not.toBeInViewport();
 
     await page.getByTestId('show-workspace-panel').click();
     await expect(page.getByTestId('workspace-tab-strip')).toBeVisible();
     await expect(page.getByTestId('workspace-app-tab-context-explorer')).toBeVisible();
+  });
+
+  test('file tabs reorder by drag and the order survives a reload', async ({ page }) => {
+    await page.getByTestId('select-root-button').click();
+    const fileTree = getFileTree(page);
+    await expect(fileTree).toBeVisible();
+    await fileTree.getByText('alpha.ts', { exact: true }).click();
+    // Opening a file shows its tab; go back to Files for the second one.
+    await page.getByTestId('workspace-app-tab-context-explorer').click();
+    await fileTree.getByText('beta.ts', { exact: true }).click();
+
+    const scroller = page.getByTestId('workspace-tab-scroll');
+    const alphaTab = scroller.getByRole('tab', { name: /alpha\.ts/ });
+    const betaTab = scroller.getByRole('tab', { name: /beta\.ts/ });
+    await expect(scroller.getByRole('tab')).toHaveText([/alpha\.ts/, /beta\.ts/]);
+
+    // Native drag onto alpha's left edge (the ui browser lane covers drop resolution).
+    await betaTab.dragTo(alphaTab, { targetPosition: { x: 4, y: 10 } });
+    await expect(scroller.getByRole('tab')).toHaveText([/beta\.ts/, /alpha\.ts/]);
+
+    await page.reload();
+    await waitForAppLoad(page, { waitForDatabase: false });
+    await expect(page.getByTestId('workspace-tab-scroll').getByRole('tab')).toHaveText([
+      /beta\.ts/,
+      /alpha\.ts/,
+    ]);
   });
 
   test('the tab scroller never shows a scrollbar', async ({ page }) => {

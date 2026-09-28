@@ -1,3 +1,4 @@
+import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
@@ -35,6 +36,17 @@ describe('child identity in the existing workspace tabs', () => {
     store.getState().closeApp(a);
     store.getState().openApp(a);
     expect(store.getState().openAppIds).toEqual([b, a]);
+  });
+
+  it('never mints an id the workspace strip could mistake for a file tab', () => {
+    // The strip's menu dispatches on id: file-tab ids are `folder|@|path`
+    // composite keys. Even identities containing the separator stay escaped.
+    const id = delegatedWorkspaceTabId({
+      ownerResourceId: 'workspace|@|owner',
+      rootThreadId: 'root|@|thread',
+      threadId: 'child|@|thread',
+    });
+    expect(() => decodeFileSelection(id)).toThrow();
   });
 
   it('leaves ordinary apps alone and rejects corrupted child addresses visibly', () => {

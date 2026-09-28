@@ -60,6 +60,24 @@ describe('buildWorkspaceApps', () => {
     expect(apps.find((app) => app.id === WORKTREE_MAP_APP_ID)?.label).toBe('Worktrees');
   });
 
+  it('pins every singleton app in the strip (BST-1839): none scrolls with the file tabs', () => {
+    const apps = buildWorkspaceApps({
+      canvasPanelContent: <div>canvas</div>,
+      changesPageContent: <div>changes</div>,
+      filesContent: <div>files</div>,
+      terminalPageContent: <div>terminal</div>,
+      worktreeMapPageContent: <div>map</div>,
+    });
+
+    expect(apps.map((app) => [app.id, app.placement])).toEqual([
+      [CONTEXT_EXPLORER_APP_ID, 'pinned'],
+      [CHANGES_APP_ID, 'pinned'],
+      [WORKTREE_MAP_APP_ID, 'pinned'],
+      [CANVAS_APP_ID, 'pinned'],
+      [TERMINAL_APP_ID, 'pinned'],
+    ]);
+  });
+
   it('registers the Worktree Map even when Changes is absent', () => {
     // Independence: the Map's registration must not be nested under, or
     // ordered relative to, a sibling that happens to be missing.

@@ -374,6 +374,8 @@ describe('delegated workspace app registration', () => {
     const { result } = renderHook(useDelegatedWorkspaceApps);
     expect(result.current.map((app) => app.id)).toEqual([id]);
     expect(result.current[0]?.label).toBe('Child conversation');
+    // Child conversations scroll with the file tabs; only singletons pin.
+    expect(result.current[0]?.placement).toBe('dynamic');
     await act(async () => {
       resolveNode?.(node);
     });
@@ -390,6 +392,7 @@ describe('delegated workspace app registration', () => {
     useWorkspaceTabSelectionStore.getState().hydrate([id], { appId: id, kind: 'app' });
     const { result } = renderHook(useDelegatedWorkspaceApps);
     expect(result.current.map((app) => app.id)).toEqual([id]);
+    expect(result.current[0]?.placement).toBe('dynamic');
     expect(mocks.get).not.toHaveBeenCalled();
   });
 });

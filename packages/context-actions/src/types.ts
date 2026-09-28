@@ -31,6 +31,12 @@ export type ContextTarget =
       kind: 'workspace-file-tab';
       tabId: string;
     })
+  | {
+      readonly kind: 'workspace-app-tab';
+      readonly appId: string;
+      readonly label: string;
+      readonly placement: 'dynamic' | 'pinned';
+    }
   | (FileContextIdentity & {
       kind: 'file-viewer';
       /** Exact, event-time selection snapshot; null means the selection is collapsed. */
