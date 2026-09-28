@@ -277,6 +277,37 @@ describe('useTabChords', () => {
       expect(document.activeElement).toBe(assistantInput);
     });
 
+    it('matches ⌘W by physical key on a non-Latin layout (Russian ц on KeyW)', () => {
+      mount({ claimWindowChords: true, isMac: true });
+      outside.focus();
+
+      const event = press(outside, { code: 'KeyW', key: 'ц', metaKey: true });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(strips.workspace.close).toHaveBeenCalledWith('b.ts');
+    });
+
+    it('matches ⌘⇧T by physical key on a non-Latin layout (Russian Е on KeyT)', () => {
+      mount({ claimWindowChords: true, isMac: true });
+      outside.focus();
+
+      press(outside, { code: 'KeyT', key: 'Е', metaKey: true, shiftKey: true });
+
+      expect(strips.workspace.reopenClosed).toHaveBeenCalledOnce();
+    });
+
+    it('never matches by physical key on a Latin layout (Dvorak "," on KeyW is ⌘,)', () => {
+      mount({ claimWindowChords: true, isMac: true });
+      outside.focus();
+
+      const comma = press(outside, { code: 'KeyW', key: ',', metaKey: true });
+      const dvorakW = press(outside, { code: 'Comma', key: 'w', metaKey: true });
+
+      expect(comma.defaultPrevented).toBe(false);
+      expect(dvorakW.defaultPrevented).toBe(true);
+      expect(strips.workspace.close).toHaveBeenCalledOnce();
+    });
+
     it('Ctrl+W closes on Windows and Linux', () => {
       mount({ claimWindowChords: true, isMac: false });
       outside.focus();
