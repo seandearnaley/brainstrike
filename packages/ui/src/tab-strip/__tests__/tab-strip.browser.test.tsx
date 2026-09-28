@@ -98,6 +98,30 @@ test('paints the spec §5 geometry with real Tailwind', () => {
   expect(second.getBoundingClientRect().left - first.getBoundingClientRect().right).toBe(4);
 });
 
+// Tailwind v4 can emit a variant rule after `focus-visible:` rules, which let the
+// segmented Tabs' 1px selected ring paint over its 2px focus ring (BST-1841).
+// The shell's focus ring is a `has-[...]` variant beside a plain `ring-1`
+// selected ring; this proves the focus ring wins on the focused selected tab.
+test('paints the 2px inset focus ring over the 1px selected ring on the focused active tab', async () => {
+  mount();
+  const active = screen.getByRole('tab', { name: 'Document a' });
+  const shell = active.closest('[data-slot="tab-shell"]') as HTMLElement;
+  expect(active).toHaveAttribute('aria-selected', 'true');
+  expect(getComputedStyle(shell).boxShadow).toContain('0px 0px 0px 1px');
+  expect(getComputedStyle(shell).boxShadow).not.toContain('inset');
+
+  screen.getByRole('tab', { name: 'Document b' }).focus();
+  await userEvent.keyboard('{ArrowLeft}');
+  expect(active).toHaveFocus();
+  expect(active.matches(':focus-visible')).toBe(true);
+  // The shell transitions box-shadow for 150ms; read the settled value.
+  await waitFor(() => {
+    const boxShadow = getComputedStyle(shell).boxShadow;
+    expect(boxShadow).toContain('0px 0px 0px 2px inset');
+    expect(boxShadow).not.toContain('0px 0px 0px 1px');
+  });
+});
+
 test('passes axe ARIA structure rules (defect 1 regression guard, D9)', async () => {
   mount();
   const result = await axe.run(screen.getByTestId('strip'), {
