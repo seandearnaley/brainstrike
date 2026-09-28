@@ -52,11 +52,11 @@ catalog:
   '@fontsource-variable/geist': ^5.3.0
   '@fontsource-variable/geist-mono': ^5.3.0
   '@huggingface/transformers': ^4.3.0
-  '@modelcontextprotocol/client': 2.0.0
-  '@modelcontextprotocol/core': 2.0.0
-  '@modelcontextprotocol/node': 2.0.0
-  '@modelcontextprotocol/server': 2.0.0
-  '@modelcontextprotocol/server-legacy': 2.0.0
+  '@modelcontextprotocol/client': 2.1.0
+  '@modelcontextprotocol/core': 2.1.0
+  '@modelcontextprotocol/node': 2.1.0
+  '@modelcontextprotocol/server': 2.1.0
+  '@modelcontextprotocol/server-legacy': 2.1.0
   '@openrouter/ai-sdk-provider': 2.10.0
   '@parcel/watcher': ^2.6.0
   '@playwright/test': ^1.63.0
@@ -148,7 +148,7 @@ catalog:
   workerpool: ^10.0.3
   xxhash-wasm: ^1.1.0
   yaml: ^2.9.0
-  zod: ^4.5.4
+  zod: ^4.6.5
   zustand: ^5.0.15
 overrides:
   # BST-879: python-analysis 0.12.0 pins vulnerable minimatch 10.1.1.
