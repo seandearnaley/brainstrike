@@ -22,7 +22,7 @@ function setup(
     close: vi.fn((id: string) => {
       order = order.filter((candidate) => candidate !== id);
     }),
-    closeAll: vi.fn(() => {
+    closeAll: vi.fn((_id: string) => {
       order = [];
     }),
     closeOthers: vi.fn((id: string) => {
@@ -126,6 +126,13 @@ describe('createTabStripActions', () => {
       ok: false,
     });
     expect(operations.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the invoking tab to closeAll so a strip can scope it to that tab group', async () => {
+    const { action, getOrder, operations } = setup(['a', 'b']);
+    await expect(action('close-all').run(threadTab('b'), {})).resolves.toEqual({ ok: true });
+    expect(operations.closeAll).toHaveBeenCalledWith('b');
+    expect(getOrder()).toEqual([]);
   });
 
   it('refuses bulk closes that have nothing to close', async () => {

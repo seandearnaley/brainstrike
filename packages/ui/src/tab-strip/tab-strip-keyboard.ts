@@ -27,10 +27,7 @@ function readTabId(event: KeyboardEvent<HTMLElement>): string | null {
   return tab?.dataset['stripTabId'] ?? null;
 }
 
-function isMenuChord(event: KeyboardEvent<HTMLElement>): boolean {
-  if (event.key === 'ContextMenu') {
-    return true;
-  }
+function isShiftF10(event: KeyboardEvent<HTMLElement>): boolean {
   return event.key === 'F10' && event.shiftKey && !(event.altKey || event.ctrlKey || event.metaKey);
 }
 
@@ -94,7 +91,16 @@ export function handleTabStripKeyDown(
   if (id === null) {
     return;
   }
-  if (isMenuChord(event)) {
+  if (event.key === 'ContextMenu') {
+    // Opened on keyup (handleTabStripKeyUp): Windows Chromium raises its own
+    // page menu on the ContextMenu key's keyup, so the strip opens there and
+    // prevents both halves.
+    if (context.hasContextMenu) {
+      event.preventDefault();
+    }
+    return;
+  }
+  if (isShiftF10(event)) {
     if (!context.hasContextMenu) {
       return;
     }
@@ -125,4 +131,20 @@ export function handleTabStripKeyDown(
   }
   event.preventDefault();
   context.focusTab(targetId);
+}
+
+/** The ContextMenu key opens the focused tab's menu on keyup (see keydown note). */
+export function handleTabStripKeyUp(
+  event: KeyboardEvent<HTMLElement>,
+  context: Pick<TabStripKeyboardContext, 'hasContextMenu' | 'openContextMenu'>
+): void {
+  if (event.key !== 'ContextMenu' || !context.hasContextMenu) {
+    return;
+  }
+  const id = readTabId(event);
+  if (id === null) {
+    return;
+  }
+  event.preventDefault();
+  context.openContextMenu(id);
 }

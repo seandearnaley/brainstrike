@@ -24,9 +24,16 @@ export interface TabStripItem {
    * Identity mark (thread/agent). When present the strip does NOT draw
    * `status`: the mark owns its corner badge (thread-row-status-glyph); the
    * status still reaches the accessible name.
+   * Compared by reference for memoization: build it in a per-id `useMemo`.
    */
   readonly mark?: ReactNode;
   readonly panelDomId: string;
+  /**
+   * Scroll-group tabs only; default true when the strip has `onReorder`. A
+   * `false` tab is never dragged, never a drop target, skipped by ⌥⇧ arrows,
+   * and absent from the ids `onReorder` receives.
+   */
+  readonly reorderable?: boolean | undefined;
   readonly status?: TabStatus | undefined;
   /**
    * Status text for the accessible name; overrides the default for `status`,
@@ -62,7 +69,10 @@ export interface TabStripProps {
   readonly onCloseAll?: (() => void) | undefined;
   /** Fires when a tab/strip context menu or the All-tabs menu opens or closes (native-view occlusion hosts). */
   readonly onMenuOpenChange?: ((open: boolean) => void) | undefined;
-  /** Absent ⇒ no drag-and-drop and no ⌥⇧ arrows. Receives the scroll group's new order. */
+  /**
+   * Absent ⇒ no drag-and-drop and no ⌥⇧ arrows. Receives the new order of the
+   * REORDERABLE scroll items only (see `TabStripItem.reorderable`).
+   */
   readonly onReorder?: ((orderedIds: readonly string[]) => void) | undefined;
   /** Non-scrolling, never reorderable group rendered before `items`. */
   readonly pinnedItems?: readonly TabStripItem[] | undefined;

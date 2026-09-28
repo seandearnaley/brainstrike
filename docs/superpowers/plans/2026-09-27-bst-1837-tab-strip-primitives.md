@@ -15,7 +15,7 @@
 
 ## Global Constraints
 
-- Work on branch `seandearnaley/bst-1837-tabstrip-primitives-in-brainstrikeui-strip-tab-overflow` in worktree `/Users/seandearnaley/Documents/GitHub/brainstrike-tab-controllers`.
+- Work on branch `seandearnaley/bst-1837-tabstrip-primitives-in-brainstrikeui-strip-tab-overflow` in its own worktree.
 - `packages/ui` stays a leaf. It imports no feature package; the allowed dependencies are `@brainstrike/context-actions`, `hooks`, `logging` and `utils`.
 - Class names are literal strings, never composed at runtime. There is no hardcoded `z-` utility anywhere in `packages/ui` (guard: `floating-layer-tokens.test.ts`).
 - Activation is manual: arrows move focus, and Enter/Space (native button click) activate. The close button is `aria-hidden="true"` with `tabIndex={-1}`.
@@ -1726,7 +1726,7 @@ export function useTabStripReorderMonitor({
 }
 ```
 
-Before relying on these names, confirm that `createLogger(...).warn` exists (`grep -n "warn" packages/logging/src/*.ts`) and that `AllowedAxis` accepts `'horizontal'` (`node_modules/.pnpm/@atlaskit+pragmatic-drag-and-drop-auto-scroll@3.2.0/.../internal-types.d.ts`: `AllowedAxis = Axis | 'all'`). If `Axis` is spelled differently there, use its literal.
+Before relying on these names, confirm that `createLogger(...).warn` exists (`grep -n "warn" packages/logging/src/*.ts`) and that `AllowedAxis` accepts `'horizontal'` (the installed `@atlaskit/pragmatic-drag-and-drop-auto-scroll` `internal-types.d.ts`: `AllowedAxis = Axis | 'all'`). If `Axis` is spelled differently there, use its literal.
 
 - [ ] **Step 5: Implement `packages/ui/src/tab-strip/tab-strip-tab.tsx`**
 

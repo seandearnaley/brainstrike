@@ -17,24 +17,47 @@ function areRecordsEqual(
   );
 }
 
-/** Value equality over every rendered field, so consumers need not keep item objects stable. */
+/** Fields compared by identity (`===`). */
+const IDENTITY_KEYS = [
+  'closable',
+  'closeTestId',
+  'icon',
+  'id',
+  'label',
+  'mark',
+  'panelDomId',
+  'reorderable',
+  'status',
+  'statusLabel',
+  'tabDomId',
+  'testId',
+  'tooltip',
+] as const satisfies readonly (keyof TabStripItem)[];
+
+/** Fields compared structurally below. */
+type StructuralKey = 'appearance' | 'dataAttributes';
+
+/**
+ * Compile-time exhaustiveness: a new `TabStripItem` field that is neither an
+ * identity key nor a structural key makes this `never` check fail, so memo
+ * equality can never silently ignore a rendered field.
+ */
+type UncomparedKey = Exclude<keyof TabStripItem, (typeof IDENTITY_KEYS)[number] | StructuralKey>;
+const EVERY_FIELD_COMPARED: [UncomparedKey] extends [never] ? true : UncomparedKey = true;
+
+/**
+ * Value equality over every rendered field, so consumers need not keep the ITEM
+ * objects stable. `icon`, `mark` and `appearance.style` are compared by
+ * reference: memoize them (per id + state) or every tab re-renders on each
+ * parent render.
+ */
 export function areTabStripItemsEqual(left: TabStripItem, right: TabStripItem): boolean {
   if (left === right) {
     return true;
   }
   return (
-    left.id === right.id &&
-    left.label === right.label &&
-    left.tabDomId === right.tabDomId &&
-    left.panelDomId === right.panelDomId &&
-    left.closable === right.closable &&
-    left.icon === right.icon &&
-    left.mark === right.mark &&
-    left.status === right.status &&
-    left.statusLabel === right.statusLabel &&
-    left.tooltip === right.tooltip &&
-    left.testId === right.testId &&
-    left.closeTestId === right.closeTestId &&
+    EVERY_FIELD_COMPARED &&
+    IDENTITY_KEYS.every((key) => left[key] === right[key]) &&
     left.appearance?.idleClassName === right.appearance?.idleClassName &&
     left.appearance?.selectedClassName === right.appearance?.selectedClassName &&
     left.appearance?.style === right.appearance?.style &&

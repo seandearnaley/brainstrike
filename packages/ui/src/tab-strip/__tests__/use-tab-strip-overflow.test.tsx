@@ -86,6 +86,42 @@ describe('useTabStripOverflow', () => {
     expect(pastEnd.defaultPrevented).toBe(false);
   });
 
+  it('scrolls a page-mode wheel notch by one scroller width', () => {
+    render(<Probe contentKey="a" />);
+    const scroller = screen.getByTestId('scroller');
+    setGeometry(scroller, 500, 200);
+    scroller.scrollLeft = 0;
+    const page = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaMode: 2,
+      deltaY: 1,
+    });
+    act(() => {
+      scroller.dispatchEvent(page);
+    });
+    expect(scroller.scrollLeft).toBe(200);
+    expect(page.defaultPrevented).toBe(true);
+  });
+
+  it('leaves horizontal-dominant (trackpad) input to native scrolling', () => {
+    render(<Probe contentKey="a" />);
+    const scroller = screen.getByTestId('scroller');
+    setGeometry(scroller, 500, 200);
+    scroller.scrollLeft = 0;
+    const swipe = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaX: 80,
+      deltaY: 10,
+    });
+    act(() => {
+      scroller.dispatchEvent(swipe);
+    });
+    expect(swipe.defaultPrevented).toBe(false);
+    expect(scroller.scrollLeft).toBe(0);
+  });
+
   it('leaves wheel input alone when nothing overflows', () => {
     render(<Probe contentKey="a" />);
     const scroller = screen.getByTestId('scroller');

@@ -302,18 +302,18 @@ hand-roll a tablist.
   20px close slot whose space is always reserved. The neutral selected state is the
   segmented control's raised surface; identity tabs pass `appearance` tints.
 - Keyboard is APG with MANUAL activation: arrows/Home/End move focus, and
-  Enter/Space activate. Delete closes the tab and focuses the next tab, else the
-  previous one, else the first trailing control. ⌥⇧←/→ reorders the scroll group
-  and announces the move. Shift+F10 and the ContextMenu key open the tab menu
-  anchored at the tab. Middle-click closes.
+  Enter/Space activate. Delete focuses the next tab, else the previous, else the
+  first trailing control, else the tablist. ⌥⇧←/→ moves a `reorderable` scroll tab
+  and announces it. Shift+F10 (keydown) and the ContextMenu key (keyup, where
+  Windows Chromium opens its own) open the tab menu at the tab. Middle-click closes.
 - The close ✕ is a mouse-only sibling (`aria-hidden`, `tabIndex=-1`): the tablist
   owns only tabs, which axe `aria-required-children` checks.
 - Menus: tab menus come from `createTabStripActions` (`@brainstrike/context-actions`)
   plus the global actions for that target kind; the empty strip background claims a
-  `tab-strip` target. Focus returns to the origin tab after a menu closes.
-- Overflow has no chevrons: wheel-to-horizontal through a NATIVE non-passive
-  listener (React's `onWheel` is passive), inline edge fades, `scroll-px-8` reveal,
-  and the always-present All-tabs menu.
+  `tab-strip` target; `closeAll` receives the invoking id. Focus returns to the origin.
+- Overflow has no chevrons: vertical wheels map to horizontal through a NATIVE
+  non-passive listener (React's `onWheel` is passive; trackpad x-input stays native),
+  edge fades, keyboard-only `scroll-px-8` reveal, and the All-tabs menu.
 - Wrap each tab panel in `TabPanelBoundary`; the strip wraps itself. A render crash
   stays in its panel. Keep-alive and `<Activity>` choices are per surface: see
   spec §7.1, and never hide a panel whose effects own still-running work with

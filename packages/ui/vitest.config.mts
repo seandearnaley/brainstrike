@@ -70,9 +70,6 @@ export default defineConfig({
   optimizeDeps: {
     include: ['@testing-library/jest-dom/vitest'],
   },
-  // Real Tailwind for browser suites that import a `*.browser.css` entry, so
-  // painted geometry is asserted against the classes the app actually emits.
-  plugins: [tailwindcss()],
   resolve: {
     alias: workspaceAliases,
   },
@@ -131,6 +128,10 @@ export default defineConfig({
             'react-dom/client',
           ],
         },
+        // Real Tailwind for browser suites that import a `*.browser.css` entry,
+        // so painted geometry is asserted against the classes the app emits.
+        // Browser project only: happy-dom unit suites never need it.
+        plugins: [tailwindcss()],
         resolve: {
           alias: workspaceAliases,
           dedupe: ['react', 'react-dom'],

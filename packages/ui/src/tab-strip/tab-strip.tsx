@@ -1,10 +1,21 @@
 import { useEventCallback } from '@brainstrike/hooks';
-import { type FocusEvent, type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
-import { ActionContextMenu, useContextMenuTarget } from '../context-menu';
+import {
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { ActionContextMenu } from '../context-menu/action-context-menu';
 import { cn } from '../lib/utils';
 import { TabPanelBoundary } from './tab-panel-boundary';
 import { TabStripAllTabsMenu } from './tab-strip-all-tabs-menu';
-import { handleTabStripKeyDown, type TabStripKeyboardContext } from './tab-strip-keyboard';
+import {
+  handleTabStripKeyDown,
+  handleTabStripKeyUp,
+  type TabStripKeyboardContext,
+} from './tab-strip-keyboard';
 import { useTabReorderInstanceId, useTabStripReorderMonitor } from './tab-strip-reorder';
 import { type TabStripGroup, TabStripTab } from './tab-strip-tab';
 import {
@@ -15,45 +26,11 @@ import {
   TAB_STRIP_STANDALONE_CLASS_NAME,
 } from './tab-strip-tokens';
 import type { TabStripItem, TabStripProps } from './types';
+import { useTabStripFocus } from './use-tab-strip-focus';
+import { useTabStripMenu } from './use-tab-strip-menu';
 import { tabStripOverflowMaskStyle, useTabStripOverflow } from './use-tab-strip-overflow';
 
 const EMPTY_ITEMS: readonly TabStripItem[] = [];
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)')?.matches === true
-  );
-}
-
-function findTab(root: HTMLElement | null, id: string): HTMLElement | null {
-  if (!root) {
-    return null;
-  }
-  for (const element of root.querySelectorAll<HTMLElement>('[role="tab"][data-strip-tab-id]')) {
-    if (element.dataset['stripTabId'] === id) {
-      return element;
-    }
-  }
-  return null;
-}
-
-function revealTab(tab: HTMLElement | null, smooth: boolean): void {
-  const shell = tab?.closest<HTMLElement>('[data-slot="tab-shell"]');
-  // scrollIntoView is absent from unit-test DOM shims only.
-  if (!shell || typeof shell.scrollIntoView !== 'function') {
-    return;
-  }
-  shell.scrollIntoView({
-    behavior: smooth && !prefersReducedMotion() ? 'smooth' : 'auto',
-    block: 'nearest',
-    inline: 'nearest',
-  });
-}
-
-function focusFirstTrailingControl(trailing: HTMLElement | null): void {
-  trailing?.querySelector<HTMLElement>('button:not([disabled])')?.focus();
-}
 
 /**
  * The one tab strip (BST-1836). Presentational: data in, intents out. A render
@@ -64,6 +41,42 @@ export function TabStrip(props: TabStripProps): ReactElement {
     <TabPanelBoundary label="Tabs" layout="inline">
       <TabStripContent {...props} />
     </TabPanelBoundary>
+  );
+}
+
+/** Consumer controls (New, Add) followed by the All-tabs overflow menu. */
+function TabStripTrailing({
+  activeId,
+  allItems,
+  allTabsMenu,
+  children,
+  onActivate,
+  onCloseAll,
+  onMenuOpenChange,
+  ref,
+}: {
+  readonly activeId: string | null;
+  readonly allItems: readonly TabStripItem[];
+  readonly allTabsMenu: boolean;
+  readonly children: ReactNode;
+  readonly onActivate: (id: string) => void;
+  readonly onCloseAll: (() => void) | undefined;
+  readonly onMenuOpenChange: ((open: boolean) => void) | undefined;
+  readonly ref: RefObject<HTMLDivElement | null>;
+}): ReactElement {
+  return (
+    <div className="flex shrink-0 items-center gap-1" data-slot="tab-strip-trailing" ref={ref}>
+      {children}
+      {allTabsMenu && allItems.length > 0 ? (
+        <TabStripAllTabsMenu
+          activeId={activeId}
+          items={allItems}
+          onActivate={onActivate}
+          onCloseAll={onCloseAll}
+          onOpenChange={onMenuOpenChange}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -87,16 +100,17 @@ function TabStripContent({
 }: TabStripProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const tablistRef = useRef<HTMLDivElement>(null);
   const trailingRef = useRef<HTMLDivElement>(null);
-  const menuOriginRef = useRef<string | null>(null);
-  const claimedThisEventRef = useRef(false);
-  const controller = useContextMenuTarget();
-  const { setTarget } = controller;
   const [announcement, setAnnouncement] = useState('');
 
   const allItems = useMemo(() => [...pinnedItems, ...items], [items, pinnedItems]);
   const allIds = useMemo(() => allItems.map((item) => item.id), [allItems]);
   const scrollIds = useMemo(() => items.map((item) => item.id), [items]);
+  const reorderableIds = useMemo(
+    () => items.flatMap((item) => (item.reorderable === false ? [] : [item.id])),
+    [items]
+  );
   const tabStopId = activeId !== null && allIds.includes(activeId) ? activeId : (allIds[0] ?? null);
 
   const overflow = useTabStripOverflow(scrollRef, scrollIds.join('\n'));
@@ -104,71 +118,22 @@ function TabStripContent({
   useTabStripReorderMonitor({
     instanceId: reorderInstanceId,
     onReorder,
-    orderedIds: scrollIds,
+    orderedIds: reorderableIds,
     scrollRef,
+  });
+  const focus = useTabStripFocus({ activeId, rootRef, tablistRef, trailingRef });
+  const menu = useTabStripMenu({
+    activeId,
+    contextMenu,
+    rootRef,
+    tablistRef,
+    tabStopId,
+    trailingRef,
   });
 
   const handleActivate = useEventCallback((id: string): void => onActivate(id));
   const handleCloseStable = useEventCallback((id: string): void => onClose?.(id));
   const handleClose = onClose ? handleCloseStable : null;
-  const handleTabContextMenu = useEventCallback((id: string): void => {
-    claimedThisEventRef.current = true;
-    menuOriginRef.current = id;
-    setTarget(contextMenu?.getTabTarget(id) ?? null);
-  });
-  const handleStripContextMenuCapture = (): void => {
-    claimedThisEventRef.current = false;
-    setTarget(null);
-  };
-  const handleStripContextMenu = (): void => {
-    if (claimedThisEventRef.current || !contextMenu?.getStripTarget) {
-      return;
-    }
-    menuOriginRef.current = null;
-    setTarget(contextMenu.getStripTarget());
-  };
-
-  const focusTab = useEventCallback((id: string): void => {
-    const element = findTab(rootRef.current, id);
-    element?.focus();
-    revealTab(element, false);
-  });
-  const focusTabAfterCommit = useEventCallback((id: string): void => {
-    window.requestAnimationFrame(() => focusTab(id));
-  });
-  const focusFallback = useEventCallback((): void => {
-    window.requestAnimationFrame(() => focusFirstTrailingControl(trailingRef.current));
-  });
-  const openContextMenu = useEventCallback((id: string): void => {
-    const element = findTab(rootRef.current, id);
-    if (!element) {
-      return;
-    }
-    const rect = element.getBoundingClientRect();
-    // Keyboard-invoked menus anchor at the tab, never at a (0,0) pointer.
-    element.dispatchEvent(
-      new MouseEvent('contextmenu', {
-        bubbles: true,
-        button: 2,
-        cancelable: true,
-        clientX: rect.left,
-        clientY: rect.bottom,
-      })
-    );
-  });
-  const restoreFocusAfterMenu = useEventCallback((): void => {
-    const root = rootRef.current;
-    const origin = menuOriginRef.current;
-    const candidate =
-      (origin === null ? null : findTab(root, origin)) ??
-      (activeId === null ? null : findTab(root, activeId)) ??
-      (tabStopId === null ? null : findTab(root, tabStopId));
-    if (candidate) {
-      candidate.focus();
-      return;
-    }
-    focusFirstTrailingControl(trailingRef.current);
-  });
   const announce = useEventCallback((message: string): void => {
     // A live region only announces changes; alternate a trailing NBSP for repeats.
     setAnnouncement((current) => (current === message ? `${message} ` : message));
@@ -180,32 +145,19 @@ function TabStripContent({
     (id: string): boolean => allItems.find((item) => item.id === id)?.closable === true
   );
 
-  // biome-ignore lint/plugin: imperative scroll-into-view synced to a prop that changes from outside the strip (store, All-tabs menu), not a state-as-event-handler effect
-  useEffect(() => {
-    if (activeId !== null) {
-      revealTab(findTab(rootRef.current, activeId), true);
-    }
-  }, [activeId]);
-
   const keyboard: TabStripKeyboardContext = {
     allIds,
     announce,
     close: handleClose,
-    focusFallback,
-    focusTab,
-    focusTabAfterCommit,
+    focusFallback: focus.focusFallback,
+    focusTab: focus.focusTab,
+    focusTabAfterCommit: focus.focusTabAfterCommit,
     hasContextMenu: contextMenu !== undefined,
     isClosable,
     labelOf,
-    openContextMenu,
+    openContextMenu: menu.openContextMenu,
     reorder: onReorder ?? null,
-    reorderableIds: scrollIds,
-  };
-
-  const handleTablistFocus = (event: FocusEvent<HTMLDivElement>): void => {
-    if (event.target instanceof HTMLElement && event.target.matches('[role="tab"]')) {
-      revealTab(event.target, false);
-    }
+    reorderableIds,
   };
 
   const renderTab = (item: TabStripItem, group: TabStripGroup): ReactElement => (
@@ -218,8 +170,10 @@ function TabStripContent({
       key={item.id}
       onActivate={handleActivate}
       onClose={handleClose}
-      onContextMenu={handleTabContextMenu}
-      reorderInstanceId={group === 'scroll' ? reorderInstanceId : null}
+      onContextMenu={menu.handleTabContextMenu}
+      reorderInstanceId={
+        group === 'scroll' && item.reorderable !== false ? reorderInstanceId : null
+      }
     />
   );
 
@@ -233,8 +187,8 @@ function TabStripContent({
       )}
       data-slot="tab-strip"
       data-testid={testId}
-      onContextMenu={handleStripContextMenu}
-      onContextMenuCapture={handleStripContextMenuCapture}
+      onContextMenu={menu.handleStripContextMenu}
+      onContextMenuCapture={menu.handleStripContextMenuCapture}
       ref={rootRef}
     >
       {leading}
@@ -242,9 +196,13 @@ function TabStripContent({
         aria-label={ariaLabel}
         aria-orientation="horizontal"
         className="flex h-full min-w-0 flex-1 items-center"
-        onFocus={handleTablistFocus}
+        onFocus={focus.handleTablistFocus}
         onKeyDown={(event) => handleTabStripKeyDown(event, keyboard)}
+        onKeyUp={(event) => handleTabStripKeyUp(event, keyboard)}
+        onPointerDown={focus.handleTablistPointerDown}
+        ref={tablistRef}
         role="tablist"
+        tabIndex={-1}
       >
         {pinnedItems.length > 0 ? (
           <div className="flex shrink-0 items-center gap-1" data-group="pinned" role="presentation">
@@ -269,22 +227,17 @@ function TabStripContent({
           </div>
         </div>
       </div>
-      <div
-        className="flex shrink-0 items-center gap-1"
-        data-slot="tab-strip-trailing"
+      <TabStripTrailing
+        activeId={activeId}
+        allItems={allItems}
+        allTabsMenu={allTabsMenu}
+        onActivate={handleActivate}
+        onCloseAll={onCloseAll}
+        onMenuOpenChange={onMenuOpenChange}
         ref={trailingRef}
       >
         {trailing}
-        {allTabsMenu && allItems.length > 0 ? (
-          <TabStripAllTabsMenu
-            activeId={activeId}
-            items={allItems}
-            onActivate={handleActivate}
-            onCloseAll={onCloseAll}
-            onOpenChange={onMenuOpenChange}
-          />
-        ) : null}
-      </div>
+      </TabStripTrailing>
       <div aria-live="polite" className="sr-only" role="status">
         {announcement}
       </div>
@@ -296,9 +249,9 @@ function TabStripContent({
   }
   return (
     <ActionContextMenu
-      controller={controller}
+      controller={menu.controller}
       localActions={contextMenu.localActions}
-      onCloseAutoFocus={restoreFocusAfterMenu}
+      onCloseAutoFocus={menu.restoreFocusAfterMenu}
       {...(onMenuOpenChange ? { onOpenChange: onMenuOpenChange } : {})}
     >
       {strip}

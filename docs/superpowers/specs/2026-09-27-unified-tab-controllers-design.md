@@ -1,7 +1,7 @@
 # Unified Tab Controllers — Design
 
 **Date:** 2026-09-27
-**Status:** Draft — awaiting maintainer approval. No implementation starts before approval.
+**Status:** Approved 2026-09-27 — every decision D1–D9 taken as recommended (§10).
 **Epic:** BST-1836 · children BST-1837 (primitives), BST-1838 (assistant), BST-1839 (workspace), BST-1840 (browser pane), BST-1841 (view switchers), BST-1842 (chords + commands)
 **Scope:** every tab surface in `apps/web` and `apps/desktop`
 
@@ -398,21 +398,19 @@ There is no sliding active indicator.
 ## 11. Testing
 
 - **Red/green TDD** throughout.
-- **`packages/ui` unit tests (jsdom):**
+- **`packages/ui` unit tests (happy-dom):**
   - ARIA structure and roving tabindex
   - every key in §6.2
   - focus after close (middle, last and only tab)
   - reorder announcement text
-  - axe `aria-required-children` and `nested-interactive` pass (D9)
   - `createTabStripActions` staleness
   - boundary fallback and reset
   - render counts
-- **`packages/ui` browser lane (real Chromium, no Tailwind):**
-  - focus movement
-  - Shift+F10 and ContextMenu-key menu anchoring
-  - wheel mapping
-  - the focused tab clears the fade masks
-  - geometry is **not** asserted here
+- **`packages/ui` browser lane (real Chromium, WITH real Tailwind via `@tailwindcss/vite`):**
+  - painted geometry (strip 36, tab 28, radius 6, 12px/500, close 20, gap 4)
+  - axe `aria-required-children`, `nested-interactive`, `aria-hidden-focus` (D9)
+  - Shift+F10 menu anchoring, native drag reorder, wheel mapping
+  - colour tokens are NOT verified there (the `--color-*` theme mapping lives in the app entry); colour is verified on the built app
 - **Web E2E, built preview:**
   - `tab-strip-geometry.test.ts` promotes the 2026-09-27 audit probe and asserts §5 tokens on every migrated strip against literal values.
   - Existing specs pass: `workspace-tabs`, `assistant-ui-panel`, `layout`, `layout-persistence`, `file-tab-pane`, `thread-workspaces`.

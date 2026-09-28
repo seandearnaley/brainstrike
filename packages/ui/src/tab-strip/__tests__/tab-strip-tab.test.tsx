@@ -120,6 +120,11 @@ describe('TabStripTab', () => {
     expect(screen.getByRole('tab')).toHaveAttribute('aria-haspopup', 'menu');
   });
 
+  it('keeps a data-testid passed through dataAttributes when no testId is given', () => {
+    renderTab({ item: { ...baseItem, dataAttributes: { 'data-testid': 'from-attributes' } } });
+    expect(screen.getByRole('tab')).toHaveAttribute('data-testid', 'from-attributes');
+  });
+
   it('spreads consumer data attributes onto the tab button', () => {
     renderTab({ item: { ...baseItem, dataAttributes: { 'data-app-id': 'changes' } } });
     expect(screen.getByRole('tab')).toHaveAttribute('data-app-id', 'changes');

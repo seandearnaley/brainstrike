@@ -9,7 +9,19 @@ export interface TabStripOverflow {
 const NO_OVERFLOW: TabStripOverflow = { end: false, start: false };
 /** `WheelEvent.DOM_DELTA_LINE`; Firefox reports line deltas for mouse wheels. */
 const DOM_DELTA_LINE = 1;
+/** `WheelEvent.DOM_DELTA_PAGE`; one notch scrolls one scroller width. */
+const DOM_DELTA_PAGE = 2;
 const LINE_HEIGHT_PX = 16;
+
+function wheelDeltaToPixels(event: WheelEvent, pageWidth: number): number {
+  if (event.deltaMode === DOM_DELTA_LINE) {
+    return event.deltaY * LINE_HEIGHT_PX;
+  }
+  if (event.deltaMode === DOM_DELTA_PAGE) {
+    return event.deltaY * pageWidth;
+  }
+  return event.deltaY;
+}
 
 export function readTabStripOverflow(element: HTMLElement): TabStripOverflow {
   const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
@@ -84,8 +96,12 @@ export function useTabStripOverflow(
       if (maxScrollLeft <= 0) {
         return;
       }
-      const raw = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-      const delta = event.deltaMode === DOM_DELTA_LINE ? raw * LINE_HEIGHT_PX : raw;
+      // Horizontal-dominant input (trackpads, tilt wheels) already scrolls this
+      // x-axis scroller natively, with momentum; only translate vertical wheels.
+      if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) {
+        return;
+      }
+      const delta = wheelDeltaToPixels(event, element.clientWidth);
       if (delta === 0) {
         return;
       }

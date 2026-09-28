@@ -50,6 +50,8 @@ function makeItem(id: string, overrides: Partial<TabStripItem> = {}): TabStripIt
 }
 
 interface HarnessProps {
+  /** Scroll-group tabs rendered before `initial` with `reorderable: false`. */
+  readonly fixed?: readonly string[];
   readonly initial: readonly string[];
   readonly onActivateSpy?: (id: string) => void;
   readonly onCloseAll?: () => void;
@@ -60,6 +62,7 @@ interface HarnessProps {
 }
 
 function Harness({
+  fixed = [],
   initial,
   onActivateSpy,
   onCloseAll,
@@ -74,7 +77,13 @@ function Harness({
   useEffect(() => {
     orderRef.current = order;
   }, [order]);
-  const items = useMemo(() => order.map((id) => makeItem(id)), [order]);
+  const items = useMemo(
+    () => [
+      ...fixed.map((id) => makeItem(id, { reorderable: false })),
+      ...order.map((id) => makeItem(id)),
+    ],
+    [fixed, order]
+  );
   const pinnedItems = useMemo(
     () => pinned.map((id) => makeItem(id, { closable: false })),
     [pinned]
@@ -232,6 +241,26 @@ describe('TabStrip keyboard (APG, manual activation)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'New' })).toHaveFocus());
   });
 
+  it('focuses the tablist when the only tab closes and the strip has no trailing controls', async () => {
+    function Lone(): ReactElement {
+      const [ids, setIds] = useState<readonly string[]>(['a']);
+      const items = useMemo(() => ids.map((id) => makeItem(id)), [ids]);
+      return (
+        <TabStrip
+          activeId={ids[0] ?? null}
+          aria-label="Lone"
+          items={items}
+          onActivate={() => undefined}
+          onClose={(id) => setIds((current) => current.filter((candidate) => candidate !== id))}
+        />
+      );
+    }
+    render(<Lone />);
+    tab('Tab a').focus();
+    fireEvent.keyDown(tab('Tab a'), { key: 'Delete' });
+    await waitFor(() => expect(screen.getByRole('tablist', { name: 'Lone' })).toHaveFocus());
+  });
+
   it('never closes a non-closable tab', () => {
     renderStrip({ initial: ['a'], pinned: ['p'] });
     tab('Tab p').focus();
@@ -252,6 +281,24 @@ describe('TabStrip keyboard (APG, manual activation)', () => {
     renderStrip({ initial: ['a', 'b'], pinned: ['p'] });
     fireEvent.keyDown(tab('Tab p'), { altKey: true, key: 'ArrowRight', shiftKey: true });
     expect(tabNames()).toEqual(['Tab p', 'Tab a', 'Tab b']);
+  });
+
+  it('never moves a non-reorderable scroll tab and reports only reorderable ids', async () => {
+    renderStrip({ fixed: ['x'], initial: ['a', 'b'] });
+    expect(tab('Tab x').closest('[data-slot="tab-shell"]')).not.toHaveAttribute('data-reorderable');
+    expect(tab('Tab a').closest('[data-slot="tab-shell"]')).toHaveAttribute(
+      'data-reorderable',
+      'true'
+    );
+    fireEvent.keyDown(tab('Tab x'), { altKey: true, key: 'ArrowRight', shiftKey: true });
+    expect(tabNames()).toEqual(['Tab x', 'Tab a', 'Tab b']);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+    // Moving "a" left is at the edge of the REORDERABLE run: nothing to swap with.
+    fireEvent.keyDown(tab('Tab a'), { altKey: true, key: 'ArrowLeft', shiftKey: true });
+    expect(tabNames()).toEqual(['Tab x', 'Tab a', 'Tab b']);
+    fireEvent.keyDown(tab('Tab a'), { altKey: true, key: 'ArrowRight', shiftKey: true });
+    expect(tabNames()).toEqual(['Tab x', 'Tab b', 'Tab a']);
+    expect(screen.getByRole('status')).toHaveTextContent('Tab a moved to position 2 of 2');
   });
 
   it('does not reorder when the strip has no onReorder', () => {
@@ -285,6 +332,49 @@ describe('TabStrip context menu', () => {
     expect(await screen.findByRole('menuitem', { name: 'Close' })).toBeInTheDocument();
     await user.keyboard('{Escape}');
     await waitFor(() => expect(tab('Tab b')).toHaveFocus());
+  });
+
+  it('opens from the ContextMenu key on keyup, where Windows Chromium raises its native menu', async () => {
+    renderStrip({ initial: ['a', 'b'], withMenu: true });
+    tab('Tab b').focus();
+    const keydownNotPrevented = fireEvent.keyDown(tab('Tab b'), { key: 'ContextMenu' });
+    expect(keydownNotPrevented).toBe(false);
+    expect(screen.queryByRole('menuitem', { name: 'Close' })).toBeNull();
+    const keyupNotPrevented = fireEvent.keyUp(tab('Tab b'), { key: 'ContextMenu' });
+    expect(keyupNotPrevented).toBe(false);
+    expect(await screen.findByRole('menuitem', { name: 'Close' })).toBeInTheDocument();
+  });
+
+  it('never drops focus to body when an empty strip with no controls closes its menu', async () => {
+    const user = userEvent.setup();
+    const { registry } = createTestActionRegistry();
+    render(
+      <ActionRegistryProvider registry={registry}>
+        <TabStrip
+          activeId={null}
+          aria-label="Empty"
+          contextMenu={{
+            getStripTarget: () => ({ kind: 'tab-strip', stripId: 'empty' }),
+            getTabTarget: () => null,
+            localActions: [
+              defineContextAction({
+                appliesTo: ['tab-strip'] as const,
+                group: 'primary',
+                id: 'empty-strip.new',
+                label: 'New Tab',
+                run: (): Promise<ActionOutcome> => Promise.resolve({ ok: true }),
+              }),
+            ],
+          }}
+          items={[]}
+          onActivate={() => undefined}
+        />
+      </ActionRegistryProvider>
+    );
+    fireEvent.contextMenu(screen.getByRole('tablist'));
+    expect(await screen.findByRole('menuitem', { name: 'New Tab' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.getByRole('tablist', { name: 'Empty' })).toHaveFocus());
   });
 
   it('advertises a popup menu on tabs only when the strip has one', () => {
@@ -329,6 +419,33 @@ describe('TabStrip All-tabs menu', () => {
     await user.click(screen.getByRole('button', { name: 'All tabs' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
     expect(onCloseAll).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TabStrip reveal', () => {
+  it('reveals on keyboard focus and activation but never on pointer focus', async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    try {
+      renderStrip({ initial: ['a', 'b', 'c'] });
+      // Mount reveal of the active tab jumps rather than animating.
+      expect(scrollIntoView).toHaveBeenLastCalledWith(
+        expect.objectContaining({ behavior: 'auto' })
+      );
+      scrollIntoView.mockClear();
+
+      fireEvent.pointerDown(tab('Tab b'));
+      tab('Tab b').focus();
+      expect(scrollIntoView).not.toHaveBeenCalled();
+
+      tab('Tab c').focus();
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    }
   });
 });
 

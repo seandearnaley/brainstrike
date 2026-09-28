@@ -40,7 +40,8 @@ export function moveTabId(
  */
 export interface TabStripActionOperations<K extends ContextTargetKind> {
   readonly close?: ((id: string) => void) | undefined;
-  readonly closeAll?: (() => void) | undefined;
+  /** Receives the invoking tab so a strip can scope Close All to that tab's group. */
+  readonly closeAll?: ((id: string) => void) | undefined;
   readonly closeOthers?: ((id: string) => void) | undefined;
   readonly closeToRight?: ((id: string) => void) | undefined;
   readonly getId: (target: TargetOf<K>) => string;
@@ -153,7 +154,7 @@ export function createTabStripActions<K extends ContextTargetKind>(
           if (locate(target).index < 0) {
             return stale();
           }
-          closeAll();
+          closeAll(getId(target));
           return Promise.resolve(OK);
         },
       })

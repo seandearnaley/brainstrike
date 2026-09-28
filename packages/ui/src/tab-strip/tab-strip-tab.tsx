@@ -1,5 +1,12 @@
 import { X } from 'lucide-react';
-import { type MouseEvent, memo, type ReactElement, type ReactNode, useRef } from 'react';
+import {
+  type MouseEvent,
+  memo,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+  useRef,
+} from 'react';
 import { cn } from '../lib/utils';
 import { TabStatusIcon } from './tab-status';
 import { resolveTabStatusText } from './tab-status-text';
@@ -118,6 +125,88 @@ function TabCloseButton({
   );
 }
 
+/** A middle press starts platform autoscroll on Windows/Linux; auxclick closes instead. */
+function preventMiddleButtonAutoscroll(event: MouseEvent<HTMLDivElement>): void {
+  if (event.button === 1) {
+    event.preventDefault();
+  }
+}
+
+function resolveShellClassName(
+  group: TabStripGroup,
+  item: TabStripItem,
+  isActive: boolean,
+  isDragging: boolean
+): string {
+  return cn(
+    TAB_SHELL_CLASS_NAME,
+    group === 'scroll' ? TAB_SHELL_SCROLL_WIDTH_CLASS_NAME : TAB_SHELL_PINNED_WIDTH_CLASS_NAME,
+    resolveSurfaceClassName(item, isActive),
+    isDragging && TAB_DRAGGING_CLASS_NAME
+  );
+}
+
+/** The role=tab button: identity/status leading slot plus the truncating label. */
+function TabTrigger({
+  closable,
+  group,
+  hasContextMenu,
+  isActive,
+  isTabStop,
+  item,
+  onActivate,
+  ref,
+  reorderable,
+}: {
+  readonly closable: boolean;
+  readonly group: TabStripGroup;
+  readonly hasContextMenu: boolean;
+  readonly isActive: boolean;
+  readonly isTabStop: boolean;
+  readonly item: TabStripItem;
+  readonly onActivate: (id: string) => void;
+  readonly ref: RefObject<HTMLButtonElement | null>;
+  readonly reorderable: boolean;
+}): ReactElement {
+  const statusText = resolveTabStatusText(item);
+  return (
+    <button
+      {...item.dataAttributes}
+      // Only an explicit testId replaces a data-testid passed through dataAttributes.
+      {...(item.testId === undefined ? {} : { 'data-testid': item.testId })}
+      aria-controls={item.panelDomId}
+      aria-haspopup={hasContextMenu ? 'menu' : undefined}
+      aria-keyshortcuts={closable ? 'Delete' : undefined}
+      aria-label={statusText ? `${item.label}, ${statusText}` : undefined}
+      aria-selected={isActive}
+      className={cn(
+        TAB_TRIGGER_CLASS_NAME,
+        !closable && TAB_TRIGGER_NO_CLOSE_CLASS_NAME,
+        reorderable && TAB_TRIGGER_REORDERABLE_CLASS_NAME
+      )}
+      data-strip-tab-id={item.id}
+      id={item.tabDomId}
+      onClick={() => onActivate(item.id)}
+      ref={ref}
+      role="tab"
+      tabIndex={isTabStop ? 0 : -1}
+      title={item.tooltip ?? item.label}
+      type="button"
+    >
+      <TabLeading item={item} />
+      <span
+        className={cn(
+          TAB_LABEL_CLASS_NAME,
+          group === 'pinned' && TAB_PINNED_LABEL_CLASS_NAME,
+          item.status === 'deleted' && TAB_DELETED_LABEL_CLASS_NAME
+        )}
+      >
+        {item.label}
+      </span>
+    </button>
+  );
+}
+
 function TabStripTabImpl({
   group,
   hasContextMenu,
@@ -138,7 +227,6 @@ function TabStripTabImpl({
     shellRef,
   });
   const closeTab = item.closable ? onClose : null;
-  const statusText = resolveTabStatusText(item);
 
   const handleAuxClick = (event: MouseEvent<HTMLDivElement>): void => {
     if (event.button !== 1 || !closeTab) {
@@ -147,22 +235,11 @@ function TabStripTabImpl({
     event.preventDefault();
     closeTab(item.id);
   };
-  const handleMouseDown = (event: MouseEvent<HTMLDivElement>): void => {
-    // A middle press starts platform autoscroll on Windows/Linux; auxclick closes instead.
-    if (event.button === 1) {
-      event.preventDefault();
-    }
-  };
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: presentational tab shell; the role=tab button is the control, the shell only claims pointer gestures landing on its padding
     <div
-      className={cn(
-        TAB_SHELL_CLASS_NAME,
-        group === 'scroll' ? TAB_SHELL_SCROLL_WIDTH_CLASS_NAME : TAB_SHELL_PINNED_WIDTH_CLASS_NAME,
-        resolveSurfaceClassName(item, isActive),
-        isDragging && TAB_DRAGGING_CLASS_NAME
-      )}
+      className={resolveShellClassName(group, item, isActive, isDragging)}
       data-dragging={isDragging ? 'true' : undefined}
       data-group={group}
       data-reorderable={reorderInstanceId ? 'true' : undefined}
@@ -170,45 +247,23 @@ function TabStripTabImpl({
       data-state={isActive ? 'active' : 'inactive'}
       onAuxClick={handleAuxClick}
       onContextMenu={() => onContextMenu(item.id)}
-      onMouseDown={handleMouseDown}
+      onMouseDown={preventMiddleButtonAutoscroll}
       ref={shellRef}
       role="presentation"
       style={item.appearance?.style}
     >
       {closestEdge ? <TabDropIndicator edge={closestEdge} /> : null}
-      <button
-        {...item.dataAttributes}
-        aria-controls={item.panelDomId}
-        aria-haspopup={hasContextMenu ? 'menu' : undefined}
-        aria-keyshortcuts={closeTab ? 'Delete' : undefined}
-        aria-label={statusText ? `${item.label}, ${statusText}` : undefined}
-        aria-selected={isActive}
-        className={cn(
-          TAB_TRIGGER_CLASS_NAME,
-          !closeTab && TAB_TRIGGER_NO_CLOSE_CLASS_NAME,
-          reorderInstanceId && TAB_TRIGGER_REORDERABLE_CLASS_NAME
-        )}
-        data-strip-tab-id={item.id}
-        data-testid={item.testId}
-        id={item.tabDomId}
-        onClick={() => onActivate(item.id)}
+      <TabTrigger
+        closable={closeTab !== null}
+        group={group}
+        hasContextMenu={hasContextMenu}
+        isActive={isActive}
+        isTabStop={isTabStop}
+        item={item}
+        onActivate={onActivate}
         ref={triggerRef}
-        role="tab"
-        tabIndex={isTabStop ? 0 : -1}
-        title={item.tooltip ?? item.label}
-        type="button"
-      >
-        <TabLeading item={item} />
-        <span
-          className={cn(
-            TAB_LABEL_CLASS_NAME,
-            group === 'pinned' && TAB_PINNED_LABEL_CLASS_NAME,
-            item.status === 'deleted' && TAB_DELETED_LABEL_CLASS_NAME
-          )}
-        >
-          {item.label}
-        </span>
-      </button>
+        reorderable={reorderInstanceId !== null}
+      />
       {closeTab ? <TabCloseButton isActive={isActive} item={item} onClose={closeTab} /> : null}
     </div>
   );

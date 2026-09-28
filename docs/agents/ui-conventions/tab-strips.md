@@ -13,3 +13,11 @@ Read before changing tab-strip geometry, activation, the close affordance, overf
 - **`onMenuOpenChange` exists for native views (BST-1837, for BST-1840).** The browser pane draws an Electron `WebContentsView` above the renderer, so a Radix menu opened from its strip paints behind the page unless the host occludes the view while any strip menu (tab, strip background or All-tabs) is open.
 - **`statusLabel` may stand alone.** Thread tabs carry an identity mark that draws its own badge, and their "finished, unseen" state has no `TabStatus`; the accessible name still needs the text, so it is `statusLabel ?? default text for status`.
 - **Sources:** `docs/superpowers/research/2026-09-27-tab-controller-vendor-research.md`. Spec: `docs/superpowers/specs/2026-09-27-unified-tab-controllers-design.md`.
+- **Review round on PR #3345 (2026-09-28)**:
+  - **Keyboard menu key.** The ContextMenu key opens the menu on KEYUP. Chromium's `WebFrameWidgetImpl::HandleKeyEvent` raises Windows' native page menu on that key's keyup. Shift+F10 stays on keydown.
+  - **Pointer focus.** Focus from a pointer never scrolls a tab into view, so a drag doesn't start under a moving tab. The mount reveal jumps instead of animating.
+  - **Trackpads.** Horizontal-dominant wheel input stays native, which keeps trackpad momentum.
+  - **Focus fallback.** The tablist is the `tabIndex=-1` focus target of last resort.
+  - **Per-item reorder.** `reorderable` came from BST-1839, whose child-conversation tabs sit in the scroll group but must not move.
+  - **Close All scope.** `closeAll` receives the invoking id so an app strip can scope Close All to one placement group.
+  - **Declined:** Codex's "tab stop should follow roving focus". APG Tabs says focus entering the tablist lands on the ACTIVE tab.
