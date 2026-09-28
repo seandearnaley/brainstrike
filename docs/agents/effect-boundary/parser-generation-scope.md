@@ -85,3 +85,31 @@ parser-host step successful in 13ms and exits with code 0. This exercises the
 production preload, manager and utilityProcess rather than its unit fake.
 An unchanged snapshot startup sweep logged a database-retired error during
 shutdown; that separate owner is tracked in BST-1859 outside this parser change.
+
+## Final rc.118 qualification
+
+After the separate dependency qualification merged, this branch was rebased once
+onto `99bc2258e5040d0e361c0393584b7cdc71e94223` (including the MCP SDK 2.1
+qualification). Frozen installation verifies Effect 4.0.0-rc.118. No parser,
+shutdown, reset or governing contract changes were introduced by the SDK merge.
+
+The refreshed candidate passes 37 focused unit tests across parser manager,
+Schema and IPC routing, plus the held-exit deadline integration test. Desktop
+main TypeScript and the 579-file test program pass; strict Effect diagnostics
+check 584/584 files with zero errors, warnings or messages. All 29 Effect/budget
+guards pass. The fresh desktop dependency closure builds all 49 tasks, and both
+main and renderer builds pass, including the renderer's cross-chunk cycle check.
+
+The matching rc.118 baseline and candidate use configured pnpm Node 26.8.2 and
+gzip level 9 for each of the eight root JavaScript outputs. Main remains
+2,742,205 raw / 584,738 gzip bytes before this change and 2,747,159 / 585,692
+after (+4,954 raw / +954 gzip). All seven other main/preload outputs remain
+unchanged; parser-host-entry.js stays 21,057 raw / 6,519 gzip. These are bundle
+size measurements, not latency claims.
+
+The real Electron/OXC routing E2E passes again on the refreshed candidate:
+one test, 19.0 seconds including setup (3.5-second test). Graceful shutdown
+records parser-host successful in 12ms and Electron exits with code 0. The
+unchanged startup thread/snapshot sweeps again report retired-database errors
+while shutdown runs; BST-1859 tracks that separate owner. No errors were
+suppressed or reset policy changed to obtain this proof.
