@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import type { Root as ReactRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +20,15 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 }));
 
 vi.mock('../../renderer/create-embedding-queue', () => ({}));
+
+vi.mock('@brainstrike/app-shell/app-reload', () => ({
+  AppReloadGate: ({ buildId, children }: { buildId: string; children: React.ReactNode }) => (
+    <div data-build-id={buildId} data-testid="app-reload-gate">
+      {children}
+    </div>
+  ),
+  startAppReloadRecovery: vi.fn(() => () => undefined),
+}));
 
 const mockRender = vi.fn();
 const mockCreateRoot = vi.fn(() => ({ render: mockRender }));
@@ -148,11 +157,23 @@ describe('App database path resolution', () => {
       setPreferences: vi.fn(),
     } as never;
 
+    vi.stubGlobal('__BRAINSTRIKE_BUILD_ID__', 'test-build-id');
     await import('../../renderer/main.tsx');
     const element = mockRender.mock.calls.at(-1)?.[0];
     expect(element).toBeDefined();
     render(element);
     const call = mockDbProvider.mock.calls.at(-1)?.[0] as { useElectronIPC?: boolean } | undefined;
     expect(call?.useElectronIPC).toBe(true);
+  }, 30_000);
+
+  it('mounts the reload gate inside the database provider, around the whole shell', async () => {
+    vi.stubGlobal('__BRAINSTRIKE_BUILD_ID__', 'test-build-id');
+    await import('../../renderer/main.tsx');
+    render(mockRender.mock.calls.at(-1)?.[0]);
+
+    const gate = screen.getByTestId('app-reload-gate');
+    expect(screen.getByTestId('db-provider')).toContainElement(gate);
+    expect(gate).toHaveAttribute('data-build-id', 'test-build-id');
+    expect(gate).toHaveTextContent('RootLayout');
   }, 30_000);
 });

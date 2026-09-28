@@ -132,7 +132,8 @@
       "afterAll",
       "vi",
       "jest",
-      "Electron"
+      "Electron",
+      "__BRAINSTRIKE_BUILD_ID__"
     ]
   },
   "overrides": [

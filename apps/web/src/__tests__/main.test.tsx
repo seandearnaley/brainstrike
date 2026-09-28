@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Utility to dynamically import the main entry after setting up mocks
@@ -29,6 +29,32 @@ vi.mock('@brainstrike/db/react', () => ({
 // is a render-nothing stub so main.tsx's own orchestration stays in focus.
 vi.mock('@brainstrike/app-shell/diagnostics', () => ({
   DiagnosticSinkBridge: () => null,
+}));
+
+// The gate and the recovery wiring have their own suites in app-shell; here they are
+// stubs, so main.tsx's own orchestration (order, build id, placement) stays in focus.
+const { startAppReloadRecoveryMock, stopAppReloadRecoveryMock } = vi.hoisted(() => ({
+  startAppReloadRecoveryMock: vi.fn(),
+  stopAppReloadRecoveryMock: vi.fn(),
+}));
+
+function MockAppReloadGate({
+  buildId,
+  children,
+}: {
+  readonly buildId: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div data-build-id={buildId} data-testid="app-reload-gate">
+      {children}
+    </div>
+  );
+}
+
+vi.mock('@brainstrike/app-shell/app-reload', () => ({
+  AppReloadGate: MockAppReloadGate,
+  startAppReloadRecovery: startAppReloadRecoveryMock,
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -178,6 +204,8 @@ describe('main entry file', () => {
     initializeQueueTelemetrySinkMock.mockReturnValue(null);
     Reflect.deleteProperty(window, '__BRAINSTRIKE_WEB_REACT_ROOT__');
     window.sessionStorage.clear();
+    vi.stubGlobal('__BRAINSTRIKE_BUILD_ID__', 'test-build-id');
+    startAppReloadRecoveryMock.mockReturnValue(stopAppReloadRecoveryMock);
   });
 
   test('throws an error when root element is missing', async () => {
@@ -259,6 +287,72 @@ describe('main entry file', () => {
     );
     expect(window.sessionStorage.getItem('brainstrike.e2e.dbPath.v1')).toBe(expectedPath);
   }, 60_000);
+
+  describe('failed lazy chunk recovery', () => {
+    /** The first element in `node`'s tree (depth first) that satisfies `matches`. */
+    function findElement(
+      node: ReactNode,
+      matches: (element: ReactElement) => boolean
+    ): ReactElement | undefined {
+      if (Array.isArray(node)) {
+        for (const child of node) {
+          const found = findElement(child, matches);
+          if (found) {
+            return found;
+          }
+        }
+        return;
+      }
+      if (typeof node !== 'object' || node === null || !('props' in node)) {
+        return;
+      }
+      const element = node as ReactElement<{ children?: ReactNode }>;
+      return matches(element) ? element : findElement(element.props.children, matches);
+    }
+
+    async function importMainRendering() {
+      const rootElement = document.createElement('div');
+      rootElement.id = 'root';
+      vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+      vi.spyOn(window.navigator, 'webdriver', 'get').mockReturnValue(false);
+      const renderMock = vi.fn();
+      vi.doMock('react-dom/client', () => ({
+        __esModule: true,
+        default: { createRoot: vi.fn(() => ({ render: renderMock })) },
+      }));
+      await importMain();
+      return renderMock;
+    }
+
+    test('starts recovery with this build id before the first render', async () => {
+      const renderMock = await importMainRendering();
+
+      expect(startAppReloadRecoveryMock).toHaveBeenCalledExactlyOnceWith({
+        buildId: 'test-build-id',
+      });
+      expect(startAppReloadRecoveryMock.mock.invocationCallOrder[0]).toBeLessThan(
+        renderMock.mock.invocationCallOrder[0] as number
+      );
+    });
+
+    test('mounts the reload gate inside the database provider, around the whole shell', async () => {
+      const renderMock = await importMainRendering();
+      const root = renderMock.mock.calls[0]?.[0] as ReactElement;
+
+      const provider = findElement(root, (element) => element.type === dbProviderMock);
+      const gate = findElement(
+        provider,
+        (element) => element !== provider && element.type === MockAppReloadGate
+      );
+      expect(provider).toBeDefined();
+      expect(gate?.props).toMatchObject({ buildId: 'test-build-id' });
+
+      render(root);
+      expect(screen.getByTestId('app-reload-gate')).toContainElement(
+        screen.getByTestId('root-layout')
+      );
+    });
+  });
 
   test('reuses existing React root when already initialized', async () => {
     const rootElement = document.createElement('div');
