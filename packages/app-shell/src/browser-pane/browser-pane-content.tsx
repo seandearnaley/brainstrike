@@ -299,35 +299,41 @@ export function BrowserPaneContent(): ReactElement {
   // chord router's `report`, the palette's failure handler, or
   // `ActionContextMenu`'s menu-run handler) or is a fire-and-forget UI action
   // routed through `runTabAction`, which logs because nothing else will.
+  const resyncTabs = useCallback(
+    (label: string): void => {
+      bridge
+        ?.listTabs()
+        .then(setTabs)
+        .catch((resyncError: unknown) =>
+          logger.error('Browser pane tab resync failed', { error: resyncError, label })
+        );
+    },
+    [bridge, setTabs]
+  );
   const settleTabAction = useCallback(
     async (action: Promise<unknown>, label: string): Promise<ActionOutcome> => {
       try {
         await action;
         return { ok: true };
       } catch (error: unknown) {
-        bridge
-          ?.listTabs()
-          .then(setTabs)
-          .catch((resyncError: unknown) =>
-            logger.error('Browser pane tab resync failed', { error: resyncError, label })
-          );
+        resyncTabs(label);
         return { error: getErrorMessage(error), ok: false };
       }
     },
-    [bridge, setTabs]
+    [resyncTabs]
   );
   // The one place a browser tab action's outcome reaches no other consumer
   // (toolbar buttons, the URL bar, the ✕ close): log it here so a failure is
   // never silent, without double-logging the paths that DO have a consumer.
+  // It logs the raw error — stack and cause intact — not the outcome string.
   const runTabAction = useCallback(
     (action: Promise<unknown>, label: string): void => {
-      void settleTabAction(action, label).then((outcome) => {
-        if (!outcome.ok) {
-          logger.error('Browser pane tab action failed', { error: outcome.error, label });
-        }
+      void action.catch((error: unknown) => {
+        logger.error('Browser pane tab action failed', { error, label });
+        resyncTabs(label);
       });
     },
-    [settleTabAction]
+    [resyncTabs]
   );
 
   const paneRootRef = useRef<HTMLDivElement | null>(null);

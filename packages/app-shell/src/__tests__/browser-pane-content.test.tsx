@@ -248,6 +248,13 @@ describe('BrowserPaneContent', () => {
     await waitFor(() =>
       expect(records.filter((record) => record.level === 'error')).toHaveLength(1)
     );
+    // The record carries the raw failure (stack, cause), not just its message
+    // string, so a toolbar/URL-bar/✕ failure stays diagnosable.
+    const [errorRecord] = records.filter((record) => record.level === 'error');
+    const context = errorRecord?.args.find(
+      (arg): arg is { error: unknown } => typeof arg === 'object' && arg !== null && 'error' in arg
+    );
+    expect(context?.error).toHaveProperty('stack');
   });
 
   it('occludes the native view when the shell navigates to Settings (BST-1668)', async () => {
@@ -750,6 +757,9 @@ describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
     pushTabs(THREE_TABS);
     const input = await screen.findByTestId('browser-url-input');
     input.focus();
+    // Mount seeds the mirror through `listTabs`; clear it so the wait below
+    // proves the failure's resync, not the initial seed.
+    bridge.listTabs.mockClear();
 
     fireEvent.keyDown(input, { key: 'w', metaKey: true });
 

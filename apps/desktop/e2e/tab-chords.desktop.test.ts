@@ -79,7 +79,7 @@ test.describe('Tab keyboard chords (desktop)', () => {
     // Positive control (BST-1852): `Menu.getApplicationMenu()?.items ?? []` is
     // `[]` whenever the native menu is null, which would make every negative
     // assertion below pass vacuously. Prove the menu is REAL first, by finding
-    // the Command Palette's ⌘K/Ctrl+K accelerator item (main.ts ~line 1521).
+    // the Command Palette's ⌘K/Ctrl+K accelerator item (View menu, main.ts).
     expect(menu.length).toBeGreaterThan(0);
     expect(
       menu.filter((item) =>
