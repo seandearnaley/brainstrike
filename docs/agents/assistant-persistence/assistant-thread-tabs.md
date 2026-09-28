@@ -122,9 +122,10 @@ Findings recorded before the change:
 - **Badge race.** The thread-list refresh after a run fired only from the usage
   tap, before the run row's terminal write, so it read `running` and nothing
   refreshed again: the finished badge was missing in 4 of 6 hidden-finish E2E
-  runs. It now fires after `completePreparedRequest` settles. The adapter's
-  `onUsage` / `completeRuntimeData` order is unchanged, because
-  `completePreparedRequest` clears the usage context `handleUsage` needs.
+  runs. A refresh after `completePreparedRequest` was tried first and replaced
+  (last bullet). The adapter's `onUsage` / `completeRuntimeData` order is
+  unchanged, because `completePreparedRequest` clears the usage context
+  `handleUsage` needs.
 - **Page unload on web.** The run dies with the page and its row stays `running`;
   only the startup reap finalises it (`reapOrphanedAssistantThreadRuns`, with a
   60 s `started_at` margin). No code change: retention is session-only and does
@@ -145,3 +146,13 @@ Findings recorded before the change:
   reopened, closed idle or deleted. Accepted: on web nothing else holds it.
 - A throwaway spike of this design passed 8 of 8 E2E runs; its only flake was the
   badge race above.
+- **2026-09-28, review: the desktop badge.** On desktop the host owns the run
+  (`hostOwnsRun`) and writes the terminal row after the response streams, so a
+  refresh fired from the renderer's completion callbacks read `running`. Only a
+  thread's FIRST run hid that: its title write refreshed the list through
+  `useAssistantThreadTitleSync`, which is why the first desktop E2E was green.
+  A second turn on a titled thread went stale (the E2E now holds that turn).
+  One workspace-mounted live query over the runs' terminal writes
+  (`useAssistantThreadRunCompletionSync`) refreshes the list on both platforms;
+  the ledger's callback refresh is gone. The retained set is now reconciled while
+  rendering (a reopen drops the id, a resource change resets it).

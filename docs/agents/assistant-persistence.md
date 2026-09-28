@@ -1588,21 +1588,21 @@ Guard: `packages/db/__tests__/migration-067-thread-search-index.test.ts`,
 Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
 `reorderThreadTabs` persists the complete ordered id list atomically.
 
-- The strip is the shared `TabStrip` (manual activation; `ui-conventions.md` TAB STRIPS),
-  badged by the Threads panel's run-state projections via `ThreadIdentityMark`. Panels stay
-  mounted (`hidden`, never `<Activity>`) while inactive so a background run keeps its
-  tool-update subscription.
+- The shared `TabStrip` (manual activation; `ui-conventions.md` TAB STRIPS), badged by the
+  Threads panel's run-state projections via `ThreadIdentityMark`. Inactive panels stay mounted
+  (`hidden`, never `<Activity>`) so a background run keeps its tool-update subscription.
 - Closing the tab of a thread whose run is in flight HIDES it, on web and desktop: its panel
   stays mounted (`hidden`, no `tabpanel` role) outside the strip. Why: the panel owns the run
   (web aborts it on unmount) and, on web, the only copy of the conversation.
   - In flight = the panel's own `thread.isRunning`, read inside `closeRecorded`'s event (an
     effect latch unmounts and aborts first); never the durable run row, which lags a send.
-  - Release only on reopen (same instance), close while idle, delete or absent thread, or
-    store reset; NEVER at run end. Session-only React state.
+  - Released on reopen, idle close, delete or absent thread, store or resource reset; NEVER at
+    run end. Reconciled WHILE RENDERING (an effect lags a removal that skips `closeRecorded`).
   - Open and retained panels share ONE list ordered by thread id, not tab order, so a reopen
     or reorder never moves a panel's DOM node (that resets its scroller).
-- The badge's thread-list refresh fires after the run row's terminal write settles
-  (`completeRequestAndSettleLiveUsage`); the usage tap precedes that write.
+- The badge reads `latestRun` from the loaded list, which ONE workspace-mounted live query over
+  run terminal writes refreshes (`useAssistantThreadRunCompletionSync`), never a run callback:
+  the desktop host writes the row after them, and a titled thread has no title write to ride.
 - Rows, pickers, group icon choices and tabs consume `assistant-thread-presentation.ts` (icon
   registry, Message default, colour surfaces). Each tree cell mounts one `ThreadRow` keyed by
   thread id, owning its transient edit/customize/delete state (never persisted). A successful
@@ -1622,9 +1622,9 @@ Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
 Evidence: `assistant-persistence/assistant-thread-tabs.md`.
 Guard: `packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`; in
 `packages/app-shell/src/__tests__/`: `database-demo-panel.test.tsx`,
-`assistant-thread-tabs-workspace*.test.tsx` (`-status`, `-background-runs`),
-`use-assistant-thread-root-binding.test.ts`, `assistant-ui-panel-wrapper-running-change.test.tsx`,
-`../assistant-panel/__tests__/use-assistant-usage-ledger.test.ts`;
+`assistant-thread-tabs-workspace*.test.tsx`, `use-assistant-thread-root-binding.test.ts`,
+`assistant-ui-panel-wrapper-running-change.test.tsx`, `use-retained-thread-panels.test.ts`,
+`use-assistant-thread-run-completion-sync*.test.ts` (the SQL runs on real PGlite);
 `packages/assistant-ui/src/__tests__/running-state-bridge.behavior.test.tsx`; live E2E:
 `apps/web/e2e/assistant-ui-panel.test.ts` (customize and reload),
 `apps/web/e2e/assistant-thread-tab-runs.test.ts` and
