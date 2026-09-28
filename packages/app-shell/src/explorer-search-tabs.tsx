@@ -2,14 +2,8 @@ import type { ExplorerActiveTab } from '@brainstrike/app-state/stores/context-ex
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { FileExplorerPanel } from '@brainstrike/file-explorer-ui/shell';
 import type { QueueAdapter } from '@brainstrike/queue';
-import {
-  PANEL_TAB_TRIGGER_CLASS_NAME,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@brainstrike/ui';
-import { lazy, type ReactElement, Suspense, useCallback, useMemo, useState } from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
+import { lazy, type ReactElement, Suspense, useCallback, useMemo } from 'react';
 import { ExplorerImportActionLazy } from './explorer-import-action-lazy';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
 import { useWorkspaceRootActions } from './workspace-root-context-actions';
@@ -49,12 +43,13 @@ function WorkspaceSearchTabContent(): ReactElement {
 }
 
 /**
- * The left workspace panel: an Explorer|Search tab strip built on the shared
- * segmented Tabs primitive (same idiom as the Library tabs). The Explorer
- * (file tree) STAYS MOUNTED when Search is active so its tree state survives
- * tab switches (only toggled hidden — mirrors AgentSidebarPanel's forceMount
- * pattern). The Search panel lazy-mounts on first activation and then stays
- * mounted too, preserving its query/results.
+ * The left workspace panel: an Explorer|Search switcher on the shared `sm`
+ * Tabs, the same idiom as the Library. Both panels are `keepMounted`: the
+ * Explorer (file tree) mounts at once and survives Search being active, and
+ * the code-split Search panel mounts on first activation, then keeps its
+ * query and results. Manual activation (the Tabs default) means keyboard
+ * roving never downloads Search. The value lives in a zustand store, whose
+ * updates always render synchronously, so the switch uses no transition.
  */
 interface ExplorerSearchTabsProps {
   /**
@@ -70,20 +65,11 @@ export function ExplorerSearchTabs({
   const activeTab = useContextExplorerLayoutStore((state) => state.explorerActiveTab);
   const setExplorerActiveTab = useContextExplorerLayoutStore((state) => state.setExplorerActiveTab);
 
-  // Mounted-once latch: the Search panel mounts the first time it becomes active
-  // and never unmounts afterwards. `explorerActiveTab` is only ever changed by
-  // this component's tabs, so latching in the change handler (plus the lazy init
-  // for a persisted `search`) covers every path — no sync effect needed.
-  const [searchEverActivated, setSearchEverActivated] = useState(activeTab === 'search');
   const handleValueChange = useCallback(
     (value: string): void => {
-      if (!isExplorerActiveTab(value)) {
-        return;
+      if (isExplorerActiveTab(value)) {
+        setExplorerActiveTab(value);
       }
-      if (value === 'search') {
-        setSearchEverActivated(true);
-      }
-      setExplorerActiveTab(value);
     },
     [setExplorerActiveTab]
   );
@@ -96,17 +82,8 @@ export function ExplorerSearchTabs({
   );
   const rootActions = useWorkspaceRootActions();
 
-  const searchTabMountProps = searchEverActivated
-    ? ({
-        forceMount: true,
-      } as const)
-    : {};
-
   return (
     <Tabs
-      // Manual activation: arrow keys move focus without activating, so
-      // keyboard roving never latches (and lazily downloads) the Search panel.
-      activationMode="manual"
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
       onValueChange={handleValueChange}
       value={activeTab}
@@ -115,42 +92,33 @@ export function ExplorerSearchTabs({
         className="flex h-9 min-w-0 shrink-0 items-center border-border border-b px-2"
         data-testid="explorer-search-tab-strip"
       >
-        <TabsList aria-label="Explorer and search" className="grid h-7 w-full grid-cols-2">
-          <TabsTrigger
-            className={PANEL_TAB_TRIGGER_CLASS_NAME}
-            data-testid="explorer-tab-trigger"
-            value="explorer"
-          >
+        <TabsList aria-label="Explorer and search" className="grid w-full grid-cols-2" size="sm">
+          <TabsTrigger data-testid="explorer-tab-trigger" value="explorer">
             <span className="truncate">Explorer</span>
           </TabsTrigger>
-          <TabsTrigger
-            className={PANEL_TAB_TRIGGER_CLASS_NAME}
-            data-testid="search-tab-trigger"
-            value="search"
-          >
+          <TabsTrigger data-testid="search-tab-trigger" value="search">
             <span className="truncate">Search</span>
           </TabsTrigger>
         </TabsList>
       </div>
 
       <TabsContent
-        className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
+        className="min-h-0 flex-1"
         data-testid="explorer-search-panel-explorer"
         forceMount
-        hidden={activeTab !== 'explorer'}
+        keepMounted
         value="explorer"
       >
         <FileExplorerPanel rootActions={rootActions} selectionActions={importAction} />
       </TabsContent>
 
       <TabsContent
-        className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
+        className="min-h-0 flex-1"
         data-testid="explorer-search-panel-search"
-        hidden={activeTab !== 'search'}
-        {...searchTabMountProps}
+        keepMounted
         value="search"
       >
-        {searchEverActivated ? <WorkspaceSearchTabContent /> : null}
+        <WorkspaceSearchTabContent />
       </TabsContent>
     </Tabs>
   );

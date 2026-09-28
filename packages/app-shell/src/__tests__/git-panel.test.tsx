@@ -1260,36 +1260,52 @@ describe('GitPanel', () => {
     expect(fileDiff).toHaveBeenCalledTimes(1);
   });
 
-  it('implements keyboard-operated tabs with persistent labelled panels', async () => {
+  it('switches Changes and History on the shared panel-header switcher, manually activated', async () => {
     const user = userEvent.setup();
     installBridge({});
     render(<GitPanel />);
 
-    const changesTab = await screen.findByRole('tab', { name: /Changes/ });
-    const historyTab = screen.getByRole('tab', { name: 'History' });
-    expect(changesTab).toHaveAttribute('aria-controls', 'git-workbench-changes-panel');
-    expect(changesTab).toHaveAttribute('tabindex', '0');
+    const tablist = await screen.findByRole('tablist', { name: 'Changes and history' });
+    const changesTab = within(tablist).getByRole('tab', { name: /Changes/ });
+    const historyTab = within(tablist).getByRole('tab', { name: 'History' });
+    // Same `sm` switcher and 36px header row as Library and Explorer|Search.
+    expect(tablist).toHaveAttribute('data-size', 'sm');
+    expect(tablist.parentElement).toHaveClass('h-9', 'border-b', 'px-2');
+    expect(changesTab).toHaveAttribute('data-slot', 'tabs-trigger');
+    // The changed-file count stays inside the Changes trigger.
+    expect(within(changesTab).getByText('3')).toBeInTheDocument();
+    // Roving tabindex: focus entering the list lands on the selected tab.
+    tablist.focus();
+    expect(changesTab).toHaveFocus();
     expect(historyTab).toHaveAttribute('tabindex', '-1');
 
-    const changesPanel = document.getElementById('git-workbench-changes-panel');
-    const historyPanel = document.getElementById('git-workbench-history-panel');
-    expect(changesPanel).toHaveAttribute('aria-labelledby', 'git-workbench-changes-tab');
-    expect(changesPanel).not.toHaveAttribute('hidden');
-    expect(historyPanel).toHaveAttribute('aria-labelledby', 'git-workbench-history-tab');
+    // Each tab controls a panel labelled by that tab.
+    const changesPanel = document.getElementById(changesTab.getAttribute('aria-controls') ?? '');
+    const historyPanel = document.getElementById(historyTab.getAttribute('aria-controls') ?? '');
+    expect(changesPanel).toHaveAttribute('role', 'tabpanel');
+    expect(changesPanel).toHaveAttribute('aria-labelledby', changesTab.id);
+    expect(historyPanel).toHaveAttribute('aria-labelledby', historyTab.id);
+    expect(screen.getByRole('tabpanel', { name: /Changes/ })).toBe(changesPanel);
     expect(historyPanel).toHaveAttribute('hidden');
 
-    changesTab.focus();
+    // Arrows rove focus only; Enter activates.
     await user.keyboard('{ArrowRight}');
-
     expect(historyTab).toHaveFocus();
+    expect(historyTab).toHaveAttribute('aria-selected', 'false');
+    expect(historyPanel).toHaveAttribute('hidden');
+
+    await user.keyboard('{Enter}');
     expect(historyTab).toHaveAttribute('aria-selected', 'true');
     expect(historyTab).toHaveAttribute('tabindex', '0');
     expect(changesTab).toHaveAttribute('tabindex', '-1');
     expect(changesPanel).toHaveAttribute('hidden');
     expect(historyPanel).not.toHaveAttribute('hidden');
 
+    // Home roves back; Space activates.
     await user.keyboard('{Home}');
     expect(changesTab).toHaveFocus();
+    expect(changesTab).toHaveAttribute('aria-selected', 'false');
+    await user.keyboard(' ');
     expect(changesTab).toHaveAttribute('aria-selected', 'true');
   });
 

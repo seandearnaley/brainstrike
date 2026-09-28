@@ -93,6 +93,7 @@ export function GitPanel(): ReactElement {
   }
 
   const { repository, status } = panel;
+  const viewKey = `${panel.activeRootId ?? 'no-root'}:${repository.currentWorktree.branch ?? 'detached'}:${repository.currentWorktree.head ?? 'unborn'}`;
   return (
     <div
       className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground"
@@ -113,38 +114,15 @@ export function GitPanel(): ReactElement {
           {formatWorkspaceScope(repository.openedRoot, repository.currentWorktree.path)} only.
         </div>
       ) : null}
-      <GitWorkbenchTabs active={tab} changedFiles={status.files.length} onChange={setTab} />
-      <div
-        aria-labelledby="git-workbench-changes-tab"
-        className="flex min-h-0 flex-1"
-        hidden={tab !== 'changes'}
-        id="git-workbench-changes-panel"
-        role="tabpanel"
-      >
-        {tab === 'changes' ? (
-          <GitChangesView
-            key={`${panel.activeRootId ?? 'no-root'}:${repository.currentWorktree.branch ?? 'detached'}:${repository.currentWorktree.head ?? 'unborn'}`}
-            panel={panel}
-            repository={repository}
-            status={status}
-          />
-        ) : null}
-      </div>
-      <div
-        aria-labelledby="git-workbench-history-tab"
-        className="flex min-h-0 flex-1"
-        hidden={tab !== 'history'}
-        id="git-workbench-history-panel"
-        role="tabpanel"
-      >
-        {tab === 'history' ? (
-          <GitHistoryView
-            key={`${panel.activeRootId ?? 'no-root'}:${repository.currentWorktree.branch ?? 'detached'}:${repository.currentWorktree.head ?? 'unborn'}`}
-            panel={panel}
-            repository={repository}
-          />
-        ) : null}
-      </div>
+      <GitWorkbenchTabs
+        active={tab}
+        changedFiles={status.files.length}
+        changes={
+          <GitChangesView key={viewKey} panel={panel} repository={repository} status={status} />
+        }
+        history={<GitHistoryView key={viewKey} panel={panel} repository={repository} />}
+        onChange={setTab}
+      />
     </div>
   );
 }

@@ -116,7 +116,13 @@ const CONTRACT_LINE_BUDGETS = {
   // new token cannot live in an evidence file without the scale going stale.
   // It then rose to 615: § Scroll ownership names the Model Catalog as the
   // second sanctioned shared-scroller consumer, next to the rule it applies.
-  'ui-conventions.md': 612,
+  //
+  // BST-1841 raised it from 612 (+30): the new VIEW SWITCHERS (Tabs) section
+  // is a new area — one `Tabs` idiom for every fixed switcher — whose rules
+  // (sizes, manual activation, `TabsContent` visibility, transitions only for
+  // React state) an agent must meet before touching any switcher. Each "Why"
+  // is one clause; the detail lives in `packages/ui/src/tabs.tsx` comments.
+  'ui-conventions.md': 642,
   'workspace-context.md': 1071,
 };
 
