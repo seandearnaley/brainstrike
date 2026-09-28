@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  buildIdPlugin,
   createCspQualifiedEvalWarningFilter,
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
@@ -35,6 +36,7 @@ const pinoBrowserPath = require.resolve('pino/browser.js');
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
 const wasmPath = findPGliteWasm(__dirname);
+const desktopPackage: { readonly version?: string } = require('./package.json');
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles.
 // BST-1659: run by `oxc-transform-react` (Rust) through @vitejs/plugin-react, not Babel.
@@ -138,6 +140,10 @@ export default defineConfig({
     ],
   },
   plugins: [
+    // __BRAINSTRIKE_BUILD_ID__: the packaged app is one build per version.
+    buildIdPlugin([
+      { name: 'apps/desktop/package.json version', read: () => desktopPackage.version },
+    ]),
     fullReloadOnCompilerHotspots(),
     wasm(),
     topLevelAwait(),

@@ -150,6 +150,9 @@
       "@brainstrike/assistant-data/assistant-memory-repository": [
         "../../packages/assistant-data/src/assistant-memory-repository.ts"
       ],
+      "@brainstrike/app-shell/app-reload": [
+        "../../packages/app-shell/src/app-reload/index.ts"
+      ],
       "@brainstrike/app-shell/changes/availability": [
         "../../packages/app-shell/src/changes/availability.ts"
       ],

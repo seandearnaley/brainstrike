@@ -125,7 +125,15 @@ const CONTRACT_LINE_BUDGETS = {
   // rules (sizes, manual activation, `TabsContent` visibility, transitions only
   // for React state) an agent must meet before touching any switcher. Each
   // "Why" is one clause; the detail lives in `packages/ui/src/tabs.tsx` comments.
-  'ui-conventions.md': 682,
+  //
+  // BST-1850 raised it from 682 to 705 (+23): the new APP RELOAD section is a new
+  // area, not growth of TAB STRIPS. It is the gate every renderer entry mounts,
+  // and an agent that adds an entry, a reload trigger or a build must meet its
+  // rules first: the reload is always the user's click, an unreadable run count
+  // is UNKNOWN and never zero, and the marker is written before the reload. The
+  // research, the capability citation and the known limits went to
+  // ui-conventions/app-reload.md.
+  'ui-conventions.md': 705,
   'workspace-context.md': 1071,
 };
 

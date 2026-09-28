@@ -289,8 +289,7 @@ Evidence: `ui-conventions/terminal-surfaces.md`.
 ## TAB STRIPS
 
 Every document strip (assistant threads, the workspace, the browser pane) renders
-`TabStrip` from `packages/ui/src/tab-strip`; fixed view switchers use `Tabs`. Do not
-hand-roll a tablist.
+`TabStrip` from `packages/ui/src/tab-strip`; fixed view switchers use `Tabs`; never hand-roll one.
 
 - The primitives are presentational: consumers pass `items`/`pinnedItems`, intents
   (`onActivate`, `onClose`, `onReorder`) and a `contextMenu` descriptor; the strip owns
@@ -312,7 +311,9 @@ hand-roll a tablist.
 - Overflow has no chevrons: a NATIVE non-passive listener maps vertical wheel to horizontal
   (trackpad x stays native); edge fades, a keyboard-only `scroll-px-8` reveal, All-tabs menu.
 - Wrap each tab panel in `TabPanelBoundary` (the strip wraps itself). Never hide a panel
-  whose effects own still-running work with `<Activity>` (spec §7.1).
+  whose effects own still-running work with `<Activity>` (spec §7.1). A failed lazy chunk
+  (`isChunkLoadError`: `vite:preloadError` payload identity, never message text) shows
+  "Reload app", never "Reload tab" (`React.lazy` caches the rejection); never `preventDefault` it.
 - Chords go through ONE router, `app-shell/src/tab-chords`: the strip whose registered
   panel holds focus, else the workspace; ⌘W with no active tab falls through. ⌘/Ctrl+W,
   ⌘/Ctrl+⇧T and positional Ctrl+Tab need the desktop `desktopLifecycle` bridge.
@@ -321,8 +322,32 @@ hand-roll a tablist.
 
 Settled: BST-1836 decisions D1–D9 (2026-09-27). Evidence: `ui-conventions/tab-strips.md`.
 Guard: `packages/ui/src/tab-strip/__tests__/tab-strip.test.tsx`, `tab-strip.browser.test.tsx`
-(painted geometry, axe, keyboard menu, native drag), context-actions `tab-strip-actions.test.ts`,
-app-shell `tab-chords/__tests__/`, `apps/desktop/e2e/tab-chords.desktop.test.ts`.
+(painted geometry, axe, keyboard menu, native drag), `tab-panel-boundary-chunk-load.test.tsx`,
+`packages/ui/src/chunk-load/__tests__/`, context-actions `tab-strip-actions.test.ts`, app-shell
+`tab-chords/__tests__/`, `apps/desktop/e2e/tab-chords.desktop.test.ts`.
+
+---
+
+## APP RELOAD
+
+A failed lazy chunk is fixed only by a full reload (`React.lazy` caches the rejection), and that
+reload is always the user's click. Why: a web session holds running work, and a failing build would loop.
+
+- `AppReloadGate` (app-shell) supplies `requestAppReload`; each renderer entry mounts it inside
+  `DbProvider` around `RootLayoutContent`, and `AppLayout` renders `AppReloadStrip`.
+- Gate on the capability that a run survives a reload, `hasDurableAssistantUsageCapability()` (read
+  once per mount), never the platform: present reloads at once; absent reads `useRunningAssistantRuns`
+  (every resource), which observes only once a chunk failure requires a reload and threads have loaded.
+- Ready with 0 runs reloads. Ready with n asks: Reload when finished (banner; one reload at 0), Reload
+  now, Cancel. Anything else is UNKNOWN, never zero: ask with Reload now and Cancel only.
+- Write `sessionStorage['brainstrike:chunk-reload'] = {buildId}` BEFORE reloading;
+  `startAppReloadRecovery` (visible-UI entries, before first render) reads and deletes it, and a
+  marker for this `__BRAINSTRIKE_BUILD_ID__` flags `reloadAlreadyAttempted`. Storage failures are
+  logged and the flow continues; factory reset's blanket `sessionStorage.clear()` covers the key.
+- `buildIdPlugin` defines the id: the dev server gets `dev`, an unresolvable production build throws.
+
+Settled: no automatic reload, no silent fallback, no cache header on `index.html`. Evidence: `ui-conventions/app-reload.md`.
+Guard: `app-reload/__tests__/`, `build-id.test.ts`, `e2e/app-reload-recovery*`, `vercel-config.test.ts`.
 
 ---
 
@@ -545,13 +570,11 @@ Tools) is `Tabs` from `packages/ui/src/tabs.tsx`; document tab strips are not.
 - Use a transition only for a React-state value (Library): `startTransition`,
   with `data-pending` on the incoming trigger. A store-backed switcher
   (Explorer|Search) renders synchronously anyway.
-- No context menu (a switcher has no actions); each lazily loaded panel keeps
-  its own `Suspense` boundary, and each Library panel also sits behind
-  `TabPanelBoundary`, containing a crash to its own tab.
+- No context menu (a switcher has no actions); each lazily loaded panel keeps its own
+  `Suspense` boundary and each Library panel sits behind `TabPanelBoundary`.
 
-Guard: `packages/ui/src/__tests__/tabs.test.tsx`; in app-shell,
-`agent-sidebar-panel.test.tsx`, `explorer-search-tabs.test.tsx`,
-`git-panel.test.tsx`.
+Guard: `packages/ui/src/__tests__/tabs.test.tsx`; in app-shell, `agent-sidebar-panel.test.tsx`,
+`explorer-search-tabs.test.tsx`, `git-panel.test.tsx`.
 
 ---
 

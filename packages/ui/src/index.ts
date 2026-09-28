@@ -16,6 +16,7 @@ export * from './button';
 export * from './canvas-surface';
 export * from './card';
 export * from './checkbox';
+export * from './chunk-load';
 export * from './code-surface';
 export * from './collection-browser';
 export * from './collection-picker';

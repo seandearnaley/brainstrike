@@ -61,6 +61,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./app-reload": {
+      "types": "./dist/app-reload/index.d.ts",
+      "import": "./dist/app-reload/index.js"
+    },
     "./connected-prompt-manager-lazy": {
       "types": "./dist/connected-prompt-manager-lazy.d.ts",
       "import": "./dist/connected-prompt-manager-lazy.js"
