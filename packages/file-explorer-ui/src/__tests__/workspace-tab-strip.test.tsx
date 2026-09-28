@@ -453,7 +453,9 @@ describe('workspace tab strip on the shared TabStrip', () => {
       expect(screen.getByRole('tab', { name: /files/i })).toBeInTheDocument();
     });
 
-    it('the All-tabs menu lists pinned apps first and its Close All closes only file tabs', async () => {
+    it('the All-tabs menu lists every group, pinned apps first, and offers no Close All', async () => {
+      // It lists apps AND files, so a "Close All" there that closed only files
+      // would be ambiguous; the strip background's "Close All Files" owns that.
       useWorkspaceTabSelectionStore.getState().openApp(CHILD_CEDAR_APP.id);
       openFileTabs(A);
       const user = userEvent.setup();
@@ -463,21 +465,6 @@ describe('workspace tab strip on the shared TabStrip', () => {
       expect((await screen.findAllByRole('menuitemradio')).map((item) => item.textContent)).toEqual(
         ['Files', 'Cedar', 'a.ts']
       );
-      await user.click(screen.getByRole('menuitem', { name: 'Close All' }));
-
-      expect(fileTabOrder()).toEqual([]);
-      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([
-        FILES_APP.id,
-        CHILD_CEDAR_APP.id,
-      ]);
-    });
-
-    it('offers no All-tabs Close All while no file tab is open', async () => {
-      const user = userEvent.setup();
-      renderWorkspace();
-
-      await user.click(await screen.findByRole('button', { name: 'All tabs' }));
-      await screen.findAllByRole('menuitemradio');
       expect(screen.queryByRole('menuitem', { name: 'Close All' })).toBeNull();
     });
   });

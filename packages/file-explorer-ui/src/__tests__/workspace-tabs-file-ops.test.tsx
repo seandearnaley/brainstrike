@@ -679,7 +679,7 @@ describe('workspace tabs — file tab operations', () => {
     __resetTabManagerStoreForTests();
   });
 
-  it('the All-tabs menu Close All clears every file tab and routes to the first open app', async () => {
+  it('the strip background Close All Files clears every file tab and routes to the first open app', async () => {
     const tabModule = await import('../hooks/use-tab-manager');
     vi.mocked(tabModule.useTabManager).mockRestore();
 
@@ -692,8 +692,9 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    await user.click(await screen.findByRole('button', { name: 'All tabs' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
+    await screen.findByRole('tab', { name: /b\.ts/i });
+    fireEvent.contextMenu(screen.getByRole('tablist', { name: 'Workspace tabs' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Close All Files' }));
 
     await waitFor(() => {
       expect(useTabManagerStore.getState().tabs).toEqual([]);
@@ -706,15 +707,6 @@ describe('workspace tabs — file tab operations', () => {
     });
 
     __resetTabManagerStoreForTests();
-  });
-
-  it('the All-tabs menu offers no Close All when no file tabs are open', async () => {
-    const user = userEvent.setup();
-    renderWorkspace();
-
-    await user.click(await screen.findByRole('button', { name: 'All tabs' }));
-    expect(await screen.findByRole('menuitemradio', { name: 'Files' })).toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: 'Close All' })).not.toBeInTheDocument();
   });
 
   it('right-clicking an inactive file tab can close it without activating it', async () => {

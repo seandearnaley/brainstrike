@@ -308,7 +308,6 @@ export function WorkspaceTabStrip(): ReactElement {
       }
       onActivate={activate}
       onClose={close}
-      onCloseAll={tabs.length > 0 ? onCloseAllFileTabs : undefined}
       onReorder={onReorderFileTabs}
       pinnedItems={pinnedItems}
       scrollTestId="workspace-tab-scroll"
