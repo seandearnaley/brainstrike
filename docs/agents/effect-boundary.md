@@ -51,8 +51,9 @@ Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`,
 - Provider auth and assistant provider probes bound fetch and body reading together; cancellation aborts fetch and polling sleeps, preserving typed failures, verdicts and cache provenance.
 - The MCP OAuth callback Scope owns listener teardown; each wait uses `Effect.ensuring` for timer cleanup, and close joins all active waits. Provider OAuth loopback Scope owns listener cleanup; reject duplicate waits, and close joins its callback timer and both socket cleanup operations.
 - Embedding admission reserves partial permits transactionally; abort only capacity waits, never committed grants.
+- Python cold-install scopes join hash-stream and tar-child close before staging cleanup; preserve first-caller ownership and committed installs.
 
-Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`, `effect-boundary/mcp-oauth-callback-scope.md`, `effect-boundary/embedding-admission-permits.md`, `effect-boundary/provider-loopback-scope.md`.
+Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`, `effect-boundary/mcp-oauth-callback-scope.md`, `effect-boundary/embedding-admission-permits.md`, `effect-boundary/provider-loopback-scope.md`, `effect-boundary/python-resource-scopes.md`.
 Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`, `timeout.test.ts`, `shutdown-sequence.test.ts`, `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
 ### Desktop composition refactors
@@ -97,8 +98,7 @@ Guard: `packages/db/__tests__/mcp-task-row-schema.test.ts`,
 
 ### Effect diagnostics
 
-- Each package depending on `effect` adds the `@effect/language-service` plugin
-  to `tsconfig.json` and ends `type-check` with `effect-tsgo diagnostics --project <widest tsconfig> --strict` (`tsconfig.test.json` if present).
+- Each package depending on `effect` adds the `@effect/language-service` plugin to `tsconfig.json` and ends `type-check` with `effect-tsgo diagnostics --project <widest tsconfig> --strict` (`tsconfig.test.json` if present).
 - Never run `effect-tsgo patch`: it rewrites shared TypeScript 7 `tsc`, pinned by `ci-quality.md` § "TypeScript 7 CLI with the TypeScript 6 compatibility API".
 
 Guard: `scripts/__tests__/effect-boundary-contract.test.mjs`.

@@ -1,9 +1,20 @@
-import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  ARCHIVE_FILE_NAME,
+  ARCHIVE_SHA256,
+  createFixtureDirs as createPythonFixture,
+  installDirFor,
+  PYTHON_VERSION,
+  plantUnpackedRuntime,
+  RELEASE_TAG,
+  TRIPLE,
+  writeArchive,
+  writeManifest,
+} from './python-runtime-test-fixtures';
 
 type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
@@ -21,80 +32,41 @@ const execFileMock = vi.hoisted(() =>
   })
 );
 
-vi.mock('node:child_process', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('node:child_process')>();
-  return {
-    ...mod,
-    default: { ...mod, execFile: execFileMock },
-    execFile: execFileMock,
-  };
+const readStreamMock = vi.hoisted(() => vi.fn());
+
+vi.mock('node:fs', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('node:fs')>();
+  const createReadStream = (...args: Parameters<typeof mod.createReadStream>) =>
+    readStreamMock(...args) ?? mod.createReadStream(...args);
+  return { ...mod, createReadStream, default: { ...mod, createReadStream } };
 });
 
-interface ManifestOverrides {
-  readonly sha256?: string;
-  readonly supportedTargets?: readonly string[];
-  readonly targets?: Record<string, { bytes: number; sha256: string }> | undefined;
-}
-
-const ARCHIVE_CONTENT = 'not-a-real-tarball-but-hashable';
-const ARCHIVE_SHA256 = createHash('sha256').update(ARCHIVE_CONTENT).digest('hex');
-const RELEASE_TAG = '20260728';
-const PYTHON_VERSION = '3.13.14';
-const TRIPLE = 'aarch64-apple-darwin';
-const ARCHIVE_FILE_NAME = `cpython-${PYTHON_VERSION}+${RELEASE_TAG}-${TRIPLE}-install_only.tar.gz`;
+vi.mock('node:child_process', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('node:child_process')>();
+  const execFile = (
+    command: string,
+    args: readonly string[],
+    options: unknown,
+    callback: ExecFileCallback
+  ) => {
+    const child = new mod.ChildProcess();
+    const returned: unknown = execFileMock(
+      command,
+      args,
+      options,
+      (error: Error | null, stdout: string, stderr: string) => {
+        callback(error, stdout, stderr);
+        queueMicrotask(() => child.emit('close', error ? 1 : 0, null));
+      }
+    );
+    return returned instanceof mod.ChildProcess ? returned : child;
+  };
+  return { ...mod, default: { ...mod, execFile }, execFile };
+});
 
 const cleanupPaths: string[] = [];
-
-async function createFixtureDirs(): Promise<{ resourcesDir: string; userDataDir: string }> {
-  const fixture = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-python-runtime-'));
-  cleanupPaths.push(fixture);
-  const resourcesDir = path.join(fixture, 'resources');
-  const userDataDir = path.join(fixture, 'user-data');
-  mkdirSync(resourcesDir, { recursive: true });
-  mkdirSync(userDataDir, { recursive: true });
-  return { resourcesDir, userDataDir };
-}
-
-function writeManifest(resourcesDir: string, overrides: ManifestOverrides = {}): void {
-  const manifest = {
-    assetUrlTemplate:
-      'https://github.com/astral-sh/python-build-standalone/releases/download/{releaseTag}/cpython-{pythonVersion}+{releaseTag}-{target}-{variant}.tar.gz',
-    pythonVersion: PYTHON_VERSION,
-    releaseTag: RELEASE_TAG,
-    supportedTargets: overrides.supportedTargets ?? [TRIPLE, 'x86_64-apple-darwin'],
-    targets:
-      'targets' in overrides
-        ? overrides.targets
-        : {
-            [TRIPLE]: { bytes: ARCHIVE_CONTENT.length, sha256: overrides.sha256 ?? ARCHIVE_SHA256 },
-            'x86_64-apple-darwin': { bytes: 1, sha256: 'f'.repeat(64) },
-          },
-    variant: 'install_only',
-  };
-  writeFileSync(path.join(resourcesDir, 'manifest.json'), JSON.stringify(manifest));
-}
-
-function writeArchive(resourcesDir: string): void {
-  writeFileSync(path.join(resourcesDir, ARCHIVE_FILE_NAME), ARCHIVE_CONTENT);
-}
-
-function installDirFor(userDataDir: string): string {
-  return path.join(
-    userDataDir,
-    'python-runtime',
-    `cpython-${PYTHON_VERSION}+${RELEASE_TAG}-${TRIPLE}`
-  );
-}
-
-/** Materializes the layout tar would produce, so the mock stays a pure spawn stub. */
-function plantUnpackedRuntime(targetDir: string): string {
-  const binDir = path.join(targetDir, 'python', 'bin');
-  mkdirSync(binDir, { recursive: true });
-  const binary = path.join(binDir, 'python3');
-  writeFileSync(binary, '#!/bin/sh\nexit 0\n');
-  chmodSync(binary, 0o755);
-  return binary;
-}
+const createFixtureDirs = (): Promise<{ resourcesDir: string; userDataDir: string }> =>
+  createPythonFixture(cleanupPaths);
 
 function mockTarSuccess(): void {
   execFileMock.mockImplementation(
@@ -114,6 +86,7 @@ describe('resolvePythonBinary', () => {
   beforeEach(() => {
     vi.resetModules();
     execFileMock.mockReset();
+    readStreamMock.mockReset();
   });
 
   afterEach(async () => {

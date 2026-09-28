@@ -171,9 +171,9 @@ Settled: an abort is an error, not a result. Evidence:
 - `toRunPythonResult` maps five terminal states: `completed` (the ONLY arm
   carrying `exitCode`), `timed_out`, `killed`, `cancelled` (partial output,
   never an empty success), `unavailable`. An unrecognised error RETHROWS.
-- Keep `interpreter_unavailable` distinct from `no_sandbox_configured`, matched
-  structurally by the `python_*` code prefix, so the user is told WHICH half is
-  missing and this package need not depend on `apps/desktop`.
+- Keep `interpreter_unavailable` distinct from `no_sandbox_configured`, matched structurally by the `python_*` code prefix:
+  this names the missing half without a dependency on `apps/desktop`.
+- Cold interpreter installation joins native resource close and staging cleanup; retain the primary error and report secondary cleanup failures.
 - Output is bounded twice and both counts reported: what the model projection
   trims is ADDED to the executor's omitted byte counts, and the TAIL is kept.
 - The approval card's facts are server-computed in
@@ -188,7 +188,7 @@ Settled: an abort is an error, not a result. Evidence:
 Settled: Gate A is the framework's approval, Gate B the suspension channel; the
 pre-1.56 in-tool approval design is dead. Evidence:
 `code-execution/run-python-approval-gates.md`,
-`code-execution/run-python-result-and-scratch.md`.
+`code-execution/run-python-result-and-scratch.md`, `effect-boundary/python-resource-scopes.md`.
 Guard: `packages/agent/src/__tests__/run-python-tool.spec.ts`,
 `packages/agent/src/__tests__/mastra-tool-approval-chunks.spec.ts`,
 `packages/agent/src/__tests__/mastra-tool-suspend-resume.integration.spec.ts`.
