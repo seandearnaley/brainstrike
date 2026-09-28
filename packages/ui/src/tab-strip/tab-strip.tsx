@@ -1,3 +1,4 @@
+import type { AnyContextAction } from '@brainstrike/context-actions';
 import { useEventCallback } from '@brainstrike/hooks';
 import {
   type ReactElement,
@@ -7,7 +8,10 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ActionContextMenu } from '../context-menu/action-context-menu';
+import {
+  ActionContextMenu,
+  type ContextMenuTargetController,
+} from '../context-menu/action-context-menu';
 import { cn } from '../lib/utils';
 import { TabPanelBoundary } from './tab-panel-boundary';
 import { TabStripAllTabsMenu } from './tab-strip-all-tabs-menu';
@@ -132,7 +136,6 @@ function TabStripContent({
     trailingRef,
   });
 
-  const reportContextMenuOpen = useMenuOpenReporter(onMenuOpenChange);
   const handleActivate = useEventCallback((id: string): void => onActivate(id));
   const handleCloseStable = useEventCallback((id: string): void => onClose?.(id));
   const handleClose = onClose ? handleCloseStable : null;
@@ -250,13 +253,44 @@ function TabStripContent({
     return strip;
   }
   return (
-    <ActionContextMenu
+    <TabStripContextMenuHost
       controller={menu.controller}
       localActions={contextMenu.localActions}
       onCloseAutoFocus={menu.restoreFocusAfterMenu}
-      onOpenChange={reportContextMenuOpen}
+      onMenuOpenChange={onMenuOpenChange}
     >
       {strip}
+    </TabStripContextMenuHost>
+  );
+}
+
+/**
+ * Owns the context menu's open reporter so it unmounts WITH the menu: dropping
+ * `contextMenu` (or unmounting the strip) while the menu is open still reports
+ * the close a native-view host is waiting for.
+ */
+function TabStripContextMenuHost({
+  children,
+  controller,
+  localActions,
+  onCloseAutoFocus,
+  onMenuOpenChange,
+}: {
+  readonly children: ReactNode;
+  readonly controller: ContextMenuTargetController;
+  readonly localActions: readonly AnyContextAction[];
+  readonly onCloseAutoFocus: () => void;
+  readonly onMenuOpenChange: ((open: boolean) => void) | undefined;
+}): ReactElement {
+  const reportOpenChange = useMenuOpenReporter(onMenuOpenChange);
+  return (
+    <ActionContextMenu
+      controller={controller}
+      localActions={localActions}
+      onCloseAutoFocus={onCloseAutoFocus}
+      onOpenChange={reportOpenChange}
+    >
+      {children}
     </ActionContextMenu>
   );
 }

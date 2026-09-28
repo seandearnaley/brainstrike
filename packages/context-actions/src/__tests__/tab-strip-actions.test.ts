@@ -168,6 +168,12 @@ describe('createTabStripActions', () => {
     await expect(action('close').run(threadTab('a'), {})).resolves.toEqual({ ok: true });
   });
 
+  it('runs a synchronous operation before run() returns, so callers see the mutation at once', () => {
+    const { action, getOrder } = setup(['a', 'b']);
+    void action('close').run(threadTab('a'), {});
+    expect(getOrder()).toEqual(['b']);
+  });
+
   it('moves within the live order and reports the move', async () => {
     const { action, getOrder } = setup(['a', 'b', 'c']);
     await expect(action('move-right').run(threadTab('a'), {})).resolves.toEqual({

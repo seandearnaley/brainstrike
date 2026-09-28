@@ -1,9 +1,10 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { BrowserBridge, BrowserTab } from '../browser-pane/browser-bridge';
 import { BrowserPaneContent } from '../browser-pane/browser-pane-content';
 import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
@@ -416,6 +417,8 @@ describe('BrowserPaneContent tab strip (BST-1840)', () => {
 
   it('reports a bulk close with several failures once, with one resync', async () => {
     const user = userEvent.setup();
+    const records: LogRecord[] = [];
+    onTestFinished(addLogListener((record) => records.push(record)));
     bridge.closeTab
       .mockRejectedValueOnce(new Error('unknown tab a'))
       .mockRejectedValueOnce(new Error('unknown tab c'));
@@ -427,10 +430,16 @@ describe('BrowserPaneContent tab strip (BST-1840)', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
 
     expect(
-      await screen.findByText('2 of 3 browser tabs failed to close: unknown tab a')
+      await screen.findByText('2 of 3 browser tabs failed to close: unknown tab a; unknown tab c')
     ).toBeInTheDocument();
     await waitFor(() => expect(bridge.listTabs).toHaveBeenCalledOnce());
     expect(screen.getAllByText('Action failed')).toHaveLength(1);
+    // Every rejection reason reaches the (redacted, serialized) log record.
+    const logged = records.filter(
+      (record) => record.message === 'Browser pane tab action failed; resyncing tabs'
+    );
+    expect(logged).toHaveLength(1);
+    expect(JSON.stringify(logged[0]?.args)).toContain('unknown tab a; unknown tab c');
   });
 
   it('disables Reload and Duplicate once the right-clicked tab has closed', async () => {

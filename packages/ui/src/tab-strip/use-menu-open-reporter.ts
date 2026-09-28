@@ -19,7 +19,7 @@ export function useMenuOpenReporter(
     openRef.current = open;
     onOpenChange?.(open);
   });
-  // biome-ignore lint/plugin: unmount cleanup notifying an external host (native-view occlusion), not state used as an event handler
+  // Unmount cleanup: report a close the menu itself can no longer report.
   useEffect(() => () => report(false), [report]);
   return report;
 }

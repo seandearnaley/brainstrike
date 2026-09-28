@@ -109,18 +109,18 @@ function createBrowserTabActions(
     const tabIds = liveTabs().flatMap(({ tabId }) => (keep(tabId) ? [] : [tabId]));
     const attempt = Promise.allSettled(tabIds.map((tabId) => bridge.closeTab(tabId))).then(
       (results) => {
-        const failures = results.flatMap((result) =>
-          result.status === 'rejected' ? [result.reason] : []
+        // Every reason goes in the message: the logger serializes errors
+        // (message/stack only), so a separate reasons array would not survive.
+        const reasons = results.flatMap((result) =>
+          result.status === 'rejected' ? [getErrorMessage(result.reason)] : []
         );
-        const [first] = failures;
-        if (failures.length === 0) {
+        if (reasons.length === 0) {
           return;
         }
-        const firstMessage = first instanceof Error ? first.message : String(first);
         throw new Error(
-          failures.length === 1
-            ? firstMessage
-            : `${failures.length} of ${tabIds.length} browser tabs failed to close: ${firstMessage}`
+          reasons.length === 1
+            ? reasons.join('')
+            : `${reasons.length} of ${tabIds.length} browser tabs failed to close: ${reasons.join('; ')}`
         );
       }
     );
