@@ -307,7 +307,8 @@ hand-roll a tablist.
   and announces it. Shift+F10 (keydown) and the ContextMenu key (keyup, where
   Windows Chromium opens its own) open the tab menu at the tab. Middle-click closes.
 - The close ✕ is a mouse-only sibling (`aria-hidden`, `tabIndex=-1`): the tablist
-  owns only tabs, which axe `aria-required-children` checks.
+  owns only tabs, which axe `aria-required-children` checks. A pointer close moves
+  focus only when it was lost: to the new selected tab, else Delete's fallbacks.
 - Menus: tab menus come from `createTabStripActions` (`@brainstrike/context-actions`)
   plus the global actions for that target kind; the empty strip background claims a
   `tab-strip` target; `closeAll` receives the invoking id. Focus returns to the origin.
@@ -315,9 +316,8 @@ hand-roll a tablist.
   non-passive listener (React's `onWheel` is passive; trackpad x-input stays native),
   edge fades, keyboard-only `scroll-px-8` reveal, and the All-tabs menu.
 - Wrap each tab panel in `TabPanelBoundary`; the strip wraps itself. A render crash
-  stays in its panel. Keep-alive and `<Activity>` choices are per surface: see
-  spec §7.1, and never hide a panel whose effects own still-running work with
-  `<Activity>`.
+  stays in its panel. Keep-alive and `<Activity>` choices are per surface (spec
+  §7.1); never hide a panel whose effects own still-running work with `<Activity>`.
 
 Settled: BST-1836 decisions D1–D9 (2026-09-27). Evidence: `ui-conventions/tab-strips.md`.
 Guard: `packages/ui/src/tab-strip/__tests__/tab-strip.test.tsx`,

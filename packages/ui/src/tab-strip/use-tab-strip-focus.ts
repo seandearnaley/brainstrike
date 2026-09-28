@@ -1,8 +1,15 @@
 import { useEventCallback } from '@brainstrike/hooks';
 import { type FocusEvent, type RefObject, useEffect, useRef } from 'react';
-import { findTab, focusFirstTrailingControl, revealTab } from './tab-strip-dom';
+import {
+  findSelectedTab,
+  findTab,
+  focusFirstTrailingControl,
+  isFocusLost,
+  revealTab,
+} from './tab-strip-dom';
 
 export interface TabStripFocus {
+  readonly focusAfterPointerClose: () => void;
   readonly focusFallback: () => void;
   readonly focusTab: (id: string) => void;
   readonly focusTabAfterCommit: (id: string) => void;
@@ -38,11 +45,28 @@ export function useTabStripFocus({
   const focusTabAfterCommit = useEventCallback((id: string): void => {
     window.requestAnimationFrame(() => focusTab(id));
   });
+  const focusFallbackNow = (): void => {
+    if (!focusFirstTrailingControl(trailingRef.current)) {
+      tablistRef.current?.focus();
+    }
+  };
   const focusFallback = useEventCallback((): void => {
+    window.requestAnimationFrame(focusFallbackNow);
+  });
+  // The ✕ and middle-click never take focus, but closing the active tab
+  // unmounts its panel: focus inside it falls to body. Only then move it to the
+  // newly selected tab; focus that survived the close stays where it is.
+  const focusAfterPointerClose = useEventCallback((): void => {
     window.requestAnimationFrame(() => {
-      if (!focusFirstTrailingControl(trailingRef.current)) {
-        tablistRef.current?.focus();
+      if (!isFocusLost()) {
+        return;
       }
+      const selected = findSelectedTab(rootRef.current);
+      if (selected) {
+        selected.focus();
+        return;
+      }
+      focusFallbackNow();
     });
   });
   const handleTablistPointerDown = useEventCallback((): void => {
@@ -77,6 +101,7 @@ export function useTabStripFocus({
   }, [activeId, rootRef]);
 
   return {
+    focusAfterPointerClose,
     focusFallback,
     focusTab,
     focusTabAfterCommit,

@@ -45,7 +45,10 @@ export interface TabStripTabProps {
   readonly isTabStop: boolean;
   readonly item: TabStripItem;
   readonly onActivate: (id: string) => void;
-  /** Null when the strip has no close capability; `item.closable` gates per tab. */
+  /**
+   * Pointer close (✕, middle-click). Null when the strip has no close
+   * capability; `item.closable` gates per tab.
+   */
   readonly onClose: ((id: string) => void) | null;
   readonly onContextMenu: (id: string) => void;
   /** Strip-scoped drag identity; null when this tab is not reorderable. */

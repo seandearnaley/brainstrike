@@ -12,6 +12,17 @@ export function findTab(root: HTMLElement | null, id: string): HTMLElement | nul
   return null;
 }
 
+/** The committed selected tab, pinned or scroll: after a close, the consumer's new active tab. */
+export function findSelectedTab(root: HTMLElement | null): HTMLElement | null {
+  return root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? null;
+}
+
+/** Focus was dropped: nothing focused, `body`, or an element no longer in the document. */
+export function isFocusLost(): boolean {
+  const focused = document.activeElement;
+  return focused === null || focused === document.body || !focused.isConnected;
+}
+
 function prefersReducedMotion(): boolean {
   return (
     typeof window.matchMedia === 'function' &&

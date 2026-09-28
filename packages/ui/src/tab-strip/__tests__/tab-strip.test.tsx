@@ -308,6 +308,76 @@ describe('TabStrip keyboard (APG, manual activation)', () => {
   });
 });
 
+/** A strip whose close selects the successor, plus the active tab's panel input. */
+function PanelHarness({ initial }: { readonly initial: readonly string[] }): ReactElement {
+  const [ids, setIds] = useState<readonly string[]>(initial);
+  const [activeId, setActiveId] = useState<string | null>(initial[0] ?? null);
+  const items = useMemo(() => ids.map((id) => makeItem(id)), [ids]);
+  const close = (id: string): void => {
+    const index = ids.indexOf(id);
+    const remaining = ids.filter((candidate) => candidate !== id);
+    setIds(remaining);
+    if (id === activeId) {
+      setActiveId(remaining[index] ?? remaining[index - 1] ?? null);
+    }
+  };
+  return (
+    <>
+      <TabStrip
+        activeId={activeId}
+        aria-label="Documents"
+        items={items}
+        onActivate={setActiveId}
+        onClose={close}
+        trailing={<button type="button">New</button>}
+      />
+      {activeId ? <input aria-label={`Editor ${activeId}`} key={activeId} /> : null}
+      <input aria-label="Address" />
+    </>
+  );
+}
+
+const nextFrame = (): Promise<void> =>
+  new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+
+describe('TabStrip pointer close focus', () => {
+  it('focuses the newly selected tab when the close unmounts the focused panel', async () => {
+    const user = userEvent.setup();
+    render(<PanelHarness initial={['a', 'b', 'c']} />);
+    await user.click(tab('Tab b'));
+    screen.getByRole('textbox', { name: 'Editor b' }).focus();
+
+    await user.click(screen.getByTitle('Close Tab b'));
+
+    expect(tab('Tab c')).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(tab('Tab c')).toHaveFocus());
+  });
+
+  it('focuses the first trailing control when the last tab closes from its panel', async () => {
+    const user = userEvent.setup();
+    render(<PanelHarness initial={['a']} />);
+    screen.getByRole('textbox', { name: 'Editor a' }).focus();
+
+    await user.click(screen.getByTitle('Close Tab a'));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'New' })).toHaveFocus());
+  });
+
+  it('leaves focus in an element that survives the close', async () => {
+    const user = userEvent.setup();
+    render(<PanelHarness initial={['a', 'b']} />);
+    const address = screen.getByRole('textbox', { name: 'Address' });
+    address.focus();
+
+    await user.click(screen.getByTitle('Close Tab a'));
+    await nextFrame();
+    await nextFrame();
+
+    expect(tab('Tab b')).toHaveAttribute('aria-selected', 'true');
+    expect(address).toHaveFocus();
+  });
+});
+
 describe('TabStrip context menu', () => {
   it('opens the tab menu on right-click and runs the action against that tab', async () => {
     const user = userEvent.setup();
