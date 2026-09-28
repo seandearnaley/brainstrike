@@ -43,10 +43,10 @@ Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`, `scripts/__
 - `createConcurrencyLimiter` bounds concurrency, not order: a task arriving
   while a permit is free can start ahead of waiters not yet woken. FIFO users
   (snapshot and worktree mutexes) keep their promise chain.
-- Ordered teardown runs through `runShutdownSequence`, in an explicit order: a
-  failed step never skips a later one; at the deadline the running step aborts.
+- Ordered teardown runs through `runShutdownSequence`, in an explicit order: a failed step never skips a later one; at the deadline the running step aborts.
 - Retry token-cache transactions with `Effect.retry` and a bounded `Schedule`:
   preserve rollback, failure identity and logs; reject out-of-range delays.
+- File-tree bulk operations share one Scope-owned pending entry; detach before settlement, preserve synchronous posting and first terminal outcome, and clean failed sends before replacement.
 - Provider auth and assistant provider probes bound fetch and body reading together; cancellation aborts fetch and polling sleeps, preserving typed failures, verdicts and cache provenance.
 - The MCP OAuth callback Scope owns listener teardown; each wait uses `Effect.ensuring` for timer cleanup, and close joins all active waits. Provider OAuth loopback Scope owns listener cleanup; reject duplicate waits, and close joins its callback timer and both socket cleanup operations.
 - Embedding admission reserves partial permits transactionally; abort only capacity waits, never committed grants.
@@ -54,7 +54,7 @@ Guard: `packages/effect-kit/src/__tests__/promise-boundary.test.ts`, `scripts/__
 - OXC IPC request Scope owns its correlation entry and timer; first terminal outcome wins, malformed or mismatched replies remain pending, and local cleanup never cancels remote parsing.
 - Python cold-install scopes join hash-stream and tar-child close before staging cleanup; preserve first-caller ownership; committed installs win only over late abort, and cleanup failures remain visible.
 
-Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`, `effect-boundary/mcp-oauth-callback-scope.md`, `effect-boundary/embedding-admission-permits.md`, `effect-boundary/provider-loopback-scope.md`, `effect-boundary/python-resource-scopes.md`, `effect-boundary/oxc-request-scopes.md`, `effect-boundary/parser-generation-scope.md`.
+Evidence: `effect-boundary/phase-one-pilots.md`, `effect-boundary/phase-three-lifecycle.md`, `effect-boundary/token-cache-retry.md`, `effect-boundary/provider-auth-lifetimes.md`, `effect-boundary/provider-probe-lifetimes.md`, `effect-boundary/mcp-oauth-callback-scope.md`, `effect-boundary/embedding-admission-permits.md`, `effect-boundary/provider-loopback-scope.md`, `effect-boundary/python-resource-scopes.md`, `effect-boundary/oxc-request-scopes.md`, `effect-boundary/parser-generation-scope.md`, `effect-boundary/file-tree-operation-scopes.md`.
 Guard: `packages/effect-kit/src/__tests__/concurrency-limiter.test.ts`, `timeout.test.ts`, `shutdown-sequence.test.ts`, `scripts/__tests__/effect-boundary-contract.test.mjs`.
 
 ### Desktop composition refactors

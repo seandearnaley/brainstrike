@@ -75,6 +75,9 @@ const CANONICAL_TYPE_CHECK_FORMS = [
   'tsc --noEmit && effect-tsgo diagnostics --project tsconfig.json --strict',
 ];
 
+const FILE_TREE_WORKER_TYPE_CHECK =
+  'tsc --noEmit && effect-tsgo diagnostics --project tsconfig.test.json --strict';
+
 /**
  * The one canonical per-package lint alias. `-w` runs the root `lint` script
  * regardless of package nesting depth, and — critically — the alias carries no
@@ -128,6 +131,10 @@ const TYPE_CHECK_ALLOWLIST = new Map([
   [
     '@brainstrike/desktop',
     'app — splits main + test + e2e type-checks via `pnpm type-check:main && pnpm type-check:test && pnpm type-check:e2e`, then the Effect diagnostics',
+  ],
+  [
+    '@brainstrike/file-tree-worker',
+    'worker — production tsc remains green while strict Effect diagnostics cover the widest test config; existing BFS fixture and worker-message-cast typing debt is recorded in the Effect evidence',
   ],
 ]);
 
@@ -341,6 +348,16 @@ test('every package type-check script matches an allowed tsc --noEmit form', () 
     }
   }
   assert.deepEqual(violations, [], `Non-canonical type-check scripts:\n${violations.join('\n')}`);
+});
+
+test('file-tree worker keeps its exact transitional type-check command', () => {
+  const pkg = packagesByName.get('@brainstrike/file-tree-worker');
+  assert.ok(pkg, '@brainstrike/file-tree-worker must remain a workspace package');
+  assert.equal(
+    normalize(pkg.scripts['type-check'] ?? ''),
+    normalize(FILE_TREE_WORKER_TYPE_CHECK),
+    'file-tree-worker must keep production tsc before strict Effect diagnostics on its widest test config'
+  );
 });
 
 test('every package lint script is the canonical root alias with no extra args', () => {
