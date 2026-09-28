@@ -47,6 +47,8 @@ const harness = vi.hoisted(() => ({
     ),
   },
   threadRows: [] as Record<string, unknown>[],
+  /** Thread ids whose mocked assistant wrapper throws during render. */
+  wrapperCrashThreadIds: new Set<string>(),
 }));
 
 export const {
@@ -56,6 +58,7 @@ export const {
   markRenders,
   mockDb,
   threadRows,
+  wrapperCrashThreadIds,
 } = harness;
 
 vi.mock('@brainstrike/db', () => ({
@@ -115,6 +118,9 @@ vi.mock('../assistant-ui-panel-wrapper', () => ({
     providerKeySources?: unknown;
   }) => {
     harness.assistantWrapperProps.push(props);
+    if (props.memoryThreadId && harness.wrapperCrashThreadIds.has(props.memoryThreadId)) {
+      throw new Error(`Assistant panel for ${props.memoryThreadId} exploded`);
+    }
     return <div data-testid="assistant-thread-wrapper">{props.memoryThreadId}</div>;
   },
 }));
@@ -209,6 +215,7 @@ beforeEach(() => {
   dbMocks.awaitingApprovalError = null;
   dbMocks.awaitingApprovalRows = [];
   markRenders.clear();
+  wrapperCrashThreadIds.clear();
   assistantWrapperProps.splice(0, assistantWrapperProps.length);
   threadRows.splice(
     0,

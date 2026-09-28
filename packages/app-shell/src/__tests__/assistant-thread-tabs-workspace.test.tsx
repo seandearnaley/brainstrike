@@ -24,6 +24,7 @@ import {
   openThreadIds,
   openThreadTabs,
   renderWorkspace,
+  wrapperCrashThreadIds,
 } from './assistant-thread-tabs-workspace-test-support';
 
 describe('AssistantThreadTabsWorkspace', () => {
@@ -44,6 +45,40 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/ })).toHaveAttribute(
       'aria-selected',
       'true'
+    );
+  });
+
+  it('contains a crashing thread panel to that panel, leaving its sibling and the strip mounted', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    wrapperCrashThreadIds.add('thread-b');
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+
+    openThreadTabs('thread-b');
+    consoleError.mockRestore();
+
+    const crashedPanel = screen.getByTestId('assistant-thread-panel-thread-b');
+    expect(within(crashedPanel).getByRole('alert')).toHaveTextContent(
+      'Amazon Bedrock Converse stopped working'
+    );
+    expect(within(crashedPanel).getByRole('button', { name: 'Reload tab' })).toBeInTheDocument();
+    // The sibling keeps its mounted assistant, hidden but alive.
+    const siblingPanel = screen.getByTestId('assistant-thread-panel-thread-a');
+    expect(siblingPanel).toHaveAttribute('hidden');
+    expect(within(siblingPanel).getByTestId('assistant-thread-wrapper')).toHaveTextContent(
+      'thread-a'
+    );
+    expect(screen.getByRole('tablist', { name: 'Open assistant threads' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+
+    // "Reload tab" is the reset: it remounts the panel's assistant in place.
+    wrapperCrashThreadIds.clear();
+    fireEvent.click(within(crashedPanel).getByRole('button', { name: 'Reload tab' }));
+    expect(within(crashedPanel).getByTestId('assistant-thread-wrapper')).toHaveTextContent(
+      'thread-b'
     );
   });
 

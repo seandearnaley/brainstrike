@@ -20,6 +20,7 @@ import { createLogger } from '@brainstrike/logging';
 import {
   Button,
   TAB_STRIP_ICON_BUTTON_CLASS_NAME,
+  TabPanelBoundary,
   TabStrip,
   type TabStripContextMenu,
   type TabStripItem,
@@ -414,40 +415,81 @@ export function AssistantThreadTabsWorkspace({
       />
 
       <div className="min-h-0 flex-1">
-        {openThreadIds.length === 0 ? (
-          <ThreadWorkspaceState
-            description="Create or select a thread to mount an assistant session."
-            title="No open assistant thread"
-          />
-        ) : (
-          openThreadIds.map((threadId) => {
-            const isActive = threadId === activeThreadId;
-            return (
-              // Keep-alive via `hidden`, never <Activity>: this panel's effects own
-              // `subscribeAssistantToolUpdates`, which a background run still needs.
-              <div
-                aria-labelledby={getTabId(threadId)}
-                className="h-full min-h-0"
-                data-testid={`assistant-thread-panel-${threadId}`}
-                hidden={!isActive}
-                id={getTabPanelId(threadId)}
-                key={threadId}
-                role="tabpanel"
-              >
-                <AssistantUiPanelWrapper
-                  {...(fixedProviderModels ? { fixedProviderModels } : {})}
-                  {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                  {...(providerKeySources ? { providerKeySources } : {})}
-                  {...(providerReadErrors ? { providerReadErrors } : {})}
-                  memoryResourceId={resourceId}
-                  memoryThreadId={threadId}
-                />
-              </div>
-            );
-          })
-        )}
+        <ThreadPanels
+          activeThreadId={activeThreadId}
+          fixedProviderModels={fixedProviderModels}
+          loadLocalLlmBackend={loadLocalLlmBackend}
+          openThreadIds={openThreadIds}
+          providerKeySources={providerKeySources}
+          providerReadErrors={providerReadErrors}
+          resourceId={resourceId}
+          threadById={threadById}
+        />
       </div>
     </div>
+  );
+}
+
+type OptionalWrapperProp<K extends keyof AssistantThreadTabsWorkspaceProps> =
+  | AssistantThreadTabsWorkspaceProps[K]
+  | undefined;
+
+/** One kept-alive tabpanel per open thread, each crash-contained to itself. */
+function ThreadPanels({
+  activeThreadId,
+  fixedProviderModels,
+  loadLocalLlmBackend,
+  openThreadIds,
+  providerKeySources,
+  providerReadErrors,
+  resourceId,
+  threadById,
+}: {
+  readonly activeThreadId: string | null;
+  readonly fixedProviderModels: OptionalWrapperProp<'fixedProviderModels'>;
+  readonly loadLocalLlmBackend: OptionalWrapperProp<'loadLocalLlmBackend'>;
+  readonly openThreadIds: readonly string[];
+  readonly providerKeySources: OptionalWrapperProp<'providerKeySources'>;
+  readonly providerReadErrors: OptionalWrapperProp<'providerReadErrors'>;
+  readonly resourceId: string;
+  readonly threadById: ReadonlyMap<string, AssistantMemoryThread>;
+}): ReactElement {
+  if (openThreadIds.length === 0) {
+    return (
+      <ThreadWorkspaceState
+        description="Create or select a thread to mount an assistant session."
+        title="No open assistant thread"
+      />
+    );
+  }
+  return (
+    <>
+      {openThreadIds.map((threadId) => (
+        // Keep-alive via `hidden`, never <Activity>: this panel's effects own
+        // `subscribeAssistantToolUpdates`, which a background run still needs.
+        <div
+          aria-labelledby={getTabId(threadId)}
+          className="h-full min-h-0"
+          data-testid={`assistant-thread-panel-${threadId}`}
+          hidden={threadId !== activeThreadId}
+          id={getTabPanelId(threadId)}
+          key={threadId}
+          role="tabpanel"
+        >
+          {/* No resetKey: inside key={threadId} it could never change; "Reload tab" resets. */}
+          <TabPanelBoundary label={threadById.get(threadId)?.title ?? threadId}>
+            <AssistantUiPanelWrapper
+              {...(fixedProviderModels ? { fixedProviderModels } : {})}
+              {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+              {...(providerKeySources ? { providerKeySources } : {})}
+              {...(providerReadErrors ? { providerReadErrors } : {})}
+              memoryResourceId={resourceId}
+              memoryThreadId={threadId}
+            />
+          </TabPanelBoundary>
+        </div>
+      ))}
+    </>
   );
 }
 
