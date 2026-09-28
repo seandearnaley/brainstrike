@@ -55,7 +55,7 @@ interface WorkspaceTabSelectionState {
    * set the workspace body renders hidden-but-mounted (Canvas's sandboxed
    * iframe and the explorer layout must never remount). Session-only (not
    * persisted; a rehydrated app selection re-seeds it); grows on activation,
-   * never shrinks on close.
+   * including a close that selects a successor, and never shrinks on close.
    */
   mountedAppIds: readonly string[];
   /** Open (add if missing) AND activate an app tab. Singleton: re-open activates. */
@@ -156,11 +156,21 @@ function coercePersisted(value: unknown): PersistedWorkspaceTabState {
   return { openAppIds, selection };
 }
 
+/**
+ * Invariant: a selected app is always mounted. `openApp`, `closeApp` and
+ * `closeApps` add their selected app through here (hydrate and rehydration
+ * re-seed from the selection), so a close that selects a restored but never
+ * activated successor still renders it instead of leaving the panel blank.
+ */
+function withMounted(mountedAppIds: readonly string[], appId: string): readonly string[] {
+  return mountedAppIds.includes(appId) ? mountedAppIds : [...mountedAppIds, appId];
+}
+
 export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>()(
   persist(
     (set, get) => ({
       closeApp: (appId) => {
-        const { openAppIds, selection } = get();
+        const { mountedAppIds, openAppIds, selection } = get();
         const index = openAppIds.indexOf(appId);
         if (index === -1) {
           return null;
@@ -173,13 +183,14 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
         }
         const successor = nextOpen[index] ?? nextOpen.at(-1) ?? null;
         set({
+          mountedAppIds: successor === null ? mountedAppIds : withMounted(mountedAppIds, successor),
           openAppIds: nextOpen,
           selection: successor === null ? { kind: 'empty' } : { appId: successor, kind: 'app' },
         });
         return successor;
       },
       closeApps: (appIds) => {
-        const { openAppIds, selection } = get();
+        const { mountedAppIds, openAppIds, selection } = get();
         const closing = new Set(appIds);
         const nextOpen = openAppIds.filter((id) => !closing.has(id));
         if (nextOpen.length === openAppIds.length) {
@@ -196,6 +207,7 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
           nextOpen.at(-1) ??
           null;
         set({
+          mountedAppIds: successor === null ? mountedAppIds : withMounted(mountedAppIds, successor),
           openAppIds: nextOpen,
           selection: successor === null ? { kind: 'empty' } : { appId: successor, kind: 'app' },
         });
@@ -212,9 +224,7 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
       mountedAppIds: DEFAULT_OPEN_APP_IDS,
       openApp: (appId) =>
         set((state) => ({
-          mountedAppIds: state.mountedAppIds.includes(appId)
-            ? state.mountedAppIds
-            : [...state.mountedAppIds, appId],
+          mountedAppIds: withMounted(state.mountedAppIds, appId),
           openAppIds: state.openAppIds.includes(appId)
             ? state.openAppIds
             : [...state.openAppIds, appId],
