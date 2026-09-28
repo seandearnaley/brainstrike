@@ -26,10 +26,10 @@ Guard: `packages/mcp-test-lab/__tests__/package-contract.test.ts`.
 
 ### Scenarios and fixtures
 
-- `scenario.ts` is the closed manifest and `mcpEvidenceCapabilitiesFor`
-  (`evidence-schema.ts`) pins negotiated capabilities per fixture. Read them; do
-  not restate them here. An unknown scenario id fails visibly, and no scenario
-  may consume ambient credentials.
+- Read the closed `scenario.ts` manifest and negotiated per-fixture `mcpEvidenceCapabilitiesFor` in `evidence-schema.ts`.
+  Never restate them; unknown ids fail visibly and no scenario consumes ambient credentials.
+- Live provenance shares a 30-second I/O abort per test within a 35-second assertion ceiling.
+  Read exact GitHub refs/tag objects; tags, digests and anchors stay strict without cache/retry/skip.
 - Every scenario is executable: `modern-reference` and `legacy-reference` have
   `availability: 'executable'`, as do `stdio-reference`, `oauth-reference`,
   `tasks-reference`, and `apps-reference`.

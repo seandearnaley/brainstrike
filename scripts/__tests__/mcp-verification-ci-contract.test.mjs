@@ -309,6 +309,12 @@ test('living contracts publish the exact local and CI commands', () => {
     conformanceContract,
     /Runtime SDK versions match installed packages; fixture source tags and commits stay historical/u
   );
+  assert.match(
+    conformanceContract,
+    /Live provenance shares a 30-second I\/O abort per test within a 35-second assertion ceiling/u
+  );
+  assert.match(conformanceContract, /Read exact GitHub refs\/tag objects/u);
+  assert.match(conformanceContract, /without cache\/retry\/skip/u);
   const ciContract = readRepoFile('docs/agents/ci-quality.md');
 
   for (const command of [representativeCommand, exhaustiveCommand]) {

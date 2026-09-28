@@ -133,3 +133,52 @@ still named 2.0.0. The SDK split-package boundary guard also retains an explicit
 lockstep assertion, now including `@modelcontextprotocol/core`. Fixture-advertised
 `serverInfo.version: '2.0.0'` is the Brainstrike-owned fixture identity, not the
 SDK package version, and remains unchanged.
+
+## Bounded live provenance requests (2026-09-28, BST-1858)
+
+Supports "Scenarios and fixtures". Electron qualification PR #3369 exposed
+an existing live SDK-tag check using Vitest's default five-second limit:
+[Test 36405992118](https://github.com/seandearnaley/brainstrike/actions/runs/36405992118)
+failed only that integration case. The runtime, native package, four packaged
+MCP lanes, both desktop smokes and the new collection guards passed. The failed
+head is retained; it is not rerun to hide the defect.
+
+An actual Git command delayed six seconds reproduces the old timeout. A first
+prototype bounded the direct Git child, but a real Git process with a controlled
+remote helper proved that both SIGKILL and default SIGTERM can leave the helper
+alive. The owned probe helpers were explicitly cleaned up. That prototype is
+not published and supplies no process-tree-cleanup claim.
+
+The live checks now use GitHub's documented
+[exact reference](https://docs.github.com/en/rest/git/refs#get-a-reference) and
+[annotated tag](https://docs.github.com/en/rest/git/tags#get-a-tag) APIs with
+the recommended JSON accept header and API version `2026-03-10`. Zod validates
+unknown response bodies. The SDK ref must have the exact requested name and
+point to a tag; the returned tag object's SHA and name bind back to that ref,
+and its commit target must equal the unchanged historical pin. The ext-apps
+ref must remain the exact lightweight tag pointing directly to its pinned
+commit. No Git process or remote helper is spawned. Repository URLs still
+come from the closed manifest and must have GitHub's HTTPS origin.
+
+Each case shares one `AbortSignal.timeout(30_000)` through every request and
+body read; Vitest gets 35 seconds including five seconds of assertion and
+teardown headroom. The longest case has one ref plus four raw-source GETs,
+all within the same deadline, not five independent 30-second allowances.
+Four serial provenance cases have a 140-second failure ceiling; no package,
+job, official-scenario or workflow timeout is raised. Tags, commit pins,
+digests, document identity and profile anchors remain strict.
+
+The final HTTP route accepts an actual first response delayed six seconds
+(6,409 ms), while a 200 response with an unfinished JSON body fails visibly
+at 30,012 ms with TimeoutError and confirmed signal propagation. Temporary
+negative controls drive the actual test and reject wrong refs, wrong tag
+types, malformed SHAs, wrong target commits, nested tags, wrong tag-object
+SHAs/names, and HTTP 403 without additional requests or fallback.
+
+There are three GitHub API requests per complete suite plus six raw-source
+requests. Public unauthenticated reads use GitHub's
+[60 requests per hour per IP limit](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
+Rate-limit, malformed-response, missing-ref, digest and timeout errors stay
+visible; the verifier adds no credential, cache, retry, skip or alternate
+source. This is live fixture provenance, not official scenario execution or
+packaged-product certification.
