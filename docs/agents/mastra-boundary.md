@@ -61,8 +61,7 @@ Evidence: `mastra-boundary/why-not-mastra-server.md`.
   deadline rather than succeeding or waiting forever.
 - Compose a delegated child's `abortSignal` with its parent tool signal. Why:
   core 1.71.0 otherwise overwrites the child signal with the parent's.
-- Remove a patch hunk only when its native regression passes against the upstream
-  replacement.
+- Remove a patch hunk only when its native regression passes against the upstream replacement.
 - Keep one host parent-turn coordinator using public `Agent.stream` and task
   manager APIs. Do not pass `untilIdle`: it cannot hold an accepted decision
   across the host's durable commit. Mastra owns child execution and cleanup;
@@ -178,6 +177,8 @@ Evidence: `mastra-boundary/memory-model-credentials.md`.
   `docs/agents/assistant-runtime.md`: run-event deferral across streaming text
   parts, `chunk.type === 'run-event'` as the durable-persistence discriminator,
   and the terminal Stop hook running before `message-finish`.
+- Treat `tool-call` → `tool-result` | `tool-error` as the agent stream's
+  tool-call boundary: `tool-execution-start/end` are NETWORK-only (BST-1777; see `assistant-runtime/stream-watchdog-phases.md`).
 
 Evidence: `mastra-boundary/stream-mapper-ownership.md`.
 Guard: `scripts/mastra-stream-chunk-contract.mjs`.
@@ -192,8 +193,7 @@ Guard: `scripts/mastra-stream-chunk-contract.mjs`.
   and keeps the stream alive; an unhandled dynamic-family member warns once per
   type per stream. Do not throw. Why: a Mastra minor adding a chunk type must
   fail in CI, not in a user's live run.
-- `processMastraStreamPart` is the live untyped Mastra boundary; the other two
-  dispatch defaults are backstops for runtime-unsound callers.
+- `processMastraStreamPart` is the live untyped Mastra boundary; the other two dispatch defaults are backstops for runtime-unsound callers.
 
 Settled: implemented and no longer architecture-gated; the guard's control cases
 prove a silently-dropping default and a relocated warning both fail. Evidence:
