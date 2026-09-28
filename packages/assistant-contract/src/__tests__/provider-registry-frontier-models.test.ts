@@ -503,7 +503,19 @@ describe('frontier model refresh (2026-07)', () => {
         label: 'Grok 4.6 (OpenRouter)',
         // BST-1804: the route's top_provider pair; it published null on 2026-08-18.
         maxOutputTokens: 450_000,
-        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        // BST-1708: gateway long-context tier rides along with the base rate.
+        pricing: {
+          inputPerMTok: 2,
+          longContextTiers: [
+            {
+              cacheReadPerMTok: 1,
+              inputPerMTok: 4,
+              minPromptTokens: 200_000,
+              outputPerMTok: 12,
+            },
+          ],
+          outputPerMTok: 6,
+        },
         reasoning: {
           defaultEffort: 'high',
           defaultEnabled: true,

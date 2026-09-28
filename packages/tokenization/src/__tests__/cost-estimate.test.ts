@@ -160,13 +160,12 @@ describe('computeCost', () => {
 describe('computeCost with long-context tiers (BST-1708)', () => {
   // Gateway long-context surcharges (OpenRouter `min_prompt_tokens`
   // overrides) are request-size conditional: at or above the threshold the
-  // tier rates apply, below it the base rates do. The cast keeps this RED
-  // phase compiling before `ModelTokenPricing` gains the field.
-  const tieredPricing = {
+  // tier rates apply, below it the base rates do.
+  const tieredPricing: ModelTokenPricing = {
     inputPerMTok: 2,
     longContextTiers: [{ inputPerMTok: 4, minPromptTokens: 272_000, outputPerMTok: 15 }],
     outputPerMTok: 10,
-  } as ModelTokenPricing;
+  };
 
   it('uses base rates below the tier threshold', () => {
     expect(computeCost({ inputTokens: 250_000, outputTokens: 100_000 }, tieredPricing)).toEqual({
@@ -192,14 +191,14 @@ describe('computeCost with long-context tiers (BST-1708)', () => {
   });
 
   it('selects the highest applicable tier', () => {
-    const multi = {
+    const multi: ModelTokenPricing = {
       inputPerMTok: 2,
       longContextTiers: [
         { inputPerMTok: 3, minPromptTokens: 100_000, outputPerMTok: 12 },
         { inputPerMTok: 5, minPromptTokens: 500_000, outputPerMTok: 20 },
       ],
       outputPerMTok: 10,
-    } as ModelTokenPricing;
+    };
     expect(computeCost({ inputTokens: 50_000, outputTokens: 0 }, multi)).toEqual({
       available: true,
       provenance: 'exact-pricing',
@@ -225,7 +224,7 @@ describe('computeCost with long-context tiers (BST-1708)', () => {
         inputPerMTok: 2,
         longContextTiers: [{ inputPerMTok: 4, minPromptTokens: 272_000, outputPerMTok: 15 }],
         outputPerMTok: 10,
-      } as ModelTokenPricing
+      }
     );
     // Uncached 240k @ tier 4 + read 60k @ base-cache 0.3.
     expect(result).toEqual({ available: true, provenance: 'exact-pricing', usdAmount: 0.978 });
@@ -233,18 +232,24 @@ describe('computeCost with long-context tiers (BST-1708)', () => {
 
   it('throws on malformed tier data rather than mispricing', () => {
     expect(() =>
-      computeCost({ inputTokens: 300_000, outputTokens: 0 }, {
-        inputPerMTok: 2,
-        longContextTiers: [{ inputPerMTok: 4, minPromptTokens: 0, outputPerMTok: 15 }],
-        outputPerMTok: 10,
-      } as ModelTokenPricing)
+      computeCost(
+        { inputTokens: 300_000, outputTokens: 0 },
+        {
+          inputPerMTok: 2,
+          longContextTiers: [{ inputPerMTok: 4, minPromptTokens: 0, outputPerMTok: 15 }],
+          outputPerMTok: 10,
+        }
+      )
     ).toThrow(/minPromptTokens/u);
     expect(() =>
-      computeCost({ inputTokens: 300_000, outputTokens: 0 }, {
-        inputPerMTok: 2,
-        longContextTiers: [{ inputPerMTok: -4, minPromptTokens: 272_000, outputPerMTok: 15 }],
-        outputPerMTok: 10,
-      } as ModelTokenPricing)
+      computeCost(
+        { inputTokens: 300_000, outputTokens: 0 },
+        {
+          inputPerMTok: 2,
+          longContextTiers: [{ inputPerMTok: -4, minPromptTokens: 272_000, outputPerMTok: 15 }],
+          outputPerMTok: 10,
+        }
+      )
     ).toThrow();
   });
 });
