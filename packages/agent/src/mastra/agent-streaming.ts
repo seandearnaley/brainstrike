@@ -186,7 +186,7 @@ type DynamicMastraChunkType =
   | `data-${string}`
   | `workflow-execution-event-${string}`;
 type MastraChunkTypeMustStayLiteral = string extends ChunkType['type'] ? never : unknown;
-export type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
+type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
 type MastraStaticChunkDisposition = 'ignored' | 'mapped' | 'normalized';
 
 /**

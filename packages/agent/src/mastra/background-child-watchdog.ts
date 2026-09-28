@@ -273,6 +273,17 @@ export function createBackgroundChildWatchdogs(
    * so only `hostExecution` watches them: the manager's copy of their
    * lifecycle — a `resumed` that lands after the execution already ended —
    * would start a watch nothing feeds.
+   *
+   * Entries persist until `dispose`: removing one in `end()` is neither safe
+   * nor needed. Not safe, because the manager's stale copy of the ended
+   * execution is indistinguishable from a new live resume, so clearing the
+   * marker would let that copy start an unfed watch (pinned by
+   * `background-child-watchdog.spec.ts` "a `resumed` delivered after a
+   * host-run execution ended never starts a watch nothing feeds"). Not
+   * needed, because every live resume-leg execution re-registers through
+   * `hostExecution` itself (pinned by `background-resume.spec.ts` "a resumed
+   * executor's child is watched from its execution's start to its end"), so a
+   * genuinely new execution never depends on the manager path this set blocks.
    */
   const hostRun = new Set<string>();
   const listeners = new Set<() => void>();

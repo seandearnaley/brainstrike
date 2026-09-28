@@ -182,10 +182,10 @@ export function hasExecutionGuardBehindToolCall(
  *
  * A grandchild arrives as an envelope inside an envelope, so the unwrap
  * recurses — bounded, because `output` is ultimately provider/tool data and an
- * unbounded walk over it is not something a watchdog may do. The bound is one
- * past `DELEGATION_LIMITS.maxDepth`'s reach in practice; a structure deeper
- * than this yields `undefined`, which TIGHTENS (the call rides the ordinary
- * provider windows) rather than widening.
+ * unbounded walk over it is not something a watchdog may do. The bound is
+ * `MAX_DELEGATED_ENVELOPE_UNWRAPS` below; a structure deeper than this yields
+ * `undefined`, which TIGHTENS (the call rides the ordinary provider windows)
+ * rather than widening.
  */
 const MASTRA_DELEGATED_CHILD_ENVELOPE_TYPE = 'tool-output';
 const MAX_DELEGATED_ENVELOPE_UNWRAPS = 8;
