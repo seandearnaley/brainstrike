@@ -346,8 +346,8 @@ reload is always the user's click. Why: a web session holds running work, and a 
   logged and the flow continues; factory reset's blanket `sessionStorage.clear()` covers the key.
 - `buildIdPlugin` defines the id: the dev server gets `dev`, an unresolvable production build throws.
 
-Settled: no automatic reload, no silent fallback. Evidence: `ui-conventions/app-reload.md`.
-Guard: `app-shell/src/app-reload/__tests__/`, `build-utils/src/__tests__/build-id.test.ts`.
+Settled: no automatic reload, no silent fallback, no cache header on `index.html`. Evidence: `ui-conventions/app-reload.md`.
+Guard: `app-reload/__tests__/`, `build-id.test.ts`, `e2e/app-reload-recovery*`, `vercel-config.test.ts`.
 
 ---
 
