@@ -164,14 +164,14 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
   `memory-baseline` dispatch suite. That suite is evidence collection only — it
   never replaces or routes a required PR check.
 - AI Tools settings specs stay in both required PR smoke lanes and in nightly.
-- E2E collection selection waits for the picker or the requested quiet label; an absent picker alone is not readiness.
+- E2E collection selection waits for the named picker or loaded single-set label, never unrelated text or pending rows.
 
 Evidence: `ci-quality/desktop-electron-provisioning.md`,
 `ci-quality/packaged-mcp-lanes.md`, `ci-quality/desktop-memory-calibration.md`,
 `ci-quality/ai-tools-smoke-lanes.md`, `ci-quality/electron-collection-readiness.md`.
 Guard: `scripts/__tests__/desktop-electron-provisioning-contract.test.mjs`,
 `e2e-lane-coverage.test.mjs`, `mcp-*-packaged-ci-contract.test.mjs`,
-`ai-tools-e2e-pr-gate-contract.test.mjs`; desktop `desktop-e2e-harness-contract.test.ts`.
+`ai-tools-e2e-pr-gate-contract.test.mjs`; `desktop-e2e-harness-contract.test.ts`, `search-collection-picker.test.tsx`.
 
 ### Every Linux apt site drops the unused Google Chrome source first
 
