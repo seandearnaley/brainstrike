@@ -54,3 +54,18 @@ silent degradation this repo forbids. What IS in the required Static lane is
 derivation offline against real payload shapes — including the same surge
 payload captured at a peak and an off-peak moment, which must yield the same
 answer.
+
+---
+
+BST-1708 append: the tier surcharge the audit used to classify-but-ignore now
+drives `computeCost`, so `auditOpenRouterTiers` diffs every row HOLDING
+`pricing.longContextTiers` against the live `min_prompt_tokens` overrides —
+threshold, input/output, and tier cache rates. Live read 2026-09-28: all 14
+held tier rows match. Settled details: the derivation sorts by threshold
+(upstream order is not a contract); a duplicated threshold throws, because two
+entries at one size leave "the highest tier at or below" ambiguous; extra keys
+inside a tier entry (`audio`, `input_audio_cache` on gemini-3.1-pro-preview)
+are ignored as unmodelled rates, the way the base derivation ignores
+top-level `web_search`; rows holding NO tiers are skipped — tier coverage is
+an authoring decision, not drift. Upstream tier entries publish only
+`input_cache_read` / `input_cache_write` as cache rates.

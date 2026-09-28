@@ -165,6 +165,20 @@ export interface LlmModelDefinition extends BaseModelDefinition {
      */
     cacheWritePerMTok?: number;
     inputPerMTok: number;
+    /**
+     * Gateway long-context surcharge bands (BST-1708): upstream
+     * `pricing.overrides` entries keyed by `min_prompt_tokens`, recorded
+     * per-MTok. `computeCost` applies the highest tier at or below the
+     * request's total input tokens; cache classes use a tier's cache rates
+     * when declared, else the base rates above.
+     */
+    longContextTiers?: readonly {
+      readonly minPromptTokens: number;
+      readonly inputPerMTok: number;
+      readonly outputPerMTok: number;
+      readonly cacheReadPerMTok?: number;
+      readonly cacheWritePerMTok?: number;
+    }[];
     outputPerMTok: number;
   };
   /**

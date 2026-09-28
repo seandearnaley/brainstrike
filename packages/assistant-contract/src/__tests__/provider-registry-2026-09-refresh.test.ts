@@ -105,7 +105,20 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       id: 'openai/gpt-6-sol',
       label: 'GPT-6 Sol (OpenRouter)',
       maxOutputTokens: 128_000,
-      pricing: { inputPerMTok: 2, outputPerMTok: 10 },
+      // BST-1708: gateway long-context tier rides along with the base rate.
+      pricing: {
+        inputPerMTok: 2,
+        longContextTiers: [
+          {
+            cacheReadPerMTok: 0.4,
+            cacheWritePerMTok: 5,
+            inputPerMTok: 4,
+            minPromptTokens: 272_000,
+            outputPerMTok: 15,
+          },
+        ],
+        outputPerMTok: 10,
+      },
       reasoning: {
         defaultEffort: 'medium',
         defaultEnabled: true,
@@ -121,7 +134,20 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       id: 'openai/gpt-6-luna',
       label: 'GPT-6 Luna (OpenRouter)',
       maxOutputTokens: 128_000,
-      pricing: { inputPerMTok: 0.1, outputPerMTok: 0.5 },
+      // BST-1708: gateway long-context tier rides along with the base rate.
+      pricing: {
+        inputPerMTok: 0.1,
+        longContextTiers: [
+          {
+            cacheReadPerMTok: 0.02,
+            cacheWritePerMTok: 0.25,
+            inputPerMTok: 0.2,
+            minPromptTokens: 272_000,
+            outputPerMTok: 0.75,
+          },
+        ],
+        outputPerMTok: 0.5,
+      },
       reasoning: {
         defaultEffort: 'medium',
         defaultEnabled: true,
@@ -152,7 +178,19 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       id: 'x-ai/grok-4.7',
       label: 'Grok 4.7 (OpenRouter)',
       maxOutputTokens: 450_000,
-      pricing: { inputPerMTok: 1.6, outputPerMTok: 4.8 },
+      // BST-1708: gateway long-context tier rides along with the base rate.
+      pricing: {
+        inputPerMTok: 1.6,
+        longContextTiers: [
+          {
+            cacheReadPerMTok: 0.8,
+            inputPerMTok: 3.2,
+            minPromptTokens: 200_000,
+            outputPerMTok: 9.6,
+          },
+        ],
+        outputPerMTok: 4.8,
+      },
       reasoning: {
         defaultEffort: 'high',
         defaultEnabled: true,

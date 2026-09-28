@@ -229,10 +229,48 @@ describe('model pricing metadata', () => {
   it('prices the OpenRouter GPT-5.x rows from the gateway, not from the stale direct block', () => {
     const models = listProviderLlmModels('openrouter');
     const rate = (id: string) => models.find((model) => model.id === id)?.pricing;
-    expect(rate('openai/gpt-5.5')).toEqual({ inputPerMTok: 5, outputPerMTok: 30 });
-    expect(rate('openai/gpt-5.4')).toEqual({ inputPerMTok: 2.5, outputPerMTok: 15 });
-    expect(rate('openai/gpt-5.6-terra')).toEqual({ inputPerMTok: 2, outputPerMTok: 12 });
-    expect(rate('openai/gpt-5.6-luna')).toEqual({ inputPerMTok: 0.2, outputPerMTok: 1.2 });
+    // BST-1708: base rates unchanged; each row additionally carries its
+    // gateway long-context tier.
+    expect(rate('openai/gpt-5.5')).toEqual({
+      inputPerMTok: 5,
+      longContextTiers: [
+        { cacheReadPerMTok: 1, inputPerMTok: 10, minPromptTokens: 272_000, outputPerMTok: 45 },
+      ],
+      outputPerMTok: 30,
+    });
+    expect(rate('openai/gpt-5.4')).toEqual({
+      inputPerMTok: 2.5,
+      longContextTiers: [
+        { cacheReadPerMTok: 0.5, inputPerMTok: 5, minPromptTokens: 272_000, outputPerMTok: 22.5 },
+      ],
+      outputPerMTok: 15,
+    });
+    expect(rate('openai/gpt-5.6-terra')).toEqual({
+      inputPerMTok: 2,
+      longContextTiers: [
+        {
+          cacheReadPerMTok: 0.4,
+          cacheWritePerMTok: 5,
+          inputPerMTok: 4,
+          minPromptTokens: 272_000,
+          outputPerMTok: 18,
+        },
+      ],
+      outputPerMTok: 12,
+    });
+    expect(rate('openai/gpt-5.6-luna')).toEqual({
+      inputPerMTok: 0.2,
+      longContextTiers: [
+        {
+          cacheReadPerMTok: 0.04,
+          cacheWritePerMTok: 0.5,
+          inputPerMTok: 0.4,
+          minPromptTokens: 272_000,
+          outputPerMTok: 1.8,
+        },
+      ],
+      outputPerMTok: 1.2,
+    });
   });
 
   /**
@@ -255,7 +293,21 @@ describe('model pricing metadata', () => {
       (model) => model.id === 'openai/gpt-5.6-sol'
     );
     expect(platformSol?.pricing).toEqual({ inputPerMTok: 4, outputPerMTok: 20 });
-    expect(routedSol?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
+    // BST-1708: the routed row additionally carries its gateway
+    // long-context tier; the pair still differs.
+    expect(routedSol?.pricing).toEqual({
+      inputPerMTok: 2,
+      longContextTiers: [
+        {
+          cacheReadPerMTok: 0.4,
+          cacheWritePerMTok: 5,
+          inputPerMTok: 4,
+          minPromptTokens: 272_000,
+          outputPerMTok: 15,
+        },
+      ],
+      outputPerMTok: 10,
+    });
     expect(routedSol?.pricing).not.toEqual(platformSol?.pricing);
   });
 
@@ -301,5 +353,64 @@ describe('model pricing metadata', () => {
   it('prices the Gemini 3.5 Flash default from the Google pricing page', () => {
     const flash = listProviderLlmModels('google').find((model) => model.id === 'gemini-3.5-flash');
     expect(flash?.pricing).toEqual({ inputPerMTok: 1.5, outputPerMTok: 9 });
+  });
+
+  // BST-1708: gateway long-context surcharge tiers (`min_prompt_tokens`
+  // overrides), recorded per-MTok from the OpenRouter Models API. Values
+  // below were read 2026-09-22 for the pre-refresh rows and read 2026-09-28
+  // for the BST-1804 rows (gpt-6-sol, gpt-6-luna, grok-4.7);
+  // anthropic/claude-opus-5.5 publishes no tier and stays flat.
+  it('carries long-context tiers on exactly the fourteen banded gateway rows', () => {
+    const tiered = new Map<string, unknown>();
+    for (const provider of listProviders()) {
+      for (const model of provider.models) {
+        if (model.type === 'llm' && model.pricing?.longContextTiers !== undefined) {
+          tiered.set(`${provider.id}/${model.id}`, model.pricing.longContextTiers);
+        }
+      }
+    }
+    expect([...tiered.keys()].sort()).toEqual(
+      [
+        'openrouter/google/gemini-3.1-pro-preview',
+        'openrouter/openai/gpt-5.4',
+        'openrouter/openai/gpt-5.5',
+        'openrouter/openai/gpt-5.6-luna',
+        'openrouter/openai/gpt-5.6-sol',
+        'openrouter/openai/gpt-5.6-terra',
+        'openrouter/openai/gpt-6-astra',
+        'openrouter/openai/gpt-6-luna',
+        'openrouter/openai/gpt-6-sol',
+        'openrouter/qwen/qwen3.6-flash',
+        'openrouter/qwen/qwen3.7-plus',
+        'openrouter/x-ai/grok-4.5',
+        'openrouter/x-ai/grok-4.6',
+        'openrouter/x-ai/grok-4.7',
+      ].sort()
+    );
+    expect(tiered.get('openrouter/openai/gpt-6-astra')).toEqual([
+      {
+        cacheReadPerMTok: 2,
+        cacheWritePerMTok: 25,
+        inputPerMTok: 20,
+        minPromptTokens: 272_000,
+        outputPerMTok: 75,
+      },
+    ]);
+    expect(tiered.get('openrouter/x-ai/grok-4.7')).toEqual([
+      {
+        cacheReadPerMTok: 0.8,
+        inputPerMTok: 3.2,
+        minPromptTokens: 200_000,
+        outputPerMTok: 9.6,
+      },
+    ]);
+    expect(tiered.get('openrouter/qwen/qwen3.6-flash')).toEqual([
+      {
+        cacheWritePerMTok: 0.9375,
+        inputPerMTok: 0.75,
+        minPromptTokens: 256_000,
+        outputPerMTok: 3,
+      },
+    ]);
   });
 });
