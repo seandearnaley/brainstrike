@@ -228,9 +228,10 @@ describe('useTabChords', () => {
       nextTab.setAttribute('aria-selected', 'false');
       assistantPanel.prepend(nextTab);
       strips['assistant-threads'].activate.mockImplementation(() => {
-        // The previous thread's panel is hidden with the composer in it.
+        // The previous thread's panel is hidden with the composer in it. The
+        // browser moves focus off a hidden element only at its next rendering
+        // step, AFTER animation frames run, so focus is still on it here.
         assistantInput.hidden = true;
-        assistantInput.blur();
         nextTab.setAttribute('aria-selected', 'true');
       });
       mount({ claimWindowChords: false, isMac: false });
@@ -248,7 +249,6 @@ describe('useTabChords', () => {
       assistantPanel.prepend(reopenedTab);
       strips['assistant-threads'].reopenClosed.mockImplementation(() => {
         assistantInput.hidden = true;
-        assistantInput.blur();
         reopenedTab.setAttribute('aria-selected', 'true');
         return Promise.resolve({ ok: true });
       });

@@ -8,6 +8,15 @@ import { getTabChordStrip, resolveTabChordScope, type TabChordStrip } from './ta
 const logger = createLogger('TabChords');
 
 /**
+ * Focus is lost when nothing holds it, or when it sits inside a `hidden` panel:
+ * the browser moves focus off a hidden element only at its next rendering step,
+ * after animation frames have run. (A removed element drops focus to body at once.)
+ */
+function isFocusLost(active: Element | null): boolean {
+  return active === null || active === document.body || active.closest('[hidden]') !== null;
+}
+
+/**
  * Closing, cycling or reopening can unmount or hide the element that had focus
  * (the tab, or the panel it left), dropping focus to body — and the next chord
  * would then act on the workspace. Once the change has rendered, move LOST focus
@@ -16,8 +25,7 @@ const logger = createLogger('TabChords');
  */
 function keepFocusInStrip(strip: TabChordStrip): void {
   window.requestAnimationFrame(() => {
-    const active = document.activeElement;
-    if (active !== null && active !== document.body) {
+    if (!isFocusLost(document.activeElement)) {
       return;
     }
     const panel = strip.getPanel();
