@@ -76,6 +76,17 @@ test.describe('Tab keyboard chords (desktop)', () => {
 
     // No menu role or accelerator owns ⌘/Ctrl+W, so the renderer receives it.
     const menu = await readApplicationMenu(app);
+    // Positive control (BST-1852): `Menu.getApplicationMenu()?.items ?? []` is
+    // `[]` whenever the native menu is null, which would make every negative
+    // assertion below pass vacuously. Prove the menu is REAL first, by finding
+    // the Command Palette's ⌘K/Ctrl+K accelerator item (main.ts ~line 1521).
+    expect(menu.length).toBeGreaterThan(0);
+    expect(
+      menu.filter((item) =>
+        /^(CmdOrCtrl|CommandOrControl|Cmd|Ctrl)\+K$/i.test(item.accelerator ?? '')
+      )
+    ).toHaveLength(1);
+
     // Electron reports roles lowercased ("selectAll" reads "selectall").
     const roles = menu.map((item) => item.role?.toLowerCase() ?? null);
     // One assertion per role: any ONE of them would bind CmdOrCtrl+W.
