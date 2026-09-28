@@ -375,8 +375,8 @@ bridges through `window.platform` / `window.clipboard` to the `shell` and
   path before building paths, and never treat the id as a path.
 - Stop context triggers before native editable/selection surfaces: thread row
   menus wrap only the non-editing display, thread-tab menus only the tab lane.
-  Workspace app tabs are closable singletons with an inline close button and
-  Delete-key close, deliberately WITHOUT a context menu.
+  Workspace app tabs have a context menu (`workspace-app-tab`: Close / Close Others /
+  Close All within their placement group), superseded 2026-09-27 per BST-1836 D4.
 - Multi-tab actions execute atomically in the owning Zustand store: preserve a
   selected pinned app while mutating background file tabs, update assistant bulk
   closes across open/active/selected maps together, never mutate durable thread

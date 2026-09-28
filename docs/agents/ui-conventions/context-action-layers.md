@@ -31,3 +31,19 @@ Layers:
   from the preload — sandboxed preloads (sandbox is on outside test mode)
   cannot require it, which silently breaks every write on real builds.
 
+
+---
+
+- **2026-09-27: workspace app tabs gain a context menu (BST-1839, BST-1836 D4).**
+  The contract said app tabs were "closable singletons with an inline close
+  button and Delete-key close, deliberately WITHOUT a context menu". The
+  maintainer superseded that ruling when approving the unified tab-controller
+  design (`docs/superpowers/specs/2026-09-27-unified-tab-controllers-design.md`
+  §6.4, §8.2): every document and app tab gets a menu. App tabs claim a
+  `workspace-app-tab` target (`appId`, `label`, `placement`) and get Close,
+  Close Others and Close All from `createTabStripActions`. The bulk items are
+  scoped to the tab's placement group (pinned singletons, or dynamic child
+  conversations) and applied in one transition by the selection store's
+  `closeApps`, which keeps a selected app of the other group. There are no Move
+  items: pinned apps keep registry order and child conversations do not
+  reorder. Guard: `packages/file-explorer-ui/src/__tests__/workspace-tab-strip.test.tsx`.
