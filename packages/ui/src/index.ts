@@ -68,6 +68,7 @@ export * from './selection-action-bar';
 export * from './selection-bar-layout';
 export * from './status-bar';
 export * from './switch';
+export * from './tab-strip';
 export * from './table';
 export * from './table-pagination';
 export * from './tabs';
