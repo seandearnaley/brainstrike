@@ -44,6 +44,7 @@ import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unsee
 import { ThreadIdentityMark } from './thread-identity-mark';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 import { useAssistantThreadTabChords } from './use-assistant-thread-tab-chords';
+import { useRetainedThreadPanels } from './use-retained-thread-panels';
 
 const logger = createLogger('AssistantThreadTabsWorkspace');
 
@@ -239,8 +240,12 @@ export function AssistantThreadTabsWorkspace({
     [reorderThreadTabs, resourceId]
   );
 
+  const { mountedThreadIds, onRunningChange, onTabsRemoved } = useRetainedThreadPanels(
+    openThreadIds,
+    threadById
+  );
   const panelRef = useRef<HTMLDivElement>(null);
-  const closes = useAssistantThreadTabChords(resourceId, panelRef);
+  const closes = useAssistantThreadTabChords(resourceId, panelRef, onTabsRemoved);
 
   const contextMenu = useMemo<TabStripContextMenu>(() => {
     const readOpenThreadIds = (): readonly string[] =>
@@ -415,6 +420,8 @@ export function AssistantThreadTabsWorkspace({
           activeThreadId={activeThreadId}
           fixedProviderModels={fixedProviderModels}
           loadLocalLlmBackend={loadLocalLlmBackend}
+          mountedThreadIds={mountedThreadIds}
+          onRunningChange={onRunningChange}
           openThreadIds={openThreadIds}
           providerKeySources={providerKeySources}
           providerReadErrors={providerReadErrors}
@@ -430,11 +437,17 @@ type OptionalWrapperProp<K extends keyof AssistantThreadTabsWorkspaceProps> =
   | AssistantThreadTabsWorkspaceProps[K]
   | undefined;
 
-/** One kept-alive tabpanel per open thread, each crash-contained to itself. */
+/**
+ * One kept-alive panel per mounted thread, each crash-contained to itself. Open
+ * tabs and retained (closed-while-running) threads share ONE list in thread-id
+ * order, so no reopen or tab reorder ever moves a panel's DOM node.
+ */
 function ThreadPanels({
   activeThreadId,
   fixedProviderModels,
   loadLocalLlmBackend,
+  mountedThreadIds,
+  onRunningChange,
   openThreadIds,
   providerKeySources,
   providerReadErrors,
@@ -444,47 +457,51 @@ function ThreadPanels({
   readonly activeThreadId: string | null;
   readonly fixedProviderModels: OptionalWrapperProp<'fixedProviderModels'>;
   readonly loadLocalLlmBackend: OptionalWrapperProp<'loadLocalLlmBackend'>;
+  readonly mountedThreadIds: readonly string[];
+  readonly onRunningChange: (threadId: string, running: boolean) => void;
   readonly openThreadIds: readonly string[];
   readonly providerKeySources: OptionalWrapperProp<'providerKeySources'>;
   readonly providerReadErrors: OptionalWrapperProp<'providerReadErrors'>;
   readonly resourceId: string;
   readonly threadById: ReadonlyMap<string, AssistantMemoryThread>;
 }): ReactElement {
-  if (openThreadIds.length === 0) {
-    return (
-      <ThreadWorkspaceState
-        description="Create or select a thread to mount an assistant session."
-        title="No open assistant thread"
-      />
-    );
-  }
   return (
     <>
-      {openThreadIds.map((threadId) => (
-        // Keep-alive via `hidden`, never <Activity>: this panel's effects own
-        // `subscribeAssistantToolUpdates`, which a background run still needs.
-        <div
-          aria-labelledby={getTabId(threadId)}
-          className="h-full min-h-0"
-          data-testid={`assistant-thread-panel-${threadId}`}
-          hidden={threadId !== activeThreadId}
-          id={getTabPanelId(threadId)}
-          key={threadId}
-          role="tabpanel"
-        >
-          {/* No resetKey: inside key={threadId} it could never change; "Reload tab" resets. */}
-          <TabPanelBoundary label={threadById.get(threadId)?.title ?? threadId}>
-            <AssistantUiPanelWrapper
-              {...(fixedProviderModels ? { fixedProviderModels } : {})}
-              {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-              {...(providerKeySources ? { providerKeySources } : {})}
-              {...(providerReadErrors ? { providerReadErrors } : {})}
-              memoryResourceId={resourceId}
-              memoryThreadId={threadId}
-            />
-          </TabPanelBoundary>
-        </div>
-      ))}
+      {openThreadIds.length === 0 ? (
+        <ThreadWorkspaceState
+          description="Create or select a thread to mount an assistant session."
+          title="No open assistant thread"
+        />
+      ) : null}
+      {mountedThreadIds.map((threadId) => {
+        const isOpen = openThreadIds.includes(threadId);
+        return (
+          // Keep-alive via `hidden`, never <Activity>: this panel's effects own
+          // `subscribeAssistantToolUpdates`, which a background run still needs.
+          // A retained panel has no tab, so it claims no tabpanel role.
+          <div
+            {...(isOpen ? { 'aria-labelledby': getTabId(threadId), role: 'tabpanel' } : {})}
+            className="h-full min-h-0"
+            data-testid={`assistant-thread-panel-${threadId}`}
+            hidden={!isOpen || threadId !== activeThreadId}
+            id={getTabPanelId(threadId)}
+            key={threadId}
+          >
+            {/* No resetKey: inside key={threadId} it could never change; "Reload tab" resets. */}
+            <TabPanelBoundary label={threadById.get(threadId)?.title ?? threadId}>
+              <AssistantUiPanelWrapper
+                {...(fixedProviderModels ? { fixedProviderModels } : {})}
+                {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                {...(providerKeySources ? { providerKeySources } : {})}
+                {...(providerReadErrors ? { providerReadErrors } : {})}
+                memoryResourceId={resourceId}
+                memoryThreadId={threadId}
+                onRunningChange={onRunningChange}
+              />
+            </TabPanelBoundary>
+          </div>
+        );
+      })}
     </>
   );
 }

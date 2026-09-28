@@ -40,13 +40,16 @@ function threadTitle(resourceId: string, threadId: string): string {
 /**
  * The assistant thread strip's closed-tab history and its chord registration
  * (BST-1842). Every close path (✕, Delete, the menus, chords) goes through the
- * returned closes, which record exactly what the store removed. Session-only:
- * the history lives and dies with the strip, so it needs no factory-reset
- * wiring. Focus inside `panelRef` scopes chords to this strip.
+ * returned closes, which record exactly what the store removed and hand those
+ * ids to `onTabsRemoved` in the same event (BST-1844: a running thread's panel
+ * outlives its tab). Session-only: the history lives and dies with the strip,
+ * so it needs no factory-reset wiring. Focus inside `panelRef` scopes chords to
+ * this strip.
  */
 export function useAssistantThreadTabChords(
   resourceId: string,
-  panelRef: RefObject<HTMLElement | null>
+  panelRef: RefObject<HTMLElement | null>,
+  onTabsRemoved: (removedThreadIds: readonly string[]) => void
 ): AssistantThreadTabCloses {
   const closeAllThreadTabs = useAssistantThreadStore((state) => state.closeAllThreadTabs);
   const closeOtherThreadTabs = useAssistantThreadStore((state) => state.closeOtherThreadTabs);
@@ -70,9 +73,11 @@ export function useAssistantThreadTabChords(
         tab: { threadId, title: threadTitle(resourceId, threadId) },
       }));
       close();
-      recordRemovedTabs(closedTabs, before, readOpenThreadIds());
+      const after = readOpenThreadIds();
+      recordRemovedTabs(closedTabs, before, after);
+      onTabsRemoved(before.map((tab) => tab.id).filter((id) => !after.includes(id)));
     },
-    [closedTabs, readOpenThreadIds, resourceId]
+    [closedTabs, onTabsRemoved, readOpenThreadIds, resourceId]
   );
   const closes = useMemo<
     Pick<AssistantThreadTabCloses, 'close' | 'closeAll' | 'closeOthers' | 'closeToRight'>

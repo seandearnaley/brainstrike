@@ -25,8 +25,14 @@ export const NATIVE_TOOL_COUNT = WEB_NATIVE_TOOL_IDS.length;
 export const delegatedPanelCallbacks: {
   onDelegatedConversation: AssistantUiPanelProps['onDelegatedConversation'];
   onEnableModel: AssistantUiPanelProps['onEnableModel'];
+  onRunningChange: AssistantUiPanelProps['onRunningChange'];
   onRuntimeReady: AssistantUiPanelProps['onRuntimeReady'];
-} = { onDelegatedConversation: undefined, onEnableModel: undefined, onRuntimeReady: undefined };
+} = {
+  onDelegatedConversation: undefined,
+  onEnableModel: undefined,
+  onRunningChange: undefined,
+  onRuntimeReady: undefined,
+};
 
 const { hasDesktopLlmHostMock } = vi.hoisted(() => ({
   hasDesktopLlmHostMock: vi.fn((): boolean => false),
@@ -768,6 +774,7 @@ vi.mock('../use-assistant-slash-commands', () => ({
 vi.mock('@brainstrike/assistant-ui', async () => ({
   AssistantUiPanel: ({
     onDelegatedConversation,
+    onRunningChange,
     onRuntimeReady,
     composerDraftCommand,
     providerGroups = [],
@@ -797,6 +804,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     historyGeneration,
   }: {
     onDelegatedConversation?: AssistantUiPanelProps['onDelegatedConversation'];
+    onRunningChange?: AssistantUiPanelProps['onRunningChange'];
     onRuntimeReady?: AssistantUiPanelProps['onRuntimeReady'];
     composerDraftCommand?: { id: string; mode: 'append' | 'replace'; text: string };
     providerGroups?: Array<{
@@ -851,6 +859,7 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
     attachmentsAvailability?: { state: 'enabled' } | { reason: string; state: 'disabled' };
   }) => {
     delegatedPanelCallbacks.onDelegatedConversation = onDelegatedConversation;
+    delegatedPanelCallbacks.onRunningChange = onRunningChange;
     delegatedPanelCallbacks.onRuntimeReady = onRuntimeReady;
     delegatedPanelCallbacks.onEnableModel = onEnableModel;
     const providers = providerGroups?.flatMap((group) => group.providers) ?? [];

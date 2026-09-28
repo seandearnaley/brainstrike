@@ -7,8 +7,10 @@ import {
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { getTabChordStrip } from '../tab-chords/tab-chord-registry';
 import {
   activeThreadId,
+  addThreadRow,
   dbMocks,
   openThreadIds,
   openThreadTabs,
@@ -122,6 +124,26 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
     expect(wrapperLifecycle).toContain('unmount:thread-b');
   });
 
+  it('keeps the retained panel when its durable run row flips to terminal', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    openThreadTabs('thread-b');
+    await screen.findByRole('tab', { name: 'Amazon Bedrock Converse, running' });
+    setPanelRunning('thread-b', true);
+    const user = userEvent.setup();
+    await user.click(screen.getByTitle('Close Amazon Bedrock Converse'));
+
+    // The row is written and read by machinery of its own (a second live-query
+    // instance, a startup reap): its flip says nothing about the conversation
+    // that only this mounted panel holds. Any store write re-renders the strip.
+    dbMocks.activeRunRows = [];
+    openThreadTabs('thread-a');
+
+    expect(screen.getByTestId('assistant-thread-panel-thread-b')).toHaveAttribute('hidden');
+    expect(wrapperLifecycle).not.toContain('unmount:thread-b');
+  });
+
   it('keeps every running thread and drops every idle one when Close All empties the strip', async () => {
     const user = await renderWithRunningThreadB();
 
@@ -154,5 +176,87 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
     expect(repository.deleteThread).toHaveBeenCalledWith('thread-b');
     expect(screen.queryByTestId('assistant-thread-panel-thread-b')).not.toBeInTheDocument();
     expect(wrapperLifecycle).toContain('unmount:thread-b');
+  });
+});
+
+/**
+ * A panel's scroller keeps its scroll position only while its DOM node stays
+ * attached: a browser resets `scrollTop` on any detach, and React detaches a
+ * keyed node to move it. So panels render in one list ordered by thread id,
+ * which neither a reopen (retained -> open) nor a tab reorder can change.
+ */
+describe('AssistantThreadTabsWorkspace panel DOM stability', () => {
+  const PANEL_TEST_ID = /^assistant-thread-panel-/;
+
+  function panelOrder(): string[] {
+    return screen
+      .getAllByTestId(PANEL_TEST_ID)
+      .map((panel) => panel.dataset['testid']?.replace('assistant-thread-panel-', '') ?? '');
+  }
+
+  /** Test ids of every panel node inserted or removed until `stop()` is called. */
+  function watchPanelDetaches(): { stop: () => string[] } {
+    const detached: string[] = [];
+    const collect = (records: readonly MutationRecord[]): void => {
+      for (const record of records) {
+        for (const node of [...record.addedNodes, ...record.removedNodes]) {
+          const testId = node instanceof HTMLElement ? node.dataset['testid'] : undefined;
+          if (testId && PANEL_TEST_ID.test(testId)) {
+            detached.push(testId);
+          }
+        }
+      }
+    };
+    const observer = new MutationObserver(collect);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return {
+      stop: () => {
+        collect(observer.takeRecords());
+        observer.disconnect();
+        return detached;
+      },
+    };
+  }
+
+  async function renderThreeOpenTabs(): Promise<void> {
+    addThreadRow('thread-c', 'Release checklist');
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    openThreadTabs('thread-b', 'thread-c');
+    await screen.findByRole('tab', { name: /Release checklist/ });
+  }
+
+  it('reopens a retained thread at its old tab index without detaching any panel', async () => {
+    await renderThreeOpenTabs();
+    const nodesBefore = screen.getAllByTestId(PANEL_TEST_ID);
+    setPanelRunning('thread-b', true);
+    const user = userEvent.setup();
+    const watch = watchPanelDetaches();
+
+    await user.click(screen.getByTitle('Close Amazon Bedrock Converse'));
+    await act(async () => {
+      await getTabChordStrip('assistant-threads')?.reopenClosed();
+    });
+
+    expect(watch.stop()).toEqual([]);
+    expect(openThreadIds()).toEqual(['thread-a', 'thread-b', 'thread-c']);
+    expect(screen.getAllByTestId(PANEL_TEST_ID)).toEqual(nodesBefore);
+  });
+
+  it('reorders tabs without detaching any panel, and orders panels by thread id', async () => {
+    await renderThreeOpenTabs();
+    const nodesBefore = screen.getAllByTestId(PANEL_TEST_ID);
+    const watch = watchPanelDetaches();
+
+    act(() => {
+      useAssistantThreadStore
+        .getState()
+        .reorderThreadTabs(WORKSPACE_MEMORY_RESOURCE_ID, ['thread-c', 'thread-a', 'thread-b']);
+    });
+
+    expect(watch.stop()).toEqual([]);
+    expect(openThreadIds()).toEqual(['thread-c', 'thread-a', 'thread-b']);
+    expect(panelOrder()).toEqual(['thread-a', 'thread-b', 'thread-c']);
+    expect(screen.getAllByTestId(PANEL_TEST_ID)).toEqual(nodesBefore);
   });
 });

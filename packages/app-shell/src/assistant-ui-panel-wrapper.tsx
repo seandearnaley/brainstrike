@@ -22,11 +22,7 @@ import {
 } from '@brainstrike/app-state/stores/skills-preferences-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
-import type {
-  AssistantRunEvent,
-  LocalLlmBackendFactory,
-  ProviderKeySource,
-} from '@brainstrike/assistant-contract';
+import type { LocalLlmBackendFactory, ProviderKeySource } from '@brainstrike/assistant-contract';
 import {
   isSupportedProvider,
   type SupportedProvider,
@@ -70,6 +66,7 @@ import {
 } from './assistant-panel/use-assistant-execution-controls';
 import { useAssistantUsageLedger } from './assistant-panel/use-assistant-usage-ledger';
 import { useModelSelectionReconcile } from './assistant-panel/use-model-selection-reconcile';
+import { useTerminalRunHandlers } from './assistant-panel/use-terminal-run-handlers';
 import { webBodyLimitProps } from './assistant-request-body-limit';
 import {
   buildTapestryRangesForUpdate,
@@ -146,6 +143,7 @@ export interface AssistantUiPanelWrapperProps {
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
+  onRunningChange?: (threadId: string, running: boolean) => void;
   providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
 }
@@ -166,6 +164,7 @@ export function AssistantUiPanelWrapper({
   loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
+  onRunningChange,
   providerReadErrors,
   providerKeySources,
 }: AssistantUiPanelWrapperProps) {
@@ -1317,30 +1316,15 @@ export function AssistantUiPanelWrapper({
   // own rootId-scoped cwd concept.
   const { refresh: refreshChangeset } = useChangeset(mainRootId ?? null, null);
 
-  // Re-read the checkpoint journal when a run reaches a terminal state — the
-  // journal rows are written in main during tool execution, after the last
-  // thread-open read, so the turn-level "Revert all edits" footer would
-  // otherwise stay empty for the turn that JUST ran until a thread switch.
-  // `publishTerminalRunIdentity` advances the standing "Last Turn" identity
-  // (BST-1115) — policy in `changes/use-wrapper-rewind-wiring.ts`.
-  const handleRunFinished = useCallback(
-    (event: AssistantRunEvent) => {
-      onRunFinished(event);
-      void refetchCheckpoints();
-      void refreshChangeset();
-      publishTerminalRunIdentity(event);
-    },
-    [onRunFinished, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
-  );
-  const handleRunFailed = useCallback(
-    (event: AssistantRunEvent) => {
-      onRunFailed(event);
-      void refetchCheckpoints();
-      void refreshChangeset();
-      publishTerminalRunIdentity(event);
-    },
-    [onRunFailed, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
-  );
+  // Terminal-run bookkeeping (checkpoint re-read, changeset refresh, "Last Turn"
+  // identity), extracted whole into `assistant-panel/use-terminal-run-handlers.ts`.
+  const { handleRunFailed, handleRunFinished } = useTerminalRunHandlers({
+    onRunFailed,
+    onRunFinished,
+    publishTerminalRunIdentity,
+    refetchCheckpoints,
+    refreshChangeset,
+  });
 
   return (
     <DelegatedWorkspaceNavigation
@@ -1355,6 +1339,7 @@ export function AssistantUiPanelWrapper({
                 <AssistantUiPanel
                   {...delegatedPanelBinding}
                   composerDraftCommand={composerDraft.command}
+                  {...(onRunningChange ? { onRunningChange } : {})}
                   {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                   {...(steerActiveRun ? { onSteerActiveRun: steerActiveRun } : {})}
                   completePreparedRequest={completeRequestAndSettleLiveUsage}
