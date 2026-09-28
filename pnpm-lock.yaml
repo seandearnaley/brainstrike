@@ -3311,6 +3311,15 @@ importers:
 
   packages/ui:
     dependencies:
+      '@atlaskit/pragmatic-drag-and-drop':
+        specifier: ^3.1.0
+        version: 3.1.0
+      '@atlaskit/pragmatic-drag-and-drop-auto-scroll':
+        specifier: ^3.2.0
+        version: 3.2.0
+      '@atlaskit/pragmatic-drag-and-drop-hitbox':
+        specifier: ^2.2.0
+        version: 2.2.0
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
@@ -3462,6 +3471,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@tailwindcss/vite':
+        specifier: 'catalog:'
+        version: 4.3.3(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
       '@testing-library/jest-dom':
         specifier: 'catalog:'
         version: 7.0.1(@testing-library/dom@10.4.1)(vitest@5.0.0)
@@ -3483,6 +3495,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.0.0(@vitest/browser@5.0.0)(vitest@5.0.0)
+      axe-core:
+        specifier: ^4.13.0
+        version: 4.13.0
       jsdom:
         specifier: 'catalog:'
         version: 30.0.1(@noble/hashes@2.2.0)
@@ -9986,6 +10001,10 @@ packages:
 
   aws4fetch@1.0.20:
     resolution: {integrity: sha512-/djoAN709iY65ETD6LKCtyyEI04XIBP5xVvfmNxsEP0uJB5tyaGBztSryRr4HqMStr9R06PisQE7m9zDTXKu6g==}
+
+  axe-core@4.13.0:
+    resolution: {integrity: sha512-UzGt8zg7Ny8djbYMhxl2zuEevVa7r2gJjYY5Lwr1xM7+XU2nd6CkIWFTVcCIbAP63vSz71NaVyyuSk9lHKcy0A==}
+    engines: {node: '>=4'}
 
   axios@1.18.1:
     resolution: {integrity: sha512-3nTvFlvpn9Zu/RkHUqtc7/+al4UpRW5az71ap5zccp6e8RAYEzhMTecX8Dz1wWDYrPpUoB1HAQEGEAEvUr7S9g==}
@@ -21142,6 +21161,8 @@ snapshots:
   aws4@1.13.2: {}
 
   aws4fetch@1.0.20: {}
+
+  axe-core@4.13.0: {}
 
   axios@1.18.1(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2):
     dependencies:
