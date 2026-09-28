@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createActionRegistry } from '../registry.js';
 import {
+  adjacentTabId,
   createTabStripActions,
   moveTabId,
   type TabStripActionOperations,
@@ -68,6 +69,21 @@ describe('moveTabId', () => {
     expect(moveTabId(['a', 'b'], 'a', 'left')).toBeNull();
     expect(moveTabId(['a', 'b'], 'b', 'right')).toBeNull();
     expect(moveTabId(['a', 'b'], 'z', 'left')).toBeNull();
+  });
+});
+
+describe('adjacentTabId', () => {
+  it('steps by position and wraps at both ends (D7: positional, not MRU)', () => {
+    expect(adjacentTabId(['a', 'b', 'c'], 'a', 'next')).toBe('b');
+    expect(adjacentTabId(['a', 'b', 'c'], 'c', 'next')).toBe('a');
+    expect(adjacentTabId(['a', 'b', 'c'], 'a', 'previous')).toBe('c');
+    expect(adjacentTabId(['a', 'b', 'c'], 'b', 'previous')).toBe('a');
+  });
+
+  it('has nowhere to go with one tab, no active tab, or an active id outside the order', () => {
+    expect(adjacentTabId(['a'], 'a', 'next')).toBeNull();
+    expect(adjacentTabId(['a', 'b'], null, 'next')).toBeNull();
+    expect(adjacentTabId(['a', 'b'], 'z', 'previous')).toBeNull();
   });
 });
 

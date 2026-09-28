@@ -32,6 +32,26 @@ export function moveTabId(
   return next;
 }
 
+export type TabCycleDirection = 'next' | 'previous';
+
+/**
+ * The tab beside `activeId` by position, wrapping at both ends (BST-1836 D7:
+ * positional, as Chrome, not most-recently-used). Null when there is no other
+ * tab to go to or `activeId` is not in the order.
+ */
+export function adjacentTabId(
+  orderedIds: readonly string[],
+  activeId: string | null,
+  direction: TabCycleDirection
+): string | null {
+  const index = activeId === null ? -1 : orderedIds.indexOf(activeId);
+  if (index === -1 || orderedIds.length < 2) {
+    return null;
+  }
+  const step = direction === 'next' ? 1 : -1;
+  return orderedIds[(index + step + orderedIds.length) % orderedIds.length] ?? null;
+}
+
 /**
  * Store-backed operations behind one strip's standard tab menu (BST-1836
  * §6.4). Each operation is optional: an absent one omits its action. Each must
