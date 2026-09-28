@@ -465,6 +465,7 @@ function ThreadPanels({
   readonly resourceId: string;
   readonly threadById: ReadonlyMap<string, AssistantMemoryThread>;
 }): ReactElement {
+  const openIds = new Set(openThreadIds);
   return (
     <>
       {openThreadIds.length === 0 ? (
@@ -474,7 +475,7 @@ function ThreadPanels({
         />
       ) : null}
       {mountedThreadIds.map((threadId) => {
-        const isOpen = openThreadIds.includes(threadId);
+        const isOpen = openIds.has(threadId);
         return (
           // Keep-alive via `hidden`, never <Activity>: this panel's effects own
           // `subscribeAssistantToolUpdates`, which a background run still needs.

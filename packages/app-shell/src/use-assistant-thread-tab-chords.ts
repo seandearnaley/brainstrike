@@ -75,7 +75,8 @@ export function useAssistantThreadTabChords(
       close();
       const after = readOpenThreadIds();
       recordRemovedTabs(closedTabs, before, after);
-      onTabsRemoved(before.map((tab) => tab.id).filter((id) => !after.includes(id)));
+      const remaining = new Set(after);
+      onTabsRemoved(before.flatMap((tab) => (remaining.has(tab.id) ? [] : [tab.id])));
     },
     [closedTabs, onTabsRemoved, readOpenThreadIds, resourceId]
   );
