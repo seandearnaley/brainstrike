@@ -69,3 +69,24 @@ Paired tests: `assistant-thread-store.test.ts`,
 `use-assistant-thread-root-binding.test.ts`; the live customize-and-reload browser
 contract is `apps/web/e2e/assistant-ui-panel.test.ts`.
 
+## 2026-09-27: TabStrip migration (BST-1838)
+
+The hand-rolled controller above (automatic activation, 56px of scroll chevrons,
+an app-shell drag-and-drop module) was replaced by the shared `TabStrip`
+(BST-1836 spec §8.1): manual activation, no chevrons, drop ordering in
+`@brainstrike/ui`. Each tab renders the Threads-panel `ThreadIdentityMark`, so a
+run-state badge reads the same on a tab and its row (BST-939). Paired tests now:
+`assistant-thread-tabs-workspace.test.tsx`,
+`assistant-thread-tabs-workspace-status.test.tsx`, and the web E2E
+`assistant-thread-tab-runs.test.ts` and `assistant-tab-strip-geometry.test.ts`.
+
+Characterised before the change and unchanged by it: on web, closing a running
+root thread's tab unmounts its panel, which aborts the run (the local runtime
+cancels the host request) and leaves the durable run row `running` until the next
+startup reap. Switching tabs mid-run neither aborts the run nor throws. Tracked
+as BST-1844.
+
+Tabs now badge unseen runs, so the strip also runs `useMarkActiveThreadViewed`.
+Before, only the Threads panel advanced the watermark, and with the Library on
+Collections a viewed tab kept its "finished" badge after the user switched away.
+Pinned in `assistant-thread-tabs-workspace-status.test.tsx`.

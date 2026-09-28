@@ -1391,9 +1391,9 @@ Where state lives (do not relitigate):
 - Unseen badges derive from a pure `deriveUnseenThreadIds` (terminal `latestRun`
   completed after the thread's watermark, active thread excluded,
   `failedUnseen ⊂ unseen`; a terminal run with NO `completedAt` is excluded rather
-  than given a substitute timestamp) plus `useMarkActiveThreadViewed`, which stamps
-  on the way in AND out and again when the active thread's run reaches a new
-  `completedAt`, so a foreground finish can never later read as unseen.
+  than given a substitute timestamp) plus `useMarkActiveThreadViewed` (Threads
+  panel AND thread strip; either may mount alone): it stamps in AND out and on
+  each new active-run `completedAt`, so a foreground finish never reads unseen.
 - Folder branch chips come from ONE `useGitInventory()` GATED on `enabled`, because
   one load is a full repo/worktree scan across every root and the chips exist only
   in folder grouping — entering it is the gesture, so this is a deferral, not a
@@ -1588,10 +1588,10 @@ Guard: `packages/db/__tests__/migration-067-thread-search-index.test.ts`,
 Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
 `reorderThreadTabs` persists the complete ordered id list atomically.
 
-- The controller uses the WAI-ARIA automatic-activation pattern with roving tab
-  focus, Home/End, Delete and `Alt+Shift+Left/Right`; pointer drag adds edge
-  auto-scroll and the context menu provides the non-drag alternative. Panels stay
-  mounted while inactive so runtime state is not discarded.
+- The strip is the shared `TabStrip` (manual activation; `ui-conventions.md` TAB
+  STRIPS) badged by the Threads panel's run-state projections through the shared
+  `ThreadIdentityMark`. Panels stay mounted (`hidden`, never `<Activity>`) while
+  inactive so a background run keeps its tool-update subscription.
 - `assistant-thread-presentation.ts` owns the exhaustive icon registry, the Message
   default and the canonical colour surfaces. Rows, pickers, group icon choices and
   tabs consume those shared contracts rather than local glyph maps.
@@ -1618,17 +1618,17 @@ Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
   — that transient absence is never an unbound thread. A terminal database
   initialization error always outranks the transient loading reason.
 - The non-reloading **Clear Database** path deletes `mastra_threads`, so its
-  composition must synchronously reset the thread and thread-groups stores
-  immediately after the clear succeeds and before collection reloads.
-  `DatabaseDemoPanel` requires and preflights that callback; capability absence
-  blocks the clear visibly. Both stores invalidate in-flight hydration generations
-  during reset.
+  composition must synchronously reset the thread and thread-groups stores immediately
+  after the clear succeeds and before collection reloads. `DatabaseDemoPanel` requires
+  and preflights that callback; capability absence blocks the clear visibly. Both
+  stores invalidate in-flight hydration generations during reset.
 
 Evidence: `assistant-persistence/assistant-thread-tabs.md`.
 Guard: `packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`,
 `packages/app-shell/src/__tests__/database-demo-panel.test.tsx`,
-`assistant-thread-tabs-dnd.test.ts`, `use-assistant-thread-root-binding.test.ts`;
-the live customize-and-reload contract is `apps/web/e2e/assistant-ui-panel.test.ts`.
+`assistant-thread-tabs-workspace.test.tsx`, `use-assistant-thread-root-binding.test.ts`,
+`assistant-thread-tabs-workspace-status.test.tsx`; the live customize-and-reload
+contract is `apps/web/e2e/assistant-ui-panel.test.ts`.
 
 ---
 

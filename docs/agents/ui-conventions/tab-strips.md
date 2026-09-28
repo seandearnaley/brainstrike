@@ -21,3 +21,4 @@ Read before changing tab-strip geometry, activation, the close affordance, overf
   - **Per-item reorder.** `reorderable` came from BST-1839, whose child-conversation tabs sit in the scroll group but must not move.
   - **Close All scope.** `closeAll` receives the invoking id so an app strip can scope Close All to one placement group.
   - **Declined:** Codex's "tab stop should follow roving focus". APG Tabs says focus entering the tablist lands on the ACTIVE tab.
+- **Pointer close focus (PR #3350 review).** The old thread controller focused the next tab after a ✕ close. The primitive at first did nothing, because the ✕ never takes focus: closing the active tab unmounted its panel, and focus in its composer fell to `body`. A pointer close now refocuses only LOST focus, so focus that survives the close (another panel's input, the browser pane's address bar) stays put.

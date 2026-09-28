@@ -1209,9 +1209,6 @@ importers:
       '@atlaskit/pragmatic-drag-and-drop':
         specifier: ^3.1.0
         version: 3.1.0
-      '@atlaskit/pragmatic-drag-and-drop-auto-scroll':
-        specifier: ^3.2.0
-        version: 3.2.0
       '@atlaskit/pragmatic-drag-and-drop-hitbox':
         specifier: ^2.2.0
         version: 2.2.0

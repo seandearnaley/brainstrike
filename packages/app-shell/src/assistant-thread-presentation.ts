@@ -316,8 +316,8 @@ export const THREAD_CONTROL_MARK_CLASS_NAME =
   'flex size-5 shrink-0 items-center justify-center rounded-sm border';
 
 /**
- * Secondary affordances that sit *inside* a thread control — the tab's close
- * button, the row's expand and actions buttons.
+ * Secondary affordances that sit *inside* a thread row — its expand and
+ * actions buttons. (Thread tabs use the shared TabStrip's close button.)
  *
  * 20px, not the Button `icon-xs` 28px: the control itself is 28px tall now, so
  * a 28px chip fills it edge to edge and the hover fill reads as a block rather

@@ -139,6 +139,11 @@ function TabStripContent({
   const handleActivate = useEventCallback((id: string): void => onActivate(id));
   const handleCloseStable = useEventCallback((id: string): void => onClose?.(id));
   const handleClose = onClose ? handleCloseStable : null;
+  const handlePointerCloseStable = useEventCallback((id: string): void => {
+    onClose?.(id);
+    focus.focusAfterPointerClose();
+  });
+  const handlePointerClose = onClose ? handlePointerCloseStable : null;
   const announce = useEventCallback((message: string): void => {
     // A live region only announces changes; alternate a trailing NBSP for repeats.
     setAnnouncement((current) => (current === message ? `${message} ` : message));
@@ -174,7 +179,7 @@ function TabStripContent({
       item={item}
       key={item.id}
       onActivate={handleActivate}
-      onClose={handleClose}
+      onClose={handlePointerClose}
       onContextMenu={menu.handleTabContextMenu}
       reorderInstanceId={
         group === 'scroll' && item.reorderable !== false ? reorderInstanceId : null

@@ -1,155 +1,33 @@
+import './assistant-thread-tabs-workspace-test-support';
 import {
   type AssistantThreadRepository,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import { createTestActionRegistry } from '@brainstrike/context-actions';
-import { ActionRegistryProvider } from '@brainstrike/ui';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { TAB_STRIP_ICON_BUTTON_CLASS_NAME } from '@brainstrike/ui';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { assistantThreadActions } from '../assistant-thread-context-actions';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   THREAD_CONTROL_ACTION_CLASS_NAME,
-  THREAD_CONTROL_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_MARK_CLASS_NAME,
-  THREAD_CONTROL_TITLE_CLASS_NAME,
   UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION,
 } from '../assistant-thread-presentation';
-import { AssistantThreadTabsWorkspace } from '../assistant-thread-tabs-workspace';
-
-const { assistantWrapperProps, dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(
-  () => ({
-    assistantWrapperProps: [] as Array<{
-      memoryResourceId?: string;
-      memoryThreadId?: string;
-      providerKeySources?: unknown;
-    }>,
-    dbMocks: {
-      database: undefined as unknown,
-      initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
-      initializing: false,
-      providerError: null as Error | null,
-    },
-    fileExplorerMocks: {
-      rootDirectoryHandle: {
-        name: 'workspace-a',
-        path: '/tmp/workspace-a',
-      } as { name: string; path: string } | null,
-    },
-    mockDb: {
-      exec: vi.fn(() => Promise.resolve()),
-      query: vi.fn<
-        (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>
-      >(() => Promise.resolve({ rows: [] })),
-    },
-    threadRows: [] as Record<string, unknown>[],
-  })
-);
-
-vi.mock('@brainstrike/db', () => ({
-  useDbInitializationStatus: () => dbMocks.initializationStatus,
-  useDbInitializing: () => dbMocks.initializing,
-  useDbProviderError: () => dbMocks.providerError,
-  usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  useDbInitializationStatus: () => dbMocks.initializationStatus,
-  useDbInitializing: () => dbMocks.initializing,
-  useDbProviderError: () => dbMocks.providerError,
-  usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
-}));
-
-vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>
-    selector(fileExplorerMocks),
-  useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
-}));
-
-vi.mock('@atlaskit/pragmatic-drag-and-drop-auto-scroll/element', () => ({
-  autoScrollForElements: () => () => undefined,
-}));
-
-vi.mock('../assistant-ui-panel-wrapper', () => ({
-  AssistantUiPanelWrapper: (props: {
-    memoryResourceId?: string;
-    memoryThreadId?: string;
-    providerKeySources?: unknown;
-  }) => {
-    assistantWrapperProps.push(props);
-    return <div data-testid="assistant-thread-wrapper">{props.memoryThreadId}</div>;
-  },
-}));
-
-function renderWorkspace(): ReturnType<typeof createTestActionRegistry> {
-  const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
-  render(
-    <ActionRegistryProvider registry={actionRegistry.registry}>
-      <AssistantThreadTabsWorkspace />
-    </ActionRegistryProvider>
-  );
-  return actionRegistry;
-}
+import {
+  activeThreadId,
+  addThreadRow,
+  assistantWrapperProps,
+  dbMocks,
+  fileExplorerMocks,
+  mockDb,
+  openThreadIds,
+  openThreadTabs,
+  renderWorkspace,
+  wrapperCrashThreadIds,
+} from './assistant-thread-tabs-workspace-test-support';
 
 describe('AssistantThreadTabsWorkspace', () => {
-  beforeEach(() => {
-    fileExplorerMocks.rootDirectoryHandle = {
-      name: 'workspace-a',
-      path: '/tmp/workspace-a',
-    };
-    dbMocks.database = undefined;
-    dbMocks.initializing = false;
-    dbMocks.initializationStatus = 'ready';
-    dbMocks.providerError = null;
-    assistantWrapperProps.splice(0, assistantWrapperProps.length);
-    threadRows.splice(
-      0,
-      threadRows.length,
-      {
-        createdAt: new Date('2026-04-22T09:00:00Z'),
-        id: 'thread-a',
-        metadata: { color: 'rose', icon: 'research' },
-        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-        title: 'Purchasing app search log',
-        updatedAt: new Date('2026-04-22T11:00:00Z'),
-      },
-      {
-        createdAt: new Date('2026-04-22T09:00:00Z'),
-        id: 'thread-b',
-        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-        title: 'Amazon Bedrock Converse',
-        updatedAt: new Date('2026-04-22T10:00:00Z'),
-      }
-    );
-    useAssistantThreadStore.setState({
-      activeThreadIdByResourceId: {},
-      draftRuntimeByThreadId: {},
-      loadStateByResourceId: {},
-      openThreadIdsByResourceId: {},
-      selectedThreadByResourceId: {},
-      threadIdsByResourceId: {},
-      threadsByResourceId: {},
-    });
-    mockDb.exec.mockClear();
-    mockDb.query.mockClear();
-    mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
-      if (sql.includes('INSERT INTO mastra_threads')) {
-        threadRows.unshift({
-          createdAt: params?.[4],
-          id: String(params?.[0]),
-          resourceId: String(params?.[1]),
-          title: String(params?.[2]),
-          updatedAt: params?.[5],
-        });
-      }
-      if (sql.includes('FROM mastra_threads')) {
-        return { rows: [...threadRows] };
-      }
-      return { rows: [] };
-    });
-  });
-
   it('force-mounts one assistant wrapper per open thread tab', async () => {
     renderWorkspace();
 
@@ -157,11 +35,11 @@ describe('AssistantThreadTabsWorkspace', () => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
     });
 
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
 
     expect(screen.getAllByTestId('assistant-thread-wrapper')).toHaveLength(2);
+    // Keep-alive is the `hidden` attribute, never <Activity>: inactive panels stay mounted.
+    expect(screen.getByTestId('assistant-thread-panel-thread-a')).toHaveAttribute('hidden');
     expect(screen.getByTestId('assistant-thread-panel-thread-a')).not.toBeVisible();
     expect(screen.getByTestId('assistant-thread-panel-thread-b')).toBeVisible();
     expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/ })).toHaveAttribute(
@@ -170,16 +48,45 @@ describe('AssistantThreadTabsWorkspace', () => {
     );
   });
 
+  it('contains a crashing thread panel to that panel, leaving its sibling and the strip mounted', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    wrapperCrashThreadIds.add('thread-b');
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+
+    openThreadTabs('thread-b');
+    consoleError.mockRestore();
+
+    const crashedPanel = screen.getByTestId('assistant-thread-panel-thread-b');
+    expect(within(crashedPanel).getByRole('alert')).toHaveTextContent(
+      'Amazon Bedrock Converse stopped working'
+    );
+    expect(within(crashedPanel).getByRole('button', { name: 'Reload tab' })).toBeInTheDocument();
+    // The sibling keeps its mounted assistant, hidden but alive.
+    const siblingPanel = screen.getByTestId('assistant-thread-panel-thread-a');
+    expect(siblingPanel).toHaveAttribute('hidden');
+    expect(within(siblingPanel).getByTestId('assistant-thread-wrapper')).toHaveTextContent(
+      'thread-a'
+    );
+    expect(screen.getByRole('tablist', { name: 'Open assistant threads' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+
+    // "Reload tab" is the reset: it remounts the panel's assistant in place.
+    wrapperCrashThreadIds.clear();
+    fireEvent.click(within(crashedPanel).getByRole('button', { name: 'Reload tab' }));
+    expect(within(crashedPanel).getByTestId('assistant-thread-wrapper')).toHaveTextContent(
+      'thread-b'
+    );
+  });
+
   it('forwards validated provider key sources to every thread wrapper', async () => {
-    const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
     const providerKeySources = [
       { envVar: 'OPENAI_API_KEY', provider: 'openai' as const, source: 'env' as const },
     ];
-    render(
-      <ActionRegistryProvider registry={actionRegistry.registry}>
-        <AssistantThreadTabsWorkspace providerKeySources={providerKeySources} />
-      </ActionRegistryProvider>
-    );
+    renderWorkspace({ providerKeySources });
 
     await screen.findByRole('tab', { name: /Purchasing app search log/ });
 
@@ -218,51 +125,38 @@ describe('AssistantThreadTabsWorkspace', () => {
     uuidSpy.mockRestore();
   });
 
-  it('keeps the new-thread action outside the scrollable tablist', async () => {
+  it('renders the shared strip with New as trailing chrome outside the tablist', async () => {
     renderWorkspace();
 
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
-    });
-
+    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
     const tabStrip = screen.getByTestId('assistant-thread-tab-strip');
     const tabScroll = screen.getByTestId('assistant-thread-tab-scroll');
     const tabList = screen.getByRole('tablist', { name: 'Open assistant threads' });
     const newThreadButton = screen.getByRole('button', { name: 'New assistant thread' });
-    const firstTab = screen.getByRole('tab', { name: /Purchasing app search log/ });
 
-    expect(tabStrip).toContainElement(tabScroll);
+    expect(tabStrip).toHaveAttribute('data-slot', 'tab-strip');
+    expect(tabStrip).toHaveClass('@container/tab-strip');
+    expect(tabList).toContainElement(tabScroll);
+    expect(tabScroll).toContainElement(firstTab);
     expect(tabStrip).toContainElement(newThreadButton);
-    // The tab lane hides its scrollbar (chevrons + wheel scroll it) and
-    // centers tabs in the full strip height — no scrollbar track may render
-    // under the tab bottoms and no vertical padding may offset them.
+    expect(within(tabList).queryByRole('button', { name: 'New assistant thread' })).toBeNull();
+    // The tab lane hides its scrollbar and centers tabs in the full strip height:
+    // no scrollbar track may render under the tab bottoms, no vertical padding.
     expect(tabScroll).toHaveClass('h-full', 'items-center', '[scrollbar-width:none]');
     expect(tabScroll).not.toHaveClass('scrollbar-thin', 'py-1', '[scrollbar-gutter:stable]');
-    expect(tabList).toContainElement(firstTab);
-    expect(within(tabList).queryByRole('button', { name: 'New assistant thread' })).toBeNull();
-    expect(
-      within(tabList).queryByRole('button', { name: 'Scroll assistant tabs left' })
-    ).toBeNull();
-    expect(
-      within(tabList).queryByRole('button', { name: 'Scroll assistant tabs right' })
-    ).toBeNull();
-    expect(tabStrip).toHaveClass('@container/assistant-tabs');
-    expect(screen.getByTestId('assistant-tabs-scroll-left')).toHaveClass(
-      'hidden',
-      '@[300px]/assistant-tabs:inline-flex'
-    );
-    expect(screen.getByTestId('assistant-tabs-scroll-right')).toHaveClass(
-      'hidden',
-      '@[300px]/assistant-tabs:inline-flex'
-    );
-    expect(screen.getByTestId('assistant-new-thread-label')).toHaveClass(
-      'hidden',
-      '@[380px]/assistant-tabs:inline'
-    );
-    // Symmetric padding: the close affordance sits in flow after the tab
-    // button, so no oversized right padding is reserved for an overlay.
+    // The close affordance sits in flow after the tab button, so no oversized
+    // right padding is reserved for an overlay.
     expect(firstTab).toHaveClass('pl-2');
     expect(firstTab).not.toHaveClass('pr-8');
+    // BST-1836 D2: overflow has no chevrons; the All-tabs menu is the affordance.
+    expect(screen.queryByRole('button', { name: /Scroll assistant tabs/ })).toBeNull();
+    expect(within(tabStrip).getByRole('button', { name: 'All tabs' })).toBeInTheDocument();
+    expect(newThreadButton).toHaveClass(...TAB_STRIP_ICON_BUTTON_CLASS_NAME.split(' '));
+    expect(newThreadButton).toHaveAttribute('data-size', 'xs');
+    expect(screen.getByTestId('assistant-new-thread-label')).toHaveClass(
+      'hidden',
+      '@min-[380px]/tab-strip:inline'
+    );
     expect(firstTab).toHaveAttribute('aria-haspopup', 'menu');
   });
 
@@ -270,9 +164,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     renderWorkspace();
 
     const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
     const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
     const firstPanel = screen.getByTestId('assistant-thread-panel-thread-a');
     const secondPanel = screen.getByTestId('assistant-thread-panel-thread-b');
@@ -286,24 +178,20 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(secondPanel).toBeInTheDocument();
   });
 
-  it('uses durable thread color on tabs and leaves unassigned tabs neutral', async () => {
+  it('renders the Threads-panel identity mark on each tab and leaves unassigned tabs neutral', async () => {
     renderWorkspace();
 
     const coloredTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
-    expect(coloredTab.closest('[data-thread-color]')).toHaveAttribute('data-thread-color', 'rose');
-    // Color lives on the leading icon chip; the old top accent stripe is gone.
-    expect(screen.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible();
+    expect(coloredTab).toHaveAttribute('data-thread-color', 'rose');
+    // Color lives on the leading identity mark; the old top accent stripe is gone.
+    expect(within(coloredTab).getByTestId('thread-color-rose')).toBeVisible();
     expect(screen.queryByTestId('assistant-thread-tab-accent-rose')).not.toBeInTheDocument();
 
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
     const neutralTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
-    expect(neutralTab.closest('[data-thread-color]')).toHaveAttribute(
-      'data-thread-color',
-      'unassigned'
-    );
-    expect(screen.getByTestId('assistant-thread-tab-icon-unassigned')).toBeVisible();
+    expect(neutralTab).toHaveAttribute('data-thread-color', 'unassigned');
+    expect(within(neutralTab).getByTestId('thread-color-unassigned')).toBeVisible();
+    expect(within(neutralTab).getByTestId('thread-icon-message')).toBeVisible();
   });
 
   it('projects durable icon and color updates into an already-open tab without remounting it', async () => {
@@ -311,7 +199,7 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     const tab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
     const panel = screen.getByTestId('assistant-thread-panel-thread-a');
-    expect(within(tab).getByTestId('assistant-thread-tab-glyph-research')).toBeVisible();
+    expect(within(tab).getByTestId('thread-icon-research')).toBeVisible();
 
     const repository = {
       updateThreadMetadata: vi.fn(() => Promise.resolve()),
@@ -330,146 +218,123 @@ describe('AssistantThreadTabsWorkspace', () => {
       color: 'violet',
       icon: 'bug',
     });
-    expect(within(tab).getByTestId('assistant-thread-tab-glyph-bug')).toBeVisible();
-    expect(tab.closest('[data-thread-color]')).toHaveAttribute('data-thread-color', 'violet');
+    expect(within(tab).getByTestId('thread-icon-bug')).toBeVisible();
+    expect(tab).toHaveAttribute('data-thread-color', 'violet');
     expect(screen.getByTestId('assistant-thread-panel-thread-a')).toBe(panel);
   });
 
   it('tints the whole tab with the same color surface the threads panel row uses', async () => {
     renderWorkspace();
 
-    const activeShell = (
-      await screen.findByRole('tab', { name: /Purchasing app search log/ })
-    ).closest('[data-thread-color]');
-    // Active tab = the panel row's selected fill, not a hardcoded neutral surface.
-    expect(activeShell).toHaveClass(
+    const shellOf = (name: RegExp): HTMLElement | null =>
+      screen.getByRole('tab', { name }).closest('[data-slot="tab-shell"]');
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    // Active tab = the panel row's selected fill, not the neutral raised surface.
+    expect(shellOf(/Purchasing app search log/)).toHaveClass(
       ...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.selectedClassName.split(' ')
     );
-    expect(activeShell).not.toHaveClass('bg-background');
+    expect(shellOf(/Purchasing app search log/)).not.toHaveClass('bg-background');
 
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
 
-    const idleShell = screen
-      .getByRole('tab', { name: /Purchasing app search log/ })
-      .closest('[data-thread-color]');
-    expect(idleShell).toHaveClass(
+    expect(shellOf(/Purchasing app search log/)).toHaveClass(
       ...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.idleClassName.split(' ')
     );
-    expect(idleShell).not.toHaveClass('hover:bg-background/70');
-
+    expect(shellOf(/Purchasing app search log/)).not.toHaveClass('hover:bg-background/70');
     // Unassigned threads still get a surface — neutral, never blue.
-    const neutralShell = screen
-      .getByRole('tab', { name: /Amazon Bedrock Converse/ })
-      .closest('[data-thread-color]');
-    expect(neutralShell).toHaveClass(
+    expect(shellOf(/Amazon Bedrock Converse/)).toHaveClass(
       ...UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION.selectedClassName.split(' ')
     );
   });
 
-  it('sizes the tab from the shared thread control density contract', async () => {
+  it('sizes the tab from the tab-strip tokens around the shared thread mark', async () => {
     renderWorkspace();
 
-    const shell = (await screen.findByRole('tab', { name: /Purchasing app search log/ })).closest(
-      '[data-thread-color]'
-    );
-    expect(shell).toHaveClass(THREAD_CONTROL_HEIGHT_CLASS_NAME);
-    // The selected fill supplies an inset ring, so the tab must not also draw a border.
+    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const shell = tab.closest('[data-slot="tab-shell"]');
+    // 28px pill on the token scale; the selected tint supplies the ring, so no border.
+    expect(shell).toHaveClass('h-7', 'rounded-md');
     expect(shell).not.toHaveClass('border');
-
-    const title = screen.getByText('Purchasing app search log');
-    expect(title).toHaveClass(...THREAD_CONTROL_TITLE_CLASS_NAME.split(' '));
-    // Size and weight come from the shared contract, but active vs idle still
-    // needs a text-colour cue — fill alpha plus a ring is a thin distinction to
-    // carry alone once both states are the same hue.
+    // 12px/500 in every state: state changes colour, never weight.
+    expect(tab).toHaveClass('text-xs', 'font-medium');
     expect(shell).toHaveClass('text-foreground');
 
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
     const idleShell = screen
       .getByRole('tab', { name: /Purchasing app search log/ })
-      .closest('[data-thread-color]');
+      .closest('[data-slot="tab-shell"]');
     expect(idleShell).toHaveClass('text-muted-foreground');
     expect(idleShell).not.toHaveClass('text-foreground');
-    const mark = screen.getByTestId('assistant-thread-tab-icon-rose');
+    const mark = within(tab).getByTestId('thread-color-rose');
     expect(mark).toHaveClass(...THREAD_CONTROL_MARK_CLASS_NAME.split(' '));
-    // Now that the tab body is tinted, the mark must not reuse that same fill
-    // or it vanishes into the control it identifies.
+    // The tab body is tinted, so the mark must not reuse that same fill or it
+    // vanishes into the control it identifies.
     expect(mark).toHaveClass(...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.markClassName.split(' '));
     expect(mark).not.toHaveClass('bg-rose-100');
   });
 
-  it('keeps the close affordance in flow and optically matched with the leading icon', async () => {
+  it('keeps the mouse-only close affordance in flow and optically matched with the mark', async () => {
     renderWorkspace();
 
     const tab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
-    const closeButton = screen.getByRole('button', {
-      name: 'Close thread Purchasing app search log',
-    });
+    // BST-1836: the ✕ is a mouse-only sibling — out of the AT tree and tab order.
+    const closeButton = screen.getByTitle('Close Purchasing app search log');
+    expect(closeButton).toHaveAttribute('aria-hidden', 'true');
+    expect(closeButton).toHaveAttribute('tabindex', '-1');
+    expect(screen.queryByRole('button', { name: /Close Purchasing/ })).toBeNull();
 
-    // The close button is a flex sibling of the tab button (vertically centered
-    // by the row), not an absolutely positioned overlay pinned to a corner.
     expect(closeButton).not.toHaveClass('absolute');
     expect(closeButton.parentElement).toBe(tab.parentElement);
-    // Same affordance token the threads-panel row actions use, so the two
-    // surfaces cannot drift apart again.
+    // The same affordance geometry the threads-panel row actions use.
     expect(closeButton).toHaveClass(...THREAD_CONTROL_ACTION_CLASS_NAME.split(' '));
-    // The tab body is tinted now, so an opaque neutral hover chip paints a grey
-    // blotch into the tint (measured rgb(242, 240, 237) on an amber tab). The
-    // hover fill has to ride the surface instead of covering it.
+    // Tinted tabs: the hover fill rides the surface instead of an opaque chip.
     expect(closeButton).not.toHaveClass('hover:bg-muted');
     expect(closeButton.className).toMatch(/hover:bg-foreground\//);
-    // Visual box is 20px, but the pseudo-element extends the hit target to
-    // 28px so the pointer target stays above the 24px minimum guidance.
+    // Visual box is 20px; the pseudo-element extends the hit target to 28px.
     expect(closeButton.className).toMatch(/after:-inset-1/);
 
     // Leading and close glyphs share one optical size (12px in a 20px box).
-    const leadingIcon = screen.getByTestId('assistant-thread-tab-icon-rose');
-    expect(leadingIcon).toHaveClass('size-5');
-    expect(leadingIcon.querySelector('svg')).toHaveClass('h-3', 'w-3');
-    expect(closeButton.querySelector('svg')).toHaveClass('h-3', 'w-3');
+    const mark = within(tab).getByTestId('thread-color-rose');
+    expect(mark).toHaveClass('size-5');
+    expect(mark.querySelector('svg')).toHaveClass('size-3');
+    expect(closeButton.querySelector('svg')).toHaveClass('size-3');
   });
 
-  it('supports automatic Arrow, Home, and End tab activation with roving focus', async () => {
+  it('moves focus with Arrow, Home and End and activates only on Enter or Space', async () => {
+    const user = userEvent.setup();
     renderWorkspace();
     const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
     const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
 
     secondTab.focus();
-    fireEvent.keyDown(secondTab, { key: 'ArrowLeft' });
+    await user.keyboard('{ArrowLeft}');
     expect(firstTab).toHaveFocus();
-    expect(firstTab).toHaveAttribute('aria-selected', 'true');
+    // BST-1836 D3: manual activation — arrows never switch the thread.
+    expect(activeThreadId()).toBe('thread-b');
+    expect(firstTab).toHaveAttribute('aria-selected', 'false');
 
-    fireEvent.keyDown(firstTab, { key: 'End' });
+    await user.keyboard('{End}');
     expect(secondTab).toHaveFocus();
-    expect(secondTab).toHaveAttribute('aria-selected', 'true');
-
-    fireEvent.keyDown(secondTab, { key: 'Home' });
+    await user.keyboard('{Home}');
     expect(firstTab).toHaveFocus();
-    expect(firstTab).toHaveAttribute('aria-selected', 'true');
+    expect(activeThreadId()).toBe('thread-b');
+
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(firstTab).toHaveAttribute('aria-selected', 'true'));
+    expect(activeThreadId()).toBe('thread-a');
+
+    await user.keyboard('{ArrowRight}');
+    expect(secondTab).toHaveFocus();
+    await user.keyboard(' ');
+    await waitFor(() => expect(activeThreadId()).toBe('thread-b'));
   });
 
   it('closes the focused tab with Delete and moves focus to the following tab', async () => {
-    threadRows.push({
-      createdAt: new Date('2026-04-22T09:00:00Z'),
-      id: 'thread-c',
-      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-      title: 'Release checklist',
-      updatedAt: new Date('2026-04-22T09:00:00Z'),
-    });
+    addThreadRow('thread-c', 'Release checklist');
     renderWorkspace();
     await screen.findByRole('tab', { name: /Purchasing app search log/ });
-    act(() => {
-      const store = useAssistantThreadStore.getState();
-      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-c');
-      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b', 'thread-c', 'thread-b');
     const middleTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
     const followingTab = screen.getByRole('tab', { name: /Release checklist/ });
 
@@ -481,26 +346,18 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(followingTab).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('keeps focus and activation on the existing active tab when closing an inactive tab', async () => {
-    threadRows.push({
-      createdAt: new Date('2026-04-22T09:00:00Z'),
-      id: 'thread-c',
-      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-      title: 'Release checklist',
-      updatedAt: new Date('2026-04-22T09:00:00Z'),
-    });
+  it('keeps activation and focus where they were when the mouse closes an inactive tab', async () => {
+    addThreadRow('thread-c', 'Release checklist');
     renderWorkspace();
     const activeTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
-    act(() => {
-      const store = useAssistantThreadStore.getState();
-      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-c');
-      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-a');
-    });
+    openThreadTabs('thread-b', 'thread-c', 'thread-a');
+    activeTab.focus();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close thread Amazon Bedrock Converse' }));
+    fireEvent.click(screen.getByTitle('Close Amazon Bedrock Converse'));
 
-    await waitFor(() => expect(activeTab).toHaveFocus());
+    expect(openThreadIds()).toEqual(['thread-a', 'thread-c']);
+    // The ✕ never takes focus (mouse-only), so focus stays on what the user had.
+    expect(activeTab).toHaveFocus();
     expect(activeTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: /Release checklist/ })).toHaveAttribute(
       'aria-selected',
@@ -511,20 +368,16 @@ describe('AssistantThreadTabsWorkspace', () => {
   it('reorders tabs with Alt+Shift+Arrow without changing the active thread', async () => {
     renderWorkspace();
     await screen.findByRole('tab', { name: /Purchasing app search log/ });
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
     const activeTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
 
     activeTab.focus();
     fireEvent.keyDown(activeTab, { altKey: true, key: 'ArrowLeft', shiftKey: true });
 
     await waitFor(() => {
-      expect(
-        useAssistantThreadStore.getState().openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
-      ).toEqual(['thread-b', 'thread-a']);
+      expect(openThreadIds()).toEqual(['thread-b', 'thread-a']);
     });
-    expect(activeTab).toHaveFocus();
+    await waitFor(() => expect(activeTab).toHaveFocus());
     expect(activeTab).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -637,40 +490,28 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
   });
 
-  it('updates scroll affordances and scrolls the tab list from arrow buttons', async () => {
+  it('lists every open thread in the All-tabs menu and closes them all from it', async () => {
+    const user = userEvent.setup();
     renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    openThreadTabs('thread-b');
 
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
-    });
+    await user.click(screen.getByRole('button', { name: 'All tabs' }));
+    const options = await screen.findAllByRole('menuitemradio');
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Purchasing app search log',
+      'Amazon Bedrock Converse',
+    ]);
+    await user.click(screen.getByRole('menuitem', { name: 'Close All' }));
 
-    const tabScroll = screen.getByTestId('assistant-thread-tab-scroll') as HTMLDivElement & {
-      scrollBy: ReturnType<typeof vi.fn>;
-    };
-    const scrollBy = vi.fn();
-    tabScroll.scrollBy = scrollBy;
-    Object.defineProperties(tabScroll, {
-      clientWidth: { configurable: true, value: 200 },
-      scrollWidth: { configurable: true, value: 700 },
-    });
-
-    fireEvent.scroll(tabScroll);
-    expect(screen.getByRole('button', { name: 'Scroll assistant tabs left' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Scroll assistant tabs right' })).toBeEnabled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Scroll assistant tabs right' }));
-    expect(scrollBy).toHaveBeenCalledWith({ behavior: 'smooth', left: 160 });
-
-    tabScroll.scrollLeft = 500;
-    fireEvent.scroll(tabScroll);
-    expect(screen.getByRole('button', { name: 'Scroll assistant tabs left' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Scroll assistant tabs right' })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Scroll assistant tabs left' }));
-    expect(scrollBy).toHaveBeenCalledWith({ behavior: 'smooth', left: -160 });
+    expect(openThreadIds()).toEqual([]);
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
   });
 
   it('uses instant scroll behavior when reduced motion is requested', async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
     const matchMediaSpy = vi.spyOn(window, 'matchMedia').mockReturnValue({
       addEventListener: vi.fn(),
       addListener: vi.fn(),
@@ -684,22 +525,19 @@ describe('AssistantThreadTabsWorkspace', () => {
     try {
       renderWorkspace();
       await screen.findByRole('tab', { name: /Purchasing app search log/ });
-      const tabScroll = screen.getByTestId('assistant-thread-tab-scroll') as HTMLDivElement & {
-        scrollBy: ReturnType<typeof vi.fn>;
-      };
-      const scrollBy = vi.fn();
-      tabScroll.scrollBy = scrollBy;
-      Object.defineProperties(tabScroll, {
-        clientWidth: { configurable: true, value: 200 },
-        scrollWidth: { configurable: true, value: 700 },
-      });
-      fireEvent.scroll(tabScroll);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Scroll assistant tabs right' }));
+      openThreadTabs('thread-b');
 
-      expect(scrollBy).toHaveBeenCalledWith({ behavior: 'auto', left: 160 });
+      await waitFor(() =>
+        expect(scrollIntoView).toHaveBeenLastCalledWith({
+          behavior: 'auto',
+          block: 'nearest',
+          inline: 'nearest',
+        })
+      );
     } finally {
       matchMediaSpy.mockRestore();
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
     }
   });
 
@@ -711,9 +549,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       renderWorkspace();
       await screen.findByRole('tab', { name: /Purchasing app search log/ });
 
-      act(() => {
-        useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-      });
+      openThreadTabs('thread-b');
 
       await waitFor(() =>
         expect(scrollIntoView).toHaveBeenLastCalledWith({
@@ -751,15 +587,11 @@ describe('AssistantThreadTabsWorkspace', () => {
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
     });
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
     const inactiveTab = screen.getByRole('tab', { name: /Purchasing app search log/ });
 
     fireEvent.contextMenu(inactiveTab);
-    expect(
-      useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
-    ).toBe('thread-b');
+    expect(activeThreadId()).toBe('thread-b');
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy Thread Title' }));
     await waitFor(() => {
       expect(writtenTexts).toEqual(['Purchasing app search log']);
@@ -768,12 +600,8 @@ describe('AssistantThreadTabsWorkspace', () => {
     fireEvent.contextMenu(inactiveTab);
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
 
-    expect(
-      useAssistantThreadStore.getState().openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
-    ).toEqual(['thread-a']);
-    expect(
-      useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
-    ).toBe('thread-a');
+    expect(openThreadIds()).toEqual(['thread-a']);
+    expect(activeThreadId()).toBe('thread-a');
     expect(
       useAssistantThreadStore.getState().selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
     ).toBe('thread-a');
@@ -787,12 +615,35 @@ describe('AssistantThreadTabsWorkspace', () => {
     await waitFor(() => expect(inactiveTab).toHaveFocus());
   });
 
+  it('offers the standard tab menu plus the global thread copy actions', async () => {
+    renderWorkspace();
+    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    openThreadTabs('thread-b');
+
+    fireEvent.contextMenu(tab);
+    const menu = await screen.findByRole('menu');
+    const labels = within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent);
+    expect(labels).toEqual(
+      expect.arrayContaining([
+        'Close',
+        'Close Others',
+        'Close to the Right',
+        'Close All',
+        'Move Left',
+        'Move Right',
+        'Copy Thread Title',
+        'Copy Thread ID',
+      ])
+    );
+    expect(labels).toHaveLength(8);
+  });
+
   it('restores focus after closing a tab from its context menu', async () => {
     renderWorkspace();
     await screen.findByRole('tab', { name: /Purchasing app search log/ });
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
     const closingTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
     const remainingTab = screen.getByRole('tab', { name: /Purchasing app search log/ });
 
@@ -808,7 +659,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     const activeTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
 
     fireEvent.contextMenu(activeTab);
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All Tabs' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All' }));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'New assistant thread' })).toHaveFocus();
@@ -817,47 +668,31 @@ describe('AssistantThreadTabsWorkspace', () => {
   });
 
   it('closes tabs to the right from the claimed tab and disables the no-op action', async () => {
-    threadRows.push({
-      createdAt: new Date('2026-04-22T09:00:00Z'),
-      id: 'thread-c',
-      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-      title: 'Release checklist',
-      updatedAt: new Date('2026-04-22T09:00:00Z'),
-    });
+    addThreadRow('thread-c', 'Release checklist');
     renderWorkspace();
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
     });
-    act(() => {
-      const store = useAssistantThreadStore.getState();
-      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-c');
-    });
+    openThreadTabs('thread-b', 'thread-c');
     const middleTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
 
     fireEvent.contextMenu(middleTab);
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Tabs to the Right' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close to the Right' }));
 
-    expect(
-      useAssistantThreadStore.getState().openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
-    ).toEqual(['thread-a', 'thread-b']);
-    expect(
-      useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
-    ).toBe('thread-b');
+    expect(openThreadIds()).toEqual(['thread-a', 'thread-b']);
+    expect(activeThreadId()).toBe('thread-b');
 
     fireEvent.contextMenu(middleTab);
-    expect(
-      await screen.findByRole('menuitem', { name: 'Close Tabs to the Right' })
-    ).toHaveAttribute('data-disabled');
+    expect(await screen.findByRole('menuitem', { name: 'Close to the Right' })).toHaveAttribute(
+      'data-disabled'
+    );
   });
 
   it('moves a tab left from its context action while preserving focus identity', async () => {
     renderWorkspace();
     await screen.findByRole('tab', { name: /Purchasing app search log/ });
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
     const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
     secondTab.focus();
 
@@ -865,19 +700,15 @@ describe('AssistantThreadTabsWorkspace', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Move Left' }));
 
     await waitFor(() => {
-      expect(
-        useAssistantThreadStore.getState().openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
-      ).toEqual(['thread-b', 'thread-a']);
+      expect(openThreadIds()).toEqual(['thread-b', 'thread-a']);
     });
-    expect(secondTab).toHaveFocus();
+    await waitFor(() => expect(secondTab).toHaveFocus());
   });
 
   it('exposes Move Right and disables movement beyond the left edge', async () => {
     renderWorkspace();
     const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
+    openThreadTabs('thread-b');
     firstTab.focus();
 
     fireEvent.contextMenu(firstTab);
@@ -887,6 +718,34 @@ describe('AssistantThreadTabsWorkspace', () => {
     );
     const moveRight = within(menu).getByRole('menuitem', { name: 'Move Right' });
     expect(moveRight).not.toHaveAttribute('data-disabled');
+  });
+
+  it('offers New Thread and Close All from the empty strip background', async () => {
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValue('00000000-0000-4000-8000-00000000000f');
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+
+    fireEvent.contextMenu(screen.getByTestId('assistant-thread-tab-strip'));
+    const menu = await screen.findByRole('menu');
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    ).toEqual(['New Thread', 'Close All']);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'New Thread' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('assistant-thread-panel-thread-00000000-0000-4000-8000-00000000000f')
+      ).toBeVisible();
+    });
+    uuidSpy.mockRestore();
+
+    fireEvent.contextMenu(screen.getByTestId('assistant-thread-tab-strip'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All' }));
+    expect(openThreadIds()).toEqual([]);
   });
 
   it('does not claim assistant message content as a thread-tab context target', async () => {
@@ -907,10 +766,8 @@ describe('AssistantThreadTabsWorkspace', () => {
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
     });
-    act(() => {
-      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
-    });
-    await user.click(screen.getByRole('button', { name: 'Close thread Amazon Bedrock Converse' }));
+    openThreadTabs('thread-b');
+    await user.click(screen.getByTitle('Close Amazon Bedrock Converse'));
 
     expect(mockDb.query).not.toHaveBeenCalledWith(
       expect.stringContaining('DELETE FROM mastra_threads'),
