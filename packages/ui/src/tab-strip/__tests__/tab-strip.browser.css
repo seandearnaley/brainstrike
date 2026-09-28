@@ -1,0 +1,4 @@
+/* Real Tailwind for the browser lane: the app's tokens plus this package's classes. */
+@import "tailwindcss";
+@import "../../globals.css";
+@source "../";
