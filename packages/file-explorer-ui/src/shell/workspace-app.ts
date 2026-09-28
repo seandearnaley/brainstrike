@@ -24,12 +24,12 @@ export interface WorkspaceApp {
   /**
    * Renders the app's body in the workspace area.
    *
-   * Contract: this function is invoked inline on every host re-render (not behind a
-   * memoization boundary), so it should be cheap and idempotent — typically just
-   * `() => <SomeComponent />`. React reconciles the same element type across calls,
-   * so a stable component identity inside `render()` avoids remounts; if your app
-   * needs expensive setup, do it inside that component (with `useEffect`/`useMemo`)
-   * rather than in `render()` itself.
+   * Contract: this function is invoked on every host re-render, inside the panel's
+   * error boundary (not behind a memoization boundary), so it should be cheap and
+   * idempotent — typically just `() => <SomeComponent />`. React reconciles the
+   * same element type across calls, so a stable component identity inside
+   * `render()` avoids remounts; if your app needs expensive setup, do it inside
+   * that component (with `useEffect`/`useMemo`) rather than in `render()` itself.
    */
   readonly render: () => ReactNode;
   /** Optional identity tint for an app that represents a colored conversation. */

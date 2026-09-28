@@ -1,9 +1,15 @@
 import { TabPanelBoundary } from '@brainstrike/ui';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { FileTabBody } from './file-tab-body';
 import { useWorkspaceTabs } from './use-workspace-tabs';
+import type { WorkspaceApp } from './workspace-app';
 import { WorkspaceLauncher } from './workspace-launcher';
 import { getFileName, getTabRootPath } from './workspace-tab-utils';
+
+/** Invokes an app's render callback while React renders it, inside the panel boundary. */
+function WorkspaceAppContent({ render }: { readonly render: WorkspaceApp['render'] }): ReactNode {
+  return render();
+}
 
 /**
  * The workspace panel's content area (BST-1258). Renders:
@@ -19,12 +25,15 @@ import { getFileName, getTabRootPath } from './workspace-tab-utils';
  * Every app panel and the file body sit inside a `TabPanelBoundary`, so a
  * render crash stays in its panel while the strip and other apps keep
  * working. The file body's reset key is the compositeKey: switching files
- * clears a caught crash; an app's is its id (it stays crashed across tab
- * switches until "Reload tab").
+ * clears a caught crash. An app panel is keyed by its id, so its boundary
+ * never resets on its own: it stays crashed across tab switches until
+ * "Reload tab".
  *
- * `app.render()` is invoked inline on every re-render per the WorkspaceApp
- * contract (cheap + idempotent; React reconciles the same element type, so
- * stable component identity inside render() avoids remounts).
+ * `app.render()` runs on every re-render per the WorkspaceApp contract (cheap
+ * + idempotent; React reconciles the same element type, so stable component
+ * identity inside render() avoids remounts). It runs inside
+ * {@link WorkspaceAppContent}, below the boundary, so a callback that throws
+ * while building its element is contained too.
  */
 export function WorkspaceBody(): ReactElement {
   const {
@@ -77,8 +86,8 @@ export function WorkspaceBody(): ReactElement {
             key={app.id}
             role="tabpanel"
           >
-            <TabPanelBoundary label={app.label} resetKey={app.id}>
-              {app.render()}
+            <TabPanelBoundary label={app.label}>
+              <WorkspaceAppContent render={app.render} />
             </TabPanelBoundary>
           </div>
         );

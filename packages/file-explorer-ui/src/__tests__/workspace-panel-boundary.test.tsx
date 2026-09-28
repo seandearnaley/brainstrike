@@ -142,6 +142,36 @@ describe('workspace panel error boundaries (TabPanelBoundary)', () => {
     consoleError.mockRestore();
   });
 
+  it('contains an app whose render callback itself throws to its panel', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    useWorkspaceTabSelectionStore.getState().openApp(CANVAS_APP.id);
+    const user = userEvent.setup();
+    renderWorkspace([
+      FILES_APP,
+      {
+        ...CANVAS_APP,
+        render: () => {
+          throw new Error('canvas render callback exploded');
+        },
+      },
+    ]);
+
+    const panel = document.getElementById('workspace-app-panel-canvas');
+    expect(panel).not.toBeNull();
+    expect(await within(panel as HTMLElement).findByRole('alert')).toHaveTextContent(
+      'Canvas stopped working'
+    );
+    expect(
+      within(panel as HTMLElement).getByText('canvas render callback exploded')
+    ).toBeInTheDocument();
+
+    // The strip survives and the other app still renders.
+    expect(screen.getByRole('tablist', { name: 'Workspace tabs' })).toBeInTheDocument();
+    await user.click(tabNamed(/files/i));
+    expect(await screen.findByTestId('preview-panel')).toBeVisible();
+    consoleError.mockRestore();
+  });
+
   it('resets the file-body boundary per file: another file renders, the crashing one re-crashes', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const BAD = 'folderA|@|src/bad.ts';
