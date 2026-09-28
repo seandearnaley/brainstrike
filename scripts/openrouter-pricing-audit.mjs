@@ -41,6 +41,13 @@
 // ABSENT top-provider field is an unreadable payload, never a fallback. See
 // `auditOpenRouterLimits`.
 //
+// And each row's LONG-CONTEXT TIERS (BST-1708): a row holding
+// `pricing.longContextTiers` must match the route's `min_prompt_tokens`
+// overrides exactly — threshold, input/output, and tier cache rates — because
+// `computeCost` prices from the held tiers. See `auditOpenRouterTiers`. Rows
+// holding no tiers are skipped: tier coverage is an authoring decision, not
+// drift.
+//
 // NOT A REQUIRED CI CHECK, deliberately. It needs the network, and OpenRouter
 // re-prices roughly weekly, so wiring it into `lint:ci` would paint unrelated
 // PRs red for upstream reasons. It is an on-demand catalog-authoring tool
@@ -79,6 +86,9 @@ const WEEK_MINUTES = UTC_DAYS.length * MINUTES_PER_DAY;
 /** What makes an override entry a clock band. Any ONE of these is enough. */
 const TIME_BAND_KEYS = Object.freeze(['utc_days', 'utc_start', 'utc_end']);
 const CONTEXT_TIER_KEY = 'min_prompt_tokens';
+/** The only cache rates an upstream tier entry has ever published (2026-09-28). */
+const TIER_CACHE_READ_KEY = 'input_cache_read';
+const TIER_CACHE_WRITE_KEY = 'input_cache_write';
 
 class PricingShapeError extends Error {}
 
@@ -522,6 +532,171 @@ export function auditOpenRouterLimits({ catalog, liveModels }) {
   return { audited, findings };
 }
 
+/**
+ * Derive a route's LONG-CONTEXT TIERS (BST-1708) from an OpenRouter `pricing`
+ * object: the `min_prompt_tokens` overrides as `{ minPromptTokens,
+ * inputPerMTok, outputPerMTok }` plus the tier cache rates when the payload
+ * publishes them. Sorted by threshold, because upstream array order is not a
+ * contract (the base-rate derivation refuses to depend on it too).
+ *
+ * Fails closed like everything else here. A non-positive-integer threshold or
+ * an unreadable rate THROWS, as does a DUPLICATED threshold: two entries at
+ * one size leave computeCost tier selection ("the highest tier at or below")
+ * ambiguous, so that payload is for a human, not a first-match rule.
+ *
+ * Extra keys inside a tier entry (today: `audio`, `input_audio_cache` on
+ * audio-capable routes) are IGNORED, not rejected: they are not a new shape,
+ * they are rates the catalog schema does not model — the same way the
+ * base-rate derivation ignores top-level `web_search`. Absent cache rates
+ * stay absent keys rather than `undefined` values.
+ */
+export function deriveOpenRouterContextTiers(pricing) {
+  if (pricing === null || typeof pricing !== 'object') {
+    throw new PricingShapeError('pricing is not an object');
+  }
+  const { contextTiers } = splitOverrides(pricing);
+  const tiers = contextTiers.map((tier, index) => {
+    const label = `context tier ${index}`;
+    const minPromptTokens = tier[CONTEXT_TIER_KEY];
+    if (!(Number.isSafeInteger(minPromptTokens) && minPromptTokens > 0)) {
+      throw new PricingShapeError(
+        `${label} ${CONTEXT_TIER_KEY} is not a positive integer: ${String(minPromptTokens)}`
+      );
+    }
+    const derived = {
+      inputPerMTok: parseRate(tier.prompt, `${label}.prompt`),
+      minPromptTokens,
+      outputPerMTok: parseRate(tier.completion, `${label}.completion`),
+    };
+    for (const [key, field] of [
+      [TIER_CACHE_READ_KEY, 'cacheReadPerMTok'],
+      [TIER_CACHE_WRITE_KEY, 'cacheWritePerMTok'],
+    ]) {
+      // A tier cache rate is optional upstream; when present it must parse.
+      // `null` is not "absent" — it is a shape nobody has read, so it throws.
+      if (tier[key] !== undefined) {
+        derived[field] = parseRate(tier[key], `${label}.${key}`);
+      }
+    }
+    return derived;
+  });
+  tiers.sort((left, right) => left.minPromptTokens - right.minPromptTokens);
+  for (const [index, tier] of tiers.entries()) {
+    if (index > 0 && tier.minPromptTokens === tiers[index - 1].minPromptTokens) {
+      throw new PricingShapeError(
+        `duplicate ${CONTEXT_TIER_KEY} ${tier.minPromptTokens}: computeCost tier selection is ambiguous`
+      );
+    }
+  }
+  return tiers;
+}
+
+/** Absent on both sides is agreement; absent on one side is drift. */
+function sameOptionalRate(left, right) {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return sameRate(left, right);
+}
+
+function sameTier(held, live) {
+  return (
+    held.minPromptTokens === live.minPromptTokens &&
+    sameRate(held.inputPerMTok, live.inputPerMTok) &&
+    sameRate(held.outputPerMTok, live.outputPerMTok) &&
+    sameOptionalRate(held.cacheReadPerMTok, live.cacheReadPerMTok) &&
+    sameOptionalRate(held.cacheWritePerMTok, live.cacheWritePerMTok)
+  );
+}
+
+/**
+ * Compare every `openrouter` LLM row HOLDING `pricing.longContextTiers`
+ * against the live route's tiers. Rows without held tiers are skipped:
+ * whether a route's tiers are worth modelling is an authoring decision, so
+ * unmodelled tiers are not findings — but anything the catalog DOES declare
+ * must match, threshold and cache rates included.
+ */
+export function auditOpenRouterTiers({ catalog, liveModels }) {
+  const provider = catalog.find((entry) => entry.id === PROVIDER_ID);
+  if (provider === undefined) {
+    throw new Error(`the catalog has no "${PROVIDER_ID}" provider`);
+  }
+  const liveById = new Map(liveModels.map((model) => [model.id, model]));
+  const findings = [];
+  let audited = 0;
+
+  for (const model of provider.models) {
+    if (model.type !== undefined && model.type !== 'llm') {
+      continue;
+    }
+    const held = model.pricing === undefined ? undefined : model.pricing.longContextTiers;
+    if (held === undefined || held.length === 0) {
+      continue;
+    }
+    const live = liveById.get(model.id);
+    if (live === undefined) {
+      findings.push({ kind: 'route-missing', modelId: model.id });
+      continue;
+    }
+    let expected;
+    try {
+      expected = deriveOpenRouterContextTiers(live.pricing);
+    } catch (error) {
+      if (!(error instanceof PricingShapeError)) {
+        throw error;
+      }
+      findings.push({ kind: 'tier-shape-unrecognised', modelId: model.id, reason: error.message });
+      continue;
+    }
+    audited += 1;
+    if (
+      held.length === expected.length &&
+      held.every((tier, index) => sameTier(tier, expected[index]))
+    ) {
+      continue;
+    }
+    findings.push({ expected, held, kind: 'tier-drift', modelId: model.id });
+  }
+
+  return { audited, findings };
+}
+
+function formatTierRate(value) {
+  return value === undefined ? 'none' : String(value);
+}
+
+function formatTier(tier) {
+  return [
+    `${tier.minPromptTokens}:`,
+    `${tier.inputPerMTok}/${tier.outputPerMTok}`,
+    `/cache(${formatTierRate(tier.cacheReadPerMTok)}/${formatTierRate(tier.cacheWritePerMTok)})`,
+  ].join('');
+}
+
+function formatTierFinding(finding) {
+  if (finding.kind === 'route-missing') {
+    return `  ${finding.modelId}: not published by the live Models API`;
+  }
+  if (finding.kind === 'tier-shape-unrecognised') {
+    return `  ${finding.modelId}: live tier shape not understood — ${finding.reason}`;
+  }
+  const { expected, held } = finding;
+  return [
+    `  ${finding.modelId}: held [${held.map(formatTier).join(', ')}]`,
+    `live [${expected.map(formatTier).join(', ')}]`,
+  ].join(' ');
+}
+
+export function summarizeTierFindings({ audited, findings }) {
+  if (findings.length === 0) {
+    return `openrouter tier audit: ${audited} routes match their live long-context tiers.`;
+  }
+  const drifted = findings.filter((finding) => finding.kind === 'tier-drift').length;
+  const notAudited = findings.length - drifted;
+  const tail = notAudited === 0 ? '' : `; ${notAudited} row(s) could not be audited`;
+  return `openrouter tier audit: ${drifted} of ${audited} audited routes disagree with the live long-context tiers${tail}.`;
+}
+
 function formatLimit(value) {
   return value === undefined ? 'none' : String(value);
 }
@@ -646,14 +821,30 @@ async function main() {
     process.stdout.write(
       `openrouter limits audit: ${limits.audited} routes match their top-provider pair.\n`
     );
+  } else {
+    process.stderr.write(
+      `${summarizeLimitFindings(limits)}\n${limits.findings
+        .map(formatLimitFinding)
+        .join(
+          '\n'
+        )}\n\nRecord contextWindow / maxOutputTokens as the route's top_provider pair.\nSee docs/agents/assistant-providers.md, "Model pricing is per-ROUTE, not per-model".\n`
+    );
+    process.exitCode = 1;
+  }
+
+  const tiers = auditOpenRouterTiers({ catalog, liveModels });
+  if (tiers.findings.length === 0) {
+    process.stdout.write(
+      `openrouter tier audit: ${tiers.audited} routes match their live long-context tiers.\n`
+    );
     return;
   }
   process.stderr.write(
-    `${summarizeLimitFindings(limits)}\n${limits.findings
-      .map(formatLimitFinding)
+    `${summarizeTierFindings(tiers)}\n${tiers.findings
+      .map(formatTierFinding)
       .join(
         '\n'
-      )}\n\nRecord contextWindow / maxOutputTokens as the route's top_provider pair.\nSee docs/agents/assistant-providers.md, "Model pricing is per-ROUTE, not per-model".\n`
+      )}\n\nRecord pricing.longContextTiers from the STANDARD route's min_prompt_tokens overrides.\nSee the openrouter provider _note in packages/assistant-contract/src/provider-catalog.json.\n`
   );
   process.exitCode = 1;
 }

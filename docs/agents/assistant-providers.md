@@ -488,7 +488,8 @@ fallback.
   because the band reader defaults every absent UTC field. A third shape gets
   read by a human and taught to the script.
 - Run `pnpm run audit:openrouter-pricing` when adding, re-pricing or re-limiting
-  a row; it audits rates AND the `top_provider` limit pair. It is deliberately
+  a row; it audits rates, the `top_provider` limit pair, AND the
+  `longContextTiers` of rows that hold them. It is deliberately
   not in `lint:ci`: the fact lives upstream and OpenRouter re-prices
   weekly, so a network gate would fail PRs for reasons outside them and skipping
   on a network error would be silent degradation.
