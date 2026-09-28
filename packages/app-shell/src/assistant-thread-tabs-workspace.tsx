@@ -38,7 +38,7 @@ import {
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
-import { useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
+import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { ThreadIdentityMark } from './thread-identity-mark';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 
@@ -154,8 +154,9 @@ export function AssistantThreadTabsWorkspace({
   const newThreadDisabled = loadState.status === 'loading';
 
   // The Threads panel's three list-wide run-state projections, one live query
-  // (or derivation) per signal and never per tab. The panel alone advances the
-  // viewed watermark (`useMarkActiveThreadViewed`).
+  // (or derivation) per signal and never per tab. The active tab IS the thread
+  // on screen, so the strip advances its viewed watermark too: a Library showing
+  // Collections leaves no Threads panel mounted to do it.
   const schemaReady = Object.hasOwn(threadsByResourceId, resourceId);
   const threadsAwaitingApproval = useThreadsAwaitingApproval({ database, resourceId, schemaReady });
   const activeThreads = useActiveAssistantThreadIds({ database, resourceId, schemaReady });
@@ -165,6 +166,7 @@ export function AssistantThreadTabsWorkspace({
     threads,
     unseenBaselineAt,
   });
+  useMarkActiveThreadViewed({ activeThreadId, threads });
 
   // A failed projection reports an empty set. The strip says so, as the Threads
   // panel does, rather than let every tab read as idle.

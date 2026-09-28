@@ -4,7 +4,6 @@
   "dependencies": {
     "@brainstrike/app-state": "workspace:*",
     "@atlaskit/pragmatic-drag-and-drop": "^3.1.0",
-    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.2.0",
     "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.2.0",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-data": "workspace:*",

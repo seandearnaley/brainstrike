@@ -84,4 +84,10 @@ run-state badge reads the same on a tab and its row (BST-939). Paired tests now:
 Characterised before the change and unchanged by it: on web, closing a running
 root thread's tab unmounts its panel, which aborts the run (the local runtime
 cancels the host request) and leaves the durable run row `running` until the next
-startup reap. Switching tabs mid-run neither aborts the run nor throws.
+startup reap. Switching tabs mid-run neither aborts the run nor throws. Tracked
+as BST-1844.
+
+Tabs now badge unseen runs, so the strip also runs `useMarkActiveThreadViewed`.
+Before, only the Threads panel advanced the watermark, and with the Library on
+Collections a viewed tab kept its "finished" badge after the user switched away.
+Pinned in `assistant-thread-tabs-workspace-status.test.tsx`.

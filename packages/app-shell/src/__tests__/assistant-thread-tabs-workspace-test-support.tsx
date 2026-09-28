@@ -100,11 +100,13 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({ rootDirectoryHandle: harness.fileExplorerMocks.rootDirectoryHandle }),
 }));
 
-// happy-dom loads no Tailwind, so the strip's auto-scroll dev check would dump
-// the scroller to stderr on every mount (same stub as the ui strip suite).
-vi.mock('@atlaskit/pragmatic-drag-and-drop-auto-scroll/element', () => ({
-  autoScrollForElements: () => () => undefined,
-}));
+// happy-dom loads no Tailwind: give the strip's scroller the `overflow-x-auto`
+// it computes in the app, so drag auto-scroll registers against a scrollable
+// element instead of warning on every mount.
+const scrollerOverflow = document.createElement('style');
+scrollerOverflow.textContent =
+  '[data-slot="tab-strip"] [data-group="scroll"] { overflow-x: auto; }';
+document.head.append(scrollerOverflow);
 
 vi.mock('../assistant-ui-panel-wrapper', () => ({
   AssistantUiPanelWrapper: (props: {

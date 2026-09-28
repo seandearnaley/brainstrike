@@ -60,6 +60,25 @@ describe('AssistantThreadTabsWorkspace run state', () => {
     ).toBeInTheDocument();
   });
 
+  it('clears a finished badge once its tab has been viewed, with no Threads panel mounted', async () => {
+    addThreadRow('thread-d', 'Nightly triage', {
+      ...latestRunColumns('thread-d', 'completed', new Date('2026-04-22T11:00:20Z')),
+    });
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    // Activating the tab shows the thread: the strip, not only the Threads
+    // panel, must advance its viewed watermark.
+    openThreadTabs('thread-d');
+    await waitFor(() => expect(activeThreadId()).toBe('thread-d'));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: /Purchasing app search log/ }));
+    await waitFor(() => expect(activeThreadId()).toBe('thread-a'));
+
+    expect(screen.getByRole('tab', { name: 'Nightly triage' })).toBeInTheDocument();
+    expect(screen.queryByTestId('thread-unseen-glyph')).not.toBeInTheDocument();
+  });
+
   it('re-renders only the marks whose thread status changed when the selection moves', async () => {
     addThreadRow('thread-c', 'Release checklist');
     renderWorkspace();

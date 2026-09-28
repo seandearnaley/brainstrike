@@ -14,8 +14,8 @@ import type { TabStripContextMenu, TabStripItem } from '../types';
 
 // happy-dom loads no Tailwind, so the scroller's `overflow-x-auto` never
 // computes and auto-scroll's dev check dumps the whole element to stderr on
-// every mount. Same stub as app-shell's thread-tab suites; the real
-// registration runs in `tab-strip.browser.test.tsx` against real CSS.
+// every mount. The real registration runs in `tab-strip.browser.test.tsx`
+// against real CSS.
 vi.mock('@atlaskit/pragmatic-drag-and-drop-auto-scroll/element', () => ({
   autoScrollForElements: () => () => undefined,
 }));

@@ -1391,9 +1391,9 @@ Where state lives (do not relitigate):
 - Unseen badges derive from a pure `deriveUnseenThreadIds` (terminal `latestRun`
   completed after the thread's watermark, active thread excluded,
   `failedUnseen ⊂ unseen`; a terminal run with NO `completedAt` is excluded rather
-  than given a substitute timestamp) plus `useMarkActiveThreadViewed`, which stamps
-  on the way in AND out and again when the active thread's run reaches a new
-  `completedAt`, so a foreground finish can never later read as unseen.
+  than given a substitute timestamp) plus `useMarkActiveThreadViewed` (Threads
+  panel AND thread strip; either may mount alone): it stamps in AND out and on
+  each new active-run `completedAt`, so a foreground finish never reads unseen.
 - Folder branch chips come from ONE `useGitInventory()` GATED on `enabled`, because
   one load is a full repo/worktree scan across every root and the chips exist only
   in folder grouping — entering it is the gesture, so this is a deferral, not a
