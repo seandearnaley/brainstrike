@@ -146,6 +146,7 @@ const INTEGRATION_PACKAGES = [
   'packages/assistant-data',
   'packages/embeddings',
   'packages/file-import',
+  'packages/settings-ui',
 ];
 
 for (const packagePath of INTEGRATION_PACKAGES) {
@@ -235,5 +236,5 @@ test('MONEY TEST: the real repository passes the actual watchdog CLI', () => {
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0, result.stderr);
   assert.doesNotMatch(result.stderr, /verify-event-loop-watchdog: OK/);
-  assert.match(result.stdout, /OK \(16 PGlite-hosting lanes/);
+  assert.match(result.stdout, /OK \(18 PGlite-hosting lanes/);
 });
