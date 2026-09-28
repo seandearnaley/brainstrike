@@ -72,6 +72,7 @@ import {
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
 import { QuickOpenHost } from './quick-open-host';
+import { TabChordHost } from './tab-chords/tab-chord-host';
 import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
@@ -694,6 +695,8 @@ export function RootLayoutContent({
             visible renderer mounts RootLayoutContent, so hidden hosts never
             instantiate it (structural gating — no role check needed here). */}
             <CommandPaletteHost />
+            {/* Tab chords (BST-1842): the same structural gating as the palette. */}
+            <TabChordHost />
             <WorkspaceConnectHost />
             <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
               <EmbeddingRuntimeProvider>
