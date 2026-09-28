@@ -169,8 +169,18 @@ describe('ThemeProvider', () => {
     });
 
     expect(result.current.theme).toBe('system');
+    expect(mockClassList.remove).toHaveBeenCalledTimes(1);
     expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark');
+    expect(mockClassList.add).toHaveBeenCalledTimes(1);
     expect(mockClassList.add).toHaveBeenCalledWith('dark');
+    // The mocked DOMTokenList is stateless, so the pair above would also pass
+    // if the effect added before removing (leaving the real page classless).
+    // Compare the global invocation order instead: the transition's remove
+    // must precede its re-add. Last elements, so mount history (if any) cannot
+    // satisfy this by accident.
+    const removeOrder = vi.mocked(mockClassList.remove).mock.invocationCallOrder;
+    const addOrder = vi.mocked(mockClassList.add).mock.invocationCallOrder;
+    expect(removeOrder.at(-1)).toBeLessThan(addOrder.at(-1) ?? Number.NaN);
     expect(mockStorageAdapter.setItem).toHaveBeenCalledWith('ui-theme', 'system');
   });
 
