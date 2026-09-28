@@ -33,6 +33,14 @@ interface WorkspaceTabSelectionState {
    */
   closeApp: (appId: string) => string | null;
   /**
+   * Close several app tabs in ONE transition (tab-menu Close Others / Close
+   * All). Selection follows {@link closeApp}'s rules: a surviving selection
+   * stays; a closed one moves to the next surviving app after it, else the
+   * last surviving app, else `{kind:'empty'}`. Returns that successor, or
+   * `null` when the selection did not move to an app.
+   */
+  closeApps: (appIds: readonly string[]) => string | null;
+  /**
    * Thread-workspace hydration entry point (BST-1268): replace the open list
    * and selection atomically from a snapshot. Mounted apps re-seed from the
    * hydrated selection only — surfaces from the previous thread stay mounted
@@ -164,6 +172,29 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
           return null;
         }
         const successor = nextOpen[index] ?? nextOpen.at(-1) ?? null;
+        set({
+          openAppIds: nextOpen,
+          selection: successor === null ? { kind: 'empty' } : { appId: successor, kind: 'app' },
+        });
+        return successor;
+      },
+      closeApps: (appIds) => {
+        const { openAppIds, selection } = get();
+        const closing = new Set(appIds);
+        const nextOpen = openAppIds.filter((id) => !closing.has(id));
+        if (nextOpen.length === openAppIds.length) {
+          return null;
+        }
+        const closingActive = selection.kind === 'app' && closing.has(selection.appId);
+        if (!closingActive) {
+          set({ openAppIds: nextOpen });
+          return null;
+        }
+        const selectedIndex = openAppIds.indexOf(selection.appId);
+        const successor =
+          openAppIds.slice(selectedIndex + 1).find((id) => !closing.has(id)) ??
+          nextOpen.at(-1) ??
+          null;
         set({
           openAppIds: nextOpen,
           selection: successor === null ? { kind: 'empty' } : { appId: successor, kind: 'app' },
