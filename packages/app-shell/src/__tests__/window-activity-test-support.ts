@@ -14,7 +14,7 @@ import { type MockInstance, vi } from 'vitest';
  */
 let hasFocusSpy: MockInstance<() => boolean> | null = null;
 
-function setWindowActivity({
+function dispatchWindowActivity({
   focused,
   visible,
 }: {
@@ -28,9 +28,16 @@ function setWindowActivity({
     configurable: true,
     get: () => (visible ? 'visible' : 'hidden'),
   });
+  document.dispatchEvent(new Event('visibilitychange'));
+  window.dispatchEvent(new Event(focused ? 'focus' : 'blur'));
+}
+
+function setWindowActivity(activity: {
+  readonly focused: boolean;
+  readonly visible: boolean;
+}): void {
   act(() => {
-    document.dispatchEvent(new Event('visibilitychange'));
-    window.dispatchEvent(new Event(focused ? 'focus' : 'blur'));
+    dispatchWindowActivity(activity);
   });
 }
 
@@ -44,9 +51,23 @@ export function blurWindow(): void {
   setWindowActivity({ focused: false, visible: true });
 }
 
+/**
+ * {@link blurWindow} for a caller that already holds an `act` scope and needs
+ * this update to land in the SAME render as others (a nested `act` flushes it
+ * on its own).
+ */
+export function blurWindowWithinAct(): void {
+  dispatchWindowActivity({ focused: false, visible: true });
+}
+
 /** Hidden document: minimised, or a background tab. It reports no focus either. */
 export function hideDocument(): void {
   setWindowActivity({ focused: false, visible: false });
+}
+
+/** {@link hideDocument} for a caller that already holds an `act` scope; see {@link blurWindowWithinAct}. */
+export function hideDocumentWithinAct(): void {
+  dispatchWindowActivity({ focused: false, visible: false });
 }
 
 /** Back to jsdom's defaults, and the `useAppActive` cache with them. */

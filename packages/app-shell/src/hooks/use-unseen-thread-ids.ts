@@ -53,8 +53,8 @@ export interface UnseenThreadIdsArgs {
  * claims to report.
  */
 export function deriveUnseenThreadIds({
-  onScreenThreadId,
   lastViewedAtByThreadId,
+  onScreenThreadId,
   threads,
   unseenBaselineAt,
 }: UnseenThreadIdsArgs): UnseenThreadIds {
@@ -83,7 +83,7 @@ export function deriveUnseenThreadIds({
 
 /** {@link deriveUnseenThreadIds}, memoized on its inputs. */
 export function useUnseenThreadIds(args: UnseenThreadIdsArgs): UnseenThreadIds {
-  const { onScreenThreadId, lastViewedAtByThreadId, threads, unseenBaselineAt } = args;
+  const { lastViewedAtByThreadId, onScreenThreadId, threads, unseenBaselineAt } = args;
   return useMemo(
     () =>
       deriveUnseenThreadIds({
@@ -92,7 +92,7 @@ export function useUnseenThreadIds(args: UnseenThreadIdsArgs): UnseenThreadIds {
         threads,
         unseenBaselineAt,
       }),
-    [onScreenThreadId, lastViewedAtByThreadId, threads, unseenBaselineAt]
+    [lastViewedAtByThreadId, onScreenThreadId, threads, unseenBaselineAt]
   );
 }
 

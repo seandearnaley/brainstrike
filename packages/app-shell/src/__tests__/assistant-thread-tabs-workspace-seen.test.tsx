@@ -2,19 +2,23 @@ import './assistant-thread-tabs-workspace-test-support';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { act, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
 import {
   activeThreadId,
   dbMocks,
   finishRun,
   openThreadTabs,
+  refreshThreadList,
   renderWorkspace,
+  stageFinishedRun,
 } from './assistant-thread-tabs-workspace-test-support';
 import {
   blurWindow,
+  blurWindowWithinAct,
   focusWindow,
   hideDocument,
+  hideDocumentWithinAct,
   resetWindowActivity,
 } from './window-activity-test-support';
 
@@ -145,6 +149,24 @@ describe('AssistantThreadTabsWorkspace seen state', () => {
     expect(onScreenThreadId()).toBeNull();
   });
 
+  // The loading card replaces the panels only with NO open tab (and then there
+  // is no active thread to publish). With tabs already open the transcripts are
+  // rendered while the list refreshes, so the active one IS on screen.
+  it('publishes the active thread while the thread list is still loading with tabs open', () => {
+    focusWindow();
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'thread-a' },
+      loadStateByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: { status: 'loading' } },
+      openThreadIdsByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: ['thread-a'] },
+    });
+
+    renderWorkspace();
+
+    expect(screen.getByTestId('assistant-thread-panel-thread-a')).toBeVisible();
+    expect(screen.getByTestId('assistant-thread-wrapper')).toHaveTextContent('thread-a');
+    expect(onScreenThreadId()).toBe('thread-a');
+  });
+
   it('withdraws the claim when the thread list fails to load and the transcript is replaced', async () => {
     await renderOnScreen();
 
@@ -162,4 +184,79 @@ describe('AssistantThreadTabsWorkspace seen state', () => {
     expect(screen.getByText('Assistant threads failed to load')).toBeInTheDocument();
     expect(onScreenThreadId()).toBeNull();
   });
+});
+
+/**
+ * The store commits the refreshed thread list and, in the same synchronous tick
+ * (inside that very `set`), `leave` runs — so React batches the two into ONE
+ * render, as it does when a database event and a focus change are handled back
+ * to back. A separate `act` per update, or an `await` between them, would let
+ * React render the departure first and hide the race.
+ */
+async function refreshThreadListAnd(leave: () => void): Promise<void> {
+  const unsubscribe = useAssistantThreadStore.subscribe((state, previous) => {
+    if (state.threadsByResourceId !== previous.threadsByResourceId) {
+      unsubscribe();
+      leave();
+    }
+  });
+  await act(refreshThreadList);
+}
+
+// The completion and the departure arrive in ONE render: a terminal-run refresh
+// batched with a blur, a route change or a tab switch. The published claim is
+// only written by a passive effect, so a reader that took it back from the store
+// would still see the OUTGOING thread on screen and stamp the completion the user
+// never saw. The publisher must feed its own consumers the identity it computed
+// this render.
+describe('AssistantThreadTabsWorkspace seen state, completion and departure in one render', () => {
+  const realMarkThreadViewed = useAssistantThreadStore.getState().markThreadViewed;
+  const markThreadViewed = vi.fn(realMarkThreadViewed);
+
+  beforeEach(() => {
+    markThreadViewed.mockClear();
+    useAssistantThreadStore.setState({ markThreadViewed });
+  });
+
+  afterEach(() => {
+    act(() => {
+      useAssistantThreadStore.setState({ markThreadViewed: realMarkThreadViewed });
+    });
+  });
+
+  it.each([
+    ['the window blurs', () => blurWindowWithinAct(), () => focusWindow()],
+    ['the document hides', () => hideDocumentWithinAct(), () => focusWindow()],
+    [
+      'the route leaves the explorer',
+      () => usePanelLayoutStore.setState({ activeTab: 'settings' }),
+      () => setRoute('explorer'),
+    ],
+    [
+      'another tab becomes active',
+      () =>
+        useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b'),
+      () => openThreadTabs('thread-a'),
+    ],
+  ])(
+    'does not stamp a completion that lands in the same render as the departure: %s',
+    async (_case, leave, comeBack) => {
+      await renderOnScreen();
+      markThreadViewed.mockClear();
+
+      stageFinishedRun('thread-a', COMPLETED_AT);
+      await refreshThreadListAnd(leave);
+
+      expect(markThreadViewed).not.toHaveBeenCalled();
+      expect(watermark('thread-a')).toBeUndefined();
+      expect(
+        await screen.findByRole('tab', { name: `${ACTIVE_TITLE}, finished` })
+      ).toBeInTheDocument();
+
+      comeBack();
+
+      expect(await screen.findByRole('tab', { name: ACTIVE_TITLE })).toBeInTheDocument();
+      expect(markThreadViewed).toHaveBeenCalledWith('thread-a', COMPLETED_AT.getTime());
+    }
+  );
 });

@@ -39,7 +39,7 @@ import {
 } from './assistant-thread-presentation';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
-import { useOnScreenThreadId, usePublishOnScreenThreadId } from './hooks/use-on-screen-thread';
+import { usePublishOnScreenThreadId } from './hooks/use-on-screen-thread';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
 import { useMarkOnScreenThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { ThreadIdentityMark } from './thread-identity-mark';
@@ -154,9 +154,10 @@ export function AssistantThreadTabsWorkspace({
   const activeThreadId = activeThreadIdByResourceId[resourceId] ?? null;
   const newThreadDisabled = loadState.status === 'loading';
   // The thread whose transcript this component renders: the active tab, unless
-  // the database or load gates below replace the panels with a state card. (The
-  // store keeps the active thread among the open tabs, so its panel is the one
-  // not `hidden`.)
+  // a database or load-error card below replaces the panels. (The loading card
+  // replaces them only with NO open tab, when there is no active thread either;
+  // a list still loading with tabs open renders its transcripts. The store keeps
+  // the active thread among the open tabs, so its panel is the one not `hidden`.)
   const transcriptThreadId = repository && loadState.status !== 'error' ? activeThreadId : null;
 
   // The Threads panel's three list-wide run-state projections: one live query
@@ -167,13 +168,15 @@ export function AssistantThreadTabsWorkspace({
   // This surface renders the transcripts, so it is the ONE publisher of which
   // thread is on screen and the ONE stamper of the viewed watermark: with the
   // Library showing Collections no Threads panel is mounted to do either, and a
-  // Threads panel mounted without this surface means nothing is on screen. It
-  // reads its own claim back like every other consumer, so none can disagree.
+  // Threads panel mounted without this surface means nothing is on screen. The
+  // store is the broadcast to the Threads panel; this surface uses the identity
+  // the publisher computed THIS render, because the store lags a commit behind
+  // and would hand a just-departed thread to the stamper next to a fresh
+  // completion.
   const schemaReady = Object.hasOwn(threadsByResourceId, resourceId);
   const threadsAwaitingApproval = useThreadsAwaitingApproval({ database, resourceId, schemaReady });
   const activeThreads = useActiveAssistantThreadIds({ database, resourceId, schemaReady });
-  usePublishOnScreenThreadId(transcriptThreadId);
-  const onScreenThreadId = useOnScreenThreadId();
+  const onScreenThreadId = usePublishOnScreenThreadId(transcriptThreadId);
   const unseenThreadIds = useUnseenThreadIds({
     lastViewedAtByThreadId,
     onScreenThreadId,
