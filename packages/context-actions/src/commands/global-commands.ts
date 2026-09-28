@@ -1,5 +1,5 @@
 import type { ActionOutcome } from '../index.js';
-import type { Command } from './types.js';
+import type { RunCommand } from './types.js';
 
 /**
  * App-supplied handlers for the targetless global commands. Each is OPTIONAL:
@@ -56,7 +56,7 @@ async function runHandler(
  * wired. A command is only available when its handler exists, so the palette
  * never offers an action the app cannot perform.
  */
-export function createGlobalCommands(handlers: GlobalCommandHandlers): readonly Command[] {
+export function createGlobalCommands(handlers: GlobalCommandHandlers): readonly RunCommand[] {
   const { newThread, openFolder, openQuickOpen, openSettings, toggleTheme } = handlers;
 
   return [

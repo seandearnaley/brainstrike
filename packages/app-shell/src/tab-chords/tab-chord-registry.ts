@@ -1,32 +1,21 @@
-import type { ActionOutcome } from '@brainstrike/context-actions';
+import type { TabCommandStrip } from '@brainstrike/context-actions/commands';
 import { useEffect } from 'react';
 
 /** The document strips the keyboard chords and ⌘K tab commands can drive (BST-1842). */
 export type TabChordStripId = 'assistant-threads' | 'browser' | 'workspace';
 
-export interface TabChordTab {
-  readonly id: string;
-  readonly label: string;
-}
-
 /**
- * One strip's operations, read live at keystroke time. Strips stay
- * presentational (`@brainstrike/ui` holds no domain state), so each consumer
- * adapter registers these from its own store.
+ * One strip's operations, read live at keystroke time — the ⌘K tab commands'
+ * strip plus the panel that scopes focus to it. Strips stay presentational
+ * (`@brainstrike/ui` holds no domain state), so each consumer adapter
+ * registers these from its own store.
  */
-export interface TabChordStrip {
-  readonly activate: (id: string) => void;
-  readonly close: (id: string) => void;
-  readonly getActiveId: () => string | null;
+export interface TabChordStrip extends TabCommandStrip {
   /**
    * Focus inside this element scopes chords to the strip. The workspace
    * returns null: it is the strip for focus in no panel.
    */
   readonly getPanel: () => HTMLElement | null;
-  /** Every tab in strip order, pinned group first. */
-  readonly getTabs: () => readonly TabChordTab[];
-  /** Pops the strip's closed-tab history; a stale or empty history fails visibly. */
-  readonly reopenClosed: () => Promise<ActionOutcome>;
 }
 
 const strips = new Map<TabChordStripId, TabChordStrip>();

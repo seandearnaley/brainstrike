@@ -1,20 +1,11 @@
-import { adjacentTabId, type TabCycleDirection } from '@brainstrike/context-actions';
+import { cycleTab } from '@brainstrike/context-actions/commands';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useEffect } from 'react';
 import { matchTabChord, type TabChordEnvironment } from './match-tab-chord';
-import { getTabChordStrip, resolveTabChordScope, type TabChordStrip } from './tab-chord-registry';
+import { getTabChordStrip, resolveTabChordScope } from './tab-chord-registry';
 
 const logger = createLogger('TabChords');
-
-/** Activate the tab beside the active one, by position, wrapping. */
-export function cycleTab(strip: TabChordStrip, direction: TabCycleDirection): void {
-  const ids = strip.getTabs().map((tab) => tab.id);
-  const target = adjacentTabId(ids, strip.getActiveId(), direction);
-  if (target !== null) {
-    strip.activate(target);
-  }
-}
 
 /**
  * The one focus-scoped chord router (BST-1842). A chord acts on the strip whose

@@ -1,5 +1,5 @@
 import type { ActionGroup, AnyContextAction, ContextTarget, ContextTargetKind } from '../index.js';
-import type { Command, CommandGroup } from './types.js';
+import type { CommandGroup, RunCommand } from './types.js';
 
 /**
  * One-way projection: context-actions `ActionGroup` → palette `CommandGroup`.
@@ -49,7 +49,7 @@ const ACTION_GROUP_TO_COMMAND_GROUP: Record<ActionGroup, CommandGroup> = {
 export function bridgeActionToCommand(
   action: AnyContextAction,
   getTarget: () => ContextTarget | null | undefined
-): Command | null {
+): RunCommand | null {
   const target = getTarget();
   if (!target) {
     return null;
@@ -63,7 +63,7 @@ export function bridgeActionToCommand(
 
   const label = typeof action.label === 'function' ? action.label(target) : action.label;
 
-  const command: Command = {
+  const command: RunCommand = {
     group: ACTION_GROUP_TO_COMMAND_GROUP[action.group],
     id: action.id,
     label,

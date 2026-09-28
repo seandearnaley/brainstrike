@@ -110,7 +110,7 @@ describe('register-factory-reset-session-stores', () => {
     });
     useAssistantThreadGroupsStore.getState().toggleGroupCollapsed('group-1');
     useTerminalTargetStore.getState().openTerminalAt({ cwd: '/wt', rootId: 'r-1' });
-    useCommandPaletteStore.getState().open();
+    useCommandPaletteStore.getState().open({ tabScope: 'assistant-threads' });
     useQuickOpenStore.getState().open();
     useWorktreeCheckoutIntentStore.getState().publish({
       branch: 'codex/reset-me',
@@ -161,6 +161,7 @@ describe('register-factory-reset-session-stores', () => {
     expect(useCommandPaletteStore.getState()).toMatchObject({
       isOpen: false,
       openTarget: null,
+      tabScope: null,
     });
     expect(useQuickOpenStore.getState().isOpen).toBe(false);
     expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();

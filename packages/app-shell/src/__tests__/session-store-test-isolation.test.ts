@@ -28,7 +28,7 @@ describe('app-shell session-store test isolation', () => {
     useBrowserTabsStore.getState().setTabs([browserTab]);
     useDiagnosticSinkHealthStore.getState().markDisabled('previous test failure');
     useThreadSearchStore.getState().setQuery('stale search');
-    useCommandPaletteStore.getState().open();
+    useCommandPaletteStore.getState().open({ tabScope: 'assistant-threads' });
     useQuickOpenStore.getState().open();
     useWorktreeCheckoutIntentStore.getState().publish({
       branch: 'codex/stale',
@@ -47,6 +47,7 @@ describe('app-shell session-store test isolation', () => {
     expect(useCommandPaletteStore.getState()).toMatchObject({
       isOpen: false,
       openTarget: null,
+      tabScope: null,
     });
     expect(useQuickOpenStore.getState().isOpen).toBe(false);
     expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();

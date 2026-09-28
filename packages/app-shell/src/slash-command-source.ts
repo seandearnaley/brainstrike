@@ -1,7 +1,7 @@
 import type {
-  Command,
   CommandContext,
   CommandRegistry,
+  RunCommand,
 } from '@brainstrike/context-actions/commands';
 import type { ScopedLogger } from '@brainstrike/logging';
 
@@ -15,12 +15,16 @@ import type { ScopedLogger } from '@brainstrike/logging';
  *   menu do — there is no isElectron branch.
  * - We additionally drop the `danger` group so no destructive command runs from
  *   a one-keystroke "/" menu without a confirmation surface.
+ * - Page commands (Go to Tab…) are dropped: a one-shot menu cannot show a page.
  */
 export function selectSlashCommandSource(
   registry: CommandRegistry,
   context: CommandContext
-): readonly Command[] {
-  return registry.available(context).filter((command) => command.group !== 'danger');
+): readonly RunCommand[] {
+  return registry
+    .available(context)
+    .filter((command): command is RunCommand => command.page === undefined)
+    .filter((command) => command.group !== 'danger');
 }
 
 /**
@@ -72,7 +76,7 @@ export type SlashCommandFailureToast = (input: {
  * `logger.error`; the failure is never swallowed. A successful run is silent.
  */
 export async function runSlashCommand(
-  command: Command,
+  command: RunCommand,
   context: CommandContext,
   deps: { readonly toast: SlashCommandFailureToast; readonly logger: ScopedLogger }
 ): Promise<void> {

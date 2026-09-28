@@ -7,7 +7,9 @@ import {
   type CommandRegistry,
   createCommandRegistry,
   createGlobalCommands,
+  createTabCommands,
   type GlobalCommandHandlers,
+  type TabCommandStrip,
 } from '@brainstrike/context-actions/commands';
 import {
   type AppActionRegistryParts,
@@ -24,6 +26,11 @@ import {
  * `run`, so the registry MUST be rebuilt whenever the open target changes.
  */
 export interface AppCommandRegistryInput {
+  /**
+   * The ⌘K palette's focus-scoped tab strip (BST-1842). Present only for the
+   * palette: a caller without it (the composer's "/" menu) gets no tab commands.
+   */
+  readonly getTabStrip?: () => TabCommandStrip | undefined;
   readonly handlers: GlobalCommandHandlers;
   readonly parts: AppActionRegistryParts;
   readonly target: ContextTarget | null;
@@ -41,11 +48,16 @@ export interface AppCommandRegistryInput {
  * no isElectron branch — presence of the platform bridge is the only signal.
  */
 export function createAppCommandRegistry({
+  getTabStrip,
   parts,
   handlers,
   target,
 }: AppCommandRegistryInput): CommandRegistry {
-  const globals = createGlobalCommands(handlers);
+  const globals: Command[] = [
+    ...createGlobalCommands(handlers),
+    // Without a strip getter every tab command stays hidden (`isAvailable`).
+    ...createTabCommands(getTabStrip ?? (() => undefined)),
+  ];
   const bridged: Command[] = [];
   for (const action of parts.actions) {
     const command = bridgeActionToCommand(action, () => target);
