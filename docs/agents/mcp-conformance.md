@@ -88,8 +88,8 @@ Guard: `packages/mcp-test-lab/__tests__/evidence-artifact-integrity.test.ts`,
   than as a run timeout.
 - `./runner` runs a selection serially as genuine RED, GREEN, and
   repeat-verification phases under bounded abort and cleanup; missing cleanup
-  proof blocks evidence emission. Add a capability to a profile only once its
-  case is executable and independently tested.
+  proof blocks evidence emission. A phase's cleanup reserve (a quarter, at most 1,000 ms) is cut from the end of its deadline, so time spent before the run starts never shrinks it; a late operation timer still does, because cleanup never outlives the case.
+  Add a capability to a profile only once its case is executable and independently tested.
 - The package CLI derives Git identity and workspace state itself and fixes the
   ticket to `BST-1486`; the repository wrapper rejects a dirty checkout or a
   `GITHUB_SHA` that differs from `HEAD`. Both lanes reach that one CLI:
@@ -99,7 +99,7 @@ Guard: `packages/mcp-test-lab/__tests__/evidence-artifact-integrity.test.ts`,
   (schedule/manual).
 
 Evidence: `mcp-conformance/runner-profiles.md`.
-Guard: `packages/mcp-test-lab/__tests__/runner-manifest.test.ts`,
+Guard: `packages/mcp-test-lab/__tests__/runner-manifest.test.ts`, `packages/mcp-test-lab/__tests__/runner.test.ts`,
 `scripts/__tests__/run-mcp-verification.test.mjs`.
 
 ### Official conformance client and driver
