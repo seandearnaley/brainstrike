@@ -107,7 +107,7 @@ catalog:
   # line still renames import paths between candidates, so a bump is a
   # reviewed change, never a range resolution. docs/agents/effect-boundary.md.
   effect: 4.0.0-rc.118
-  electron: ^44.2.0
+  electron: ^44.4.5
   esbuild: ^0.28.2
   eslint-plugin-react-refresh: ^0.5.6
   fake-indexeddb: ^6.2.5
