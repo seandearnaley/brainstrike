@@ -411,6 +411,32 @@ describe('workspace tab strip on the shared TabStrip', () => {
         'true'
       );
     });
+
+    it('⌥⇧→ reorders file tabs while a child conversation shares the scroll group', async () => {
+      useWorkspaceTabSelectionStore.getState().openApp(CHILD_CEDAR_APP.id);
+      openFileTabs(A, B, C);
+      renderWorkspace([FILES_APP, CHILD_CEDAR_APP]);
+
+      const tabA = await screen.findByRole('tab', { name: /a\.ts/i });
+      tabA.focus();
+      fireEvent.keyDown(tabA, { altKey: true, key: 'ArrowRight', shiftKey: true });
+
+      // The strip hands onReorder only the reorderable (file) ids, so the
+      // store accepts the move instead of rejecting a mixed id list.
+      expect(fileTabOrder()).toEqual([B, A, C]);
+      await waitFor(() => {
+        expect(
+          within(screen.getByTestId('workspace-tab-scroll'))
+            .getAllByRole('tab')
+            .map((tab) => tab.id)
+        ).toEqual([
+          `workspace-app-tab-${CHILD_CEDAR_APP.id}`,
+          `workspace-file-tab-${B}`,
+          `workspace-file-tab-${A}`,
+          `workspace-file-tab-${C}`,
+        ]);
+      });
+    });
   });
 
   describe('strip background and All-tabs menus', () => {
