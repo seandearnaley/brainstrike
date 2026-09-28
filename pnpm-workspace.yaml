@@ -161,6 +161,9 @@ overrides:
   # BST-871 / GHSA-vpq2-c234-7xj6: fun pins the vulnerable event-wait helper.
   # Same-major vendor patch; retire when this parent admits a patched version.
   '@vercel/fun@1.3.0>@tootallnate/once': 2.0.1
+  # BST-873 / GHSA-2g4f-4pwh-qvx6: static-config pins vulnerable Ajv 8.6.3.
+  # Preserve patched 6.x/other 8.x edges; retire when this parent admits the fix.
+  '@vercel/static-config@3.4.0>ajv': 8.18.0
   # BST-886: node-gyp and other compatible tar 7.x owners can take the patched
   # release. @vercel/fun@1.3.0 pins vulnerable 7.5.7 exactly, so scope the
   # exception to that owner until it publishes a fixed dependency.
