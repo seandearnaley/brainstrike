@@ -540,14 +540,14 @@ Tools) is `Tabs` from `packages/ui/src/tabs.tsx`; document tab strips are not.
 - Activation is manual (the default): arrows move focus, Enter or Space selects.
 - `TabsContent` owns visibility: an inactive panel is always `hidden`;
   `keepMounted` mounts on first activation and never unmounts; `forceMount`
-  mounts before that. Never hand-roll a latch around Radix `forceMount`. Why:
-  Radix `Presence` mounts an incoming panel in a sync layout-effect pass,
-  outside the switch's transition.
+  mounts before that. Never hand-roll a latch around Radix `forceMount`: Radix
+  `Presence` mounts synchronously in a layout effect, outside the transition.
 - Use a transition only for a React-state value (Library): `startTransition`,
   with `data-pending` on the incoming trigger. A store-backed switcher
   (Explorer|Search) renders synchronously anyway.
 - No context menu (a switcher has no actions); each lazily loaded panel keeps
-  its own `Suspense` boundary.
+  its own `Suspense` boundary, and each Library panel also sits behind
+  `TabPanelBoundary`, containing a crash to its own tab.
 
 Guard: `packages/ui/src/__tests__/tabs.test.tsx`; in app-shell,
 `agent-sidebar-panel.test.tsx`, `explorer-search-tabs.test.tsx`,

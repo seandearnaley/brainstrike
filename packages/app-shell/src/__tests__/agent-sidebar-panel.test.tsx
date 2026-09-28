@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ReactElement, Suspense, use } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentSidebarPanel } from '../agent-sidebar-panel';
 
 const { mockPreloadDatabaseTab } = vi.hoisted(() => ({
@@ -334,7 +334,10 @@ describe('AgentSidebarPanel', () => {
       />
     );
 
-    expect(activity.at(-1)).toBe(false);
+    // The Prompts panel is behind `TabPanelBoundary` inside `TabsContent
+    // keepMounted`, which mounts children only on first activation, so the
+    // callback has not run yet.
+    expect(activity).toEqual([]);
     expect(screen.queryByRole('textbox', { name: 'Activity-aware prompt search' })).toBeNull();
 
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Prompts' }), {
@@ -400,5 +403,66 @@ describe('AgentSidebarPanel', () => {
     expect(screen.getByText('Threads content')).toBeVisible();
     expect(window.localStorage.getItem('tools-panel.v1')).toBeNull();
     expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBeNull();
+  });
+});
+
+describe('AgentSidebarPanel crash containment', () => {
+  let shouldThrowCollections = true;
+
+  function FlakyCollections(): ReactElement {
+    if (shouldThrowCollections) {
+      throw new Error('Collections panel exploded');
+    }
+    return <div>Database content</div>;
+  }
+
+  beforeEach(() => {
+    shouldThrowCollections = true;
+    window.localStorage.clear();
+    // TabPanelBoundary logs the caught error through createLogger; React also
+    // warns to console.error for the uncaught-error case this test starts RED
+    // from. Both are expected noise, not assertions.
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('contains a Collections panel crash to its own boundary, keeps the switcher and Threads working, and Reload tab remounts it', async () => {
+    render(
+      <AgentSidebarPanel
+        databaseContent={<FlakyCollections />}
+        promptsContent={<div>Prompts content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Collections' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Collections stopped working');
+
+    // The switcher and the other panels stay interactive.
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Threads' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Threads' })).toHaveAttribute('data-state', 'active');
+    });
+    expect(screen.getByText('Threads content')).toBeVisible();
+
+    // "Reload tab" remounts the crashed panel.
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Collections' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    shouldThrowCollections = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Reload tab' }));
+    expect(screen.getByText('Database content')).toBeVisible();
   });
 });
