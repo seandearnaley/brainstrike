@@ -1,8 +1,9 @@
+import { TabPanelBoundary } from '@brainstrike/ui';
 import type { ReactElement } from 'react';
 import { FileTabBody } from './file-tab-body';
 import { useWorkspaceTabs } from './use-workspace-tabs';
 import { WorkspaceLauncher } from './workspace-launcher';
-import { getTabRootPath } from './workspace-tab-utils';
+import { getFileName, getTabRootPath } from './workspace-tab-utils';
 
 /**
  * The workspace panel's content area (BST-1258). Renders:
@@ -14,6 +15,12 @@ import { getTabRootPath } from './workspace-tab-utils';
  * - the ACTIVE file tab's body (file bodies render one at a time, keyed by
  *   compositeKey, exactly as before);
  * - the launcher empty state when nothing resolvable is selected.
+ *
+ * Every app panel and the file body sit inside a `TabPanelBoundary`, so a
+ * render crash stays in its panel while the strip and other apps keep
+ * working. The file body's reset key is the compositeKey: switching files
+ * clears a caught crash; an app's is its id (it stays crashed across tab
+ * switches until "Reload tab").
  *
  * `app.render()` is invoked inline on every re-render per the WorkspaceApp
  * contract (cheap + idempotent; React reconciles the same element type, so
@@ -70,7 +77,9 @@ export function WorkspaceBody(): ReactElement {
             key={app.id}
             role="tabpanel"
           >
-            {app.render()}
+            <TabPanelBoundary label={app.label} resetKey={app.id}>
+              {app.render()}
+            </TabPanelBoundary>
           </div>
         );
       })}
@@ -81,17 +90,22 @@ export function WorkspaceBody(): ReactElement {
           id={`workspace-file-panel-${activeFileTab.id}`}
           role="tabpanel"
         >
-          <FileTabBody
-            content={fileContents[activeFileTab.compositeKey]}
-            {...(activeFileContentError ? { contentError: activeFileContentError } : {})}
-            isLoading={loadingFiles.has(activeFileTab.compositeKey)}
-            isRestoring={isRestoring}
-            key={activeFileTab.compositeKey}
-            onRetryContent={() => onRetryFileContent(activeFileTab.compositeKey)}
-            rootPath={getTabRootPath(activeFileTab, rootDescriptors)}
-            status={tabStatuses.get(activeFileTab.compositeKey)}
-            tab={activeFileTab}
-          />
+          <TabPanelBoundary
+            label={getFileName(activeFileTab.path)}
+            resetKey={activeFileTab.compositeKey}
+          >
+            <FileTabBody
+              content={fileContents[activeFileTab.compositeKey]}
+              {...(activeFileContentError ? { contentError: activeFileContentError } : {})}
+              isLoading={loadingFiles.has(activeFileTab.compositeKey)}
+              isRestoring={isRestoring}
+              key={activeFileTab.compositeKey}
+              onRetryContent={() => onRetryFileContent(activeFileTab.compositeKey)}
+              rootPath={getTabRootPath(activeFileTab, rootDescriptors)}
+              status={tabStatuses.get(activeFileTab.compositeKey)}
+              tab={activeFileTab}
+            />
+          </TabPanelBoundary>
         </div>
       ) : null}
       {showLauncher ? <WorkspaceLauncher /> : null}
