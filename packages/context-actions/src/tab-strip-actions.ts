@@ -58,6 +58,10 @@ export interface TabStripActionOperations<K extends ContextTargetKind> {
 
 const OK: ActionOutcome = { ok: true };
 
+function toFailure(error: unknown): ActionOutcome {
+  return { error: error instanceof Error ? error.message : String(error), ok: false };
+}
+
 /**
  * Runs a store operation. Its return value is ignored except as a promise to
  * await (e.g. an IPC bridge call), so operations may return anything — a
@@ -65,10 +69,6 @@ const OK: ActionOutcome = { ok: true };
  * synchronous throw, becomes a failed outcome, so the menu reports it instead
  * of claiming success.
  */
-function toFailure(error: unknown): ActionOutcome {
-  return { error: error instanceof Error ? error.message : String(error), ok: false };
-}
-
 function settle(operation: () => unknown, success: ActionOutcome): Promise<ActionOutcome> {
   // Run synchronously so a store mutation has happened when run() returns
   // (focus restoration reads the live DOM right after); await only the result.
