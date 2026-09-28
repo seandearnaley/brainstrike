@@ -292,37 +292,37 @@ Every document strip (assistant threads, the workspace, the browser pane) render
 `TabStrip` from `packages/ui/src/tab-strip`; fixed view switchers use `Tabs`. Do not
 hand-roll a tablist.
 
-- The primitives are presentational. Consumers pass `items`/`pinnedItems` plus
-  intents (`onActivate`, `onClose`, `onReorder`) and a `contextMenu` descriptor.
-  The strip owns roving focus, overflow, drag-and-drop and menu claiming, and never
-  reads a store or decides what closing means. A host drawn over a native view
-  occludes it through `onMenuOpenChange` while any strip menu is open.
-- Geometry comes from `tab-strip-tokens.ts`: a 36px row, 28px pill tabs with a 6px
-  radius, a 4px gap, 12px/500 labels whose weight never changes with state, and a
-  20px close slot whose space is always reserved. The neutral selected state is the
-  segmented control's raised surface; identity tabs pass `appearance` tints.
-- Keyboard is APG with MANUAL activation: arrows/Home/End move focus, and
-  Enter/Space activate. Delete focuses the next tab, else the previous, else the
-  first trailing control, else the tablist. ⌥⇧←/→ moves a `reorderable` scroll tab
-  and announces it. Shift+F10 (keydown) and the ContextMenu key (keyup, where
-  Windows Chromium opens its own) open the tab menu at the tab. Middle-click closes.
-- The close ✕ is a mouse-only sibling (`aria-hidden`, `tabIndex=-1`): the tablist
-  owns only tabs, which axe `aria-required-children` checks. A pointer close moves
-  focus only when it was lost: to the new selected tab, else Delete's fallbacks.
+- The primitives are presentational: consumers pass `items`/`pinnedItems`, intents
+  (`onActivate`, `onClose`, `onReorder`) and a `contextMenu` descriptor; the strip owns
+  roving focus, overflow, DnD and menu claiming, never reads a store or decides what
+  closing means. A native-view host occludes via `onMenuOpenChange` while any menu is open.
+- Geometry comes from `tab-strip-tokens.ts`; label weight never changes with state and
+  the close slot is always reserved. The neutral selected state is the segmented
+  control's raised surface; identity tabs pass `appearance` tints.
+- Keyboard is APG with MANUAL activation: arrows/Home/End move focus, Enter/Space
+  activate. Delete focuses the next tab, else the previous, the first trailing control,
+  the tablist. ⌥⇧←/→ moves a `reorderable` scroll tab, announced. Shift+F10 (keydown)
+  and ContextMenu (keyup) open the tab menu at the tab; middle-click closes.
+- The close ✕ is a mouse-only sibling (`aria-hidden`, `tabIndex=-1`): the tablist owns
+  only tabs, which axe `aria-required-children` checks. A pointer close moves focus only
+  when it was lost: to the new selected tab, else Delete's fallbacks.
 - Menus: tab menus come from `createTabStripActions` (`@brainstrike/context-actions`)
   plus the global actions for that target kind; the empty strip background claims a
   `tab-strip` target; `closeAll` receives the invoking id. Focus returns to the origin.
-- Overflow has no chevrons: vertical wheels map to horizontal through a NATIVE
-  non-passive listener (React's `onWheel` is passive; trackpad x-input stays native),
-  edge fades, keyboard-only `scroll-px-8` reveal, and the All-tabs menu.
-- Wrap each tab panel in `TabPanelBoundary`; the strip wraps itself. A render crash
-  stays in its panel. Keep-alive and `<Activity>` choices are per surface (spec
-  §7.1); never hide a panel whose effects own still-running work with `<Activity>`.
+- Overflow has no chevrons: a NATIVE non-passive listener maps vertical wheel to horizontal
+  (trackpad x stays native); edge fades, a keyboard-only `scroll-px-8` reveal, All-tabs menu.
+- Wrap each tab panel in `TabPanelBoundary` (the strip wraps itself). Never hide a panel
+  whose effects own still-running work with `<Activity>` (spec §7.1).
+- Chords go through ONE router, `app-shell/src/tab-chords`: the strip whose registered
+  panel holds focus, else the workspace; ⌘W with no active tab falls through. ⌘/Ctrl+W,
+  ⌘/Ctrl+⇧T and positional Ctrl+Tab need the desktop `desktopLifecycle` bridge.
+- Every close path feeds its strip's bounded, session-only closed-tab history (it dies
+  with the strip: no factory-reset wiring); a stale reopen is reported, never a no-op.
 
 Settled: BST-1836 decisions D1–D9 (2026-09-27). Evidence: `ui-conventions/tab-strips.md`.
-Guard: `packages/ui/src/tab-strip/__tests__/tab-strip.test.tsx`,
-`tab-strip.browser.test.tsx` (painted geometry, axe, keyboard menu, native drag),
-`packages/context-actions/src/__tests__/tab-strip-actions.test.ts`.
+Guard: `packages/ui/src/tab-strip/__tests__/tab-strip.test.tsx`, `tab-strip.browser.test.tsx`
+(painted geometry, axe, keyboard menu, native drag), context-actions `tab-strip-actions.test.ts`,
+app-shell `tab-chords/__tests__/`, `apps/desktop/e2e/tab-chords.desktop.test.ts`.
 
 ---
 
