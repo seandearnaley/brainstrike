@@ -7,6 +7,11 @@ import { getPanelElements } from './utils/layout-helpers';
  * Tab chords on web (BST-1842, spec §9) against the built app. Ctrl+PgUp/PgDn
  * act on the strip whose panel holds focus, and on the workspace strip when
  * focus is in no panel. The browser keeps ⌘W, ⌘T and Ctrl+Tab.
+ *
+ * These presses are CDP-synthesised and reach the page directly. Real Chrome
+ * keeps Ctrl+PgUp/PgDn (Windows/Linux) and ⌘⌥←/→ (macOS) for its own tab
+ * switching, so on web they may never reach the app; the ⌘K tab commands are
+ * the reliable web path. The bindings stay: some browsers pass them through.
  */
 
 async function selectedTabId(strip: Locator): Promise<string | null> {

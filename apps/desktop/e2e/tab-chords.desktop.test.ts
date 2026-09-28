@@ -76,9 +76,12 @@ test.describe('Tab keyboard chords (desktop)', () => {
 
     // No menu role or accelerator owns ⌘/Ctrl+W, so the renderer receives it.
     const menu = await readApplicationMenu(app);
-    expect(menu.map((item) => item.role)).not.toEqual(
-      expect.arrayContaining(['close', 'fileMenu', 'windowMenu'])
-    );
+    // Electron reports roles lowercased ("selectAll" reads "selectall").
+    const roles = menu.map((item) => item.role?.toLowerCase() ?? null);
+    // One assertion per role: any ONE of them would bind CmdOrCtrl+W.
+    for (const role of ['close', 'filemenu', 'windowmenu']) {
+      expect(roles, `menu role "${role}"`).not.toContain(role);
+    }
     expect(
       menu.filter((item) =>
         /^(CmdOrCtrl|CommandOrControl|Cmd|Ctrl)\+W$/i.test(item.accelerator ?? '')
@@ -104,7 +107,7 @@ test.describe('Tab keyboard chords (desktop)', () => {
     await expect.poll(() => tabIds(strip)).toEqual([first, last]);
     expect(page.isClosed()).toBe(false);
     expect(await liveWindowCount(app)).toBe(windowsBefore);
-    expect(await page.evaluate(() => document.visibilityState)).toBeDefined();
+    expect(await page.evaluate(() => document.visibilityState)).toBe('visible');
     await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible();
 
     await page.keyboard.press('ControlOrMeta+Shift+T');
@@ -129,5 +132,31 @@ test.describe('Tab keyboard chords (desktop)', () => {
     await expect.poll(() => selectedTabId(strip)).toBe(first);
     await page.keyboard.press('Control+PageDown');
     await expect.poll(() => selectedTabId(strip)).toBe(middle);
+
+    // The workspace strip scopes by fallback (no panel), but a ⌘W on one of
+    // its tabs still returns focus to its new selected tab, not to body.
+    const workspace = page.getByRole('tablist', { name: 'Workspace tabs' });
+    for (const appId of ['changes', 'canvas']) {
+      await page.getByTestId('workspace-add-tab').click();
+      await page.getByTestId(`workspace-add-tab-${appId}`).click();
+    }
+    const canvasTab = workspace.getByTestId('workspace-app-tab-canvas');
+    await canvasTab.click();
+    await expect(canvasTab).toHaveAttribute('aria-selected', 'true');
+    await canvasTab.focus();
+    await page.keyboard.press('ControlOrMeta+w');
+    await expect(canvasTab).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const active = document.activeElement;
+          return active?.getAttribute('role') === 'tab' &&
+            active.getAttribute('aria-selected') === 'true' &&
+            active.closest('[role="tablist"]')?.getAttribute('aria-label') === 'Workspace tabs'
+            ? active.textContent
+            : `not a selected workspace tab: ${active?.tagName}`;
+        })
+      )
+      .toBe('Changes');
   });
 });
