@@ -14,15 +14,24 @@ path segment but does not make those APIs stable or permitted here. Only
 ## Evidence (2026-09-28, BST-1851)
 
 Against rc117, the initial qualification suite had two failing regressions,
-a passing shared Layer control, and a passing modeled Effect.die cleanup control. Interrupting explicit Scope.close while the first finalizer
-was held let the public Promise settle before resource release. An onExit
-callback that threw synchronously replaced the typed primary failure with its
-cleanup error. rc118 fixes these upstream (#8512 and #8427); the same tests pass.
+a passing shared Layer control, and a passing modeled Effect.die cleanup control.
+Interrupting explicit Scope.close while the first finalizer was held let the
+public Promise settle before resource release. An onExit callback that threw
+synchronously replaced the typed primary failure with its cleanup error.
+rc118 fixes these reproduced regressions upstream (#8512 and #8427); the same
+tests pass.
+
 After upgrading, the modeled cleanup control was replaced with genuine
-Scope.addFinalizerExit callback-throw coverage; that final test was run on rc118
-only. The final suite also checks shared Layer interruption completion: later releases still run, failure
-identity survives, and repeated close does not release twice. The shared Layer
-control already passed on rc117; it is not claimed as a reproduced defect.
+Scope.addFinalizerExit callback-throw coverage for #8418. That final test was
+run on rc118 only: later scope releases still run, the cleanup failure keeps
+identity, and repeated close does not release twice. The shared Layer control
+already passed on rc117 and is not claimed as a reproduced defect. Its strengthened
+rc118 assertions prove one acquisition, waiter rejection, and an interrupt-only
+exit when the owning build is interrupted. A review-batch negative control
+replaces the pending acquisition with successful completion; the waiter still
+settles, but the new rejection assertion fails (resolved versus rejected).
+Restoring the pending acquisition passes all four qualification tests, all 39
+effect-kit tests, and strict diagnostics for 12/12 files with zero issues.
 
 No helper API, runtime, unstable import, consumer policy or fallback is added.
 The AGENTS stack guidance establishes Effect 4 for typed runtime boundaries and

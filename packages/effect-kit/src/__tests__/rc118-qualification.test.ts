@@ -1,4 +1,4 @@
-import { Data, Effect, Exit, Layer, Scope } from 'effect';
+import { Cause, Data, Effect, Exit, Layer, Scope } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { runAtPromiseBoundary } from '../promise-boundary.js';
 
@@ -84,23 +84,38 @@ describe('Effect resource qualification', () => {
     const owner = new AbortController();
     const waiter = new AbortController();
     const started = Promise.withResolvers<void>();
+    let builds = 0;
     const layer = Layer.effectDiscard(
-      Effect.sync(started.resolve).pipe(Effect.andThen(Effect.never))
+      Effect.sync(() => {
+        builds++;
+        started.resolve();
+      }).pipe(Effect.andThen(Effect.never))
     );
     const owning = runAtPromiseBoundary(Layer.buildWithMemoMap(layer, memo, ownerScope), {
       signal: owner.signal,
     }).catch((error: unknown) => error);
     await started.promise;
     let settled = false;
-    const waiting = runAtPromiseBoundary(Layer.buildWithMemoMap(layer, memo, waiterScope), {
-      signal: waiter.signal,
-    }).then(
+    const observed: { exit?: Exit.Exit<unknown, unknown> } = {};
+    const waiting = runAtPromiseBoundary(
+      Layer.buildWithMemoMap(layer, memo, waiterScope).pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            observed.exit = exit;
+          })
+        )
+      ),
+      {
+        signal: waiter.signal,
+      }
+    ).then(
       () => {
         settled = true;
+        return { status: 'resolved' } as const;
       },
       (error: unknown) => {
         settled = true;
-        return error;
+        return { error, status: 'rejected' } as const;
       }
     );
     owner.abort();
@@ -110,6 +125,19 @@ describe('Effect resource qualification', () => {
     });
     try {
       expect(settled).toBe(true);
+      const outcome = await waiting;
+      expect(outcome.status).toBe('rejected');
+      if (outcome.status !== 'rejected') {
+        throw new Error('Interrupted Layer unexpectedly succeeded');
+      }
+      expect(outcome.error).toBeInstanceOf(Error);
+      expect(builds).toBe(1);
+      const exit = observed.exit;
+      expect(exit && Exit.isFailure(exit)).toBe(true);
+      if (!(exit && Exit.isFailure(exit))) {
+        throw new Error('Expected interrupted waiter exit');
+      }
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
     } finally {
       waiter.abort();
       await waiting;
