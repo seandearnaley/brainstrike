@@ -754,3 +754,22 @@ test('Python cold installation scopes actual stream, child and staging resources
     /retain the primary error and report secondary cleanup failures/u
   );
 });
+
+test('OXC IPC requests scope correlation and preserve Schema field compatibility', () => {
+  const source = readRepoFile('packages/chunking-worker/src/parsers/oxc-ipc-adapter.ts');
+  assert.match(source, /Effect\.acquireRelease\(/u);
+  assert.match(source, /Effect\.scoped/u);
+  assert.match(source, /runAtPromiseBoundary\(requestParse/u);
+  assert.match(source, /pending\.get\(requestId\) === entry/u);
+  assert.match(source, /clearTimeout\(timer\)/u);
+  assert.match(source, /Predicate\.isObjectOrArray/u);
+  assert.match(source, /Schema\.is\(replySchema\.fields\.requestId\)/u);
+  assert.match(source, /MatchesFields<\s*typeof successSchema\.Type/u);
+  assert.match(source, /MatchesFields<\s*typeof failureSchema\.Type/u);
+  assert.match(source, /envelope\['requestId'\] !== response\['requestId'\]/u);
+  assert.doesNotMatch(source, /Schema\.decode|Effect\.runPromise|removeEventListener/u);
+  assert.match(
+    readRepoFile('docs/agents/effect-boundary.md'),
+    /OXC IPC request Scope owns its correlation entry and timer/u
+  );
+});
