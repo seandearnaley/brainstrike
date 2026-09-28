@@ -1,5 +1,5 @@
 import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
+import { TabPanelBoundary, Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Database, LibraryBig, MessagesSquare } from 'lucide-react';
 import {
   type ReactElement,
@@ -73,6 +73,21 @@ function readInitialAgentSidebarTab(): AgentSidebarTab {
 }
 
 /**
+ * Invokes the activity-aware Prompts callback while React renders it, inside
+ * `TabPanelBoundary`, so a throw during element construction is contained too
+ * (same precondition as `workspace-body.tsx`'s `WorkspaceAppContent`).
+ */
+function PromptsTabContent({
+  isActive,
+  promptsContent,
+}: {
+  readonly isActive: boolean;
+  readonly promptsContent: AgentSidebarPanelProps['promptsContent'];
+}): ReactNode {
+  return typeof promptsContent === 'function' ? promptsContent(isActive) : promptsContent;
+}
+
+/**
  * The Library switcher. Its value is local React state, so a switch renders in
  * a transition: the committed panel stays on screen while the next one
  * renders, and the incoming trigger carries `data-pending` meanwhile.
@@ -128,8 +143,6 @@ export function AgentSidebarPanel({
 
   const pendingMark = (tab: AgentSidebarTab): '' | undefined =>
     isSwitching && requestedTab === tab ? '' : undefined;
-  const resolvedPromptsContent =
-    typeof promptsContent === 'function' ? promptsContent(activeTab === 'prompts') : promptsContent;
 
   return (
     <Tabs
@@ -179,7 +192,8 @@ export function AgentSidebarPanel({
         data-testid="threads-tab-content"
         value="threads"
       >
-        {threadsContent}
+        {/* No resetKey: this panel is a singleton; "Reload tab" is the reset. */}
+        <TabPanelBoundary label="Threads">{threadsContent}</TabPanelBoundary>
       </TabsContent>
 
       <TabsContent
@@ -188,7 +202,9 @@ export function AgentSidebarPanel({
         keepMounted
         value="prompts"
       >
-        {resolvedPromptsContent}
+        <TabPanelBoundary label="Prompts">
+          <PromptsTabContent isActive={activeTab === 'prompts'} promptsContent={promptsContent} />
+        </TabPanelBoundary>
       </TabsContent>
 
       <TabsContent
@@ -198,7 +214,7 @@ export function AgentSidebarPanel({
         keepMounted
         value="database"
       >
-        {databaseContent}
+        <TabPanelBoundary label="Collections">{databaseContent}</TabPanelBoundary>
       </TabsContent>
     </Tabs>
   );
