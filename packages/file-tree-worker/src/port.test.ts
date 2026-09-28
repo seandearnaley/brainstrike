@@ -88,6 +88,273 @@ const createDirectoryNode = (path: string): WorkerFileNode => ({
 });
 
 describe('createFileTreeWorkerPort', () => {
+  it.each(['expandAll', 'loadPaths', 'loadSubtree'] as const)(
+    'releases %s ownership after synchronous command send failure',
+    async (method) => {
+      const worker = new MockWorker();
+      const port = createFileTreeWorkerPort(worker as unknown as Worker);
+      const failure = { message: 'send failed' };
+      const post = vi.spyOn(worker, 'postMessage');
+      post.mockImplementationOnce(() => {
+        throw failure;
+      });
+      const failed = method === 'loadPaths' ? port.loadPaths(['/root']) : port[method]('/root');
+      await expect(failed).rejects.toBe(failure);
+      const next = port.loadPaths(['/next']);
+      expect(worker.postedMessages.map((message) => message.type)).toEqual(['loadPaths']);
+      worker.emit({
+        operationId: 2,
+        payload: { expandedPaths: [], loadedCount: 0 },
+        type: 'complete',
+      });
+      await expect(next).resolves.toMatchObject({ loadedCount: 0 });
+      port.terminate();
+    }
+  );
+
+  it('releases replacement ownership when supersession abort posting throws', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const first = port.loadPaths(['/first']);
+    const firstRejected = expect(first).rejects.toThrow('Operation aborted by new request');
+    const failure = new Error('abort posting failed');
+    vi.spyOn(worker, 'postMessage').mockImplementationOnce(() => {
+      throw failure;
+    });
+    await expect(port.loadSubtree('/second')).rejects.toBe(failure);
+    await firstRejected;
+    const third = port.expandAll('folder');
+    expect(worker.postedMessages.map((message) => message.type)).toEqual([
+      'loadPaths',
+      'expandAll',
+    ]);
+    worker.emit({
+      operationId: 3,
+      payload: { expandedPaths: [], loadedCount: 0 },
+      type: 'complete',
+    });
+    await expect(third).resolves.toMatchObject({ loadedCount: 0 });
+    port.terminate();
+  });
+
+  it('keeps synchronous completion when command posting then throws', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const expandedPaths = ['/root'];
+    vi.spyOn(worker, 'postMessage').mockImplementationOnce((message) => {
+      if (message.type !== 'loadPaths') {
+        throw new Error('Expected loadPaths command');
+      }
+      worker.emit({
+        operationId: message.operationId,
+        payload: { expandedPaths, loadedCount: 1 },
+        type: 'complete',
+      });
+      throw new Error('after completion');
+    });
+    const completed = port.loadPaths(['/root']);
+    // Posting and correlation are installed before the Promise API returns.
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    const result = await completed;
+    expect(result.expandedPaths).toBe(expandedPaths);
+    expect(result.loadedCount).toBe(1);
+    const next = port.loadSubtree('/next');
+    expect(worker.postedMessages.map((message) => message.type)).toEqual(['loadSubtree']);
+    worker.emit({
+      operationId: 2,
+      payload: { expandedPaths: [], loadedCount: 0 },
+      type: 'complete',
+    });
+    await expect(next).resolves.toMatchObject({ loadedCount: 0 });
+    port.terminate();
+  });
+
+  it('old scope cleanup cannot detach a synchronously started replacement', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const first = port.loadPaths(['/first']);
+    worker.emit({
+      operationId: 1,
+      payload: { expandedPaths: [], loadedCount: 1 },
+      type: 'complete',
+    });
+    const replacement = port.loadSubtree('/replacement');
+    await first;
+    worker.emit({
+      operationId: 1,
+      payload: { expandedPaths: ['/stale'], loadedCount: 99 },
+      type: 'complete',
+    });
+    worker.emit({
+      operationId: 2,
+      payload: { expandedPaths: ['/replacement'], loadedCount: 2 },
+      type: 'complete',
+    });
+    await expect(replacement).resolves.toMatchObject({
+      expandedPaths: ['/replacement'],
+      loadedCount: 2,
+    });
+    expect(worker.postedMessages.map((message) => message.type)).toEqual([
+      'loadPaths',
+      'loadSubtree',
+    ]);
+    port.terminate();
+  });
+
+  it('stops supersession posting when an aborted load starts a replacement', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const held = createDeferred<BatchLoadResult[]>();
+    let replacement: ReturnType<typeof port.loadPaths> | undefined;
+    let replacementSignal: AbortSignal | undefined;
+    port.onRequestLoad((id, _paths, signal) => {
+      if (id === 'replacement-load') {
+        replacementSignal = signal;
+        return held.promise;
+      }
+      signal.addEventListener(
+        'abort',
+        () => {
+          replacement = port.loadPaths(['/replacement']);
+          worker.emit({
+            operationId: 3,
+            payload: { paths: ['/replacement'], requestId: 'replacement-load' },
+            type: 'requestLoad',
+          });
+        },
+        { once: true }
+      );
+      return held.promise;
+    });
+    const first = port.loadPaths(['/first']);
+    const firstRejected = expect(first).rejects.toThrow('Operation aborted by new request');
+    worker.emit({
+      operationId: 1,
+      payload: { paths: ['/first'], requestId: 'held' },
+      type: 'requestLoad',
+    });
+    const second = port.loadSubtree('/second');
+    await expect(second).rejects.toThrow('Operation aborted by new request');
+    await firstRejected;
+    expect(worker.postedMessages.map((message) => message.type)).toEqual([
+      'loadPaths',
+      'abort',
+      'loadPaths',
+    ]);
+    worker.emit({
+      operationId: 3,
+      payload: { expandedPaths: ['/replacement'], loadedCount: 1 },
+      type: 'complete',
+    });
+    await expect(replacement).resolves.toMatchObject({ expandedPaths: ['/replacement'] });
+    expect(replacementSignal?.aborted).toBe(false);
+    held.resolve([{ children: [], path: '/replacement' }]);
+    await flushMicrotasks();
+    expect(worker.postedMessages.filter((message) => message.type === 'loadResult')).toEqual([
+      {
+        payload: { children: [], path: '/replacement', requestId: 'replacement-load' },
+        type: 'loadResult',
+      },
+    ]);
+    port.terminate();
+  });
+
+  it('does not send a superseded command after abort posting starts a replacement', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const first = port.loadPaths(['/first']);
+    const firstRejected = expect(first).rejects.toThrow('Operation aborted by new request');
+    let replacement: ReturnType<typeof port.loadPaths> | undefined;
+    vi.spyOn(worker, 'postMessage').mockImplementationOnce((message) => {
+      worker.postedMessages.push(message);
+      replacement = port.loadPaths(['/replacement']);
+    });
+    await expect(port.loadSubtree('/second')).rejects.toThrow('Operation aborted by new request');
+    await firstRejected;
+    expect(worker.postedMessages.map((message) => message.type)).toEqual([
+      'loadPaths',
+      'abort',
+      'abort',
+      'loadPaths',
+    ]);
+    worker.emit({
+      operationId: 3,
+      payload: { expandedPaths: [], loadedCount: 1 },
+      type: 'complete',
+    });
+    await expect(replacement).resolves.toMatchObject({ loadedCount: 1 });
+    port.terminate();
+  });
+
+  it('public abort does not cancel a replacement admitted by an abort callback', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const held = createDeferred<BatchLoadResult[]>();
+    let replacement: ReturnType<typeof port.loadPaths> | undefined;
+    port.onRequestLoad((_id, _paths, signal) => {
+      signal.addEventListener(
+        'abort',
+        () => {
+          replacement = port.loadPaths(['/replacement']);
+        },
+        { once: true }
+      );
+      return held.promise;
+    });
+    const first = port.loadPaths(['/first']);
+    const rejected = expect(first).rejects.toThrow('Operation aborted');
+    worker.emit({
+      operationId: 1,
+      payload: { paths: ['/first'], requestId: 'held' },
+      type: 'requestLoad',
+    });
+    port.abort();
+    await rejected;
+    expect(worker.postedMessages.map((message) => message.type)).toEqual([
+      'loadPaths',
+      'loadPaths',
+    ]);
+    worker.emit({
+      operationId: 2,
+      payload: { expandedPaths: [], loadedCount: 1 },
+      type: 'complete',
+    });
+    await expect(replacement).resolves.toMatchObject({ loadedCount: 1 });
+    held.resolve([]);
+    port.terminate();
+  });
+
+  it('termination rejects bulk operations reentered through abort callbacks', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const held = createDeferred<BatchLoadResult[]>();
+    let replacement: ReturnType<typeof port.loadPaths> | undefined;
+    port.onRequestLoad((_id, _paths, signal) => {
+      signal.addEventListener(
+        'abort',
+        () => {
+          replacement = port.loadPaths(['/replacement']);
+        },
+        { once: true }
+      );
+      return held.promise;
+    });
+    const first = port.loadPaths(['/first']);
+    const rejected = expect(first).rejects.toThrow('File tree worker port terminated');
+    worker.emit({
+      operationId: 1,
+      payload: { paths: ['/first'], requestId: 'held' },
+      type: 'requestLoad',
+    });
+    port.terminate();
+    expect(worker.postedMessages.map((message) => message.type)).toEqual(['loadPaths']);
+    await rejected;
+    await expect(replacement).rejects.toThrow('File tree worker port terminated');
+    await expect(port.loadSubtree('/late')).rejects.toThrow('File tree worker port terminated');
+    expect(worker.postedMessages.map((message) => message.type)).toEqual(['loadPaths']);
+    held.resolve([]);
+  });
+
   it('sends command messages and tracks worker readiness', () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);

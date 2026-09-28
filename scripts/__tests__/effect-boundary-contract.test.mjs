@@ -817,3 +817,18 @@ test('parser host generations scope exit and listeners without replacing the req
     /Parser host Stop joins every owned generation/u
   );
 });
+
+test('file-tree bulk operations own one scoped pending entry and retain the Promise boundary', () => {
+  const source = readRepoFile('packages/file-tree-worker/src/port.ts');
+  assert.match(source, /const runOperation =/u);
+  assert.match(source, /Effect\.acquireRelease/u);
+  assert.match(source, /Effect\.callback<LoadOperationResult, FileTreeOperationFailure>/u);
+  assert.match(source, /Effect\.scoped/u);
+  assert.match(source, /pending\.operation === owner/u);
+  assert.match(source, /pending\.operation !== owner/u);
+  assert.match(source, /operationIdCounter !== operationEpoch/u);
+  assert.match(source, /terminated = true/u);
+  assert.match(source, /runAtPromiseBoundary\(operation\)/u);
+  assert.equal((source.match(/return runOperation\(/gu) ?? []).length, 3);
+  assert.doesNotMatch(source, /new Promise/u);
+});
