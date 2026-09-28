@@ -32,6 +32,58 @@ export function moveTabId(
   return next;
 }
 
+export type TabCycleDirection = 'next' | 'previous';
+
+/**
+ * The tab beside `activeId` by position, wrapping at both ends (BST-1836 D7:
+ * positional, as Chrome, not most-recently-used). Null when there is no other
+ * tab to go to or `activeId` is not in the order.
+ */
+export function adjacentTabId(
+  orderedIds: readonly string[],
+  activeId: string | null,
+  direction: TabCycleDirection
+): string | null {
+  const index = activeId === null ? -1 : orderedIds.indexOf(activeId);
+  if (index === -1 || orderedIds.length < 2) {
+    return null;
+  }
+  const step = direction === 'next' ? 1 : -1;
+  return orderedIds[(index + step + orderedIds.length) % orderedIds.length] ?? null;
+}
+
+/** One strip's Reopen Closed Tab: the same reopen ⌘⇧T and the palette run. */
+export interface ReopenClosedTabOperations {
+  readonly hasClosedTabs: () => boolean;
+  /** Namespaces the action id (`${idPrefix}.reopen-closed`); unique per strip. */
+  readonly idPrefix: string;
+  readonly reopen: () => Promise<ActionOutcome>;
+  /** The `tab-strip` target this strip's background claims. */
+  readonly stripId: string;
+}
+
+/**
+ * "Reopen Closed Tab" on a strip's empty background (BST-1836 §6.4, BST-1842).
+ * Enabled only while the strip's closed-tab history has an entry, so it never
+ * offers a reopen that can only report there is nothing to reopen.
+ */
+export function createReopenClosedTabAction({
+  hasClosedTabs,
+  idPrefix,
+  reopen,
+  stripId,
+}: ReopenClosedTabOperations): AnyContextAction {
+  return defineContextAction<'tab-strip'>({
+    appliesTo: ['tab-strip'],
+    group: 'primary',
+    id: `${idPrefix}.reopen-closed`,
+    isEnabled: () => hasClosedTabs(),
+    isVisible: (target) => target.stripId === stripId,
+    label: 'Reopen Closed Tab',
+    run: () => reopen(),
+  });
+}
+
 /**
  * Store-backed operations behind one strip's standard tab menu (BST-1836
  * §6.4). Each operation is optional: an absent one omits its action. Each must

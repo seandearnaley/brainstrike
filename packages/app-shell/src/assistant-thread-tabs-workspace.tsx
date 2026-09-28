@@ -7,6 +7,7 @@ import {
 import {
   type ActionOutcome,
   type AnyContextAction,
+  createReopenClosedTabAction,
   createTabStripActions,
   defineContextAction,
 } from '@brainstrike/context-actions';
@@ -27,7 +28,7 @@ import {
 } from '@brainstrike/ui';
 import { Plus, TriangleAlert } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
@@ -42,6 +43,7 @@ import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approva
 import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { ThreadIdentityMark } from './thread-identity-mark';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
+import { useAssistantThreadTabChords } from './use-assistant-thread-tab-chords';
 
 const logger = createLogger('AssistantThreadTabsWorkspace');
 
@@ -139,10 +141,6 @@ export function AssistantThreadTabsWorkspace({
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const openThreadTab = useAssistantThreadStore((state) => state.openThreadTab);
-  const closeAllThreadTabs = useAssistantThreadStore((state) => state.closeAllThreadTabs);
-  const closeOtherThreadTabs = useAssistantThreadStore((state) => state.closeOtherThreadTabs);
-  const closeThreadTab = useAssistantThreadStore((state) => state.closeThreadTab);
-  const closeThreadTabsToRight = useAssistantThreadStore((state) => state.closeThreadTabsToRight);
   const reorderThreadTabs = useAssistantThreadStore((state) => state.reorderThreadTabs);
 
   const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
@@ -236,28 +234,23 @@ export function AssistantThreadTabsWorkspace({
     (threadId: string): void => openThreadTab(resourceId, threadId),
     [openThreadTab, resourceId]
   );
-  const handleCloseThreadTab = useCallback(
-    (threadId: string): void => closeThreadTab(resourceId, threadId),
-    [closeThreadTab, resourceId]
-  );
-  const handleCloseAllThreadTabs = useCallback(
-    (): void => closeAllThreadTabs(resourceId),
-    [closeAllThreadTabs, resourceId]
-  );
   const handleReorderThreadTabs = useCallback(
     (orderedThreadIds: readonly string[]): void => reorderThreadTabs(resourceId, orderedThreadIds),
     [reorderThreadTabs, resourceId]
   );
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closes = useAssistantThreadTabChords(resourceId, panelRef);
 
   const contextMenu = useMemo<TabStripContextMenu>(() => {
     const readOpenThreadIds = (): readonly string[] =>
       useAssistantThreadStore.getState().openThreadIdsByResourceId[resourceId] ?? EMPTY_THREAD_IDS;
     const localActions: readonly AnyContextAction[] = [
       ...createTabStripActions({
-        close: handleCloseThreadTab,
-        closeAll: handleCloseAllThreadTabs,
-        closeOthers: (threadId) => closeOtherThreadTabs(resourceId, threadId),
-        closeToRight: (threadId) => closeThreadTabsToRight(resourceId, threadId),
+        close: closes.close,
+        closeAll: closes.closeAll,
+        closeOthers: closes.closeOthers,
+        closeToRight: closes.closeToRight,
         getId: (target) => target.id,
         getLabel: (target) => target.title,
         getOrderedIds: readOpenThreadIds,
@@ -289,9 +282,15 @@ export function AssistantThreadTabsWorkspace({
         isEnabled: () => readOpenThreadIds().length > 0,
         label: 'Close All',
         run: (): Promise<ActionOutcome> => {
-          handleCloseAllThreadTabs();
+          closes.closeAll();
           return Promise.resolve({ ok: true });
         },
+      }),
+      createReopenClosedTabAction({
+        hasClosedTabs: closes.hasClosedTabs,
+        idPrefix: 'assistant-thread-strip',
+        reopen: closes.reopenClosed,
+        stripId: STRIP_TARGET.stripId,
       }),
     ];
     return {
@@ -309,17 +308,7 @@ export function AssistantThreadTabsWorkspace({
       },
       localActions,
     };
-  }, [
-    closeOtherThreadTabs,
-    closeThreadTabsToRight,
-    createNewThread,
-    handleCloseAllThreadTabs,
-    handleCloseThreadTab,
-    handleReorderThreadTabs,
-    newThreadDisabled,
-    resourceId,
-    threadById,
-  ]);
+  }, [closes, createNewThread, handleReorderThreadTabs, newThreadDisabled, resourceId, threadById]);
 
   useEffect(() => {
     if (!repository) {
@@ -369,7 +358,11 @@ export function AssistantThreadTabsWorkspace({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="assistant-thread-tabs-workspace">
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      data-testid="assistant-thread-tabs-workspace"
+      ref={panelRef}
+    >
       <TabStrip
         activeId={activeThreadId}
         aria-label="Open assistant threads"
@@ -377,8 +370,8 @@ export function AssistantThreadTabsWorkspace({
         contextMenu={contextMenu}
         items={items}
         onActivate={handleActivateThreadTab}
-        onClose={handleCloseThreadTab}
-        onCloseAll={handleCloseAllThreadTabs}
+        onClose={closes.close}
+        onCloseAll={closes.closeAll}
         onReorder={handleReorderThreadTabs}
         scrollTestId="assistant-thread-tab-scroll"
         testId="assistant-thread-tab-strip"

@@ -51,6 +51,11 @@ interface WorkspaceTabSelectionState {
    */
   hydrate: (openAppIds: readonly string[], selection: WorkspaceTabSelection) => void;
   /**
+   * A fresh identity per {@link hydrate} (never persisted): the open set was
+   * REPLACED by another thread's workspace, not closed.
+   */
+  hydration: object;
+  /**
    * Apps that have been ACTIVATED at least once this session — the keep-alive
    * set the workspace body renders hidden-but-mounted (Canvas's sandboxed
    * iframe and the explorer layout must never remount). Session-only (not
@@ -216,11 +221,13 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
       hydrate: (openAppIds, selection) => {
         const coerced = coercePersisted({ openAppIds, selection });
         set({
+          hydration: {},
           mountedAppIds: coerced.selection.kind === 'app' ? [coerced.selection.appId] : [],
           openAppIds: coerced.openAppIds,
           selection: coerced.selection,
         });
       },
+      hydration: {},
       mountedAppIds: DEFAULT_OPEN_APP_IDS,
       openApp: (appId) =>
         set((state) => ({

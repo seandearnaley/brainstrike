@@ -1,6 +1,7 @@
 import {
   type AnyContextAction,
   type ContextTarget,
+  createReopenClosedTabAction,
   createTabStripActions,
   defineContextAction,
 } from '@brainstrike/context-actions';
@@ -18,30 +19,16 @@ import { type ReactElement, useMemo } from 'react';
 import { fileTabToTarget } from '../context-actions/file-surface-target';
 import type { FileTab } from '../hooks/use-tab-manager';
 import { useTabManagerStore } from '../stores/tab-manager-store';
-import {
-  useWorkspaceTabSelectionStore,
-  type WorkspaceTabSelection,
-} from '../stores/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import { useWorkspaceTabs } from './use-workspace-tabs';
 import { WorkspaceAddTabMenu } from './workspace-add-tab-menu';
 import type { WorkspaceApp } from './workspace-app';
-import { getFileName, getTabRootPath } from './workspace-tab-utils';
+import { getFileName, getTabRootPath, selectedWorkspaceTabId } from './workspace-tab-utils';
 
 const logger = createLogger('WorkspaceTabStrip');
 
 const STRIP_ID = 'workspace';
 const STRIP_TARGET: ContextTarget = { kind: 'tab-strip', stripId: STRIP_ID };
-
-function selectedTabId(selection: WorkspaceTabSelection): string | null {
-  switch (selection.kind) {
-    case 'app':
-      return selection.appId;
-    case 'file':
-      return selection.tabId;
-    case 'empty':
-      return null;
-  }
-}
 
 function fileTabStatus(
   isLoading: boolean,
@@ -151,16 +138,19 @@ export function WorkspaceTabStrip(): ReactElement {
   const {
     apps,
     getTabStatusMessage,
+    hasClosedTabs,
     loadingFiles,
+    onActivateTab,
     onCloseAllFileTabs,
     onCloseApp,
     onCloseApps,
     onCloseFileTab,
     onCloseFileTabsToRight,
     onCloseOtherFileTabs,
+    onCloseTab,
     onOpenApp,
+    onReopenClosedTab,
     onReorderFileTabs,
-    onSelectFileTab,
     openApps,
     rootDescriptors,
     selection,
@@ -234,15 +224,23 @@ export function WorkspaceTabStrip(): ReactElement {
           return Promise.resolve({ ok: true });
         },
       }),
+      createReopenClosedTabAction({
+        hasClosedTabs,
+        idPrefix: 'workspace-tab-strip',
+        reopen: onReopenClosedTab,
+        stripId: STRIP_ID,
+      }),
     ];
   }, [
     apps,
+    hasClosedTabs,
     onCloseAllFileTabs,
     onCloseApp,
     onCloseApps,
     onCloseFileTab,
     onCloseFileTabsToRight,
     onCloseOtherFileTabs,
+    onReopenClosedTab,
     onReorderFileTabs,
   ]);
 
@@ -277,26 +275,11 @@ export function WorkspaceTabStrip(): ReactElement {
     localActions,
   };
 
-  const activate = (id: string): void => {
-    if (openAppsById.has(id)) {
-      onOpenApp(id);
-      return;
-    }
-    void onSelectFileTab(id);
-  };
-  const close = (id: string): void => {
-    if (openAppsById.has(id)) {
-      onCloseApp(id);
-      return;
-    }
-    onCloseFileTab(id);
-  };
-
   const isEmpty = openApps.length === 0 && tabs.length === 0;
 
   return (
     <TabStrip
-      activeId={selectedTabId(selection)}
+      activeId={selectedWorkspaceTabId(selection)}
       aria-label="Workspace tabs"
       chrome="embedded"
       contextMenu={contextMenu}
@@ -306,8 +289,8 @@ export function WorkspaceTabStrip(): ReactElement {
           <span className="px-1.5 font-medium text-muted-foreground text-xs">Workspace</span>
         ) : null
       }
-      onActivate={activate}
-      onClose={close}
+      onActivate={onActivateTab}
+      onClose={onCloseTab}
       onReorder={onReorderFileTabs}
       pinnedItems={pinnedItems}
       scrollTestId="workspace-tab-scroll"

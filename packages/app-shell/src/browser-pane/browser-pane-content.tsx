@@ -2,6 +2,8 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import {
   type ActionOutcome,
   type AnyContextAction,
+  type ClosedTabHistory,
+  createReopenClosedTabAction,
   createTabStripActions,
   defineContextAction,
 } from '@brainstrike/context-actions';
@@ -28,7 +30,17 @@ import {
 import { useCommandPaletteStore } from '../stores/command-palette-store';
 import { useQuickOpenStore } from '../stores/quick-open-store';
 import { type BrowserBridge, type BrowserTab, resolveBrowserBridge } from './browser-bridge';
-import { selectActiveBrowserTab, useBrowserTabsStore } from './browser-tabs-store';
+import {
+  browserTabLabel,
+  liveBrowserTabs as liveTabs,
+  selectActiveBrowserTab,
+  useBrowserTabsStore,
+} from './browser-tabs-store';
+import {
+  type ClosedBrowserTab,
+  closeRecorded,
+  useBrowserTabChords,
+} from './use-browser-tab-chords';
 
 /**
  * The embedded browser pane surface (BST-1174). Renders the chrome — tab
@@ -55,10 +67,6 @@ const logger = createLogger('BrowserPane');
 /** DOM id of the reserved region: every tab's `aria-controls` target. */
 const BROWSER_TAB_PANEL_DOM_ID = 'browser-tab-panel';
 
-function browserTabLabel(tab: Pick<BrowserTab, 'title' | 'url'>): string {
-  return tab.title || tab.url || 'New Tab';
-}
-
 function toTabStripItem(tab: BrowserTab): TabStripItem {
   return {
     closable: true,
@@ -75,11 +83,6 @@ function toTabStripItem(tab: BrowserTab): TabStripItem {
   };
 }
 
-/** Main's tab list as last pushed, read live at menu-open and at execution. */
-function liveTabs(): readonly BrowserTab[] {
-  return useBrowserTabsStore.getState().tabs;
-}
-
 function isTabOpen(tabId: string): boolean {
   return liveTabs().some((tab) => tab.tabId === tabId);
 }
@@ -93,12 +96,13 @@ const STALE_TAB_OUTCOME: ActionOutcome = { error: 'This browser tab is no longer
  */
 function createBrowserTabActions(
   bridge: BrowserBridge,
+  history: ClosedTabHistory<ClosedBrowserTab>,
   settleTabAction: (action: Promise<unknown>, label: string) => Promise<ActionOutcome>
 ): readonly AnyContextAction[] {
   // Menu closes REJECT on a bridge failure (after settleTabAction has logged
   // and re-seeded), so the shared factory reports them as failed actions.
   const closeTab = async (tabId: string): Promise<void> => {
-    const outcome = await settleTabAction(bridge.closeTab(tabId), 'closeTab');
+    const outcome = await settleTabAction(closeRecorded(bridge, history, [tabId]), 'closeTab');
     if (!outcome.ok) {
       throw new Error(outcome.error);
     }
@@ -107,24 +111,7 @@ function createBrowserTabActions(
   // produce ONE log, ONE re-seed and ONE failed outcome naming the count.
   const closeTabs = async (keep: (tabId: string) => boolean): Promise<void> => {
     const tabIds = liveTabs().flatMap(({ tabId }) => (keep(tabId) ? [] : [tabId]));
-    const attempt = Promise.allSettled(tabIds.map((tabId) => bridge.closeTab(tabId))).then(
-      (results) => {
-        // Every reason goes in the message: the logger serializes errors
-        // (message/stack only), so a separate reasons array would not survive.
-        const reasons = results.flatMap((result) =>
-          result.status === 'rejected' ? [getErrorMessage(result.reason)] : []
-        );
-        if (reasons.length === 0) {
-          return;
-        }
-        throw new Error(
-          reasons.length === 1
-            ? reasons.join('')
-            : `${reasons.length} of ${tabIds.length} browser tabs failed to close: ${reasons.join('; ')}`
-        );
-      }
-    );
-    const outcome = await settleTabAction(attempt, 'closeTabs');
+    const outcome = await settleTabAction(closeRecorded(bridge, history, tabIds), 'closeTabs');
     if (!outcome.ok) {
       throw new Error(outcome.error);
     }
@@ -333,6 +320,14 @@ export function BrowserPaneContent(): ReactElement {
     [settleTabAction]
   );
 
+  const paneRootRef = useRef<HTMLDivElement | null>(null);
+  const { closeTab, closedTabs, hasClosedTabs, reopenClosed } = useBrowserTabChords({
+    bridge,
+    paneRootRef,
+    runTabAction,
+    settleTabAction,
+  });
+
   const stripItems = useMemo(() => tabs.map(toTabStripItem), [tabs]);
   const stripContextMenu = useMemo<TabStripContextMenu | undefined>(() => {
     if (!bridge) {
@@ -344,9 +339,17 @@ export function BrowserPaneContent(): ReactElement {
         const tab = liveTabs().find((candidate) => candidate.tabId === tabId);
         return tab ? { kind: 'browser-tab', tabId, title: tab.title, url: tab.url } : null;
       },
-      localActions: createBrowserTabActions(bridge, settleTabAction),
+      localActions: [
+        ...createBrowserTabActions(bridge, closedTabs, settleTabAction),
+        createReopenClosedTabAction({
+          hasClosedTabs,
+          idPrefix: 'browser-tab-strip',
+          reopen: reopenClosed,
+          stripId: 'browser',
+        }),
+      ],
     };
-  }, [bridge, settleTabAction]);
+  }, [bridge, closedTabs, hasClosedTabs, reopenClosed, settleTabAction]);
 
   const handleNavigate = useCallback(
     (event: FormEvent) => {
@@ -372,7 +375,7 @@ export function BrowserPaneContent(): ReactElement {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="browser-pane">
+    <div className="flex h-full min-h-0 flex-col" data-testid="browser-pane" ref={paneRootRef}>
       <TabStrip
         activeId={activeTab?.tabId ?? null}
         aria-label="Browser tabs"
@@ -380,7 +383,7 @@ export function BrowserPaneContent(): ReactElement {
         contextMenu={stripContextMenu}
         items={stripItems}
         onActivate={(tabId) => runTabAction(bridge.selectTab(tabId), 'selectTab')}
-        onClose={(tabId) => runTabAction(bridge.closeTab(tabId), 'closeTab')}
+        onClose={closeTab}
         onMenuOpenChange={handleStripMenuOpenChange}
         trailing={
           <Button

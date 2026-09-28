@@ -1,4 +1,5 @@
 export { CommandPalette, type CommandPaletteProps } from './command-palette';
+export { isMacPlatform } from './platform-accelerator';
 export {
   type QuickOpenFileItem,
   QuickOpenPalette,

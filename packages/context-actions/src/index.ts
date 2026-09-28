@@ -1,4 +1,16 @@
 export { createClipboardService } from './clipboard.js';
+export {
+  CLOSED_TAB_HISTORY_LIMIT,
+  type ClosedTab,
+  type ClosedTabHistory,
+  createClosedTabHistory,
+  NO_CLOSED_TAB_OUTCOME,
+  type OpenTab,
+  placeTabAtIndex,
+  type ReopenAttempt,
+  recordRemovedTabs,
+  reopenLastClosed,
+} from './closed-tab-history.js';
 export { isAbsolutePath, toRelativePath } from './paths.js';
 export {
   type ActionMenuItemDescriptor,
@@ -9,8 +21,12 @@ export {
   type GroupedActions,
 } from './registry.js';
 export {
+  adjacentTabId,
+  createReopenClosedTabAction,
   createTabStripActions,
   moveTabId,
+  type ReopenClosedTabOperations,
+  type TabCycleDirection,
   type TabMoveDirection,
   type TabStripActionOperations,
 } from './tab-strip-actions.js';

@@ -378,7 +378,7 @@ There is no sliding active indicator.
 
 - **Focus scope.** A chord acts on the strip whose panel contains `document.activeElement`. With focus in no panel, it acts on the workspace strip.
 - **Web.** Browser-reserved chords (⌘W, ⌘T, Ctrl+Tab) stay unbound on web.
-- **Electron.** The default `close` role binds CmdOrCtrl+W to closing the window [12]. BST-1842 overrides it through the existing pattern where an accelerator pushes an IPC event to the renderer, as `main.ts` already does for ⌘K and ⌘P.
+- **Electron.** The default `close` role binds CmdOrCtrl+W to closing the window [12], but this app's menu (`main.ts`, `application-file-menu.ts`) has no `close`, `fileMenu` or `windowMenu` role and no W accelerator, so ⌘W already reaches the renderer and BST-1842 adds no override. Should a role ever bind CmdOrCtrl+W, use the ⌘K/⌘P pattern: an accelerator that pushes a one-way IPC event to the renderer.
 - **⌘K palette.** Add Close Tab, Reopen Closed Tab, Next/Previous Tab and Go to Tab…. Each is available only when its handler is wired.
 
 ## 10. Decisions for approval

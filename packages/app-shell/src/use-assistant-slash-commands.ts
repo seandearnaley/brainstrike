@@ -1,5 +1,5 @@
 import type { SlashCommand } from '@brainstrike/assistant-ui';
-import type { Command, CommandContext } from '@brainstrike/context-actions/commands';
+import type { CommandContext, RunCommand } from '@brainstrike/context-actions/commands';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
@@ -74,7 +74,7 @@ export function useAssistantSlashCommands(threadId: string | undefined): readonl
   );
 
   const runCommand = useCallback(
-    (command: Command): Promise<void> => runSlashCommand(command, context, { logger, toast }),
+    (command: RunCommand): Promise<void> => runSlashCommand(command, context, { logger, toast }),
     [context, toast]
   );
 

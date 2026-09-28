@@ -72,6 +72,8 @@ import {
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
 import { QuickOpenHost } from './quick-open-host';
+import { TabChordHost } from './tab-chords/tab-chord-host';
+import { WorkspaceTabChords } from './tab-chords/workspace-tab-chords';
 import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
@@ -489,6 +491,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   // in BST-1270, replacing its nav route). Construction is the pure
   // buildWorkspaceApps helper — capability gating by omission.
   const toolApprovalGrants = useToolApprovalGrantHandlers();
+  const workspaceStripRootRef = useRef<HTMLDivElement>(null);
   const workspaceApps = useMemo<readonly WorkspaceApp[]>(
     () =>
       buildWorkspaceApps({
@@ -528,6 +531,8 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                 per thread and hydrates on switch. Inside FileTreeWrapper so it
                 reaches the file-explorer store; renders nothing. */}
             <ThreadWorkspaceCoordinator />
+            {/* Registers the workspace strip with the tab chord router (BST-1842). */}
+            <WorkspaceTabChords focusRootRef={workspaceStripRootRef} />
             {/* Grants are offered wherever an approval card can render: the root
                 chat panel AND the child conversation views under the workspace
                 (a child card without "Allow reads this session" forces a click
@@ -572,7 +577,12 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                     <WorkspaceBody />
                   </>
                 }
-                workspaceHeaderContent={<WorkspaceTabStrip />}
+                workspaceHeaderContent={
+                  // Layout-neutral (`contents`): the root chords restore focus into.
+                  <div className="contents" ref={workspaceStripRootRef}>
+                    <WorkspaceTabStrip />
+                  </div>
+                }
               />
             </ToolApprovalGrantProvider>
           </DelegatedWorkspaceTabsProvider>
@@ -694,6 +704,8 @@ export function RootLayoutContent({
             visible renderer mounts RootLayoutContent, so hidden hosts never
             instantiate it (structural gating — no role check needed here). */}
             <CommandPaletteHost />
+            {/* Tab chords (BST-1842): the same structural gating as the palette. */}
+            <TabChordHost />
             <WorkspaceConnectHost />
             <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
               <EmbeddingRuntimeProvider>

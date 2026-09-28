@@ -1,5 +1,10 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import { createTestActionRegistry } from '@brainstrike/context-actions';
+import {
+  type ActionOutcome,
+  createTestActionRegistry,
+  NO_CLOSED_TAB_OUTCOME,
+} from '@brainstrike/context-actions';
+import { createTabCommands } from '@brainstrike/context-actions/commands';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -10,6 +15,11 @@ import { BrowserPaneContent } from '../browser-pane/browser-pane-content';
 import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
 import { useQuickOpenStore } from '../stores/quick-open-store';
+import {
+  getTabChordStrip,
+  resolveTabChordScope,
+  type TabChordStrip,
+} from '../tab-chords/tab-chord-registry';
 
 let tabsListener: ((tabs: readonly BrowserTab[]) => void) | null = null;
 const bridge = {
@@ -477,14 +487,17 @@ describe('BrowserPaneContent tab strip (BST-1840)', () => {
     expect(bridgeCall).not.toHaveBeenCalled();
   });
 
-  it('offers only New Tab on the empty strip background', async () => {
+  it('offers New Tab and a disabled Reopen Closed Tab on the empty strip background', async () => {
     const user = userEvent.setup();
     renderPane();
     pushTabs(THREE_TABS);
 
     fireEvent.contextMenu(screen.getByRole('tablist', { name: 'Browser tabs' }));
     const items = await screen.findAllByRole('menuitem');
-    expect(items.map((item) => item.textContent)).toEqual(['New Tab']);
+    expect(items.map((item) => item.textContent)).toEqual(['New Tab', 'Reopen Closed Tab']);
+    expect(screen.getByRole('menuitem', { name: 'Reopen Closed Tab' })).toHaveAttribute(
+      'data-disabled'
+    );
     await user.click(screen.getByRole('menuitem', { name: 'New Tab' }));
     await waitFor(() => expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith());
   });
@@ -546,5 +559,159 @@ describe('BrowserPaneContent occlusion while a tab-strip menu is open (BST-1840)
 
     expect(bridge.setOccluded).toHaveBeenLastCalledWith(true);
     expect(bridge.setBounds).not.toHaveBeenCalled();
+  });
+});
+
+describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
+  function chordStrip(): TabChordStrip {
+    const strip = getTabChordStrip('browser');
+    if (!strip) {
+      throw new Error('the browser strip did not register with the chord router');
+    }
+    return strip;
+  }
+
+  async function reopen(): Promise<ActionOutcome | undefined> {
+    let outcome: ActionOutcome | undefined;
+    await act(async () => {
+      outcome = await chordStrip().reopenClosed();
+    });
+    return outcome;
+  }
+
+  it('registers its tabs, active tab and pane with the chord router', async () => {
+    renderPane();
+    pushTabs(THREE_TABS);
+    const strip = chordStrip();
+
+    expect(strip.getTabs()).toEqual([
+      { detail: 'https://a.test/', id: 'a', label: 'Alpha' },
+      { detail: 'https://b.test/', id: 'b', label: 'Beta' },
+      { detail: 'https://c.test/', id: 'c', label: 'Gamma' },
+    ]);
+    expect(strip.getActiveId()).toBe('a');
+    expect(resolveTabChordScope(screen.getByTestId('browser-url-input'))).toBe('browser');
+    await act(() => strip.activate('c'));
+    expect(bridge.selectTab).toHaveBeenCalledExactlyOnceWith('c');
+  });
+
+  it('reopens a tab closed with the ✕ by creating it at its URL', async () => {
+    renderPane();
+    pushTabs(THREE_TABS);
+
+    fireEvent.click(screen.getByTestId('browser-tab-close-b'));
+    await waitFor(() => expect(bridge.closeTab).toHaveBeenCalledExactlyOnceWith('b'));
+
+    expect(await reopen()).toEqual({ ok: true });
+    expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith('https://b.test/');
+  });
+
+  it('records a Delete-key close and a chord close', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    pushTabs(THREE_TABS);
+
+    browserTab('Gamma').focus();
+    await user.keyboard('{Delete}');
+    await act(() => chordStrip().close('a'));
+    await waitFor(() => expect(bridge.closeTab).toHaveBeenCalledTimes(2));
+
+    await reopen();
+    await reopen();
+    expect(bridge.createTab.mock.calls).toEqual([['https://a.test/'], ['https://c.test/']]);
+  });
+
+  it('enables Reopen Closed Tab on the strip background once a tab has closed', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    pushTabs(THREE_TABS);
+    expect(chordStrip().hasClosedTabs()).toBe(false);
+
+    fireEvent.click(screen.getByTestId('browser-tab-close-b'));
+    await waitFor(() => expect(chordStrip().hasClosedTabs()).toBe(true));
+    fireEvent.contextMenu(screen.getByRole('tablist', { name: 'Browser tabs' }));
+    const reopenItem = await screen.findByRole('menuitem', { name: 'Reopen Closed Tab' });
+    expect(reopenItem).not.toHaveAttribute('data-disabled');
+    await user.click(reopenItem);
+
+    await waitFor(() =>
+      expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith('https://b.test/')
+    );
+    expect(chordStrip().hasClosedTabs()).toBe(false);
+  });
+
+  it('records a close from the tab menu', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    pushTabs(THREE_TABS);
+
+    fireEvent.contextMenu(browserTab('Beta'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Close' }));
+    await waitFor(() => expect(bridge.closeTab).toHaveBeenCalledExactlyOnceWith('b'));
+
+    expect(await reopen()).toEqual({ ok: true });
+    expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith('https://b.test/');
+  });
+
+  it('records only the tabs main actually closed in a menu bulk close', async () => {
+    const user = userEvent.setup();
+    // Close All closes a, b, c in strip order; main rejects c.
+    bridge.closeTab
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('unknown tab c'));
+    renderPane();
+    pushTabs(THREE_TABS);
+
+    fireEvent.contextMenu(browserTab('Beta'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
+    await screen.findByText('unknown tab c');
+
+    await reopen();
+    await reopen();
+    expect(bridge.createTab.mock.calls).toEqual([['https://a.test/'], ['https://b.test/']]);
+    expect(await reopen()).toEqual(NO_CLOSED_TAB_OUTCOME);
+  });
+
+  it('keeps a tab whose reopen failed, and reopens a blank tab as a new tab', async () => {
+    renderPane();
+    pushTabs([tab({ active: true, tabId: 'n', title: '', url: '' }), ...THREE_TABS.slice(1)]);
+    await act(() => chordStrip().close('n'));
+    await act(() => chordStrip().close('b'));
+    bridge.createTab.mockRejectedValueOnce(new Error('host rejected the view'));
+
+    expect(await reopen()).toEqual({ error: 'host rejected the view', ok: false });
+    // An unexpected failure never loses the entry: the next reopen retries it.
+    expect(chordStrip().hasClosedTabs()).toBe(true);
+    expect(await reopen()).toEqual({ ok: true });
+    expect(await reopen()).toEqual({ ok: true });
+    expect(bridge.createTab.mock.calls).toEqual([['https://b.test/'], ['https://b.test/'], []]);
+  });
+
+  it('settles a close only once main has closed the tab, and reports a rejection', async () => {
+    renderPane();
+    pushTabs(THREE_TABS);
+    bridge.closeTab.mockRejectedValueOnce(new Error('unknown tab b'));
+    const closeTab = createTabCommands(() => getTabChordStrip('browser')).find(
+      (command) => command.id === 'tab.close'
+    );
+    if (!closeTab || closeTab.page) {
+      throw new Error('tab.close must be a runnable command');
+    }
+    useBrowserTabsStore
+      .getState()
+      .setTabs(THREE_TABS.map((candidate) => ({ ...candidate, active: candidate.tabId === 'b' })));
+
+    let outcome: ActionOutcome | undefined;
+    await act(async () => {
+      outcome = await closeTab.run({ capabilities: new Set(), services: {} });
+    });
+
+    expect(outcome).toEqual({ error: 'unknown tab b', ok: false });
+    expect(chordStrip().hasClosedTabs()).toBe(false);
+    // The failure re-seeded from main (the mock lists none); main pushes again.
+    pushTabs(THREE_TABS);
+    await expect(chordStrip().close('c')).resolves.toBeUndefined();
+    expect(chordStrip().hasClosedTabs()).toBe(true);
   });
 });

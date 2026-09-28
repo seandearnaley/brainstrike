@@ -1,5 +1,5 @@
 import type { ContextTarget } from '@brainstrike/context-actions';
-import type { CommandContext } from '@brainstrike/context-actions/commands';
+import type { CommandContext, TabCommandStrip } from '@brainstrike/context-actions/commands';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildAppCommandContext, createAppCommandRegistry } from '../command-registry';
 import { buildAppActionRegistryParts } from '../context-action-registry';
@@ -148,8 +148,42 @@ describe('createAppCommandRegistry', () => {
     });
     const ctx = buildAppCommandContext({ parts, target: fileTarget });
     const copyName = registry.available(ctx).find((command) => command.id === 'file.copy-name');
-    expect(copyName).toBeDefined();
-    await copyName?.run(ctx);
+    if (!copyName || copyName.page) {
+      throw new Error('file.copy-name must be a runnable command');
+    }
+    await copyName.run(ctx);
     expect(writeText).toHaveBeenCalledWith('main.ts');
+  });
+
+  it('adds the tab commands only for a caller that resolves a focus-scoped strip', () => {
+    const parts = webParts();
+    const ctx = buildAppCommandContext({ parts, target: null });
+    const strip: TabCommandStrip = {
+      activate: vi.fn(),
+      close: vi.fn(),
+      getActiveId: () => 'a',
+      getTabs: () => [{ id: 'a', label: 'A' }],
+      hasClosedTabs: () => true,
+      reopenClosed: () => Promise.resolve({ ok: true }),
+    };
+    const tabIds = (registry: ReturnType<typeof createAppCommandRegistry>) =>
+      idsFor(registry, ctx).filter((id) => id.startsWith('tab.'));
+
+    expect(tabIds(createAppCommandRegistry({ handlers: {}, parts, target: null }))).toEqual([]);
+    expect(
+      tabIds(
+        createAppCommandRegistry({
+          getTabStrip: () => undefined,
+          handlers: {},
+          parts,
+          target: null,
+        })
+      )
+    ).toEqual([]);
+    expect(
+      tabIds(
+        createAppCommandRegistry({ getTabStrip: () => strip, handlers: {}, parts, target: null })
+      )
+    ).toEqual(['tab.close', 'tab.reopen-closed', 'tab.next', 'tab.previous', 'tab.go-to']);
   });
 });
