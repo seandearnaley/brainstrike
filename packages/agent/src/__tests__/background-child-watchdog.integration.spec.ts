@@ -78,18 +78,7 @@ it.each([
     if (signal) {
       wedgedSignals.push(signal);
     }
-    return {
-      stream: new ReadableStream({
-        start(controller) {
-          controller.enqueue({ type: 'stream-start', warnings: [] });
-          controller.enqueue({ id: 'answer', type: 'text-start' });
-          controller.enqueue({ delta: 'PARTIAL_WEDGED', id: 'answer', type: 'text-delta' });
-          signal?.addEventListener('abort', () => controller.error(signal.reason), {
-            once: true,
-          });
-        },
-      }),
-    };
+    return wedgedAnswer(signal);
   };
   try {
     const iterator = await createStreamIteratorFromRuntime({

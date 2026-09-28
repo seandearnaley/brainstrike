@@ -216,8 +216,8 @@ tool is never measured against a provider-silence window; Mastra's
 has its own watchdog and the parent judges only itself (2026-09-22). Evidence:
 `assistant-runtime/stream-watchdog-phases.md`.
 Guard: `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec.ts`,
-`mastra-stream-watchdogs.integration.spec.ts`, `background-child-watchdog.integration.spec.ts`,
-`packages/agent/src/mastra/__tests__/mastra-background-watchdog-holds.spec.ts`, `background-child-watchdog.spec.ts`.
+`packages/agent/src/__tests__/mastra-stream-watchdogs.integration.spec.ts`, `packages/agent/src/__tests__/background-child-watchdog.integration.spec.ts`,
+`packages/agent/src/mastra/__tests__/mastra-background-watchdog-holds.spec.ts`, `packages/agent/src/mastra/__tests__/background-child-watchdog.spec.ts`.
 
 ### Mastra error-processor layer
 
