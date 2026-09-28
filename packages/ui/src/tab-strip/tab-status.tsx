@@ -2,7 +2,7 @@ import { AlertCircle, CircleDot, Loader2, LockKeyhole } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { cn } from '../lib/utils';
 import { TAB_ICON_CLASS_NAME } from './tab-strip-tokens';
-import type { TabStatus } from './types';
+import type { TabStatus, TabStripItem } from './types';
 
 const DEFAULT_TAB_STATUS_LABELS: Readonly<Record<TabStatus, string>> = {
   attention: 'needs your input',
@@ -13,8 +13,14 @@ const DEFAULT_TAB_STATUS_LABELS: Readonly<Record<TabStatus, string>> = {
   running: 'running',
 };
 
-export function resolveTabStatusLabel(status: TabStatus, override?: string): string {
-  return override ?? DEFAULT_TAB_STATUS_LABELS[status];
+/**
+ * Status text for the accessible name: `statusLabel` wins and may stand alone
+ * (a mark-owned state with no TabStatus), else the default text for `status`.
+ */
+export function resolveTabStatusText(
+  item: Pick<TabStripItem, 'status' | 'statusLabel'>
+): string | null {
+  return item.statusLabel ?? (item.status ? DEFAULT_TAB_STATUS_LABELS[item.status] : null);
 }
 
 /** Status replaces a plain icon; colour is never the only cue (text rides in the name). */
