@@ -2,7 +2,7 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import {
   type ActionOutcome,
   createTestActionRegistry,
-  NO_CLOSED_TAB_ERROR,
+  NO_CLOSED_TAB_OUTCOME,
 } from '@brainstrike/context-actions';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
@@ -486,14 +486,17 @@ describe('BrowserPaneContent tab strip (BST-1840)', () => {
     expect(bridgeCall).not.toHaveBeenCalled();
   });
 
-  it('offers only New Tab on the empty strip background', async () => {
+  it('offers New Tab and a disabled Reopen Closed Tab on the empty strip background', async () => {
     const user = userEvent.setup();
     renderPane();
     pushTabs(THREE_TABS);
 
     fireEvent.contextMenu(screen.getByRole('tablist', { name: 'Browser tabs' }));
     const items = await screen.findAllByRole('menuitem');
-    expect(items.map((item) => item.textContent)).toEqual(['New Tab']);
+    expect(items.map((item) => item.textContent)).toEqual(['New Tab', 'Reopen Closed Tab']);
+    expect(screen.getByRole('menuitem', { name: 'Reopen Closed Tab' })).toHaveAttribute(
+      'data-disabled'
+    );
     await user.click(screen.getByRole('menuitem', { name: 'New Tab' }));
     await waitFor(() => expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith());
   });
@@ -617,6 +620,25 @@ describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
     expect(bridge.createTab.mock.calls).toEqual([['https://a.test/'], ['https://c.test/']]);
   });
 
+  it('enables Reopen Closed Tab on the strip background once a tab has closed', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    pushTabs(THREE_TABS);
+    expect(chordStrip().hasClosedTabs()).toBe(false);
+
+    fireEvent.click(screen.getByTestId('browser-tab-close-b'));
+    await waitFor(() => expect(chordStrip().hasClosedTabs()).toBe(true));
+    fireEvent.contextMenu(screen.getByRole('tablist', { name: 'Browser tabs' }));
+    const reopenItem = await screen.findByRole('menuitem', { name: 'Reopen Closed Tab' });
+    expect(reopenItem).not.toHaveAttribute('data-disabled');
+    await user.click(reopenItem);
+
+    await waitFor(() =>
+      expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith('https://b.test/')
+    );
+    expect(chordStrip().hasClosedTabs()).toBe(false);
+  });
+
   it('records a close from the tab menu', async () => {
     const user = userEvent.setup();
     renderPane();
@@ -647,7 +669,7 @@ describe('BrowserPaneContent chords and closed-tab history (BST-1842)', () => {
     await reopen();
     await reopen();
     expect(bridge.createTab.mock.calls).toEqual([['https://a.test/'], ['https://b.test/']]);
-    expect(await reopen()).toEqual({ error: NO_CLOSED_TAB_ERROR, ok: false });
+    expect(await reopen()).toEqual(NO_CLOSED_TAB_OUTCOME);
   });
 
   it('reopens a blank tab as a new tab and reports a create that failed', async () => {

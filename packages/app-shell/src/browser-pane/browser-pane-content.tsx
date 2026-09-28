@@ -3,6 +3,7 @@ import {
   type ActionOutcome,
   type AnyContextAction,
   type ClosedTabHistory,
+  createReopenClosedTabAction,
   createTabStripActions,
   defineContextAction,
 } from '@brainstrike/context-actions';
@@ -320,7 +321,7 @@ export function BrowserPaneContent(): ReactElement {
   );
 
   const paneRootRef = useRef<HTMLDivElement | null>(null);
-  const { closeTab, closedTabs } = useBrowserTabChords({
+  const { closeTab, closedTabs, hasClosedTabs, reopenClosed } = useBrowserTabChords({
     bridge,
     paneRootRef,
     runTabAction,
@@ -338,9 +339,17 @@ export function BrowserPaneContent(): ReactElement {
         const tab = liveTabs().find((candidate) => candidate.tabId === tabId);
         return tab ? { kind: 'browser-tab', tabId, title: tab.title, url: tab.url } : null;
       },
-      localActions: createBrowserTabActions(bridge, closedTabs, settleTabAction),
+      localActions: [
+        ...createBrowserTabActions(bridge, closedTabs, settleTabAction),
+        createReopenClosedTabAction({
+          hasClosedTabs,
+          idPrefix: 'browser-tab-strip',
+          reopen: reopenClosed,
+          stripId: 'browser',
+        }),
+      ],
     };
-  }, [bridge, closedTabs, settleTabAction]);
+  }, [bridge, closedTabs, hasClosedTabs, reopenClosed, settleTabAction]);
 
   const handleNavigate = useCallback(
     (event: FormEvent) => {

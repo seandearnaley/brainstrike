@@ -8,7 +8,8 @@ import { type TabChordStrip, useTabChordStrip } from './tab-chord-registry';
  * is the strip a chord acts on when focus is in no other strip's panel.
  */
 export function WorkspaceTabChords(): null {
-  const { onActivateTab, onCloseTab, onReopenClosedTab, selection, tabOrder } = useWorkspaceTabs();
+  const { hasClosedTabs, onActivateTab, onCloseTab, onReopenClosedTab, selection, tabOrder } =
+    useWorkspaceTabs();
   const strip = useMemo<TabChordStrip>(
     () => ({
       activate: onActivateTab,
@@ -16,9 +17,10 @@ export function WorkspaceTabChords(): null {
       getActiveId: () => selectedWorkspaceTabId(selection),
       getPanel: () => null,
       getTabs: () => tabOrder,
+      hasClosedTabs,
       reopenClosed: onReopenClosedTab,
     }),
-    [onActivateTab, onCloseTab, onReopenClosedTab, selection, tabOrder]
+    [hasClosedTabs, onActivateTab, onCloseTab, onReopenClosedTab, selection, tabOrder]
   );
   useTabChordStrip('workspace', strip);
   return null;

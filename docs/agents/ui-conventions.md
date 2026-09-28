@@ -316,8 +316,8 @@ hand-roll a tablist.
 - Chords go through ONE router, `app-shell/src/tab-chords`: the strip whose registered
   panel holds focus, else the workspace; ⌘W with no active tab falls through. ⌘/Ctrl+W,
   ⌘/Ctrl+⇧T and positional Ctrl+Tab need the desktop `desktopLifecycle` bridge.
-- Every close path feeds its strip's bounded, session-only closed-tab history (it dies
-  with the strip: no factory-reset wiring); a stale reopen is reported, never a no-op.
+- Every close path feeds its strip's bounded, session-only history (no factory-reset wiring).
+  ⌘K and the strip menu offer Reopen only with an entry; ⌘⇧T on empty informs, stale reports.
 
 Settled: BST-1836 decisions D1–D9 (2026-09-27). Evidence: `ui-conventions/tab-strips.md`.
 Guard: `packages/ui/src/tab-strip/__tests__/tab-strip.test.tsx`, `tab-strip.browser.test.tsx`

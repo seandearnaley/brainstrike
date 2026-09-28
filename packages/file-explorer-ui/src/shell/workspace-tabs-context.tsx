@@ -1,7 +1,7 @@
 import {
   type ActionOutcome,
   createClosedTabHistory,
-  NO_CLOSED_TAB_ERROR,
+  NO_CLOSED_TAB_OUTCOME,
   type OpenTab,
   placeTabAtIndex,
   recordRemovedTabs,
@@ -621,10 +621,11 @@ export function WorkspaceTabsProvider({
     [handleCloseApp, handleCloseFileTab, openAppIdSet]
   );
 
+  const hasClosedTabs = useCallback((): boolean => closedTabs.size() > 0, [closedTabs]);
   const handleReopenClosedTab = useCallback((): Promise<ActionOutcome> => {
     const closed = closedTabs.pop();
     if (!closed) {
-      return Promise.resolve({ error: NO_CLOSED_TAB_ERROR, ok: false });
+      return Promise.resolve(NO_CLOSED_TAB_OUTCOME);
     }
     const entry = closed.tab;
     if (entry.kind === 'app') {
@@ -668,6 +669,7 @@ export function WorkspaceTabsProvider({
       fileContents,
       getTabStatusMessage: getStatusMessage,
       handleOpenFileInTab,
+      hasClosedTabs,
       isRestoring,
       loadingFiles,
       mountedAppIds,
@@ -699,6 +701,7 @@ export function WorkspaceTabsProvider({
       fileContents,
       getStatusMessage,
       handleOpenFileInTab,
+      hasClosedTabs,
       isRestoring,
       loadingFiles,
       mountedAppIds,

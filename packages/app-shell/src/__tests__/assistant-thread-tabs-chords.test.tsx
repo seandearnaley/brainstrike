@@ -1,13 +1,15 @@
 import './assistant-thread-tabs-workspace-test-support';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
-import { type ActionOutcome, NO_CLOSED_TAB_ERROR } from '@brainstrike/context-actions';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { type ActionOutcome, NO_CLOSED_TAB_OUTCOME } from '@brainstrike/context-actions';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
   getTabChordStrip,
   resolveTabChordScope,
   type TabChordStrip,
 } from '../tab-chords/tab-chord-registry';
+import { useTabChords } from '../tab-chords/use-tab-chords';
 import {
   activeThreadId,
   addThreadRow,
@@ -15,6 +17,12 @@ import {
   openThreadTabs,
   renderWorkspace,
 } from './assistant-thread-tabs-workspace-test-support';
+
+/** The real chord router, as the root layout mounts it on desktop. */
+function ChordRouter(): null {
+  useTabChords({ claimWindowChords: true, isMac: false });
+  return null;
+}
 
 const TITLES = {
   'thread-a': 'Purchasing app search log',
@@ -164,9 +172,57 @@ describe('assistant thread strip — chords and closed-tab history', () => {
     expect(activeThreadId()).toBe('thread-a');
   });
 
-  it('reports an empty history instead of doing nothing', async () => {
+  it('reports an empty history as information, not a failure', async () => {
     const strip = await renderThreeTabs();
 
-    expect(await reopen(strip)).toEqual({ error: NO_CLOSED_TAB_ERROR, ok: false });
+    expect(strip.hasClosedTabs()).toBe(false);
+    expect(await reopen(strip)).toEqual(NO_CLOSED_TAB_OUTCOME);
+    act(() => strip.close('thread-b'));
+    expect(strip.hasClosedTabs()).toBe(true);
+  });
+
+  it('logs nothing at error level when ⌘⇧T finds an empty history', async () => {
+    const records: LogRecord[] = [];
+    const release = addLogListener((record) => records.push(record));
+    try {
+      await renderThreeTabs();
+      render(<ChordRouter />);
+      const composer = screen.getByTestId('assistant-thread-panel-thread-a');
+      composer.tabIndex = -1;
+      composer.focus();
+
+      fireEvent.keyDown(composer, { ctrlKey: true, key: 'T', shiftKey: true });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(records.filter((record) => record.level === 'error')).toEqual([]);
+      expect(openThreadIds()).toEqual(['thread-a', 'thread-b', 'thread-c']);
+    } finally {
+      release();
+    }
+  });
+
+  it('offers Reopen Closed Tab on the strip background only once a tab has closed', async () => {
+    await renderThreeTabs();
+    const background = screen.getByTestId('assistant-thread-tab-strip');
+
+    fireEvent.contextMenu(background);
+    expect(
+      within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Reopen Closed Tab' })
+    ).toHaveAttribute('data-disabled');
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByTitle(`Close ${TITLES['thread-b']}`));
+    fireEvent.contextMenu(background);
+    const reopenItem = within(await screen.findByRole('menu')).getByRole('menuitem', {
+      name: 'Reopen Closed Tab',
+    });
+    expect(reopenItem).not.toHaveAttribute('data-disabled');
+    fireEvent.click(reopenItem);
+
+    await waitFor(() => expect(openThreadIds()).toEqual(['thread-a', 'thread-b', 'thread-c']));
+    expect(activeThreadId()).toBe('thread-b');
   });
 });

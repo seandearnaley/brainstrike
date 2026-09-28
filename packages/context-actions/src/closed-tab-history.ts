@@ -1,11 +1,19 @@
+import type { ActionOutcome } from './types.js';
+
 /**
  * The most closed tabs one strip remembers for Reopen Closed Tab (BST-1842).
  * Session-only and in memory: a strip owns its history for its own lifetime.
  */
 export const CLOSED_TAB_HISTORY_LIMIT = 20;
 
-/** What Reopen Closed Tab reports when its strip's history is empty. */
-export const NO_CLOSED_TAB_ERROR = 'No closed tab to reopen';
+/**
+ * What Reopen Closed Tab reports when its strip's history is empty: a benign
+ * no-op, so a success with an informational message, never an error.
+ */
+export const NO_CLOSED_TAB_OUTCOME: ActionOutcome = {
+  message: 'No closed tab to reopen',
+  ok: true,
+};
 
 export interface ClosedTab<T> {
   /** Position in the strip's reorderable order when the tab closed. */

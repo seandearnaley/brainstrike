@@ -733,7 +733,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['New Thread', 'Close All']);
+    ).toEqual(['New Thread', 'Close All', 'Reopen Closed Tab']);
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'New Thread' }));
 
     await waitFor(() => {

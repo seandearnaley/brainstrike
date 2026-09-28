@@ -1,6 +1,7 @@
 import {
   type AnyContextAction,
   type ContextTarget,
+  createReopenClosedTabAction,
   createTabStripActions,
   defineContextAction,
 } from '@brainstrike/context-actions';
@@ -137,6 +138,7 @@ export function WorkspaceTabStrip(): ReactElement {
   const {
     apps,
     getTabStatusMessage,
+    hasClosedTabs,
     loadingFiles,
     onActivateTab,
     onCloseAllFileTabs,
@@ -147,6 +149,7 @@ export function WorkspaceTabStrip(): ReactElement {
     onCloseOtherFileTabs,
     onCloseTab,
     onOpenApp,
+    onReopenClosedTab,
     onReorderFileTabs,
     openApps,
     rootDescriptors,
@@ -221,15 +224,23 @@ export function WorkspaceTabStrip(): ReactElement {
           return Promise.resolve({ ok: true });
         },
       }),
+      createReopenClosedTabAction({
+        hasClosedTabs,
+        idPrefix: 'workspace-tab-strip',
+        reopen: onReopenClosedTab,
+        stripId: STRIP_ID,
+      }),
     ];
   }, [
     apps,
+    hasClosedTabs,
     onCloseAllFileTabs,
     onCloseApp,
     onCloseApps,
     onCloseFileTab,
     onCloseFileTabsToRight,
     onCloseOtherFileTabs,
+    onReopenClosedTab,
     onReorderFileTabs,
   ]);
 

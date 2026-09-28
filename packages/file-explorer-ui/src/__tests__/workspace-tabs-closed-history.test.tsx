@@ -1,6 +1,7 @@
-import { type ActionOutcome, NO_CLOSED_TAB_ERROR } from '@brainstrike/context-actions';
+import { type ActionOutcome, NO_CLOSED_TAB_OUTCOME } from '@brainstrike/context-actions';
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
@@ -67,9 +68,12 @@ function workspace(): WorkspaceTabsValue {
   return probe.tabs;
 }
 
+/** A fresh store per test: the shared adapter would replay a prior test's roots. */
+let storage = new MemoryStorageAdapter();
+
 function Harness({ apps }: { readonly apps: readonly WorkspaceApp[] }): React.ReactElement {
   return (
-    <FileExplorerTestWrapper>
+    <FileExplorerTestWrapper mockStorageAdapter={storage}>
       <WorkspaceTabsProvider apps={apps}>
         <WorkspaceTabStrip />
         <Probe />
@@ -98,6 +102,7 @@ async function reopen(): Promise<ActionOutcome | undefined> {
 }
 
 beforeEach(() => {
+  storage = new MemoryStorageAdapter();
   __resetTabManagerStoreForTests();
   __resetWorkspaceTabSelectionStoreForTests();
   const files = useTabManagerStore.getState();
@@ -234,8 +239,31 @@ describe('workspace strip — closed-tab history (BST-1842)', () => {
       error: 'Cedar can no longer be reopened: it is not available',
       ok: false,
     });
-    expect(await reopen()).toEqual({ error: NO_CLOSED_TAB_ERROR, ok: false });
+    expect(await reopen()).toEqual(NO_CLOSED_TAB_OUTCOME);
     expect(fileTabIds()).toEqual([key('a.ts'), key('b.ts')]);
+  });
+
+  it('enables Reopen Closed Tab on the strip background only once a tab has closed', async () => {
+    const user = userEvent.setup();
+    renderHarness();
+    const background = screen.getByRole('tablist', { name: 'Workspace tabs' });
+    expect(workspace().hasClosedTabs()).toBe(false);
+
+    fireEvent.contextMenu(background);
+    expect(await screen.findByRole('menuitem', { name: 'Reopen Closed Tab' })).toHaveAttribute(
+      'data-disabled'
+    );
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByTitle('Close b.ts'));
+    expect(workspace().hasClosedTabs()).toBe(true);
+    fireEvent.contextMenu(background);
+    const reopenItem = await screen.findByRole('menuitem', { name: 'Reopen Closed Tab' });
+    expect(reopenItem).not.toHaveAttribute('data-disabled');
+    await user.click(reopenItem);
+
+    await waitFor(() => expect(fileTabIds()).toEqual([key('a.ts'), key('b.ts'), key('c.ts')]));
+    expect(workspace().hasClosedTabs()).toBe(false);
   });
 
   it('only activates a closed file tab that was opened again in the meantime', async () => {

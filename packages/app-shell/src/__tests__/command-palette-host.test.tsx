@@ -18,13 +18,19 @@ globalThis.ResizeObserver = class {
 };
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
-function fakeStrip(ids: readonly string[], activeId: string, panel: HTMLElement | null) {
+function fakeStrip(
+  ids: readonly string[],
+  activeId: string,
+  panel: HTMLElement | null,
+  closedTabs = 0
+) {
   return {
     activate: vi.fn<(id: string) => void>(),
     close: vi.fn<(id: string) => void>(),
     getActiveId: () => activeId,
     getPanel: () => panel,
     getTabs: () => ids.map((id) => ({ id, label: `Tab ${id}` })),
+    hasClosedTabs: () => closedTabs > 0,
     reopenClosed: () => Promise.resolve({ ok: true as const }),
   } satisfies TabChordStrip;
 }
@@ -46,7 +52,7 @@ describe('CommandPaletteHost tab commands (BST-1842)', () => {
     composer = document.createElement('textarea');
     panel.append(composer);
     document.body.append(panel);
-    assistant = fakeStrip(['t1', 't2'], 't1', panel);
+    assistant = fakeStrip(['t1', 't2'], 't1', panel, 1);
     workspace = fakeStrip(['files', 'a.ts'], 'files', null);
     releases = [
       registerTabChordStrip('assistant-threads', assistant),
@@ -70,6 +76,22 @@ describe('CommandPaletteHost tab commands (BST-1842)', () => {
 
     await waitFor(() => expect(assistant.activate).toHaveBeenCalledExactlyOnceWith('t2'));
     expect(workspace.activate).not.toHaveBeenCalled();
+  });
+
+  it('offers Reopen Closed Tab only when the scoped strip has a closed tab', async () => {
+    render(<CommandPaletteHost />);
+
+    composer.focus();
+    openPalette(composer);
+    expect(await screen.findByRole('option', { name: /^Reopen Closed Tab/ })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+
+    // Focus in no panel scopes to the workspace, whose history is empty.
+    (document.activeElement as HTMLElement | null)?.blur();
+    openPalette(document.body);
+    expect(await screen.findByRole('option', { name: /^Next Tab/ })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /^Reopen Closed Tab/ })).toBeNull();
   });
 
   it('Go to Tab… lists the workspace strip when focus was in no panel', async () => {

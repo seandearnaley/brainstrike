@@ -2,7 +2,7 @@ import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import {
   type ActionOutcome,
   createClosedTabHistory,
-  NO_CLOSED_TAB_ERROR,
+  NO_CLOSED_TAB_OUTCOME,
   placeTabAtIndex,
   recordRemovedTabs,
 } from '@brainstrike/context-actions';
@@ -17,12 +17,17 @@ interface ClosedThreadTab {
   readonly title: string;
 }
 
-/** The assistant strip's close paths, each recorded for Reopen Closed Tab. */
+/**
+ * The assistant strip's close paths, each recorded for Reopen Closed Tab, plus
+ * the reopen itself (the one ⌘⇧T, the palette and the strip menu share).
+ */
 export interface AssistantThreadTabCloses {
   readonly close: (threadId: string) => void;
   readonly closeAll: () => void;
   readonly closeOthers: (threadId: string) => void;
   readonly closeToRight: (threadId: string) => void;
+  readonly hasClosedTabs: () => boolean;
+  readonly reopenClosed: () => Promise<ActionOutcome>;
 }
 
 function threadTitle(resourceId: string, threadId: string): string {
@@ -67,7 +72,9 @@ export function useAssistantThreadTabChords(
     },
     [closedTabs, readOpenThreadIds, resourceId]
   );
-  const closes = useMemo<AssistantThreadTabCloses>(
+  const closes = useMemo<
+    Pick<AssistantThreadTabCloses, 'close' | 'closeAll' | 'closeOthers' | 'closeToRight'>
+  >(
     () => ({
       close: (threadId) => closeRecorded(() => closeThreadTab(resourceId, threadId)),
       closeAll: () => closeRecorded(() => closeAllThreadTabs(resourceId)),
@@ -91,7 +98,7 @@ export function useAssistantThreadTabChords(
   const reopenClosed = useCallback((): Promise<ActionOutcome> => {
     const closed = closedTabs.pop();
     if (!closed) {
-      return Promise.resolve({ error: NO_CLOSED_TAB_ERROR, ok: false });
+      return Promise.resolve(NO_CLOSED_TAB_OUTCOME);
     }
     const { threadId, title } = closed.tab;
     const loaded = useAssistantThreadStore.getState().threadsByResourceId[resourceId] ?? [];
@@ -109,6 +116,8 @@ export function useAssistantThreadTabChords(
     return Promise.resolve({ ok: true });
   }, [closedTabs, openThreadTab, readOpenThreadIds, reorderThreadTabs, resourceId]);
 
+  const hasClosedTabs = useCallback((): boolean => closedTabs.size() > 0, [closedTabs]);
+
   const chordStrip = useMemo<TabChordStrip>(
     () => ({
       activate: (threadId) => openThreadTab(resourceId, threadId),
@@ -121,11 +130,15 @@ export function useAssistantThreadTabChords(
           id: threadId,
           label: threadTitle(resourceId, threadId),
         })),
+      hasClosedTabs,
       reopenClosed,
     }),
-    [closes, openThreadTab, panelRef, readOpenThreadIds, reopenClosed, resourceId]
+    [closes, hasClosedTabs, openThreadTab, panelRef, readOpenThreadIds, reopenClosed, resourceId]
   );
   useTabChordStrip('assistant-threads', chordStrip);
 
-  return closes;
+  return useMemo<AssistantThreadTabCloses>(
+    () => ({ ...closes, hasClosedTabs, reopenClosed }),
+    [closes, hasClosedTabs, reopenClosed]
+  );
 }

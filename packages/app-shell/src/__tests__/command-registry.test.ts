@@ -163,6 +163,7 @@ describe('createAppCommandRegistry', () => {
       close: vi.fn(),
       getActiveId: () => 'a',
       getTabs: () => [{ id: 'a', label: 'A' }],
+      hasClosedTabs: () => true,
       reopenClosed: () => Promise.resolve({ ok: true }),
     };
     const tabIds = (registry: ReturnType<typeof createAppCommandRegistry>) =>

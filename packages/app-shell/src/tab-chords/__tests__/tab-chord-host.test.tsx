@@ -21,6 +21,7 @@ function registerWorkspace(close: (id: string) => void): () => void {
     getActiveId: () => 'a.ts',
     getPanel: () => null,
     getTabs: () => [{ id: 'a.ts', label: 'a.ts' }],
+    hasClosedTabs: () => false,
     reopenClosed: () => Promise.resolve({ ok: true }),
   });
 }

@@ -4,7 +4,7 @@ export {
   type ClosedTab,
   type ClosedTabHistory,
   createClosedTabHistory,
-  NO_CLOSED_TAB_ERROR,
+  NO_CLOSED_TAB_OUTCOME,
   type OpenTab,
   placeTabAtIndex,
   recordRemovedTabs,
@@ -20,8 +20,10 @@ export {
 } from './registry.js';
 export {
   adjacentTabId,
+  createReopenClosedTabAction,
   createTabStripActions,
   moveTabId,
+  type ReopenClosedTabOperations,
   type TabCycleDirection,
   type TabMoveDirection,
   type TabStripActionOperations,

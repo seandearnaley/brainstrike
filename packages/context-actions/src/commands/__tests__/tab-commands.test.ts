@@ -6,12 +6,13 @@ import type { Command, CommandContext, RunCommand } from '../types.js';
 
 const CTX: CommandContext = { capabilities: new Set(), services: {} };
 
-function strip(ids: readonly string[], activeId: string | null) {
+function strip(ids: readonly string[], activeId: string | null, closedTabs = 1) {
   return {
     activate: vi.fn<(id: string) => void>(),
     close: vi.fn<(id: string) => void>(),
     getActiveId: () => activeId,
     getTabs: () => ids.map((id) => ({ id, label: `Tab ${id}` })),
+    hasClosedTabs: () => closedTabs > 0,
     reopenClosed: vi.fn<() => Promise<ActionOutcome>>(() => Promise.resolve({ ok: true })),
   } satisfies TabCommandStrip;
 }
@@ -76,6 +77,15 @@ describe('createTabCommands', () => {
       ).run(CTX)
     ).resolves.toEqual({ error: 'No tab is open', ok: false });
     expect(empty.close).not.toHaveBeenCalled();
+  });
+
+  it('hides Reopen Closed Tab while the scoped strip has no closed tab', () => {
+    const available = createCommandRegistry(
+      createTabCommands(() => strip(['a'], 'a', 0))
+    ).available(CTX);
+
+    expect(available.map((candidate) => candidate.id)).not.toContain('tab.reopen-closed');
+    expect(available.map((candidate) => candidate.id)).toContain('tab.close');
   });
 
   it('Reopen Closed Tab reports the strip outcome', async () => {

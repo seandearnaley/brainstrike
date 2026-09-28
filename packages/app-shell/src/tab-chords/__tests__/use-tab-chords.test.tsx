@@ -1,4 +1,5 @@
-import type { ActionOutcome } from '@brainstrike/context-actions';
+import { type ActionOutcome, NO_CLOSED_TAB_OUTCOME } from '@brainstrike/context-actions';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,6 +33,7 @@ function fakeStrip(
     getActiveId: () => activeId,
     getPanel: () => panel,
     getTabs: () => ids.map((id) => ({ id, label: id.toUpperCase() })),
+    hasClosedTabs: () => true,
     reopenClosed: vi.fn<() => Promise<ActionOutcome>>(() => Promise.resolve({ ok: true })),
   };
 }
@@ -323,6 +325,28 @@ describe('useTabChords', () => {
       expect(event.defaultPrevented).toBe(true);
       expect(strips.browser.reopenClosed).toHaveBeenCalledOnce();
       expect(strips.workspace.reopenClosed).not.toHaveBeenCalled();
+    });
+
+    it('reports an empty history as information, never as an error', async () => {
+      const records: LogRecord[] = [];
+      const release = addLogListener((record) => records.push(record));
+      strips.workspace.reopenClosed.mockResolvedValueOnce(NO_CLOSED_TAB_OUTCOME);
+      mount({ claimWindowChords: true, isMac: false });
+      outside.focus();
+
+      try {
+        press(outside, { ctrlKey: true, key: 'T', shiftKey: true });
+
+        await vi.waitFor(() =>
+          expect(toastSpy).toHaveBeenCalledWith({
+            description: 'No closed tab to reopen',
+            title: 'Reopen Closed Tab',
+          })
+        );
+        expect(records.filter((record) => record.level === 'error')).toEqual([]);
+      } finally {
+        release();
+      }
     });
 
     it('reports a reopen that could not restore its tab', async () => {

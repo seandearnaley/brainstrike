@@ -2,6 +2,7 @@ import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 const workspace = vi.hoisted(() => ({
+  hasClosedTabs: vi.fn(() => true),
   onActivateTab: vi.fn(),
   onCloseTab: vi.fn(),
   onReopenClosedTab: vi.fn(() => Promise.resolve({ ok: true as const })),
@@ -27,6 +28,9 @@ describe('WorkspaceTabChords', () => {
     expect(strip?.getTabs()).toEqual(workspace.tabOrder);
     expect(strip?.getActiveId()).toBe('root|@|a.ts');
     expect(strip?.getPanel()).toBeNull();
+    expect(strip?.hasClosedTabs()).toBe(true);
+    workspace.hasClosedTabs.mockReturnValueOnce(false);
+    expect(strip?.hasClosedTabs()).toBe(false);
     expect(resolveTabChordScope(document.body)).toBe('workspace');
     strip?.activate('context-explorer');
     strip?.close('root|@|a.ts');

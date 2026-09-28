@@ -21,6 +21,8 @@ export interface WorkspaceTabsValue {
   readonly getTabStatusMessage: (compositeKey: string) => string | null;
   /** The registered open-file seam — `WorkspaceOpenFileBridge` registers it. */
   readonly handleOpenFileInTab: OpenFileInTab;
+  /** Whether the strip's closed-tab history has an entry to reopen. */
+  readonly hasClosedTabs: () => boolean;
   readonly isRestoring: boolean;
   readonly loadingFiles: Set<string>;
   /** Apps activated at least once this session — rendered hidden-but-mounted. */

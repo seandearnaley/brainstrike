@@ -7,6 +7,7 @@ import {
 import {
   type ActionOutcome,
   type AnyContextAction,
+  createReopenClosedTabAction,
   createTabStripActions,
   defineContextAction,
 } from '@brainstrike/context-actions';
@@ -284,6 +285,12 @@ export function AssistantThreadTabsWorkspace({
           closes.closeAll();
           return Promise.resolve({ ok: true });
         },
+      }),
+      createReopenClosedTabAction({
+        hasClosedTabs: closes.hasClosedTabs,
+        idPrefix: 'assistant-thread-strip',
+        reopen: closes.reopenClosed,
+        stripId: STRIP_TARGET.stripId,
       }),
     ];
     return {

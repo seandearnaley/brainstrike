@@ -13,6 +13,8 @@ export interface TabCommandStrip {
   readonly getActiveId: () => string | null;
   /** Every tab in strip order. */
   readonly getTabs: () => readonly { readonly id: string; readonly label: string }[];
+  /** Whether the strip's closed-tab history has an entry to reopen. */
+  readonly hasClosedTabs: () => boolean;
   readonly reopenClosed: () => Promise<ActionOutcome>;
 }
 
@@ -63,7 +65,8 @@ export function createTabCommands(getStrip: () => TabCommandStrip | undefined): 
     {
       group: 'navigate',
       id: 'tab.reopen-closed',
-      isAvailable,
+      // Hidden, not a no-op, while the scoped strip has nothing to reopen.
+      isAvailable: () => getStrip()?.hasClosedTabs() === true,
       keywords: ['tab', 'restore', 'undo close'],
       label: 'Reopen Closed Tab',
       run: withStrip((strip) => strip.reopenClosed()),

@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { createActionRegistry } from '../registry.js';
 import {
   adjacentTabId,
+  createReopenClosedTabAction,
   createTabStripActions,
   moveTabId,
   type TabStripActionOperations,
 } from '../tab-strip-actions.js';
-import type { AnyContextAction, TargetOf } from '../types.js';
+import type { ActionOutcome, AnyContextAction, TargetOf } from '../types.js';
 
 type ThreadTabTarget = TargetOf<'assistant-thread-tab'>;
 
@@ -84,6 +85,56 @@ describe('adjacentTabId', () => {
     expect(adjacentTabId(['a'], 'a', 'next')).toBeNull();
     expect(adjacentTabId(['a', 'b'], null, 'next')).toBeNull();
     expect(adjacentTabId(['a', 'b'], 'z', 'previous')).toBeNull();
+  });
+});
+
+describe('createReopenClosedTabAction', () => {
+  const stripTarget = { kind: 'tab-strip', stripId: 'workspace' } as const;
+
+  function setupReopen(closedCount: number) {
+    let remaining = closedCount;
+    const reopen = vi.fn(() => {
+      remaining -= 1;
+      return Promise.resolve<ActionOutcome>({ ok: true });
+    });
+    const action = createReopenClosedTabAction({
+      hasClosedTabs: () => remaining > 0,
+      idPrefix: 'workspace-tab-strip',
+      reopen,
+      stripId: 'workspace',
+    });
+    return { action, reopen };
+  }
+
+  it('offers Reopen Closed Tab on its own strip background only', () => {
+    const { action } = setupReopen(1);
+
+    expect(action.id).toBe('workspace-tab-strip.reopen-closed');
+    expect(action.label).toBe('Reopen Closed Tab');
+    expect(action.appliesTo).toEqual(['tab-strip']);
+    expect(action.isVisible?.(stripTarget)).toBe(true);
+    expect(action.isVisible?.({ kind: 'tab-strip', stripId: 'browser' })).toBe(false);
+  });
+
+  it('is enabled only while the strip has a closed tab to reopen', async () => {
+    const { action, reopen } = setupReopen(1);
+    expect(action.isEnabled?.(stripTarget)).toBe(true);
+
+    await expect(action.run(stripTarget, {})).resolves.toEqual({ ok: true });
+
+    expect(reopen).toHaveBeenCalledOnce();
+    expect(action.isEnabled?.(stripTarget)).toBe(false);
+    expect(setupReopen(0).action.isEnabled?.(stripTarget)).toBe(false);
+  });
+
+  it('reports the reopen outcome, including a stale entry', async () => {
+    const { action, reopen } = setupReopen(1);
+    reopen.mockResolvedValueOnce({ error: '"a.ts" can no longer be reopened', ok: false });
+
+    await expect(action.run(stripTarget, {})).resolves.toEqual({
+      error: '"a.ts" can no longer be reopened',
+      ok: false,
+    });
   });
 });
 

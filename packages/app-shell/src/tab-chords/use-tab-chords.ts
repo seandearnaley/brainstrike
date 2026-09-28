@@ -83,6 +83,12 @@ export function useTabChords(environment: TabChordEnvironment): void {
             keepFocusInStrip(strip);
             if (!outcome.ok) {
               report(outcome.error);
+              return;
+            }
+            // A benign no-op (an empty history) informs, as a menu action's
+            // success message does; it is never logged as an error.
+            if (outcome.message) {
+              toast({ description: outcome.message, title: 'Reopen Closed Tab' });
             }
           },
           (error: unknown) => report(error instanceof Error ? error.message : String(error))

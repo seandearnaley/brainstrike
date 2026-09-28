@@ -2,7 +2,7 @@ import {
   type ActionOutcome,
   type ClosedTabHistory,
   createClosedTabHistory,
-  NO_CLOSED_TAB_ERROR,
+  NO_CLOSED_TAB_OUTCOME,
 } from '@brainstrike/context-actions';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { type RefObject, useCallback, useMemo, useState } from 'react';
@@ -72,6 +72,9 @@ export function useBrowserTabChords({
 }: BrowserTabChordsOptions): {
   readonly closeTab: (tabId: string) => void;
   readonly closedTabs: ClosedTabHistory<ClosedBrowserTab>;
+  readonly hasClosedTabs: () => boolean;
+  /** The one reopen ⌘⇧T, the palette and the strip menu share. */
+  readonly reopenClosed: () => Promise<ActionOutcome>;
 } {
   const [closedTabs] = useState(() => createClosedTabHistory<ClosedBrowserTab>());
   const closeTab = useCallback(
@@ -82,6 +85,22 @@ export function useBrowserTabChords({
     },
     [bridge, closedTabs, runTabAction]
   );
+
+  const hasClosedTabs = useCallback((): boolean => closedTabs.size() > 0, [closedTabs]);
+  const reopenClosed = useCallback((): Promise<ActionOutcome> => {
+    if (!bridge) {
+      return Promise.resolve({ error: 'The browser pane is unavailable', ok: false });
+    }
+    const closed = closedTabs.pop();
+    if (!closed) {
+      return Promise.resolve(NO_CLOSED_TAB_OUTCOME);
+    }
+    const { url } = closed.tab;
+    return settleTabAction(
+      url === '' ? bridge.createTab() : bridge.createTab(url),
+      'reopenClosedTab'
+    );
+  }, [bridge, closedTabs, settleTabAction]);
 
   const chordStrip = useMemo<TabChordStrip | null>(() => {
     if (!bridge) {
@@ -94,20 +113,11 @@ export function useBrowserTabChords({
       getPanel: () => paneRootRef.current,
       getTabs: () =>
         liveBrowserTabs().map((tab) => ({ id: tab.tabId, label: browserTabLabel(tab) })),
-      reopenClosed: () => {
-        const closed = closedTabs.pop();
-        if (!closed) {
-          return Promise.resolve({ error: NO_CLOSED_TAB_ERROR, ok: false });
-        }
-        const { url } = closed.tab;
-        return settleTabAction(
-          url === '' ? bridge.createTab() : bridge.createTab(url),
-          'reopenClosedTab'
-        );
-      },
+      hasClosedTabs,
+      reopenClosed,
     };
-  }, [bridge, closeTab, closedTabs, paneRootRef, runTabAction, settleTabAction]);
+  }, [bridge, closeTab, hasClosedTabs, paneRootRef, reopenClosed, runTabAction]);
   useTabChordStrip('browser', chordStrip);
 
-  return { closedTabs, closeTab };
+  return { closedTabs, closeTab, hasClosedTabs, reopenClosed };
 }
