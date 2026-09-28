@@ -18,6 +18,19 @@ import { MCP_LAB_SCENARIO_IDS } from '../src/scenario';
 
 const COMMAND = 'pnpm --filter @brainstrike/mcp-test-lab verify -- --profile pr';
 const INTEGRITY = { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() };
+// The runner reserves floor(timeout / 4) of a phase for cleanup, so a 400 ms case
+// keeps 100 ms for a ~5 ms close. A scheduler stall that makes the operation timer
+// fire late eats that reserve, so a tiny budget flakes on a loaded runner.
+const RESERVE_BUDGET = { caseTimeoutMs: 400, runTimeoutMs: 400 } as const;
+const CLEANUP_RESERVE_MS = RESERVE_BUDGET.caseTimeoutMs / 4;
+
+/** Blocks the event loop on the real clock, as a slow synchronous step would. */
+function spin(ms: number): void {
+  const until = performance.now() + ms;
+  while (performance.now() < until) {
+    // Busy-wait: nothing else may run while the runner is charged this time.
+  }
+}
 
 function input(
   profile: McpLabRunnerProfile = 'pr',
@@ -59,6 +72,8 @@ function dependencies(
   events: string[],
   options: {
     readonly cleanupFailure?: Error;
+    /** Synchronous time spent inside createPhaseOwner, before the run timer starts. */
+    readonly createDelayMs?: number;
     readonly lateRunFailure?: Error;
     readonly mapObservation?: (
       value: McpLabRunnerCaseObservation,
@@ -72,6 +87,9 @@ function dependencies(
   return {
     createPhaseOwner(runnerCase, phase) {
       events.push(`create:${runnerCase.id}:${phase}`);
+      if (options.createDelayMs) {
+        spin(options.createDelayMs);
+      }
       let settleRun: (() => void) | undefined;
       return {
         async close(signal) {
@@ -175,15 +193,31 @@ describe('MCP bounded verification runner', () => {
   it('reserves cleanup time and waits for an aborted run to settle', async () => {
     const events: string[] = [];
     await expect(
-      verifySingleCase(dependencies(events, { runSettlesAfterClose: true }), {
-        caseTimeoutMs: 100,
-        runTimeoutMs: 100,
-      })
+      verifySingleCase(dependencies(events, { runSettlesAfterClose: true }), RESERVE_BUDGET)
       // The error names the phase budget, ceil(remaining run time), which loses
       // whatever elapsed before RED started ("90 ms" on a loaded CI runner), so
       // only its shape is asserted. The deadline clock stays real: a frozen one
       // would leave the full budget for cleanup and hide a lost cleanup reserve.
     ).rejects.toThrow(/modern-stdio.*red.*\d+ ms/i);
+    expect(events).toEqual([
+      'create:modern-stdio:red',
+      'run:modern-stdio:red',
+      'close:modern-stdio:red',
+    ]);
+  });
+
+  it('charges time spent before the run starts to the operation, not the cleanup reserve', async () => {
+    const events: string[] = [];
+    const failure = verifySingleCase(
+      // Twice the reserve: an operation timer that starts after this delay and
+      // still runs its full budget leaves cleanup no time at all.
+      dependencies(events, { createDelayMs: 2 * CLEANUP_RESERVE_MS, runSettlesAfterClose: true }),
+      RESERVE_BUDGET
+    );
+
+    await expect(failure).rejects.toThrow(
+      /^MCP lab runner case "modern-stdio\/red" exceeded \d+ ms deadline$/
+    );
     expect(events).toEqual([
       'create:modern-stdio:red',
       'run:modern-stdio:red',
@@ -206,7 +240,7 @@ describe('MCP bounded verification runner', () => {
   it('preserves a late non-abort run rejection with the deadline failure', async () => {
     const failure = verifySingleCase(
       dependencies([], { lateRunFailure: new Error('late run exploded') }),
-      { caseTimeoutMs: 100, runTimeoutMs: 100 }
+      RESERVE_BUDGET
     );
 
     await expect(failure).rejects.toMatchObject({

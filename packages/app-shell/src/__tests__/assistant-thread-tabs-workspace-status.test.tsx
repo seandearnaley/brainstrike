@@ -2,7 +2,7 @@ import './assistant-thread-tabs-workspace-test-support';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   activeThreadId,
   addThreadRow,
@@ -14,12 +14,15 @@ import {
   renderWorkspace,
   threadRows,
 } from './assistant-thread-tabs-workspace-test-support';
+import { focusWindow, resetWindowActivity } from './window-activity-test-support';
 
 /**
  * Thread-tab run state (BST-1838, spec §8.1): the Threads panel's three
  * list-wide projections badge each tab through the shared identity mark.
  */
 describe('AssistantThreadTabsWorkspace run state', () => {
+  afterEach(resetWindowActivity);
+
   it('badges each tab with its run state from the three list-wide projections', async () => {
     addThreadRow('thread-c', 'Release checklist', {
       ...latestRunColumns('thread-c', 'failed', new Date('2026-04-22T11:00:10Z')),
@@ -67,6 +70,9 @@ describe('AssistantThreadTabsWorkspace run state', () => {
     addThreadRow('thread-d', 'Nightly triage', {
       ...latestRunColumns('thread-d', 'completed', new Date('2026-04-22T11:00:20Z')),
     });
+    // "Viewed" is on screen in an active window (BST-1845); see
+    // assistant-thread-tabs-workspace-seen.test.tsx for the off-screen cases.
+    focusWindow();
     renderWorkspace();
     await screen.findByRole('tab', { name: /Purchasing app search log/ });
     // Activating the tab shows the thread: the strip, not only the Threads

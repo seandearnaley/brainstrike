@@ -1,5 +1,10 @@
-import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import {
+  createPgliteAssistantThreadRepository,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import type { DbHandle } from '@brainstrike/db/react';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, render } from '@testing-library/react';
 import { useEffect } from 'react';
@@ -225,6 +230,45 @@ export function latestRunColumns(
     latestRunTurnMessageId: null,
     latestRunUpdatedAt: completedAt,
   };
+}
+
+/**
+ * Points the joined list query at a run that finished at `completedAt`, without
+ * telling the store yet: the row a thread-list refresh will read next.
+ */
+export function stageFinishedRun(
+  threadId: string,
+  completedAt: Date,
+  status: 'completed' | 'failed' = 'completed'
+): void {
+  const row = threadRows.find((candidate) => candidate['id'] === threadId);
+  if (!row) {
+    throw new Error(`No thread row ${threadId} to finish a run on.`);
+  }
+  Object.assign(row, latestRunColumns(threadId, status, completedAt));
+}
+
+/**
+ * The store re-reads the thread list exactly as it does when a run's final turn
+ * lands. (The repository is cached per database handle, so this is the very
+ * repository the workspace built.) Call it inside `act`.
+ */
+export async function refreshThreadList(): Promise<void> {
+  await useAssistantThreadStore.getState().refreshResourceThreads(
+    // The mock answers the repository's queries with untyped rows, as PGlite does.
+    createPgliteAssistantThreadRepository(mockDb as unknown as DbHandle),
+    WORKSPACE_MEMORY_RESOURCE_ID
+  );
+}
+
+/** A run finished: the list query returns it and the store re-reads the list. */
+export async function finishRun(
+  threadId: string,
+  completedAt: Date,
+  status: 'completed' | 'failed' = 'completed'
+): Promise<void> {
+  stageFinishedRun(threadId, completedAt, status);
+  await act(refreshThreadList);
 }
 
 export function addThreadRow(id: string, title: string, extra: Record<string, unknown> = {}): void {

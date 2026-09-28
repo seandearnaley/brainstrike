@@ -48,3 +48,37 @@ representative command is `pnpm run verify:mcp -- --profile pr --output artifact
 The exhaustive schedule/manual command is `pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json`.
 Both reach the same package CLI and emit atomically verified, credential-free
 JSON below the ignored `packages/mcp-test-lab/artifacts/` directory.
+
+## Cleanup reserve anchoring (BST-1863, 2026-09-28)
+
+Supports the contract rule that a phase's cleanup reserve is cut from the end of
+its deadline. The reserve is `min(1000, max(1, floor(timeoutMs / 4)))` of the
+budget measured when the phase starts.
+
+- Before: the operation timer ran `timeoutMs - reserve` from the moment it was
+  set, after `createPhaseOwner` returned. Any time spent in between came out of
+  the reserve, and a slow owner creation could leave cleanup no time at all.
+  The phase then failed as `MCP lab runner phase <case>/<phase> and its cleanup
+  both failed` instead of the deadline error. Now the operation timer runs
+  `ceil(remaining - reserve)` when it is set, so the operation deadline is the
+  phase deadline minus the reserve regardless of what ran first.
+- Guard: `runner.test.ts` › "charges time spent before the run starts to the
+  operation, not the cleanup reserve" spins inside the fake
+  `createPhaseOwner` for twice the reserve on the real clock. The pre-fix
+  runner fails it every time; reverting the fix, dropping the reserve, or
+  computing the operation budget from the phase-start `timeoutMs` all turn it
+  red.
+- Not fixable in the runner: an operation timer that fires late (a scheduler or
+  GC stall across its due time) still shortens cleanup, because cleanup is
+  capped by the remaining case and run time and the whole-run deadline never
+  silently expands a budget. Measured by stalling the loop 5 ms before the
+  timer was due, with a ~5 ms close: a 100 ms case (25 ms reserve) kept cleanup
+  through a 20 ms stall and lost it at 30 ms; a 400 ms case (100 ms reserve)
+  kept it through an 80 ms stall and lost it at 100 ms. The tests that need cleanup to succeed under a deadline therefore use
+  a 400 ms case (`RESERVE_BUDGET` in `runner.test.ts`), and the real clock
+  stays: a frozen clock leaves the whole run budget for cleanup and hides a
+  lost reserve (BST-1817).
+- A 32-process CPU burner on a 16-core host (load ~30) did not reproduce the
+  100 ms flake in 300 iterations, so the CI failure needed a larger stall than
+  ordinary oversubscription produces here. Do not read a passing local loop as
+  proof the budget is safe.

@@ -89,6 +89,9 @@ Tabs now badge unseen runs, so the strip also runs `useMarkActiveThreadViewed`.
 Before, only the Threads panel advanced the watermark, and with the Library on
 Collections a viewed tab kept its "finished" badge after the user switched away.
 Pinned in `assistant-thread-tabs-workspace-status.test.tsx`.
+Superseded 2026-09-28 (BST-1845): the strip is now the ONLY publisher of the
+on-screen thread and the only stamper (`useMarkOnScreenThreadViewed`); see
+`thread-groups-and-folders.md`.
 
 ## 2026-09-28: Close = hide for a running thread (BST-1844)
 
