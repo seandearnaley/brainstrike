@@ -2,8 +2,8 @@ import { Description as DialogDescription, Title as DialogTitle } from '@radix-u
 import { Command as Cmdk } from 'cmdk';
 import { FileIcon } from 'lucide-react';
 import * as React from 'react';
-import { COMMAND_PALETTE_CONTENT_CLASS, COMMAND_PALETTE_OVERLAY_CLASS } from '../layers';
 import { cn } from '../lib/utils';
+import { ModalCommandDialog } from './modal-command-dialog';
 
 /**
  * One file row the quick-open palette renders. `id` is `file_records.id` (stable
@@ -73,18 +73,7 @@ export function QuickOpenPalette({
   );
 
   return (
-    <Cmdk.Dialog
-      contentClassName={cn(
-        'fixed top-[20%] left-1/2 w-[min(640px,calc(100vw-2rem))] -translate-x-1/2',
-        COMMAND_PALETTE_CONTENT_CLASS,
-        'overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-2xl'
-      )}
-      label="Quick open file"
-      onOpenChange={handleOpenChange}
-      open={open}
-      overlayClassName={cn('fixed inset-0 bg-black/50', COMMAND_PALETTE_OVERLAY_CLASS)}
-      shouldFilter={false}
-    >
+    <ModalCommandDialog label="Quick open file" onOpenChange={handleOpenChange} open={open}>
       {/* Satisfy @radix-ui/react-dialog's unconditional Title/Description
           requirement (cmdk wraps the same Dialog instance) — visually hidden. */}
       <DialogTitle className="sr-only">Quick open file</DialogTitle>
@@ -110,7 +99,7 @@ export function QuickOpenPalette({
           <QuickOpenItem file={file} key={file.id} onSelect={handleSelect} />
         ))}
       </Cmdk.List>
-    </Cmdk.Dialog>
+    </ModalCommandDialog>
   );
 }
 

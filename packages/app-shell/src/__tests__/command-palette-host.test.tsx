@@ -9,6 +9,13 @@ vi.mock('../use-global-command-handlers', () => ({
 
 import { CommandPaletteHost } from '../command-palette-host';
 import { registerTabChordStrip, type TabChordStrip } from '../tab-chords/tab-chord-registry';
+import { useTabChords } from '../tab-chords/use-tab-chords';
+
+/** The real chord router with the desktop capability, beside the palette. */
+function DesktopChordRouter(): null {
+  useTabChords({ claimWindowChords: true, isMac: false });
+  return null;
+}
 
 // Radix Dialog + cmdk rely on DOM APIs jsdom does not implement.
 globalThis.ResizeObserver = class {
@@ -92,6 +99,30 @@ describe('CommandPaletteHost tab commands (BST-1842)', () => {
     openPalette(document.body);
     expect(await screen.findByRole('option', { name: /^Next Tab/ })).toBeTruthy();
     expect(screen.queryByRole('option', { name: /^Reopen Closed Tab/ })).toBeNull();
+  });
+
+  it('Ctrl+W typed in the open palette leaves the workspace tab behind it open', async () => {
+    render(
+      <>
+        <CommandPaletteHost />
+        <DesktopChordRouter />
+      </>
+    );
+    openPalette(document.body);
+    const input = await screen.findByRole('combobox');
+    input.focus();
+
+    const event = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      key: 'w',
+    });
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(workspace.close).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
   });
 
   it('Go to Tab… lists the workspace strip when focus was in no panel', async () => {

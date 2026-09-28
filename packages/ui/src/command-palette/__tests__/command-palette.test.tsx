@@ -56,6 +56,11 @@ describe('CommandPalette', () => {
     // accessibility warning (caught live via CDT, not in jsdom).
     expect(await screen.findByRole('heading', { name: 'Command palette' })).toBeTruthy();
     expect(screen.getByText('Search for a command and press Enter to run it.')).toBeTruthy();
+    // Declared modal, so the tab chord router leaves keys typed here alone.
+    expect(screen.getByRole('dialog', { name: 'Command palette' })).toHaveAttribute(
+      'aria-modal',
+      'true'
+    );
   });
 
   it('renders available commands grouped, with a listbox and aria-selected', async () => {

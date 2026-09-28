@@ -2,10 +2,17 @@ import { cycleTab } from '@brainstrike/context-actions/commands';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useEffect } from 'react';
-import { matchTabChord, type TabChordEnvironment } from './match-tab-chord';
+import { matchTabChord, type TabChordAction, type TabChordEnvironment } from './match-tab-chord';
 import { getTabChordStrip, resolveTabChordScope, type TabChordStrip } from './tab-chord-registry';
 
 const logger = createLogger('TabChords');
+
+/**
+ * Surfaces that own every key while focus is inside them: a modal dialog (the
+ * ⌘K palette), an alert dialog, an open menu. A chord there would act on a tab
+ * behind the surface, so the router leaves the key alone.
+ */
+const MODAL_SURFACE = '[role="dialog"][aria-modal="true"], [role="alertdialog"], [role="menu"]';
 
 /**
  * Focus is lost when nothing holds it, or when it sits inside a `hidden` panel:
@@ -37,6 +44,26 @@ function keepFocusInStrip(strip: TabChordStrip): void {
 }
 
 /**
+ * The chord a keydown asks for and the strip it acts on, or null when the key
+ * is not a tab chord, a nearer handler claimed it, a modal surface owns it, or
+ * no strip is registered for the focus scope.
+ */
+function resolveChordTarget(
+  event: KeyboardEvent,
+  environment: TabChordEnvironment
+): { readonly action: TabChordAction; readonly strip: TabChordStrip } | null {
+  if (event.defaultPrevented || event.isComposing) {
+    return null;
+  }
+  const action = matchTabChord(event, environment);
+  if (action === null || document.activeElement?.closest(MODAL_SURFACE)) {
+    return null;
+  }
+  const strip = getTabChordStrip(resolveTabChordScope(document.activeElement));
+  return strip ? { action, strip } : null;
+}
+
+/**
  * The one focus-scoped chord router (BST-1842). A chord acts on the strip whose
  * panel contains `document.activeElement`, or the workspace strip when focus is
  * in no panel. Mount once, in the visible-UI root.
@@ -55,17 +82,11 @@ export function useTabChords(environment: TabChordEnvironment): void {
     };
 
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.isComposing) {
+      const target = resolveChordTarget(event, { claimWindowChords, isMac });
+      if (!target) {
         return;
       }
-      const action = matchTabChord(event, { claimWindowChords, isMac });
-      if (action === null) {
-        return;
-      }
-      const strip = getTabChordStrip(resolveTabChordScope(document.activeElement));
-      if (!strip) {
-        return;
-      }
+      const { action, strip } = target;
       if (action === 'close') {
         const activeId = strip.getActiveId();
         if (activeId === null) {

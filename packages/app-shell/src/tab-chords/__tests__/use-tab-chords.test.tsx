@@ -416,6 +416,37 @@ describe('useTabChords', () => {
     });
   });
 
+  describe('modal surfaces own their keys', () => {
+    const surfaces: readonly [string, Record<string, string>][] = [
+      ['a modal dialog', { 'aria-modal': 'true', role: 'dialog' }],
+      ['an alert dialog', { role: 'alertdialog' }],
+      ['an open menu', { role: 'menu' }],
+    ];
+
+    it.each(surfaces)('does not act or preventDefault with focus in %s', (_label, attributes) => {
+      const surface = document.createElement('div');
+      for (const [name, value] of Object.entries(attributes)) {
+        surface.setAttribute(name, value);
+      }
+      const field = document.createElement('input');
+      surface.append(field);
+      document.body.append(surface);
+      mount({ claimWindowChords: true, isMac: true });
+      field.focus();
+
+      try {
+        const close = press(field, { key: 'w', metaKey: true });
+        const cycle = press(field, CTRL_PAGE_DOWN);
+
+        expect([close.defaultPrevented, cycle.defaultPrevented]).toEqual([false, false]);
+        expect(strips.workspace.close).not.toHaveBeenCalled();
+        expect(strips.workspace.activate).not.toHaveBeenCalled();
+      } finally {
+        surface.remove();
+      }
+    });
+  });
+
   it('never claims a chord a nearer handler already handled', () => {
     mount({ claimWindowChords: true, isMac: false });
     outside.focus();

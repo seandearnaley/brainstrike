@@ -47,6 +47,11 @@ describe('QuickOpenPalette', () => {
     // accessibility warning (caught live via CDT, not in jsdom).
     expect(await screen.findByRole('heading', { name: 'Quick open file' })).toBeTruthy();
     expect(screen.getByText('Search for a file by name and press Enter to open it.')).toBeTruthy();
+    // Declared modal, so the tab chord router leaves keys typed here alone.
+    expect(screen.getByRole('dialog', { name: 'Quick open file' })).toHaveAttribute(
+      'aria-modal',
+      'true'
+    );
   });
 
   it('renders the file rows as a listbox with name, path and root label', async () => {
