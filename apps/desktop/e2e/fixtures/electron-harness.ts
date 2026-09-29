@@ -315,22 +315,28 @@ async function reapProcess(process: ChildProcess): Promise<void> {
   if (hasExited(process)) {
     return;
   }
-  const exited = new Promise<void>((resolve) => {
-    process.once('exit', () => resolve());
-  });
-  process.kill('SIGKILL');
+  let onExit: () => void = () => undefined;
+  let onError: (error: Error) => void = () => undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<never>((_resolve, reject) => {
+  const reaped = new Promise<void>((resolve, reject) => {
+    onExit = () => resolve();
+    // `kill` throws only for EINVAL/ENOSYS; any other failure (EPERM) is an 'error' event.
+    onError = (error) => reject(error);
     timer = setTimeout(() => {
       reject(
         new Error(`The Electron main process did not exit within ${REAP_TIMEOUT_MS}ms of SIGKILL.`)
       );
     }, REAP_TIMEOUT_MS);
   });
+  process.once('exit', onExit);
+  process.once('error', onError);
   try {
-    await Promise.race([exited, timedOut]);
+    process.kill('SIGKILL');
+    await reaped;
   } finally {
     clearTimeout(timer);
+    process.off('exit', onExit);
+    process.off('error', onError);
   }
 }
 

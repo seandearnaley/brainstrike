@@ -127,6 +127,44 @@ describe('ElectronHarness.endOutOfBand', () => {
     expect(launched).toHaveLength(1);
   });
 
+  it('fails the reap at once when SIGKILL is refused through the error event, as Node reports EPERM', async () => {
+    const harness = createHarness();
+    const electronProcess = await launchedProcess(harness);
+    // Node's ChildProcess.kill throws only for EINVAL/ENOSYS; EPERM is emitted as 'error' and kill
+    // returns false. Another owner (Playwright, say) may already listen, so the emit never throws.
+    electronProcess.on('error', () => undefined);
+    const refused = Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+    electronProcess.kill.mockImplementation(() => {
+      electronProcess.emit('error', refused);
+      return false;
+    });
+    const failure = new Error('close timed out');
+    const listenersBefore = {
+      error: electronProcess.listenerCount('error'),
+      exit: electronProcess.listenerCount('exit'),
+    };
+
+    const thrown = await Promise.race([
+      harness
+        .endOutOfBand(async () => {
+          throw failure;
+        })
+        .then(
+          () => null,
+          (error: unknown) => error
+        ),
+      new Promise((resolve) => setTimeout(() => resolve('still waiting'), 500)),
+    ]);
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([failure, refused]);
+    // The reap leaves no listener of its own behind (the exit guard's stays).
+    expect({
+      error: electronProcess.listenerCount('error'),
+      exit: electronProcess.listenerCount('exit'),
+    }).toEqual(listenersBefore);
+  });
+
   it('does not kill a process that already exited when `end` rejects', async () => {
     const harness = createHarness();
     const electronProcess = await launchedProcess(harness);
