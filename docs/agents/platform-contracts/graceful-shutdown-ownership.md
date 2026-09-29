@@ -273,11 +273,24 @@ envelope always used, which writes the marker. It posts `lifecycle` messages (`c
 `close-failed`), answers diagnostics while closing, joins a `close` envelope to the close in flight,
 and rejects every later data envelope (before, one queued behind `close` lazily re-opened PGlite).
 It exits 0 only after a successful close, but the code is informational: main proves a clean close
-by the acknowledgement or the marker naming the host's pid, never by the exit code. A later signal after `closed` exits 0 at once; after `close-failed` it exits 1 at once. Its
-log line and `lifecycle` messages are best effort: a host that exits promptly can lose what it
-posted just before exiting (one E2E run in four lacked the log line), so the marker naming the
-host's pid, not a message, is the proof of a clean close, and the manager's no-replacement guard
-only holds when the `closing` announcement arrived.
+by the acknowledgement or the marker naming the host's pid, never by the exit code. The exit waits
+one macrotask after the close settles, so the replies to the in-flight and joined `close`
+envelopes (posted from promise callbacks) are queued first: main sends `close` and the tree-kill
+signal reaches the host at almost the same moment, and an exit first would drop the acknowledgement.
+A later signal after `closed` exits 0 at once (its replies are long posted); after `close-failed`
+it exits 1 at once. The host's log line and `lifecycle` messages are best effort: a host that
+exits promptly can lose what it posted just before exiting (one E2E run in four lacked the log
+line), so the marker naming the host's pid, not a message, is the proof of a clean close.
+`isDbHostToMainMessage` checks a `lifecycle` message field by field (`state` in `closing | closed |
+close-failed`, `reason` in `request | SIGINT | SIGTERM | SIGHUP`); a malformed one is logged as
+malformed and never trusted, because main refuses to fork on it.
+
+**A signal during a transaction.** The in-flight envelope finishes, queued transaction envelopes
+(a commit among them) are rejected with `DB host is closing`, and the close still completes; the
+open transaction is never committed. Measured with the repo's PGlite on a real data directory:
+`BEGIN; INSERT` (2 rows visible inside), `close()`, reopen: 1 row, so the uncommitted work is
+discarded when the database closes. `db-host-entry.signals.test.ts` pins the host's side (the
+queued commit is refused and never reaches `exec`, and the close completes).
 
 **A failed close.** `closeDatabase()` rejecting makes the host exit 1 without a marker (only a
 fully clean `closeLocalDatabase` writes one), keep `.db-process.lock`, log
@@ -298,12 +311,16 @@ its handle is what gets closed (marker written, exit 0), and an open that then f
 by its own failure path, so the signal close finds nothing to close and exits 0 with no marker.
 
 **Main's side composes with the departing-host barrier.** A host that closes on a signal aimed at
-it and exits is simply an attached host that exited: the manager's `exit` handler now detaches it
-through `#detachHost` (already exited, so no departing host is left behind) and records
-`unavailableAfterSignal`. That reason lives in the same `#unavailable` slot as retirement, which
+it and exits is simply an attached host that exited: the manager's `exit` handler detaches it
+through `#detachHost` (already exited, so no departing host is left behind) and records why no
+replacement may fork, `unavailableAfterOwnExit()`. Main closes a host only by detaching it first,
+so an attached host that closed itself received a signal: it announced that, or, when the
+announcement was lost, the clean-shutdown marker names its pid (read through the same profile
+directory as the close ladder, with the pid remembered before the exit). An unreadable marker is
+no proof and is logged. That reason lives in the same `#unavailable` slot as retirement, which
 `#assertActive()` checks first in `#admit()` and `getDatabase()`, so no request forks a replacement
 and none waits on an exited host. A host main closed itself (the ladder's SIGTERM included) is
-detached before it exits and never counts.
+detached before it exits and never counts, marker or not.
 
 ### Update (2026-09-29, BST-1872 L2b): main's signal handlers and the reserved database-close slice
 

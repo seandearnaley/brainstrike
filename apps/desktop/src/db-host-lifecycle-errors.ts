@@ -35,10 +35,11 @@ export class DbHostUnavailableError extends Error {
   /**
    * The host closed itself on a signal aimed at it, not one main sent. A replacement would
    * silently re-open the database behind whoever signalled it, so nothing forks until restart.
+   * `signal` is null when only the clean-shutdown marker proved it (the announcement was lost).
    */
-  static closedBySignal(signal: string): DbHostUnavailableError {
+  static closedBySignal(signal: string | null): DbHostUnavailableError {
     return new DbHostUnavailableError(
-      `DB host is unavailable: it closed after receiving ${signal}; restart BrainStrike.`
+      `DB host is unavailable: it closed ${signal === null ? 'itself after a signal' : `after receiving ${signal}`}; restart BrainStrike.`
     );
   }
 }

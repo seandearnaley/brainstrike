@@ -84,6 +84,8 @@ export const DESKTOP_IPC_CHANNELS = {
     exec: 'db:exec',
     getUserDataPath: 'db:getUserDataPath',
     insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
+    integrityChanged: 'db:integrity:changed',
+    integrityState: 'db:integrity:state',
     invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
     liveQueryRefresh: 'db:live-query:refresh',
     liveQueryStart: 'db:live-query:start',

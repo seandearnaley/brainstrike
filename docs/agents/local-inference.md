@@ -16,7 +16,7 @@
 - The hidden window is `?mode=embedding-host` on `hidden-preload.js` under the
   server-owned `embedding-host` role. That manifest carries the embedding bridge,
   power snapshot/events, logging ingest, the database capabilities the
-  renderer-owned queue needs, and the scoped vector-preferences capability — never
+  renderer-owned queue needs, the read-only database integrity state (BST-1870), and the scoped vector-preferences capability — never
   provider secrets, assistant-server credentials, or the visible UI's unrestricted
   `storage` bridge.
 - The host mounts `DbProvider` with `useElectronIPC=true`, runs

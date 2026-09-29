@@ -124,6 +124,7 @@ import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
+import { registerDatabaseIntegrityIpcHandlers } from './ipc-domains/database-integrity-ipc';
 import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
@@ -919,6 +920,12 @@ ipcDisposers.add(
     cancelAllDesktopEmbeddingBackfills,
     integrity: databaseIntegrity,
   })
+);
+// The visible UI and the embedding host read the state and receive every change;
+// the host's claim permit parks on it (BST-1870).
+ipcDisposers.add(
+  'database-integrity',
+  registerDatabaseIntegrityIpcHandlers({ integrity: databaseIntegrity })
 );
 const desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
   getDatabase,
