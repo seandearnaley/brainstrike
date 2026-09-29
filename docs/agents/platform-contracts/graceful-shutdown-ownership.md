@@ -248,3 +248,47 @@ its own process) and opened a second PGlite over the first. Fixes, all in `db-ma
 - Round 2, F. A directory at the marker path is not a marker and cannot be unlinked as one, so
   every open fails as a `filesystem` failure before the database opens and deletes nothing.
   Fail-closed and intended; the marker must be removed by hand. Pinned in `db-main.close.test.ts`.
+
+### Update (2026-09-29, BST-1872 L2a): the DB host closes itself on signals
+
+**Why the host closes itself.** `pnpm dev` runs `concurrently --kill-others` under turbo.
+`concurrently` 10.0.5 (`kill-on-signal.js`) forwards SIGINT, SIGTERM and SIGHUP to every command
+and kills through `tree-kill` 1.2.2, which on darwin walks `pgrep -P` and signals every
+descendant, children first; `kill-others.js` sends SIGTERM to the rest when any command exits.
+So main AND the DB host receive the signal directly, while main reaches its database step last on
+turbo's external force-kill clock. Rejected: ignoring the signal and letting main drive the close
+(waits on that clock, risking a SIGKILL mid-checkpoint), `--kill-signal SIGKILL` (reintroduces hard
+kills), moving Vite into Electron (larger, not needed). A JS handler does run in a utility process
+(measured with the real app, Electron 44.4.5: the log shows `DB host received SIGINT` and the host exits 0).
+
+**What it does.** `beginClose` is single-flight. The host stops serving, rejects the queued
+backlog with `DB host is closing (SIGINT).`, lets the in-flight envelope finish (never the close
+envelope itself), unsubscribes live queries, then calls the same `closeDatabase()` a close
+envelope always used, which writes the marker. It posts `lifecycle` messages (`closing`, `closed`,
+`close-failed`), answers diagnostics while closing, joins a `close` envelope to the close in flight,
+and rejects every later data envelope (before, one queued behind `close` lazily re-opened PGlite).
+It exits 0 only after a successful close, so an exit 0 after a signal close is backed by the marker
+too. A later signal after `closed` exits 0 at once; after `close-failed` it exits 1 at once. Its
+log line and `lifecycle` messages are best effort: a host that exits promptly can lose what it
+posted just before exiting (one E2E run in four lacked the log line), so the marker naming the
+host's pid, not a message, is the proof of a clean close, and the manager's no-replacement guard
+only holds when the `closing` announcement arrived.
+
+**A failed close.** `closeDatabase()` rejecting makes the host exit 1 without a marker (only a
+fully clean `closeLocalDatabase` writes one), keep `.db-process.lock`, log
+`DB host failed to close the database` and announce `close-failed`. It is never retried: the close
+is single-flight, later signals exit 1 without re-entering it, and a later `close` envelope is
+answered with the first failure. That also holds against the sticky `closeFailure` of `db-main.ts`
+(note H above), which would reject any second attempt anyway.
+`db-host-entry.close-failure.test.ts` drives the signal path through the real host entry over the
+real `closeLocalDatabase` with an injected engine failure (sync and close stage) and asserts no
+marker file, the lock kept, exit 1 and no second attempt; its control shows the marker written,
+naming the host pid, before the exit 0 of a clean signal close.
+
+**Main's side composes with the departing-host barrier.** A host that closes on a signal aimed at
+it and exits is simply an attached host that exited: the manager's `exit` handler now detaches it
+through `#detachHost` (already exited, so no departing host is left behind) and records
+`unavailableAfterSignal`. That reason lives in the same `#unavailable` slot as retirement, which
+`#assertActive()` checks first in `#admit()` and `getDatabase()`, so no request forks a replacement
+and none waits on an exited host. A host main closed itself (the ladder's SIGTERM included) is
+detached before it exits and never counts.

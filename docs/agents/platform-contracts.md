@@ -389,12 +389,17 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   is sticky until it exits: the lock stays and every later close, reopen and reset (factory,
   developer, corruption recovery) rejects before deleting or opening anything. A clean close writes
   the marker atomically; opening removes it, so its absence means unclean.
+- The DB host closes its own database on SIGINT, SIGTERM and SIGHUP (a tree teardown signals
+  every process in it): it rejects queued envelopes, lets the in-flight one finish, unsubscribes
+  live queries, closes PGlite and exits 0 only after a clean close. A failed close exits 1 without
+  the marker, keeps the lock and is never retried. Once it stops serving it rejects every data
+  envelope, and a host that closed on a signal aimed at it is never silently replaced.
 
 Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:
 `platform-contracts/graceful-shutdown-ownership.md`, `effect-boundary/parser-generation-scope.md`.
 Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`, `ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
-`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`, `db-main.close.test.ts`, `apps/desktop/src/__tests__/db-clean-shutdown-marker.test.ts`.
+`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`, `db-main.close.test.ts`, `apps/desktop/src/__tests__/db-clean-shutdown-marker.test.ts`, `apps/desktop/src/__tests__/main/db-host-entry.signals.test.ts`, `db-host-entry.close-failure.test.ts`.
 
 ### Browser preference hydration
 

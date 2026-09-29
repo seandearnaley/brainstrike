@@ -124,7 +124,9 @@ const CONTRACT_LINE_BUDGETS = {
   // fail-closed close, the clean-shutdown marker proof and the sticky close failure added the
   // rest, to 967. Round 2 added 2 more, to 969: a repeated close resolves once that exit is
   // observed (the absent marker makes the next open unclean).
-  'platform-contracts.md': 969,
+  // BST-1872 L2a added 5 more, to 974: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a
+  // failed close exits 1 with no marker and no retry, and a signal-closed host is not replaced).
+  'platform-contracts.md': 974,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
