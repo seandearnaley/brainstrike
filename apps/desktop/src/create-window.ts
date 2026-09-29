@@ -18,6 +18,7 @@ import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { resolveDistRoot } from './dist-root';
 import { shouldDenyMcpAppFrameNavigation } from './mcp/apps-frame-navigation';
 import type { DesktopWindowState } from './store-schema';
+import { publishWindowFocus } from './window-focus-ipc';
 import { assignWindowRole, getWindowRole } from './window-role';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
 
@@ -295,6 +296,16 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       : {}),
   });
   assignWindowRole(win, 'visible-ui');
+  // The renderer's app-active signal follows THIS window's native focus, not its
+  // own `document.hasFocus()` (false while the browser pane or DevTools holds
+  // keyboard focus). Attached before `show()` and before the renderer loads: the
+  // renderer subscribes and asks `isFocused()` during the load, and `show()`
+  // itself hands the window key status, so a listener attached after either would
+  // miss a transition the renderer's initial read predates. A push before the
+  // renderer has subscribed is dropped, which is fine: its own `isFocused()`
+  // answers the state at call time. Per window, so a dock-reopened replacement
+  // publishes too.
+  publishWindowFocus(win);
   if (agentDevtoolsWindowTitle) {
     win.on('page-title-updated', (event: Electron.Event) => {
       event.preventDefault();

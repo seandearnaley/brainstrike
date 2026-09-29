@@ -359,7 +359,13 @@ unseen until its transcript has been on screen in an active window at or after i
   bridge is logged and treated as absent. The notification gate now reads `isAppActive()` at event time, so
   "seen" and "alerted" cannot disagree (`shouldNotify` takes the one boolean). The `mainWindow` blur/focus pair
   in `main.ts` (`setBackgrounded`) is a separate concern and stays; it only ever attached to the FIRST window,
-  which is why the publisher is wired in `createMainWindow` (every window, dock-reopen included).
+  which is why the publisher is wired per window in `createWindow` (dock-reopen included). It attaches right
+  after the `BrowserWindow` is constructed, BEFORE `show()` and before the renderer loads (Codex review on the
+  PR): the renderer subscribes and asks `isFocused()` during the load and `show()` itself gives the window key
+  status, so a publisher attached after `createWindow` resolved would miss a transition the initial read predates
+  and leave `useAppActive()` stale until the next focus change. A push sent before the renderer subscribes is
+  dropped, which is safe because its own `isFocused()` answers the state at call time. Pinned in
+  `create-window-focus-publisher.test.ts` (a blur during a pending load; the focus `show()` produces).
 - Desktop E2E cannot reproduce the pane-focus symptom, and the harness had to be told about the bridge.
   Measured in the real harness: the main window is `focusable: false` and never shown (`isTestMode`), so it
   never takes OS focus (`isFocused()` false; in a probe `setFocusable(true)` plus `focus()` did not change
