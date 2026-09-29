@@ -128,11 +128,11 @@ the Mastra error-processor layer.
   does not fold it in — a session outlives any one guarded call.
 - **The guard also CANCELS the work it gave up on.** It publishes a deadline
   `AbortSignal` keyed by TOOL-CALL ID (the single `readToolCallId` reader, never
-  execution-context identity) and aborts it BEFORE resolving `tool_timeout`. The
-  MCP runtime client folds it into its `tools/call` signal without replacing
-  `context.abortSignal`, so the SDK sends `notifications/cancelled`. A call with no
-  tool-call id publishes nothing. The id is PROVIDER data: the later registration
-  wins and the collision is LOGGED at `error`, never thrown.
+  execution-context identity) and aborts it BEFORE resolving `tool_timeout`; registration
+  returns a release the guard runs in its `finally`. The MCP runtime client folds it into
+  its `tools/call` signal without replacing `context.abortSignal`, so the SDK sends
+  `notifications/cancelled`. A call with no tool-call id publishes nothing and keeps the
+  pre-guard behaviour. The id is PROVIDER data: the later registration wins; the collision is LOGGED at `error`, never thrown.
 
 Settled: the budget is per call; the guard cancels its abandoned work; the
 keying is by tool-call id. Evidence: `assistant-runtime/tool-guard-budgets.md`.
