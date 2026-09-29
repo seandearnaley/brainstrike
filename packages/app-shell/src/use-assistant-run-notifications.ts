@@ -27,7 +27,7 @@ import {
   getToolActionIdentityKey,
 } from '@brainstrike/assistant-contract';
 import { isAppActive } from '@brainstrike/hooks';
-import { useMemo, useRef } from 'react';
+import { useMemo, useState } from 'react';
 
 export interface AssistantRunNotificationCallbacks {
   readonly onForgeEvent: (event: ForgeNotificationEvent) => void;
@@ -45,7 +45,7 @@ export function useAssistantRunNotifications(): AssistantRunNotificationCallback
   // Stable for the panel's lifetime: coalescing (max one notification per
   // run per event kind) is meaningful only within a single dispatcher
   // instance, so it must not be recreated on every render.
-  const dispatcherRef = useRef(
+  const [dispatcher] = useState(() =>
     createRunNotificationDispatcher({
       getPermissionState: getNotificationPermissionState,
       getSettings: readNotificationSettings,
@@ -56,26 +56,26 @@ export function useAssistantRunNotifications(): AssistantRunNotificationCallback
   return useMemo<AssistantRunNotificationCallbacks>(
     () => ({
       onForgeEvent: (event) => {
-        dispatcherRef.current.dispatch(event);
+        dispatcher.dispatch(event);
       },
       onRunFailed: (event) => {
         // Hosted turns carry a `runId`; web local-runtime events
         // (`createLocalRunEvent`) carry only a per-event `id`. The event `id`
         // is a stable, unique coalescing key — an honest fallback, never a
         // fabricated runId that could collide across runs.
-        dispatcherRef.current.dispatch({ kind: 'runFailed', runId: event.runId ?? event.id });
+        dispatcher.dispatch({ kind: 'runFailed', runId: event.runId ?? event.id });
       },
       onRunFinished: (event) => {
-        dispatcherRef.current.dispatch({ kind: 'runFinished', runId: event.runId ?? event.id });
+        dispatcher.dispatch({ kind: 'runFinished', runId: event.runId ?? event.id });
       },
       onToolApprovalRequired: (request) => {
-        dispatcherRef.current.dispatch({
+        dispatcher.dispatch({
           decisionKey: getToolActionIdentityKey(request),
           kind: 'toolApprovalRequired',
           runId: request.runId,
         });
       },
     }),
-    []
+    [dispatcher]
   );
 }
