@@ -122,7 +122,9 @@ const CONTRACT_LINE_BUDGETS = {
   // qualification (200 iterations, every shipped platform), and the crash-safety rule now
   // cites the gate by name instead of by ticket. Its design and measurements went to
   // `database/pg-textsearch-qualification.md`.
-  'database.md': 925,
+  // BST-1877 raised it from 925 (+2): the durability registry gains a non-throwing lookup
+  // for verification, and its one rule (report, never act on it) belongs beside the throwing one.
+  'database.md': 927,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.

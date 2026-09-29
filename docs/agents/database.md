@@ -462,6 +462,8 @@ Evidence: `database/managed-worktree-ledger.md`.
   runs, user toggles) is never truncated by automated repair and is in every portable
   export. `derived` may be truncated and rebuilt; `operational` may be truncated without
   a rebuild; `schema-ledger` is never truncated and always exported.
+- `findTableDurability` is the non-throwing lookup for reporting an unregistered table as `unclassified`;
+  never decide what to truncate from it.
 - `derived` requires `rebuildOwner` (`path/to/file.ts#symbol`), an existing automatic rebuild
   path the union type enforces and the guard resolves; none, not derived.
 - Before truncating ANY non-precious table, repair names to the user each scope it cannot

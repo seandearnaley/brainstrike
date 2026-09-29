@@ -33,8 +33,25 @@ export {
   rebuildCrashSensitiveIndexes,
 } from './crash-sensitive-indexes.js';
 export * from './database-integrity.js';
+export {
+  classifyFindingSeverity,
+  type FindingSeverity,
+  INTEGRITY_CHECKS,
+  type IntegrityCheck,
+  MAX_FINDING_MESSAGE_LENGTH,
+  type RelationFinding,
+  truncateFindingMessage,
+} from './database-integrity-finding.js';
 export * from './database-pressure-controller.js';
 export * from './database-query-telemetry.js';
+export {
+  DATABASE_SNAPSHOT_METHODS,
+  DATABASE_SNAPSHOT_REASONS,
+  type DatabaseSnapshotManifest,
+  type DatabaseSnapshotMethod,
+  type DatabaseSnapshotReason,
+  parseDatabaseSnapshotManifest,
+} from './database-snapshot-manifest.js';
 export * from './database-work-scheduler.js';
 // Close-drain seams (BST-1329). Shared with apps/desktop: the idle join is the
 // single implementation both surfaces use — see docs/agents/database.md
@@ -51,10 +68,12 @@ export {
 export * from './desktop-database-bridge.js';
 // Drizzle ORM utilities and database wrapper
 export {
+  computeLedgerHead,
   type DrizzleDb,
   drizzle,
   drizzleFromHandle,
   extractPGlite,
+  getBundledLedgerHead,
   hasPGliteRaw,
   runMigrations as runDrizzleMigrations,
 } from './drizzle/index.js';
@@ -239,8 +258,19 @@ export {
   type ScheduledDatabaseMaintenanceStatus,
 } from './services/scheduled-database-maintenance.js';
 export {
+  DEFAULT_SNAPSHOT_RETENTION_POLICY,
+  planSnapshotRetention,
+  type RetentionRule,
+  type RetentionSnapshot,
+  type SnapshotPrune,
+  type SnapshotRetentionPlan,
+  type SnapshotRetentionPolicy,
+} from './snapshot-retention.js';
+export {
+  findTableDurability,
   getTableDurability,
   type RebuildOwner,
+  TABLE_DURABILITY_CLASSES,
   TABLE_DURABILITY_REGISTRY,
   type TableDurabilityClass,
   type TableDurabilityEntry,
