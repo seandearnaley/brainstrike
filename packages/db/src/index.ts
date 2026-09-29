@@ -42,6 +42,14 @@ export {
 } from './database-integrity-finding.js';
 export * from './database-pressure-controller.js';
 export * from './database-query-telemetry.js';
+export {
+  DATABASE_SNAPSHOT_METHODS,
+  DATABASE_SNAPSHOT_REASONS,
+  type DatabaseSnapshotManifest,
+  type DatabaseSnapshotMethod,
+  type DatabaseSnapshotReason,
+  parseDatabaseSnapshotManifest,
+} from './database-snapshot-manifest.js';
 export * from './database-work-scheduler.js';
 // Close-drain seams (BST-1329). Shared with apps/desktop: the idle join is the
 // single implementation both surfaces use — see docs/agents/database.md
