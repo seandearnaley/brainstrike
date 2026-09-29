@@ -247,6 +247,38 @@ describe('db-main crash-sensitive index rebuild', () => {
       expect(rebuildWarnings()).toEqual([]);
     });
 
+    it('keeps the rebuild failure as the cause, without a doubled period in the copy', async () => {
+      seedDatabaseDirectory({ marker: false });
+      const failure = new Error('could not read block 7.');
+      failRebuildOnce(failure);
+      const { initializeMainDatabase } = await import('../../db-main');
+
+      const rejection = await initializeMainDatabase().then(
+        () => null,
+        (error: unknown) => error
+      );
+
+      expect(rejection).toBeInstanceOf(Error);
+      expect((rejection as Error).cause).toBe(failure);
+      expect((rejection as Error).message).toBe(
+        'The desktop database could not rebuild its search index after an unexpected shutdown: could not read block 7. BrainStrike did not delete or replace it.'
+      );
+    });
+
+    it('reports a rebuild that ran out of disk as a filesystem failure, not corruption', async () => {
+      seedDatabaseDirectory({ marker: false });
+      failRebuildOnce(new Error('could not extend file "base/5/16384": No space left on device'));
+      const { getDatabaseDiagnostics, initializeMainDatabase } = await import('../../db-main');
+
+      await expect(initializeMainDatabase()).rejects.toThrow(/could not rebuild its search index/);
+
+      expect(getDatabaseDiagnostics().lastInitializationFailure).toMatchObject({
+        category: 'filesystem',
+        stage: 'index-rebuild',
+      });
+      expect(probe.destructive).toEqual([]);
+    });
+
     it('still reports a WASM abort during the rebuild as the runtime failure it is', async () => {
       seedDatabaseDirectory({ marker: false });
       failRebuildOnce(new Error('Aborted(). Build with -sASSERTIONS for more info.'));

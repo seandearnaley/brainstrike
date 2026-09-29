@@ -186,8 +186,8 @@ function getErrorDetails(error: unknown): ErrorDetails {
 
 // This subpath imports only PGlite and its extensions, safe in the Node DB host.
 const getPGlite = async () => {
-  const { createBrainstrikePglite } = await import('@brainstrike/db/pglite-factory');
-  const { migrate, rebuildCrashSensitiveIndexes } = await import('@brainstrike/db');
+  const [{ createBrainstrikePglite }, { migrate, rebuildCrashSensitiveIndexes }] =
+    await Promise.all([import('@brainstrike/db/pglite-factory'), import('@brainstrike/db')]);
   return { createBrainstrikePglite, migrate, rebuildCrashSensitiveIndexes };
 };
 
@@ -834,7 +834,7 @@ export function isWasmAbortError(error: unknown): boolean {
   return WASM_ABORT_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern));
 }
 
-const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR'] as const;
+const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR', 'ENOSPC'] as const;
 
 function classifyInitializationFailure(
   stage: DatabaseInitStage,
@@ -845,11 +845,6 @@ function classifyInitializationFailure(
 
   if (isWasmAbortError(error)) {
     return 'wasm-runtime';
-  }
-
-  // Whatever the SQLSTATE, an index that cannot be rebuilt after a crash is an integrity failure.
-  if (stage === 'index-rebuild') {
-    return 'corruption';
   }
 
   if (
@@ -877,9 +872,16 @@ function classifyInitializationFailure(
       FILESYSTEM_ERROR_CODES.includes(details.code as (typeof FILESYSTEM_ERROR_CODES)[number])) ||
     message.includes('permission denied') ||
     message.includes('read-only file system') ||
-    message.includes('no such file')
+    message.includes('no such file') ||
+    message.includes('no space left on device')
   ) {
     return 'filesystem';
+  }
+
+  // After the environmental categories (a full disk is not damage): otherwise an index that
+  // cannot be rebuilt after a crash is an integrity failure, whatever its SQLSTATE.
+  if (stage === 'index-rebuild') {
+    return 'corruption';
   }
 
   if (stage === 'migration' || message.includes('migrations failed')) {
@@ -927,7 +929,8 @@ function formatOpenDatabaseFailureMessage(
 }
 
 function formatIndexRebuildFailureMessage(details: string): string {
-  return `The desktop database could not rebuild its search index after an unexpected shutdown: ${details}. BrainStrike did not delete or replace it.`;
+  const detail = details.replace(/\.+$/u, '');
+  return `The desktop database could not rebuild its search index after an unexpected shutdown: ${detail}. BrainStrike did not delete or replace it.`;
 }
 
 function formatMigrationFailureMessage(
@@ -1297,7 +1300,7 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
           dataDir,
           failure: mutableState.lastInitializationFailure,
         });
-        throw new Error(formatIndexRebuildFailureMessage(msg));
+        throw new Error(formatIndexRebuildFailureMessage(msg), { cause: err });
       }
       mutableState.crashRecoveryIndexRebuild = rebuild;
       logger.warn('Rebuilt crash-sensitive indexes after an unclean shutdown', {
