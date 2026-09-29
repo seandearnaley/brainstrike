@@ -700,7 +700,16 @@ describe('main boot order', () => {
         await vi.waitFor(bootWentOn);
         expect(requireMainLogger().error).toHaveBeenCalledWith(
           expect.stringContaining('Failed to install the shutdown signal handlers'),
-          { error: expect.objectContaining({ message: 'libuv could not arm the watcher' }) }
+          {
+            // SIGINT failed before its listeners were removed, so Electron's handler still quits.
+            error: expect.objectContaining({
+              cause: expect.objectContaining({ message: 'libuv could not arm the watcher' }),
+              failedSignal: 'SIGINT',
+              installed: [],
+              name: 'ShutdownSignalInstallError',
+              removedListeners: false,
+            }),
+          }
         );
       });
 

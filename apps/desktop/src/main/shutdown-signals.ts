@@ -18,6 +18,33 @@ export interface ShutdownSignalOptions {
 }
 
 /**
+ * An install that stopped part-way. A signal already `installed` keeps our handler; the failed one
+ * lost its previous listeners when `removedListeners` is true, so it takes its default action.
+ */
+export class ShutdownSignalInstallError extends Error {
+  readonly failedSignal: NodeJS.Signals;
+  readonly installed: readonly NodeJS.Signals[];
+  readonly removedListeners: boolean;
+
+  constructor(options: {
+    readonly cause: unknown;
+    readonly failedSignal: NodeJS.Signals;
+    readonly installed: readonly NodeJS.Signals[];
+    readonly removedListeners: boolean;
+  }) {
+    const { cause, failedSignal, installed, removedListeners } = options;
+    super(
+      `Could not install the shutdown handler for ${failedSignal} ${removedListeners ? 'after removing' : 'before removing'} its listeners; installed: ${installed.join(', ') || 'none'}`,
+      { cause }
+    );
+    this.name = 'ShutdownSignalInstallError';
+    this.failedSignal = failedSignal;
+    this.installed = installed;
+    this.removedListeners = removedListeners;
+  }
+}
+
+/**
  * Persistent listeners, first signal wins. Electron converts the first SIGINT/SIGTERM/SIGHUP into
  * `app.quit()` with its own one-shot handler, after which a second signal takes the default action
  * and kills main mid-shutdown, before the durable log flushes. A dev tree (a tty process group,
@@ -47,24 +74,44 @@ export function installShutdownSignalHandlers(options: ShutdownSignalOptions): v
   let shutdownStarted = false;
   const replacements: { readonly replaced: readonly string[]; readonly signal: NodeJS.Signals }[] =
     [];
-  for (const signal of signals) {
-    // Named, so the log says WHO was displaced (`when-exit`'s hook, say), not just how many.
-    const replaced = target.listeners(signal).map((listener) => listener.name || '<anonymous>');
-    target.removeAllListeners(signal);
-    target.on(signal, () => {
-      if (shutdownStarted) {
-        logSafely('Shutdown already in progress; ignoring signal', { signal });
-        return;
+  const installed: NodeJS.Signals[] = [];
+  try {
+    for (const signal of signals) {
+      let removedListeners = false;
+      try {
+        // Named, so the log says WHO was displaced (`when-exit`'s hook, say), not just how many.
+        const replaced = target.listeners(signal).map((listener) => listener.name || '<anonymous>');
+        target.removeAllListeners(signal);
+        removedListeners = true;
+        if (replaced.length > 0) {
+          replacements.push({ replaced, signal });
+        }
+        target.on(signal, () => {
+          if (shutdownStarted) {
+            logSafely('Shutdown already in progress; ignoring signal', { signal });
+            return;
+          }
+          shutdownStarted = true;
+          onFirstSignal(signal);
+        });
+      } catch (error) {
+        throw new ShutdownSignalInstallError({
+          cause: error,
+          failedSignal: signal,
+          installed: [...installed],
+          removedListeners,
+        });
       }
-      shutdownStarted = true;
-      onFirstSignal(signal);
-    });
-    if (replaced.length > 0) {
-      replacements.push({ replaced, signal });
+      installed.push(signal);
     }
-  }
-  // After EVERY signal is installed, so no log can leave one uninstalled.
-  for (const { replaced, signal } of replacements) {
-    logSafely('Replaced existing signal listeners with the shutdown handler', { replaced, signal });
+  } finally {
+    // After every signal is installed (or the install failed), so no log can leave one
+    // uninstalled and a partial install still records every listener it displaced.
+    for (const { replaced, signal } of replacements) {
+      logSafely('Replaced existing signal listeners with the shutdown handler', {
+        replaced,
+        signal,
+      });
+    }
   }
 }

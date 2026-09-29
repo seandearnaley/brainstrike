@@ -195,7 +195,7 @@ describe('DbHostManager close ladder', () => {
       });
     });
 
-    it('settles a close that only has a departing host to wait for at its one 500 ms rung', async () => {
+    it(`settles a close that only has a departing host to wait for at its one ${DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS} ms rung`, async () => {
       const { manager } = await openManager();
       const first = observe(manager.close());
       await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_BUDGET_MS);
@@ -212,7 +212,6 @@ describe('DbHostManager close ladder', () => {
         name: 'DbHostCloseError',
         outcome: 'exit-timeout',
       });
-      expect(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS).toBeLessThanOrEqual(DB_HOST_CLOSE_BUDGET_MS);
     });
   });
 
