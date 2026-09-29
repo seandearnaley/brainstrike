@@ -233,3 +233,18 @@ its own process) and opened a second PGlite over the first. Fixes, all in `db-ma
   certify the close of a host that held no database, which is true.
 - N. `writeCleanShutdownMarker` removes its `.tmp` when the rename fails (a failed cleanup logs at
   warn), and `hasCleanShutdownMarker` accepts only a regular file, not a directory at the path.
+- Round 2, C. `closeAfterFailedInitialization()` returns early, keeping the lock, whenever
+  `mutableState.closeFailure` is set, not only when its own close failed. Since D, a close cannot
+  run during an open, so this is defense in depth; the guard test still pins the outcome (a failed
+  close plus a failed migration leaves the lock held).
+- Round 2, D. `closeLocalDatabase()` first awaits an in-flight open (`settleInFlightOpen()`), then
+  closes what that open produced; every reset and corruption-recovery entry goes through it, so
+  nothing is backed up or deleted while a handle is opening. `resetLocalDatabaseInternal()` also
+  loops until no open is in flight after its close (the code after the loop is synchronous, so no
+  open can start between that check and the deletes). The open never awaits a reset, so it cannot
+  deadlock. Failed opens are already recorded and reported to their callers, so the wait ignores them.
+- Round 2, E. `writeCleanShutdownMarker` removes its `.tmp` after a failure in ANY step of the write
+  (open, write, fsync or rename), with the same warn-on-cleanup-failure rule, and still throws.
+- Round 2, F. A directory at the marker path is not a marker and cannot be unlinked as one, so
+  every open fails as a `filesystem` failure before the database opens and deletes nothing.
+  Fail-closed and intended; the marker must be removed by hand. Pinned in `db-main.close.test.ts`.
