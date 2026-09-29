@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { DATABASE_SNAPSHOT_REASONS } from '../src/database-snapshot-manifest.js';
 import {
   DEFAULT_SNAPSHOT_RETENTION_POLICY,
   planSnapshotRetention,
+  REASONS_WITH_A_RULE,
   type RetentionSnapshot,
   type SnapshotRetentionPolicy,
 } from '../src/snapshot-retention.js';
@@ -358,5 +360,13 @@ describe('DEFAULT_SNAPSHOT_RETENTION_POLICY', () => {
       repair: 3,
       weekly: 4,
     });
+  });
+});
+
+describe('REASONS_WITH_A_RULE', () => {
+  it('is the union of the reason sets that have a rule, and equals the manifest vocabulary', () => {
+    // A reason added to the manifest without a retention rule would be pruned silently; this
+    // fails first, and the planner rejects it as unknown.
+    expect([...REASONS_WITH_A_RULE].sort()).toEqual([...DATABASE_SNAPSHOT_REASONS].sort());
   });
 });
