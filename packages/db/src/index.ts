@@ -33,6 +33,13 @@ export {
   rebuildCrashSensitiveIndexes,
 } from './crash-sensitive-indexes.js';
 export * from './database-integrity.js';
+export {
+  classifyFindingSeverity,
+  type FindingSeverity,
+  INTEGRITY_CHECKS,
+  type IntegrityCheck,
+  type RelationFinding,
+} from './database-integrity-finding.js';
 export * from './database-pressure-controller.js';
 export * from './database-query-telemetry.js';
 export * from './database-work-scheduler.js';
