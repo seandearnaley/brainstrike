@@ -544,3 +544,65 @@ retries (PR2a: two consecutive timeouts in one phase stop the manager, main answ
 record); the person sees only the error card until PR2b's startup surface lands. `db-host-manager.ts` sits
 under the 1000-line gate after this change (the abandoned-request ledger moved to
 `db-host-abandoned-requests.ts`), so PR2a extracts before it adds.
+
+### Update (2026-09-29, BST-1883 PR2a): the init loop breaker
+
+A per-phase deadline still times out on a machine slower than its margins, and each timeout is a SIGKILL that
+leaves no clean-shutdown marker, so the next open rebuilds again. Main now stops after two timeouts in one phase.
+
+- The record is `<profile>/.db-init-attempt.json` (`db-init-attempt-record.ts`, `DatabaseInitAttemptRecord`):
+  `{ version: 1, phaseKey, report, budgetMs, hostPid, consecutiveTimeouts, lastTimeoutAt }`. `phaseKey` is
+  `open-database`, `migration`, `index-rebuild:<schema>.<index>`, or `init:first-report` for a timeout before any
+  report (`report` is then null). It lives INSIDE the profile directory, next to `.db-clean-shutdown` and
+  `.db-process.lock`, so the developer reset and the factory reset (both `resetLocalDatabase`, which
+  removes the profile directory) delete it with the profile and need no wiring of their own. Only main reads or
+  writes it; the host never does. A reset's backup copy of the profile keeps the file, so restoring a backup by
+  hand restores a stop that `retryInit` clears.
+- It is written on a timeout only. `consecutiveTimeouts` is one more than the previous record's when the same
+  `phaseKey` expired again, else 1. A successful init removes the record; a non-timeout init failure leaves it
+  (the host is alive and holds the real failure). At `consecutiveTimeouts >= 2` (`DB_INIT_STOP_AFTER_TIMEOUTS`)
+  the manager forks nothing and rejects `DbHostInitStoppedError` (see the fork gate below), whose message is the copy a person reads:
+  `BrainStrike stopped retrying the database start: rebuilding the search index timed out twice (last budget
+  372 s). Nothing was deleted or replaced.` The stop persists across relaunches because the record does.
+- `getDiagnostics()` while stopped answers from main and forks nothing: a fresh host reports no failure, which the
+  renderer's `formatDesktopDatabaseInitError` used to turn into "pgvector extension is required". The result
+  carries `initStop` (the record, else null), with the fields main cannot know (`hasDatabaseHandle` false,
+  `lastInitializationFailure` null, ...). The platform diagnostics `migration.initStop` reports it too, and the
+  renderer transport reads `initStop` before any recorded failure.
+- `retryInit({ noDeadline })` is the only way out besides a reset: it removes the record (a failure to remove it
+  throws and keeps the stop). `noDeadline: true` arms the NEXT `#initialize` only, the
+  init request and every phase, with `DB_HOST_INIT_MAX_BUDGET_MS` (2^31 - 1 ms, 24.8 days: the longest timer
+  Node honours), which is the user-confirmed "wait as long as it takes" that option (B) above was kept for. Nothing
+  calls it yet: its IPC and button are PR2b, and the record's stop persists across relaunches, so PR2a must not
+  ship without them.
+- A record that cannot be written (the timeout is logged at error and still kills the host) is kept in memory
+  (`InitAttemptGuard`): the count never depends on persisting it, so the breaker still trips in this session and only
+  the relaunch is lost. One that cannot be removed after a success is logged and only makes a later stop one timeout
+  early. An unreadable or foreign-version file reads as no record and is logged at error by shape only: it can cost
+  one more attempt and it never deletes anything. Any other read failure (a directory at the path, permissions) throws.
+  The writer only produces what the reader accepts: the recorded budget is rounded up to a whole millisecond, a
+  window that is not a positive safe integer is refused, and the manager refuses an initialization window it could not
+  arm or record, because a record the reader rejects reads as absent and the breaker would silently never trip.
+
+Review round (PR #3417) rulings:
+
+- The stop is checked in the fork path itself (`#ensureHost`) as well as in `#initialize`, so no request (data,
+  reset, live-query diagnostics) can start a host while stopped. Nothing caches the stop: the record, or the one that
+  could not be written, is the only source, so a reset that deletes the profile and `retryInit` clear it by
+  construction. `DbHostManager.reset()` (a request for a host to reset itself, with no production caller) rejects
+  while stopped like any other request. The user-confirmed resets never use it: `resetLocalDatabase` retires the
+  default manager (`closeDbHostManager`, a no-op with no host) and deletes the profile from main, which is how a
+  person clears a stop without a host. `db-host-manager-init-stop-reset.test.ts` runs the real manager and the real
+  db-main reset over a temp profile and asserts no fork, the record gone and a new manager that opens.
+- A completed `reset()` clears a pending `noDeadline`, and the suspension flag is reset in `#initialize`'s `finally`,
+  so "the next init only" holds locally.
+- Reading the record on each diagnostics call, each `#initialize` and each fork costs 5.5-9.1 microseconds when the
+  file is absent (10,000 `readFileSync` ENOENT calls in 55-91 ms, Node 24.18, Apple M1 Pro) and 36 microseconds for
+  a present 300-byte record read and parsed.
+
+The brief's design wrote the record on every progress report and carried `consecutiveTimeouts` forward only when
+the reported phase matched the stored one. That never reaches two in production: each attempt reports
+`open-database` before the rebuild, so a retry overwrote the stored `index-rebuild` phase and reset the count
+before it could expire again (its own test only passed because the fake host reported one phase per attempt).
+The record is therefore written on timeouts only, and the realistic sequence (open-database, then index-rebuild,
+twice) is what `db-host-manager-init-loop.test.ts` runs.

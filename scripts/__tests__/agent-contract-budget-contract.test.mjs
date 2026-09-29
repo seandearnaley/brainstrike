@@ -172,7 +172,12 @@ const CONTRACT_LINE_BUDGETS = {
   // leaves no marker, so an unscaled deadline loops). The measurements, the rejected
   // alternatives and the loop mechanics went to
   // `platform-contracts/graceful-shutdown-ownership.md`.
-  'platform-contracts.md': 992,
+  // BST-1883 PR2a raised it from 992 (+4): the loop breaker is a rule an agent changing the
+  // init lifecycle, either reset or a diagnostics consumer must obey (a stop persists across
+  // relaunches and only a user action clears it), and the factory-reset bullet names the
+  // record that a reset deletes with the profile. Its design and history went to the same
+  // evidence file.
+  'platform-contracts.md': 996,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a

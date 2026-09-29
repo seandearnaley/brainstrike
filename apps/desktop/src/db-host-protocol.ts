@@ -1,4 +1,8 @@
-import type { DatabaseDiagnosticsSnapshot, DatabaseInitPhaseReport } from '@brainstrike/types';
+import type {
+  DatabaseDiagnosticsSnapshot,
+  DatabaseInitAttemptRecord,
+  DatabaseInitPhaseReport,
+} from '@brainstrike/types';
 
 export interface DbHostQueryResult<TRecord = unknown> {
   /**
@@ -188,6 +192,8 @@ export interface DbHostDiagnosticsResult extends DatabaseDiagnosticsSnapshot {
 
 export interface DbHostManagerDiagnosticsResult extends DatabaseDiagnosticsSnapshot {
   readonly hostPid: number | null;
+  /** Main's stop after repeated init timeouts; while set, no host was forked to answer. */
+  readonly initStop: DatabaseInitAttemptRecord | null;
 }
 
 export interface DbHostLiveQueryDiagnostics {

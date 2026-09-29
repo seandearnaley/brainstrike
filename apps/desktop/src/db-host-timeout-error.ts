@@ -7,7 +7,7 @@ function formatMib(bytes: number): string {
   return `${Math.round(bytes / BYTES_PER_MIB)} MiB`;
 }
 
-function formatBudget(timeoutMs: number): string {
+export function formatBudget(timeoutMs: number): string {
   return timeoutMs < 1000 ? `${timeoutMs} ms` : `${Math.round(timeoutMs / 1000)} s`;
 }
 

@@ -74,6 +74,28 @@ export type DatabaseInitPhaseReport =
     }
   | { readonly phase: Extract<DatabaseInitStage, 'migration'> };
 
+/**
+ * Main's record of an init that timed out, `<profile>/.db-init-attempt.json`. It counts
+ * consecutive timeouts in one phase; two of them stop the DB host manager from forking a third
+ * host. Owned by main only: the host never reads or writes it, and a reset deletes it with the
+ * profile.
+ */
+export interface DatabaseInitAttemptRecord {
+  /** The budget that expired, in milliseconds. */
+  readonly budgetMs: number;
+  /** Consecutive timeouts in `phaseKey` with no successful init between them. */
+  readonly consecutiveTimeouts: number;
+  /** The host process that was killed, when its pid was known. */
+  readonly hostPid: number | null;
+  /** ISO time of the latest of them, on main's clock. */
+  readonly lastTimeoutAt: string;
+  /** The phase whose budget expired: `init:first-report`, `open-database`, `migration` or `index-rebuild:<schema>.<index>`. */
+  readonly phaseKey: string;
+  /** The report that started that phase; null when the timeout came before the first report. */
+  readonly report: DatabaseInitPhaseReport | null;
+  readonly version: 1;
+}
+
 export interface DatabaseInitFailureSnapshot {
   category: DatabaseInitFailureCategory;
   code?: string;
@@ -133,6 +155,12 @@ export interface DatabaseDiagnosticsSnapshot {
   hasDatabaseHandle: boolean;
   initializationAttemptCount: number;
   initializationInFlight: boolean;
+  /**
+   * Set by the desktop DB host manager (never by the host) when init timed out twice in one phase
+   * and main stopped retrying. A consumer must read it before any other field: the rest of the
+   * snapshot then describes a process that never opened the database.
+   */
+  initStop?: DatabaseInitAttemptRecord | null;
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;
   lastInitializationStartedAt: string | null;
   lastInitializationSucceededAt: string | null;

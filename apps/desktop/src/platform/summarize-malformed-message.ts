@@ -50,7 +50,7 @@ export function summarizeMalformedMessage(value: unknown): Record<string, unknow
     keyCount: keys.length,
     keys: keys.slice(0, MAX_SUMMARY_KEYS).map(truncateForLog),
     messageType: 'object',
-    // A top-level string `type` is echoed, bounded to 64 characters, for ANY host: it names the frame
+    // A top-level string `type` is echoed, cut to 64 code points plus an ellipsis, for ANY host: it names the frame
     // kind for the parser host. DB host frames use `kind`, so a well-formed one has no `type`, but a
     // malformed one that carries a string `type` has that value echoed, bounded.
     ...(typeof record['type'] === 'string' ? { type: truncateForLog(record['type']) } : {}),

@@ -10,6 +10,17 @@ describe('truncateForLog', () => {
     expect(truncateForLog('😀'.repeat(64))).toBe('😀'.repeat(64));
   });
 
+  it('keeps a string whose UTF-16 length is 65 but that is 64 code points', () => {
+    const boundary = `${'a'.repeat(63)}😀`;
+
+    expect(boundary.length).toBe(65);
+    expect(truncateForLog(boundary)).toBe(boundary);
+  });
+
+  it('cuts one code point past the limit, at 65 astral characters', () => {
+    expect(truncateForLog('😀'.repeat(65))).toBe(`${'😀'.repeat(64)}…`);
+  });
+
   it('cuts at 64 code points, never splitting a surrogate pair into a lone half', () => {
     const cut = truncateForLog('😀'.repeat(70));
 
