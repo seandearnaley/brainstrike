@@ -262,8 +262,8 @@ pre-date BST-1643 (Drizzle-only `embedding_cache` and `token_cache`, numbered-on
 `file_records.embedding`); the parity test freezes them in a shrink-only allowlist, so
 they may be removed but never added to.
 
-Evidence: `database/model-catalog-layers.md`.
-Guard: `scripts/__tests__/model-catalog-migration-contract.test.mjs`,
+Evidence: `database/model-catalog-layers.md`, `database/july-catalog-rollback-review.md`.
+Guard: `packages/db/__tests__/migration-071-rollback.integration.test.ts`, `scripts/__tests__/model-catalog-migration-contract.test.mjs`,
 `scripts/__tests__/gen-model-catalog-migration.test.mjs`,
 `scripts/__tests__/db-test-discovery-contract.test.mjs`,
 `packages/db/__tests__/drizzle-ledger-keys.test.ts`,
