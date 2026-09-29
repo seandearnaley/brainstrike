@@ -216,7 +216,10 @@ never used. Wiping the database alone is not enough.
 - Desktop userData is wiped wholesale, so the main-process storage keys, the
   bundled CPython unpack directory, and the shadow-git dirs need no per-key
   wiring. If one moves outside `userData`, or `logs` gains a preserved sibling,
-  it needs explicit wiring and an update here.
+  it needs explicit wiring and an update here. The database root is inside
+  `userData` only in test runs and on packaged macOS; reset closes the DB host and
+  deletes the profile before any wipe (`database.md` § "DESKTOP DATABASE
+  LOCATION"; guard `main/desktop-factory-reset-packaged-layout.test.ts`).
 - The renderer `storage:*` bridge cannot mutate the root, recents, or vault
   authority keys: `setItem`/`removeItem` reject them by exact key, `setItem`
   rejects a non-string value, and `clear` removes only renderer-owned records,

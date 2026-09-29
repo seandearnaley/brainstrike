@@ -105,10 +105,17 @@ const CONTRACT_LINE_BUDGETS = {
   // adding a table must classify it in the same change. The per-table reasoning
   // went to `database/table-durability-classes.md`.
   // BST-1871 raised it from 895 (+2): one bullet names the crash-sensitive index AM list.
-  // BST-1870 L2b raised it from 897 (+10): the integrity-containment
+  // BST-1873 raised it from 897 (+11): DESKTOP DATABASE LOCATION is a new
+  // area, not growth of an existing section. Packaged builds now resolve their
+  // database from `app.isPackaged` (never NODE_ENV) and per-OS data folders,
+  // main resolves once and the DB host reads only its environment; an agent
+  // changing a location, the precedence or the host handoff must meet those
+  // rules first. The incident, the vendor citations and the open points went
+  // to `database/desktop-database-location.md`.
+  // BST-1870 L2b raised it from 908 (+10): the integrity-containment
   // background pause is a new scheduler rule with its guards. L4 rewrote the
   // maintenance bullet in place, so the count is unchanged.
-  'database.md': 907,
+  'database.md': 918,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
@@ -118,11 +125,15 @@ const CONTRACT_LINE_BUDGETS = {
   'local-inference.md': 403,
   'mastra-boundary.md': 402,
   'mcp-conformance.md': 199,
-  // BST-1870 L1 raised this from 955 (+3): the boot/migration never-reset rule. L4 replaced
-  // the runtime-recovery section with DATABASE INTEGRITY CONTAINMENT (the recovery order and
-  // its history moved to evidence): 954, 4 below L1 and 1 below the original 955. The Guard
-  // line then names the containment E2E, which adds one line: 955.
-  'platform-contracts.md': 955,
+  // BST-1870 L1 raised this from 955 (+3): the boot/migration never-reset rule; the L4
+  // change replaces this whole section and re-pins to its exact new count.
+  // BST-1873 raised this from 958 (+3): the factory-reset userData bullet now
+  // states that the database root is inside userData only in test runs and on
+  // packaged macOS, and that reset deletes the profile before any wipe.
+  // BST-1870 L4 replaced the runtime-recovery section with DATABASE INTEGRITY CONTAINMENT
+  // (the recovery order and its history moved to evidence), a net -4 lines.
+  // BST-1870 L4b: the Guard line names the containment E2E, one more line.
+  'platform-contracts.md': 958,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
