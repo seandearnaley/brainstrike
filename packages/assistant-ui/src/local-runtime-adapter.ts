@@ -792,8 +792,10 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
 
-        // Check for abort
-        if (error instanceof DOMException && error.name === 'AbortError') {
+        // Our own signal decides a cancel: Electron IPC keeps only an error's
+        // message, so a hidden-host abort reaches us as a plain Error whose
+        // `name` is no longer 'AbortError'.
+        if (abortSignal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
           appendRunEvent('run.cancelled', 'cancelled', 'Local assistant run cancelled');
           onLoadingProgress?.({
             message: 'Generation stopped.',
