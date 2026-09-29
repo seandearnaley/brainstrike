@@ -379,7 +379,8 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   stop and other close failures stay visible. Why: plain `server.close()` waits
   for every in-flight response.
 - The DB host is closed, not killed: close envelope → SIGTERM → awaited `exit` → SIGKILL on
-  timeout (logged as a crash). Wedge termination is SIGKILL, awaited before another host
+  timeout (logged as a crash). A close is clean only when the host acknowledged it; an exit
+  code, even 0, is never proof. Wedge termination is SIGKILL, awaited before another host
   forks; nothing forks once shutdown begins.
 
 Settled: admission retirement precedes host stops, and each timeout sits under

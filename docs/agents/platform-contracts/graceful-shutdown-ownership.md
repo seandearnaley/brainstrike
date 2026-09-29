@@ -103,13 +103,30 @@ Now `close()` resolves only when the database is proven closed AND the host proc
 is gone. The waits are `db-host-close-budget.ts` (ack 2 s, exit after SIGTERM 1 s,
 exit after SIGKILL 0.5 s):
 
-- ack ok: SIGTERM, await `exit` (any code is clean, the database is closed); no exit in
+- ack ok: SIGTERM, await `exit` (any code is fine, the database is closed); no exit in
   time: SIGKILL, then `exit-timeout` if that still does not end it.
-- exit before ack: clean only with code 0, else `exited-unclean`.
-- ack timeout: SIGTERM, then only exit 0 is clean (`exited-unclean` otherwise); no exit:
-  SIGKILL and `killed`. Until the host handles signals (BST-1872 L2) SIGTERM ends it
-  with a non-zero code, so this path rejects, which is today's kill, awaited and reported.
+- exit before ack: always `exited-unclean`, carrying the code.
+- ack timeout: SIGTERM, then any exit is always `exited-unclean` (carrying the code); no exit:
+  SIGKILL and `killed`.
 - ack error (the host's close failed): SIGKILL, `close-failed`.
+
+The rule: a close is clean only when the host acknowledged it. The exit code is never
+proof. Measured with the repo's Electron 44.4.5 on macOS (`utilityProcess.fork` of a
+trivial child; 2026-09-29):
+
+| child | terminated by | exit `code` |
+| --- | --- | --- |
+| no signal handlers | `child.kill()` (Electron API) | **0** |
+| no signal handlers | `process.kill(pid, 'SIGTERM')` | 15 |
+| no signal handlers | `process.kill(pid, 'SIGINT')` | 2 |
+| no signal handlers | `process.kill(pid, 'SIGHUP')` | **0** |
+| no signal handlers | `process.kill(pid, 'SIGKILL')` | 9 |
+| `process.on('SIGTERM')` handler that calls `process.exit(0)` | `child.kill()` or SIGTERM | 0 (the handler ran) |
+| handler that calls `process.exit(7)` | SIGTERM | 7 |
+
+So a host with no handler that `kill()` ends reports 0, exactly what a clean exit
+reports. JS SIGTERM and SIGINT handlers do run in the utility process, which the host's
+own signal handling (L2) relies on.
 
 Request and init timeouts SIGKILL, log at error with the request diagnostics, and no
 replacement forks until the exit is observed. Nothing forks once
