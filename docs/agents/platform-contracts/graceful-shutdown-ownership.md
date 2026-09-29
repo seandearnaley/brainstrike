@@ -173,3 +173,13 @@ rejects with `DbHostUnavailableError`; it never forks and never waits unbounded.
   `exited` promise executor. A failed fork (no handle) or a throwing `once` now throws to the
   caller, as a failed fork always did; inside the executor it rejected `exited`, which nothing awaits
   until a close, and surfaced as an unhandled rejection that failed a CI shard.
+- Round 2, A. `close()` with no live host now sets `#closing` too (`close()` in `db-host-manager.ts`; a
+  close with nothing departing stays a no-op). Before, a request waiting in `#admit` could fork a
+  fresh host at the moment that close reported closed. It now re-checks, sees `#closing`, and rejects
+  with `DbHostUnavailableError`. Guard: "rejects a request waiting on the barrier when close() runs
+  with no live host, and forks nothing".
+- Round 2, B. Intended, not a code change: after a failed close, once the host's exit is observed, a
+  later `close()` or `closeDbHostManager()` RESOLVES. Nothing owns the directory, and the missing
+  clean-shutdown marker records that session as unclean, so the next open reports `unclean`. Guard:
+  the `afterExit` case of "never reports a repeated close as success while the host may still be
+  alive" (both the manager and the default-manager variants). It is also in `close()`'s JSDoc.

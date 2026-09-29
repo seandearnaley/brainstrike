@@ -120,8 +120,10 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1872 L1 raised it by 4 more, to 962: the awaited-close / SIGKILL-wedge / no-fork rule
   // and "an exit code is never proof of a clean close"; L2 replaces the shutdown-ownership
   // first bullet and re-pins. The L1 review round added 1 more, to 963: only an observed exit
-  // proves a departed DB host gone, so nothing forks or reports a close before it.
-  'platform-contracts.md': 963,
+  // proves a departed DB host gone, so nothing forks or reports a close before it. Round 2
+  // added 1 more, to 964: a repeated close resolves once that exit is observed (the absent
+  // marker makes the next open unclean).
+  'platform-contracts.md': 964,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a

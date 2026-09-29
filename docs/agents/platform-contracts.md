@@ -380,8 +380,9 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   for every in-flight response.
 - The DB host is closed, not killed: close envelope → SIGTERM → awaited `exit` → SIGKILL on timeout
   (logged as a crash). A close is clean only if the host acknowledged it; an exit code, even 0, is
-  never proof. No host forks, and no close succeeds, while a previous host may be alive: only its
-  observed `exit` proves it gone, and a failed close keeps it across manager replacement. Admission
+  never proof. Nothing forks, and no close succeeds, while a previous host may be alive: only its
+  observed `exit` proves it gone, and a failed close keeps that across manager replacement. Once it
+  has exited, a repeated close resolves and the absent marker makes the next open `unclean`. Admission
   waits ≤0.5 s, then rejects `DbHostUnavailableError` (also while closing or at shutdown).
 
 Settled: admission retirement precedes host stops, and each timeout sits under
