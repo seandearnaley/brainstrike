@@ -75,6 +75,15 @@ describe('db init attempt record', () => {
       expect(readdirSync(profileDir)).toEqual(['.db-init-attempt.json']);
     });
 
+    it('creates the profile directory when a timeout came before the host made it', () => {
+      // A first-report timeout can expire before the host has created anything in a new profile.
+      const newProfile = path.join(profileDir, 'profiles', 'new');
+
+      writeDbInitAttemptRecord(newProfile, RECORD);
+
+      expect(readDbInitAttemptRecord(newProfile)).toEqual(RECORD);
+    });
+
     it('reads a first-report timeout, which has no phase report', () => {
       const firstReport: DatabaseInitAttemptRecord = {
         ...RECORD,

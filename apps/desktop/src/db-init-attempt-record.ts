@@ -1,4 +1,4 @@
-import { readFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { DatabaseInitAttemptRecord, DatabaseInitPhaseReport } from '@brainstrike/types';
@@ -132,10 +132,15 @@ export function readDbInitAttemptRecord(
   return parsed;
 }
 
+/**
+ * Writes the record atomically. Creates the profile directory first: a timeout before the host's
+ * first report can land before the host has created anything in a new profile.
+ */
 export function writeDbInitAttemptRecord(
   profileDirectory: string,
   record: DatabaseInitAttemptRecord
 ): void {
+  mkdirSync(profileDirectory, { recursive: true });
   writeFileAtomically(
     getRecordPath(profileDirectory),
     JSON.stringify(record),

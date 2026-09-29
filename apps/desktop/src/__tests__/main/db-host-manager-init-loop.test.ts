@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { DatabaseInitAttemptRecord, DatabaseInitPhaseReport } from '@brainstrike/types';
@@ -243,7 +243,8 @@ describe('the init loop breaker', () => {
     await settled(next);
   });
 
-  it('a first-report timeout is counted under its own phase', async () => {
+  it('a first-report timeout is counted under its own phase, even in a profile the host never created', async () => {
+    rmSync(state.profileDir, { force: true, recursive: true });
     const { manager } = await loadManager();
 
     await timedOutAttempt(manager, [], 15);
@@ -319,7 +320,9 @@ describe('the init loop breaker', () => {
   });
 
   it('logs at error and still kills the host when the record cannot be written', async () => {
-    rmSync(state.profileDir, { force: true, recursive: true });
+    // A directory where the write's temp file belongs: reading the record is fine (it is absent),
+    // writing it is not.
+    mkdirSync(`${recordPath()}.tmp`);
     const { DbHostRequestTimeoutError, manager } = await loadManager();
 
     const { error, host } = await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
