@@ -59,12 +59,14 @@ jobs:
   # production recovery and verifies every index access method. A PR run of the
   # same file (10 iterations) gates every db change inside required `Unit`;
   # this is the 200-iteration qualification a PGlite/pg_textsearch bump needs.
-  # 200 iterations took 585 s on a laptop (macOS arm64); the ceilings leave
-  # room for slower runners, Windows especially.
+  # 200 iterations took 665 s on a laptop (macOS arm64), the only measurement so
+  # far. The ceilings assume a runner 3-5x slower, Windows especially; tighten
+  # them once the first Linux and Windows durations are recorded in
+  # docs/agents/database/pg-textsearch-qualification.md.
   sigkill-crash-gate:
     name: SIGKILL crash gate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +81,7 @@ jobs:
           turbo-cache: 'true'
 
       - name: Run SIGKILL crash gate
-        timeout-minutes: 55
+        timeout-minutes: 115
         env:
           NODE_ENV: test
           TEST_TIMEOUT_MULTIPLIER: "2"

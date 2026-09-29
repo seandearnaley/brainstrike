@@ -237,26 +237,43 @@ crash-sensitive list unless the gate proves it recovers.
   amcheck (heap, every btree with `heapallindexed`, every GIN), an HNSW nearest-neighbour probe per
   index, and a BM25 insert plus ranked search per index. Indexes and tables come from the catalog;
   a new access method fails the gate until the writer and checks cover it.
+- "Every index" was wrong in the first version, and the review found it. The listing joined
+  `pg_attribute` on `indkey[0]`, which is 0 for an expression index, so the production
+  `idx_file_chunks_emb_hnsw_<N>` indexes (`USING hnsw ((embedding::halfvec(N)) halfvec_cosine_ops)
+  WHERE vector_dims(embedding) = N`) vanished from amcheck and every probe, and the writer never
+  filled `file_chunks.embedding`, so they were empty anyway. The migrated schema has none of them (they
+  are built per embedding set), so the gate builds one per model-catalog dimension with the production
+  `createDimensionIndex` (six today, plus the thread-message index: seven HNSW indexes). The key now
+  comes from `pg_get_indexdef(oid, 1, true)`, the listed count is checked against `pg_index`, an
+  index that is not valid and ready fails the gate (`index-validity`) instead of being filtered out,
+  and an HNSW index with no rows to probe fails instead of passing.
+  `crash-injection-verify.integration.test.ts` pins this: restoring the `indkey[0]` join fails it
+  with `listed 1 of 7 hnsw indexes`.
 - The BM25 probes must allocate. Consistent with the free-space-map cause above, a ranked search
   straight after the crash passed on all 73 iterations that tried it before recovery; damage
   showed only once a later write allocated (the next writer, or the insert probe). So the probe
   inserts (rolled back) first and searches second. Failures arrive as `58P01`, `XX000` and
   `XX001` with different texts, which is why detection is "the probe threw", never a message match.
 - Sensitivity, measured on the pinned builds with the recovery step removed by a local edit (never
-  committed), 20 iterations per seed: the first failing iteration was 3, 5, 4, 6, 2, 2, 6 and 1 for
-  seeds 1-8, so every seed fails inside the PR default of 10. Failures were BM25 (`corrupt segment`,
-  `invalid segment header`, `Invalid logical page`) or the writer dying on
+  committed), 20 iterations per seed, run one at a time: the first failing iteration was 5, 5, 1, 4,
+  4, 1 and 5 for seeds 1-7, so every seed fails inside the PR default of 10. Failures were BM25
+  (`corrupt segment`, `invalid segment header`, `Invalid logical page`) or the writer dying on
   `corrupt tombstone page`. The first workload (no stress thresholds, no `VACUUM`) first failed at
   iteration 26 (seed 7) and the stress thresholds `bulk_load_threshold`, `memtable_pages_threshold`
   and `segments_per_level` alone gave 23; adding a `VACUUM file_chunks` every fourth transaction and
   the allocating insert probe together gave 7, 6 and 5 (seeds 7, 1, 2). The effects were not
-  measured separately.
+  measured separately. Embedding all six dimensions in EVERY transaction cost about three times the
+  transaction rate and first failed at 2, 7, 3, 8, 1, 10, 4 and 2 (seeds 13, 8, 3, 4, 5, 6, 7, 9;
+  some runs overlapped), so a run's first transaction embeds every dimension and later ones rotate
+  through them.
 - Control: the same workload and probes, recovery still removed, but a clean close instead of a
   SIGKILL, passed 25 of 25 iterations for each of two seeds. The damage is crash-induced, not a
   workload artefact.
-- Green, on macOS arm64: 10 iterations took 24-34 s of gate time, 30 took 85 s, 50 took 138 s and 200
-  took 585 s (2.8-2.9 s per iteration). Row counts are capped (4,000 chunks, 1,500 thread-index
-  rows), so per-iteration cost stays flat.
+- Green, on macOS arm64, with the seven HNSW indexes: 10 iterations took 29 and 31 s of gate time
+  (two seeds), 50 took 192 s and 200 took 665 s (3.3 s per iteration, flat across the run because row
+  counts are capped at 4,000 chunks and 1,500 thread-index rows). Before the `file_chunks` HNSW
+  indexes were covered, 200 took 585 s. Nothing has run on Linux or Windows yet: the first nightly
+  durations for each are recorded HERE, and the nightly ceilings (120/115 min) are tightened from them.
 - Limits: NODEFS `fsync` is a no-op, so this proves process crashes (SIGKILL keeps every completed
   write), not power loss. The kill instant is random, so the seed reproduces the workload and the
   kill schedule but not the exact kill; a clean run at 10 iterations is evidence, not proof, which

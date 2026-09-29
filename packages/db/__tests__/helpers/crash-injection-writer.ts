@@ -103,6 +103,9 @@ async function main(): Promise<void> {
     const chunkIds = Array.from({ length: CHUNKS }, (_, i) => `chunk-${run}-${seq}-${i}`);
     const indexIds = Array.from({ length: INDEX_ROWS }, (_, i) => `crash-idx-${run}-${seq}-${i}`);
 
+    const rotated = dimensions[seq % dimensions.length] as number;
+    const embeddedDimensions = seq === 1 ? dimensions : [rotated];
+
     await db.transaction(async (tx) => {
       // Precious ledger row: plain heap + btree, never deleted, must survive every kill.
       await tx.query(
@@ -127,16 +130,18 @@ async function main(): Promise<void> {
           generation,
           chunkIds,
           chunkIds.map(() => paragraph(60)),
-          // One embedded chunk per catalog dimension per transaction, so every dimension's
-          // production HNSW index (`idx_file_chunks_emb_hnsw_<N>`) takes inserts every time.
-          chunkIds.map((_, i) => (i < dimensions.length ? vector(dimensions[i]) : '')),
+          // A run's first transaction embeds one chunk at EVERY catalog dimension, so each
+          // production HNSW index (`idx_file_chunks_emb_hnsw_<N>`) takes an insert every run;
+          // later ones rotate through the dimensions, because 3072-d inserts cost more than the rest.
+          chunkIds.map((_, i) =>
+            i < embeddedDimensions.length ? vector(embeddedDimensions[i]) : ''
+          ),
         ]
       );
-      const churned = dimensions[seq % dimensions.length] as number;
       await tx.query(
         `UPDATE file_chunks SET embedding = $1::vector WHERE id IN (
            SELECT id FROM file_chunks WHERE vector_dims(embedding) = $2 ORDER BY random() LIMIT 3)`,
-        [vector(churned), churned]
+        [vector(rotated), rotated]
       );
       await tx.query(
         `UPDATE file_chunks SET content = content || ' ' || $1
