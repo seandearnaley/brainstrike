@@ -51,10 +51,12 @@ export {
 export * from './desktop-database-bridge.js';
 // Drizzle ORM utilities and database wrapper
 export {
+  computeLedgerHead,
   type DrizzleDb,
   drizzle,
   drizzleFromHandle,
   extractPGlite,
+  getBundledLedgerHead,
   hasPGliteRaw,
   runMigrations as runDrizzleMigrations,
 } from './drizzle/index.js';

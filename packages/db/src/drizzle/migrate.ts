@@ -135,6 +135,39 @@ function deriveCustomMigrations(source: readonly Migration[]): DrizzleMigration[
 
 export const customMigrations: DrizzleMigration[] = deriveCustomMigrations(migrations);
 
+/** Every bundled ledger hash in the order `runMigrations` applies it: the drizzle manifest, then the custom ones. */
+function bundledLedgerHashesInApplyOrder(): readonly string[] {
+  return [
+    ...(migrationsManifest as MigrationManifest).migrations.map((migration) => migration.hash),
+    ...customMigrations.map((migration) => migration.hash),
+  ];
+}
+
+/** The newest migration this build ships: the ledger head a fully migrated database reports. */
+export function getBundledLedgerHead(): string {
+  const head = bundledLedgerHashesInApplyOrder().at(-1);
+  if (head === undefined) {
+    throw new Error('This build bundles no migrations, so it has no ledger head.');
+  }
+  return head;
+}
+
+/**
+ * Where an applied ledger stands: `head` is the last APPLIED hash in bundled
+ * apply order, and `unknown` counts applied hashes this build does not ship
+ * (a database last opened by a newer build). An unknown hash never becomes the
+ * head, because it has no position in this build's order.
+ */
+export function computeLedgerHead(applied: ReadonlySet<string>): {
+  head: string | null;
+  unknown: number;
+} {
+  const order = bundledLedgerHashesInApplyOrder();
+  const known = new Set(order);
+  const head = order.findLast((hash) => applied.has(hash)) ?? null;
+  return { head, unknown: [...applied].filter((hash) => !known.has(hash)).length };
+}
+
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
 
 interface DollarQuotedBlockReplacement {
