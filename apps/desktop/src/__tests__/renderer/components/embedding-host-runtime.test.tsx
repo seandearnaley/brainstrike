@@ -706,7 +706,7 @@ describe('EmbeddingHostRuntime', () => {
     expect(dbHandle.query).toHaveBeenCalledWith(
       expect.stringContaining('FROM models'),
       ['Xenova/all-MiniLM-L6-v2'],
-      { label: 'query embedding model config', priority: 'foreground' }
+      expect.objectContaining({ priority: 'foreground' })
     );
     expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledWith({ forceReload: true });
     expect(reportStatusMock).toHaveBeenCalledWith(

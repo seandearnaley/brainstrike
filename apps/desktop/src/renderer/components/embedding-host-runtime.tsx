@@ -2,7 +2,7 @@ import {
   ensureVectorPreferencesHydrated,
   useVectorPreferencesStore,
 } from '@brainstrike/app-state/stores/vector-preferences-store';
-import { createEmbeddingCacheRepository, type DatabaseWorkOptions } from '@brainstrike/db';
+import { createEmbeddingCacheRepository, createPriorityDbHandle } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
@@ -312,19 +312,14 @@ function assertEmbeddingResultDimensions(
   );
 }
 
-/** The handle's `query` type omits the work options it forwards (`db-handle.ts`). */
-type QueryWithWorkOptions = <T>(
-  sql: string,
-  params: unknown[],
-  options: DatabaseWorkOptions
-) => Promise<{ rows: T[] }>;
-
 async function loadQueryEmbeddingModelConfig(
   db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
   request: EmbeddingHostQueryEmbeddingRequest
 ): Promise<ModelConfig> {
-  const queryWithWorkOptions = db.query as QueryWithWorkOptions;
-  const result = await queryWithWorkOptions<DbModelRow>(
+  // A user's search waits on this read. Host-window work defaults to background,
+  // which the desktop scheduler rejects while database integrity is contained
+  // (BST-1870), so the read runs on the foreground lane.
+  const result = await createPriorityDbHandle(db, 'foreground').query<DbModelRow>(
     `SELECT
       id,
       provider_id AS "providerId",
@@ -335,11 +330,7 @@ async function loadQueryEmbeddingModelConfig(
      FROM models
      WHERE id = $1
      LIMIT 1`,
-    [request.payload.modelId],
-    // A user's search waits on this read. Host-window work defaults to
-    // background, which the desktop scheduler rejects while database integrity
-    // is contained (BST-1870), so name the foreground lane.
-    { label: 'query embedding model config', priority: 'foreground' }
+    [request.payload.modelId]
   );
   const row = result.rows[0];
   if (!row) {
