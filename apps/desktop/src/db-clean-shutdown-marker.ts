@@ -1,17 +1,6 @@
-import {
-  closeSync,
-  fsyncSync,
-  lstatSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeSync,
-} from 'node:fs';
+import { lstatSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/logging';
-
-const logger = createLogger('DbCleanShutdownMarker');
+import { fsyncDirectory, isNoEntry, writeFileAtomically } from './write-file-atomically';
 
 /**
  * The clean-shutdown marker: a sibling of `pgdata/` and `.db-process.lock` in the
@@ -26,27 +15,6 @@ function getMarkerPath(appDataDir: string): string {
   return path.join(appDataDir, CLEAN_SHUTDOWN_MARKER_FILENAME);
 }
 
-function isNoEntry(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT'
-  );
-}
-
-// A rename or unlink is durable only once the directory entry itself is flushed.
-// Windows cannot open a directory handle from Node, so there the rename is the
-// atomic step and the directory flush is skipped.
-function fsyncDirectory(directory: string): void {
-  if (process.platform === 'win32') {
-    return;
-  }
-  const descriptor = openSync(directory, 'r');
-  try {
-    fsyncSync(descriptor);
-  } finally {
-    closeSync(descriptor);
-  }
-}
-
 /**
  * Atomically records a clean close: write a temp file, fsync it, rename it over
  * the marker, then fsync the directory. A crash mid-way leaves no marker (a
@@ -56,37 +24,7 @@ export function writeCleanShutdownMarker(
   appDataDir: string,
   details: { readonly closedAt: string; readonly pid: number }
 ): void {
-  const markerPath = getMarkerPath(appDataDir);
-  const temporaryPath = `${markerPath}.tmp`;
-  try {
-    const descriptor = openSync(temporaryPath, 'w');
-    try {
-      writeSync(descriptor, JSON.stringify(details));
-      fsyncSync(descriptor);
-    } finally {
-      closeSync(descriptor);
-    }
-    renameSync(temporaryPath, markerPath);
-  } catch (error) {
-    // Whichever step failed (open, write, flush or rename), no temp file is left behind.
-    removeTemporaryMarker(temporaryPath);
-    throw error;
-  }
-  fsyncDirectory(appDataDir);
-}
-
-// Best effort: a leftover temp file reads as no marker, so a failed cleanup costs nothing but tidiness.
-function removeTemporaryMarker(temporaryPath: string): void {
-  try {
-    unlinkSync(temporaryPath);
-  } catch (error) {
-    if (!isNoEntry(error)) {
-      logger.warn('Could not remove the temporary clean-shutdown marker', {
-        error,
-        temporaryPath,
-      });
-    }
-  }
+  writeFileAtomically(getMarkerPath(appDataDir), JSON.stringify(details), 'clean-shutdown marker');
 }
 
 /** Only a regular file is a marker: a directory (or a link) at the path proves nothing. */
