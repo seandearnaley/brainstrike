@@ -65,6 +65,11 @@
       "types": "./dist/pglite-factory.d.ts",
       "import": "./dist/pglite-factory.js",
       "require": "./dist/pglite-factory.js"
+    },
+    "./pglite-verification-factory": {
+      "types": "./dist/pglite-verification-factory.d.ts",
+      "import": "./dist/pglite-verification-factory.js",
+      "require": "./dist/pglite-verification-factory.js"
     }
   },
   "files": [

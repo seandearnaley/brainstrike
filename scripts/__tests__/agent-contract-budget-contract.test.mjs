@@ -124,7 +124,13 @@ const CONTRACT_LINE_BUDGETS = {
   // `database/pg-textsearch-qualification.md`.
   // BST-1877 raised it from 925 (+2): the durability registry gains a non-throwing lookup
   // for verification, and its one rule (report, never act on it) belongs beside the throwing one.
-  'database.md': 927,
+  // BST-1877 L1b raised it from 927 (+5): the snapshot verifier is a new PGlite construction
+  // site (the engine set plus amcheck, in its own subpath and importable by one file), and an
+  // agent adding a site or importing amcheck must meet that rule where the sites are listed (+3);
+  // the review made that sentence true in the present tense: the tool entry is forthcoming, and no
+  // module may import amcheck directly, now guarded (+1); and the guard list wrapped once when
+  // BST-1875's gate test joined it beside L1b's test (+1).
+  'database.md': 932,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
