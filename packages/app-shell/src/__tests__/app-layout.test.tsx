@@ -98,6 +98,11 @@ vi.mock('../app-reload/app-reload-strip', () => ({
   AppReloadStrip: () => <div data-testid="app-reload-strip" />,
 }));
 
+// The notice reads the desktop integrity capability; its own tests cover every state.
+vi.mock('../database-integrity/database-integrity-notice', () => ({
+  DatabaseIntegrityNotice: () => <div data-testid="database-integrity-notice" />,
+}));
+
 // Mock the status items. AppLayout imports the direct modules so React Doctor
 // can verify there is no status-items barrel import in the production path.
 vi.mock('../status-items/database-status-item', () => ({
@@ -198,6 +203,18 @@ describe('AppLayout', () => {
     expect(shell?.firstElementChild).toBe(strip);
     expect(shell).toContainElement(screen.getByRole('main'));
     expect(shell).toContainElement(screen.getByTestId('status-bar'));
+  });
+
+  it('renders the database integrity notice directly under the app reload strip', () => {
+    render(
+      <AppLayout config={mockConfig} currentPath="/">
+        <div>Page Content</div>
+      </AppLayout>
+    );
+
+    const strip = screen.getByTestId('app-reload-strip');
+    expect(strip.nextElementSibling).toBe(screen.getByTestId('database-integrity-notice'));
+    expect(strip.parentElement).toContainElement(screen.getByRole('main'));
   });
 
   it('mounts the session-wide retired-model notice hook exactly once (BST-565)', () => {
