@@ -129,4 +129,19 @@ describe('isDbHostProgressEnvelope', () => {
       ).toBe(false);
     }
   );
+
+  it.each(['accessMethod', 'index', 'schema', 'table'] as const)(
+    'accepts a %s of 63 UTF-8 bytes (a PostgreSQL identifier) and rejects one byte more',
+    (field) => {
+      const withName = (name: string) =>
+        isDbHostProgressEnvelope(
+          progress({ index: { ...INDEX, [field]: name }, phase: 'index-rebuild' })
+        );
+      expect(withName('a'.repeat(63))).toBe(true);
+      expect(withName('a'.repeat(64))).toBe(false);
+      // Bytes, not characters: 32 two-byte characters are 64 bytes.
+      expect(withName('é'.repeat(31))).toBe(true);
+      expect(withName('é'.repeat(32))).toBe(false);
+    }
+  );
 });
