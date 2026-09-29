@@ -35,24 +35,36 @@ export interface ShutdownSignalOptions {
  */
 export function installShutdownSignalHandlers(options: ShutdownSignalOptions): void {
   const { logger, onFirstSignal, signals, target } = options;
+  // A diagnostic must never break shutdown: a throwing logger cannot leave a signal uninstalled, nor
+  // escape from inside a signal listener.
+  const logSafely = (message: string, data: Record<string, unknown>): void => {
+    try {
+      logger.info(message, data);
+    } catch {
+      // Nothing left to report a broken logger to; the handlers are what matter.
+    }
+  };
   let shutdownStarted = false;
+  const replacements: { readonly replaced: readonly string[]; readonly signal: NodeJS.Signals }[] =
+    [];
   for (const signal of signals) {
     // Named, so the log says WHO was displaced (`when-exit`'s hook, say), not just how many.
     const replaced = target.listeners(signal).map((listener) => listener.name || '<anonymous>');
     target.removeAllListeners(signal);
     target.on(signal, () => {
       if (shutdownStarted) {
-        logger.info('Shutdown already in progress; ignoring signal', { signal });
+        logSafely('Shutdown already in progress; ignoring signal', { signal });
         return;
       }
       shutdownStarted = true;
       onFirstSignal(signal);
     });
     if (replaced.length > 0) {
-      logger.info('Replaced existing signal listeners with the shutdown handler', {
-        replaced,
-        signal,
-      });
+      replacements.push({ replaced, signal });
     }
+  }
+  // After EVERY signal is installed, so no log can leave one uninstalled.
+  for (const { replaced, signal } of replacements) {
+    logSafely('Replaced existing signal listeners with the shutdown handler', { replaced, signal });
   }
 }

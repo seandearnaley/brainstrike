@@ -93,6 +93,38 @@ describe('installShutdownSignalHandlers', () => {
     );
   });
 
+  it('installs every signal even when the replacement log throws', () => {
+    const emitter = new EventEmitter();
+    const dependencyListener = vi.fn();
+    for (const signal of SIGNALS) {
+      emitter.on(signal, dependencyListener);
+    }
+    const logger = {
+      info: vi.fn(() => {
+        throw new Error('logger broke');
+      }),
+    };
+    const onFirstSignal = vi.fn();
+
+    expect(() =>
+      installShutdownSignalHandlers({
+        logger,
+        onFirstSignal,
+        signals: SIGNALS,
+        target: emitter,
+      })
+    ).not.toThrow();
+
+    // The log was attempted (a dependency was displaced) but installation never depended on it.
+    expect(logger.info).toHaveBeenCalled();
+    for (const signal of SIGNALS) {
+      expect(emitter.listenerCount(signal)).toBe(1);
+      emitter.emit(signal);
+    }
+    expect(dependencyListener).not.toHaveBeenCalled();
+    expect(onFirstSignal).toHaveBeenCalledExactlyOnceWith('SIGINT');
+  });
+
   it('touches only the signals it is given, and logs no replacement when nothing was registered', () => {
     const target = new EventEmitter();
     const otherListener = vi.fn();

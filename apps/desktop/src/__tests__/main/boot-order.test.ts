@@ -664,6 +664,70 @@ describe('main boot order', () => {
       expect(capture.handlers.size).toBe(0);
     });
 
+    describe('when installing the handlers throws', () => {
+      // The smallest seam that proves boot survives: main.ts itself, with the install's own
+      // `process.removeAllListeners` made to throw for SIGINT (libuv refusing to arm, say).
+      const failInstall = (): void => {
+        const passThrough = vi.mocked(process.removeAllListeners).getMockImplementation();
+        vi.mocked(process.removeAllListeners).mockImplementation(((event?: string | symbol) => {
+          if (event === 'SIGINT') {
+            throw new Error('libuv could not arm the watcher');
+          }
+          return passThrough?.(event);
+        }) as typeof process.removeAllListeners);
+      };
+      const defaultLogger = createLoggerMock.getMockImplementation();
+
+      afterEach(() => {
+        if (defaultLogger) {
+          createLoggerMock.mockImplementation(defaultLogger);
+        }
+      });
+
+      // The E2E-mode boot (the only one that installs) does not show a window under these mocks, so
+      // "boot went on" is the boot `try` being entered: its first statement logs this.
+      const bootWentOn = (): void => {
+        expect(requireMainLogger().debug).toHaveBeenCalledWith(
+          'App ready, starting initialization...'
+        );
+      };
+
+      it('logs it at error and still boots', async () => {
+        failInstall();
+
+        await importMainInE2eMode();
+
+        await vi.waitFor(bootWentOn);
+        expect(requireMainLogger().error).toHaveBeenCalledWith(
+          expect.stringContaining('Failed to install the shutdown signal handlers'),
+          { error: expect.objectContaining({ message: 'libuv could not arm the watcher' }) }
+        );
+      });
+
+      it('still boots when that log itself throws', async () => {
+        failInstall();
+        createLoggerMock.mockImplementation((scope: string) => ({
+          debug: vi.fn(),
+          error: vi.fn((message: unknown) => {
+            if (
+              scope === 'DesktopMain' &&
+              typeof message === 'string' &&
+              message.startsWith('Failed to install')
+            ) {
+              throw new Error('logger broke');
+            }
+          }),
+          info: vi.fn(),
+          trace: vi.fn(),
+          warn: vi.fn(),
+        }));
+
+        await importMainInE2eMode();
+
+        await vi.waitFor(bootWentOn);
+      });
+    });
+
     it('starts one graceful run from the first signal and logs later signals instead of re-running', async () => {
       await importMainInE2eMode();
       await vi.waitFor(() => expect(capture.handlers.size).toBe(3));

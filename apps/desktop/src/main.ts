@@ -676,14 +676,27 @@ function registerShutdownSignalHandlers(): void {
   if (process.env['NODE_ENV'] === 'test' && !isElectronE2ETestMode()) {
     return;
   }
-  installShutdownSignalHandlers({
-    logger,
-    onFirstSignal: (signal) => {
-      void handleShutdownSignal(signal);
-    },
-    signals: ['SIGINT', 'SIGTERM', 'SIGHUP'],
-    target: process,
-  });
+  // Loud, but never a boot failure: the boot `catch` below quits the app, and without these
+  // handlers the first signal still quits through Electron's own (`before-quit`).
+  try {
+    installShutdownSignalHandlers({
+      logger,
+      onFirstSignal: (signal) => {
+        void handleShutdownSignal(signal);
+      },
+      signals: ['SIGINT', 'SIGTERM', 'SIGHUP'],
+      target: process,
+    });
+  } catch (error) {
+    try {
+      logger.error(
+        'Failed to install the shutdown signal handlers; the first signal quits through Electron',
+        { error }
+      );
+    } catch {
+      // A throwing logger must not escape into the boot callback either.
+    }
+  }
 }
 
 const fileSystem = new ElectronFileSystemAdapter();
