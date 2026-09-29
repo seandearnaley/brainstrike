@@ -412,6 +412,11 @@ class DefaultDbHostManager implements DbHostManager {
     }
   }
 
+  /** True until the host this manager detached has been observed to exit. */
+  hasDepartingHost(): boolean {
+    return this.#departingHost !== null;
+  }
+
   /** Resolves only when the database is closed AND the host has exited; else `DbHostCloseError`. */
   async close(): Promise<void> {
     if (this.#closing) {
@@ -947,6 +952,9 @@ class DefaultDbHostManager implements DbHostManager {
 
 let defaultManager: DefaultDbHostManager | null = null;
 let closingDefaultManager: Promise<void> | null = null;
+// A default manager whose close FAILED while its host may still be alive. It outlives its
+// replacement slot so the barrier does too: nothing forks from any manager until that host exits.
+let unexitedDefaultManager: DefaultDbHostManager | null = null;
 
 export function createDbHostManager(options?: DbHostManagerOptions): DbHostManager {
   return new DefaultDbHostManager(options);
@@ -956,6 +964,10 @@ export function getDbHostManager(): DbHostManager {
   if (closingDefaultManager) {
     throw new Error('DB host manager is closing; wait for closeDbHostManager() to complete.');
   }
+  if (unexitedDefaultManager?.hasDepartingHost()) {
+    throw new DbHostUnavailableError(PREVIOUS_HOST_ALIVE_MESSAGE);
+  }
+  unexitedDefaultManager = null; // its host has exited (or there never was one)
   if (!defaultManager) {
     defaultManager = new DefaultDbHostManager();
   }
@@ -969,18 +981,33 @@ export async function closeDbHostManager(): Promise<void> {
   }
   const manager = defaultManager;
   if (!manager) {
+    // Same rule as a repeated close of one manager: no success while a host may be alive.
+    const unexited = unexitedDefaultManager;
+    if (unexited) {
+      await unexited.close();
+      if (unexitedDefaultManager === unexited) {
+        unexitedDefaultManager = null;
+      }
+    }
     return;
   }
-  closingDefaultManager = manager.retire().finally(() => {
-    if (defaultManager === manager) {
-      defaultManager = null;
-    }
-    closingDefaultManager = null;
-  });
+  closingDefaultManager = manager
+    .retire()
+    .catch((error: unknown) => {
+      unexitedDefaultManager = manager;
+      throw error;
+    })
+    .finally(() => {
+      if (defaultManager === manager) {
+        defaultManager = null;
+      }
+      closingDefaultManager = null;
+    });
   await closingDefaultManager;
 }
 
 export function resetDbHostManagerForTests(): void {
   defaultManager = null;
   closingDefaultManager = null;
+  unexitedDefaultManager = null;
 }

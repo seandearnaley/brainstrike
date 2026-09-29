@@ -296,7 +296,7 @@ describe('DbHostManager close ladder', () => {
       }
     );
 
-    it('still clears the default manager when its close fails', async () => {
+    it('replaces the default manager once its failed close has seen the host exit', async () => {
       const { closeDbHostManager, getDbHostManager } = await import('../../db-host-manager');
       const { DbHostCloseError } = await import('../../db-host-lifecycle-errors');
       const manager = getDbHostManager();
@@ -485,6 +485,71 @@ describe('DbHostManager close ladder', () => {
       const afterExit = observe(manager.close());
       host.emit('exit', 9);
       expect(await afterExit.outcome).toBe('resolved');
+    });
+  });
+
+  // `closeDbHostManager()` retires the default manager and, when it succeeds, drops it. A close that
+  // fails while the host may still be alive must not let a fresh manager fork over that host.
+  describe('a default manager whose close failed while its host may still be alive', () => {
+    async function failTheDefaultManagerClose() {
+      const { closeDbHostManager, getDbHostManager } = await import('../../db-host-manager');
+      const manager = getDbHostManager();
+      const diagnostics = manager.getDiagnostics();
+      const host = latestProcess();
+      host.reply(lastMessage(host, 'diagnostics'), {});
+      await diagnostics;
+      const closing = observe(closeDbHostManager());
+      host.reject(lastMessage(host, 'close'), 'boom');
+      // SIGKILL is sent (a no-op here) and the host does not exit within the budget.
+      await vi.advanceTimersByTimeAsync(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS);
+      expect(await closing.outcome).toMatchObject({
+        name: 'DbHostCloseError',
+        outcome: 'exit-timeout',
+      });
+      return { closeDbHostManager, getDbHostManager, host, manager };
+    }
+
+    it('is not replaced by a fresh manager, and forks nothing, until the host exits', async () => {
+      const { getDbHostManager, host, manager } = await failTheDefaultManagerClose();
+
+      expect(() => getDbHostManager()).toThrow(
+        'DB host is unavailable: the previous host has not exited and may still own the database.'
+      );
+      expect(forkMock).toHaveBeenCalledTimes(1);
+
+      host.emit('exit', 9);
+      await vi.advanceTimersByTimeAsync(0);
+      const next = getDbHostManager();
+      expect(next).not.toBe(manager);
+      const request = next.getDiagnostics();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(forkMock).toHaveBeenCalledTimes(2);
+      latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
+      await expect(request).resolves.toBeDefined();
+    });
+
+    it('rejects the refusal with DbHostUnavailableError', async () => {
+      const { getDbHostManager } = await failTheDefaultManagerClose();
+      const { DbHostUnavailableError } = await import('../../db-host-lifecycle-errors');
+
+      expect(() => getDbHostManager()).toThrow(DbHostUnavailableError);
+    });
+
+    it('never reports a repeated close as success while the host may still be alive', async () => {
+      const { closeDbHostManager, getDbHostManager, host } = await failTheDefaultManagerClose();
+
+      const repeated = observe(closeDbHostManager());
+      await vi.advanceTimersByTimeAsync(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS);
+      expect(repeated.settled()).toBe(true);
+      expect(await repeated.outcome).toMatchObject({
+        name: 'DbHostCloseError',
+        outcome: 'exit-timeout',
+      });
+
+      const afterExit = observe(closeDbHostManager());
+      host.emit('exit', 9);
+      expect(await afterExit.outcome).toBe('resolved');
+      expect(() => getDbHostManager()).not.toThrow();
     });
   });
 
