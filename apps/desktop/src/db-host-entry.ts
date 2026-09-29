@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/db';
 import {
   DB_HOST_ERROR_IDENTIFIER_FIELDS,
+  type DbHostCloseReason,
   type DbHostLiveStartResult,
   type DbHostQueryResult,
   type DbHostRequest,
@@ -15,6 +16,7 @@ import {
   type DbHostResponseEnvelope,
   type DbHostRowMode,
   type DbHostSerializedError,
+  type DbHostSignal,
   type DbHostToMainMessage,
   type DbHostTransactionStartResult,
 } from './db-host-protocol';
@@ -85,8 +87,29 @@ if (!parentPort) {
   throw new Error('DB host entry requires Electron utility process parentPort.');
 }
 
+/**
+ * `serving` until the first close begins; then `closing` -> `closed` or `close-failed`. A host
+ * that is not serving starts nothing: it answers diagnostics, joins a close, and rejects the rest.
+ */
+type HostLifecycle = 'serving' | 'closing' | 'closed' | 'close-failed';
+type ClosePhase = Exclude<HostLifecycle, 'serving'>;
+
+/**
+ * A tree teardown (tty group, concurrently's tree-kill, turbo, OS shutdown) signals every
+ * process in the tree, this host included, and main reaches its own database step last.
+ * Closing here at once turns that common unclean path into a clean one.
+ */
+const CLOSE_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const satisfies readonly DbHostSignal[];
+
 let activeTransactionId: string | null = null;
+let closePromise: Promise<void> | null = null;
+let closeReason: DbHostCloseReason = 'request';
 let draining = false;
+let exitAfterClose = false;
+// The envelope being handled, so a signal close can let it finish. Never the close envelope: it
+// is the closer itself, and the serial queue means nothing else is in flight while it runs.
+let inFlightEnvelope: Promise<void> | null = null;
+let lifecycle: HostLifecycle = 'serving';
 let pendingRequestSequence = 0;
 const pendingControlRequests: QueuedRequest[] = [];
 const pendingGeneralRequests: QueuedRequest[] = [];
@@ -471,6 +494,13 @@ async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:sta
   return result;
 }
 
+function describeDiagnostics(): unknown {
+  return {
+    ...getDatabaseDiagnostics(),
+    activeLiveQueryCount: liveQueries.size,
+  };
+}
+
 async function handleRequest(request: DbHostRequest): Promise<unknown> {
   switch (request.kind) {
     case 'init':
@@ -568,19 +598,14 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       return { inserted: true };
     }
     case 'diagnostics':
-      return {
-        ...getDatabaseDiagnostics(),
-        activeLiveQueryCount: liveQueries.size,
-      };
+      return describeDiagnostics();
     case 'reset':
       await unsubscribeAllLiveQueries();
       await resetLocalDatabase();
       activeTransactionId = null;
       return { reset: true };
     case 'close':
-      await unsubscribeAllLiveQueries();
-      await closeDatabase();
-      activeTransactionId = null;
+      await beginClose('request');
       return { closed: true };
     default:
       return throwUnknownRequestKind(request);
@@ -621,7 +646,7 @@ async function handleEnvelope(envelope: DbHostRequestEnvelope): Promise<void> {
 }
 
 function drainQueue(): void {
-  if (draining) {
+  if (draining || lifecycle !== 'serving') {
     return;
   }
   // PGlite runs through a single connection in this host. Serial dispatch keeps live-query,
@@ -632,10 +657,108 @@ function drainQueue(): void {
     return;
   }
   draining = true;
-  void handleEnvelope(envelope).finally(() => {
+  const running = handleEnvelope(envelope).finally(() => {
     draining = false;
+    inFlightEnvelope = null;
     drainQueue();
   });
+  inFlightEnvelope = envelope.request.kind === 'close' ? null : running;
+}
+
+const NOT_SERVING_TEXT = {
+  'close-failed': 'failed to close',
+  closed: 'is closed',
+  closing: 'is closing',
+} as const satisfies Record<ClosePhase, string>;
+
+/** Answers an envelope the host will not serve: diagnostics, a join of the close, or a typed rejection. */
+function answerWithoutServing(envelope: DbHostRequestEnvelope, phase: ClosePhase): void {
+  const { id, request } = envelope;
+  if (request.kind === 'diagnostics') {
+    postResponse(id, describeDiagnostics());
+    return;
+  }
+  if (request.kind === 'close') {
+    beginClose(closeReason).then(
+      () => postResponse(id, { closed: true }),
+      (error: unknown) => postError(id, error)
+    );
+    return;
+  }
+  postError(id, new Error(`DB host ${NOT_SERVING_TEXT[phase]} (${closeReason}).`));
+}
+
+function answerQueuedRequests(phase: ClosePhase): void {
+  for (const queue of [
+    pendingControlRequests,
+    pendingGeneralRequests,
+    pendingTransactionRequests,
+  ]) {
+    for (const { envelope } of queue.splice(0)) {
+      answerWithoutServing(envelope, phase);
+    }
+  }
+}
+
+async function closeWhenIdle(settled: Promise<void> | null): Promise<void> {
+  try {
+    // The statement already running answers its own caller; only the backlog behind it was rejected.
+    await settled;
+    await unsubscribeAllLiveQueries();
+    await closeDatabase();
+    activeTransactionId = null;
+    lifecycle = 'closed';
+    post({ kind: 'lifecycle', reason: closeReason, state: 'closed' });
+  } catch (error) {
+    lifecycle = 'close-failed';
+    postLog('error', 'DB host failed to close the database', {
+      error: serializeError(error),
+      reason: closeReason,
+    });
+    post({
+      error: serializeError(error),
+      kind: 'lifecycle',
+      reason: closeReason,
+      state: 'close-failed',
+    });
+    throw error;
+  } finally {
+    // Exit 0 ONLY after a successful close, so main can read the exit as a clean close.
+    if (exitAfterClose) {
+      process.exit(lifecycle === 'closed' ? 0 : 1);
+    }
+  }
+}
+
+/**
+ * Single-flight: the first caller starts the close, every later one joins it. Stops serving at
+ * once, rejects the queued backlog, lets the in-flight envelope finish, then closes PGlite
+ * through the same `closeDatabase()` a close envelope always used (it writes the
+ * clean-shutdown marker before releasing the lock).
+ */
+function beginClose(reason: DbHostCloseReason): Promise<void> {
+  if (closePromise) {
+    return closePromise;
+  }
+  lifecycle = 'closing';
+  closeReason = reason;
+  post({ kind: 'lifecycle', reason, state: 'closing' });
+  closePromise = closeWhenIdle(inFlightEnvelope);
+  answerQueuedRequests('closing');
+  return closePromise;
+}
+
+function onSignal(signal: DbHostSignal): void {
+  postLog('warn', `DB host received ${signal}`, { lifecycle });
+  if (lifecycle === 'closed' || lifecycle === 'close-failed') {
+    // Already over: a signal can neither reopen the database nor turn a failed close clean.
+    process.exit(lifecycle === 'closed' ? 0 : 1);
+  } else {
+    exitAfterClose = true;
+    // Not swallowed: `closeWhenIdle` has already logged the failure, announced `close-failed`,
+    // and exits 1 itself.
+    beginClose(signal).catch(() => undefined);
+  }
 }
 
 parentPort.on('message', (message: unknown) => {
@@ -644,6 +767,18 @@ parentPort.on('message', (message: unknown) => {
     postError('unknown', new Error('Malformed DB host request envelope.'));
     return;
   }
+  if (lifecycle !== 'serving') {
+    answerWithoutServing(envelope, lifecycle);
+    return;
+  }
   enqueueRequest(envelope);
   drainQueue();
 });
+
+// Persistent (`on`, never `once`): a dev tree delivers the same signal repeatedly, and a
+// once-listener would restore the default action after the first.
+for (const signal of CLOSE_SIGNALS) {
+  process.on(signal, () => {
+    onSignal(signal);
+  });
+}

@@ -4,18 +4,21 @@ import {
   DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS,
   DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS,
 } from './db-host-close-budget';
-import { DbHostCloseError } from './db-host-lifecycle-errors';
+import { DbHostCloseError, DbHostUnavailableError } from './db-host-lifecycle-errors';
+import { type DbHostSignal, isDbHostToMainMessage } from './db-host-protocol';
 
 const logger = createLogger('DbHostProcess');
 
 /**
  * The DB host utility process plus what closing it needs: an `exit` promise whose
- * listener is registered at fork (no exit is missed) and SIGKILL, which Electron's
- * `kill()` (SIGTERM only) cannot deliver.
+ * listener is registered at fork (no exit is missed), SIGKILL, which Electron's
+ * `kill()` (SIGTERM only) cannot deliver, and the signal the host announced it is
+ * closing itself on (a tree teardown signals every process, this host included).
  */
 export class DbHostProcess {
   readonly exited: Promise<number>;
   readonly handle: UtilityProcess;
+  #closedBySignal: DbHostSignal | null = null;
   #exitCode: number | undefined;
   #pid: number | undefined;
 
@@ -35,6 +38,24 @@ export class DbHostProcess {
       this.#exitCode = code;
       resolveExit(code);
     });
+    handle.on('message', (message: unknown) => {
+      if (
+        isDbHostToMainMessage(message) &&
+        message.kind === 'lifecycle' &&
+        message.state === 'closing' &&
+        message.reason !== 'request'
+      ) {
+        this.#closedBySignal = message.reason;
+      }
+    });
+  }
+
+  /**
+   * Set once the host closed itself on a signal aimed at it (main's own close is not one). A
+   * replacement would silently re-open the database behind whoever signalled it.
+   */
+  get unavailableAfterSignal(): DbHostUnavailableError | null {
+    return this.#closedBySignal && DbHostUnavailableError.closedBySignal(this.#closedBySignal);
   }
 
   /** `undefined` until the process has exited. */

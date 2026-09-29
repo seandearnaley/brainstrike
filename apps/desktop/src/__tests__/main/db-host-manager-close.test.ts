@@ -730,4 +730,72 @@ describe('DbHostManager close ladder', () => {
       expect(forkMock).toHaveBeenCalledTimes(1);
     });
   });
+  describe('a host that closed itself on a signal', () => {
+    const announce = (
+      host: FakeUtilityProcess,
+      state: 'closed' | 'closing',
+      reason: 'SIGINT' | 'SIGTERM' | 'request'
+    ): void => {
+      host.emit('message', { kind: 'lifecycle', reason, state });
+    };
+
+    it('rejects the next request with DbHostUnavailableError naming the signal, and never forks a replacement', async () => {
+      const { DbHostUnavailableError } = await import('../../db-host-lifecycle-errors');
+      const { host, manager } = await openManager();
+      announce(host, 'closing', 'SIGINT');
+      announce(host, 'closed', 'SIGINT');
+      exitHost(host, 0);
+
+      const error = await manager.getDiagnostics().then(
+        () => null,
+        (rejection: unknown) => rejection
+      );
+
+      expect(error).toBeInstanceOf(DbHostUnavailableError);
+      expect((error as Error).message).toBe(
+        'DB host is unavailable: it closed after receiving SIGINT; restart BrainStrike.'
+      );
+      // The same gate every entry point passes (`#admit()` / `getDatabase()`), not a parallel check.
+      await expect(manager.getDatabase()).rejects.toBeInstanceOf(DbHostUnavailableError);
+      expect(forkMock).toHaveBeenCalledTimes(1);
+      // The exited host is simply departed-and-exited: nothing waits on it, and a close is a no-op.
+      await expect(manager.close()).resolves.toBeUndefined();
+    });
+
+    it("answers a data request that reaches the closing host with the host's own typed rejection", async () => {
+      const { host, manager } = await openManager();
+      const diagnostics = observe(manager.getDiagnostics());
+      announce(host, 'closing', 'SIGINT');
+      host.reject(lastMessage(host, 'diagnostics'), 'DB host is closing (SIGINT).');
+
+      expect(await diagnostics.outcome).toMatchObject({ message: 'DB host is closing (SIGINT).' });
+    });
+
+    it('does not count a close main asked for as a signal closure: the next request forks a host', async () => {
+      const { host, manager } = await openManager();
+      announce(host, 'closing', 'request');
+      exitHost(host, 0);
+
+      const diagnostics = observe(manager.getDiagnostics());
+      expect(forkMock).toHaveBeenCalledTimes(2);
+      latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
+      expect(await diagnostics.outcome).toBe('resolved');
+    });
+
+    it('does not count the SIGTERM main itself sends during its close ladder', async () => {
+      const { host, manager } = await openManager();
+      const closing = observe(manager.close());
+      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_ACK_TIMEOUT_MS);
+      // The ack timed out, so main SIGTERMed the host; it closes on that signal and exits 0.
+      announce(host, 'closing', 'SIGTERM');
+      await seedMarker({ pid: 42 });
+      exitHost(host, 0);
+      expect(await closing.outcome).toBe('resolved');
+
+      const diagnostics = observe(manager.getDiagnostics());
+      expect(forkMock).toHaveBeenCalledTimes(2);
+      latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
+      expect(await diagnostics.outcome).toBe('resolved');
+    });
+  });
 });

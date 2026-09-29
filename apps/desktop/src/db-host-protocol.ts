@@ -128,7 +128,26 @@ export interface DbHostLogEnvelope {
   readonly message: string;
 }
 
+/** The signals the DB host closes its own database on. */
+export type DbHostSignal = 'SIGHUP' | 'SIGINT' | 'SIGTERM';
+
+/** Why the host closed: main asked (`request`), or the host itself received a signal. */
+export type DbHostCloseReason = 'request' | DbHostSignal;
+
+/**
+ * The host's close, as it happens: `closing` when it stops serving, then `closed` or
+ * `close-failed`. Announced so main can tell a host that closed itself (a signal aimed at
+ * it, not at main) from one it closed, and never silently fork a replacement.
+ */
+export interface DbHostLifecycleEnvelope {
+  readonly error?: DbHostSerializedError;
+  readonly kind: 'lifecycle';
+  readonly reason: DbHostCloseReason;
+  readonly state: 'closing' | 'closed' | 'close-failed';
+}
+
 export type DbHostToMainMessage =
+  | DbHostLifecycleEnvelope
   | DbHostLiveUpdateEnvelope
   | DbHostLogEnvelope
   | DbHostResponseEnvelope;
