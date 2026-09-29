@@ -502,8 +502,9 @@ Rules:
   aborts visibly before BM25 writes begin.
 - Any future extension or PGlite bump must change the exact migration guard, move the
   whole peer-compatible family, pass repeated runs of the opt-in durability gate
-  (`pnpm --filter @brainstrike/db test:pg-textsearch-durability`) on every supported
-  desktop platform, and pass the normal migration/repository suite. A bump whose
+  (`test:pg-textsearch-durability`) on every supported desktop platform, pass the SIGKILL
+  crash gate at 200 iterations on every shipped platform (nightly job `SIGKILL crash
+  gate`, `test:crash-gate`), and pass the normal migration/repository suite. A bump whose
   published tarballs are byte-identical apart from their own version and peer pin
   carries the qualification forward — re-derive that by diffing payloads, never assume.
 - BM25 orders but never matches: the lexical arm matches through migration 034's
@@ -515,7 +516,7 @@ Rules:
   first open after an unclean shutdown, before migrations, and records it as
   `crashRecoveryIndexRebuild` in the diagnostics; a failed rebuild fails the open as
   `corruption` and never resets. A new index access method joins that list unless the SIGKILL
-  crash gate (BST-1875) proves it recovers; a pg_textsearch >= 1.4.0 bump re-derives this rule.
+  crash gate proves it recovers; a pg_textsearch >= 1.4.0 bump re-derives this rule.
   Web is out of scope: browser PGlite has no process-kill crash mode of this kind.
 - When the exact English `plain` arm returns zero rows, all three file-chunk
   repositories may run ONE bounded `pg_trgm` fallback on the index-supported
@@ -551,7 +552,7 @@ Settled: greenfield is the entire install population, so migration 066's guard p
 every install that will ever exist; extension qualification is macOS-arm64 only, with
 Linux/Windows owed. Evidence: `database/pg-textsearch-qualification.md`.
 Guard: `scripts/__tests__/pglite-factory-contract.test.mjs`,
-`packages/db/__tests__/pglite-factory.test.ts`,
+`packages/db/__tests__/pglite-factory.test.ts`, `crash-injection-gate.integration.test.ts`,
 `pglite-factory.integration.test.ts`, `fts-search-options-contract.test.ts`,
 `file-chunk-repository.test.ts`, `crash-sensitive-indexes.integration.test.ts`,
 `apps/desktop/src/__tests__/main/db-main.pglite-factory.test.ts`, `db-main.crash-recovery.test.ts`.

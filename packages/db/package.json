@@ -95,6 +95,7 @@
     "test:browser": "vitest run --project browser",
     "test:coverage": "vitest run --project unit --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:coverage:db:shard": "node ../../scripts/run-env.mjs DB_TEST_SHARD_REQUIRED=true -- vitest run --project unit --coverage --coverage.reporter=text --reporter=default --reporter=blob --reporter=@brainstrike/test-utils/vitest-lost-file-reporter",
+    "test:crash-gate": "vitest run --project unit --reporter=verbose --reporter=@brainstrike/test-utils/vitest-lost-file-reporter --disableConsoleIntercept __tests__/crash-injection-gate.integration.test.ts",
     "test:pg-textsearch-durability": "node ../../scripts/run-env.mjs TEST_ENABLE_PG_TEXTSEARCH_DURABILITY=true -- vitest run --project unit --reporter=verbose --reporter=@brainstrike/test-utils/vitest-lost-file-reporter --disableConsoleIntercept __tests__/pg-textsearch-durability-gate.integration.test.ts",
     "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
