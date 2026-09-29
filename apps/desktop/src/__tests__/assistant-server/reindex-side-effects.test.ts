@@ -46,6 +46,11 @@ const editArgs = {
   workspacePath: '/src/a.ts',
 };
 
+/** What Postgres raises for a corrupt page; the classifier reads only this `code`. */
+function createCorruptionError(): Error {
+  return Object.assign(new Error('invalid page in block 9'), { code: 'XX001' });
+}
+
 function containDatabase(): void {
   getDesktopDatabaseIntegrity().contain('db:query', {
     message: 'invalid page in block 3',
@@ -175,6 +180,29 @@ describe('assistant re-index side effects under database integrity containment',
     expect(reindexEditedFileMock).toHaveBeenCalledOnce();
   });
 
+  it('contains an integrity error raised by the post-edit re-index and still logs it', async () => {
+    reindexEditedFileMock.mockRejectedValueOnce(createCorruptionError());
+
+    await expect(triggerEditedFileReindex(editArgs)).resolves.toBeUndefined();
+
+    expect(getDesktopDatabaseIntegrity().getSnapshot().state).toMatchObject({
+      context: 'assistant:reindex',
+      kind: 'contained',
+      signal: { sqlstate: 'XX001' },
+    });
+    expect(
+      captured.filter((record) => record.level === LogLevel.ERROR).map((record) => record.message)
+    ).toEqual(['Failed to re-index edited file; RAG index may be stale until next sync']);
+  });
+
+  it('leaves the state healthy when the re-index fails for another reason', async () => {
+    reindexEditedFileMock.mockRejectedValueOnce(new Error('disk full'));
+
+    await expect(triggerEditedFileReindex(editArgs)).resolves.toBeUndefined();
+
+    expect(getDesktopDatabaseIntegrity().getSnapshot().state).toEqual({ kind: 'healthy' });
+  });
+
   it('resumes re-indexing once the database has been replaced', async () => {
     containDatabase();
     getDesktopDatabaseIntegrity().markDatabaseReplaced('factory-reset');
@@ -270,6 +298,34 @@ describe('assistant re-index side effects close the containment window', () => {
     expect(db.transaction).not.toHaveBeenCalled();
     expect(levelMessages(LogLevel.WARN)).toEqual([SKIP_MESSAGE]);
     expect(levelMessages(LogLevel.ERROR)).toEqual([]);
+  });
+
+  it('contains an integrity error raised while invalidating index rows and still reports it', async () => {
+    const corruption = createCorruptionError();
+    getDatabaseMock.mockResolvedValue({
+      query: vi.fn(async () => {
+        throw corruption;
+      }),
+      transaction: vi.fn(async () => {
+        throw corruption;
+      }),
+    });
+
+    await expect(
+      triggerFileDeletionInvalidation({
+        rootId: 'root-1',
+        runtimeData,
+        workspacePath: '/src/a.ts',
+      })
+    ).resolves.toEqual({ invalidated: false });
+
+    expect(getDesktopDatabaseIntegrity().getSnapshot().state).toMatchObject({
+      context: 'assistant:reindex',
+      kind: 'contained',
+    });
+    expect(levelMessages(LogLevel.ERROR)).toEqual([
+      'Failed to invalidate index rows for a removed/renamed file; RAG index may be stale until next sync',
+    ]);
   });
 
   it('does not invalidate index rows when containment begins while getDatabase is pending', async () => {

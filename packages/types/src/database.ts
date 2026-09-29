@@ -54,11 +54,7 @@ export type DatabaseInitFailureCategory =
   | 'migration'
   | 'unknown';
 
-export type DatabaseInitStage =
-  | 'load-extensions'
-  | 'open-database'
-  | 'migration'
-  | 'runtime-corruption-recovery';
+export type DatabaseInitStage = 'load-extensions' | 'open-database' | 'migration';
 
 export interface DatabaseInitFailureSnapshot {
   category: DatabaseInitFailureCategory;
@@ -82,10 +78,7 @@ export interface DatabaseDiagnosticsSnapshot {
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;
   lastInitializationStartedAt: string | null;
   lastInitializationSucceededAt: string | null;
-  lastRuntimeCorruptionAt: string | null;
-  lastRuntimeCorruptionContext: string | null;
   nodeEnv: string | null;
-  runtimeCorruptionRecoveryCount: number;
 }
 
 /** SQLSTATEs the runtime treats as database integrity errors: `XX001` data_corrupted, `XX002` index_corrupted. */

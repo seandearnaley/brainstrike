@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron';
 import { vi } from 'vitest';
+import { getDesktopDatabaseIntegrity } from '../../database-integrity-state';
 export function createWindowWithWebContents(sender: {
   id?: number;
   isDestroyed?: () => boolean;
@@ -20,14 +21,13 @@ const {
   mockDb,
   browserWindowMock,
   applyManagedCacheBatchMock,
+  insertChunksAndEnqueueEmbeddingJobsMock,
   invalidateManagedCacheEntriesByIdentityMock,
   parseManagedCacheBatchArgsMock,
   parseManagedCacheInvalidationsArgsMock,
   getDatabaseMock,
   loggerWarn,
   loggerDebug,
-  isCorruptionErrorMock,
-  handleRuntimeCorruptionMock,
   resetLocalDatabaseMock,
   closeDatabaseMock,
   resetDesktopApplicationDataMock,
@@ -56,6 +56,7 @@ const {
     getAllWindows: vi.fn(() => []),
   });
   const applyManagedCacheBatchMock = vi.fn(async () => undefined);
+  const insertChunksAndEnqueueEmbeddingJobsMock = vi.fn(async () => undefined);
   const invalidateManagedCacheEntriesByIdentityMock = vi.fn(async () => ({
     canceledEmbeddingJobCount: 0,
     deletedChunkIds: [],
@@ -106,10 +107,6 @@ const {
   const getDatabaseMock = vi.fn(() => mockDb);
   const loggerWarn = vi.fn();
   const loggerDebug = vi.fn();
-  // Matches the isCorruptionError(error) signature of database-corruption-classifier
-  // so tests can install error-discriminating implementations.
-  const isCorruptionErrorMock = vi.fn((_error: unknown) => false);
-  const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
   const storageClearMock = vi.fn(async () => undefined);
   const closeDatabaseMock = vi.fn();
@@ -162,14 +159,12 @@ const {
     lastInitializationFailure: null,
     lastInitializationStartedAt: '2026-02-15T00:00:00.000Z',
     lastInitializationSucceededAt: '2026-02-15T00:00:01.000Z',
-    lastRuntimeCorruptionAt: null,
-    lastRuntimeCorruptionContext: null,
     nodeEnv: 'test',
-    runtimeCorruptionRecoveryCount: 0,
   }));
   const getDbHostManagerMock = vi.fn(() => ({
     applyManagedCacheBatch: applyManagedCacheBatchMock,
     getDiagnostics: getDatabaseDiagnosticsMock,
+    insertChunksAndEnqueueEmbeddingJobs: insertChunksAndEnqueueEmbeddingJobsMock,
     invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityMock,
   }));
   return {
@@ -186,10 +181,9 @@ const {
     getDatabaseDiagnosticsMock,
     getDatabaseMock,
     getDbHostManagerMock,
-    handleRuntimeCorruptionMock,
     handlers,
+    insertChunksAndEnqueueEmbeddingJobsMock,
     invalidateManagedCacheEntriesByIdentityMock,
-    isCorruptionErrorMock,
     loggerDebug,
     loggerWarn,
     mockDb,
@@ -215,10 +209,9 @@ export {
   getDatabaseDiagnosticsMock,
   getDatabaseMock,
   getDbHostManagerMock,
-  handleRuntimeCorruptionMock,
   handlers,
+  insertChunksAndEnqueueEmbeddingJobsMock,
   invalidateManagedCacheEntriesByIdentityMock,
-  isCorruptionErrorMock,
   loggerDebug,
   loggerWarn,
   mockDb,
@@ -342,14 +335,7 @@ vi.mock('../../db-main', () => ({
   closeDatabase: closeDatabaseMock,
   getDatabase: getDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
-  handleRuntimeCorruption: handleRuntimeCorruptionMock,
   resetLocalDatabase: resetLocalDatabaseMock,
-}));
-
-// Forces the corruption branch per test; classification itself is covered by
-// database-corruption-classifier.test.ts.
-vi.mock('../../database-corruption-classifier', () => ({
-  isCorruptionError: isCorruptionErrorMock,
 }));
 
 vi.mock('../../db-host-manager', () => ({
@@ -439,12 +425,10 @@ import '../../main';
 
 export async function resetDatabaseIpcHandlerMocks(): Promise<void> {
   vi.clearAllMocks();
-  // clearAllMocks intentionally preserves queued mock implementations. Reset
-  // this classifier explicitly so a test that proves validation short-circuits
-  // before classification cannot leak its unused `mockReturnValueOnce(true)`
-  // into the next handler invocation.
-  isCorruptionErrorMock.mockReset();
-  isCorruptionErrorMock.mockReturnValue(false);
+  // Containment state outlives a test. main.ts holds this same singleton for its
+  // own wiring, so return it to healthy the way production does, rather than
+  // replacing the instance.
+  getDesktopDatabaseIntegrity().markDatabaseReplaced('developer-reset');
   const { resetDesktopDatabaseWorkSchedulerForTests, setBackgrounded } = await import(
     '../../ipc-handlers'
   );

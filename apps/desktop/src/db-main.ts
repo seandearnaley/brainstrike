@@ -205,9 +205,6 @@ interface DatabaseMutableState {
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;
   lastInitializationStartedAt: string | null;
   lastInitializationSucceededAt: string | null;
-  lastRuntimeCorruptionAt: string | null;
-  lastRuntimeCorruptionContext: string | null;
-  runtimeCorruptionRecoveryCount: number;
 }
 
 const mutableState: DatabaseMutableState = {
@@ -218,9 +215,6 @@ const mutableState: DatabaseMutableState = {
   lastInitializationFailure: null,
   lastInitializationStartedAt: null,
   lastInitializationSucceededAt: null,
-  lastRuntimeCorruptionAt: null,
-  lastRuntimeCorruptionContext: null,
-  runtimeCorruptionRecoveryCount: 0,
 };
 
 function isUtilityProcessRuntime(): boolean {
@@ -525,7 +519,7 @@ function createResetBackup(appDataDir: string): string | null {
     //
     // CONSEQUENCE: because the `.bak` is excluded here AND the reset then
     // `rmSync`s the whole appDataDir (see resetLocalDatabaseInternal), an
-    // engine-upgrade `.bak` does NOT survive a reset — a corruption-recovery reset
+    // engine-upgrade `.bak` does NOT survive a reset — a user-confirmed reset
     // landing inside the 14-day retention window destroys the moved-aside old DB
     // with no surviving copy. This is intentional: a reset is an explicit nuke of
     // the profile, and the old dir is unopenable anyway; the retention guarantee is
@@ -901,10 +895,7 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
       : null,
     lastInitializationStartedAt: mutableState.lastInitializationStartedAt,
     lastInitializationSucceededAt: mutableState.lastInitializationSucceededAt,
-    lastRuntimeCorruptionAt: mutableState.lastRuntimeCorruptionAt,
-    lastRuntimeCorruptionContext: mutableState.lastRuntimeCorruptionContext,
     nodeEnv: process.env['NODE_ENV'] ?? null,
-    runtimeCorruptionRecoveryCount: mutableState.runtimeCorruptionRecoveryCount,
   };
 }
 
@@ -920,9 +911,6 @@ export function __resetDatabaseModuleStateForTests(): void {
   mutableState.lastInitializationStartedAt = null;
   mutableState.lastInitializationSucceededAt = null;
   mutableState.lastInitializationFailure = null;
-  mutableState.runtimeCorruptionRecoveryCount = 0;
-  mutableState.lastRuntimeCorruptionAt = null;
-  mutableState.lastRuntimeCorruptionContext = null;
   mutableState.cachedDatabaseProfile = null;
   mutableState.cachedGitProfileContext = undefined;
 }
@@ -1279,22 +1267,6 @@ export async function reinitializeDatabase(): Promise<DesktopDatabase> {
 }
 
 /**
- * Handle runtime corruption detected during query execution.
- * Resets the database and reinitializes, returning the new database instance.
- * This is meant to be called from IPC handlers when they catch corruption errors.
- */
-async function handleLocalRuntimeCorruption(context: string): Promise<DesktopDatabase> {
-  mutableState.runtimeCorruptionRecoveryCount += 1;
-  mutableState.lastRuntimeCorruptionAt = new Date().toISOString();
-  mutableState.lastRuntimeCorruptionContext = context;
-  logger.warn(`Runtime corruption detected during ${context}. Resetting database...`);
-  await safeCloseDatabase();
-  await resetLocalDatabaseInternal();
-  logger.info('Database reset complete after runtime corruption. Reinitializing...');
-  return await initializeLocalMainDatabase();
-}
-
-/**
  * Reset local database by removing the active profile directory and closing any open connection.
  * This deletes the profile-scoped pgdata and lock files while leaving other profiles untouched.
  * Next access will lazily recreate and migrate from scratch.
@@ -1365,24 +1337,6 @@ export async function closeDatabase(): Promise<void> {
     return;
   }
   await closeRemoteDbHostManager();
-}
-
-export async function handleRuntimeCorruption(context: string): Promise<DesktopDatabase> {
-  if (isUtilityProcessRuntime()) {
-    return await handleLocalRuntimeCorruption(context);
-  }
-  mutableState.runtimeCorruptionRecoveryCount += 1;
-  mutableState.lastRuntimeCorruptionAt = new Date().toISOString();
-  mutableState.lastRuntimeCorruptionContext = context;
-  logger.warn(
-    `Runtime corruption detected during ${context}. Terminating the DB host and replacing its database...`
-  );
-  // Closing the utility process rejects every queued request and invalidates
-  // every live-query client. An in-process reset would leave requests queued
-  // behind the reset free to execute against the empty replacement database.
-  await resetLocalDatabase();
-  logger.info('DB host replacement complete after runtime corruption. Reinitializing...');
-  return await getDatabase();
 }
 
 export async function resetLocalDatabase(): Promise<void> {

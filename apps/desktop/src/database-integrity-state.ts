@@ -3,13 +3,12 @@
  * Electron imports.
  *
  * This is the containment design: an integrity error must never delete,
- * replace or reset the database. The runtime entry points switch to it in
- * BST-1870 layer 4; until then nothing calls `contain()` and runtime recovery
- * still replaces the database. The first classified error moves `healthy` to
- * `contained`; from then on background database work is paused (the scheduler
- * gate and the quiet owner-level pauses read this state) while foreground work
- * continues. The transitions are synchronous, so each is a compare-and-set —
- * that is the single-flight.
+ * replace or reset the database. Every runtime entry point contains through
+ * {@link containDatabaseIntegrityError}. The first classified error moves
+ * `healthy` to `contained`; from then on background database work is paused
+ * (the scheduler gate and the quiet owner-level pauses read this state) while
+ * foreground work continues. The transitions are synchronous, so each is a
+ * compare-and-set — that is the single-flight.
  *
  * State returns to `healthy` in exactly two ways: a process restart, or a
  * user-confirmed database replacement (factory reset / developer reset) that
@@ -192,7 +191,7 @@ function describeDatabaseIntegrityError(detail: DatabaseIntegrityErrorDetail): s
 export function containDatabaseIntegrityError(
   context: DatabaseIntegrityContext,
   error: unknown,
-  integrity: DesktopDatabaseIntegrity = getDesktopDatabaseIntegrity()
+  integrity: Pick<DesktopDatabaseIntegrity, 'contain'> = getDesktopDatabaseIntegrity()
 ): DatabaseIntegrityError | null {
   // Already contained by an inner layer: pass it through, so an outer catch never
   // re-classifies it through its `cause` and wraps it a second time.
