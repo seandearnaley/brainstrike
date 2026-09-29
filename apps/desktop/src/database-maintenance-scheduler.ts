@@ -1,12 +1,14 @@
 import {
   type DatabaseWorkRunOptions,
   DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS,
+  isBackgroundDatabaseWorkAdmitted,
   runScheduledDatabaseMaintenance,
   type ScheduledDatabaseMaintenanceOptions,
   type ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
 import type { Effect, Scope } from 'effect';
 import { isCorruptionError } from './database-corruption-classifier';
+import type { DesktopDatabaseIntegrity } from './database-integrity-state';
 import {
   type RuntimeDatabaseCorruptionHandler,
   recoverRuntimeDatabaseCorruption,
@@ -71,6 +73,7 @@ interface MaintenanceLogger {
 export type DesktopDatabaseMaintenanceSkipReason =
   | 'already-running'
   | 'assistant-work-in-flight'
+  | 'database-integrity-contained'
   | 'database-scheduler-busy'
   | 'database-scheduler-recently-busy';
 
@@ -102,6 +105,11 @@ export interface DesktopDatabaseMaintenanceSchedulerOptions {
   readonly getDatabase: () => Promise<MaintenanceDb>;
   readonly getSchedulerSnapshot: () => SchedulerSnapshot;
   readonly initialDelayMs?: number;
+  /**
+   * Required, never defaulted: a pass must not run while background database
+   * work is paused by an integrity error (BST-1870).
+   */
+  readonly integrity: Pick<DesktopDatabaseIntegrity, 'contain' | 'getSnapshot'>;
   readonly intervalMs?: number;
   readonly logger: MaintenanceLogger;
   readonly maintenanceOptions?: ScheduledDatabaseMaintenanceOptions;
@@ -189,6 +197,16 @@ export function createDesktopDatabaseMaintenanceScheduler(
   const runOnce = async (): Promise<DesktopDatabaseMaintenanceRunResult> => {
     if (maintenanceInFlight) {
       return createSkippedResult('already-running', now);
+    }
+    // Containment pauses background writes; skip before reading anything so a
+    // paused database costs one info line per tick and no lane or DB work.
+    const integritySnapshot = options.integrity.getSnapshot();
+    if (!isBackgroundDatabaseWorkAdmitted(integritySnapshot.state)) {
+      options.logger.info(
+        { integrityState: integritySnapshot.state.kind, revision: integritySnapshot.revision },
+        'Skipped scheduled database maintenance because database integrity containment is active'
+      );
+      return createSkippedResult('database-integrity-contained', now);
     }
     const snapshot = options.getSchedulerSnapshot();
     // Fold the current sample in first: the subscription only fires on change,

@@ -171,12 +171,22 @@ Guard: `packages/db/__tests__/managed-cache-batch-parameter-limit.test.ts`.
 - Run-scoped work must be ON the scheduler, so a run started during a statement waits there instead of timing out at the host.
 - A maintenance failure matching `isCorruptionError` enters runtime corruption recovery with context `'maintenance'`;
   any other maintenance failure is only logged (`platform-contracts.md` § RUNTIME DATABASE CORRUPTION RECOVERY).
+- While the integrity state is not `healthy` (`isBackgroundDatabaseWorkAdmitted`), the desktop scheduler
+  rejects every new and queued `background` task with `DatabaseIntegrityError`; `foreground`/`normal` run.
+  Reject, never hold: a held task never settles and shutdown's idle join times out.
+- Both maintenance passes then skip with `database-integrity-contained`. Backfills are canceled at
+  containment and refused after; their HNSW recovery is retained, not run (maintenance reconciles the
+  durable suspension). Assistant re-index skips with a warning (delete reports `indexInvalidated: false`)
+  and writes through a `background` scheduled handle, so containment starting mid-flight is rejected.
 
 Settled: boot evidence, not row age, proves an orphaned row is dead — age is a
 guess that can kill live work, and neither table carries a heartbeat. Evidence: `database/maintenance-admission.md`.
 Guard: `apps/desktop/src/__tests__/dimension-index-maintenance-scheduler.test.ts`
-("admission"), `database-maintenance-scheduler.test.ts` ("assistant work
-admission"), `maintenance-admission.test.ts`,
+("admission", "integrity containment"), `database-maintenance-scheduler.test.ts` ("assistant work
+admission", "integrity containment"), `database-integrity-state.test.ts`,
+`database-integrity-containment.test.ts`, `platform/desktop-database-work.test.ts` ("containment gate"),
+`main/embedding-backfill.test.ts` ("database integrity containment"),
+`assistant-server/reindex-side-effects.test.ts`, `maintenance-admission.test.ts`,
 `maintenance-admission.integration.test.ts`,
 `packages/db/__tests__/thread-run-startup-reaper.integration.test.ts`,
 `packages/db/__tests__/dimension-index-maintenance.test.ts` (persisted recovery), `apps/desktop/src/__tests__/main/boot-order.test.ts` (exclusive boot order).

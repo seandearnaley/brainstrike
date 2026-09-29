@@ -112,7 +112,9 @@ const CONTRACT_LINE_BUDGETS = {
   // changing a location, the precedence or the host handoff must meet those
   // rules first. The incident, the vendor citations and the open points went
   // to `database/desktop-database-location.md`.
-  'database.md': 908,
+  // BST-1870 L2b raised it from 908 (+10): the integrity-containment
+  // background pause is a new scheduler rule with its guards; L4 re-pins.
+  'database.md': 918,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
