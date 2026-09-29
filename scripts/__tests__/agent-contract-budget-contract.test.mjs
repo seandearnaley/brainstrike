@@ -118,7 +118,9 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1871 (part b) raised it from 918 (+6): the crash-sensitive index rule replaces the
   // one-bullet pointer with what an agent must obey before adding an index access method;
   // its measurements went to `database/pg-textsearch-qualification.md`.
-  'database.md': 924,
+  // BST-1877 raised it from 924 (+2): the durability registry gains a non-throwing lookup
+  // for verification, and its one rule (report, never act on it) belongs beside the throwing one.
+  'database.md': 926,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
