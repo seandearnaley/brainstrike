@@ -34,6 +34,13 @@ export {
 } from './crash-sensitive-indexes.js';
 export * from './database-integrity.js';
 export {
+  type DiagnosedTable,
+  diagnoseDatabaseIntegrity,
+  type IntegrityDiagnosis,
+  type IntegrityDiagnosisOptions,
+  type UncheckedRelation,
+} from './database-integrity-diagnosis.js';
+export {
   classifyFindingSeverity,
   type FindingSeverity,
   INTEGRITY_CHECKS,
