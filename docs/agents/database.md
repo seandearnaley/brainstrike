@@ -441,10 +441,10 @@ Evidence: `database/managed-worktree-ledger.md`.
   runs, user toggles) is never truncated by automated repair and is in every portable
   export. `derived` may be truncated and rebuilt; `operational` may be truncated without
   a rebuild; `schema-ledger` is never truncated and always exported.
-- `derived` requires `rebuildOwner` (`path/to/file.ts#symbol`), the existing code path
-  that repopulates it automatically; the union type enforces it and the guard resolves
-  the symbol. No automatic rebuild path means not derived. Why: repair truncates a
-  derived table trusting that rebuild.
+- `derived` requires `rebuildOwner` (`path/to/file.ts#symbol`), an existing automatic rebuild
+  path that the union type enforces and the guard resolves; no such path, not derived. Repair
+  truncates trusting it, so it first names any scope the owner cannot rebuild (`file_*`: only
+  the managed collection; manual imports need a re-import) to the user, never silently.
 - A new table is classified in the same change; the integration guard fails otherwise.
 - A precious table never has an `ON DELETE CASCADE` parent that is not precious. Why:
   truncating that parent would cascade into user data.
