@@ -33,11 +33,16 @@ describe('classifyFindingSeverity', () => {
     }
   );
 
-  it.each(DURABILITIES)('every index finding on a %s table is repairable', (durability) => {
-    for (const check of ['btree', 'gin', 'bm25-probe', 'hnsw-probe'] as const) {
-      expect(severity(check, 'index', durability), check).toBe('repairable');
+  it.each(DURABILITIES)(
+    'an index finding on a %s table is repairable in a user schema and blocking in the catalog',
+    (durability) => {
+      // Fail closed: only an index in a user schema can be rebuilt while the database stays up.
+      const expected: FindingSeverity = durability === 'catalog' ? 'blocking' : 'repairable';
+      for (const check of ['btree', 'gin', 'bm25-probe', 'hnsw-probe'] as const) {
+        expect(severity(check, 'index', durability), check).toBe(expected);
+      }
     }
-  });
+  );
 
   it.each(DURABILITIES)(
     'a database that would not open is blocking whatever the class (%s)',

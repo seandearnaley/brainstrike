@@ -48,16 +48,17 @@ export type FindingSeverity = 'repairable' | 'blocking';
 
 /**
  * Whether a finding can be repaired while the database stays in service.
- * Only an index, or a heap the registry says is rebuilt or disposable
- * (`derived`, `operational`), is `repairable`. Everything else is `blocking`:
- * a catalog, precious, schema-ledger or unclassified heap or row count, and a
- * database that would not open. The default is `blocking`, so a class added
- * later cannot become repairable by omission.
+ * Only an index in a user schema, or a heap the registry says is rebuilt or
+ * disposable (`derived`, `operational`), is `repairable`. Everything else is
+ * `blocking`: anything in the system catalog (the engine itself depends on it,
+ * so damage there fails closed), a precious, schema-ledger or unclassified heap
+ * or row count, and a database that would not open. The default is `blocking`,
+ * so a class added later cannot become repairable by omission.
  */
 export function classifyFindingSeverity(
   finding: Pick<RelationFinding, 'check' | 'durability' | 'relationKind'>
 ): FindingSeverity {
-  if (finding.check === 'open') {
+  if (finding.check === 'open' || finding.durability === 'catalog') {
     return 'blocking';
   }
   if (finding.relationKind === 'index') {
