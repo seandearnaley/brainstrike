@@ -5,19 +5,21 @@
  * non-fatal by contract — the mutation already succeeded, so failures are
  * logged (never swallowed, never propagated).
  *
- * Leaf module: depends on the database handle, the background-indexer seam,
- * and the shared file reader — never on `assistant-tools.ts`, so no import
- * cycle is possible.
+ * Leaf module: depends on the database handle, the desktop work scheduler, the
+ * background-indexer seam, and the shared file reader — never on
+ * `assistant-tools.ts`, so no import cycle is possible.
  */
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import {
+  createScheduledDbHandle,
   invalidateManagedCacheEntriesByIdentity,
   isBackgroundDatabaseWorkAdmitted,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
-import { getDesktopDatabaseIntegrity } from '../database-integrity-state';
+import { DatabaseIntegrityError, getDesktopDatabaseIntegrity } from '../database-integrity-state';
 import { getDatabase } from '../db-main';
+import { getDesktopDatabaseWorkScheduler } from '../platform/desktop-database-work-scheduler';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support';
 import { readWorkspaceTextFile } from './workspace-text-file-reader';
@@ -34,21 +36,45 @@ function toFileRecordRelativePath(workspacePath: string): string {
   return workspacePath.replace(/^\/+/, '');
 }
 
+const CONTAINMENT_SKIP_MESSAGE =
+  'Skipped re-index: database integrity containment is active; the Workspace Index may be stale';
+
 /**
- * These side effects write to the Workspace Index straight through
- * `getDatabase()`, bypassing the database work scheduler, so the scheduler's
- * integrity gate never sees them. While an integrity error is contained they
- * are background writes like any other: skip them, and say so — the edit or
- * delete already succeeded, and the index can only be stale (BST-1870).
+ * Index maintenance after an edit or delete is background database work, so
+ * while an integrity error is contained it is skipped — and said so: the edit
+ * or delete already succeeded, and the index can only be stale (BST-1870).
+ *
+ * This pre-check is one read. Containment can start while the helper awaits
+ * `getDatabase()` or between its own statements, so the actual database access
+ * goes through {@link openBackgroundDatabase}, whose statements the scheduler
+ * gates at their own start ({@link isPausedByDatabaseIntegrity}).
  */
 function skipsWhileDatabaseIntegrityContained(): boolean {
   if (isBackgroundDatabaseWorkAdmitted(getDesktopDatabaseIntegrity().getSnapshot().state)) {
     return false;
   }
-  logger.warn(
-    'Skipped re-index: database integrity containment is active; the Workspace Index may be stale'
-  );
+  logger.warn(CONTAINMENT_SKIP_MESSAGE);
   return true;
+}
+
+/**
+ * The database handle for index maintenance: every query and transaction is a
+ * `background` task on the desktop work scheduler, exactly like the embedding
+ * backfill's handle (`ipc-embedding-backfill.ts`, `createScheduledDbHandle` over
+ * `getDesktopDatabaseWorkScheduler()`). The scheduler's start-time gate then
+ * rejects each statement, including the write, once containment is active.
+ */
+async function openBackgroundDatabase(): Promise<ReindexDatabaseHandle> {
+  return createScheduledDbHandle(
+    await getDatabase(),
+    getDesktopDatabaseWorkScheduler(),
+    'background'
+  );
+}
+
+/** The scheduler gate refused a statement because containment began after the pre-check. */
+function isPausedByDatabaseIntegrity(error: unknown): boolean {
+  return error instanceof DatabaseIntegrityError && error.detail.reason === 'background-paused';
 }
 
 /**
@@ -83,7 +109,7 @@ export async function triggerEditedFileReindex(args: {
   }
   let db: ReindexDatabaseHandle;
   try {
-    db = await getDatabase();
+    db = await openBackgroundDatabase();
   } catch (error) {
     // DB unavailable (no DB initialized). Non-fatal and expected outside a
     // running app — log at debug so it is traceable without alarming.
@@ -106,6 +132,11 @@ export async function triggerEditedFileReindex(args: {
       workspaceIndexEmbeddingSetId: args.runtimeData?.workspaceIndexEmbeddingSetId,
     });
   } catch (error) {
+    if (isPausedByDatabaseIntegrity(error)) {
+      // Containment began after the pre-check: the gate refused the write.
+      logger.warn(CONTAINMENT_SKIP_MESSAGE);
+      return;
+    }
     // A resolvable DB that then fails to re-index is a genuine problem — surface
     // it (no silent swallow) but never fail the already-successful edit.
     logger.error('Failed to re-index edited file; RAG index may be stale until next sync', {
@@ -127,7 +158,8 @@ export async function triggerEditedFileReindex(args: {
  * No-op (returns false) when no Workspace Index is configured or the DB is
  * unavailable (as in the DB-less unit tests) — there is then nothing to keep
  * coherent. It also returns false, with a warning, while database integrity
- * containment pauses background writes: the index rows are then stale.
+ * containment pauses background writes — at the pre-check or when the scheduler
+ * gate refuses the write: the index rows are then stale.
  */
 export async function triggerFileDeletionInvalidation(args: {
   runtimeData: RuntimeData | undefined;
@@ -144,7 +176,7 @@ export async function triggerFileDeletionInvalidation(args: {
 
   let db: ReindexDatabaseHandle;
   try {
-    db = await getDatabase();
+    db = await openBackgroundDatabase();
   } catch (error) {
     logger.debug('Skipped index invalidation: database unavailable', {
       error: redactToolErrorForLog(error),
@@ -169,6 +201,10 @@ export async function triggerFileDeletionInvalidation(args: {
     );
     return { invalidated: result.deletedFileRecordIds.length > 0 };
   } catch (error) {
+    if (isPausedByDatabaseIntegrity(error)) {
+      logger.warn(CONTAINMENT_SKIP_MESSAGE);
+      return { invalidated: false };
+    }
     logger.error(
       'Failed to invalidate index rows for a removed/renamed file; RAG index may be stale until next sync',
       {

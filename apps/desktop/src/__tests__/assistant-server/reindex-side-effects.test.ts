@@ -9,7 +9,8 @@ const { getDatabaseMock, readWorkspaceTextFileMock, reindexEditedFileMock } = vi
 }));
 
 vi.mock('../../db-main', () => ({ getDatabase: getDatabaseMock }));
-vi.mock('../../assistant-server/reindex-edited-file', () => ({
+vi.mock('../../assistant-server/reindex-edited-file', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../assistant-server/reindex-edited-file')>()),
   reindexEditedFile: reindexEditedFileMock,
   statMtimeMs: vi.fn(async () => 1),
 }));
@@ -26,6 +27,7 @@ import {
   getDesktopDatabaseIntegrity,
   resetDesktopDatabaseIntegrityForTests,
 } from '../../database-integrity-state';
+import { resetDesktopDatabaseWorkSchedulerForTests } from '../../platform/desktop-database-work-scheduler';
 
 const SKIP_MESSAGE =
   'Skipped re-index: database integrity containment is active; the Workspace Index may be stale';
@@ -180,5 +182,113 @@ describe('assistant re-index side effects under database integrity containment',
     await triggerEditedFileReindex(editArgs);
 
     expect(reindexEditedFileMock).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * The pre-check alone is a one-time read: containment can start while the
+ * helper awaits `getDatabase()` or between its own statements. The writes go
+ * through the desktop work scheduler as `background` (the same
+ * `createScheduledDbHandle(db, getDesktopDatabaseWorkScheduler(), 'background')`
+ * the embedding backfill uses), so the scheduler's start-time gate rejects them.
+ */
+describe('assistant re-index side effects close the containment window', () => {
+  let captured: LogRecord[];
+  let removeListener: () => void;
+
+  beforeEach(async () => {
+    resetDesktopDatabaseIntegrityForTests();
+    resetDesktopDatabaseWorkSchedulerForTests();
+    getDatabaseMock.mockReset();
+    reindexEditedFileMock.mockReset();
+    const actual = await vi.importActual<
+      typeof import('../../assistant-server/reindex-edited-file')
+    >('../../assistant-server/reindex-edited-file');
+    reindexEditedFileMock.mockImplementation(actual.reindexEditedFile);
+    setLogLevel(LogLevel.INFO);
+    captured = [];
+    removeListener = addLogListener((record) => {
+      if (record.scope === 'DesktopAssistantTools') {
+        captured.push(record);
+      }
+    });
+  });
+
+  afterEach(() => {
+    removeListener();
+    resetDesktopDatabaseIntegrityForTests();
+  });
+
+  function createRawDatabase(onQuery?: () => void) {
+    return {
+      query: vi.fn(async () => {
+        onQuery?.();
+        return { rows: [{ id: 'fr-1' }] };
+      }),
+      transaction: vi.fn(async () => undefined),
+    };
+  }
+
+  function levelMessages(level: LogLevel): (string | undefined)[] {
+    return captured.filter((record) => record.level === level).map((record) => record.message);
+  }
+
+  it('writes through the scheduler while the database is healthy', async () => {
+    const db = createRawDatabase();
+    getDatabaseMock.mockResolvedValue(db);
+
+    await triggerEditedFileReindex(editArgs);
+
+    expect(db.transaction).toHaveBeenCalledOnce();
+    expect(levelMessages(LogLevel.WARN)).toEqual([]);
+    expect(levelMessages(LogLevel.ERROR)).toEqual([]);
+  });
+
+  it('does not write an edit when containment begins while getDatabase is pending', async () => {
+    const db = createRawDatabase();
+    const pending = Promise.withResolvers<typeof db>();
+    getDatabaseMock.mockReturnValue(pending.promise);
+
+    const run = triggerEditedFileReindex(editArgs);
+    containDatabase();
+    pending.resolve(db);
+    await run;
+
+    expect(db.query).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(levelMessages(LogLevel.WARN)).toEqual([SKIP_MESSAGE]);
+    expect(levelMessages(LogLevel.ERROR)).toEqual([]);
+  });
+
+  it('does not write an edit when containment begins during the file-record lookup', async () => {
+    const db = createRawDatabase(containDatabase);
+    getDatabaseMock.mockResolvedValue(db);
+
+    await triggerEditedFileReindex(editArgs);
+
+    expect(db.query).toHaveBeenCalledOnce();
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(levelMessages(LogLevel.WARN)).toEqual([SKIP_MESSAGE]);
+    expect(levelMessages(LogLevel.ERROR)).toEqual([]);
+  });
+
+  it('does not invalidate index rows when containment begins while getDatabase is pending', async () => {
+    const db = createRawDatabase();
+    const pending = Promise.withResolvers<typeof db>();
+    getDatabaseMock.mockReturnValue(pending.promise);
+
+    const run = triggerFileDeletionInvalidation({
+      rootId: 'root-1',
+      runtimeData,
+      workspacePath: '/src/a.ts',
+    });
+    containDatabase();
+    pending.resolve(db);
+
+    await expect(run).resolves.toEqual({ invalidated: false });
+    expect(db.query).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(levelMessages(LogLevel.WARN)).toEqual([SKIP_MESSAGE]);
+    expect(levelMessages(LogLevel.ERROR)).toEqual([]);
   });
 });
