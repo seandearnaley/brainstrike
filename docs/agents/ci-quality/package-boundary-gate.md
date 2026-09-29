@@ -71,3 +71,40 @@ is annotated, not rewritten: the bench must measure current text-splitter
 SOURCE, and `@brainstrike/text-splitter` exports only `./dist`, so the package
 specifier would silently benchmark a stale build. Expect to triage new findings
 this way on the next bump rather than assuming the tree regressed.
+
+## 2026-09-28: 2.11.4 rejected; 2.11.2 qualified
+
+The unchanged boundary suite passed all 12 tests with 2.10.12. With the
+2.11.4 binary it passed nine and failed three. Two failures reflect the new
+vendor exclusion of ignored generated output. The third is the substantive
+regression: `git add -f packages/alpha/dist/index.js` makes the undeclared import
+repository source, but 2.11.4 omits it and reports no issues. The wrapper exits
+zero because it receives no finding to classify. Its index-aware git check
+cannot restore a diagnostic that never arrived.
+
+[Upstream #14137](https://github.com/vercel/turborepo/pull/14137), introduced
+in [2.11.3](https://github.com/vercel/turborepo/releases/tag/v2.11.3), intersects
+candidate files with an ignore walker without consulting Git's index. This
+explains the observed 2.11.4 failure; 2.11.3 itself was not executed here.
+The inspected 2.11.4 documentation, CLI help, tagged source and boundary
+configuration expose no include-tracked or equivalent remedy. The contract
+blocks upgrades to >=2.11.3 until a vendor remedy passes the tracked-source control
+while ignored generated output remains excluded. Keep the wrapper and all
+existing assertions; do not rewrite ignore rules or suppress this test.
+
+[2.11.2](https://github.com/vercel/turborepo/releases/tag/v2.11.2) is the last
+stable release before that change. Its paired exact root pin and schema, plus
+seven vendor package records and seven snapshots, preserve every other entry
+in the complete baseline graph and the byte-identical workspace. Ordinary
+full nonfrozen acceptance explicitly skipped resolution and kept the prepared
+lock bytes; frozen acceptance also passed. The unchanged boundary suite passed
+all 12 tests. All 56 configuration, real persistent-concurrency, worktree cache
+collision, SCM locality, shard and native uncached guards passed. The complete
+49 advisory records remained identical; production audit stayed zero.
+
+The paired tracked-source test now also requires the raw vendor command to
+report the undeclared import before checking the wrapper. This names the
+condition that must hold before removing the release hold. No version-string
+test, weaker assertion, vendor patch or alternative checker is introduced.
+Required PR CI, completed review and actual postmerge proof remain separate
+delivery gates.

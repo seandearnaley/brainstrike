@@ -293,7 +293,7 @@ test('MONEY TEST: a violation that exists ONLY in git-ignored build output passe
     assert.notEqual(
       raw.status,
       0,
-      'raw `turbo boundaries` is expected to flag build output — if it no longer does, delete the wrapper instead of this test'
+      'raw `turbo boundaries` must scan build output; before removing the wrapper, prove tracked files under ignore patterns are judged'
     );
     assert.match(raw.stderr, /dist/, 'the raw finding must be the dist file');
 
@@ -333,6 +333,12 @@ test('a TRACKED file under dist/ is still judged — the rule is git, not the di
     'boundaries-tracked-',
     { generatedViolation: true, trackGenerated: true, violating: false },
     (dir) => {
+      // A wrapper cannot recover findings the vendor omitted. This control
+      // qualifies the vendor walk before clearing the >=2.11.3 release hold.
+      const raw = runBoundaries(dir);
+      assert.notEqual(raw.status, 0, 'the vendor must judge tracked source under ignore rules');
+      assert.match(`${raw.stdout}\n${raw.stderr}`, /undeclared-dep/);
+
       const gate = runGate(dir);
       assert.notEqual(
         gate.status,

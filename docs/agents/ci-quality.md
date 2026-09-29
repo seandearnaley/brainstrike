@@ -199,8 +199,8 @@ Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
   cannot pin to a git-ignored file fails. Keep it ahead of `dist/`-producing steps.
 - Deliberate crossings carry `// @boundaries-ignore <reason>` at the import.
   `architecture-domain-boundaries.mjs` owns cross-domain direction rules.
-- On a Turbo bump, recheck whether the walk became configurable and expect new
-  findings from wider analyzer reach.
+- Do not upgrade Turbo to >=2.11.3 until vendor walking judges tracked files
+  under ignore patterns; recheck the real tracked-source guard before upgrading.
 
 Settled: git decides what is generated. Evidence: `ci-quality/package-boundary-gate.md`.
 Guard: `scripts/__tests__/turbo-boundaries-gate.test.mjs`.
