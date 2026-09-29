@@ -1,6 +1,11 @@
 import type { BrowserWindow } from 'electron';
 import { vi } from 'vitest';
 import { getDesktopDatabaseIntegrity } from '../../database-integrity-state';
+import {
+  createAllowlistedSenderFrame,
+  createTrustedInvokeEvent,
+  trackTestWindowRole,
+} from '../helpers/desktop-ipc-sender-test-helpers';
 export function createWindowWithWebContents(sender: {
   id?: number;
   isDestroyed?: () => boolean;
@@ -13,6 +18,94 @@ export function createWindowWithWebContents(sender: {
       isDestroyed: sender.isDestroyed ?? (() => false),
     },
   } as unknown as BrowserWindow;
+}
+
+/** What Postgres raises for a corrupt page; the classifier reads only this `code`. */
+export function createCorruptionError(message = 'invalid page in block 42'): Error {
+  return Object.assign(new Error(message), { code: 'XX001' });
+}
+
+export function currentIntegrityState() {
+  return getDesktopDatabaseIntegrity().getSnapshot().state;
+}
+
+let nextAuthorizedSenderId = 800_000;
+
+/**
+ * Runs behavior tests through the production sender-authorization boundary
+ * without replacing caller-owned WebContents stand-ins. Live-query and
+ * scheduler tests depend on that object identity for ownership and host-role
+ * classification, so missing ids are added to the same object.
+ */
+export function createAuthorizedDbEvent(sender?: object): unknown {
+  if (!sender) {
+    return createTrustedInvokeEvent();
+  }
+  const candidate = sender as { id?: number };
+  if (candidate.id === undefined) {
+    candidate.id = nextAuthorizedSenderId++;
+  }
+  trackTestWindowRole(candidate.id, 'visible-ui');
+  return {
+    sender,
+    senderFrame: createAllowlistedSenderFrame('visible-ui'),
+  };
+}
+
+export interface FakeLiveQueryOwner {
+  emit: (event: string) => void;
+  id: number;
+  isDestroyed: ReturnType<typeof vi.fn>;
+  listenerCount: (event: string) => number;
+  on: (event: string, listener: () => void) => void;
+  removeListener: (event: string, listener: () => void) => void;
+  send: ReturnType<typeof vi.fn>;
+}
+
+/**
+ * A minimal WebContents stand-in with real add/remove listener semantics so
+ * reaper attachment, sibling-listener removal, and re-attachment after a reap
+ * are observable via `listenerCount` (mirrors the fs-watch reaper tests).
+ */
+export function createFakeLiveQueryOwner(id: number): FakeLiveQueryOwner {
+  const listeners = new Map<string, Array<() => void>>();
+  return {
+    emit: (event: string): void => {
+      // Snapshot before firing — the reap listener mutates the map mid-fire.
+      for (const listener of [...(listeners.get(event) ?? [])]) {
+        listener();
+      }
+    },
+    id,
+    isDestroyed: vi.fn(() => false),
+    listenerCount: (event: string): number => listeners.get(event)?.length ?? 0,
+    on: (event: string, listener: () => void): void => {
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+    },
+    removeListener: (event: string, listener: () => void): void => {
+      const remaining = (listeners.get(event) ?? []).filter((entry) => entry !== listener);
+      if (remaining.length === 0) {
+        listeners.delete(event);
+      } else {
+        listeners.set(event, remaining);
+      }
+    },
+    send: vi.fn(),
+  };
+}
+
+export function createLiveHandleMock(): {
+  initialResults: { rows: unknown[] };
+  refresh: ReturnType<typeof vi.fn>;
+  subscribe: ReturnType<typeof vi.fn>;
+  unsubscribe: ReturnType<typeof vi.fn>;
+} {
+  return {
+    initialResults: { rows: [] },
+    refresh: vi.fn(),
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+  };
 }
 
 // Hoist Electron and db mocks safely
