@@ -2,11 +2,14 @@
  * The one main-owned database integrity state (BST-1870). Node-safe: no
  * Electron imports.
  *
- * An integrity error never deletes, replaces or resets the database. The first
- * classified error moves `healthy` to `contained`; from then on background
- * database work is paused (the scheduler gate and the quiet owner-level pauses
- * read this state) while foreground work continues. The transitions are
- * synchronous, so each is a compare-and-set — that is the single-flight.
+ * This is the containment design: an integrity error must never delete,
+ * replace or reset the database. The runtime entry points switch to it in
+ * BST-1870 layer 4; until then nothing calls `contain()` and runtime recovery
+ * still replaces the database. The first classified error moves `healthy` to
+ * `contained`; from then on background database work is paused (the scheduler
+ * gate and the quiet owner-level pauses read this state) while foreground work
+ * continues. The transitions are synchronous, so each is a compare-and-set —
+ * that is the single-flight.
  *
  * State returns to `healthy` in exactly two ways: a process restart, or a
  * user-confirmed database replacement (factory reset / developer reset) that
