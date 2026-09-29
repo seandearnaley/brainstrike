@@ -383,15 +383,30 @@ both. It expects exit 0 within 10 s with no `forcing exit`, and the log to show
 `Received shutdown signal`, `Shutdown already in progress; ignoring signal` and `Graceful shutdown
 completed` (`trigger: signal`). The clean-shutdown marker must exist and name the HOST's pid (only
 the host writes it), and after `restart()` the next boot reads `previousShutdown: 'clean'` with the
-inserted row present. The host's own `DB host received SIGINT` log is not asserted: one run in four
-lacked it, because a host that exits promptly can lose the messages it posted just before exiting
-(the same holds for its `lifecycle` announcement, which is why the marker, not the message, is the
-proof of a clean close, and why the no-replacement guard is best effort). The negative control SIGKILLs main and then the host (main first, so a renderer request
-can never fork a replacement host in the gap): no marker, and the next boot reads `unclean`. A
-real-app run before the after-ready fix failed at `Received shutdown signal`, with the graceful run
-logged as `trigger: before-quit`. It runs in the regression project, not the smoke lane, and on
-macOS only so far. `ElectronHarness.endOutOfBand` marks such an exit intentional first, so
-`ElectronProcessExitGuard` does not fail the test for it.
+inserted row present.
+
+The host's own `DB host received SIGINT` log is not asserted: one run in four lacked it, because a
+host that exits promptly can lose the messages it posted just before exiting. Its `lifecycle`
+announcement can be lost the same way, which is why the marker, not a message, is the proof of a
+clean close and why the manager falls back to the marker when it decides not to fork a replacement.
+
+The negative control SIGKILLs main and then the host (main first, so a renderer request can never
+fork a replacement host in the gap): no marker, and the next boot reads `unclean`. The positive
+test waits for the process's `close` (stdout drained, so the log assertions see the whole run, and
+the DB host, which inherits main's stdio, must be gone too); the negative control waits for `exit`,
+because a SIGKILLed tree can leave a sibling holding the pipe open and `close` would then time out
+for a reason unrelated to the crash being simulated.
+
+A real-app run before the after-ready fix failed at `Received shutdown signal`, with the graceful
+run logged as `trigger: before-quit`. The spec runs in the regression project, not the smoke lane.
+It is skipped on Windows, which has no catchable POSIX signal (`process.kill` ends the process at
+once). It has only run on macOS: the first Linux regression run is the measurement for the
+after-ready listener replacement. `ElectronHarness.endOutOfBand` marks such an exit intentional
+first, so `ElectronProcessExitGuard` does not fail the test for it, and keeps the app until its
+exit is confirmed: if the test body throws or returns with the process still running, the harness
+SIGKILLs and awaits it before rethrowing, so a failed run cannot leak an Electron process. The
+spec asks for `LOG_LEVEL=info` through `test.use({ electronEnv })`, which the harness passes to
+every launch (restarts included) ahead of its own variables, never by mutating `process.env`.
 
 **Not done: Step 0.** It needs a person at the terminal (turbo/concurrently pgids, which process got
 which signal, ms from Ctrl-C to turbo's force kill). The E2E delivers the signal pattern instead. If
