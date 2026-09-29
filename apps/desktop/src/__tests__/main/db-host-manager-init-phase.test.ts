@@ -48,6 +48,7 @@ class FakeUtilityProcess extends EventEmitter {
 const forkMock = vi.hoisted(() => vi.fn());
 const loggerErrorMock = vi.hoisted(() => vi.fn());
 const loggerDebugMock = vi.hoisted(() => vi.fn());
+const loggerWarnMock = vi.hoisted(() => vi.fn());
 vi.mock('electron', () => ({
   app: { getPath: () => '/mock/userData', isPackaged: false },
   utilityProcess: { fork: forkMock },
@@ -62,7 +63,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
       fatal: vi.fn(),
       info: vi.fn(),
       trace: vi.fn(),
-      warn: vi.fn(),
+      warn: loggerWarnMock,
     }),
   };
 });
@@ -100,6 +101,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   loggerErrorMock.mockReset();
   loggerDebugMock.mockReset();
+  loggerWarnMock.mockReset();
   forkMock.mockReset().mockImplementation(() => new FakeUtilityProcess());
   killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
 });
@@ -265,6 +267,23 @@ it('drops a valid progress report for a request no longer in flight, before the 
   host.reply(host.initRequest, {});
   await vi.advanceTimersByTimeAsync(0);
   await init;
+});
+
+it('keeps only the known fields of a report, so extra host text never reaches the timeout log or the error', async () => {
+  const { DbHostRequestTimeoutError, manager } = await loadManager({ initializationTimeoutMs: 15 });
+
+  const failure = settled(manager.getDatabase());
+  const host = latestProcess();
+  host.progress(host.initRequest.id, { extra: 'secret-report-text', phase: 'migration' });
+  // The migration budget is 90 s; let it expire.
+  await vi.advanceTimersByTimeAsync(90_000);
+  const error = await failure;
+
+  expect(error).toBeInstanceOf(DbHostRequestTimeoutError);
+  expect((error as { phase: unknown }).phase).toEqual({ phase: 'migration' });
+  expect(JSON.stringify([loggerErrorMock.mock.calls, loggerWarnMock.mock.calls])).not.toContain(
+    'secret-report-text'
+  );
 });
 
 it('does not let a fresh init attempt inherit the phase of the attempt that timed out', async () => {

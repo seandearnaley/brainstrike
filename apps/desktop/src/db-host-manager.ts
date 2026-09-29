@@ -29,8 +29,8 @@ import {
   type DbHostResponseEnvelope,
   type DbHostRowMode,
   type DbHostTransactionStartResult,
-  isDbHostProgressEnvelope,
   isDbHostToMainMessage,
+  parseDbHostProgressEnvelope,
   toError,
 } from './db-host-protocol';
 import {
@@ -785,12 +785,12 @@ class DefaultDbHostManager implements DbHostManager {
    * A progress report re-arms a deadline, so only a structurally valid one, for the `init` request,
    * gets that far. Anything else is logged at error and dropped: the running deadline stands.
    */
-  #acceptProgress(message: unknown): void {
-    if (!isDbHostProgressEnvelope(message)) {
-      logger.error(
-        'Dropped malformed DB host progress envelope',
-        summarizeMalformedMessage(message)
-      );
+  #acceptProgress(raw: unknown): void {
+    // Parsed, not merely validated: only the known fields go on, so nothing extra the host sent
+    // reaches #initPhase, the timeout log or the error.
+    const message = parseDbHostProgressEnvelope(raw);
+    if (!message) {
+      logger.error('Dropped malformed DB host progress envelope', summarizeMalformedMessage(raw));
       return;
     }
     const pending = this.#requests.inFlight().find((envelope) => envelope.id === message.id);

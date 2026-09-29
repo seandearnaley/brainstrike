@@ -3,11 +3,15 @@ const MAX_SUMMARY_STRING_LENGTH = 64;
 /** Most keys this summary will name; the full count is always reported. */
 const MAX_SUMMARY_KEYS = 20;
 
-/** Bounds one host-controlled string before it reaches a log. */
+/**
+ * Bounds one host-controlled string before it reaches a log, counting code points so a surrogate
+ * pair is never split into a lone half.
+ */
 export function truncateForLog(value: string): string {
-  return value.length <= MAX_SUMMARY_STRING_LENGTH
+  const codePoints = Array.from(value);
+  return codePoints.length <= MAX_SUMMARY_STRING_LENGTH
     ? value
-    : `${value.slice(0, MAX_SUMMARY_STRING_LENGTH)}…`;
+    : `${codePoints.slice(0, MAX_SUMMARY_STRING_LENGTH).join('')}…`;
 }
 
 /**

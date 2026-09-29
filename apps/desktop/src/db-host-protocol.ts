@@ -256,36 +256,88 @@ function isByteCount(value: unknown): value is number {
 // and the error message a person reads, so a longer one is not a catalog name: reject it.
 const MAX_IDENTIFIER_BYTES = 63;
 const utf8 = new TextEncoder();
-
-function isIdentifier(value: unknown): value is string {
-  return isNonEmptyString(value) && utf8.encode(value).length <= MAX_IDENTIFIER_BYTES;
+// C0 and C1 controls, DEL, and the bidi marks, embeddings, overrides and isolates: legal inside a
+// quoted PostgreSQL identifier, but they could forge the one-line error a person reads.
+function isForgingCodePoint(code: number): boolean {
+  return (
+    code <= 0x1f ||
+    (code >= 0x7f && code <= 0x9f) ||
+    code === 0x20_0e ||
+    code === 0x20_0f ||
+    (code >= 0x20_2a && code <= 0x20_2e) ||
+    (code >= 0x20_66 && code <= 0x20_69)
+  );
 }
 
-export function isDatabaseInitPhaseReport(report: unknown): report is DatabaseInitPhaseReport {
+function hasForgingCharacter(value: string): boolean {
+  for (const character of value) {
+    if (isForgingCodePoint(character.codePointAt(0) ?? 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isIdentifier(value: unknown): value is string {
+  return (
+    isNonEmptyString(value) &&
+    utf8.encode(value).length <= MAX_IDENTIFIER_BYTES &&
+    !hasForgingCharacter(value)
+  );
+}
+
+/**
+ * Parses, not merely validates: the report main keeps is rebuilt from its known fields, so nothing
+ * extra the host put in the frame reaches `#initPhase`, the timeout log or the error. Null for
+ * anything malformed.
+ */
+export function parseDatabaseInitPhaseReport(report: unknown): DatabaseInitPhaseReport | null {
   if (!isRecord(report)) {
-    return false;
+    return null;
   }
   switch (report['phase']) {
     case 'open-database':
-      return isByteCount(report['pgWalBytes']);
+      return isByteCount(report['pgWalBytes'])
+        ? { pgWalBytes: report['pgWalBytes'], phase: 'open-database' }
+        : null;
     case 'index-rebuild': {
       const { index } = report;
-      return (
-        isRecord(index) &&
-        isIdentifier(index['accessMethod']) &&
-        isIdentifier(index['index']) &&
-        isIdentifier(index['schema']) &&
-        isIdentifier(index['table']) &&
-        isByteCount(index['heapBytes']) &&
-        isByteCount(index['indexBytes']) &&
-        isByteCount(index['toastBytes'])
-      );
+      if (
+        !(
+          isRecord(index) &&
+          isIdentifier(index['accessMethod']) &&
+          isIdentifier(index['index']) &&
+          isIdentifier(index['schema']) &&
+          isIdentifier(index['table']) &&
+          isByteCount(index['heapBytes']) &&
+          isByteCount(index['indexBytes']) &&
+          isByteCount(index['toastBytes'])
+        )
+      ) {
+        return null;
+      }
+      return {
+        index: {
+          accessMethod: index['accessMethod'],
+          heapBytes: index['heapBytes'],
+          index: index['index'],
+          indexBytes: index['indexBytes'],
+          schema: index['schema'],
+          table: index['table'],
+          toastBytes: index['toastBytes'],
+        },
+        phase: 'index-rebuild',
+      };
     }
     case 'migration':
-      return true;
+      return { phase: 'migration' };
     default:
-      return false;
+      return null;
   }
+}
+
+export function isDatabaseInitPhaseReport(report: unknown): report is DatabaseInitPhaseReport {
+  return parseDatabaseInitPhaseReport(report) !== null;
 }
 
 /**
@@ -294,11 +346,14 @@ export function isDatabaseInitPhaseReport(report: unknown): report is DatabaseIn
  * NOT the `kind`-only check `isDbHostToMainMessage` applies to it: a progress message re-arms a
  * request's deadline, so a malformed one must be rejected, never guessed at.
  */
+export function parseDbHostProgressEnvelope(value: unknown): DbHostProgressEnvelope | null {
+  if (!(isRecord(value) && value['kind'] === 'progress' && isNonEmptyString(value['id']))) {
+    return null;
+  }
+  const report = parseDatabaseInitPhaseReport(value['report']);
+  return report ? { id: value['id'], kind: 'progress', report } : null;
+}
+
 export function isDbHostProgressEnvelope(value: unknown): value is DbHostProgressEnvelope {
-  return (
-    isRecord(value) &&
-    value['kind'] === 'progress' &&
-    isNonEmptyString(value['id']) &&
-    isDatabaseInitPhaseReport(value['report'])
-  );
+  return parseDbHostProgressEnvelope(value) !== null;
 }
