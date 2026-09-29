@@ -15,16 +15,24 @@ vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   const probed = {
     ...actual,
+    cpSync: (...args: Parameters<typeof actual.cpSync>) => {
+      fsProbe.events.push(`cp:${path.basename(String(args[0]))}`);
+      actual.cpSync(...args);
+    },
     fsyncSync: (descriptor: number) => {
       fsProbe.events.push('fsync');
       actual.fsyncSync(descriptor);
     },
     renameSync: (from: string, to: string) => {
-      fsProbe.events.push(`rename:${String(to).split('/').at(-1)}`);
+      fsProbe.events.push(`rename:${path.basename(String(to))}`);
       actual.renameSync(from, to);
     },
+    rmSync: (...args: Parameters<typeof actual.rmSync>) => {
+      fsProbe.events.push(`rm:${path.basename(String(args[0]))}`);
+      actual.rmSync(...args);
+    },
     unlinkSync: (target: string) => {
-      const name = String(target).split('/').at(-1) ?? '';
+      const name = path.basename(String(target));
       fsProbe.events.push(`unlink:${name}`);
       if (fsProbe.failMarkerUnlink && name === '.db-clean-shutdown') {
         throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
@@ -264,6 +272,158 @@ describe('db-main close and open', () => {
 
       expect(existsSync(pgVersionPath())).toBe(false);
       expect(existsSync(path.join(appDataDir, 'pgdata'))).toBe(true);
+    });
+  });
+
+  // A handle whose close failed may still own the data directory, so nothing may reopen, reset,
+  // recover from corruption over it, or report a close, until the process exits.
+  describe('a failed close is sticky', () => {
+    const settle = (promise: Promise<unknown>): Promise<unknown> =>
+      promise.then(
+        () => null,
+        (error: unknown) => error
+      );
+    const destructiveFsEvents = (): string[] =>
+      fsProbe.events.filter((event) => event.startsWith('rm:') || event.startsWith('cp:'));
+
+    async function failTheFirstClose() {
+      const db = await import('../../db-main');
+      await db.initializeMainDatabase();
+      engine.close.mockRejectedValueOnce(new Error('close failed'));
+      const first = await settle(db.closeDatabase());
+      fsProbe.events.length = 0;
+      return { ...db, first };
+    }
+
+    it('rejects every later close with the first failure as its cause, never reporting success', async () => {
+      const { closeDatabase, first } = await failTheFirstClose();
+      expect(first).toMatchObject({ name: 'DatabaseCloseError', stage: 'close' });
+
+      const second = await settle(closeDatabase());
+
+      expect(second).toMatchObject({ name: 'DatabaseCloseError', stage: 'close' });
+      expect((second as Error).cause).toBe(first);
+      expect(engine.close).toHaveBeenCalledTimes(1);
+      expect(existsSync(lockPath())).toBe(true);
+      expect(existsSync(markerPath())).toBe(false);
+    });
+
+    it('aborts a reset before any backup or deletion, and keeps the lock', async () => {
+      const { resetLocalDatabase } = await failTheFirstClose();
+      seedDatabaseDirectory({ marker: false });
+
+      await expect(resetLocalDatabase()).rejects.toMatchObject({ name: 'DatabaseCloseError' });
+
+      expect(destructiveFsEvents()).toEqual([]);
+      expect(existsSync(pgVersionPath())).toBe(true);
+      expect(existsSync(lockPath())).toBe(true);
+    });
+
+    it.each(['getDatabase', 'initializeMainDatabase', 'reinitializeDatabase'] as const)(
+      'refuses to reopen through %s while the failed handle may own the data directory',
+      async (entry) => {
+        const db = await failTheFirstClose();
+        engine.createBrainstrikePglite.mockClear();
+
+        await expect(db[entry]()).rejects.toMatchObject({ name: 'DatabaseCloseError' });
+
+        expect(engine.createBrainstrikePglite).not.toHaveBeenCalled();
+        expect(existsSync(lockPath())).toBe(true);
+      }
+    );
+
+    it('never deletes the data directory during runtime corruption recovery', async () => {
+      const { getDatabaseDiagnostics, handleRuntimeCorruption, initializeMainDatabase } =
+        await import('../../db-main');
+      await initializeMainDatabase();
+      seedDatabaseDirectory({ marker: false });
+      fsProbe.events.length = 0;
+      engine.close.mockRejectedValueOnce(new Error('close failed'));
+
+      await expect(handleRuntimeCorruption('db:query')).rejects.toMatchObject({
+        name: 'DatabaseCloseError',
+        stage: 'close',
+      });
+
+      expect(destructiveFsEvents()).toEqual([]);
+      expect(existsSync(pgVersionPath())).toBe(true);
+      expect(existsSync(lockPath())).toBe(true);
+      expect(getDatabaseDiagnostics().closeFailure).toEqual({
+        message: expect.stringContaining('close failed'),
+        stage: 'close',
+      });
+    });
+
+    it('is reported in diagnostics only once a close has failed', async () => {
+      const { getDatabaseDiagnostics, initializeMainDatabase } = await import('../../db-main');
+      expect(getDatabaseDiagnostics().closeFailure).toBeNull();
+      await initializeMainDatabase();
+      expect(getDatabaseDiagnostics().closeFailure).toBeNull();
+    });
+
+    it.each([
+      {
+        failure: 'validation',
+        inject: () =>
+          engine.query.mockRejectedValueOnce(new Error('Aborted(). Build with -sASSERTIONS')),
+        opened: /aborted/i,
+      },
+      {
+        failure: 'migration',
+        inject: () => engine.migrate.mockRejectedValueOnce(new Error('relation already exists')),
+        opened: /migrations failed/i,
+      },
+    ] as const)(
+      'refuses a later open, with the restart message, when the failed $failure close also fails',
+      async ({ inject, opened }) => {
+        inject();
+        engine.close.mockRejectedValueOnce(new Error('close failed'));
+        const { getDatabase, getDatabaseDiagnostics, initializeMainDatabase } = await import(
+          '../../db-main'
+        );
+        await expect(initializeMainDatabase()).rejects.toThrow(opened);
+
+        const later = await settle(getDatabase());
+
+        expect(later).toMatchObject({ name: 'DatabaseCloseError', stage: 'close' });
+        expect((later as Error).message).toMatch(/may still own the data directory/);
+        expect((later as Error).message).toMatch(/restart BrainStrike/i);
+        expect(engine.createBrainstrikePglite).toHaveBeenCalledTimes(1);
+        expect(existsSync(lockPath())).toBe(true);
+        expect(getDatabaseDiagnostics().closeFailure).toMatchObject({ stage: 'close' });
+      }
+    );
+  });
+
+  // A handle is visible to readers only once it has validated: a concurrent caller either awaits
+  // the single-flight initialization or fails with it, and never receives a half-open database.
+  describe('a handle that is still opening', () => {
+    it('is invisible to a concurrent getDatabase() until validation completes', async () => {
+      let releaseValidation: () => void = () => undefined;
+      engine.query.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseValidation = () => resolve({ rows: [{ '?column?': 1 }] });
+          })
+      );
+      const { getDatabase, getDatabaseDiagnostics, initializeMainDatabase } = await import(
+        '../../db-main'
+      );
+      const opening = initializeMainDatabase();
+      await vi.waitFor(() => expect(engine.query).toHaveBeenCalledTimes(1));
+      let concurrentSettled = false;
+      const concurrent = getDatabase().finally(() => {
+        concurrentSettled = true;
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(getDatabaseDiagnostics().hasDatabaseHandle).toBe(false);
+      expect(concurrentSettled).toBe(false);
+
+      releaseValidation();
+      const [opened, seen] = await Promise.all([opening, concurrent]);
+      expect(seen).toBe(opened);
+      expect(getDatabaseDiagnostics().hasDatabaseHandle).toBe(true);
     });
   });
 

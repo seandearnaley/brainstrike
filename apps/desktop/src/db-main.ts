@@ -198,6 +198,9 @@ const getPGlite = async () => {
 // PGlite in the utility host. Keep that boundary unknown here; the constructor
 // and its post-create checks below use the concrete BrainstrikePglite type.
 let db: unknown = null;
+// A handle that is still being validated. Only the failed-open cleanup reads it, so no caller can
+// receive a half-open database; `db` is assigned once validation has passed.
+let openingHandle: unknown = null;
 // Single-flight guard for startup/runtime callers that hit getDatabase() concurrently.
 // Without this we can spawn multiple PGlite initializations at once, which causes
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
@@ -206,6 +209,9 @@ interface DatabaseMutableState {
   cachedDatabaseProfile: string | null;
   // `undefined` means "not resolved yet"; `null` means "resolved but git metadata unavailable".
   cachedGitProfileContext: GitProfileContext | null | undefined;
+  // Set when a live handle could not be closed; it may still own the data directory, so nothing
+  // reopens, resets or reports a close until the process exits. No API clears it.
+  closeFailure: DatabaseCloseError | null;
   dbProcessLockPath: string | null;
   initializationAttemptCount: number;
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;
@@ -220,6 +226,7 @@ interface DatabaseMutableState {
 const mutableState: DatabaseMutableState = {
   cachedDatabaseProfile: null,
   cachedGitProfileContext: undefined,
+  closeFailure: null,
   dbProcessLockPath: null,
   initializationAttemptCount: 0,
   lastInitializationFailure: null,
@@ -272,10 +279,26 @@ interface PGliteInstanceShape {
 export class DatabaseCloseError extends Error {
   readonly stage: 'sync' | 'close';
 
-  constructor(stage: 'sync' | 'close', cause: unknown) {
-    super(`Database ${stage} failed: ${getErrorDetails(cause).message}`, { cause });
+  constructor(
+    stage: 'sync' | 'close',
+    cause: unknown,
+    message = `Database ${stage} failed: ${getErrorDetails(cause).message}`
+  ) {
+    super(message, { cause });
     this.name = 'DatabaseCloseError';
     this.stage = stage;
+  }
+}
+
+/** Rejects while an earlier failed close means a previous handle may still own the data directory. */
+function assertNoFailedClose(): void {
+  const failure = mutableState.closeFailure;
+  if (failure) {
+    throw new DatabaseCloseError(
+      failure.stage,
+      failure,
+      `A previous database ${failure.stage} failed and its handle may still own the data directory; restart BrainStrike. (${failure.message})`
+    );
   }
 }
 
@@ -320,9 +343,10 @@ async function createVectorDatabase(
   dataDir: string
 ): Promise<BrainstrikePglite> {
   const instance = await createDatabase({ dataDir });
-  // Owned by `db` from creation, so a failed validation below is closed (or its close
-  // failure kept visible with the lock) by closeAfterFailedInitialization(), never dropped.
-  db = instance;
+  // Owned from creation, so a failed validation below is closed (or its close failure kept
+  // visible with the lock) by closeAfterFailedInitialization(), never dropped; but not yet
+  // `db`: no caller may receive the handle before it has validated.
+  openingHandle = instance;
 
   await instance.query('SELECT 1');
   await instance.exec('CREATE EXTENSION IF NOT EXISTS vector');
@@ -907,6 +931,9 @@ function formatMigrationFailureMessage(
 export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
   return {
     appDataDir: getAppDataPath(),
+    closeFailure: mutableState.closeFailure
+      ? { message: mutableState.closeFailure.message, stage: mutableState.closeFailure.stage }
+      : null,
     databaseLockHeld: mutableState.dbProcessLockPath !== null,
     databaseLockPath: mutableState.dbProcessLockPath,
     databaseProfile: getDatabaseProfile(),
@@ -933,8 +960,10 @@ export function __resetDatabaseModuleStateForTests(): void {
   }
 
   db = null;
+  openingHandle = null;
   dbInitializationPromise = null;
   releaseDatabaseProcessLock();
+  mutableState.closeFailure = null;
   mutableState.initializationAttemptCount = 0;
   mutableState.lastInitializationStartedAt = null;
   mutableState.lastInitializationSucceededAt = null;
@@ -955,12 +984,15 @@ export function __resetDatabaseModuleStateForTests(): void {
  * leave the data directory untouched and the next initialization free to retry.
  */
 async function closeAfterFailedInitialization(): Promise<void> {
-  const failedHandle = db as PGliteInstanceShape | null;
+  const failedHandle = (db ?? openingHandle) as PGliteInstanceShape | null;
   db = null;
+  openingHandle = null;
   if (failedHandle) {
     try {
       await closeDatabaseInstance(failedHandle, 'initialization-failure');
     } catch (error) {
+      // Sticky: the handle may still own the data directory, so no later open may start over it.
+      mutableState.closeFailure = new DatabaseCloseError('close', error);
       logger.error('Failed to close the database after a failed initialization; keeping the lock', {
         error: getErrorDetails(error),
         lockPath: mutableState.dbProcessLockPath,
@@ -1113,7 +1145,9 @@ function setIncompatibleDataDirAside(
 /**
  * How the previous session ended, read from the clean-shutdown marker, and then the marker is
  * removed BEFORE the database opens: a crash anywhere later must read as unclean, so removing
- * first is the conservative order. A removal failure fails the open (filesystem category).
+ * first is the conservative order. A removal failure fails the open (filesystem category). The
+ * marker is consumed by the open ATTEMPT, so an open that then fails leaves none behind and the
+ * next open reports `unclean`, whatever the session before it did: conservative by design.
  */
 function consumePreviousShutdown(appDataDir: string, dataDir: string): DatabasePreviousShutdown {
   const hadMarker = hasCleanShutdownMarker(appDataDir);
@@ -1135,6 +1169,9 @@ function consumePreviousShutdown(appDataDir: string, dataDir: string): DatabaseP
  * failure and rejects; the data directory is never reset or replaced here.
  */
 async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
+  // Before anything else, and before the process lock (which is re-entrant for this process and
+  // would let a second PGlite open over a handle that could not be closed).
+  assertNoFailedClose();
   if (db) {
     return db as DesktopDatabase;
   }
@@ -1185,6 +1222,8 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
       mutableState.previousShutdown = consumePreviousShutdown(appDataDir, dataDir);
 
       readyDatabase = await createVectorDatabase(loadedPGlite.createBrainstrikePglite, dataDir);
+      db = readyDatabase;
+      openingHandle = null;
       logger.debug('Database initialized with pgvector extension at:', dataDir);
 
       // Reclaim any engine-upgrade backups past their retention window now that
@@ -1297,6 +1336,8 @@ async function getLocalDatabase(): Promise<DesktopDatabase> {
  * directory); only a fully clean close writes the clean-shutdown marker and releases it.
  */
 async function closeLocalDatabase(): Promise<void> {
+  // First: with the handle gone after a failed close, "nothing to close" is not a success.
+  assertNoFailedClose();
   const currentDatabase = db as PGliteInstanceShape | null;
   if (!currentDatabase) {
     return;
@@ -1315,6 +1356,7 @@ async function closeLocalDatabase(): Promise<void> {
   }
   db = null;
   if (failure) {
+    mutableState.closeFailure = failure;
     throw failure;
   }
   writeMarkerBeforeReleasingLock();

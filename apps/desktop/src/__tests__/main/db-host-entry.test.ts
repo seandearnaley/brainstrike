@@ -623,6 +623,30 @@ describe('db-host-entry', () => {
     }
   );
 
+  it('answers a close that fails with the error, never as closed, so main SIGKILLs the host', async () => {
+    dbMainMocks.closeDatabase.mockRejectedValueOnce(new Error('Database close failed: boom'));
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: { id: 'close-request', kind: 'request', request: { kind: 'close' } },
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(parentPort.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({ message: 'Database close failed: boom' }),
+        id: 'close-request',
+        kind: 'response',
+        ok: false,
+      })
+    );
+    expect(parentPort.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'close-request', ok: true })
+    );
+  });
+
   it('BST-1330: close with no live queries still responds ok (the common drained-shutdown path)', async () => {
     dbMainMocks.getDatabase.mockResolvedValue({
       query: vi.fn(async () => ({ rows: [] })),

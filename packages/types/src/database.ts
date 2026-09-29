@@ -79,6 +79,8 @@ export type DatabasePreviousShutdown = 'clean' | 'unclean' | 'new-database';
 
 export interface DatabaseDiagnosticsSnapshot {
   appDataDir: string;
+  /** Set once a database handle could not be closed: it may still own the data directory until the process exits. */
+  closeFailure: { message: string; stage: 'sync' | 'close' } | null;
   databaseLockHeld: boolean;
   databaseLockPath: string | null;
   databaseProfile: string | null;
