@@ -125,7 +125,8 @@ describe('db-main coverage helpers', () => {
       isFile: () => false,
     });
     process.env['NODE_ENV'] = 'test';
-    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/tmp';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
   });
 
   afterEach(() => {

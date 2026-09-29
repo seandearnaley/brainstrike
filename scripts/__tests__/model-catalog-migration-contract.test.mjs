@@ -104,7 +104,7 @@ describe('model catalog migration contract', () => {
     );
     assert.match(
       databaseContract,
-      /On desktop, capture both `Documents\/BrainStrike\[-dev\]\/profiles\/<profile>\/pgdata`[\s\S]*Chromium renderer `localStorage` and `electron-storage\.json`[\s\S]*On web, capture the origin's PGlite IndexedDB store and `localStorage`[\s\S]*if any required store or a verified restore is unavailable, stop/,
+      /On desktop, capture both `<database root>\/profiles\/<profile>\/pgdata`[\s\S]*Chromium renderer `localStorage` and `electron-storage\.json`[\s\S]*On web, capture the origin's PGlite IndexedDB store and `localStorage`[\s\S]*if any required store or a verified restore is unavailable, stop/,
       'the runbook must enumerate every platform-specific store and fail closed without a verified restore'
     );
     assert.match(
