@@ -103,3 +103,11 @@ ignored, not arbitrary failures mentioning "closed". Guards:
 unexpected/non-Error failures) and `db-provider.test.tsx` (normal unmount). The cached loader reports at its
 non-throwing catch boundary; reset uses the same close helper.
 `wasm-loader.test.ts` and `factory-reset.test.tsx` cover these real ownership paths.
+
+## DbHostManager's wedge escape (BST-1872 L1, 2026-09-29)
+
+The 2s ack-race kill above is superseded: closing the host is now close ack, SIGTERM,
+awaited `exit`, then SIGKILL on timeout, and a transaction or init timeout SIGKILLs and
+awaits the exit before another host forks. A host stuck in synchronous WASM can run no
+signal handler, so SIGKILL is the only signal that ends it. Record:
+`docs/agents/platform-contracts/graceful-shutdown-ownership.md`.
