@@ -62,6 +62,17 @@ describe('classifyDatabaseCorruption', () => {
     ).toBe(true);
   });
 
+  it('still classifies a corruption SQLSTATE exactly at the depth bound', () => {
+    let atBound: Error = codedError('XX002', 'at the bound');
+    for (let level = 0; level < 5; level += 1) {
+      atBound = new Error(`wrapper ${level}`, { cause: atBound });
+    }
+    expect(classifyDatabaseCorruption(atBound)).toEqual({
+      message: 'at the bound',
+      sqlstate: 'XX002',
+    });
+  });
+
   it('stops following causes past the depth bound and on a cycle', () => {
     let deep: Error = codedError('XX001', 'too deep');
     for (let level = 0; level < 6; level += 1) {
