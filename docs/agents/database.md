@@ -268,7 +268,7 @@ Guard: `scripts/__tests__/model-catalog-migration-contract.test.mjs`,
 `scripts/__tests__/db-test-discovery-contract.test.mjs`,
 `packages/db/__tests__/drizzle-ledger-keys.test.ts`,
 `drizzle-migration-manifest.test.ts`, `migration-manifest-order.test.ts`,
-`drizzle-migration-parity.integration.test.ts`, `provider-registry-vision.test.ts`.
+`drizzle-migration-parity.integration.test.ts`, `provider-registry-vision.test.ts`, `packages/db/__tests__/migration-072-rollback.integration.test.ts`. Evidence: `database/ling-catalog-rollback-review.md`.
 
 ### SAFE CATALOG ROLLBACK WITH LIVE USER DATA
 
