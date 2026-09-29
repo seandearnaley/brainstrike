@@ -1,8 +1,9 @@
 /**
  * Contract between the SIGKILL crash-gate parent and its writer child: the ack
- * line, fixture ids, row caps and a seedable RNG. Dependency-free so the child
- * can import it without vitest.
+ * line, fixture ids, row caps and a seedable RNG. Its one import is a type, so the
+ * child can load it without vitest.
  */
+import type { PGlite } from '@electric-sql/pglite';
 
 /** Marks a committed-transaction line on the child's stdout. */
 export const ACK_PREFIX = 'acked ';
@@ -17,6 +18,18 @@ export const INDEX_ROW_CAP = 1500;
 export const SEQ_SPAN = 10_000;
 export const CHUNK_STRIDE = 100;
 export const MAX_RUN = 1000;
+
+/**
+ * The embedding dimensions the model catalog ships. The writer fills `file_chunks.embedding` at each of
+ * them and the gate builds each one's production HNSW index, so no dimension list lives here.
+ */
+export async function catalogEmbeddingDimensions(db: Pick<PGlite, 'query'>): Promise<number[]> {
+  const result = await db.query<{ dimension: number }>(
+    `SELECT DISTINCT (capabilities->>'defaultDimension')::int AS dimension FROM models
+     WHERE capabilities->>'type' = 'embedding' AND capabilities ? 'defaultDimension' ORDER BY 1`
+  );
+  return result.rows.map((row) => row.dimension);
+}
 
 /** What one committed transaction wrote; the parent asserts these survive the kill. */
 export interface CrashAck {

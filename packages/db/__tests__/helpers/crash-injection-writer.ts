@@ -7,7 +7,8 @@
  * Opens the migrated on-disk data dir through desktop's factory (`createBrainstrikePglite`) and loops
  * committed transactions across every index access method the real schema uses:
  * btree, BM25 and GIN (pg_trgm + tsvector) on `file_records` / `file_chunks`,
- * HNSW + GIN on `brainstrike_thread_message_index`, and a precious ledger in
+ * HNSW + GIN on `brainstrike_thread_message_index`, HNSW on `file_chunks.embedding` at every
+ * catalog dimension, and a precious ledger in
  * `mastra_messages`. After each COMMIT it prints an `acked` line naming the ids
  * that must survive. Deletes only touch rows from earlier runs, so a row the
  * parent was told to expect is never deleted by a later, unacknowledged commit.
@@ -17,6 +18,7 @@ import {
   CHUNK_CAP,
   CHUNK_STRIDE,
   type CrashAck,
+  catalogEmbeddingDimensions,
   createRandom,
   formatAck,
   INDEX_ROW_CAP,
@@ -57,12 +59,16 @@ const word = (): string =>
     ? `topic${Math.floor(random() * 400)}`
     : (VOCABULARY[Math.floor(random() * VOCABULARY.length)] as string);
 const paragraph = (words: number): string => Array.from({ length: words }, word).join(' ');
-const vector = (): string =>
-  `[${Array.from({ length: EMBEDDING_DIMENSIONS }, () => (random() - 0.5).toFixed(4)).join(',')}]`;
+const vector = (dimensions = EMBEDDING_DIMENSIONS): string =>
+  `[${Array.from({ length: dimensions }, () => (random() - 0.5).toFixed(4)).join(',')}]`;
 
 async function main(): Promise<void> {
   const db = await createBrainstrikePglite({ dataDir });
   await db.query('SELECT setseed($1)', [random() * 2 - 1]);
+  const dimensions = await catalogEmbeddingDimensions(db);
+  if (dimensions.length === 0) {
+    throw new Error('the model catalog lists no embedding dimensions to fill file_chunks with');
+  }
   // Stress thresholds, as in the durability gate: spill and merge BM25 segments early and
   // often, so a kill is far more likely to land inside a free-and-reallocate cycle.
   await db.exec(`
@@ -112,10 +118,25 @@ async function main(): Promise<void> {
 
       // btree + BM25 + GIN(pg_trgm) + GIN(tsvector) on file_chunks.
       await tx.query(
-        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash)
-         SELECT t.id, $1, $2::int * ${CHUNK_STRIDE} + t.ord, t.content, md5(t.content)
-         FROM unnest($3::text[], $4::text[]) WITH ORDINALITY AS t(id, content, ord)`,
-        [fileRecordId, generation, chunkIds, chunkIds.map(() => paragraph(60))]
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, embedding)
+         SELECT t.id, $1, $2::int * ${CHUNK_STRIDE} + t.ord, t.content, md5(t.content),
+                NULLIF(t.embedding, '')::vector
+         FROM unnest($3::text[], $4::text[], $5::text[]) WITH ORDINALITY AS t(id, content, embedding, ord)`,
+        [
+          fileRecordId,
+          generation,
+          chunkIds,
+          chunkIds.map(() => paragraph(60)),
+          // One embedded chunk per catalog dimension per transaction, so every dimension's
+          // production HNSW index (`idx_file_chunks_emb_hnsw_<N>`) takes inserts every time.
+          chunkIds.map((_, i) => (i < dimensions.length ? vector(dimensions[i]) : '')),
+        ]
+      );
+      const churned = dimensions[seq % dimensions.length] as number;
+      await tx.query(
+        `UPDATE file_chunks SET embedding = $1::vector WHERE id IN (
+           SELECT id FROM file_chunks WHERE vector_dims(embedding) = $2 ORDER BY random() LIMIT 3)`,
+        [vector(churned), churned]
       );
       await tx.query(
         `UPDATE file_chunks SET content = content || ' ' || $1

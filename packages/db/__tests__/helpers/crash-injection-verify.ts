@@ -18,6 +18,8 @@ export type CrashGateCheck =
   | 'gin'
   | 'heap'
   | 'hnsw'
+  | 'index-coverage'
+  | 'index-validity'
   | 'survival'
   | 'writer';
 
@@ -36,6 +38,10 @@ export class CrashGateCheckError extends Error {
 /** Access methods the writer exercises. A new one must be added to the writer and to a check here. */
 const COVERED_ACCESS_METHODS: readonly string[] = ['bm25', 'btree', 'gin', 'hnsw'];
 const NEAREST_NEIGHBOUR_OPERATORS: Readonly<Record<string, string>> = {
+  halfvec_cosine_ops: '<=>',
+  halfvec_ip_ops: '<#>',
+  halfvec_l1_ops: '<+>',
+  halfvec_l2_ops: '<->',
   vector_cosine_ops: '<=>',
   vector_ip_ops: '<#>',
   vector_l1_ops: '<+>',
@@ -44,13 +50,15 @@ const NEAREST_NEIGHBOUR_OPERATORS: Readonly<Record<string, string>> = {
 const USER_SCHEMA = `n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_toast%'`;
 const BM25_PROBE_ROWS = 1000;
 
-interface IndexRow {
-  readonly column: string;
+export interface IndexRow {
   /** Schema-qualified and quoted: safe to interpolate and to cast to regclass. */
   readonly index: string;
   readonly indexName: string;
+  /** First key: a column name or a deparsed expression, from `pg_get_indexdef`, so both probe alike. */
+  readonly key: string;
   readonly operatorClass: string;
   readonly predicate: string | null;
+  /** Schema-qualified and quoted. */
   readonly table: string;
 }
 
@@ -74,25 +82,55 @@ async function checked<T>(
   }
 }
 
-/** Every valid, non-temporary index of `accessMethod` in a user schema. */
-async function listIndexes(db: CrashGateDb, accessMethod: string): Promise<IndexRow[]> {
-  const result = await db.query<IndexRow>(
+const INDEXES_OF = `FROM pg_index i
+  JOIN pg_class c ON c.oid = i.indexrelid
+  JOIN pg_class t ON t.oid = i.indrelid
+  JOIN pg_am am ON am.oid = c.relam
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE am.amname = $1 AND ${USER_SCHEMA}`;
+
+/**
+ * Every index of `accessMethod` in a user schema. Nothing filters on validity or key shape (an
+ * expression key has `indkey[0] = 0`), and the count is checked against `pg_index`, so a later
+ * filter cannot silently drop an index from a probe.
+ */
+export async function listIndexes(db: CrashGateDb, accessMethod: string): Promise<IndexRow[]> {
+  const listed = await db.query<IndexRow>(
     `SELECT format('%I.%I', n.nspname, c.relname) AS "index", c.relname::text AS "indexName",
-            format('%I.%I', n.nspname, t.relname) AS "table", a.attname::text AS "column",
-            opc.opcname::text AS "operatorClass", pg_get_expr(i.indpred, i.indrelid) AS "predicate"
-     FROM pg_index i
-     JOIN pg_class c ON c.oid = i.indexrelid
-     JOIN pg_class t ON t.oid = i.indrelid
-     JOIN pg_am am ON am.oid = c.relam
-     JOIN pg_namespace n ON n.oid = c.relnamespace
-     JOIN pg_opclass opc ON opc.oid = i.indclass[0]
-     JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
-     WHERE am.amname = $1 AND i.indisvalid AND i.indisready AND c.relpersistence <> 't'
-       AND ${USER_SCHEMA}
-     ORDER BY 1`,
+            pg_get_indexdef(i.indexrelid, 1, true) AS "key",
+            (SELECT opcname::text FROM pg_opclass WHERE oid = i.indclass[0]) AS "operatorClass",
+            pg_get_expr(i.indpred, i.indrelid) AS "predicate",
+            format('%I.%I', n.nspname, t.relname) AS "table"
+     ${INDEXES_OF} ORDER BY 1`,
     [accessMethod]
   );
-  return result.rows;
+  const total = await db.query<{ total: number }>(`SELECT count(*)::int AS total ${INDEXES_OF}`, [
+    accessMethod,
+  ]);
+  if (listed.rows.length !== total.rows[0]?.total) {
+    throw new CrashGateCheckError(
+      'index-coverage',
+      accessMethod,
+      `listed ${listed.rows.length} of ${total.rows[0]?.total} ${accessMethod} indexes`
+    );
+  }
+  return listed.rows;
+}
+
+/** After recovery every index is valid and ready; a half-built one is the damage this gate exists to see. */
+export async function verifyIndexValidity(db: CrashGateDb): Promise<void> {
+  const broken = await db.query<{ index: string }>(
+    `SELECT format('%I.%I', n.nspname, c.relname) AS "index" FROM pg_index i
+     JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE (NOT i.indisvalid OR NOT i.indisready) AND ${USER_SCHEMA} ORDER BY 1`
+  );
+  if (broken.rows.length > 0) {
+    throw new CrashGateCheckError(
+      'index-validity',
+      broken.rows.map((row) => row.index).join(','),
+      'not valid and ready after recovery'
+    );
+  }
 }
 
 /** Runs `sql` with sequential scans off and proves the plan used the index: a probe must not pass by reading the heap. */
@@ -210,7 +248,7 @@ export async function verifyBm25(db: CrashGateDb): Promise<void> {
       await db.exec('ROLLBACK');
     }
     const indexName = entry.indexName.replaceAll("'", "''");
-    const search = `SELECT ctid FROM ${entry.table} ORDER BY ${quote(entry.column)} <@> to_bm25query('database recovery index', '${indexName}') LIMIT 10`;
+    const search = `SELECT ctid FROM ${entry.table} ORDER BY ${entry.key} <@> to_bm25query('database recovery index', '${indexName}') LIMIT 10`;
     await checked('bm25-search', entry.index, () =>
       runThroughIndex(db, 'bm25-search', entry, search)
     );
@@ -233,15 +271,25 @@ export async function verifyHnsw(db: CrashGateDb): Promise<void> {
       );
     }
     const where = entry.predicate ? `WHERE ${entry.predicate}` : '';
-    const column = quote(entry.column);
+    const eligible = await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM ${entry.table} ${where}`
+    );
+    const rowCount = eligible.rows[0]?.n ?? 0;
+    if (rowCount === 0) {
+      throw new CrashGateCheckError(
+        'hnsw',
+        entry.index,
+        'no row matches the index predicate, so the probe would prove nothing'
+      );
+    }
     // The query vector is a stored one, so the probe needs no knowledge of the dimension.
-    const sql = `SELECT ctid FROM ${entry.table} ${where} ORDER BY ${column} ${operator} (SELECT ${column} FROM ${entry.table} ${where} LIMIT 1) LIMIT 5`;
+    const sql = `SELECT ctid FROM ${entry.table} ${where} ORDER BY ${entry.key} ${operator} (SELECT ${entry.key} FROM ${entry.table} ${where} LIMIT 1) LIMIT 5`;
     const rows = await checked('hnsw', entry.index, () => runThroughIndex(db, 'hnsw', entry, sql));
     if (rows.length === 0) {
       throw new CrashGateCheckError(
         'hnsw',
         entry.index,
-        'nearest-neighbour search returned no rows although embedded rows exist'
+        `nearest-neighbour search returned no rows although ${rowCount} match the index predicate`
       );
     }
   }

@@ -28,10 +28,12 @@ import { amcheck } from '@electric-sql/pglite/contrib/amcheck';
 import { describe, it, onTestFinished } from 'vitest';
 import { rebuildCrashSensitiveIndexes } from '../src/crash-sensitive-indexes';
 import { migrate } from '../src/migrations/bootstrap';
+import { createDimensionIndex, hnswParams } from '../src/migrations/dimension-index-helpers';
 import { createBrainstrikePglite, ENGINE_EXTENSIONS } from '../src/pglite-factory';
 import {
   ACK_PREFIX,
   type CrashAck,
+  catalogEmbeddingDimensions,
   createRandom,
   iterationSeed,
   MAX_RUN,
@@ -44,6 +46,7 @@ import {
   verifyAckedRowsSurvived,
   verifyBm25,
   verifyHnsw,
+  verifyIndexValidity,
   verifyStructure,
 } from './helpers/crash-injection-verify';
 import { createPGliteTestDataDir } from './test-data-dir';
@@ -92,16 +95,30 @@ function runWriterUntilKilled(
     let stdout = '';
     let stderr = '';
     let killed = false;
+    let settled = false;
+    let ackTimer: NodeJS.Timeout | undefined;
     let killTimer: NodeJS.Timeout | undefined;
+    // The first outcome wins and clears both timers, so a late event cannot settle twice.
+    const settle = (finish: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(ackTimer);
+      clearTimeout(killTimer);
+      finish();
+    };
     const fail = (detail: string): void =>
-      reject(
-        new CrashGateCheckError(
-          'writer',
-          'crash-injection-writer',
-          `${detail}; stderr: ${stderr.slice(-2000)}`
+      settle(() =>
+        reject(
+          new CrashGateCheckError(
+            'writer',
+            'crash-injection-writer',
+            `${detail}; stderr: ${stderr.slice(-2000)}`
+          )
         )
       );
-    const ackTimer = setTimeout(() => {
+    ackTimer = setTimeout(() => {
       child.kill('SIGKILL');
       fail(`wrote no ack within ${FIRST_ACK_TIMEOUT_MS} ms`);
     }, FIRST_ACK_TIMEOUT_MS);
@@ -121,16 +138,14 @@ function runWriterUntilKilled(
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       stderr += chunk;
     });
-    child.on('error', reject);
+    child.on('error', (error) => settle(() => reject(error)));
     // `close`, not `exit`: it fires after stdout drains, so no ack is lost.
     child.on('close', (code, signal) => {
-      clearTimeout(ackTimer);
-      clearTimeout(killTimer);
       // Windows reports a terminated child as exit code 1 with no signal, so there the
       // kill we sent is the evidence; the writer's failure marker overrides it everywhere.
       const wasKilled = killed && (signal === 'SIGKILL' || process.platform === 'win32');
       if (wasKilled && !stderr.includes(WRITER_FAILURE_PREFIX)) {
-        resolve(parseAcks(stdout));
+        settle(() => resolve(parseAcks(stdout)));
         return;
       }
       // The writer only stops on its own when the database under it is broken.
@@ -157,6 +172,10 @@ describe('SIGKILL crash-injection gate (production factory, real migrated schema
       const store = await createBrainstrikePglite({ dataDir });
       try {
         await migrate(store);
+        // The migrated schema has no dimension indexes; production builds them lazily per embedding set.
+        for (const dimension of await catalogEmbeddingDimensions(store)) {
+          await createDimensionIndex(store, dimension, hnswParams());
+        }
       } finally {
         await store.close();
       }
@@ -191,12 +210,14 @@ describe('SIGKILL crash-injection gate (production factory, real migrated schema
             Array.from({ length: lastSeq }, (_, i) => `crash-msg-${run}-${i + 1}`)
           );
 
-          // Exactly desktop's first open after an unclean shutdown: desktop's factory
-          // (`createBrainstrikePglite`, what db-main opens), then the production rebuild.
+          // Desktop rebuilds only once it detects an unclean shutdown, and after a SIGKILL its
+          // clean-shutdown marker is absent, so every kill here is that case: the factory
+          // db-main opens (`createBrainstrikePglite`), then the production rebuild.
           const db = await stage('reopen', () => createBrainstrikePglite({ dataDir }));
           try {
             await stage('rebuild', () => rebuildCrashSensitiveIndexes(db));
             await stage('verify', async () => {
+              await verifyIndexValidity(db);
               await verifyAccessMethodsCovered(db);
               await verifyAckedRowsSurvived(db, { ...newest, messageIds });
               await verifyBm25(db);
