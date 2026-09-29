@@ -18,8 +18,10 @@ export interface ShutdownSignalOptions {
 }
 
 /**
- * An install that stopped part-way. A signal already `installed` keeps our handler; the failed one
- * lost its previous listeners when `removedListeners` is true, so it takes its default action.
+ * An install that stopped part-way. A signal already `installed` keeps our handler. For the failed
+ * one, `removedListeners` means `removeAllListeners` returned: its previous listeners are gone, so
+ * it takes its default action. When false, that call did not return, and whether it removed any
+ * listener before throwing is unknown (Node's implementation makes that practically unreachable).
  */
 export class ShutdownSignalInstallError extends Error {
   readonly failedSignal: NodeJS.Signals;
