@@ -16,12 +16,11 @@ import { DbContext, type DbContextValue, type DbInitializationStatus } from './d
 import type { DbHandle } from './db-handle.js';
 import type { LiveQueryDrainRegistry } from './db-reset-drain.js';
 import type { DrizzleDb } from './drizzle/database.js';
-import type { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import type { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
-import type { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import type { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type {
   IEmbeddingSetsRepository,
+  IFileChunkRepository,
   IViewFilterPresetsRepository,
 } from './repositories/interfaces.js';
 
@@ -182,10 +181,7 @@ export function useOptionalPGliteDatabase(): DbHandle | null {
   });
 }
 
-export function useFileChunkRepository():
-  | DrizzleFileChunkRepository
-  | ElectronFileChunkRepository
-  | null {
+export function useFileChunkRepository(): IFileChunkRepository | null {
   return useDbSelector({
     hookName: 'useFileChunkRepository',
     onMissingProvider: 'warn',

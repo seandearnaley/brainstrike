@@ -11,7 +11,6 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
@@ -35,6 +34,10 @@
     "./assistant-thread-run-reaper": {
       "types": "./dist/assistant-thread-run-reaper.d.ts",
       "import": "./dist/assistant-thread-run-reaper.js"
+    },
+    "./assistant-memory-repository": {
+      "types": "./dist/assistant-memory-repository.d.ts",
+      "import": "./dist/assistant-memory-repository.js"
     }
   },
   "files": [

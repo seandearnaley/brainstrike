@@ -20,6 +20,20 @@ describe('direct Anthropic effort controls', () => {
     }
   );
 
+  it.each(['claude-fable-5-1', 'claude-fable-5'] as const)(
+    'suppresses the Thinking toggle for always-on %s',
+    (modelId) => {
+      const availability = resolveReasoningControlsAvailability('anthropic', modelId);
+      // Always-on thinking has no off state, so the toggle that claims to
+      // switch it off must not render — not even with a persisted budget from
+      // before the model was selected.
+      expect(buildThinkingToggleModel(availability, {})).toBeUndefined();
+      expect(
+        buildThinkingToggleModel(availability, { anthropicThinkingBudgetTokens: 4096 })
+      ).toBeUndefined();
+    }
+  );
+
   it('hides Haiku effort controls while retaining legacy thinking', () => {
     const availability = resolveReasoningControlsAvailability('anthropic', 'claude-haiku-4-5');
     expect(buildEffortControlModel(availability, { anthropicEffort: 'high' })).toBeUndefined();

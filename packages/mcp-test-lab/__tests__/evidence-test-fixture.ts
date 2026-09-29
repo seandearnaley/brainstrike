@@ -40,7 +40,7 @@ export const VALID_EVIDENCE_SCHEMA = {
   versions: {
     conformance: { package: '@modelcontextprotocol/conformance', version: '0.2.0-alpha.10' },
     fixture: { id: MODERN_SCENARIO.fixture, ...MODERN_SCENARIO.fixtureSource },
-    sdk: { package: '@modelcontextprotocol/client', version: '2.0.0' },
+    sdk: { package: '@modelcontextprotocol/client', version: MODERN_SCENARIO.reference.sdkVersion },
     spec: '2026-07-28',
   },
 } as const satisfies McpEvidenceSchema;

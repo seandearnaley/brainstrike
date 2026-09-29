@@ -20,11 +20,10 @@ export function useWatcherHealth(): WatcherHealthApi {
   );
 
   useEffect(() => {
-    const subscribe = fileSystemAdapter.onWatcherHealth?.bind(fileSystemAdapter);
-    if (!subscribe) {
+    if (!fileSystemAdapter.onWatcherHealth) {
       return;
     }
-    const unsubscribe = subscribe((event) => {
+    const unsubscribe = fileSystemAdapter.onWatcherHealth((event) => {
       setHealthByRoot((previous) => {
         const next = new Map(previous);
         next.set(event.rootPath, event);

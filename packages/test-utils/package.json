@@ -1,9 +1,6 @@
 {
   "name": "@brainstrike/test-utils",
   "version": "0.1.0",
-  "dependencies": {
-    "@brainstrike/types": "workspace:*"
-  },
   "devDependencies": {
     "@playwright/test": "catalog:",
     "@stryker-mutator/api": "catalog:",
@@ -28,6 +25,7 @@
     },
     "./vitest-matchers": "./vitest-matchers.d.ts",
     "./vitest.setup": "./src/vitest.setup.ts",
+    "./vitest.event-loop-watchdog.setup": "./vitest.event-loop-watchdog.setup.mjs",
     "./vitest.browser.setup": "./src/vitest.browser.setup.ts",
     "./vitest.timeouts.setup": "./src/vitest.timeouts.setup.ts",
     "./vitest-provided-context": "./src/vitest-provided-context.ts",

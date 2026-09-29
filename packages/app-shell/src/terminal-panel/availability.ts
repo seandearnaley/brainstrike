@@ -9,9 +9,21 @@
  * must NOT pull in `TerminalPanel` (which imports `@xterm/xterm`), so importing
  * it does not defeat the lazy code-split in `terminal-page-content.tsx`.
  */
-export { COMMAND_SESSION_BRIDGE_REQUIRED_METHODS } from './command-session-bridge';
+export {
+  COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
+  type CommandSessionBridge,
+  type CommandSessionIdentityParams,
+  type CommandSessionInfo,
+  type CommandSessionReadPage,
+  type CommandSessionResult,
+} from './command-session-bridge';
 export {
   isTerminalBridgeAvailable,
   resolveTerminalBridge,
   TERMINAL_BRIDGE_REQUIRED_METHODS,
+  type TerminalBridge,
+  type TerminalCreateResult,
+  type TerminalDataEvent,
+  type TerminalExitEvent,
+  type TerminalResult,
 } from './terminal-bridge';

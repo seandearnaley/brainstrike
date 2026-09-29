@@ -32,7 +32,7 @@ test.describe('Assistant hover toolbar (desktop)', () => {
     const chatPanel = window.getByTestId('chat-panel');
     await expect(chatPanel).toBeVisible({ timeout: E2E_TIMEOUTS.chatPanel });
 
-    const input = window.locator('#assistant-input');
+    const input = window.getByRole('textbox', { name: 'Message input' });
     await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
     await input.fill('hi');
 

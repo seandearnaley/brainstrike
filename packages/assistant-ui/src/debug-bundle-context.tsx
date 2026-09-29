@@ -12,6 +12,8 @@ export interface DebugBundleBinding {
    * failure — the button surfaces a visible `Copy failed: …`, never a
    * silent drop. */
   buildBundle(input: { runId: string | null }): Promise<string>;
+  /** Full retained thread/subtree export, independent of run outcome. */
+  buildThreadPack?(): Promise<string>;
 }
 
 const DebugBundleContext = createContext<DebugBundleBinding | null>(null);

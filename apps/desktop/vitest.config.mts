@@ -253,7 +253,11 @@ export default defineConfig({
         inline: ['electron'],
       },
     },
-    setupFiles: ['@brainstrike/test-utils/vitest.setup', './src/__tests__/setup.ts'],
+    setupFiles: [
+      '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
+      '@brainstrike/test-utils/vitest.setup',
+      './src/__tests__/setup.ts',
+    ],
     shard: resolveDesktopTestShard(),
     testTimeout: getAdjustedTimeout('uiComponent'),
   },

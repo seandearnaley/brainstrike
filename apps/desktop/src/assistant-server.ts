@@ -1,12 +1,19 @@
 import http from 'node:http';
 import {
+  type AgentMessage,
   type AwsCredentialIdentityProvider,
   assistantDataStreamSessions,
   createAwsCredentialChain,
+  type ParsedAssistantRequestEnvelope,
   type RuntimeData,
   resolveAwsCredentialChain,
 } from '@brainstrike/agent';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
+import type { AssistantActiveRunInputMessage } from '@brainstrike/assistant-contract/assistant-stream-session';
+import {
+  createPgliteAssistantThreadRepository,
+  readPausedActionReplayPrefix,
+} from '@brainstrike/assistant-data/assistant-memory-repository';
 import {
   respondAssistantRejection,
   respondJson,
@@ -24,12 +31,18 @@ import {
   initializeAgentStream,
 } from '@brainstrike/assistant-service/stream-init';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
+import {
+  handleActiveRunDiscoveryRequest,
+  registerInitializingAssistantRun,
+} from './assistant-server/active-run-discovery';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import {
   type AssistantServerAuth,
   isAuthorizedAssistantToken,
   mintAssistantServerAuthToken,
 } from './assistant-server/auth';
+import { handleDelegatedCancelRequest } from './assistant-server/cancel-delegated-conversation';
+import { closeHttpServerForShutdown } from './assistant-server/close-http-server';
 import { createCompactionRangeLookup } from './assistant-server/compaction-range-repository';
 import { handleCancelRequest, handleSteerRequest } from './assistant-server/control-endpoints';
 import {
@@ -42,6 +55,7 @@ import {
   isAssistantCorsPreflight,
   respondForbiddenOrigin,
 } from './assistant-server/cors';
+import { handleDecideRequest } from './assistant-server/decide-endpoint';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
@@ -56,6 +70,7 @@ import {
   readRequestBody,
   streamResponse,
 } from './assistant-server/http';
+import { createLiveDecisionLog } from './assistant-server/live-decision-log';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
 import {
   DesktopMemoryCredentialMissingError,
@@ -67,6 +82,7 @@ import {
   resolveProviderCredential,
 } from './assistant-server/provider-credentials';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
+import { handleRefreshAgentColorsRequest } from './assistant-server/refresh-agent-colors-endpoint';
 import { registerRequestAbort } from './assistant-server/request-abort';
 import { resolveRequestPersonas } from './assistant-server/request-personas';
 import { prepareRequestSkills } from './assistant-server/request-skills';
@@ -83,6 +99,7 @@ import { handleRunStatusRequest } from './assistant-server/run-status-endpoint';
 import { recordDesktopContinuationRunTreatment } from './assistant-server/run-treatment-persistence';
 import { respondToSecretReadError } from './assistant-server/secret-error-responses';
 import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
+import { handleDelegatedFollowupRequest } from './assistant-server/send-delegated-followup';
 import type { AssistantServerOptions } from './assistant-server/server-options';
 import {
   createShellCorrelation,
@@ -128,6 +145,8 @@ import { resolveDesktopPythonExecutable } from './python-runtime';
 const logger = desktopAssistantServerLogger;
 const compactionOverlayLookup = createCompactionRangeLookup(getDatabase);
 const toolProjectionRewriteLookup = createToolProjectionRewriteLookup(getDatabase);
+/** The /assistant/decide outcomes the running leg cannot see (swarm diagnostics). */
+const liveDecisionLog = createLiveDecisionLog(getDatabase);
 
 /**
  * Desktop's instantiation of the service's opaque capability kinds
@@ -301,13 +320,14 @@ export function startAssistantServer(portHint?: number, options: AssistantServer
       const url = `http://${host}:${actualPort}`;
       resolve({
         ...(authToken === undefined ? {} : { authToken }),
-        stop: async () => await new Promise<void>((r) => server.close(() => r())),
+        stop: () => closeHttpServerForShutdown(server),
         url,
       });
     });
   });
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Explicit route dispatch keeps request handling and auth in one place.
 export async function handleAssistantRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -350,6 +370,10 @@ export async function handleAssistantRequest(
   }
 
   const route = resolveAssistantRoute(req);
+  if (route === 'active-run') {
+    handleActiveRunDiscoveryRequest(req, res);
+    return;
+  }
   if (route === 'status') {
     await handleAssistantStatus(res, options);
     return;
@@ -375,13 +399,41 @@ export async function handleAssistantRequest(
     return;
   }
 
+  if (route === 'refresh-agent-colors') {
+    await handleRefreshAgentColorsRequest(req, res);
+    return;
+  }
+
   if (route === 'steer') {
     await handleSteerRequest(req, res);
     return;
   }
 
+  if (route === 'child-input') {
+    await handleDelegatedFollowupRequest(req, res);
+    return;
+  }
+
+  if (route === 'decide') {
+    await handleDecideRequest(req, res, { recordLiveDecision: liveDecisionLog });
+    return;
+  }
+
+  if (route === 'cancel-child') {
+    await handleDelegatedCancelRequest(req, res);
+    return;
+  }
   if (route === 'cancel') {
-    await handleCancelRequest(req, res);
+    await handleCancelRequest(
+      req,
+      res,
+      options.snapshots
+        ? createTurnBoundaryController({
+            resolveDatabase: resolveEditCheckpointDatabase,
+            snapshots: options.snapshots,
+          })
+        : undefined
+    );
     return;
   }
 
@@ -519,6 +571,13 @@ function resolveTurnBoundariesForRun(
   });
 }
 
+function isRejectedBeforeStreamInitialization(
+  enteredStreamInitialization: boolean,
+  isToolDecisionLeg: boolean
+): boolean {
+  return !enteredStreamInitialization && isToolDecisionLeg;
+}
+
 /**
  * `createdBy: 'agent'` and the run/thread ids are bound HERE, never taken from
  * tool input: provenance the model can set is provenance the model can forge.
@@ -583,15 +642,110 @@ function buildDesktopToolDependencies(
   };
 }
 
+function discoveredInputMessage(message: AgentMessage): AssistantActiveRunInputMessage {
+  if (
+    message.role !== 'user' ||
+    message.parts.some((part) => part.type !== 'text' && part.type !== 'file')
+  ) {
+    throw new Error('Only a validated user input can be discovered for assistant replay.');
+  }
+  return {
+    id: message.id,
+    parts: message.parts.map((part) => {
+      if (part.type === 'text') {
+        return { text: part.text, type: 'text' as const };
+      }
+      if (part.type === 'file') {
+        return {
+          data: part.data,
+          mediaType: part.mediaType,
+          type: 'file' as const,
+          ...(part.filename ? { filename: part.filename } : {}),
+        };
+      }
+      throw new Error('Assistant replay input contains an unsupported part.');
+    }),
+    role: 'user',
+  };
+}
+
+export function discoveryForRequest(input: {
+  readonly runId: string | undefined;
+  readonly threadId: string | undefined;
+  readonly resourceId: string | undefined;
+  readonly finalInputMessage: AgentMessage | undefined;
+  readonly inputParentMessageId: string | null | undefined;
+  readonly isToolDecisionLeg: boolean;
+}): NonNullable<Parameters<typeof runAssistantTurn>[0]['discovery']> | undefined {
+  const {
+    runId,
+    threadId,
+    resourceId,
+    finalInputMessage,
+    inputParentMessageId,
+    isToolDecisionLeg,
+  } = input;
+  const hasUserInput = !isToolDecisionLeg && finalInputMessage?.role === 'user';
+  if (!(runId && threadId && resourceId) || (hasUserInput && inputParentMessageId === undefined)) {
+    return;
+  }
+  return {
+    resourceId,
+    threadId,
+    ...(isToolDecisionLeg || !finalInputMessage ? {} : { parentMessageId: finalInputMessage.id }),
+    inputMessage:
+      hasUserInput && finalInputMessage ? discoveredInputMessage(finalInputMessage) : null,
+    inputParentMessageId: hasUserInput ? (inputParentMessageId ?? null) : null,
+  };
+}
+
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   options: AssistantServerOptions
 ): Promise<void> {
+  let releaseInitializing = (): void => {};
+  const registerParsedRequest = (
+    payload: ParsedAssistantRequestEnvelope
+  ): ParsedAssistantRequestEnvelope => {
+    const memory = payload.data?.memory;
+    if (
+      typeof memory?.resourceId === 'string' &&
+      memory.resourceId.trim() &&
+      memory.resourceId.length <= 512 &&
+      typeof memory.threadId === 'string' &&
+      memory.threadId.trim() &&
+      memory.threadId.length <= 512 &&
+      typeof memory.runId === 'string' &&
+      memory.runId.trim()
+    ) {
+      releaseInitializing = registerInitializingAssistantRun(memory.resourceId, memory.threadId);
+    }
+    return payload;
+  };
+  try {
+    await handleAssistantPostOwned(req, res, options, registerParsedRequest, () =>
+      releaseInitializing()
+    );
+  } finally {
+    releaseInitializing();
+  }
+}
+
+async function handleAssistantPostOwned(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  options: AssistantServerOptions,
+  registerParsedRequest: (
+    payload: ParsedAssistantRequestEnvelope
+  ) => ParsedAssistantRequestEnvelope,
+  releaseInitializing: () => void
+): Promise<void> {
   const prepared = await prepareAssistantPostRequest({
     // BST-1353: desktop main is the ONLY host that can resolve local AWS
     // profiles, so it is the only one that supplies the chain builder.
     awsCredentialChain: createAwsCredentialChain,
+    filterPayload: registerParsedRequest,
     logger,
     readBody: () => readRequestBody(req, { maxBodyBytes: assistantRequestBodyLimitBytes }),
     resolveProviderCredential,
@@ -603,9 +757,13 @@ async function handleAssistantPost(
   const {
     assistantMessageId,
     credential,
+    finalInputMessage,
+    inputParentMessageId,
+    pausedMessageId,
     messages,
     runtimeData,
     apiKey,
+    childFollowupAction,
     toolApprovalAction,
     toolResumeAction,
   } = prepared.request;
@@ -623,34 +781,45 @@ async function handleAssistantPost(
   const executionAbortController = new AbortController();
   const runId = runtimeData.memory?.runId;
   const threadId = runtimeData.memory?.threadId;
+  const isToolDecisionLeg = Boolean(toolApprovalAction ?? toolResumeAction);
+  const discovery = discoveryForRequest({
+    finalInputMessage,
+    inputParentMessageId,
+    isToolDecisionLeg,
+    resourceId: runtimeData.memory?.resourceId,
+    runId,
+    threadId,
+  });
 
   // W7 T2 (BST-1164): shadow-git turn boundaries on the run-persistence seam.
   // Only a persisted run (runId + threadId) with the snapshot deps wired
   // participates; snapshot bookkeeping NEVER blocks or fails the run.
   const turnBoundaries = resolveTurnBoundariesForRun(options, runId, threadId);
   const legPause: LegPauseState = { paused: false };
-  if (turnBoundaries && runId && threadId) {
-    try {
-      await turnBoundaries.beginLeg({
-        // TURN ANCHOR: the triggering user message, never the run row (a turn
-        // is not a run — approval/suspend resumes mint additional run rows).
-        anchorMessageId: resolveTurnAnchorMessageId(messages),
-        isResume: toolApprovalAction !== undefined || toolResumeAction !== undefined,
-        roots: await resolveSnapshotWorkspaceRoots(runtimeData),
-        runId,
-        threadId,
-      });
-    } catch (error) {
-      // beginLeg itself never throws; this guards the roots resolution. A run
-      // is never blocked by snapshot bookkeeping — the turn simply has no
-      // recorded start and its changeset resolves to the typed honest error.
-      logger.error('Turn-start snapshot bookkeeping failed; the run proceeds', {
-        error,
-        runId,
-        threadId,
-      });
+  const beginOwnedTurnLeg = async (): Promise<void> => {
+    if (turnBoundaries && runId && threadId) {
+      try {
+        await turnBoundaries.beginLeg({
+          // TURN ANCHOR: the triggering user message, never the run row (a turn
+          // is not a run — approval/suspend resumes mint additional run rows).
+          anchorMessageId: resolveTurnAnchorMessageId(messages),
+          isResume: toolApprovalAction !== undefined || toolResumeAction !== undefined,
+          roots: await resolveSnapshotWorkspaceRoots(runtimeData),
+          runId,
+          threadId,
+        });
+      } catch (error) {
+        // beginLeg itself never throws; this guards the roots resolution. A run
+        // is never blocked by snapshot bookkeeping — the turn simply has no
+        // recorded start and its changeset resolves to the typed honest error.
+        logger.error('Turn-start snapshot bookkeeping failed; the run proceeds', {
+          error,
+          runId,
+          threadId,
+        });
+      }
     }
-  }
+  };
   // Turn-end snapshots complete BEFORE the terminal thread_runs status write
   // (plan global constraint 5): the port wrapper runs completeLeg first, so
   // by the time the run reads terminal the turn-end ledger rows exist.
@@ -677,6 +846,7 @@ async function handleAssistantPost(
   // leg, and unregistering it would make a genuinely active run un-steerable
   // (spurious 404). Review finding, BST-588.
   let registeredSteerableRun = false;
+  let enteredStreamInitialization = false;
   try {
     // Steering control (BST-588): in-memory only, injected AFTER request
     // validation exactly like `signal`. Every streaming leg with a runId is
@@ -695,8 +865,39 @@ async function handleAssistantPost(
       apiKey,
       assistantMessageId,
       authInput,
+      ...(childFollowupAction ? { childFollowupAction } : {}),
       executionSignal: executionAbortController.signal,
+      ...(discovery ? { discovery } : {}),
+      ...(discovery && (toolApprovalAction || toolResumeAction)
+        ? {
+            resolveDiscovery: async () => {
+              const action = toolApprovalAction ?? toolResumeAction;
+              // Child continuations restore their own transcript from the durable
+              // continuation receipt. The root replay prefix cannot own that call.
+              if (!action || action.continuationId) {
+                return discovery;
+              }
+              const actionReplay = await readPausedActionReplayPrefix({
+                hostRunId: action.hostRunId,
+                nativeRunId: action.runId,
+                pauseKind: toolApprovalAction ? 'approval' : 'suspend',
+                repository: createPgliteAssistantThreadRepository(await getDatabase()),
+                resourceId: discovery.resourceId,
+                threadId: discovery.threadId,
+                toolCallId: action.toolCallId,
+                ...(action.delegation ? { delegation: action.delegation } : {}),
+                ...(pausedMessageId ? { pausedMessageId } : {}),
+              });
+              return { ...discovery, actionReplay };
+            },
+          }
+        : {}),
       initializeStream: async (core) => {
+        // Pre-admission rejection releases the renderer's prepared lease. Keep
+        // durable admission and native execution after this boundary.
+        enteredStreamInitialization = true;
+        // runAssistantTurn admits this root only after its previous owner settles.
+        await beginOwnedTurnLeg();
         // Apps admission is keyed by the OWNING THREAD (review finding on
         // BST-1572): an app mounted in thread A must never execute under a
         // later run of thread B that knows the same server. A run without a
@@ -708,7 +909,19 @@ async function handleAssistantPost(
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
           authInput: core.authInput,
-          capabilities: desktopAgentStreamCapabilities,
+          // Initial, approval and suspension-resume requests all enter this
+          // initializer; background work and active input retain its memory.
+          capabilities: {
+            ...desktopAgentStreamCapabilities,
+            memory: {
+              ...desktopAgentStreamCapabilities.memory,
+              create: (settings, memoryRunId, sink, data, dependencies) =>
+                getDesktopMastraMemory(settings, memoryRunId, sink, data, {
+                  ...dependencies,
+                  snapshots: options.snapshots ?? undefined,
+                }),
+            },
+          },
           compactionOverlayLookup,
           getDatabase,
           logger,
@@ -724,6 +937,7 @@ async function handleAssistantPost(
                 },
               }
             : {}),
+          childFollowupAction: core.childFollowupAction,
           mcpHost: getDesktopMcpHostRuntime().host,
           mcpTaskTracking: getDesktopMcpHostRuntime().taskHost,
           messages: core.messages,
@@ -756,6 +970,7 @@ async function handleAssistantPost(
       toolApprovalAction,
       toolResumeAction,
     });
+    releaseInitializing();
     if (!turn.ok) {
       respondJson(res, turn.status, turn.payload);
       return;
@@ -775,11 +990,16 @@ async function handleAssistantPost(
               })
           : null,
       error,
+      preAdmissionRejected: isRejectedBeforeStreamInitialization(
+        enteredStreamInitialization,
+        isToolDecisionLeg
+      ),
       res,
       runId,
       signal: executionAbortController.signal,
     });
   } finally {
+    releaseInitializing();
     if (runId && registeredSteerableRun) {
       unregisterSteerableRun(runId);
     }
@@ -793,6 +1013,7 @@ async function handleAssistantPostStreamError({
   runId,
   signal,
   error,
+  preAdmissionRejected,
 }: {
   /** W7 T2: turn-end snapshot hook, run BEFORE the terminal status write. */
   readonly completeTurnLeg:
@@ -802,6 +1023,7 @@ async function handleAssistantPostStreamError({
   readonly runId: string | undefined;
   readonly signal: AbortSignal;
   readonly error: unknown;
+  readonly preAdmissionRejected: boolean;
 }): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
   if (runId) {
@@ -819,7 +1041,7 @@ async function handleAssistantPostStreamError({
     return;
   }
   respondJson(res, 500, {
-    error: 'assistant_stream_failed',
+    error: preAdmissionRejected ? 'assistant_admission_rejected' : 'assistant_stream_failed',
     message: 'Assistant stream failed.',
   });
 }

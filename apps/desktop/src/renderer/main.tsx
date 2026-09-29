@@ -1,3 +1,4 @@
+import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/app-reload';
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
@@ -391,7 +392,9 @@ function App() {
       />
       <DbSchemaVerifier>
         <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-          <RootLayoutContent />
+          <AppReloadGate buildId={__BRAINSTRIKE_BUILD_ID__}>
+            <RootLayoutContent />
+          </AppReloadGate>
         </AdaptersProvider>
       </DbSchemaVerifier>
     </DbProvider>
@@ -500,6 +503,16 @@ if (!bridgeValidation.ok) {
       'Desktop renderer loaded outside Electron — preload bridges cannot exist here. This is not a desktop app failure; close this browser tab and use the Electron window (or apps/web for the browser app).',
       { userAgent: window.navigator.userAgent }
     );
+  }
+}
+
+// Only the window that renders the shell can offer a reload; the hidden hosts have no UI.
+// Before the first render, so a marker the last reload left has already flagged the
+// notice. Under HMR this module re-executes: the uninstall keeps one listener.
+if (desktopRendererRole === 'visible-ui') {
+  const stopAppReloadRecovery = startAppReloadRecovery({ buildId: __BRAINSTRIKE_BUILD_ID__ });
+  if (import.meta.hot) {
+    import.meta.hot.dispose(stopAppReloadRecovery);
   }
 }
 

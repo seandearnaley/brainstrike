@@ -50,6 +50,7 @@ export function createRepository(
     deleteThreads: vi.fn(),
     getCrossRootUsage: vi.fn(async () => []),
     getThreadCumulativeUsage: vi.fn(async () => null),
+    getThreadRunTurnMessageId: vi.fn(async () => null),
     listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
     listThreadCheckpoints: vi.fn(async () => []),

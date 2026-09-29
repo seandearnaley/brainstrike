@@ -122,6 +122,46 @@ describe('readToolApprovalRunConfigAction', () => {
       })
     ).toBe(false);
   });
+
+  it('carries the host leg that surfaced the pause beside the native run id', () => {
+    const action = {
+      action: 'approve',
+      hostRunId: 'run-host-leg-1',
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+      toolCallId: 'tool-call-1',
+    } as const;
+
+    expect(isAssistantToolApprovalAction(action)).toBe(true);
+    expect(
+      readToolApprovalRunConfigAction({ custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: action } })
+    ).toEqual({ action });
+  });
+
+  it.each([
+    ['blank', '   '],
+    ['oversized', 'h'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS + 1)],
+    ['non-string', 7],
+    ['explicitly undefined', undefined],
+  ])('rejects a %s hostRunId', (_caseName, hostRunId) => {
+    expect(
+      isAssistantToolApprovalAction({
+        action: 'approve',
+        hostRunId,
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+      })
+    ).toBe(false);
+  });
+
+  it('rejects an inherited hostRunId', () => {
+    const action = Object.assign(Object.create({ hostRunId: 'run-host-leg-1' }), {
+      action: 'approve',
+      runId: 'run-approval-1',
+      toolCallId: 'tool-call-1',
+    });
+
+    expect(isAssistantToolApprovalAction(action)).toBe(false);
+  });
 });
 
 describe('isRediscoveredToolApproval', () => {
@@ -132,6 +172,32 @@ describe('isRediscoveredToolApproval', () => {
     toolCallId: 'call-1',
     toolName: 'workspace.writeFile',
   };
+
+  it('validates durable delegated decision state without treating unknown states as pending', () => {
+    const delegation = {
+      path: [
+        {
+          childRuntimeRunId: 'child',
+          parentRuntimeRunId: base.runId,
+          parentToolCallId: base.toolCallId,
+          personaId: 'worker',
+        },
+      ],
+      toolCallId: 'leaf',
+    };
+    for (const decisionState of ['claimed', 'consumed', 'interrupted']) {
+      expect(isRediscoveredToolApproval({ ...base, decisionState, delegation })).toBe(true);
+      expect(isRediscoveredToolApproval({ ...base, decisionState })).toBe(false);
+    }
+    expect(isRediscoveredToolApproval({ ...base, decisionState: 'unknown', delegation })).toBe(
+      false
+    );
+    expect(
+      isRediscoveredToolApproval(
+        Object.assign(Object.create({ decisionState: 'claimed' }), { ...base, delegation })
+      )
+    ).toBe(false);
+  });
 
   it('accepts a fully-formed rediscovered approval', () => {
     expect(isRediscoveredToolApproval(base)).toBe(true);

@@ -1,47 +1,24 @@
 import type { AssistantProviderSettingsMap } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ComponentProps, ReactNode } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ControlsMenu } from '../assistant-controls-menu';
 import type { AssistantToolMenuConfig } from '../assistant-ui-panel';
 
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/ui')>();
-  const Shell = ({ children }: { children: ReactNode }) => <div>{children}</div>;
-  const Content = ({ children }: { children: ReactNode }) => <div role="menu">{children}</div>;
-  const Trigger = ({ children }: { children: ReactNode }) => <>{children}</>;
-  const Label = ({ children }: { children: ReactNode }) => <div>{children}</div>;
-  const Separator = () => <hr />;
-  const Item = ({
-    children,
-    onSelect,
-    ...props
-  }: {
-    children: ReactNode;
-    onSelect?: (event: { preventDefault: () => void }) => void;
-  } & Omit<ComponentProps<'button'>, 'onSelect'>) => (
-    <button onClick={() => onSelect?.({ preventDefault: vi.fn() })} type="button" {...props}>
-      {children}
-    </button>
+  const Shell = ({ children }: { children: ReactNode }): JSX.Element => <div>{children}</div>;
+  const Content = ({ children }: { children: ReactNode }): JSX.Element => (
+    <div role="dialog">{children}</div>
   );
-
-  const RadioGroup = ({ children }: { children: ReactNode }) => <div>{children}</div>;
-  const RadioItem = ({ children }: { children: ReactNode }) => <div>{children}</div>;
+  const Trigger = ({ children }: { children: ReactNode }): JSX.Element => <>{children}</>;
 
   return {
     ...actual,
-    DropdownMenu: Shell,
-    DropdownMenuContent: Content,
-    DropdownMenuItem: Item,
-    DropdownMenuLabel: Label,
-    DropdownMenuRadioGroup: RadioGroup,
-    DropdownMenuRadioItem: RadioItem,
-    DropdownMenuSeparator: Separator,
-    DropdownMenuSub: Shell,
-    DropdownMenuSubContent: Content,
-    DropdownMenuSubTrigger: Label,
-    DropdownMenuTrigger: Trigger,
+    Popover: Shell,
+    PopoverContent: Content,
+    PopoverTrigger: Trigger,
   };
 });
 
@@ -52,7 +29,7 @@ vi.mock('../provider-settings-panel', () => ({
   }: {
     modelName?: string;
     providerId?: string;
-  }) => (
+  }): JSX.Element => (
     <div data-model-name={modelName ?? ''} data-provider-id={providerId ?? ''}>
       Provider settings panel
     </div>
@@ -140,7 +117,14 @@ describe('ControlsMenu', () => {
     expect(screen.getByText('AI Tools')).toBeInTheDocument();
     expect(screen.getByText('1 of 3 enabled')).toBeInTheDocument();
     expect(screen.getByText('Native Read')).toBeInTheDocument();
+    expect(screen.queryByText('Reads local context')).not.toBeInTheDocument();
+    const help = screen.getByRole('button', { name: 'About Native Read' });
+    expect(help).toHaveAttribute('aria-expanded', 'false');
+    await user.click(help);
+    expect(help).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Reads local context')).toBeInTheDocument();
+    await user.click(help);
+    expect(screen.queryByText('Reads local context')).not.toBeInTheDocument();
 
     const groupLabels = screen
       .getAllByText(/Alpha|Beta|Zeta/)
@@ -149,8 +133,7 @@ describe('ControlsMenu', () => {
     expect(screen.getByText('1/1')).toBeInTheDocument();
     expect(screen.getAllByText('0/1')).toHaveLength(2);
 
-    const switches = screen.getAllByRole('switch');
-    const nativeWriteSwitch = switches[1];
+    const nativeWriteSwitch = screen.getByRole('switch', { name: 'Native Write enabled' });
     if (!nativeWriteSwitch) {
       throw new Error('Expected the native write tool switch to render');
     }
@@ -164,8 +147,68 @@ describe('ControlsMenu', () => {
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('uses a supplied tool summary and tolerates missing toggle handler', async () => {
+  it('filters tools by name, id, group and description while retaining enabled counts', async () => {
     const user = userEvent.setup();
+    render(
+      <ControlsMenu
+        toolMenu={{
+          items: [
+            {
+              description: 'Reads current workspace',
+              enabled: true,
+              group: 'Native Tools',
+              id: 'native-read',
+              label: 'Read File',
+              source: 'native',
+            },
+            {
+              enabled: false,
+              group: 'Native Tools',
+              id: 'native-write',
+              label: 'Write File',
+              source: 'native',
+            },
+            {
+              enabled: true,
+              group: 'linear',
+              id: 'mcp-issue',
+              label: 'Create Issue',
+              source: 'mcp',
+            },
+          ],
+        }}
+      />
+    );
+
+    const search = screen.getByRole('searchbox', { name: 'Search tools' });
+    await user.click(screen.getByText('Native Tools', { selector: 'summary span' }));
+    expect(
+      screen.getByText('Native Tools', { selector: 'summary span' }).closest('details')
+    ).toHaveAttribute('open');
+    await user.type(search, 'workspace');
+    expect(screen.getByText('Read File')).toBeInTheDocument();
+    expect(screen.queryByText('Write File')).not.toBeInTheDocument();
+    expect(screen.queryByText('Create Issue')).not.toBeInTheDocument();
+    expect(screen.getByText('1/2')).toBeInTheDocument();
+
+    await user.clear(search);
+    expect(
+      screen.getByText('Native Tools', { selector: 'summary span' }).closest('details')
+    ).toHaveAttribute('open');
+    await user.type(search, 'mcp-issue');
+    expect(screen.getByText('Create Issue')).toBeInTheDocument();
+    expect(screen.queryByText('Read File')).not.toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, 'linear');
+    expect(screen.getByText('Create Issue')).toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, 'unmatched');
+    expect(screen.getByText(/No tools match/)).toBeInTheDocument();
+  });
+
+  it('uses a supplied tool summary and disables tools without a toggle handler', () => {
     const toolMenu = {
       items: [
         {
@@ -182,7 +225,7 @@ describe('ControlsMenu', () => {
     render(<ControlsMenu toolMenu={toolMenu} />);
 
     expect(screen.getByText('Custom tool summary')).toBeInTheDocument();
-    await user.click(screen.getByRole('switch'));
+    expect(screen.getByRole('switch')).toBeDisabled();
     expect(screen.getByText('Native Read')).toBeInTheDocument();
   });
 

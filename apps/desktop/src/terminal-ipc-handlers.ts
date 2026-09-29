@@ -49,6 +49,7 @@ import { ipcMain } from 'electron';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
+import { terminalContract } from './ipc-domains/terminal.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import {
@@ -528,31 +529,31 @@ export function registerTerminalIpcHandlers(handlers: TerminalIpcHandlers): () =
 
   registry.registerAuthorizedInvoke(
     'terminal',
-    DESKTOP_IPC_CHANNELS.terminal.create,
-    { roles: ['visible-ui'] },
-    (event: IpcMainInvokeEvent, params: TerminalCreateParams) =>
-      handlers.create(event.sender, params)
+    terminalContract.create.channel,
+    { roles: terminalContract.create.roles },
+    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) =>
+      handlers.create(event.sender, ...terminalContract.create.parseArgs(raw))
   );
   registry.registerAuthorizedInvoke(
     'terminal',
-    DESKTOP_IPC_CHANNELS.terminal.write,
-    { roles: ['visible-ui'] },
-    (event: IpcMainInvokeEvent, params: TerminalWriteParams) =>
-      handlers.write(params, event.sender.id)
+    terminalContract.write.channel,
+    { roles: terminalContract.write.roles },
+    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) =>
+      handlers.write(...terminalContract.write.parseArgs(raw), event.sender.id)
   );
   registry.registerAuthorizedInvoke(
     'terminal',
-    DESKTOP_IPC_CHANNELS.terminal.resize,
-    { roles: ['visible-ui'] },
-    (event: IpcMainInvokeEvent, params: TerminalResizeParams) =>
-      handlers.resize(params, event.sender.id)
+    terminalContract.resize.channel,
+    { roles: terminalContract.resize.roles },
+    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) =>
+      handlers.resize(...terminalContract.resize.parseArgs(raw), event.sender.id)
   );
   registry.registerAuthorizedInvoke(
     'terminal',
-    DESKTOP_IPC_CHANNELS.terminal.destroy,
-    { roles: ['visible-ui'] },
-    (event: IpcMainInvokeEvent, params: TerminalDestroyParams) =>
-      handlers.destroy(params, event.sender.id)
+    terminalContract.destroy.channel,
+    { roles: terminalContract.destroy.roles },
+    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) =>
+      handlers.destroy(...terminalContract.destroy.parseArgs(raw), event.sender.id)
   );
 
   return () => {

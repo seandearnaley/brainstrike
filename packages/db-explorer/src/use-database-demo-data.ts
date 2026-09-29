@@ -2,12 +2,11 @@ import { useDatabaseStatusStore } from '@brainstrike/app-state/stores/database-s
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import {
   ACTIVE_COLLECTION_LIVE_COUNTS_QUERY,
-  type DrizzleFileChunkRepository,
   type DrizzleFileRecordRepository,
-  type ElectronFileChunkRepository,
   type ElectronFileRecordRepository,
   type FileChunk,
   type FileRecord,
+  type IFileChunkRepository,
 } from '@brainstrike/db';
 import {
   makeLiveQueryKey,
@@ -72,7 +71,7 @@ export interface DatabaseInfo {
 
 export interface UseDatabaseDemoDataOptions {
   activeCollectionId: string | null;
-  chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  chunkRepository?: IFileChunkRepository | null;
   database?: ReturnType<typeof usePGliteDatabase>;
   /** When true, diagnostics can reflect active embedding pressure. Collection reads remain live. */
   isEmbeddingActive?: boolean;

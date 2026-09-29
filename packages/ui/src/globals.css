@@ -377,3 +377,42 @@
     text-decoration: var(--shiki-dark-text-decoration) !important;
   }
 }
+
+/* The small solid mark carries identity; the surrounding surface stays quiet. */
+.bs-agent-family {
+  --agent-accent: var(--agent-accent-light);
+}
+.dark .bs-agent-family {
+  --agent-accent: var(--agent-accent-dark);
+}
+.bs-agent-family-idle {
+  background: color-mix(in oklab, var(--agent-accent) 5%, var(--background));
+}
+.bs-agent-family-idle:hover {
+  background: color-mix(in oklab, var(--agent-accent) 9%, var(--background));
+}
+.bs-agent-family-selected {
+  background: color-mix(in oklab, var(--agent-accent) 9%, var(--background));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--agent-accent) 32%, var(--border));
+}
+.bs-agent-solid-mark {
+  border-color: transparent;
+  box-shadow: 0 0 0 1px color-mix(in oklab, currentColor 14%, transparent);
+}
+.bs-agent-family-mark {
+  color: var(--agent-ink-light);
+  background: var(--agent-accent-light);
+}
+.dark .bs-agent-family-mark {
+  color: var(--agent-ink-dark);
+  background: var(--agent-accent-dark);
+}
+.bs-agent-parent-cue {
+  background: var(--agent-accent-light);
+}
+.dark .bs-agent-parent-cue {
+  background: var(--agent-accent-dark);
+}
+.bs-agent-family-accent {
+  background: var(--agent-accent);
+}

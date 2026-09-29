@@ -5,9 +5,20 @@ import type {
 } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createDesktopDatabaseIntegrity,
+  DatabaseIntegrityError,
+} from '../database-integrity-state';
+import {
   createDesktopDatabaseMaintenanceScheduler,
   type DesktopDatabaseMaintenanceSchedulerOptions,
 } from '../database-maintenance-scheduler';
+
+function createHealthyIntegrity() {
+  return createDesktopDatabaseIntegrity({
+    logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    now: () => new Date('2026-09-29T12:00:00.000Z'),
+  });
+}
 
 const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   activeJobs: 0,
@@ -42,6 +53,16 @@ function createQueuedCounts(
   };
 }
 
+/** A database reporting the given in-flight assistant work (none by default). */
+function databaseWithAssistantWork(inFlight = { backgroundTasks: 0, runs: 0 }) {
+  // Untyped like the vi.fn() it replaces, so it fits the generic query seam.
+  const query = vi.fn();
+  query.mockImplementation(async (sql: string) =>
+    sql.includes('brainstrike_assistant_thread_runs') ? { rows: [inFlight] } : { rows: [] }
+  );
+  return { query };
+}
+
 /**
  * BST-1333: the quiet-period gate. A measured `VACUUM (ANALYZE) file_chunks`
  * ran 7.3s and, because the DB host dispatches serially and cannot preempt it,
@@ -62,12 +83,13 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
     let listener: ((snapshot: SchedulerSnapshotForTest) => void) | null = null;
     const runMaintenance = vi.fn(async () => COMPLETED_MAINTENANCE_RESULT);
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
-      getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+      getDatabase: vi.fn(async () => databaseWithAssistantWork()),
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts(),
         runningPriority: null,
       }),
-      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+      integrity: createHealthyIntegrity(),
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
       now: () => new Date(nowMs),
       ...(quietPeriodMs === undefined ? {} : { quietPeriodMs }),
       runMaintenance,
@@ -120,6 +142,18 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
     harness.scheduler.stop();
   });
 
+  it('does not restart the quiet window when start is called twice', async () => {
+    const harness = createHarness();
+    await harness.scheduler.start();
+    harness.advance(14_000);
+    await harness.scheduler.start();
+    harness.advance(2000);
+
+    expect(await harness.scheduler.runOnce()).toBe(COMPLETED_MAINTENANCE_RESULT);
+    harness.scheduler.stop();
+    await harness.scheduler.close();
+  });
+
   it('restarts the quiet window when observed work arrives between passes', async () => {
     // The failure this pins: the instantaneous check samples only at run time,
     // so a burst that ended microseconds ago looked identical to a long lull.
@@ -150,12 +184,13 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
   it('rejects a negative quiet period instead of coercing it', () => {
     expect(() =>
       createDesktopDatabaseMaintenanceScheduler({
-        getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+        getDatabase: vi.fn(async () => databaseWithAssistantWork()),
         getSchedulerSnapshot: () => ({
           queued: createQueuedCounts(),
           runningPriority: null,
         }),
-        logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+        integrity: createHealthyIntegrity(),
+        logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
         quietPeriodMs: -1,
         runScheduledWork: (async <TResult>(
           _options: DatabaseWorkOptions,
@@ -169,7 +204,7 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
 
 describe('DesktopDatabaseMaintenanceScheduler', () => {
   it('does not request a database handle while scheduled DB work is already busy', async () => {
-    const getDatabase = vi.fn(async () => ({ query: vi.fn() }));
+    const getDatabase = vi.fn(async () => databaseWithAssistantWork());
     const runScheduledWork = vi.fn();
     const runMaintenance = vi.fn();
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
@@ -178,10 +213,12 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         queued: createQueuedCounts({ foreground: 1 }),
         runningPriority: null,
       }),
+      integrity: createHealthyIntegrity(),
       logger: {
         debug: vi.fn(),
         error: vi.fn(),
         info: vi.fn(),
+        warn: vi.fn(),
       },
       runMaintenance,
       runScheduledWork,
@@ -199,7 +236,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
   });
 
   it('runs maintenance through the background database lane when the scheduler is idle', async () => {
-    const db = { query: vi.fn() };
+    const db = databaseWithAssistantWork();
     const getDatabase = vi.fn(async () => db);
     let capturedOptions: DatabaseWorkOptions | null = null;
     const runScheduledWork = vi.fn(
@@ -215,6 +252,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       debug: vi.fn(),
       error: vi.fn(),
       info: vi.fn(),
+      warn: vi.fn(),
     };
     const runMaintenance = vi.fn(async () => COMPLETED_MAINTENANCE_RESULT);
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
@@ -223,6 +261,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         queued: createQueuedCounts(),
         runningPriority: null,
       }),
+      integrity: createHealthyIntegrity(),
       logger,
       runMaintenance,
       runScheduledWork,
@@ -254,7 +293,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
   });
 
   it('logs a partial maintenance pass as info, not as a skip', async () => {
-    const db = { query: vi.fn() };
+    const db = databaseWithAssistantWork();
     const runScheduledWork = vi.fn(
       async <TResult>(
         _options: DatabaseWorkOptions,
@@ -265,6 +304,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       debug: vi.fn(),
       error: vi.fn(),
       info: vi.fn(),
+      warn: vi.fn(),
     };
     const partialResult: ScheduledDatabaseMaintenanceResult = {
       activeJobs: 496_198,
@@ -285,6 +325,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         queued: createQueuedCounts(),
         runningPriority: null,
       }),
+      integrity: createHealthyIntegrity(),
       logger,
       runMaintenance: vi.fn(async () => partialResult),
       runScheduledWork,
@@ -322,21 +363,29 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         })
     );
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
-      getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+      getDatabase: vi.fn(async () => databaseWithAssistantWork()),
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts(),
         runningPriority: null,
       }),
+      integrity: createHealthyIntegrity(),
       logger: {
         debug: vi.fn(),
         error: vi.fn(),
         info: vi.fn(),
+        warn: vi.fn(),
       },
+      quietPeriodMs: 0,
       runMaintenance,
       runScheduledWork,
     });
 
+    await scheduler.start();
     const firstRun = scheduler.runOnce();
+    let firstRunSettled = false;
+    void firstRun.then(() => {
+      firstRunSettled = true;
+    });
     await Promise.resolve();
 
     const secondRun = await scheduler.runOnce();
@@ -346,6 +395,8 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       status: 'skipped',
     });
     expect(runScheduledWork).toHaveBeenCalledTimes(1);
+    // The pass reads in-flight assistant work inside the lane before it runs.
+    await vi.waitFor(() => expect(runMaintenance).toHaveBeenCalledTimes(1));
 
     const finishMaintenance = resolveMaintenance as
       | ((result: ScheduledDatabaseMaintenanceResult) => void)
@@ -353,8 +404,12 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     if (!finishMaintenance) {
       throw new Error('Expected database maintenance to be pending.');
     }
+    scheduler.stop();
+    await scheduler.close();
+    expect(firstRunSettled).toBe(false);
     finishMaintenance(COMPLETED_MAINTENANCE_RESULT);
     await firstRun;
+    expect(firstRunSettled).toBe(true);
   });
 
   it('runs an initial pass after the configured startup delay', async () => {
@@ -367,17 +422,19 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         ): Promise<TResult> => await work()
       ) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'];
       const scheduler = createDesktopDatabaseMaintenanceScheduler({
-        getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+        getDatabase: vi.fn(async () => databaseWithAssistantWork()),
         getSchedulerSnapshot: () => ({
           queued: createQueuedCounts(),
           runningPriority: null,
         }),
         initialDelayMs: 250,
+        integrity: createHealthyIntegrity(),
         intervalMs: 10_000,
         logger: {
           debug: vi.fn(),
           error: vi.fn(),
           info: vi.fn(),
+          warn: vi.fn(),
         },
         // Timer mechanics in isolation: opt out of the BST-1333 quiet-period
         // gate, which start() would otherwise arm for 15s and which has its
@@ -403,6 +460,11 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
   it('starts recurring passes after the initial startup delay', async () => {
     vi.useFakeTimers();
     try {
+      const firstFailure = new Error('temporary maintenance failure');
+      const error = vi.fn();
+      const runMaintenance = vi
+        .fn(async () => COMPLETED_MAINTENANCE_RESULT)
+        .mockRejectedValueOnce(firstFailure);
       const runScheduledWork = vi.fn(
         async <TResult>(
           _options: DatabaseWorkOptions,
@@ -410,21 +472,23 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         ): Promise<TResult> => await work()
       ) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'];
       const scheduler = createDesktopDatabaseMaintenanceScheduler({
-        getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+        getDatabase: vi.fn(async () => databaseWithAssistantWork()),
         getSchedulerSnapshot: () => ({
           queued: createQueuedCounts(),
           runningPriority: null,
         }),
         initialDelayMs: 1000,
+        integrity: createHealthyIntegrity(),
         intervalMs: 100,
         logger: {
           debug: vi.fn(),
-          error: vi.fn(),
+          error,
           info: vi.fn(),
+          warn: vi.fn(),
         },
         // Timer mechanics in isolation — see the note on the initial-pass test.
         quietPeriodMs: 0,
-        runMaintenance: vi.fn(async () => COMPLETED_MAINTENANCE_RESULT),
+        runMaintenance,
         runScheduledWork,
       });
 
@@ -434,16 +498,252 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
 
       await vi.advanceTimersByTimeAsync(1);
       expect(runScheduledWork).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledExactlyOnceWith(
+        { error: firstFailure },
+        'Scheduled database maintenance failed'
+      );
 
       await vi.advanceTimersByTimeAsync(99);
       expect(runScheduledWork).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(1);
       expect(runScheduledWork).toHaveBeenCalledTimes(2);
+      expect(runMaintenance).toHaveBeenCalledTimes(2);
 
       scheduler.stop();
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * Corruption found by a maintenance pass contains the database, exactly like
+ * corruption found by `db:query`: background work pauses and nothing is
+ * replaced. Measured case (2026-09-15): a pass failed with XX001 and was only
+ * logged as "Scheduled database maintenance failed" while the app kept running
+ * background writes into that database for about nine hours.
+ */
+describe('DesktopDatabaseMaintenanceScheduler integrity containment on failure', () => {
+  interface CorruptionHarness {
+    readonly events: string[];
+    readonly integrity: ReturnType<typeof createHealthyIntegrity>;
+    readonly logger: {
+      readonly debug: ReturnType<typeof vi.fn>;
+      readonly error: ReturnType<typeof vi.fn>;
+      readonly info: ReturnType<typeof vi.fn>;
+      readonly warn: ReturnType<typeof vi.fn>;
+    };
+    readonly scheduler: ReturnType<typeof createDesktopDatabaseMaintenanceScheduler>;
+  }
+
+  // DbHostManager.toError rebuilds a DB host failure as a plain Error carrying
+  // the SQLSTATE on `code`: the exact shape a maintenance pass sees in main.
+  function createDbHostError(message: string, code: string): Error {
+    return Object.assign(new Error(message), { code });
+  }
+
+  function createHarness(maintenanceError: Error): CorruptionHarness {
+    const events: string[] = [];
+    const integrity = createHealthyIntegrity();
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+    const scheduler = createDesktopDatabaseMaintenanceScheduler({
+      getDatabase: vi.fn(async () => databaseWithAssistantWork()),
+      getSchedulerSnapshot: () => ({
+        queued: createQueuedCounts(),
+        runningPriority: null,
+      }),
+      initialDelayMs: 0,
+      integrity,
+      logger,
+      quietPeriodMs: 0,
+      runMaintenance: vi.fn(async () => {
+        throw maintenanceError;
+      }),
+      runScheduledWork: (async <TResult>(
+        _options: DatabaseWorkOptions,
+        work: () => Promise<TResult>
+      ): Promise<TResult> => {
+        events.push('lane:enter');
+        try {
+          return await work();
+        } finally {
+          events.push('lane:exit');
+        }
+      }) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'],
+    });
+    return { events, integrity, logger, scheduler };
+  }
+
+  it('contains the database when a pass fails with a corruption-class error', async () => {
+    const corruption = createDbHostError(
+      'pg_textsearch memtable marking dead chain page out',
+      'XX001'
+    );
+    const harness = createHarness(corruption);
+
+    const rejection = await harness.scheduler.runOnce().catch((error: unknown) => error);
+
+    expect(rejection).toBeInstanceOf(DatabaseIntegrityError);
+    expect(rejection).toMatchObject({
+      cause: corruption,
+      detail: { context: 'maintenance', reason: 'detected' },
+    });
+    expect(harness.integrity.getSnapshot().state).toMatchObject({
+      context: 'maintenance',
+      kind: 'contained',
+      signal: { sqlstate: 'XX001' },
+    });
+  });
+
+  it('contains inside the maintenance work lane, before the lane is released', async () => {
+    const harness = createHarness(createDbHostError('invalid page index at block 398', 'XX001'));
+    harness.integrity.subscribe(() => harness.events.push('contained'));
+
+    await expect(harness.scheduler.runOnce()).rejects.toThrow(DatabaseIntegrityError);
+
+    expect(harness.events).toEqual(['lane:enter', 'contained', 'lane:exit']);
+  });
+
+  it('logs the contained pass as failed on the timer path main.ts uses', async () => {
+    // main.ts only calls start(), so production containment runs on the timer
+    // path. The pass is still logged at error level: it did not complete, and
+    // the logged error is the typed integrity error rather than the raw one.
+    const corruption = createDbHostError('invalid page index at block 398', 'XX001');
+    const harness = createHarness(corruption);
+
+    harness.scheduler.start();
+    try {
+      await vi.waitFor(() => {
+        expect(harness.logger.error).toHaveBeenCalledExactlyOnceWith(
+          { error: expect.objectContaining({ cause: corruption, name: 'DatabaseIntegrityError' }) },
+          'Scheduled database maintenance failed'
+        );
+      });
+    } finally {
+      harness.scheduler.stop();
+    }
+
+    expect(harness.integrity.getSnapshot().state.kind).toBe('contained');
+  });
+
+  it('keeps a non-corruption failure log-only: same error, same log, state healthy', async () => {
+    const failure = createDbHostError('canceling statement due to statement timeout', '57014');
+    const harness = createHarness(failure);
+
+    harness.scheduler.start();
+    try {
+      await vi.waitFor(() => {
+        expect(harness.logger.error).toHaveBeenCalledExactlyOnceWith(
+          { error: failure },
+          'Scheduled database maintenance failed'
+        );
+      });
+    } finally {
+      harness.scheduler.stop();
+    }
+
+    expect(harness.integrity.getSnapshot().state).toEqual({ kind: 'healthy' });
+    expect(harness.logger.warn).not.toHaveBeenCalled();
+  });
+
+  // Compile-time guard: type-check fails here if `integrity` ever becomes optional.
+  it('has no default for the integrity option', () => {
+    const withoutIntegrity: Omit<DesktopDatabaseMaintenanceSchedulerOptions, 'integrity'> = {
+      getDatabase: vi.fn(async () => databaseWithAssistantWork()),
+      getSchedulerSnapshot: () => ({ queued: createQueuedCounts(), runningPriority: null }),
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+      runScheduledWork: vi.fn() as never,
+    };
+    // @ts-expect-error `integrity` is required: a pass must never run unguarded.
+    const create = () => createDesktopDatabaseMaintenanceScheduler(withoutIntegrity);
+    expect(create).toBeTypeOf('function');
+  });
+});
+
+/**
+ * Live GLM run 22 (2026-09-15): an unpreemptable maintenance statement that
+ * starts while assistant work is in flight blocks every run-scoped query behind
+ * it. A run waiting on its model issues no database work for many seconds, so
+ * sustained quiet alone cannot see it; the durable run and task rows can.
+ */
+describe('DesktopDatabaseMaintenanceScheduler assistant work admission', () => {
+  it.for([
+    { backgroundTasks: 0, runs: 1 },
+    { backgroundTasks: 1, runs: 0 },
+  ])('refuses to start a pass while assistant work is in flight (%o)', async (inFlight) => {
+    const runMaintenance = vi.fn(async () => COMPLETED_MAINTENANCE_RESULT);
+    const scheduler = createDesktopDatabaseMaintenanceScheduler({
+      getDatabase: vi.fn(async () => databaseWithAssistantWork(inFlight)),
+      getSchedulerSnapshot: () => ({ queued: createQueuedCounts(), runningPriority: null }),
+      integrity: createHealthyIntegrity(),
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+      quietPeriodMs: 0,
+      runMaintenance,
+      runScheduledWork: (async <TResult>(
+        _options: DatabaseWorkOptions,
+        work: () => Promise<TResult>
+      ): Promise<TResult> =>
+        await work()) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'],
+    });
+
+    const result = await scheduler.runOnce();
+
+    expect(result.status).toBe('skipped');
+    expect((result as { reason: string }).reason).toBe('assistant-work-in-flight');
+    expect(runMaintenance).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * BST-1870: while an integrity error is contained, background database work is
+ * paused. The pass skips quietly before it touches the lane or the database.
+ */
+describe('DesktopDatabaseMaintenanceScheduler integrity containment', () => {
+  function createContainedHarness() {
+    const integrity = createHealthyIntegrity();
+    integrity.contain('db:query', { message: 'invalid page in block 3', sqlstate: 'XX001' });
+    const getDatabase = vi.fn(async () => databaseWithAssistantWork());
+    const runMaintenance = vi.fn(async () => COMPLETED_MAINTENANCE_RESULT);
+    const runScheduledWork = vi.fn(
+      async <TResult>(_options: DatabaseWorkOptions, work: () => Promise<TResult>) => await work()
+    );
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+    const scheduler = createDesktopDatabaseMaintenanceScheduler({
+      getDatabase,
+      getSchedulerSnapshot: () => ({ queued: createQueuedCounts(), runningPriority: null }),
+      integrity,
+      logger,
+      quietPeriodMs: 0,
+      runMaintenance,
+      runScheduledWork:
+        runScheduledWork as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'],
+    });
+    return { getDatabase, integrity, logger, runMaintenance, runScheduledWork, scheduler };
+  }
+
+  it('skips with database-integrity-contained and never enters the lane or opens the database', async () => {
+    const harness = createContainedHarness();
+
+    const result = await harness.scheduler.runOnce();
+
+    expect(result).toMatchObject({ reason: 'database-integrity-contained', status: 'skipped' });
+    expect(harness.runScheduledWork).not.toHaveBeenCalled();
+    expect(harness.getDatabase).not.toHaveBeenCalled();
+    expect(harness.runMaintenance).not.toHaveBeenCalled();
+    expect(harness.logger.info).toHaveBeenCalledExactlyOnceWith(
+      { integrityState: 'contained', revision: 1 },
+      'Skipped scheduled database maintenance because database integrity containment is active'
+    );
+  });
+
+  it('runs again once the database has been replaced', async () => {
+    const harness = createContainedHarness();
+    harness.integrity.markDatabaseReplaced('factory-reset');
+
+    const result = await harness.scheduler.runOnce();
+
+    expect(result).toBe(COMPLETED_MAINTENANCE_RESULT);
+    expect(harness.runMaintenance).toHaveBeenCalledTimes(1);
   });
 });

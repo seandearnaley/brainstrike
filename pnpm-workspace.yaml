@@ -41,17 +41,22 @@ catalog:
   # present transitively, promoted to a direct dep so the walk can rely on it.
   '@babel/core': ^8.0.1
   '@codemirror/state': ^6.7.4
+  # ADR-0004: the Effect language service on TypeScript 7. Run in dedicated
+  # `effect-tsgo diagnostics` mode from each Effect package's type-check, never
+  # `effect-tsgo patch` (which would rewrite the shared `tsc`). Exact pin: its
+  # supported TypeScript list moves with every release.
+  '@effect/tsgo': 0.45.0
   '@electric-sql/pglite': 0.5.8
   '@electric-sql/pglite-pg_textsearch': 0.0.10
   '@electric-sql/pglite-pgvector': 0.0.9
   '@fontsource-variable/geist': ^5.3.0
   '@fontsource-variable/geist-mono': ^5.3.0
-  '@huggingface/transformers': ^4.2.0
-  '@modelcontextprotocol/client': 2.0.0
-  '@modelcontextprotocol/core': 2.0.0
-  '@modelcontextprotocol/node': 2.0.0
-  '@modelcontextprotocol/server': 2.0.0
-  '@modelcontextprotocol/server-legacy': 2.0.0
+  '@huggingface/transformers': ^4.3.0
+  '@modelcontextprotocol/client': 2.1.0
+  '@modelcontextprotocol/core': 2.1.0
+  '@modelcontextprotocol/node': 2.1.0
+  '@modelcontextprotocol/server': 2.1.0
+  '@modelcontextprotocol/server-legacy': 2.1.0
   '@openrouter/ai-sdk-provider': 2.10.0
   '@parcel/watcher': ^2.6.0
   '@playwright/test': ^1.63.0
@@ -80,24 +85,29 @@ catalog:
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.3
   '@tanstack/react-table': ^9.2.4
-  '@tanstack/react-virtual': ^3.14.10
-  '@testing-library/dom': ^10.4.1
+  '@tanstack/react-virtual': ^3.14.11
+  '@testing-library/dom': ^10.4.2
   '@testing-library/jest-dom': ^7.0.1
   '@testing-library/react': ^16.3.3
   '@testing-library/user-event': ^14.6.7
   '@types/node': ^24.13.3
-  '@types/react': ^19.2.18
-  '@types/react-dom': ^19.2.4
+  '@types/react': ^19.3.0
+  '@types/react-dom': ^19.3.0
   '@typescript/native': 'npm:typescript@7.0.2'
   '@typescript/old': 'npm:typescript@6.0.3'
   '@vitejs/plugin-react': ^6.1.1
-  '@vitest/browser-playwright': ^5.0.0
-  '@vitest/coverage-v8': ^5.0.0
-  '@vitest/ui': ^5.0.0
+  '@vitest/browser-playwright': ^5.0.2
+  '@vitest/coverage-v8': ^5.0.2
+  '@vitest/ui': ^5.0.2
+  assistant-stream: 0.3.41
   bindings: 1.5.0
   concurrently: ^10.0.5
   drizzle-orm: 0.45.2
-  electron: ^44.2.0
+  # ADR-0004: Effect v4 is a release candidate, so the pin is EXACT. The RC
+  # line still renames import paths between candidates, so a bump is a
+  # reviewed change, never a range resolution. docs/agents/effect-boundary.md.
+  effect: 4.0.0-rc.118
+  electron: ^44.4.5
   esbuild: ^0.28.2
   eslint-plugin-react-refresh: ^0.5.6
   fake-indexeddb: ^6.2.5
@@ -130,19 +140,40 @@ catalog:
   tiktoken: ^1.0.22
   tsup: ^8.5.1
   typescript: 'npm:@typescript/typescript6@6.0.2'
-  vite: ^8.2.1
+  vite: ^8.3.1
   vite-plugin-static-copy: ^4.1.1
   vite-plugin-top-level-await: ^1.6.0
   vite-plugin-wasm: ^3.6.0
-  vitest: ^5.0.0
+  vitest: ^5.0.2
   workerpool: ^10.0.3
   xxhash-wasm: ^1.1.0
   yaml: ^2.9.0
-  zod: ^4.5.4
+  zod: ^4.6.5
   zustand: ^5.0.15
 overrides:
-  react: ^19.2.8
-  react-dom: ^19.2.8
+  # BST-879: python-analysis 0.12.0 pins vulnerable minimatch 10.1.1.
+  # Use the vendor's patched 10.x API; remove when the owner admits >=10.2.3.
+  # https://github.com/isaacs/minimatch/security/advisories/GHSA-23c5-xmqv-rm74
+  # Parent scoping: https://pnpm.io/settings/dependency-resolution#overrides
+  '@vercel/python-analysis@0.12.0>minimatch': 10.2.6
+  react: ^19.3.0
+  react-dom: ^19.3.0
+  # BST-871 / GHSA-vpq2-c234-7xj6: fun pins the vulnerable event-wait helper.
+  # Same-major vendor patch; retire when this parent admits a patched version.
+  '@vercel/fun@1.3.0>@tootallnate/once': 2.0.1
+  # BST-873 / GHSA-2g4f-4pwh-qvx6: static-config pins vulnerable Ajv 8.6.3.
+  # Preserve patched 6.x/other 8.x edges; retire when this parent admits the fix.
+  '@vercel/static-config@3.4.0>ajv': 8.18.0
+  # BST-886: node-gyp and other compatible tar 7.x owners can take the patched
+  # release. @vercel/fun@1.3.0 pins vulnerable 7.5.7 exactly, so scope the
+  # exception to that owner until it publishes a fixed dependency.
+  'tar@': 7.5.22
+  '@vercel/fun@1.3.0>tar': 7.5.22
+  # BST-881: qs 6.16.0 fixes the comma-stringify and parser DoS advisories.
+  # Converge compatible Express/body-parser edges; typed-rest-client@2.3.1
+  # pins 6.15.1 exactly, so keep that exception scoped to its current owner.
+  'qs@': 6.16.0
+  'typed-rest-client@2.3.1>qs': 6.16.0
   # @swc/core 1.16.0 BREAKS the desktop build (BST-1311). vite-plugin-top-level-await
   # constructs SWC AST nodes in JS, and 1.16.0's Rust-side AST change makes
   # Compiler.printSync reject them with "missing field `type`". Proven by A/B:
@@ -292,6 +323,15 @@ minimumReleaseAge: 1440
 # The guard exists because an earlier entry ('@mastra/core@1.50.0') outlived its
 # justification by a month: its cleanup note pointed at a minimumReleaseAge floor
 # that was never configured, so nothing ever triggered the removal.
-minimumReleaseAgeExclude: []
+minimumReleaseAgeExclude:
+  - effect@4.0.0-rc.118
+  - app-builder-lib@26.17.0
+  - dmg-builder@26.17.0
+  - electron-builder@26.17.0
+  - electron-builder-squirrel-windows@26.17.0
 patchedDependencies:
+  '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
+  '@electric-sql/pglite@0.5.8': patches/@electric-sql__pglite@0.5.8.patch
+  '@mastra/core@1.71.0': patches/@mastra__core@1.71.0.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
+  app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch

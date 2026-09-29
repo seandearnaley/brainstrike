@@ -6,11 +6,16 @@ import {
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type RuntimeData,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import {
+  NATIVE_TOOL_ID,
+  requireNativeToolExecutionBudget,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
+import { withWorkspaceMutationLease } from './workspace-mutation-lease';
 import { isWithinRoot } from './workspace-path';
 import {
   describeOpenRootTopology,
@@ -24,10 +29,12 @@ const logger = createLogger('ExecuteCommandTool');
 const REDACTED_COMMAND_LOG_VALUE = { redacted: true } as const;
 const REDACTED_CWD_LOG_VALUE = { redacted: true } as const;
 
-/** Default per-command timeout when the model does not specify one. */
-const DEFAULT_TIMEOUT_MS = 120_000;
-/** Hard ceiling on the per-call timeout so a bad value cannot wedge the host. */
-const MAX_TIMEOUT_MS = 600_000;
+/**
+ * `defaultMs`: per-command timeout when the model does not specify one.
+ * `maxMs`: hard ceiling on the per-call timeout so a bad value cannot wedge the host.
+ */
+const { defaultMs: DEFAULT_TIMEOUT_MS, maxMs: MAX_TIMEOUT_MS } =
+  requireNativeToolExecutionBudget(EXECUTE_COMMAND_TOOL_ID);
 /** Maximum command-input characters repeated in the model-facing result. */
 const MAX_ECHOED_COMMAND_CHARS = 200;
 /**
@@ -238,11 +245,16 @@ async function resolveCommandCwd(
   runtimeData: RuntimeData | undefined,
   rootQualifier: string | undefined,
   requestedCwd: string | undefined
-): Promise<{ cwd: string; rootId: string; rootName: string }> {
+): Promise<{ cwd: string; rootId: string; rootName: string; rootPath: string }> {
   const root = resolveWorkspaceRoot(runtimeData, rootQualifier);
   const canonicalRootPath = await fsPromises.realpath(root.path);
   if (requestedCwd === undefined || requestedCwd.trim().length === 0) {
-    return { cwd: canonicalRootPath, rootId: root.rootId, rootName: root.displayName };
+    return {
+      cwd: canonicalRootPath,
+      rootId: root.rootId,
+      rootName: root.displayName,
+      rootPath: canonicalRootPath,
+    };
   }
   // A relative cwd is resolved against the root; an absolute cwd is taken as-is.
   // Either way the canonical (symlink-resolved) result must be inside the root.
@@ -255,16 +267,21 @@ async function resolveCommandCwd(
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      throw new Error(`cwd "${requestedCwd}" does not exist.`);
+      throw new ToolInputError(`cwd "${requestedCwd}" does not exist.`);
     }
     throw error;
   }
   if (!isWithinRoot(canonicalRootPath, canonicalCwd)) {
-    throw new Error(
+    throw new ToolInputError(
       `cwd "${requestedCwd}" resolves outside the workspace root "${root.displayName}". A command's start directory must be inside an open folder.`
     );
   }
-  return { cwd: canonicalCwd, rootId: root.rootId, rootName: root.displayName };
+  return {
+    cwd: canonicalCwd,
+    rootId: root.rootId,
+    rootName: root.displayName,
+    rootPath: canonicalRootPath,
+  };
 }
 
 export interface SpawnOutcome {
@@ -732,16 +749,48 @@ export async function runExecuteCommand(
   options?: { signal?: AbortSignal | undefined; stream?: ShellOutputStreamer | undefined }
 ): Promise<ExecuteCommandToolResult> {
   const topology = describeOpenRootTopology(runtimeData);
-  const { cwd, rootId, rootName } = await resolveCommandCwd(runtimeData, input.root, input.cwd);
+  const { cwd, rootId, rootName, rootPath } = await resolveCommandCwd(
+    runtimeData,
+    input.root,
+    input.cwd
+  );
   const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
   const startedAt = Date.now();
-  const outcome = await runShellCommand({
-    command: input.command,
-    cwd,
-    signal: options?.signal,
-    streamer: options?.stream,
-    timeoutMs,
+  // Queueing is part of the same call budget; an expired waiter must never spawn.
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const admissionSignal = options?.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+  let spawned = false;
+  const outcome = await withWorkspaceMutationLease(
+    rootPath,
+    'opaque',
+    () => {
+      admissionSignal.throwIfAborted();
+      const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
+      if (remainingTimeoutMs <= 0) {
+        throw new ToolInputError(
+          'The command timed out while waiting for workspace ownership; it was not run.'
+        );
+      }
+      spawned = true;
+      return runShellCommand({
+        command: input.command,
+        cwd,
+        signal: options?.signal,
+        streamer: options?.stream,
+        timeoutMs: remainingTimeoutMs,
+      });
+    },
+    admissionSignal
+  ).catch((error: unknown) => {
+    if (!spawned && admissionSignal.aborted) {
+      throw new ToolInputError(
+        options?.signal?.aborted
+          ? 'The command was aborted before execution.'
+          : 'The command timed out while waiting for workspace ownership; it was not run.'
+      );
+    }
+    throw error;
   });
   const durationMs = Date.now() - startedAt;
 

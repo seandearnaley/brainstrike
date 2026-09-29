@@ -23,8 +23,9 @@ function roleLabel(role: string): string {
 export interface ThreadsPanelSearchProps {
   readonly groupNameByThreadId: ReadonlyMap<string, string>;
   readonly onRetry: () => void;
-  readonly onSelectThread: (threadId: string) => void;
+  readonly onSelectThread: (threadId: string, messageId?: string) => void;
   readonly threadsById: ReadonlyMap<string, AssistantMemoryThread>;
+  readonly titlesByThreadId?: ReadonlyMap<string, string>;
 }
 
 interface SearchResultRowProps {
@@ -164,11 +165,13 @@ function SearchStatusNotices({
  * silent lexical-only downgrade.
  */
 export function ThreadsPanelSearch({
+  titlesByThreadId,
   groupNameByThreadId,
   onRetry,
   onSelectThread,
   threadsById,
 }: ThreadsPanelSearchProps) {
+  const navigationError = useThreadSearchStore((state) => state.navigationError);
   const query = useThreadSearchStore((state) => state.query);
   const status = useThreadSearchStore((state) => state.status);
   const results = useThreadSearchStore((state) => state.results);
@@ -189,7 +192,15 @@ export function ThreadsPanelSearch({
     setActiveIndex(0);
   }
 
-  const visibleResults = results ?? [];
+  const visibleResults = useMemo(
+    () =>
+      (results ?? []).flatMap((result) =>
+        result.matches.length
+          ? result.matches.map((match) => ({ ...result, matches: [match] }))
+          : [result]
+      ),
+    [results]
+  );
   const resultCount = visibleResults.length;
 
   const pendingEmbeddings = useMemo(() => {
@@ -223,7 +234,7 @@ export function ThreadsPanelSearch({
       const active = visibleResults[activeIndex];
       if (active) {
         event.preventDefault();
-        onSelectThread(active.threadId);
+        onSelectThread(active.threadId, active.matches[0]?.messageId);
       }
     }
   };
@@ -279,6 +290,11 @@ export function ThreadsPanelSearch({
 
       {searchActive ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+          {navigationError ? (
+            <p className="px-3 py-2 text-destructive text-xs" role="alert">
+              {navigationError}
+            </p>
+          ) : null}
           <SearchStatusNotices
             coverage={coverage}
             error={error}
@@ -305,13 +321,17 @@ export function ThreadsPanelSearch({
           >
             {visibleResults.map((result, index) => {
               const thread = threadsById.get(result.threadId);
-              const title = result.title ?? thread?.title ?? 'Untitled thread';
+              const title =
+                titlesByThreadId?.get(result.threadId) ??
+                result.title ??
+                thread?.title ??
+                'Untitled thread';
               return (
                 <SearchResultRow
                   active={index === activeIndex}
                   groupName={groupNameByThreadId.get(result.threadId) ?? null}
-                  key={result.threadId}
-                  onSelect={() => onSelectThread(result.threadId)}
+                  key={`${result.threadId}:${result.matches[0]?.messageId ?? 'title'}`}
+                  onSelect={() => onSelectThread(result.threadId, result.matches[0]?.messageId)}
                   optionId={`thread-search-option-${index}`}
                   result={result}
                   title={title}

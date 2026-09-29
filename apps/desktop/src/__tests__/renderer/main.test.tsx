@@ -1,5 +1,17 @@
 import type { ReactElement } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The gate and the recovery wiring have their own suites in app-shell; here they are
+// stubs, so main.tsx's own orchestration (order, build id, which windows) stays in focus.
+const { startAppReloadRecoveryMock, stopAppReloadRecoveryMock } = vi.hoisted(() => ({
+  startAppReloadRecoveryMock: vi.fn(),
+  stopAppReloadRecoveryMock: vi.fn(),
+}));
+
+vi.mock('@brainstrike/app-shell/app-reload', () => ({
+  AppReloadGate: ({ children }: { children: React.ReactNode }) => children,
+  startAppReloadRecovery: startAppReloadRecoveryMock,
+}));
 
 // Mock file-explorer packages to avoid Worker import issues
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -64,6 +76,9 @@ describe('renderer main entry', () => {
     vi.resetModules();
     mockCreateRoot.mockClear();
     mockRender.mockClear();
+    vi.stubGlobal('__BRAINSTRIKE_BUILD_ID__', 'test-build-id');
+    startAppReloadRecoveryMock.mockReset();
+    startAppReloadRecoveryMock.mockReturnValue(stopAppReloadRecoveryMock);
     window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = undefined;
     window.__BRAINSTRIKE_READY__ = undefined;
     window.history.replaceState({}, '', '/');
@@ -142,6 +157,11 @@ describe('renderer main entry', () => {
     } as never;
   });
 
+  // This app's vitest config does not set `unstubGlobals`.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('should create root and render app', async () => {
     await import('../../renderer/main.tsx');
 
@@ -153,6 +173,29 @@ describe('renderer main entry', () => {
     expect(renderArg).toBeDefined();
     expect(isReactElement(renderArg)).toBe(true);
   }, 30_000); // Increased timeout for CI - dynamic import of main.tsx loads entire app
+
+  it('starts failed-chunk recovery with this build id before the first render', async () => {
+    await import('../../renderer/main.tsx');
+
+    expect(startAppReloadRecoveryMock).toHaveBeenCalledExactlyOnceWith({
+      buildId: 'test-build-id',
+    });
+    expect(startAppReloadRecoveryMock.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRender.mock.invocationCallOrder[0] as number
+    );
+  }, 30_000);
+
+  it.each(['embedding-host', 'chunking-host', 'llm-host'])(
+    'leaves the hidden %s window without chunk recovery, which has no UI to offer a reload',
+    async (mode) => {
+      window.history.replaceState({}, '', `/?mode=${mode}&runtimeId=${mode}:test`);
+
+      await import('../../renderer/main.tsx');
+
+      expect(startAppReloadRecoveryMock).not.toHaveBeenCalled();
+    },
+    30_000
+  );
 
   it('renders the embedding host app in embedding-host mode', async () => {
     window.history.replaceState({}, '', '/?mode=embedding-host&runtimeId=embedding-host:test');

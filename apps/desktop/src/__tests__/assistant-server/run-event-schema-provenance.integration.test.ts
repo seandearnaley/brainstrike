@@ -32,6 +32,7 @@
  */
 import type { StreamChunk } from '@brainstrike/agent';
 import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 // Real repository (the production schema bootstrap + the sole runId-minting
 // site). Imported via the assistant-data package
 // subpath, same convention as hook-run-outcome.integration.test.ts; placement
@@ -105,7 +106,7 @@ describe('main-process run-event schema provenance', () => {
 
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       const runInput = {
-        id: 'run-1',
+        id: 'run-1' as HostRunId,
         model: 'gpt-5.2',
         provider: 'openai',
         resourceId: 'workspace-a',
@@ -187,7 +188,7 @@ describe('duration_ms column contract', () => {
       );
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThreadRun({
-        id: 'run-dur',
+        id: 'run-dur' as HostRunId,
         model: 'gpt-5.2',
         provider: 'openai',
         resourceId: 'workspace-a',

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { Attachment } from '@assistant-ui/react';
 import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
 import '@testing-library/jest-dom/vitest';
 import {
@@ -26,8 +27,11 @@ const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
 }));
 const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
+const releaseLocalBackendMock = vi.fn();
+const acquireLocalBackendMock = vi.fn(() => releaseLocalBackendMock);
 interface MockAuiState {
   composer: {
+    attachments: readonly Attachment[];
     text: string;
   };
   message: {
@@ -36,6 +40,8 @@ interface MockAuiState {
     role?: string;
   };
   thread: {
+    capabilities: { edit: boolean; reload: boolean };
+    isRunning?: boolean;
     messages: Array<{ id: string }>;
   };
 }
@@ -46,9 +52,9 @@ const completedReasoningPart = {
 };
 
 const createMockAuiState = (parts: unknown[]): MockAuiState => ({
-  composer: { text: '' },
+  composer: { attachments: [], text: '' },
   message: { parts },
-  thread: { messages: [] },
+  thread: { capabilities: { edit: true, reload: true }, messages: [] },
 });
 
 let mockAuiState = createMockAuiState([completedReasoningPart]);
@@ -68,11 +74,16 @@ let capturedLocalAdapterOptions: {
 } | null = null;
 
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
+// cmdk (composer model picker) scrolls the active option into view; happy-dom
+// has no layout.
+window.HTMLElement.prototype.scrollIntoView = vi.fn();
+
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
 vi.mock('../data-stream-runtime', () => ({
   AssistantRequestPreparationTimeoutError: class AssistantRequestPreparationTimeoutError extends Error {},
+  AssistantRunAdmissionRejectedError: class AssistantRunAdmissionRejectedError extends Error {},
   AssistantStreamReplayUnavailableError: class AssistantStreamReplayUnavailableError extends Error {},
   useBrainstrikeDataStreamRuntime: (options: unknown) =>
     useBrainstrikeDataStreamRuntimeMock(options),
@@ -112,11 +123,11 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
 }));
 
 vi.mock('../local-runtime-adapter', () => ({
+  acquireLocalBackend: () => acquireLocalBackendMock(),
   createLocalModelAdapter: (options: unknown) => {
     capturedLocalAdapterOptions = options as typeof capturedLocalAdapterOptions;
     return { run: vi.fn() };
   },
-  disposeLocalBackend: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@assistant-ui/react', () => {
@@ -320,6 +331,10 @@ vi.mock('@assistant-ui/react', () => {
     useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
     useAui: () => ({
       composer: () => ({ addAttachment: async () => undefined, setText: vi.fn() }),
+      subscribe: () => () => undefined,
+      thread: () => ({
+        getState: () => ({ messages: mockAuiState.thread.messages }),
+      }),
     }),
     useAuiEvent: () => undefined,
     useAuiState: <T,>(selector: (state: MockAuiState) => T) => selector(mockAuiState),
@@ -450,6 +465,16 @@ describe('AssistantUiPanel model picker', () => {
     cleanup();
     vi.clearAllMocks();
     vi.useRealTimers();
+  });
+
+  it('registers its owning runtime and releases the registration when the panel closes', () => {
+    const release = vi.fn();
+    const onRuntimeReady = vi.fn(() => release);
+    const { unmount } = render(<AssistantUiPanel {...baseProps} onRuntimeReady={onRuntimeReady} />);
+    expect(onRuntimeReady).toHaveBeenCalledWith({ runtime: 'test-runtime' });
+    expect(release).not.toHaveBeenCalled();
+    unmount();
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('uses the Brainstrike data-stream runtime for hosted providers', () => {
@@ -802,7 +827,7 @@ describe('AssistantUiPanel model picker', () => {
 
     const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
-      onCancel?: () => void;
+      onCancel?: (cancelled: { readonly messages: readonly unknown[] }) => void;
       onError?: (error: Error) => void;
       onFinish?: () => void;
     };
@@ -810,7 +835,7 @@ describe('AssistantUiPanel model picker', () => {
     const preparedBody = await options.body?.();
     options.onFinish?.();
     options.onError?.(new Error('late stream error'));
-    options.onCancel?.();
+    options.onCancel?.({ messages: [] });
 
     expect(preparedBody).toMatchObject({
       data: {
@@ -829,11 +854,12 @@ describe('AssistantUiPanel model picker', () => {
         },
       },
       'completed',
-      undefined
+      undefined,
+      false
     );
   });
 
-  it('marks desktop Stop cancelled before an abort error can race the cancel request', async () => {
+  it('protects desktop Stop from abort errors until server cancellation settles', async () => {
     Object.assign(window, {
       assistant: {
         getAuth: vi.fn(async () => ({
@@ -842,9 +868,8 @@ describe('AssistantUiPanel model picker', () => {
         })),
       },
     });
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(null, { status: 200 }));
+    const cancellation = Promise.withResolvers<Response>();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockReturnValue(cancellation.promise);
     const prepareRequestData = vi.fn(async () => ({
       memory: {
         resourceId: 'workspace-1',
@@ -870,17 +895,22 @@ describe('AssistantUiPanel model picker', () => {
     );
     const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
-      onCancel?: () => void;
+      onCancel?: (cancelled: { readonly messages: readonly unknown[] }) => void;
       onError?: (error: Error) => void;
     };
     await options.body?.();
-    options.onCancel?.();
+    options.onCancel?.({ messages: [] });
     options.onError?.(new Error('Assistant request was aborted.'));
 
-    expect(completePreparedRequest).toHaveBeenCalledWith(
-      expect.any(Object),
-      'cancelled',
-      undefined
+    expect(completePreparedRequest).not.toHaveBeenCalled();
+    cancellation.resolve(new Response(null, { status: 200 }));
+    await waitFor(() =>
+      expect(completePreparedRequest).toHaveBeenCalledWith(
+        expect.any(Object),
+        'cancelled',
+        undefined,
+        true
+      )
     );
     expect(completePreparedRequest).toHaveBeenCalledTimes(1);
     await waitFor(() =>
@@ -1067,7 +1097,8 @@ describe('AssistantUiPanel model picker', () => {
         },
       },
       'completed',
-      undefined
+      undefined,
+      false
     );
   });
 
@@ -1123,7 +1154,8 @@ describe('AssistantUiPanel model picker', () => {
         },
       },
       'cancelled',
-      undefined
+      undefined,
+      false
     );
   });
 
@@ -1163,7 +1195,8 @@ describe('AssistantUiPanel model picker', () => {
         },
       },
       'failed',
-      'stream failed'
+      'stream failed',
+      false
     );
   });
 
@@ -1244,6 +1277,74 @@ describe('AssistantUiPanel model picker', () => {
       { memory: { runId: 'run-local' } },
       'completed'
     );
+  });
+
+  describe('shared local backend lease', () => {
+    const localGroups: ProviderGroupConfig[] = [
+      {
+        label: 'Local',
+        providers: [
+          {
+            capabilities: {
+              embeddings: false,
+              llm: true,
+              streaming: false,
+              supportsStandardEmbeddingDimension: false,
+            },
+            id: 'local',
+            models: [
+              {
+                default: true,
+                enabled: true,
+                id: 'onnx-community/gemma-4-E2B-it-ONNX',
+                label: 'Gemma 4 E2B',
+                type: 'llm',
+              },
+            ],
+            name: 'Local',
+            runtime: 'local',
+          },
+        ],
+        runtime: 'local',
+      },
+    ];
+    const renderLocalPanel = (localChatTransport: 'data-stream' | 'local-runtime') =>
+      render(
+        <AssistantUiPanel
+          localChatTransport={localChatTransport}
+          onModelChange={() => {}}
+          pickerModels={[
+            {
+              capabilities: { streaming: false, type: 'llm' },
+              description: null,
+              id: 'onnx-community/gemma-4-E2B-it-ONNX',
+              name: 'Gemma 4 E2B',
+              providerId: 'local',
+            },
+          ]}
+          pickerProviders={[{ icon: null, id: 'local', name: 'Local' }]}
+          providerGroups={localGroups}
+          selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
+          selectedProvider="local"
+        />
+      );
+
+    it('holds one lease for as long as an in-renderer local panel is mounted', () => {
+      const { unmount } = renderLocalPanel('local-runtime');
+
+      expect(acquireLocalBackendMock).toHaveBeenCalledTimes(1);
+      expect(releaseLocalBackendMock).not.toHaveBeenCalled();
+
+      unmount();
+
+      expect(releaseLocalBackendMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes no lease when local chat runs through the data-stream transport', () => {
+      renderLocalPanel('data-stream');
+
+      expect(acquireLocalBackendMock).not.toHaveBeenCalled();
+    });
   });
 
   it('renders compact local model status and auto-hides ready state', () => {
@@ -1407,7 +1508,7 @@ describe('AssistantUiPanel model picker', () => {
     const container = screen.getByTestId('assistant-model-dropdown');
     expect(container).toBeInTheDocument();
 
-    // Verify the ComposerModelMenu trigger button exists
+    // Verify the ComposerModelPicker trigger button exists
     const trigger = within(container).getByRole('button', { name: /Selected model/ });
     expect(trigger).toBeInTheDocument();
     expect(screen.queryByText(/OpenAI \/ GPT-5\.2/)).not.toBeInTheDocument();
@@ -1463,25 +1564,19 @@ describe('AssistantUiPanel model picker', () => {
 
     render(<AssistantUiPanel {...baseProps} onModelChange={onModelChange} />);
 
-    // Open the composer model menu and drill into More models -> Anthropic.
+    // Open the composer model picker and search for the model.
     const container = screen.getByTestId('assistant-model-dropdown');
     await user.click(within(container).getByRole('button', { name: /Selected model/ }));
 
-    const moreModels = await screen.findByTestId('composer-more-models-trigger');
-    moreModels.focus();
-    await user.keyboard('{ArrowRight}');
-
-    const anthropicTrigger = await screen.findByRole('menuitem', { name: /Anthropic/ });
-    anthropicTrigger.focus();
-    await user.keyboard('{ArrowRight}');
-
-    const option = await screen.findByRole('menuitemradio', { name: /Claude Sonnet 4\.6/ });
+    const picker = await screen.findByRole('dialog');
+    await user.type(within(picker).getByRole('combobox'), 'sonnet 4.6');
+    const option = await within(picker).findByRole('option', { name: /Claude Sonnet 4\.6/ });
     await user.click(option);
 
     // Should be called with composite key format: "provider::model"
     expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-6');
-    // Full panel render + a three-level Radix submenu drill via userEvent:
-    // repeatedly tripped vitest's 5s default on loaded runners.
+    // Full panel render + typing into the picker search via userEvent can
+    // exceed vitest's 5s default on loaded runners.
   }, 20_000);
 
   it('shows placeholder when no models are enabled', () => {
@@ -1569,7 +1664,7 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     expect(screen.getByText('Agent context')).toBeInTheDocument();
-    expect(screen.getByText('Output tokens / step')).toBeInTheDocument();
+    expect(screen.getByText('Output tokens per step')).toBeInTheDocument();
     expect(screen.queryByText('Gemma thinking')).not.toBeInTheDocument();
     expect(screen.queryByText('Enable thinking')).not.toBeInTheDocument();
   });
@@ -1607,7 +1702,7 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     // Model-constrained effort (e.g. kimi-k3 max-only) now lives in the
-    // composer model menu — see composer-model-menu.test.tsx.
+    // composer effort control — see composer-effort-control.test.tsx.
     expect(screen.queryByRole('combobox', { name: 'Reasoning effort' })).not.toBeInTheDocument();
     expect(screen.queryByText('Effort')).not.toBeInTheDocument();
     expect(screen.getByText('Reasoning summary')).toBeInTheDocument();
@@ -1649,14 +1744,16 @@ describe('AssistantUiPanel model picker', () => {
 
     expect(screen.getByText(/Auto requests 131,072.*865,075 effective input/)).toBeInTheDocument();
     const slider = screen.getByRole('slider', { name: 'Max output tokens' });
-    expect(slider).toHaveAttribute('max', '1048576');
+    // BST-1804: the slider bound is the route's top_provider max output.
+    expect(slider).toHaveAttribute('max', '943718');
     expect(slider).toHaveValue('131072');
   });
 
   it('keeps the Kimi K3 vendor window when live metadata cannot carry the catalog facts', () => {
-    // Real K3 live metadata publishes reasoning but no max completion; the
-    // catalog-only vendor window must survive the live merge here exactly as
-    // it does in the request builder.
+    // Live metadata never carries the catalog-only vendor window; it must
+    // survive the live merge here exactly as it does in the request builder.
+    // BST-1804: the fixture mirrors the live route, which now publishes a
+    // 943,718 top-provider max completion.
     render(
       <ProviderSettingsPanel
         modelName="moonshotai/kimi-k3"
@@ -1668,6 +1765,7 @@ describe('AssistantUiPanel model picker', () => {
               checkedAt: 42,
               contextWindow: 1_048_576,
               id: 'moonshotai/kimi-k3',
+              maxOutputTokens: 943_718,
               reasoning: {
                 defaultEffort: 'max',
                 defaultEnabled: true,
@@ -1727,6 +1825,25 @@ describe('AssistantUiPanel model picker', () => {
 
     expect(screen.getByText(/Auto requests 32,000.*964,147 effective input/)).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveValue('32000');
+    expect(
+      screen.getByRole('spinbutton', { name: 'Output token limit' })
+    ).toHaveAccessibleDescription(/Auto requests 32,000 tokens for this model/);
+  });
+
+  it('describes the actual OpenRouter Auto reservation while a custom output cap is selected', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="moonshotai/kimi-k3"
+        onSettingsChange={vi.fn()}
+        providerId="openrouter"
+        settings={{ maxOutputTokens: 1024, reasoningEffort: 'none' }}
+      />
+    );
+
+    expect(
+      screen.getByRole('spinbutton', { name: 'Output token limit' })
+    ).toHaveAccessibleDescription(/Auto requests 32,000 tokens for this model/);
+    expect(screen.getByText(/1,024 configured output/)).toBeInTheDocument();
   });
 
   it('shows and applies live OpenRouter model limits with provenance', () => {
@@ -1790,6 +1907,7 @@ describe('AssistantUiPanel model picker', () => {
 
     const input = screen.getByRole('spinbutton', { name: 'Output token limit' });
     fireEvent.change(input, { target: { value: '65536' } });
+    fireEvent.blur(input);
 
     expect(input).toHaveValue(65_536);
     expect(input).toHaveAttribute('aria-invalid', 'true');
@@ -1803,32 +1921,38 @@ describe('AssistantUiPanel model picker', () => {
   it('rejects empty, below-minimum, and fractional output drafts before recovering', () => {
     const onSettingsChange = vi.fn();
     const onValidationChange = vi.fn();
-    render(
+    const renderPanel = (maxOutputTokens: number) => (
       <ProviderSettingsPanel
         modelName="openai/gpt-5.4-mini"
         onSettingsChange={onSettingsChange}
         onValidationChange={onValidationChange}
         providerId="openrouter"
-        settings={{ maxOutputTokens: 4096 }}
+        settings={{ maxOutputTokens }}
       />
     );
+    const { rerender } = render(renderPanel(4096));
 
     const input = screen.getByRole('spinbutton', { name: 'Output token limit' });
     fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
     expect(screen.getByRole('alert')).toHaveTextContent(/enter an output limit/i);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: '127' } });
+    fireEvent.blur(input);
     expect(input).toHaveValue(127);
     expect(screen.getByRole('alert')).toHaveTextContent(/at least 128/i);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: '128.5' } });
+    fireEvent.blur(input);
     expect(screen.getByRole('alert')).toHaveTextContent(/whole number/i);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: '512' } });
-    expect(input).toHaveValue(512);
+    fireEvent.blur(input);
+    rerender(renderPanel(512));
+    expect(screen.getByRole('spinbutton', { name: 'Output token limit' })).toHaveValue(512);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(onSettingsChange).toHaveBeenLastCalledWith('openrouter', {
       maxOutputTokens: 512,
@@ -1909,7 +2033,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    expect(screen.getByText(/200,000 context.*64,000 max output/)).toBeInTheDocument();
+    expect(screen.getByText(/1,000,000 context.*128,000 max output/)).toBeInTheDocument();
     expect(screen.getByText('Source: built-in model catalog')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(
       /Live metadata unavailable.*OpenRouter request failed/
@@ -1959,9 +2083,9 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     expect(screen.getByText('Claude reasoning')).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Anthropic thinking budget input' }), {
-      target: { value: '2048' },
-    });
+    const budget = screen.getByRole('spinbutton', { name: 'Anthropic thinking budget input' });
+    fireEvent.change(budget, { target: { value: '2048' } });
+    fireEvent.blur(budget);
 
     expect(onSettingsChange).toHaveBeenCalledWith('anthropic', {
       anthropicThinkingBudgetTokens: 2048,
@@ -1987,9 +2111,9 @@ describe('AssistantUiPanel model picker', () => {
       agentInputTokenLimit: 64_000,
     });
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Memory messages' }), {
-      target: { value: '12' },
-    });
+    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
+    fireEvent.change(memory, { target: { value: '12' } });
+    fireEvent.blur(memory);
     expect(onSettingsChange).toHaveBeenCalledWith('openai', { memoryLastMessages: 12 });
 
     fireEvent.click(screen.getByRole('switch', { name: 'Enable working memory' }));
@@ -2023,7 +2147,7 @@ describe('AssistantUiPanel model picker', () => {
     expect(onSettingsChange).toHaveBeenCalledWith('openai', { maxOutputTokens: undefined });
   });
 
-  it('clamps provider numeric controls and clears invalid memory edits', () => {
+  it('refuses out-of-range provider numeric drafts and clears a blank memory edit', () => {
     const onSettingsChange = vi.fn();
 
     render(
@@ -2041,21 +2165,19 @@ describe('AssistantUiPanel model picker', () => {
 
     expect(screen.getByText('Reasoning output')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Max agent steps' }), {
-      target: { value: '999' },
-    });
-    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', { agentMaxSteps: 100 });
+    // A value outside the range is refused with a message, never clamped.
+    const steps = screen.getByRole('spinbutton', { name: 'Max steps' });
+    fireEvent.change(steps, { target: { value: '0' } });
+    fireEvent.blur(steps);
+    const limit = screen.getByRole('spinbutton', { name: 'Input tokens' });
+    fireEvent.change(limit, { target: { value: '1' } });
+    fireEvent.blur(limit);
+    expect(screen.getAllByRole('alert')).toHaveLength(2);
+    expect(onSettingsChange).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Input token limit' }), {
-      target: { value: '1' },
-    });
-    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', {
-      agentInputTokenLimit: 4096,
-    });
-
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Memory messages' }), {
-      target: { value: '' },
-    });
+    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
+    fireEvent.change(memory, { target: { value: '' } });
+    fireEvent.blur(memory);
     expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', {
       memoryLastMessages: undefined,
     });
@@ -2186,5 +2308,89 @@ describe('AssistantUiPanel composer attachments availability', () => {
       | undefined;
     expect(lastRuntimeOptions?.adapters?.attachments).toBeUndefined();
     expect(container.querySelector('.bs-composer-attachments')).toBeNull();
+  });
+});
+
+describe('AssistantUiPanel reports its own run state (BST-1844)', () => {
+  const localGroups: ProviderGroupConfig[] = [
+    {
+      label: 'Local',
+      providers: [
+        {
+          capabilities: {
+            embeddings: false,
+            llm: true,
+            streaming: false,
+            supportsStandardEmbeddingDimension: false,
+          },
+          id: 'local',
+          models: [
+            {
+              default: true,
+              enabled: true,
+              id: 'onnx-community/gemma-4-E2B-it-ONNX',
+              label: 'Gemma 4 E2B',
+              type: 'llm',
+            },
+          ],
+          name: 'Local',
+          runtime: 'local',
+        },
+      ],
+      runtime: 'local',
+    },
+  ];
+  const localProps = {
+    pickerModels: [],
+    pickerProviders: [{ icon: null, id: 'local', name: 'Local' }],
+    providerGroups: localGroups,
+    selectedModel: 'local::onnx-community/gemma-4-E2B-it-ONNX',
+    selectedProvider: 'local',
+  };
+  // The in-renderer local runtime and the data-stream runtime are separate
+  // chat components; both must hand the owner the runtime's `thread.isRunning`.
+  const variants = [
+    { name: 'the in-renderer local runtime', props: localProps },
+    { name: 'the data-stream runtime', props: baseProps },
+  ] as const;
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it.each(variants)('reports the run state of $name, and false when it unmounts', ({ props }) => {
+    const onRunningChange = vi.fn();
+    mockAuiState = createMockAuiState([completedReasoningPart]);
+    mockAuiState.thread.isRunning = true;
+    const { unmount } = render(
+      <AssistantUiPanel
+        {...props}
+        onModelChange={() => {}}
+        onRunningChange={onRunningChange}
+        threadKey="thread-1"
+      />
+    );
+
+    expect(onRunningChange.mock.calls).toEqual([['thread-1', true]]);
+
+    unmount();
+
+    expect(onRunningChange.mock.calls).toEqual([
+      ['thread-1', true],
+      ['thread-1', false],
+    ]);
+  });
+
+  it('reports nothing for a session with no thread to key the report by', () => {
+    const onRunningChange = vi.fn();
+    mockAuiState = createMockAuiState([completedReasoningPart]);
+    mockAuiState.thread.isRunning = true;
+
+    render(
+      <AssistantUiPanel {...baseProps} onModelChange={() => {}} onRunningChange={onRunningChange} />
+    );
+
+    expect(onRunningChange).not.toHaveBeenCalled();
   });
 });

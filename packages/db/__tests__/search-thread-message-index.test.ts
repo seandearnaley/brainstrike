@@ -857,7 +857,21 @@ describe('ThreadSearchRepository', () => {
       expect(queryCalls.every((call) => !call.sql.includes('<=>'))).toBe(true);
     });
 
-    it('prefers the callback-style transaction (web scheduled handle / raw PGlite) over the BEGIN fallback', async () => {
+    it('propagates IPC statement-list transaction failures', async () => {
+      const queryCalls: { params?: unknown[]; sql: string }[] = [];
+      const failure = new Error('desktop transaction failed');
+      const mockRepository = new ThreadSearchRepository({
+        query: profileAwareQuery(queryCalls),
+        runTransaction: vi.fn().mockRejectedValue(failure),
+      });
+
+      await expect(
+        mockRepository.searchSimilar(vec(1), { limit: 5, resourceId: RESOURCE_ID })
+      ).rejects.toBe(failure);
+      expect(queryCalls.some((call) => call.sql.includes('<=>'))).toBe(false);
+    });
+
+    it('uses the callback-style transaction for web scheduled handles and raw PGlite', async () => {
       const outerCalls: { params?: unknown[]; sql: string }[] = [];
       const txCalls: { params?: unknown[]; sql: string }[] = [];
       const transaction = vi.fn(
@@ -885,49 +899,45 @@ describe('ThreadSearchRepository', () => {
       );
     });
 
-    it('falls back to BEGIN / SET LOCAL / SELECT / COMMIT over query() when runTransaction is absent', async () => {
+    it('rejects query-only handles instead of opening a multi-call transaction', async () => {
       const queryCalls: { params?: unknown[]; sql: string }[] = [];
       const mockRepository = new ThreadSearchRepository({
         query: profileAwareQuery(queryCalls),
       });
 
-      await mockRepository.searchSimilar(vec(1), { limit: 5, resourceId: RESOURCE_ID });
-
-      const vectorFlow = queryCalls
-        .map((call) => call.sql.trim())
-        .filter(
-          (sql) =>
-            sql === 'BEGIN' ||
-            sql === 'COMMIT' ||
-            sql === 'ROLLBACK' ||
-            sql.startsWith('SET LOCAL') ||
-            sql.includes('<=>')
-        );
-      expect(vectorFlow[0]).toBe('BEGIN');
-      expect(vectorFlow[1]).toContain('SET LOCAL hnsw.ef_search');
-      expect(vectorFlow[2]).toContain('SET LOCAL hnsw.iterative_scan');
-      expect(vectorFlow[3]).toContain('<=>');
-      expect(vectorFlow[4]).toBe('COMMIT');
+      await expect(
+        mockRepository.searchSimilar(vec(1), { limit: 5, resourceId: RESOURCE_ID })
+      ).rejects.toThrow('Thread search vector search requires atomic transaction support.');
+      expect(queryCalls.some((call) => call.sql.startsWith('SET LOCAL'))).toBe(false);
+      expect(queryCalls.some((call) => call.sql.trim() === 'BEGIN')).toBe(false);
     });
 
-    it('rolls back and rethrows when the in-transaction fallback SELECT fails', async () => {
+    it('propagates callback transaction SELECT failures', async () => {
       const queryCalls: { params?: unknown[]; sql: string }[] = [];
-      const failingQuery = async <T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> => {
+      const outerQuery = async <T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> => {
         queryCalls.push({ params, sql });
         if (sql.includes('thread_search_profiles')) {
           return { rows: [PROFILE_ROW] as T[] };
         }
-        if (sql.includes('<=>')) {
-          throw new Error('vector search exploded');
-        }
         return { rows: [] as T[] };
       };
-      const mockRepository = new ThreadSearchRepository({ query: failingQuery });
+      const transaction = async <T>(
+        operation: (tx: { query: typeof outerQuery }) => Promise<T>
+      ): Promise<T> =>
+        await operation({
+          query: async <R>(sql: string, _params?: unknown[]): Promise<{ rows: R[] }> => {
+            if (sql.includes('<=>')) {
+              throw new Error('vector search exploded');
+            }
+            return { rows: [] as R[] };
+          },
+        });
+      const mockRepository = new ThreadSearchRepository({ query: outerQuery, transaction });
 
       await expect(
         mockRepository.searchSimilar(vec(1), { limit: 5, resourceId: RESOURCE_ID })
       ).rejects.toThrow('vector search exploded');
-      expect(queryCalls.map((call) => call.sql.trim())).toContain('ROLLBACK');
+      expect(queryCalls.some((call) => call.sql.trim() === 'ROLLBACK')).toBe(false);
     });
   });
 });

@@ -274,7 +274,9 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
     expect(toolId(picked)).toBe(WEB_SEARCH_TOOL_ID);
     expect(toolType(picked)).toBeUndefined();
     expect(hasExecute(picked)).toBe(true);
-    expect((picked as { requireApproval?: unknown }).requireApproval).toBe(true);
+    // The ask decision lives in `askTools` (asserted above) and is enforced by
+    // the runtime's live predicate; no flag rides on the tool (2026-09-15).
+    expect((picked as { requireApproval?: unknown }).requireApproval).toBeUndefined();
   });
 
   it('native-capable provider (anthropic) + real deny gate → web search omitted, native never injected', () => {

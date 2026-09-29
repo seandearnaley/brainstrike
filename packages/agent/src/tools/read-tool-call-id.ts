@@ -1,3 +1,6 @@
+import { parseMemoryRequestContext } from '@mastra/core/memory';
+import type { RequestContext } from '@mastra/core/request-context';
+
 /**
  * Read the tool-call id Mastra passes alongside a tool's input.
  *
@@ -12,11 +15,49 @@
  * The argument position is Mastra's: input first, execution context second.
  */
 export function readToolCallId(args: readonly unknown[]): string | undefined {
+  return readExecutionIdentity(args, 'toolCallId');
+}
+
+/** Native thread IDs are globally unique; never substitute persona or root identity. */
+export function readToolExecutionThreadId(args: readonly unknown[]): string | undefined {
+  const explicit = readExecutionIdentity(args, 'threadId');
+  if (explicit) {
+    return explicit;
+  }
+  const context = args[1];
+  if (!(context && typeof context === 'object' && 'requestContext' in context)) {
+    return;
+  }
+  // Native ToolsInput functions receive the AI SDK execution context; Mastra
+  // carries memory scope there through RequestContext, not context.agent.
+  const requestContext = context.requestContext;
+  if (
+    !(
+      requestContext &&
+      typeof requestContext === 'object' &&
+      'get' in requestContext &&
+      typeof requestContext.get === 'function'
+    )
+  ) {
+    return;
+  }
+  // The public parser uses only get(); ESM and CJS expose distinct constructors.
+  // Malformed memory still throws. Never normalize a valid native identity.
+  const threadId = parseMemoryRequestContext(requestContext as RequestContext)?.thread?.id;
+  return threadId?.trim() ? threadId : undefined;
+}
+
+function readExecutionIdentity(
+  args: readonly unknown[],
+  key: 'toolCallId' | 'threadId'
+): string | undefined {
   const context = args[1];
   if (!(context && typeof context === 'object')) {
     return;
   }
-  const record = context as { agent?: { toolCallId?: unknown }; toolCallId?: unknown };
-  const candidate = record.agent?.toolCallId ?? record.toolCallId;
+  const record = context as { agent?: Partial<Record<typeof key, unknown>> } & Partial<
+    Record<typeof key, unknown>
+  >;
+  const candidate = record.agent?.[key] ?? record[key];
   return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate : undefined;
 }

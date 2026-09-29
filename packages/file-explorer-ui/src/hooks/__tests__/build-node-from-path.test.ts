@@ -5,6 +5,19 @@ import { buildNodeFromPath } from '../build-node-from-path';
 describe('buildNodeFromPath', () => {
   const directoryHandle = {} as FileSystemDirectoryHandle;
 
+  it('retains a canonical native directory descriptor without a browser-handle cast', () => {
+    const nativeHandle = {
+      kind: 'directory' as const,
+      name: 'src',
+      path: '/root/src',
+      platform: 'electron' as const,
+      rootId: 'mounted-root',
+    };
+    const node = buildNodeFromPath('/root/src', '/root', 'root-folder', nativeHandle);
+
+    expect(node.handle).toBe(nativeHandle);
+  });
+
   it('counts depth correctly when stripping a root without a trailing slash', () => {
     const node = buildNodeFromPath('/root/a/b', '/root', 'root-folder', directoryHandle);
 

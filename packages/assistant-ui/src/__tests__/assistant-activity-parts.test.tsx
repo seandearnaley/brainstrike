@@ -5,6 +5,9 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
+import { AnsweredApprovalsProvider } from '../answered-approvals-index';
+import { ApprovalSubmissionProvider } from '../approval-submission-provider';
+import { AssistantDataRendererRegistration } from '../assistant-data-renderer-registration';
 import { Harness, runEventPart } from './assistant-activity-timeline-fixtures';
 
 const neverRun = {
@@ -667,3 +670,173 @@ function indicatorsOutsideGroups(): Element[] {
     (element) => element.closest('[data-testid="assistant-activity-group"]') === null
   );
 }
+
+it('uses the approval card as the single pause surface, without a second waiting activity box', async () => {
+  render(
+    <Harness
+      adapter={neverRun}
+      initialMessages={[
+        {
+          content: [
+            completedReasoning,
+            tool('paused-call', { result: undefined }),
+            runEventPart({
+              id: 'approval-event',
+              kind: 'tool.approval.requested',
+              status: 'running',
+              timestamp: '2026-09-27T20:21:00Z',
+              toolCallId: 'paused-call',
+            }),
+            {
+              data: {
+                runId: 'run',
+                toolCallId: 'paused-call',
+                toolName: 'brainstrike.executeCommand',
+              },
+              name: 'brainstrike.tool-approval',
+              type: 'data',
+            },
+          ],
+          role: 'assistant',
+          status: { reason: 'interrupt', type: 'requires-action' },
+        },
+      ]}
+    >
+      {(content) => (
+        <ApprovalSubmissionProvider>
+          <AnsweredApprovalsProvider>
+            <AssistantDataRendererRegistration />
+            {content}
+          </AnsweredApprovalsProvider>
+        </ApprovalSubmissionProvider>
+      )}
+    </Harness>
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Approve brainstrike.executeCommand' })
+  ).toBeEnabled();
+  expect(screen.queryByText('Approval requested')).not.toBeInTheDocument();
+  expect(screen.queryByText('Waiting for approval')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('tool-fallback')).not.toBeInTheDocument();
+  expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-state', 'done');
+});
+
+it.each(
+  ['host-leg', 'child-host-leg', 'grandchild-host-leg'].flatMap((timelineRunId) =>
+    [false, true].map((hasEarlierWork) => ({ hasEarlierWork, timelineRunId }))
+  )
+)(
+  'settles a separate acknowledged approval on $timelineRunId with earlier work: $hasEarlierWork',
+  async ({ hasEarlierWork, timelineRunId }) => {
+    const request = {
+      hostRunId: 'host-leg',
+      runId: 'native-run',
+      timelineRunId,
+      toolCallId: 'paused-call',
+      toolName: 'brainstrike.readWorkspaceFile',
+    };
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              ...(hasEarlierWork ? [completedReasoning, tool('finished-call')] : []),
+              tool('paused-call', { result: undefined, toolName: request.toolName }),
+              runEventPart({
+                id: 'pause',
+                kind: 'tool.approval.requested',
+                runId: request.timelineRunId,
+                timestamp: '2026-09-28T19:03:00Z',
+                toolCallId: request.toolCallId,
+              }),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+          {
+            content: [
+              { data: request, name: 'brainstrike.tool-approval', type: 'data' },
+              {
+                data: { ...request, decision: 'approve', reason: 'user' },
+                name: 'brainstrike.tool-approval-answered',
+                type: 'data',
+              },
+            ],
+            role: 'assistant',
+          },
+        ]}
+      >
+        {(content) => (
+          <AnsweredApprovalsProvider>
+            <AssistantDataRendererRegistration />
+            {content}
+          </AnsweredApprovalsProvider>
+        )}
+      </Harness>
+    );
+    expect(await screen.findByText('Approved', { exact: true })).toBeInTheDocument();
+    expect(screen.queryAllByText('Waiting for approval')).toHaveLength(0);
+    expect(document.querySelector('[data-live="true"]')).toBeNull();
+    expect(screen.queryByText('Approval requested')).toBeNull();
+    if (hasEarlierWork) {
+      expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-state', 'done');
+    } else {
+      expect(screen.queryByTestId('assistant-activity-group')).toBeNull();
+    }
+  }
+);
+
+it.each([false, true])(
+  'retains the foreground child card with a separate approval: %s',
+  (separate) => {
+    const approval = {
+      data: {
+        hostRunId: 'root-host',
+        runId: 'root-native',
+        timelineRunId: 'root-host',
+        toolCallId: 'delegate',
+        toolName: 'brainstrike.readWorkspaceFile',
+      },
+      name: 'brainstrike.tool-approval',
+      type: 'data' as const,
+    };
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              tool('delegate', {
+                args: { prompt: 'Inspect evidence.' },
+                result: undefined,
+                toolName: 'agent-explore',
+              }),
+              ...(separate
+                ? [
+                    runEventPart({
+                      id: 'child-pause',
+                      kind: 'tool.approval.requested',
+                      runId: 'root-host',
+                      timestamp: '2026-09-28T19:03:00Z',
+                      toolCallId: 'delegate',
+                    }),
+                  ]
+                : []),
+              ...(separate ? [] : [approval]),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+          ...(separate ? [{ content: [approval], role: 'assistant' as const }] : []),
+        ]}
+      >
+        {(content) => <AnsweredApprovalsProvider>{content}</AnsweredApprovalsProvider>}
+      </Harness>
+    );
+    expect(screen.getByText('Delegating to Explorer')).toBeInTheDocument();
+    expect(screen.getByText('Inspect evidence.')).toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-activity-group')).not.toBeInTheDocument();
+    expect(screen.queryByText('Waiting for approval')).not.toBeInTheDocument();
+  }
+);

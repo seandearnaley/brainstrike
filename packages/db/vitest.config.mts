@@ -42,6 +42,7 @@ const sharedAliases: Record<string, string> = {
   // aliases (e.g. mastra-memory-schema in unitAliases) must stay declared
   // BEFORE this key so the prefix match cannot shadow them.
   '@brainstrike/assistant-contract': path.resolve(__dirname, '../assistant-contract/src/index.ts'),
+  '@brainstrike/effect-kit': path.resolve(__dirname, '../effect-kit/src/index.ts'),
   '@brainstrike/embedding-worker': path.resolve(__dirname, '../embedding-worker/src'),
   '@brainstrike/file-explorer': path.resolve(__dirname, '../file-explorer/src'),
   '@brainstrike/file-explorer-hooks': path.resolve(__dirname, '../file-explorer-hooks/src'),
@@ -67,6 +68,10 @@ const unitAliases: Record<string, string> = {
   '@brainstrike/assistant-contract/mastra-memory-schema': path.resolve(
     __dirname,
     '../assistant-contract/src/mastra-memory-schema.ts'
+  ),
+  '@brainstrike/assistant-contract/run-events': path.resolve(
+    __dirname,
+    '../assistant-contract/src/run-events.ts'
   ),
   '@brainstrike/assistant-contract/tool-output-artifact': path.resolve(
     __dirname,
@@ -123,7 +128,10 @@ export default defineConfig({
           maxWorkers: process.env['CI'] ? 2 : '50%',
           name: 'unit',
           pool: 'forks',
-          setupFiles: ['./vitest.setup.ts'],
+          setupFiles: [
+            '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
+            './vitest.setup.ts',
+          ],
           testTimeout: 10_000,
         },
       },

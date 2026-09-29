@@ -112,6 +112,16 @@ process boundaries are serializable plain data. `AbortSignal` and class
 instances are process-local; represent cancellation or state changes through a
 dedicated bridge/protocol rather than putting them in serialized runtime data.
 
+### Background runtime capability
+
+`MastraAgentRuntimeOptions.backgroundTaskScope` is a host-owned resource/thread
+scope supplied alongside matching durable memory/storage. It enables native
+background delegation with host-owned parent continuation; it is not model-provided configuration. Desktop
+memory forwards it through assistant-service. See `docs/agents/assistant-subagents.md`
+and `docs/agents/mastra-boundary.md` for ownership, pending decision recovery and
+native shutdown qualifications. Explicit root Stop joins native work and cancels
+queued/paused tasks; ordinary disposal preserves resumable decisions.
+
 ### Tools
 
 Tools are the main extension point. A tool is an object with an `id`, a  
@@ -439,6 +449,15 @@ Tips for MCP integration:
 
 ### Host-owned delegated conversation binding (BST-1718)
 
+Persona tools share central artifact settlement after their independent gate and
+before their own model projection. Child settlement requires the observed native
+execution thread; ordinary ToolsInput functions expose it via Mastra's memory
+RequestContext, while ToolAction contexts may expose `agent.threadId`. The shared
+execution identity reader supports both vendor contexts and ignores tool input.
+Artifact ownership stays on the root resource/thread/run; native execution thread
+distinguishes sibling call IDs in migration 129. See the native sibling recovery
+test and `docs/agents/assistant-subagents.md`.
+
 `MastraAgentRuntimeOptions.conversationBinding` accepts
 `createDelegatedConversationBinding(persist)`. This requires parent/child thread
 memory scope and a structured-cloneable configuration snapshot; the host validates
@@ -450,11 +469,20 @@ binding or rejected persistence prevents child model/tool execution. The callbac
 must validate root ownership and persist through the host database; it never
 belongs in RuntimeData or serialized RequestContext entries.
 
-This optional port is not yet activated by desktop. Snapshot resume skips the
-child input processor. The optional `conversationBinding.bindRun` callback is
-awaited at the first child event of each attempt/resume leg; its host implementation
-must authorize the persisted invocation before desktop activation. Existing read-only/no-nesting
-restrictions remain. The native and production-stream integration suites cover
+Desktop run-scoped memory now activates this optional port using the host's
+persisted owner/root/turn scope. Snapshot resume skips the child input processor.
+The `conversationBinding.bindRun` callback is awaited at the first child event of
+each attempt/resume leg and authorizes the original persisted invocation.
+Bound completion usage retains native parent-run/tool-call and child-thread/resource
+identity; the existing desktop writer reconciles cumulative reports after child
+publication. The host-only `getDelegatedSystemContext` callback projects original system text.
+The root stores only that data in its native RequestContext snapshot; new children
+started after approval or question resume receive the same original context.
+Callbacks and RuntimeData are never serialized. Non-text metadata is not system
+authority. The child checks its context byte budget before inference; native child
+MessageList snapshots retain their initial context across approval.
+Explorer/Analyst remain read-only; workers require the complete
+durable decision host, and nesting remains disabled. The native and production-stream integration suites cover
 this seam; see docs/agents/assistant-subagents.md for the full contract.
 
 ### Memory and conversation management

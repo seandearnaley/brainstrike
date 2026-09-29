@@ -1,7 +1,7 @@
 // Guard for the `unit-shard` matrix partition in .github/workflows/test.yml.
 //
-// The Unit job partitions packages into db / desktop / heavy / rest. DB
-// and desktop each use complete native Vitest shard sets; repeated physical
+// The Unit job partitions packages into db / agent / desktop / heavy / rest.
+// DB, Agent, and desktop each use complete native Vitest shard sets; repeated physical
 // rows own the same logical package, never slices of different packages.
 // The shard id is a task environment input, not a Turbo passthrough argument:
 // passthrough arguments also reach dependency and topo tasks.

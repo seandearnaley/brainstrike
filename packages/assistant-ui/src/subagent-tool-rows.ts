@@ -1,5 +1,9 @@
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
-import { SUBAGENT_NO_ANSWER_OUTCOME } from '@brainstrike/assistant-contract/personas';
+import {
+  SUBAGENT_NO_ANSWER_OUTCOME,
+  SUBAGENT_REJECTED_OUTCOME,
+  SUBAGENT_TRUNCATED_OUTCOME,
+} from '@brainstrike/assistant-contract/personas';
 import { extractPrimaryArg } from './tool-summaries';
 
 export type SubAgentToolRowStatus = 'error' | 'interrupted' | 'running' | 'success';
@@ -41,7 +45,10 @@ export function readSubAgentToolRows(result: unknown): SubAgentToolRow[] {
 }
 
 /** How a delegation ended, beyond what the tool-call status can express. */
-export type SubagentDelegationOutcome = typeof SUBAGENT_NO_ANSWER_OUTCOME;
+export type SubagentDelegationOutcome =
+  | typeof SUBAGENT_NO_ANSWER_OUTCOME
+  | typeof SUBAGENT_REJECTED_OUTCOME
+  | typeof SUBAGENT_TRUNCATED_OUTCOME;
 
 /**
  * This delegation's terminal outcome, when it is one the tool-call status
@@ -61,14 +68,9 @@ export function readSubagentDelegationOutcome(
   parentToolCallId: string
 ): SubagentDelegationOutcome | undefined {
   for (const part of parts) {
-    const data = readAssistantRunEventDataPart(part);
-    const metadata = data?.metadata;
-    if (
-      metadata &&
-      metadata['parentToolCallId'] === parentToolCallId &&
-      metadata['outcome'] === SUBAGENT_NO_ANSWER_OUTCOME
-    ) {
-      return SUBAGENT_NO_ANSWER_OUTCOME;
+    const event = readSubagentRunEventContribution(part);
+    if (event?.parentToolCallId === parentToolCallId && event.outcome) {
+      return event.outcome;
     }
   }
   return;
@@ -79,6 +81,47 @@ const SUBAGENT_TOOL_KIND_STATUS: Record<string, SubAgentToolRowStatus> = {
   'subagent.tool.failed': 'error',
   'subagent.tool.started': 'running',
 };
+
+export interface SubagentRunEventContribution {
+  readonly outcome?: SubagentDelegationOutcome;
+  readonly parentToolCallId: string;
+  readonly row?: SubAgentToolRow;
+}
+
+/** Parse one persisted run-event part for the shared thread index and legacy readers. */
+export function readSubagentRunEventContribution(
+  part: unknown
+): SubagentRunEventContribution | undefined {
+  const data = readAssistantRunEventDataPart(part);
+  const metadata = data?.metadata;
+  const parentToolCallId = metadata?.['parentToolCallId'];
+  if (!(data && metadata && typeof parentToolCallId === 'string')) {
+    return;
+  }
+  const outcome =
+    metadata['outcome'] === SUBAGENT_NO_ANSWER_OUTCOME ||
+    metadata['outcome'] === SUBAGENT_REJECTED_OUTCOME ||
+    metadata['outcome'] === SUBAGENT_TRUNCATED_OUTCOME
+      ? metadata['outcome']
+      : undefined;
+  const status = SUBAGENT_TOOL_KIND_STATUS[data.kind];
+  const toolCallId = metadata['toolCallId'];
+  const row =
+    status && typeof toolCallId === 'string' && toolCallId.length > 0
+      ? {
+          argSummary: undefined,
+          key: toolCallId,
+          status,
+          toolName:
+            typeof metadata['childToolName'] === 'string' ? metadata['childToolName'] : 'tool',
+        }
+      : undefined;
+  return {
+    ...(outcome ? { outcome } : {}),
+    parentToolCallId,
+    ...(row ? { row } : {}),
+  };
+}
 
 /**
  * LIVE in-flight per-child rows derived from `subagent.tool.*` run-event message
@@ -92,26 +135,10 @@ export function readLiveSubagentToolRows(
 ): SubAgentToolRow[] {
   const byChild = new Map<string, SubAgentToolRow>();
   for (const part of parts) {
-    const data = readAssistantRunEventDataPart(part);
-    if (!data) {
-      continue;
+    const event = readSubagentRunEventContribution(part);
+    if (event?.parentToolCallId === parentToolCallId && event.row) {
+      byChild.set(event.row.key, event.row);
     }
-    const status = SUBAGENT_TOOL_KIND_STATUS[data.kind];
-    if (!status) {
-      continue;
-    }
-    const metadata = data.metadata;
-    if (!metadata || metadata['parentToolCallId'] !== parentToolCallId) {
-      continue;
-    }
-    const toolCallId =
-      typeof metadata['toolCallId'] === 'string' ? metadata['toolCallId'] : undefined;
-    if (!toolCallId) {
-      continue;
-    }
-    const toolName =
-      typeof metadata['childToolName'] === 'string' ? metadata['childToolName'] : 'tool';
-    byChild.set(toolCallId, { argSummary: undefined, key: toolCallId, status, toolName });
   }
   return Array.from(byChild.values());
 }

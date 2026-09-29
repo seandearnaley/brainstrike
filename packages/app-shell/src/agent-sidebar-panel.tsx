@@ -1,13 +1,15 @@
 import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
-import {
-  PANEL_TAB_TRIGGER_CLASS_NAME,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@brainstrike/ui';
+import { TabPanelBoundary, Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Database, LibraryBig, MessagesSquare } from 'lucide-react';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from 'react';
 import { preloadDatabaseTab } from './database-tab';
 
 interface AgentSidebarPanelProps {
@@ -70,6 +72,28 @@ function readInitialAgentSidebarTab(): AgentSidebarTab {
   );
 }
 
+/**
+ * Invokes the activity-aware Prompts callback while React renders it, inside
+ * `TabPanelBoundary`, so a throw during element construction is contained too
+ * (same precondition as `workspace-body.tsx`'s `WorkspaceAppContent`).
+ */
+function PromptsTabContent({
+  isActive,
+  promptsContent,
+}: {
+  readonly isActive: boolean;
+  readonly promptsContent: AgentSidebarPanelProps['promptsContent'];
+}): ReactNode {
+  return typeof promptsContent === 'function' ? promptsContent(isActive) : promptsContent;
+}
+
+/**
+ * The Library switcher. Its value is local React state, so a switch renders in
+ * a transition: the committed panel stays on screen while the next one
+ * renders, and the incoming trigger carries `data-pending` meanwhile.
+ * Collections and Prompts mount on first activation and are then kept mounted
+ * (hidden) so their state survives switches.
+ */
 export function AgentSidebarPanel({
   threadsContent,
   databaseContent,
@@ -77,12 +101,8 @@ export function AgentSidebarPanel({
   preloadDatabaseTabOnMount = false,
 }: AgentSidebarPanelProps): ReactElement {
   const [activeTab, setActiveTab] = useState<AgentSidebarTab>(() => readInitialAgentSidebarTab());
-  const [databaseTabMounted, setDatabaseTabMounted] = useState<boolean>(
-    () => preloadDatabaseTabOnMount || activeTab === 'database'
-  );
-  const [promptsTabMounted, setPromptsTabMounted] = useState<boolean>(
-    () => activeTab === 'prompts'
-  );
+  const [requestedTab, setRequestedTab] = useState<AgentSidebarTab | null>(null);
+  const [isSwitching, startSwitch] = useTransition();
   const hasPrefetchedDatabaseTabRef = useRef(false);
 
   const requestDatabaseTabPrefetch = useCallback(() => {
@@ -101,18 +121,15 @@ export function AgentSidebarPanel({
         return;
       }
 
-      setActiveTab(nextValue);
-
       agentSidebarTabStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, JSON.stringify(nextValue));
-
       if (nextValue === 'database') {
-        setDatabaseTabMounted(true);
         requestDatabaseTabPrefetch();
       }
 
-      if (nextValue === 'prompts') {
-        setPromptsTabMounted(true);
-      }
+      setRequestedTab(nextValue);
+      startSwitch(() => {
+        setActiveTab(nextValue);
+      });
     },
     [requestDatabaseTabPrefetch]
   );
@@ -121,22 +138,11 @@ export function AgentSidebarPanel({
     if (!preloadDatabaseTabOnMount) {
       return;
     }
-    setDatabaseTabMounted(true);
     requestDatabaseTabPrefetch();
   }, [preloadDatabaseTabOnMount, requestDatabaseTabPrefetch]);
 
-  const databaseTabMountProps = databaseTabMounted
-    ? ({
-        forceMount: true,
-      } as const)
-    : {};
-  const promptsTabMountProps = promptsTabMounted
-    ? ({
-        forceMount: true,
-      } as const)
-    : {};
-  const resolvedPromptsContent =
-    typeof promptsContent === 'function' ? promptsContent(activeTab === 'prompts') : promptsContent;
+  const pendingMark = (tab: AgentSidebarTab): '' | undefined =>
+    isSwitching && requestedTab === tab ? '' : undefined;
 
   return (
     <Tabs
@@ -148,11 +154,12 @@ export function AgentSidebarPanel({
       <div className="@container/library-tabs flex h-9 shrink-0 items-center border-border border-b px-2">
         <TabsList
           aria-label="Library tabs"
-          className="grid h-7 w-full grid-cols-3"
+          className="grid w-full grid-cols-3"
           data-testid="agent-sidebar-tabs"
+          size="sm"
         >
           <TabsTrigger
-            className={PANEL_TAB_TRIGGER_CLASS_NAME}
+            data-pending={pendingMark('threads')}
             data-testid="threads-tab-trigger"
             value="threads"
           >
@@ -160,7 +167,7 @@ export function AgentSidebarPanel({
             <span className="truncate">Threads</span>
           </TabsTrigger>
           <TabsTrigger
-            className={PANEL_TAB_TRIGGER_CLASS_NAME}
+            data-pending={pendingMark('database')}
             data-testid="database-tab-trigger"
             onFocus={requestDatabaseTabPrefetch}
             onPointerEnter={requestDatabaseTabPrefetch}
@@ -170,7 +177,7 @@ export function AgentSidebarPanel({
             <span className="truncate">Collections</span>
           </TabsTrigger>
           <TabsTrigger
-            className={PANEL_TAB_TRIGGER_CLASS_NAME}
+            data-pending={pendingMark('prompts')}
             data-testid="prompts-tab-trigger"
             value="prompts"
           >
@@ -181,32 +188,33 @@ export function AgentSidebarPanel({
       </div>
 
       <TabsContent
-        className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
+        className="min-h-0 flex-1 overflow-hidden"
         data-testid="threads-tab-content"
-        hidden={activeTab !== 'threads'}
         value="threads"
       >
-        {threadsContent}
+        {/* No resetKey: this panel is a singleton; "Reload tab" is the reset. */}
+        <TabPanelBoundary label="Threads">{threadsContent}</TabPanelBoundary>
       </TabsContent>
 
       <TabsContent
-        className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
+        className="min-h-0 flex-1 overflow-hidden"
         data-testid="prompts-tab-content"
-        hidden={activeTab !== 'prompts'}
-        {...promptsTabMountProps}
+        keepMounted
         value="prompts"
       >
-        {resolvedPromptsContent}
+        <TabPanelBoundary label="Prompts">
+          <PromptsTabContent isActive={activeTab === 'prompts'} promptsContent={promptsContent} />
+        </TabPanelBoundary>
       </TabsContent>
 
       <TabsContent
-        className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
+        className="min-h-0 flex-1 overflow-hidden"
         data-testid="database-tab-content"
-        hidden={activeTab !== 'database'}
-        {...databaseTabMountProps}
+        forceMount={preloadDatabaseTabOnMount}
+        keepMounted
         value="database"
       >
-        {databaseContent}
+        <TabPanelBoundary label="Collections">{databaseContent}</TabPanelBoundary>
       </TabsContent>
     </Tabs>
   );

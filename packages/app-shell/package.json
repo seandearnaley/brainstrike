@@ -4,7 +4,6 @@
   "dependencies": {
     "@brainstrike/app-state": "workspace:*",
     "@atlaskit/pragmatic-drag-and-drop": "^3.1.0",
-    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.2.0",
     "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.2.0",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-data": "workspace:*",
@@ -18,6 +17,7 @@
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/hooks": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/logging": "workspace:*",
@@ -60,6 +60,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./app-reload": {
+      "types": "./dist/app-reload/index.d.ts",
+      "import": "./dist/app-reload/index.js"
     },
     "./connected-prompt-manager-lazy": {
       "types": "./dist/connected-prompt-manager-lazy.d.ts",

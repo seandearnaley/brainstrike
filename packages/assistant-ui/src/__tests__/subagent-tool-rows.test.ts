@@ -77,6 +77,31 @@ describe('readSubagentDelegationOutcome', () => {
     expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBe('no-answer');
   });
 
+  it("reports 'rejected' for a delegation refused before its child ran (BST-1751)", () => {
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.failed',
+        outcome: 'rejected',
+        parentToolCallId: 'delegation-1',
+        status: 'failed',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBe('rejected');
+  });
+
+  it("reports 'truncated' for a completed delegation whose reserved summary was cut", () => {
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.finished',
+        outcome: 'truncated',
+        parentToolCallId: 'delegation-1',
+        status: 'completed',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBe('truncated');
+    expect(readSubagentDelegationOutcome(parts, 'delegation-2')).toBeUndefined();
+  });
+
   it('ignores a terminal event belonging to a DIFFERENT concurrent delegation', () => {
     // MAX_CONCURRENT_DELEGATIONS is 2, so two delegations are open at once.
     const parts = [
@@ -223,6 +248,11 @@ describe('readLiveSubagentToolRows (in-flight run events)', () => {
           kind: 'subagent.tool.started',
           parentToolCallId: 'other-delegation',
           toolCallId: 'child-x',
+        }),
+        liveEventPart({
+          kind: 'subagent.tool.started',
+          parentToolCallId: 'delegation-1',
+          toolCallId: '',
         }),
         { data: { kind: 'tool.started' }, name: RUN_EVENT_NAME, type: 'data' },
         { text: 'hi', type: 'text' },

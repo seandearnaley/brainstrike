@@ -137,8 +137,10 @@ export function AssistantRunTimeline({
   const isFailed = eventStatus === 'failed';
   const isRunning = eventStatus === 'running';
   const label =
-    eventStatus === 'interrupted' && event.kind === 'tool.approval.requested'
-      ? 'Approval was pending'
+    event.kind === 'tool.approval.requested'
+      ? eventStatus === 'interrupted'
+        ? 'Approval was pending'
+        : 'Approval requested'
       : event.label;
 
   const toolName =

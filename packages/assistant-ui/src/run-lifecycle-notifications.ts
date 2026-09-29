@@ -20,6 +20,8 @@ import { useAuiState } from '@assistant-ui/react';
 import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
+  getToolActionIdentityKey,
+  isDelegatedToolActionIdentity,
   readAssistantRunEvent,
 } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
@@ -117,7 +119,9 @@ function isToolApprovalRequest(value: unknown): value is AssistantToolApprovalRe
     isRecord(value) &&
     typeof value['runId'] === 'string' &&
     typeof value['toolCallId'] === 'string' &&
-    typeof value['toolName'] === 'string'
+    typeof value['toolName'] === 'string' &&
+    (!('delegation' in value) ||
+      (Object.hasOwn(value, 'delegation') && isDelegatedToolActionIdentity(value['delegation'])))
   );
 }
 
@@ -150,7 +154,7 @@ export function selectTerminalRunEvents(
 
 /**
  * Every distinct tool-approval-required request across the thread
- * (deduped by `runId:toolCallId`, first occurrence wins — the pause is a
+ * (deduped by the leaf decision identity, first occurrence wins — the pause is a
  * point-in-time event, so a later re-render of the same part must not be
  * treated as a new approval request).
  */
@@ -165,7 +169,7 @@ export function selectToolApprovalRequests(
       if (!isToolApprovalRequest(data)) {
         continue;
       }
-      const key = `${data.runId}:${data.toolCallId}`;
+      const key = getToolActionIdentityKey(data);
       if (seen.has(key)) {
         continue;
       }
@@ -324,7 +328,7 @@ export function createToolApprovalRequestsSelector(): (messages: readonly unknow
       const data = getPartData(part, TOOL_APPROVAL_DATA_NAME);
       return isToolApprovalRequest(data) ? data : undefined;
     },
-    getKey: (request) => `${request.runId}:${request.toolCallId}`,
+    getKey: getToolActionIdentityKey,
   });
 }
 
@@ -445,7 +449,7 @@ export function useRunLifecycleNotifications(
 
   useNewStreamValues<AssistantToolApprovalRequest>({
     isHistoryLoading,
-    keyOf: (request) => `${request.runId}:${request.toolCallId}`,
+    keyOf: getToolActionIdentityKey,
     onNew: (request) => {
       callbacks.onToolApprovalRequired?.(request);
     },

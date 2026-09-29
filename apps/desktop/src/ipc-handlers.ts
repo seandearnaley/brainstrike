@@ -15,7 +15,6 @@ import {
 import { registerEmbeddingBackfillIpcHandlers } from './ipc-domains/embedding-backfill-ipc';
 import { registerFileSystemIpcHandlers } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
-import type { RuntimeDatabaseCorruptionHandler } from './ipc-domains/runtime-database-corruption';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
 import type { ManagedWorktreeAuthorizer } from './ipc-domains/workspace-recent-roots';
 import { getDesktopDatabaseWorkScheduler } from './platform/desktop-database-work';
@@ -24,9 +23,7 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 export {
   getDesktopDatabaseWorkScheduler,
   getDesktopDatabaseWorkSchedulerSnapshot,
-  quiesceDesktopDatabaseWorkForRecovery,
   resetDesktopDatabaseWorkSchedulerForTests,
-  resumeDesktopDatabaseWorkAfterRecoveryReload,
   runDesktopScheduledDatabaseWork,
   runWithDesktopDatabaseResetBarrier,
   waitForDesktopDatabaseWorkSchedulerIdle,
@@ -41,7 +38,6 @@ interface RegisterIpcHandlerOptions {
   readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
-  readonly onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler;
   readonly onWorkspaceRootGranted?: (grantedPath: string) => void;
 }
 
@@ -110,7 +106,6 @@ export function registerIpcHandlers(
       ? { getDimensionIndexMaintenanceStrategy: options.getDimensionIndexMaintenanceStrategy }
       : {}),
     isBackgrounded: isDesktopDatabaseBackgrounded,
-    ...(options?.onRuntimeCorruption ? { onRuntimeCorruption: options.onRuntimeCorruption } : {}),
   });
 
   return () => {

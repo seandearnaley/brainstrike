@@ -2,6 +2,8 @@ import type { DebugBundleBinding } from '@brainstrike/assistant-ui';
 import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import { useMemo } from 'react';
 import { buildThreadDebugBundle } from '../diagnostics/debug-bundle';
+import { readThreadDebugHostProbe } from '../diagnostics/thread-debug-host-probe';
+import { buildThreadDebugPack } from '../diagnostics/thread-debug-pack';
 
 /**
  * Binds the assistant panel's "Copy debug bundle" button (Flight Recorder
@@ -26,6 +28,9 @@ export function useDebugBundleBinding(
     return {
       buildBundle: ({ runId }: { runId: string | null }) =>
         buildThreadDebugBundle(db, { threadId, ...(runId ? { runId } : {}) }),
+      // Probed per click by capability (never isElectron): a web pack says why
+      // host evidence is absent.
+      buildThreadPack: () => buildThreadDebugPack(db, threadId, readThreadDebugHostProbe()),
     };
   }, [db, threadId]);
 }

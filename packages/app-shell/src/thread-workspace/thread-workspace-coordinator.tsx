@@ -10,6 +10,7 @@ import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell
 import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { useCallback, useMemo } from 'react';
+import { threadWorkspaceNavigation } from './live-thread-workspace-navigation';
 import { createLiveWorkspaceFacade } from './thread-workspace-live-facade';
 import { useThreadWorkspaceCoordinator } from './use-thread-workspace-coordinator';
 
@@ -54,6 +55,7 @@ export function ThreadWorkspaceCoordinator(): null {
   useThreadWorkspaceCoordinator({
     activeThreadId,
     facade,
+    navigation: threadWorkspaceNavigation,
     openThreadIds,
     repository,
     resourceId,

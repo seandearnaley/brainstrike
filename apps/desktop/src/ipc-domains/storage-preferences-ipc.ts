@@ -6,10 +6,7 @@ import type ElectronStore from 'electron-store';
 import { z } from 'zod';
 import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import {
-  createDesktopIpcRegistry,
-  type DesktopIpcSenderPolicy,
-} from '../platform/desktop-ipc-registry';
+import { createDesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
 import {
   assertRendererWritableDesktopStorageKey,
   isMainOwnedDesktopStorageKey,
@@ -17,11 +14,12 @@ import {
 } from '../platform/desktop-storage-authority';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from '../platform/vector-preferences-storage-key';
 import type { DesktopSettingsStoreSchema } from '../store-schema';
-
-const UNAUTHENTICATED_SENDER_POLICY = {
-  reason:
-    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
-} as const;
+import {
+  layoutContract,
+  settingsContract,
+  storageContract,
+  vectorPreferencesContract,
+} from './storage-preferences.contract';
 
 interface RegisterStoragePreferencesIpcHandlersOptions {
   readonly getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null;
@@ -70,58 +68,33 @@ export function registerStoragePreferencesIpcHandlers({
 }: RegisterStoragePreferencesIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerUnauthenticatedInvoke(
-    'storage',
-    DESKTOP_IPC_CHANNELS.storage.getItem,
-    UNAUTHENTICATED_SENDER_POLICY,
-    async (_event, key: string) => storage.getItem(key)
-  );
-  registry.registerUnauthenticatedInvoke(
-    'storage',
-    DESKTOP_IPC_CHANNELS.storage.setItem,
-    UNAUTHENTICATED_SENDER_POLICY,
-    async (_event, key: unknown, value: unknown) => {
-      assertRendererWritableDesktopStorageKey(key);
-      if (typeof value !== 'string') {
-        throw new TypeError('Storage value must be a string.');
-      }
-      return storage.setItem(key, value);
-    }
-  );
-  registry.registerUnauthenticatedInvoke(
-    'storage',
-    DESKTOP_IPC_CHANNELS.storage.removeItem,
-    UNAUTHENTICATED_SENDER_POLICY,
-    async (_event, key: unknown) => {
-      assertRendererWritableDesktopStorageKey(key);
-      return storage.removeItem(key);
-    }
-  );
-  registry.registerUnauthenticatedInvoke(
-    'storage',
-    DESKTOP_IPC_CHANNELS.storage.clear,
-    UNAUTHENTICATED_SENDER_POLICY,
-    async () => {
+  registerDomain(registry, 'storage', storageContract, {
+    clear: async () => {
       // Renderer factory-reset cleanup may clear preference slices, but only
       // desktop main's reset barrier may erase root/vault authority ledgers.
       await storage.clearExcept(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
-    }
-  );
-  registry.registerUnauthenticatedInvoke(
-    'storage',
-    DESKTOP_IPC_CHANNELS.storage.getAllKeys,
-    UNAUTHENTICATED_SENDER_POLICY,
-    async () => storage.getAllKeys()
-  );
+    },
+    getAllKeys: () => storage.getAllKeys(),
+    getItem: (key) => storage.getItem(key),
+    removeItem: (key) => {
+      assertRendererWritableDesktopStorageKey(key);
+      return storage.removeItem(key);
+    },
+    setItem: (key, value) => {
+      assertRendererWritableDesktopStorageKey(key);
+      return storage.setItem(key, value);
+    },
+  });
 
   if (isElectronE2ETestMode()) {
-    // Existing desktop E2E boots from exact persisted-root fixtures. Keep that
-    // setup authority on a separately registered test-only channel instead of
-    // weakening the production mutation guard.
-    registry.registerUnauthenticatedInvoke(
+    // These channels deliberately remain a conditional adapter instead of a
+    // discoverable contract: production must not register them, while the
+    // global contract manifest requires every exported invoke unconditionally.
+    const visibleUiPolicy = { roles: ['visible-ui'] } as const;
+    registry.registerAuthorizedInvoke(
       'storage',
       DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e,
-      UNAUTHENTICATED_SENDER_POLICY,
+      visibleUiPolicy,
       async (_event, key: unknown, value: unknown) => {
         if (!isMainOwnedDesktopStorageKey(key)) {
           throw new Error('E2E main-owned storage seed requires a main-owned key.');
@@ -132,10 +105,10 @@ export function registerStoragePreferencesIpcHandlers({
         return storage.setItem(key, value);
       }
     );
-    registry.registerUnauthenticatedInvoke(
+    registry.registerAuthorizedInvoke(
       'storage',
       DESKTOP_IPC_CHANNELS.storage.clearAllForE2e,
-      UNAUTHENTICATED_SENDER_POLICY,
+      visibleUiPolicy,
       async () => storage.clear()
     );
   }
@@ -145,67 +118,14 @@ export function registerStoragePreferencesIpcHandlers({
   // capability instead of the unrestricted `storage` bridge above — the key is
   // pinned here, never supplied by the renderer, so a hidden host can neither
   // enumerate keys nor address another persisted store.
-  const vectorPreferencesSenderPolicy = {
-    roles: ['embedding-host'],
-  } as const satisfies DesktopIpcSenderPolicy;
+  registerDomain(registry, 'vectorPreferences', vectorPreferencesContract, {
+    clear: () => storage.removeItem(VECTOR_PREFERENCES_STORAGE_KEY),
+    read: () => storage.getItem(VECTOR_PREFERENCES_STORAGE_KEY),
+    write: (value) => storage.setItem(VECTOR_PREFERENCES_STORAGE_KEY, value),
+  });
 
-  registry.registerAuthorizedInvoke(
-    'vectorPreferences',
-    DESKTOP_IPC_CHANNELS.vectorPreferences.read,
-    vectorPreferencesSenderPolicy,
-    async () => storage.getItem(VECTOR_PREFERENCES_STORAGE_KEY)
-  );
-  registry.registerAuthorizedInvoke(
-    'vectorPreferences',
-    DESKTOP_IPC_CHANNELS.vectorPreferences.write,
-    vectorPreferencesSenderPolicy,
-    async (_event, value: string) => {
-      if (typeof value !== 'string') {
-        throw new TypeError('Vector preferences payload must be a string.');
-      }
-      return storage.setItem(VECTOR_PREFERENCES_STORAGE_KEY, value);
-    }
-  );
-  registry.registerAuthorizedInvoke(
-    'vectorPreferences',
-    DESKTOP_IPC_CHANNELS.vectorPreferences.clear,
-    vectorPreferencesSenderPolicy,
-    async () => storage.removeItem(VECTOR_PREFERENCES_STORAGE_KEY)
-  );
-
-  registry.registerUnauthenticatedInvoke(
-    'preferences',
-    DESKTOP_IPC_CHANNELS.preferences.layoutSave,
-    UNAUTHENTICATED_SENDER_POLICY,
-    async (_event, state: unknown): Promise<LayoutPersistenceResult> => {
-      const store = getSettingsStoreAccess(getStore);
-      if (!store) {
-        logger.warn('Cannot save layout: store not initialized');
-        return { message: 'Store not initialized', success: false };
-      }
-
-      const parsed = panelPersistenceStateSchema.safeParse(state);
-      if (!parsed.success) {
-        logger.warn('Invalid panel layout payload', { issues: parsed.error.issues });
-        return { message: 'Invalid panel layout payload', success: false };
-      }
-
-      try {
-        store.set('panelLayout', { v1: parsed.data });
-        return { success: true };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn('Failed to save panel layout', { error: message });
-        return { message, success: false };
-      }
-    }
-  );
-
-  registry.registerUnauthenticatedInvoke(
-    'preferences',
-    DESKTOP_IPC_CHANNELS.preferences.layoutLoad,
-    UNAUTHENTICATED_SENDER_POLICY,
-    async (): Promise<LayoutLoadResult> => {
+  registerDomain(registry, 'preferences', layoutContract, {
+    loadLayout: async (): Promise<LayoutLoadResult> => {
       const store = getSettingsStoreAccess(getStore);
       if (!store) {
         logger.warn('Cannot load layout: store not initialized');
@@ -231,14 +151,33 @@ export function registerStoragePreferencesIpcHandlers({
         logger.warn('Failed to load panel layout', { error: message });
         return { message, success: false };
       }
-    }
-  );
+    },
+    saveLayout: async (state): Promise<LayoutPersistenceResult> => {
+      const store = getSettingsStoreAccess(getStore);
+      if (!store) {
+        logger.warn('Cannot save layout: store not initialized');
+        return { message: 'Store not initialized', success: false };
+      }
 
-  registry.registerUnauthenticatedInvoke(
-    'preferences',
-    DESKTOP_IPC_CHANNELS.preferences.settingsClearAll,
-    UNAUTHENTICATED_SENDER_POLICY,
-    async () => {
+      const parsed = panelPersistenceStateSchema.safeParse(state);
+      if (!parsed.success) {
+        logger.warn('Invalid panel layout payload', { issues: parsed.error.issues });
+        return { message: 'Invalid panel layout payload', success: false };
+      }
+
+      try {
+        store.set('panelLayout', { v1: parsed.data });
+        return { success: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn('Failed to save panel layout', { error: message });
+        return { message, success: false };
+      }
+    },
+  });
+
+  registerDomain(registry, 'preferences', settingsContract, {
+    clearAll: async () => {
       try {
         const store = getSettingsStoreAccess(getStore);
         if (!store) {
@@ -252,8 +191,8 @@ export function registerStoragePreferencesIpcHandlers({
           success: false,
         };
       }
-    }
-  );
+    },
+  });
 
   return () => registry.unregisterAll();
 }

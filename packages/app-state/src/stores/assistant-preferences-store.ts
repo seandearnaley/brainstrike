@@ -36,6 +36,10 @@ import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../automation-overrides';
+import {
+  recordAssistantModelDiagnostic,
+  withLocalRuntimeDiagnostics,
+} from '../local-runtime-diagnostics';
 import { getModelIdMigrationTarget, isRetiredModelId } from './assistant-model-id-migrations';
 import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
 import { clearPersistedStorageForTests } from './persist-api';
@@ -212,13 +216,29 @@ interface LocalRuntimeServices {
 }
 
 let localRuntimeServices: LocalRuntimeServices | null = null;
+let browserRuntimeUnavailableReason: string | undefined;
+
+/** Configure the web host's direct-runtime capability before provider discovery starts. */
+export function configureBrowserRuntimeAccess(unavailableReason: string): void {
+  if (localRuntimeServices) {
+    throw new Error('Browser runtime access must be configured before provider discovery.');
+  }
+  if (!unavailableReason.trim()) {
+    throw new Error('Unavailable browser runtime access requires a visible reason.');
+  }
+  browserRuntimeUnavailableReason = unavailableReason;
+}
 
 function getLocalRuntimeServices(): LocalRuntimeServices {
   if (localRuntimeServices) {
     return localRuntimeServices;
   }
 
-  const discoveryService = new LocalRuntimeDiscoveryService();
+  const discoveryService = new LocalRuntimeDiscoveryService({
+    ...(browserRuntimeUnavailableReason
+      ? { browserUnavailableReason: browserRuntimeUnavailableReason }
+      : {}),
+  });
   const modelCatalogService = new LocalRuntimeModelCatalogService({
     discoveryService,
   });
@@ -378,17 +398,24 @@ async function probeRuntimeViaBridgeOrService(
   }
 
   const bridge = getRuntimeBridge();
-  if (bridge) {
-    const result = await bridge.probe(runtimeId, options);
-    if (!isAvailabilityState(result)) {
-      throw new Error(
-        `Unexpected probe result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
-      );
+  return await withLocalRuntimeDiagnostics(
+    'probe',
+    runtimeId,
+    bridge ? 'native-bridge' : 'browser-service',
+    async () => {
+      if (bridge) {
+        const result = await bridge.probe(runtimeId, options);
+        if (!isAvailabilityState(result)) {
+          throw new Error(
+            `Unexpected probe result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
+          );
+        }
+        return result;
+      }
+      const { discoveryService } = getLocalRuntimeServices();
+      return await discoveryService.probeRuntime(runtimeId, options);
     }
-    return result;
-  }
-  const { discoveryService } = getLocalRuntimeServices();
-  return await discoveryService.probeRuntime(runtimeId, options);
+  );
 }
 
 async function listRuntimeModelsViaBridgeOrService(
@@ -402,17 +429,24 @@ async function listRuntimeModelsViaBridgeOrService(
   }
 ): Promise<LocalRuntimeModelCatalogState> {
   const bridge = getRuntimeBridge();
-  if (bridge) {
-    const result = await bridge.listModels(runtimeId, options);
-    if (!isCatalogState(result)) {
-      throw new Error(
-        `Unexpected catalog result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
-      );
+  return await withLocalRuntimeDiagnostics(
+    'models',
+    runtimeId,
+    bridge ? 'native-bridge' : 'browser-service',
+    async () => {
+      if (bridge) {
+        const result = await bridge.listModels(runtimeId, options);
+        if (!isCatalogState(result)) {
+          throw new Error(
+            `Unexpected catalog result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
+          );
+        }
+        return result;
+      }
+      const { modelCatalogService } = getLocalRuntimeServices();
+      return await modelCatalogService.listRuntimeModels(runtimeId, options);
     }
-    return result;
-  }
-  const { modelCatalogService } = getLocalRuntimeServices();
-  return await modelCatalogService.listRuntimeModels(runtimeId, options);
+  );
 }
 
 interface ParsedCompositeModelKey {
@@ -1216,21 +1250,22 @@ export const useAssistantPreferencesStore = create<Store>()(
       recentModels: [],
       selectedModel: null,
 
-      setModel: (compositeKey) =>
-        set((state) => {
-          const parsed = parseCompositeModelKey(compositeKey);
-          if (!parsed) {
-            return state;
-          }
-
-          // Single atomic update: selectedModel composite key + remember preference
-          // The UI layer validates model enabled state against the database before calling setModel
-          return {
-            modelsByProvider: { ...state.modelsByProvider, [parsed.provider]: parsed.model },
-            recentModels: pushRecentModel(state.recentModels, parsed.compositeKey),
-            selectedModel: parsed.compositeKey,
-          };
-        }),
+      setModel: (compositeKey) => {
+        const parsed = parseCompositeModelKey(compositeKey);
+        if (!parsed) {
+          return;
+        }
+        const changed = get().selectedModel !== parsed.compositeKey;
+        // The UI validates enabled state before this single atomic preference update.
+        set((state) => ({
+          modelsByProvider: { ...state.modelsByProvider, [parsed.provider]: parsed.model },
+          recentModels: pushRecentModel(state.recentModels, parsed.compositeKey),
+          selectedModel: parsed.compositeKey,
+        }));
+        if (changed) {
+          recordAssistantModelDiagnostic('assistant_model_selected', parsed.provider);
+        }
+      },
 
       setModelEnabled: (provider, model, enabled) =>
         set((state) => {

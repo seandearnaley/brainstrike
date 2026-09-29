@@ -8,7 +8,7 @@ import {
 } from '@assistant-ui/react';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -19,6 +19,7 @@ import {
 import { AssistantRunEventProvider } from '../assistant-run-event-context';
 import { AssistantRunTimelineDataPart } from '../assistant-run-timeline-data-part';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 import {
   completedPartsWithEvents,
   Harness,
@@ -259,7 +260,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
     // sends.
     expect(await screen.findByText('Tool approval required')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
-    expect(screen.getByText('tool.approval.requested')).toBeInTheDocument();
+    expect(screen.getByText('Approval requested')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Approve brainstrike.executeCommand' })
     ).toBeEnabled();
@@ -384,7 +385,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
     // The SAME message's pause row is exempt from that downgrade: a pending
     // `brainstrike.tool-approval` card for toolCallId x (message 2) is still
     // in the thread, so it stays genuinely actionable.
-    const pauseRow = rowByLabel(messageA, 'tool.approval.requested');
+    const pauseRow = rowByLabel(messageA, 'Approval requested');
     expect(within(pauseRow).getByLabelText('Running')).toBeInTheDocument();
     expect(pauseRow.querySelector('[data-live="true"]')).not.toBeNull();
 

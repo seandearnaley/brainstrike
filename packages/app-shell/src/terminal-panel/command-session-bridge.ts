@@ -8,13 +8,15 @@ export type CommandSessionErrorCode =
   | 'cwd-not-found'
   | 'cwd-outside-root'
   | 'internal'
+  | 'invalid-buffer'
   | 'invalid-input'
   | 'root-unavailable'
   | 'session-exited'
   | 'session-id-collision'
   | 'session-not-found'
   | 'start-failed'
-  | 'stop-failed';
+  | 'stop-failed'
+  | 'workspace-busy';
 
 export type CommandSessionResult<T = void> =
   | (T extends void ? { readonly ok: true } : { readonly ok: true; readonly value: T })
@@ -50,7 +52,7 @@ export interface CommandSessionReadPage {
   readonly truncatedBeforeCursor: boolean;
 }
 
-interface CommandSessionIdentityParams {
+export interface CommandSessionIdentityParams {
   readonly rootId: string;
   readonly sessionId: string;
 }
@@ -87,8 +89,8 @@ const COMMAND_SESSION_BRIDGE_REQUIRED_METHOD_SET = {
 
 /**
  * Every method name the bridge must expose to be considered fully formed.
- * Exported so the desktop preload-runtime contract test can pin the
- * `window.commandSessions` `exposeInMainWorld` key set to this exact list.
+ * Exported so the desktop contract test can pin the derived preload bridge to
+ * this exact package-owned surface.
  *
  * NOTE: the pin is EXACT set equality, not a subset check — every method the
  * preload exposes must be listed here. There is no such thing as an optional

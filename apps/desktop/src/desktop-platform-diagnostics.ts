@@ -8,9 +8,12 @@ import {
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
 import { LogLevel } from '@brainstrike/logging';
+import type { DatabaseIntegritySnapshot } from '@brainstrike/types';
 import type { BackgroundRuntimeProcessMetric } from './background-runtime-metrics';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
 import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
+import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
+import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import type { EmbeddingHostBackfillInfo } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -23,6 +26,8 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly collectedAt: string;
   readonly crashRecovery: DesktopRendererCrashRecoverySnapshot;
   readonly database: unknown;
+  /** Main-owned integrity state; the DB host never sees runtime classification. */
+  readonly databaseIntegrity: DatabaseIntegritySnapshot;
   readonly databaseScheduler: DatabaseWorkSchedulerSnapshot | null;
   readonly embeddingHost: RuntimeHostPlatformStatus<'embedding-host'>;
   readonly errors: Partial<Record<DesktopPlatformDiagnosticsProviderName, string>>;
@@ -45,6 +50,7 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly telemetry: {
     readonly backgroundRuntimeMetrics: readonly BackgroundRuntimeProcessMetric[];
     readonly embedding: EmbeddingTelemetrySnapshot;
+    readonly processCounters: ProcessCounterSnapshot;
   };
 }
 
@@ -59,6 +65,9 @@ export interface DesktopPlatformDiagnosticsProviders {
   };
   readonly database: {
     readonly getDiagnostics: () => Promise<unknown> | unknown;
+  };
+  readonly databaseIntegrity: {
+    readonly getSnapshot: () => DatabaseIntegritySnapshot;
   };
   readonly databaseScheduler: {
     readonly getSnapshot: () => DatabaseWorkSchedulerSnapshot;
@@ -81,6 +90,13 @@ export interface DesktopPlatformDiagnosticsProviders {
   readonly logging: {
     readonly getState: () => LoggingSettingsPayload;
   };
+  readonly mainLog: {
+    /** Throws when file logging is disabled; the IPC rejects visibly. */
+    readonly readWindow: (request: MainLogWindowRequest) => Promise<MainLogWindowResult>;
+  };
+  readonly processCounters: {
+    readonly getSnapshot: () => ProcessCounterSnapshot;
+  };
   readonly reset: {
     readonly getSnapshot: () => DesktopResetDiagnosticsSnapshot;
   };
@@ -99,6 +115,7 @@ type DesktopPlatformDiagnosticsProviderName =
   | 'embeddingTelemetry'
   | 'llmHost'
   | 'logging'
+  | 'processCounters'
   | 'reset'
   | 'telemetry';
 
@@ -202,6 +219,9 @@ export async function collectDesktopPlatformDiagnostics(
       }
     ),
     database,
+    // In-memory read with no fallback: there is no honest stand-in value, and a
+    // fabricated 'healthy' would hide exactly what this field exists to show.
+    databaseIntegrity: providers.databaseIntegrity.getSnapshot(),
     databaseScheduler,
     embeddingHost: await readDiagnosticsProvider(
       errors,
@@ -279,6 +299,12 @@ export async function collectDesktopPlatformDiagnostics(
         'embeddingTelemetry',
         () => providers.embeddingHost.getTelemetrySnapshot(),
         createEmptyEmbeddingTelemetrySnapshot()
+      ),
+      processCounters: await readDiagnosticsProvider(
+        errors,
+        'processCounters',
+        () => providers.processCounters.getSnapshot(),
+        { installedAt: null, samples: [] }
       ),
     },
   };

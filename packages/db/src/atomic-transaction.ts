@@ -17,6 +17,18 @@ export interface TransactionStatement {
   sql: string;
 }
 
+export interface AtomicStatementTransport {
+  runTransaction?: (
+    statements: TransactionStatement[],
+    resultIndex: number
+  ) => Promise<{ rows: unknown[] }>;
+  transaction?: <T>(
+    fn: (tx: {
+      query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+    }) => Promise<T>
+  ) => Promise<T | undefined>;
+}
+
 /** Minimal transactional surface of a PGlite instance (`db.transaction`). */
 export interface TransactionalDb {
   transaction: <T>(
@@ -24,6 +36,35 @@ export interface TransactionalDb {
       query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
     }) => Promise<T>
   ) => Promise<T>;
+}
+
+function validateStatements(statements: TransactionStatement[], resultIndex: number): void {
+  if (!Array.isArray(statements) || statements.length === 0) {
+    throw new Error('runStatementsInTransaction requires at least one statement');
+  }
+  if (!Number.isInteger(resultIndex) || resultIndex < 0 || resultIndex >= statements.length) {
+    throw new Error(
+      `runStatementsInTransaction resultIndex ${resultIndex} out of range [0, ${statements.length - 1}]`
+    );
+  }
+}
+
+async function runStatementList(
+  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>,
+  statements: TransactionStatement[],
+  resultIndex: number
+): Promise<{ rows: unknown[] }> {
+  let designated: { rows: unknown[] } = { rows: [] };
+  for (const [index, statement] of statements.entries()) {
+    const current =
+      statement.params && statement.params.length > 0
+        ? await query(statement.sql, statement.params)
+        : await query(statement.sql);
+    if (index === resultIndex) {
+      designated = { rows: current.rows };
+    }
+  }
+  return designated;
 }
 
 /**
@@ -36,23 +77,38 @@ export async function runStatementsInTransaction(
   statements: TransactionStatement[],
   resultIndex: number
 ): Promise<{ rows: unknown[] }> {
-  if (!Array.isArray(statements) || statements.length === 0) {
-    throw new Error('runStatementsInTransaction requires at least one statement');
-  }
-  if (!Number.isInteger(resultIndex) || resultIndex < 0 || resultIndex >= statements.length) {
-    throw new Error(
-      `runStatementsInTransaction resultIndex ${resultIndex} out of range [0, ${statements.length - 1}]`
-    );
+  validateStatements(statements, resultIndex);
+  return db.transaction(async (tx) => runStatementList(tx.query.bind(tx), statements, resultIndex));
+}
+
+/**
+ * Run an ordered statement list through one of the two supported atomic
+ * transports: the desktop IPC statement-list bridge or an in-process callback
+ * transaction. A query-only handle is intentionally unsupported because raw
+ * BEGIN/COMMIT calls do not hold either transport's connection/admission lock.
+ */
+export async function runAtomicStatements(
+  transport: AtomicStatementTransport,
+  statements: TransactionStatement[],
+  resultIndex: number,
+  unavailableMessage: string
+): Promise<{ rows: unknown[] }> {
+  validateStatements(statements, resultIndex);
+
+  if (transport.runTransaction) {
+    return await transport.runTransaction(statements, resultIndex);
   }
 
-  return db.transaction(async (tx) => {
-    let designated: { rows: unknown[] } = { rows: [] };
-    for (const [i, { params, sql }] of statements.entries()) {
-      const res = params && params.length > 0 ? await tx.query(sql, params) : await tx.query(sql);
-      if (i === resultIndex) {
-        designated = { rows: res.rows };
-      }
-    }
-    return designated;
-  });
+  if (!transport.transaction) {
+    throw new Error(unavailableMessage);
+  }
+
+  const result = await transport.transaction(async (tx) =>
+    runStatementList(tx.query.bind(tx), statements, resultIndex)
+  );
+
+  if (!result) {
+    throw new Error('Atomic transaction returned no result.');
+  }
+  return result;
 }

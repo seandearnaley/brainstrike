@@ -473,4 +473,15 @@ describe('ChunkingHostManager', () => {
     expect(lifecycleState.destroyHostWindow).not.toHaveBeenCalled();
     expect(lifecycleState.clearHostWindow).toHaveBeenCalled();
   });
+
+  it('dispose retires the lifecycle even when stop fails, and still rejects', async () => {
+    const manager = new ChunkingHostManager();
+    const failure = new Error('destroy failed');
+    lifecycleState.destroyHostWindow.mockImplementationOnce(() => {
+      throw failure;
+    });
+
+    await expect(manager.dispose()).rejects.toBe(failure);
+    expect(lifecycleState.dispose).toHaveBeenCalledTimes(1);
+  });
 });

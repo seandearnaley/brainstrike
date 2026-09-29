@@ -1,7 +1,10 @@
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import { parseCanvasLink } from '@brainstrike/assistant-contract';
 import type { AssistantLinkCapabilities } from '@brainstrike/assistant-ui/assistant-link-capabilities-provider';
 import { createLogger } from '@brainstrike/logging';
 import { toast } from '@brainstrike/ui';
 import { useMemo } from 'react';
+import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { type OpenLinkResult, openExternalLink } from './open-external-link';
 
 const MAX_TOASTED_URL_LENGTH = 120;
@@ -39,19 +42,43 @@ function reportFailure(result: OpenLinkResult, url: string): void {
 }
 
 /**
+ * `canvas://<canvasId>` opens IN the app: focus the canvas, open/activate the
+ * Canvas workspace app tab, and bring the shell back to the explorer route
+ * (the workspace panel only exists there — the same two-step pairing
+ * `useChangesReviewValue` does for the "→ Review" link). `null` means "not a
+ * canvas link", so the caller falls through to the external policy; a
+ * malformed canvas link is a visible failure, never a fall-through that would
+ * toast the true-but-useless "Blocked protocol: canvas:".
+ */
+function openCanvasLink(url: string): OpenLinkResult | null {
+  const parsed = parseCanvasLink(url);
+  if (parsed.kind === 'not-canvas') {
+    return null;
+  }
+  if (parsed.kind === 'malformed') {
+    return { error: parsed.error, ok: false };
+  }
+  useChangesNavigationStore.getState().openCanvas(parsed.canvasId);
+  usePanelLayoutStore.getState().setActiveTab('explorer');
+  return { ok: true };
+}
+
+/**
  * The host half of the assistant panel's link seam.
  *
  * The panel decides only that a link was activated; this decides where it goes
  * and is the ONE place a link failure becomes visible — the same division of
- * labour the workspace-bar chips use. Today every supported link goes to the OS
- * browser. When the in-app browser pane ships, the routing choice belongs here,
- * and `packages/assistant-ui` does not change.
+ * labour the workspace-bar chips use. Every http/https/mailto link goes to the
+ * OS browser; `canvas://` links open the Canvas workspace tab in-app. When the
+ * in-app browser pane ships, the routing choice belongs here, and
+ * `packages/assistant-ui` does not change.
  */
 export function useAssistantLinkCapabilitiesValue(): AssistantLinkCapabilities {
   return useMemo<AssistantLinkCapabilities>(
     () => ({
       openLink: async (url: string): Promise<OpenLinkResult> => {
-        const result = await openExternalLink(url);
+        const canvas = openCanvasLink(url);
+        const result = canvas ?? (await openExternalLink(url));
         if (!result.ok) {
           reportFailure(result, url);
         }

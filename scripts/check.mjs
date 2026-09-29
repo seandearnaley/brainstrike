@@ -157,7 +157,8 @@ export const CI_GATE_PLAN_IDS = new Map([
   ['build › Validate CSS bundle', ['validate-css-bundle']],
   ['browser-tests › Run browser tests', ['browser-tests']],
   ['web-e2e › Run web smoke', ['web-e2e-smoke']],
-  ['desktop-e2e › Run desktop smoke', ['desktop-e2e-smoke']],
+  ['desktop-e2e-smoke › Run desktop smoke', ['desktop-e2e-smoke']],
+  ['desktop-e2e-delegated › Run desktop delegated smoke', ['desktop-e2e-delegated-smoke']],
 ]);
 
 /**
@@ -408,6 +409,13 @@ export function buildPlan(options = {}) {
       command: playwrightLane('@brainstrike/desktop', 'test:e2e:lane:smoke'),
       id: 'desktop-e2e-smoke',
       label: 'desktop e2e smoke',
+    });
+    plan.push({
+      // CI runs this lane on its own runner beside desktop-e2e-smoke (BST-1762);
+      // locally the two lanes run one after the other.
+      command: playwrightLane('@brainstrike/desktop', 'test:e2e:lane:smoke-delegated'),
+      id: 'desktop-e2e-delegated-smoke',
+      label: 'desktop e2e delegated smoke',
     });
   }
 

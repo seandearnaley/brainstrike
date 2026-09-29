@@ -97,9 +97,7 @@ describe('legacy desktop MCP client removal contract', () => {
     expect(source).toContain('export interface McpDiscoveredTool');
     expect(source).toContain('export function connectedStatus');
     expect(source).toContain('export function mcpStatusErrorMessage');
-    expect(providerContract).toMatch(
-      /The dormant\s+pre-host global client registry, desktop `McpClient` wrapper, and HTTP\/stdio\/SSE\s+factory adapters do not exist\./u
-    );
+    expect(providerContract).toMatch(/`McpHostService` is the sole production SDK client owner\./u);
   });
 
   it('omits the legacy stack from the production Electron main bundle', async () => {

@@ -3,13 +3,9 @@ import {
   useBackgroundIndexingPreferencesStore,
 } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import {
-  composeWrappers,
-  createDirectoryNode,
-  createFileNode,
-  makeRenderWithProviders,
-} from '@brainstrike/test-utils';
+import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { act, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';

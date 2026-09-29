@@ -39,15 +39,19 @@ import type {
   LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
-import { PGlite } from '@electric-sql/pglite';
-import { vector } from '@electric-sql/pglite-pgvector';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
+import type { PGlite } from '@electric-sql/pglite';
 import type { AgentMemoryOption } from '@mastra/core/agent';
 import type { MastraDBMessage, MastraMemory } from '@mastra/core/memory';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { RuntimeAssistantMemorySettings } from '../memory-settings';
-import type { PgliteDatabase, PgliteMastraMemoryOptions } from '../pglite-mastra-memory';
+import type {
+  PgliteDatabase,
+  PgliteMastraMemoryOptions,
+  PgliteWorkflowsStore,
+} from '../pglite-mastra-memory';
 import { LlmHostChatModel } from '../providers/local/llm-host-chat-model';
 import type {
   LocalLlmHostClient,
@@ -55,6 +59,7 @@ import type {
 } from '../providers/local/llm-host-client';
 import type { AgentHookRunner } from '../tools/hook-runner';
 import type { StreamChunk } from '../types';
+import { createAgentMemoryTestDb } from './helpers/migrated-agent-test-db';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
 // returns must live in a hoisted holder the factory can close over.
@@ -619,6 +624,7 @@ async function runTurnWithMemory(args: {
   onChunk?: (chunk: StreamChunk) => Promise<void> | void;
   onMemoryCreated?: (memory: MastraMemory) => void;
   onToolExecute?: () => void;
+  onWorkflowsStoreCreated?: (workflows: PgliteWorkflowsStore) => void;
   userMessageId?: string;
   userText?: string;
   weatherDetail?: string;
@@ -654,9 +660,10 @@ async function runTurnWithMemory(args: {
       PgliteMastraMemoryOptions['observationalMemoryModel']
     >;
   }
-  const { memory, storage } = await createPgliteMastraMemory(memoryFactoryOptions);
+  const { memory, storage, workflows } = await createPgliteMastraMemory(memoryFactoryOptions);
   memoriesToSettle.push(memory);
   args.onMemoryCreated?.(memory);
+  args.onWorkflowsStoreCreated?.(workflows);
 
   const weatherTool = createTool({
     description: 'Get the current weather for a city.',
@@ -758,10 +765,7 @@ describe('mastra memory persistence through the live stream path', () => {
   let database: PGlite;
 
   beforeEach(async () => {
-    // BST-1325: the shared instance must load the vector extension like every
-    // other vector-touching construction site — a bare PGlite silently fails
-    // the OM vector store's CREATE EXTENSION and the VECTOR test goes toothless.
-    database = await PGlite.create({ extensions: { vector } });
+    database = await createAgentMemoryTestDb();
     // Loud fixture probe: on a bare PGlite this THROWS ('extension "vector" is
     // not available') instead of letting the suite drift back to a false green.
     // Idempotent with the vector store's own CREATE EXTENSION IF NOT EXISTS.
@@ -842,6 +846,12 @@ describe('mastra memory persistence through the live stream path', () => {
     let toolExecutions = 0;
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '60';
+    // The settle join classifies how the REAL Mastra stream ends after our
+    // abort; that classification must recognise the abort as expected, or every
+    // aborted turn would warn.
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    setLogLevel(LogLevel.DEBUG);
 
     try {
       await runTurnWithMemory({
@@ -861,23 +871,65 @@ describe('mastra memory persistence through the live stream path', () => {
       });
 
       const abortedRows = await listThreadMessages(database, threadId);
-      // Mastra >= 1.62 persists a cancelled run's transcript through its
-      // MessageHistory output processor, and on a watchdog abort that write
-      // lands: the stalled attempt's partial text is its own assistant row.
-      // Brainstrike's seam keeps the completed tool work, filters incomplete
-      // tool calls, and appends the marker; it no longer excludes the tail.
-      // Ordering is not a race: Mastra issues that write on the abort, before
-      // the stream terminates, and PGlite executes statements FIFO on the one
-      // connection, so the seam's awaited save (issued after termination)
-      // cannot complete ahead of it.
-      expect(abortedRows.map((row) => row.role)).toEqual(['user', 'assistant', 'assistant']);
-      const abortedRecord = JSON.stringify(abortedRows);
-      expect(abortedRecord).toContain('call-watchdog');
-      expect(abortedRecord).toContain('temperatureC');
-      expect(abortedRecord.toLowerCase()).toContain('aborted before completion');
-      expect(abortedRecord).toContain(partialText);
+      // This turn is two attempts: the first stalls and is replaced by a
+      // continuation, which stalls again and ends the turn. Mastra >= 1.62
+      // persists each cancelled run's transcript through its MessageHistory
+      // output processor, so EACH attempt's partial text is its own assistant
+      // row; the completed tool work is persisted once (the continuation
+      // re-uses it, `toolExecutions` stays 1); Brainstrike's seam appends the
+      // marker, which Mastra's last write carries in the final assistant row.
+      // Every row is durable before the turn ends: the turn joins Mastra's
+      // consumption of each attempt's stream (`settleNativeStream`) BEFORE the
+      // seam's save. Before that join this read raced the second attempt's
+      // write and saw three rows — the fourth landed after the assertion.
+      expect(abortedRows.map((row) => row.role)).toEqual([
+        'user',
+        'assistant',
+        'assistant',
+        'assistant',
+      ]);
+      const partialTextRows = abortedRows.filter((row) =>
+        JSON.stringify(row.content).includes(partialText)
+      );
+      const markerRows = abortedRows.filter((row) =>
+        JSON.stringify(row.content).toLowerCase().includes('aborted before completion')
+      );
+      expect(partialTextRows.map((row) => row.id)).toEqual(
+        abortedRows.slice(2).map((row) => row.id)
+      );
+      expect(markerRows.map((row) => row.id)).toEqual([abortedRows.at(-1)?.id]);
+      const toolWorkRows = abortedRows.filter((row) =>
+        JSON.stringify(row.content).includes('call-watchdog')
+      );
+      expect(toolWorkRows.map((row) => row.id)).toEqual([abortedRows[1]?.id]);
+      expect(JSON.stringify(abortedRows)).toContain('temperatureC');
       expect(toolExecutions).toBe(1);
+      const settleRecords = logRecords.filter((record) =>
+        record.args.some(
+          (argument) =>
+            Boolean(argument && typeof argument === 'object') &&
+            (argument as { code?: unknown }).code === 'mastra_native_stream_settled_with_error'
+        )
+      );
+      // Measured: on a real watchdog abort Mastra's consumption ends CLEANLY —
+      // the base stream closes without delivering an error — so the join
+      // records nothing at all here (the classification shapes are pinned in
+      // native-stream-settle.spec.ts). What this case guards is that the real
+      // ending is never reported as a failure, and that the join never timed
+      // out; "settles Mastra snapshot cleanup…" below proves the join runs.
+      expect(settleRecords.map((record) => record.level)).not.toContain(LogLevel.WARN);
+      expect(
+        logRecords.some((record) =>
+          record.args.some(
+            (argument) =>
+              Boolean(argument && typeof argument === 'object') &&
+              (argument as { code?: unknown }).code === 'mastra_native_stream_settle_timeout'
+          )
+        )
+      ).toBe(false);
     } finally {
+      removeLogListener();
+      setLogLevel(LogLevel.INFO);
       if (previousToolTimeout === undefined) {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
       } else {
@@ -930,6 +982,84 @@ describe('mastra memory persistence through the live stream path', () => {
 
       expect(sawRunFailed).toBe(true);
       expect(abortSnapshotWrites).toBe(1);
+    } finally {
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+    }
+  }, 30_000);
+
+  it('settles Mastra snapshot cleanup before a watchdog-aborted turn ends', async () => {
+    // BST-1221 / BST-1320: after a terminal outcome the agentic loop awaits
+    // `deleteRunSnapshots()` (two `DELETE FROM mastra_workflow_snapshot`) before
+    // it closes its own stream. A watchdog abort abandons that stream early, so
+    // unless the attempt joins Mastra's consumption those statements float past
+    // the end of the turn and race the storage close: PGlite deactivates its
+    // backend before draining, the in-flight Bind traps, and the stock loop
+    // spins the worker forever (traced 2026-09-12: the second DELETE's Bind
+    // landed after `close()` began). The turn must not end while that cleanup
+    // is in flight or still to be issued.
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const cleanup = { completed: 0, inFlight: 0, issuedAfterTurnEnded: 0 };
+    let turnEnded = false;
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '60';
+
+    try {
+      await runTurnWithMemory({
+        assistantMessageId: 'assistant-watchdog-cleanup-join',
+        database,
+        memorySettings: OM_DISABLED_SETTINGS,
+        model: createStallingAfterToolResultModel({
+          partialText: 'This attempt stalls after its tool result.',
+          toolCallId: 'call-watchdog-cleanup-join',
+          toolName: 'get_weather',
+        }),
+        onWorkflowsStoreCreated: (workflows) => {
+          const deleteWorkflowRunById = workflows.deleteWorkflowRunById.bind(workflows);
+          workflows.deleteWorkflowRunById = async (input) => {
+            if (turnEnded) {
+              cleanup.issuedAfterTurnEnded += 1;
+            }
+            cleanup.inFlight += 1;
+            try {
+              // Hold the statement open long enough that an unjoined turn
+              // observably ends while it is pending; with the join in place the
+              // turn waits for it, so this delay is invisible to a green run.
+              await new Promise<void>((resolve) => setTimeout(resolve, 25));
+              await deleteWorkflowRunById(input);
+              cleanup.completed += 1;
+            } finally {
+              cleanup.inFlight -= 1;
+            }
+          };
+        },
+        threadId: 'thread-watchdog-cleanup-join',
+        userMessageId: 'user-watchdog-cleanup-join',
+      });
+      turnEnded = true;
+      const inFlightAtTurnEnd = cleanup.inFlight;
+      // Give a cleanup statement that was still TO BE ISSUED a window to show
+      // up; with the join in place none can, because Mastra's pipeline has
+      // already closed. 50 ms is a floor for that observation, not a proof:
+      // the strict evidence is `inFlightAtTurnEnd` and the snapshot SELECT.
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+      expect(inFlightAtTurnEnd).toBe(0);
+      expect(cleanup.issuedAfterTurnEnded).toBe(0);
+      expect(cleanup.completed).toBeGreaterThan(0);
+      const snapshots = await database.query<{ run_id: string }>(
+        'SELECT run_id FROM mastra_workflow_snapshot'
+      );
+      expect(snapshots.rows).toEqual([]);
     } finally {
       if (previousToolTimeout === undefined) {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
@@ -1060,6 +1190,24 @@ describe('mastra memory persistence through the live stream path', () => {
       signal: abortController.signal,
       threadId,
       userMessageId: 'user-default-read-only-cancelled',
+    });
+
+    expect(await listThreadMessages(database, threadId)).toEqual([]);
+  }, 30_000);
+
+  it('does not persist a normally completed turn when memory defaults are read-only', async () => {
+    // Mastra's MessageHistory reads `readOnly` from the REQUEST options only;
+    // `resolveMemoryOption` stamps the merged defaults onto them so a
+    // read-only-by-default Memory stays write-free on completion, not only on
+    // cancel (the cancel case had been green by teardown-race accident).
+    const threadId = 'thread-default-read-only-completed-turn';
+    await runTurnWithMemory({
+      assistantMessageId: 'assistant-default-read-only-completed',
+      database,
+      memoryDefaultOptions: { readOnly: true },
+      memorySettings: OM_DISABLED_SETTINGS,
+      threadId,
+      userMessageId: 'user-default-read-only-completed',
     });
 
     expect(await listThreadMessages(database, threadId)).toEqual([]);
@@ -1317,7 +1465,7 @@ describe('mastra memory persistence through the live stream path', () => {
       .find((part) => part.type === 'tool-invocation');
     expect(invocationPart).toMatchObject({
       providerExecuted: true,
-      providerMetadata: { openai: { itemId: outputItemId } },
+      providerMetadata: { openai: { itemId: callItemId, resultItemId: outputItemId } },
       toolInvocation: {
         state: 'result',
         toolCallId: callItemId,

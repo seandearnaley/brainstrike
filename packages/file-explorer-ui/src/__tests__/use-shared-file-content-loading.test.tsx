@@ -10,9 +10,9 @@ import {
   setFileSizeConfig,
   WebFileSystemAdapter,
 } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { createFileNode } from '@brainstrike/test-utils';
 import { BINARY_CONTENT_MESSAGE, type IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils';
 import type {
@@ -94,6 +94,65 @@ describe('useSharedFileContentLoading - caching', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('reads a canonical web descriptor without replacing its capability or I/O identity', async () => {
+    const rawHandle = {
+      getFile: vi.fn(async () => new File(['canonical contents'], 'file.txt')),
+      kind: 'file',
+      name: 'file.txt',
+    };
+    const fileNode: IFileNode = {
+      depth: 0,
+      handle: {
+        _internal: rawHandle,
+        kind: 'file',
+        name: 'file.txt',
+        path: 'workspace/file.txt',
+        platform: 'web',
+        rootId: 'durable-root',
+      },
+      name: 'file.txt',
+      path: '/file.txt',
+      rootFolderId: 'root1',
+      selectionState: 'unchecked',
+      type: 'file',
+    };
+    const adapter = new WebFileSystemAdapter();
+    const readSpy = vi.spyOn(adapter, 'readFile');
+    const compositeKey = encodeFileSelection('root1', '/file.txt');
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(async (requests) => {
+      const results: Record<string, FileContentReadResult> = {};
+      for (const request of requests) {
+        if (!request.handle) {
+          throw new Error('Expected a browser handle read');
+        }
+        results[request.compositeKey] = {
+          content: await adapter.readFile(request.handle),
+          status: 'accessible',
+        };
+      }
+      return results;
+    });
+    const { result } = renderHook(() => useTestHook([fileNode]), {
+      wrapper: createWrapper(adapter),
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
+    });
+
+    expect(readSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _internal: rawHandle,
+        path: 'workspace/file.txt',
+        platform: 'web',
+        rootId: 'durable-root',
+      })
+    );
+    expect(result.current.store.getState().fileContents[compositeKey]).toBe('canonical contents');
   });
 
   it('reuses cached nodes on subsequent loads', async () => {

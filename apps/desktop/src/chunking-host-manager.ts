@@ -154,8 +154,13 @@ export class ChunkingHostManager {
   }
 
   async dispose(): Promise<void> {
-    await this.stop();
-    this.lifecycle.dispose();
+    // Like the embedding and LLM managers: a failed stop still retires the
+    // lifecycle, and the failure still reaches the shutdown step.
+    try {
+      await this.stop();
+    } finally {
+      this.lifecycle.dispose();
+    }
   }
 
   async chunkFile(

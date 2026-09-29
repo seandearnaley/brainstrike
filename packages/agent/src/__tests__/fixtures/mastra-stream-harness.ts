@@ -66,13 +66,21 @@ export type MockMcpToolsets = Record<
 
 export const agentInstances: MockMastraAgentInstance[] = [];
 export const mcpInstances: unknown[] = [];
-export const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
+export const mastraInstances: Array<{
+  config: unknown;
+  shutdownCalls: number;
+  shutdown: () => Promise<void>;
+}> = [];
 
 let mcpToolsets: MockMcpToolsets = {};
 let mcpDiscoveryFailures: Record<string, string> = {};
 let mockMessageList: unknown;
 let streamFailure: { call: number; error: Error } | undefined;
 let streamPartDelayMs = 0;
+let completeStream: () => Promise<unknown> = async () => ({});
+export function setStreamCompletion(complete: () => Promise<unknown>): void {
+  completeStream = complete;
+}
 /** Error to surface AFTER N parts have streamed (mid-iteration, not at construction). */
 let streamPartFailure: { afterParts: number; error: Error } | undefined;
 let streamParts: unknown[] = [];
@@ -286,6 +294,7 @@ function defaultSuspendedRuns(): MockSuspendedRun[] {
 
 /** The whole per-test reset. Call from `beforeEach`. */
 export function resetMastraStreamHarness(): void {
+  setStreamCompletion(async () => ({}));
   agentInstances.length = 0;
   mastraInstances.length = 0;
   mcpInstances.length = 0;
@@ -349,9 +358,19 @@ function createMockMastraOutput(parts: readonly unknown[] = streamParts) {
     },
   });
   return {
+    // The mock delivers every part from `start`, so its consumption has nothing
+    // left to join; the method exists because the runtime settles every native
+    // stream through it (`settleNativeStream`) and a result without it is a
+    // runtime failure, not a quiet skip.
+    consumeStream: async () => {},
     fullStream: stream,
+    getFullOutput: () => completeStream(),
     ...(mockMessageList ? { messageList: mockMessageList } : {}),
-  } as { fullStream: ReadableStream<unknown> };
+  } as {
+    consumeStream: () => Promise<void>;
+    fullStream: ReadableStream<unknown>;
+    getFullOutput: () => Promise<unknown>;
+  };
 }
 
 interface RunEventChunk {

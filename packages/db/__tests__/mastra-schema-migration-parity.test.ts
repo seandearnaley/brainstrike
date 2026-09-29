@@ -19,7 +19,10 @@
  * green again once the chain carries it, whereas a string comparison against
  * migration 117 could only ever be satisfied by editing shipped SQL.
  */
-import { MASTRA_MEMORY_SCHEMA_SQL } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import {
+  MASTRA_BACKGROUND_TASKS_SCHEMA_SQL,
+  MASTRA_MEMORY_SCHEMA_SQL,
+} from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createMigratedTestDb, TEST_ENGINE_EXTENSIONS } from './helpers/migrated-test-db';
@@ -71,6 +74,7 @@ describe('Mastra memory schema: contract DDL vs the migration chain', () => {
     contractDb = new PGlite({ extensions: TEST_ENGINE_EXTENSIONS });
     await contractDb.waitReady;
     await contractDb.exec(MASTRA_MEMORY_SCHEMA_SQL);
+    await contractDb.exec(MASTRA_BACKGROUND_TASKS_SCHEMA_SQL);
     migratedDb = await createMigratedTestDb();
   });
 

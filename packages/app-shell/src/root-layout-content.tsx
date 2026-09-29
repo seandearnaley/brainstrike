@@ -9,6 +9,7 @@ import {
   ChangesReviewProvider,
   type RewindContextValue,
   RewindProvider,
+  ToolApprovalGrantProvider,
 } from '@brainstrike/assistant-ui';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
@@ -19,7 +20,6 @@ import {
   WorkspaceBody,
   WorkspaceOpenFileBridge,
   WorkspaceTabStrip,
-  WorkspaceTabsProvider,
 } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
@@ -63,6 +63,7 @@ import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import { DelegatedWorkspaceTabsProvider } from './delegated-workspace-apps';
 import { deleteRootDataFromDb } from './delete-root-data';
 import {
   type RendererDiagnosticSurface,
@@ -71,10 +72,13 @@ import {
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
 import { QuickOpenHost } from './quick-open-host';
+import { TabChordHost } from './tab-chords/tab-chord-host';
+import { WorkspaceTabChords } from './tab-chords/workspace-tab-chords';
 import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
+import { useToolApprovalGrantHandlers } from './use-tool-approval-grant-handlers';
 import { WorkspaceConnectHost } from './workspace-connect/workspace-connect-host';
 // Side-effect: register session-only stores with the factory-reset pipeline.
 import './register-factory-reset-session-stores';
@@ -486,6 +490,8 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   // The workspace app registry (BST-1258; Terminal joined as a workspace app
   // in BST-1270, replacing its nav route). Construction is the pure
   // buildWorkspaceApps helper — capability gating by omission.
+  const toolApprovalGrants = useToolApprovalGrantHandlers();
+  const workspaceStripRootRef = useRef<HTMLDivElement>(null);
   const workspaceApps = useMemo<readonly WorkspaceApp[]>(
     () =>
       buildWorkspaceApps({
@@ -520,53 +526,66 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           context from a common ancestor. */}
       <FileTreeWrapper>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
-          <WorkspaceTabsProvider apps={workspaceApps}>
+          <DelegatedWorkspaceTabsProvider apps={workspaceApps}>
             {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
                 per thread and hydrates on switch. Inside FileTreeWrapper so it
                 reaches the file-explorer store; renders nothing. */}
             <ThreadWorkspaceCoordinator />
-            <AgentWorkspaceLayout
-              assistantContent={
-                <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
-              }
-              sidebarContent={
-                <AgentSidebarPanel
-                  databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                  promptsContent={(isActive) => (
-                    <Suspense
-                      fallback={
-                        <div
-                          className="grid h-full place-items-center text-muted-foreground text-xs"
-                          data-testid="prompt-workbench-lazy-fallback"
-                          role="status"
-                        >
-                          Opening Prompt Workbench…
-                        </div>
-                      }
-                    >
-                      <ConnectedPromptManagerLazy
-                        loadEmbeddingQueue={loadEmbeddingQueue}
-                        suggestionsEnabled={visible && isActive}
-                      />
-                    </Suspense>
-                  )}
-                  threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                />
-              }
-              workspaceContent={
-                <>
-                  {/* ⌘P quick-open + the open-file registration both mount INSIDE
+            {/* Registers the workspace strip with the tab chord router (BST-1842). */}
+            <WorkspaceTabChords focusRootRef={workspaceStripRootRef} />
+            {/* Grants are offered wherever an approval card can render: the root
+                chat panel AND the child conversation views under the workspace
+                (a child card without "Allow reads this session" forces a click
+                per read; BST-1723, 2026-09-14). */}
+            <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
+              <AgentWorkspaceLayout
+                assistantContent={
+                  <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
+                }
+                sidebarContent={
+                  <AgentSidebarPanel
+                    databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                    preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                    promptsContent={(isActive) => (
+                      <Suspense
+                        fallback={
+                          <div
+                            className="grid h-full place-items-center text-muted-foreground text-xs"
+                            data-testid="prompt-workbench-lazy-fallback"
+                            role="status"
+                          >
+                            Opening Prompt Workbench…
+                          </div>
+                        }
+                      >
+                        <ConnectedPromptManagerLazy
+                          loadEmbeddingQueue={loadEmbeddingQueue}
+                          suggestionsEnabled={visible && isActive}
+                        />
+                      </Suspense>
+                    )}
+                    threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                  />
+                }
+                workspaceContent={
+                  <>
+                    {/* ⌘P quick-open + the open-file registration both mount INSIDE
                       the outer IdeLayout so they reach its IdeFileEditorContext;
                       the nested explorer layout inherits the same seam. */}
-                  <QuickOpenHost />
-                  <WorkspaceOpenFileBridge />
-                  <WorkspaceBody />
-                </>
-              }
-              workspaceHeaderContent={<WorkspaceTabStrip />}
-            />
-          </WorkspaceTabsProvider>
+                    <QuickOpenHost />
+                    <WorkspaceOpenFileBridge />
+                    <WorkspaceBody />
+                  </>
+                }
+                workspaceHeaderContent={
+                  // Layout-neutral (`contents`): the root chords restore focus into.
+                  <div className="contents" ref={workspaceStripRootRef}>
+                    <WorkspaceTabStrip />
+                  </div>
+                }
+              />
+            </ToolApprovalGrantProvider>
+          </DelegatedWorkspaceTabsProvider>
         </MarkdownPreviewCapabilitiesProvider>
       </FileTreeWrapper>
     </div>
@@ -685,6 +704,8 @@ export function RootLayoutContent({
             visible renderer mounts RootLayoutContent, so hidden hosts never
             instantiate it (structural gating — no role check needed here). */}
             <CommandPaletteHost />
+            {/* Tab chords (BST-1842): the same structural gating as the palette. */}
+            <TabChordHost />
             <WorkspaceConnectHost />
             <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
               <EmbeddingRuntimeProvider>

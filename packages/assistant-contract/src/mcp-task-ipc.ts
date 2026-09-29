@@ -11,15 +11,10 @@ import {
  * Renderer ↔ desktop-main contract for production MCP Tasks (BST-1566
  * enablement). The main process owns every task authority (repository,
  * lifecycle, interaction, presentation controller); the renderer only sees
- * browser-safe presentations and issues the two card actions. Channel names
- * are the single source of truth for preload and IPC registration.
+ * browser-safe presentations and issues the two card actions. This module
+ * owns the payload schemas; the desktop pure IPC contract owns channel names
+ * and authorization.
  */
-export const MCP_TASK_IPC_CHANNELS = Object.freeze({
-  act: 'mcp:task:act',
-  list: 'mcp:task:list',
-  statusChanged: 'mcp:task:status-changed',
-} as const);
-
 export const MCP_TASK_LIST_LIMIT = 64;
 
 export const McpTaskListRequestSchema = z.strictObject({});

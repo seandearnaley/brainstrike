@@ -219,6 +219,39 @@ describe('pollDeviceFlow (RFC 8628 adapter)', () => {
     await expect(outcome).resolves.toSatisfy(isProviderAuthFlowCancelled);
   });
 
+  it('cancels a stalled response body and ignores a late token grant', async () => {
+    const controller = new AbortController();
+    let resolveBody: ((body: string) => void) | undefined;
+    let bodyStarted: (() => void) | undefined;
+    const reachedBody = new Promise<void>((resolve) => {
+      bodyStarted = resolve;
+    });
+    const fetchFn = vi.fn<typeof fetch>(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          text: async () => {
+            bodyStarted?.();
+            return await new Promise<string>((resolve) => {
+              resolveBody = resolve;
+            });
+          },
+        }) as Response
+    );
+    const pending = pollDeviceFlow(makeDescriptor(), start, {
+      cancelSignal: controller.signal,
+      fetchFn,
+      fetchTimeoutMs: 10_000,
+    });
+    await reachedBody;
+    controller.abort();
+    await expect(pending).rejects.toSatisfy(isProviderAuthFlowCancelled);
+    resolveBody?.(JSON.stringify(TOKENS_BODY));
+    await Promise.resolve();
+    expect(fetchFn).toHaveBeenCalledOnce();
+  });
+
   it('missing refresh_token in a token response is a visible failure', async () => {
     const fetchFn = sequencedFetch([
       jsonResponse(200, { access_token: 'access-1', token_type: 'Bearer' }),

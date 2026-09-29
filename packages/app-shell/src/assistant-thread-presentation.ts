@@ -1,4 +1,5 @@
 import type { AssistantThreadColorId, AssistantThreadIconId } from '@brainstrike/assistant-data';
+import { getAgentColorStyles } from '@brainstrike/types/agent-color';
 import {
   Bug,
   ClipboardList,
@@ -50,11 +51,21 @@ export interface AssistantThreadColorPresentation {
 }
 
 /**
- * Rows are styled with tinted fills plus an inset ring for selection — never
- * hairline borders or accent stripes. Idle rows keep a visible tint of their
- * thread color so unselected threads still read as colored;
+ * Rows keep a quiet tint; compact solid marks carry the durable color. The
+ * selected state retains an inset ring without an accent stripe;
  * `accentClassName` remains solely the solid swatch used by color pickers.
  */
+function solidMark(color: AssistantThreadColorId, fill: string): string {
+  const ink = getAgentColorStyles(color)['--agent-ink-light'];
+  if (ink === '#000') {
+    return `bs-agent-solid-mark ${fill} text-black`;
+  }
+  if (ink === '#fff') {
+    return `bs-agent-solid-mark ${fill} text-white`;
+  }
+  throw new Error(`Unsupported agent mark ink: ${ink}`);
+}
+
 export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   amber: {
     accentClassName: 'bg-amber-500',
@@ -63,8 +74,7 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     idleClassName:
       'bg-amber-100/45 hover:bg-amber-100/75 dark:bg-amber-950/25 dark:hover:bg-amber-950/40',
     label: 'Amber',
-    markClassName:
-      'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
+    markClassName: solidMark('amber', 'bg-amber-500'),
     selectedClassName:
       'bg-amber-100 shadow-xs ring-1 ring-amber-500/80 ring-inset dark:bg-amber-950/60 dark:ring-amber-400/70',
   },
@@ -74,10 +84,20 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
       '[&>td]:bg-sky-50/60 hover:[&>td]:bg-sky-50/80 dark:[&>td]:bg-sky-950/20 dark:hover:[&>td]:bg-sky-950/30',
     idleClassName: 'bg-sky-100/45 hover:bg-sky-100/75 dark:bg-sky-950/25 dark:hover:bg-sky-950/40',
     label: 'Blue',
-    markClassName:
-      'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300',
+    markClassName: solidMark('blue', 'bg-sky-500'),
     selectedClassName:
       'bg-sky-100 shadow-xs ring-1 ring-inset ring-sky-500/80 dark:bg-sky-950/60 dark:ring-sky-400/70',
+  },
+  cyan: {
+    accentClassName: 'bg-cyan-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-cyan-50/60 hover:[&>td]:bg-cyan-50/80 dark:[&>td]:bg-cyan-950/20 dark:hover:[&>td]:bg-cyan-950/30',
+    idleClassName:
+      'bg-cyan-100/45 hover:bg-cyan-100/75 dark:bg-cyan-950/25 dark:hover:bg-cyan-950/40',
+    label: 'Cyan',
+    markClassName: solidMark('cyan', 'bg-cyan-500'),
+    selectedClassName:
+      'bg-cyan-100 shadow-xs ring-1 ring-inset ring-cyan-500/80 dark:bg-cyan-950/60 dark:ring-cyan-400/70',
   },
   emerald: {
     accentClassName: 'bg-emerald-500',
@@ -86,10 +106,96 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     idleClassName:
       'bg-emerald-100/45 hover:bg-emerald-100/75 dark:bg-emerald-950/25 dark:hover:bg-emerald-950/40',
     label: 'Emerald',
-    markClassName:
-      'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
+    markClassName: solidMark('emerald', 'bg-emerald-500'),
     selectedClassName:
       'bg-emerald-100 shadow-xs ring-1 ring-emerald-500/80 ring-inset dark:bg-emerald-950/60 dark:ring-emerald-400/70',
+  },
+  fuchsia: {
+    accentClassName: 'bg-fuchsia-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-fuchsia-50/60 hover:[&>td]:bg-fuchsia-50/80 dark:[&>td]:bg-fuchsia-950/20 dark:hover:[&>td]:bg-fuchsia-950/30',
+    idleClassName:
+      'bg-fuchsia-100/45 hover:bg-fuchsia-100/75 dark:bg-fuchsia-950/25 dark:hover:bg-fuchsia-950/40',
+    label: 'Fuchsia',
+    markClassName: solidMark('fuchsia', 'bg-fuchsia-500'),
+    selectedClassName:
+      'bg-fuchsia-100 shadow-xs ring-1 ring-inset ring-fuchsia-500/80 dark:bg-fuchsia-950/60 dark:ring-fuchsia-400/70',
+  },
+  green: {
+    accentClassName: 'bg-green-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-green-50/60 hover:[&>td]:bg-green-50/80 dark:[&>td]:bg-green-950/20 dark:hover:[&>td]:bg-green-950/30',
+    idleClassName:
+      'bg-green-100/45 hover:bg-green-100/75 dark:bg-green-950/25 dark:hover:bg-green-950/40',
+    label: 'Green',
+    markClassName: solidMark('green', 'bg-green-500'),
+    selectedClassName:
+      'bg-green-100 shadow-xs ring-1 ring-inset ring-green-500/80 dark:bg-green-950/60 dark:ring-green-400/70',
+  },
+  indigo: {
+    accentClassName: 'bg-indigo-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-indigo-50/60 hover:[&>td]:bg-indigo-50/80 dark:[&>td]:bg-indigo-950/20 dark:hover:[&>td]:bg-indigo-950/30',
+    idleClassName:
+      'bg-indigo-100/45 hover:bg-indigo-100/75 dark:bg-indigo-950/25 dark:hover:bg-indigo-950/40',
+    label: 'Indigo',
+    markClassName: solidMark('indigo', 'bg-indigo-500'),
+    selectedClassName:
+      'bg-indigo-100 shadow-xs ring-1 ring-inset ring-indigo-500/80 dark:bg-indigo-950/60 dark:ring-indigo-400/70',
+  },
+  lime: {
+    accentClassName: 'bg-lime-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-lime-50/60 hover:[&>td]:bg-lime-50/80 dark:[&>td]:bg-lime-950/20 dark:hover:[&>td]:bg-lime-950/30',
+    idleClassName:
+      'bg-lime-100/45 hover:bg-lime-100/75 dark:bg-lime-950/25 dark:hover:bg-lime-950/40',
+    label: 'Lime',
+    markClassName: solidMark('lime', 'bg-lime-500'),
+    selectedClassName:
+      'bg-lime-100 shadow-xs ring-1 ring-inset ring-lime-500/80 dark:bg-lime-950/60 dark:ring-lime-400/70',
+  },
+  orange: {
+    accentClassName: 'bg-orange-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-orange-50/60 hover:[&>td]:bg-orange-50/80 dark:[&>td]:bg-orange-950/20 dark:hover:[&>td]:bg-orange-950/30',
+    idleClassName:
+      'bg-orange-100/45 hover:bg-orange-100/75 dark:bg-orange-950/25 dark:hover:bg-orange-950/40',
+    label: 'Orange',
+    markClassName: solidMark('orange', 'bg-orange-500'),
+    selectedClassName:
+      'bg-orange-100 shadow-xs ring-1 ring-inset ring-orange-500/80 dark:bg-orange-950/60 dark:ring-orange-400/70',
+  },
+  pink: {
+    accentClassName: 'bg-pink-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-pink-50/60 hover:[&>td]:bg-pink-50/80 dark:[&>td]:bg-pink-950/20 dark:hover:[&>td]:bg-pink-950/30',
+    idleClassName:
+      'bg-pink-100/45 hover:bg-pink-100/75 dark:bg-pink-950/25 dark:hover:bg-pink-950/40',
+    label: 'Pink',
+    markClassName: solidMark('pink', 'bg-pink-500'),
+    selectedClassName:
+      'bg-pink-100 shadow-xs ring-1 ring-inset ring-pink-500/80 dark:bg-pink-950/60 dark:ring-pink-400/70',
+  },
+  purple: {
+    accentClassName: 'bg-purple-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-purple-50/60 hover:[&>td]:bg-purple-50/80 dark:[&>td]:bg-purple-950/20 dark:hover:[&>td]:bg-purple-950/30',
+    idleClassName:
+      'bg-purple-100/45 hover:bg-purple-100/75 dark:bg-purple-950/25 dark:hover:bg-purple-950/40',
+    label: 'Purple',
+    markClassName: solidMark('purple', 'bg-purple-500'),
+    selectedClassName:
+      'bg-purple-100 shadow-xs ring-1 ring-inset ring-purple-500/80 dark:bg-purple-950/60 dark:ring-purple-400/70',
+  },
+  red: {
+    accentClassName: 'bg-red-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-red-50/60 hover:[&>td]:bg-red-50/80 dark:[&>td]:bg-red-950/20 dark:hover:[&>td]:bg-red-950/30',
+    idleClassName: 'bg-red-100/45 hover:bg-red-100/75 dark:bg-red-950/25 dark:hover:bg-red-950/40',
+    label: 'Red',
+    markClassName: solidMark('red', 'bg-red-500'),
+    selectedClassName:
+      'bg-red-100 shadow-xs ring-1 ring-inset ring-red-500/80 dark:bg-red-950/60 dark:ring-red-400/70',
   },
   rose: {
     accentClassName: 'bg-rose-500',
@@ -98,8 +204,7 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     idleClassName:
       'bg-rose-100/45 hover:bg-rose-100/75 dark:bg-rose-950/25 dark:hover:bg-rose-950/40',
     label: 'Rose',
-    markClassName:
-      'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300',
+    markClassName: solidMark('rose', 'bg-rose-500'),
     selectedClassName:
       'bg-rose-100 shadow-xs ring-1 ring-inset ring-rose-500/80 dark:bg-rose-950/60 dark:ring-rose-400/70',
   },
@@ -110,10 +215,20 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     idleClassName:
       'bg-slate-100/55 hover:bg-slate-100/85 dark:bg-slate-900/30 dark:hover:bg-slate-900/45',
     label: 'Slate',
-    markClassName:
-      'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300',
+    markClassName: solidMark('slate', 'bg-slate-500'),
     selectedClassName:
       'bg-slate-200/80 shadow-xs ring-1 ring-inset ring-slate-500/80 dark:bg-slate-900/70 dark:ring-slate-400/70',
+  },
+  teal: {
+    accentClassName: 'bg-teal-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-teal-50/60 hover:[&>td]:bg-teal-50/80 dark:[&>td]:bg-teal-950/20 dark:hover:[&>td]:bg-teal-950/30',
+    idleClassName:
+      'bg-teal-100/45 hover:bg-teal-100/75 dark:bg-teal-950/25 dark:hover:bg-teal-950/40',
+    label: 'Teal',
+    markClassName: solidMark('teal', 'bg-teal-500'),
+    selectedClassName:
+      'bg-teal-100 shadow-xs ring-1 ring-inset ring-teal-500/80 dark:bg-teal-950/60 dark:ring-teal-400/70',
   },
   violet: {
     accentClassName: 'bg-violet-500',
@@ -122,12 +237,43 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     idleClassName:
       'bg-violet-100/45 hover:bg-violet-100/75 dark:bg-violet-950/25 dark:hover:bg-violet-950/40',
     label: 'Violet',
-    markClassName:
-      'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300',
+    markClassName: solidMark('violet', 'bg-violet-500'),
     selectedClassName:
       'bg-violet-100 shadow-xs ring-1 ring-inset ring-violet-500/80 dark:bg-violet-950/60 dark:ring-violet-400/70',
   },
+  yellow: {
+    accentClassName: 'bg-yellow-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-yellow-50/60 hover:[&>td]:bg-yellow-50/80 dark:[&>td]:bg-yellow-950/20 dark:hover:[&>td]:bg-yellow-950/30',
+    idleClassName:
+      'bg-yellow-100/45 hover:bg-yellow-100/75 dark:bg-yellow-950/25 dark:hover:bg-yellow-950/40',
+    label: 'Yellow',
+    markClassName: solidMark('yellow', 'bg-yellow-500'),
+    selectedClassName:
+      'bg-yellow-100 shadow-xs ring-1 ring-inset ring-yellow-500/80 dark:bg-yellow-950/60 dark:ring-yellow-400/70',
+  },
+  zinc: {
+    accentClassName: 'bg-zinc-500',
+    groupSurfaceClassName:
+      '[&>td]:bg-zinc-50/60 hover:[&>td]:bg-zinc-50/80 dark:[&>td]:bg-zinc-950/20 dark:hover:[&>td]:bg-zinc-950/30',
+    idleClassName:
+      'bg-zinc-100/45 hover:bg-zinc-100/75 dark:bg-zinc-950/25 dark:hover:bg-zinc-950/40',
+    label: 'Zinc',
+    markClassName: solidMark('zinc', 'bg-zinc-500'),
+    selectedClassName:
+      'bg-zinc-100 shadow-xs ring-1 ring-inset ring-zinc-500/80 dark:bg-zinc-950/60 dark:ring-zinc-400/70',
+  },
 } satisfies Record<AssistantThreadColorId, AssistantThreadColorPresentation>;
+
+/** Curated sets keep the expanded picker scannable without changing saved colors. */
+export const ASSISTANT_THREAD_COLOR_PALETTES = [
+  { colors: ['blue', 'emerald', 'amber', 'rose', 'violet', 'slate'], label: 'Studio' },
+  { colors: ['cyan', 'lime', 'orange', 'fuchsia', 'indigo', 'red'], label: 'Voltage' },
+  { colors: ['teal', 'green', 'yellow', 'pink', 'purple', 'zinc'], label: 'Afterglow' },
+] as const satisfies readonly {
+  readonly label: string;
+  readonly colors: readonly AssistantThreadColorId[];
+}[];
 
 /**
  * Neutral surface for a thread with no durable color. Tabs and rows both need a
@@ -160,9 +306,8 @@ export const THREAD_CONTROL_ROW_PITCH_PX = THREAD_CONTROL_HEIGHT_PX + 4;
 export const THREAD_CONTROL_TITLE_CLASS_NAME = 'min-w-0 truncate font-medium text-xs leading-4';
 /**
  * Pairs with `markClassName`, never `idleClassName`/`selectedClassName`: both
- * surfaces are now tinted with the thread color, so a mark sharing that fill
- * disappears into the control it identifies. `border` (not a ring) supplies the
- * width that `markClassName`'s border color needs.
+ * surfaces are tinted with the thread color, so a solid mark provides the
+ * strongest identity cue. A transparent border preserves the control geometry.
  *
  * `size-5` rather than `h-5 w-5`: shared button base rules guard on
  * `:not([class*=size-])`, so the paired utilities lose to a 16px base rule.
@@ -171,8 +316,8 @@ export const THREAD_CONTROL_MARK_CLASS_NAME =
   'flex size-5 shrink-0 items-center justify-center rounded-sm border';
 
 /**
- * Secondary affordances that sit *inside* a thread control — the tab's close
- * button, the row's expand and actions buttons.
+ * Secondary affordances that sit *inside* a thread row — its expand and
+ * actions buttons. (Thread tabs use the shared TabStrip's close button.)
  *
  * 20px, not the Button `icon-xs` 28px: the control itself is 28px tall now, so
  * a 28px chip fills it edge to edge and the hover fill reads as a block rather

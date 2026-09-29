@@ -3,8 +3,8 @@ import {
   type ConfiguredAssistantProviderConfig,
   type HostedWebAssistantProvider,
   isHostedWebAssistantProvider,
-} from './assistant-config';
-import { parseWebAssistantRuntimeData } from './web-assistant-runtime-schema';
+} from './assistant-config.js';
+import { parseWebAssistantRuntimeData } from './web-assistant-runtime-schema.js';
 
 export class InvalidWebAssistantRuntimeDataError extends Error {
   readonly code = 'invalid_web_assistant_runtime_data';

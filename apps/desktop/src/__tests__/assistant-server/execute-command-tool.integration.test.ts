@@ -11,7 +11,13 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { NATIVE_TOOL_RESULT_CHAR_BUDGET, type RuntimeData } from '@brainstrike/agent';
+import {
+  NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  type RuntimeData,
+  registerToolGuardDeadlineSignal,
+  resolveGuardedToolSignal,
+} from '@brainstrike/agent';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
@@ -415,6 +421,71 @@ describe('runExecuteCommand — abort kills the tree', () => {
   });
 });
 
+describe('runExecuteCommand — a guard timeout leaves no orphan (BST-1777 Task 9)', () => {
+  // The per-tool execution guard (packages/agent/src/tools/guard-tool-execution.ts)
+  // resolves a call's WAIT when the tool overruns its budget, but only a
+  // cancellable tool that reads `resolveGuardedToolSignal` actually stops the
+  // WORK. `brainstrike.executeCommand` is exactly such a tool: it forwards the
+  // resolved signal to `runExecuteCommand`'s own `signal` option, the same
+  // seam `resolveShellInvocation`'s abort listener kills the process tree
+  // through. This proves that seam end to end with a REAL child process: the
+  // GUARD's controller (not a run-level abort) is what fires, and no `sleep`
+  // survives it.
+  it('killing the guard deadline signal kills the real child, leaving no orphan', async () => {
+    const root = await makeWorkspace();
+    const pidFile = path.join(root, 'guard-orphan.pid');
+    const guardController = new AbortController();
+    // The execution-context shape `readToolCallId` reads: input first,
+    // execution context second (see packages/agent/src/tools/read-tool-call-id.ts).
+    const context = { toolCallId: 'orphan-check' };
+    const release = registerToolGuardDeadlineSignal([{}, context], guardController.signal);
+
+    let childPid: number | undefined;
+    try {
+      const run = runExecuteCommand(
+        { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 600_000 },
+        singleRoot(root),
+        { signal: resolveGuardedToolSignal(context) }
+      );
+
+      childPid = await readPidWhenWritten(pidFile);
+
+      // Abort the GUARD's own deadline signal — not a run signal — exactly
+      // the seam the per-tool execution guard uses when it gives up on a
+      // running tool (packages/agent/src/tools/guard-tool-execution.ts).
+      guardController.abort();
+
+      // `run` must settle promptly once the guard deadline fires. Racing a
+      // fixed deadline against the call (rather than only awaiting it) is
+      // what proves this — an unresolved `run` would otherwise hang the test
+      // instead of failing it with a clear message.
+      const settleDeadlineMs = 5000;
+      const raced = await Promise.race([
+        run.then(() => 'settled' as const),
+        new Promise<'timed-out'>((resolve) =>
+          setTimeout(() => resolve('timed-out'), settleDeadlineMs)
+        ),
+      ]);
+      expect(raced).toBe('settled');
+      await run;
+
+      const dead = await waitForPidDead(childPid, 3000);
+      expect(dead).toBe(true);
+    } finally {
+      release();
+      if (childPid !== undefined) {
+        // Belt-and-braces: a failed assertion above must never leak a real
+        // `sleep 30` past this test.
+        try {
+          process.kill(childPid, 'SIGKILL');
+        } catch {
+          // Already dead — the expected outcome.
+        }
+      }
+    }
+  });
+});
+
 describe('runExecuteCommand — output bounding (no unbounded result)', () => {
   it('truncates huge output with a hint instead of returning it all', async () => {
     const root = await makeWorkspace();
@@ -487,18 +558,28 @@ describe('runExecuteCommand — ANSI stripping', () => {
 });
 
 describe('runExecuteCommand — cwd containment', () => {
-  it('rejects an absolute cwd outside the workspace root', async () => {
+  it('rejects an absolute cwd outside the workspace root as a ToolInputError', async () => {
     const root = await makeWorkspace();
-    await expect(
-      runExecuteCommand({ command: 'pwd', cwd: '/tmp' }, singleRoot(root))
-    ).rejects.toThrow(/outside the workspace root/i);
+    const rejection = runExecuteCommand({ command: 'pwd', cwd: '/tmp' }, singleRoot(root));
+    // The guard only preserves the bounded, model-correctable message for
+    // ToolInputError; a plain Error would be redacted to a generic tool_failed,
+    // hiding the actionable "outside the workspace root" diagnosis.
+    await expect(rejection).rejects.toThrow(ToolInputError);
+    await expect(rejection).rejects.toThrow(/outside the workspace root/i);
   });
 
-  it('rejects a relative cwd that escapes the root', async () => {
+  it('rejects a relative cwd that escapes the root as a ToolInputError', async () => {
     const root = await makeWorkspace();
-    await expect(
-      runExecuteCommand({ command: 'pwd', cwd: '../..' }, singleRoot(root))
-    ).rejects.toThrow(/outside the workspace root/i);
+    const rejection = runExecuteCommand({ command: 'pwd', cwd: '../..' }, singleRoot(root));
+    await expect(rejection).rejects.toThrow(ToolInputError);
+    await expect(rejection).rejects.toThrow(/outside the workspace root/i);
+  });
+
+  it('rejects a nonexistent cwd as a ToolInputError naming the requested cwd', async () => {
+    const root = await makeWorkspace();
+    const rejection = runExecuteCommand({ command: 'pwd', cwd: 'no-such-dir' }, singleRoot(root));
+    await expect(rejection).rejects.toThrow(ToolInputError);
+    await expect(rejection).rejects.toThrow(/cwd "no-such-dir" does not exist/i);
   });
 
   it('accepts a cwd inside the root and starts there', async () => {
@@ -510,10 +591,10 @@ describe('runExecuteCommand — cwd containment', () => {
     expect(result.stdout.trim()).toBe(await fsPromises.realpath(sub));
   });
 
-  it('throws when no folder is open in the workspace', async () => {
-    await expect(runExecuteCommand({ command: 'echo hi' }, undefined)).rejects.toThrow(
-      /No folder is open/i
-    );
+  it('throws when no folder is open in the workspace as a ToolInputError', async () => {
+    const rejection = runExecuteCommand({ command: 'echo hi' }, undefined);
+    await expect(rejection).rejects.toThrow(ToolInputError);
+    await expect(rejection).rejects.toThrow(/No folder is open/i);
   });
 });
 

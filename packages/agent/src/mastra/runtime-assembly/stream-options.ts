@@ -24,10 +24,14 @@ import {
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
+import type { BackgroundTaskManager } from '@mastra/core/background-tasks';
 import { SkillsProcessor } from '@mastra/core/processors';
+import type { ToolHooks } from '@mastra/core/tools';
 import { getDefaultModel } from '../../providers/provider-factory';
 import type { RuntimeData } from '../../types';
+import { createActiveBackgroundResultsProcessor } from '../active-background-results-processor';
 import type { MastraAgentRuntime, MastraAgentRuntimeOptions } from '../agent-runtime';
+import { observeNativeBackgroundExecutor } from '../background-executor-identity';
 import { buildBedrockMessageHygieneInputProcessor } from '../bedrock-message-hygiene';
 import { buildCompactionOverlayInputProcessor } from '../compaction-overlay-processor';
 import { buildProviderHistoryCompatInputProcessor } from '../error-processors';
@@ -47,8 +51,8 @@ const logger = createLogger('MastraAgent');
 /**
  * Per-call approval decision, matching Mastra's `RequireToolApproval` union
  * (`boolean | (ctx) => boolean`). The function form gates approval per tool call;
- * the resume leg uses it to exempt Mastra-internal tools (see
- * {@link resolveResumeApprovalGate}).
+ * the approval leg uses it to exempt Mastra-internal tools (see
+ * `resolveRequireToolApproval` in approval-gate.ts).
  */
 export type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
 
@@ -57,6 +61,7 @@ export interface BrainstrikeAgentStreamOptions {
   delegation?: DelegationConfig;
   // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
   experimental_generateMessageId?: () => string;
+  hooks?: ToolHooks;
   inputProcessors?: unknown[];
   maxSteps?: number;
   memory?: AgentMemoryOption;
@@ -160,9 +165,10 @@ export function buildAssistantStreamMessageIdOption(runtimeData: RuntimeData | u
 }
 
 /**
- * Matches the maximum user-selectable loop limit. The settings UI labels an
- * unset value as the default, so the runtime must not substitute a smaller
- * hidden cap that ends real coding tasks after only a handful of tool calls.
+ * The root loop's step cap when the user sets none; the settings UI labels an
+ * unset value "100 default" and lets a user raise it to the 1,000-step agent
+ * ceiling. Never substitute a smaller hidden cap: it would end real coding
+ * tasks after only a handful of tool calls.
  */
 const DEFAULT_AGENT_MAX_STEPS = 100;
 const UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS = [
@@ -310,13 +316,84 @@ export interface BuildStreamOptionsParams {
   toolCallId?: string;
 }
 
-/**
- * The single option builder the three attempt legs
- * (`createInitialTurnAttempt`, `createToolApprovalTurnAttempt`,
- * `createToolResumeTurnAttempt` in `agent-streaming.ts`) share. Legs differ
- * only in whether `runId`/`toolCallId` are set and whether
- * `requireToolApproval` is carried at all (see {@link BuildStreamOptionsParams}).
- */
+/** Both owners must settle even when either after-call hook fails. */
+function composeDelegatedHooks(
+  binding: ToolHooks | undefined,
+  persistence: ToolHooks | undefined,
+  manager: BackgroundTaskManager | undefined
+): ToolHooks {
+  return {
+    ...binding,
+    ...persistence,
+    afterToolCall: async (call) => {
+      const results = await Promise.allSettled([
+        Promise.resolve().then(() => binding?.afterToolCall?.(call)),
+        Promise.resolve().then(() => persistence?.afterToolCall?.(call)),
+      ]);
+      const errors = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (errors.length === 1) {
+        throw errors[0];
+      }
+      if (errors.length > 1) {
+        throw new AggregateError(errors, 'Delegated after-call owners failed.');
+      }
+    },
+    beforeToolCall: async (call) => {
+      observeNativeBackgroundExecutor(manager, call.context);
+      await binding?.beforeToolCall?.(call);
+    },
+  };
+}
+
+function buildStreamHooks({
+  runtime,
+  delegationUsage,
+  abortSignal,
+}: Pick<BuildStreamOptionsParams, 'runtime' | 'delegationUsage' | 'abortSignal'>):
+  | ToolHooks
+  | undefined {
+  const manager = runtime.backgroundTaskManager;
+  if (!delegationUsage) {
+    return manager ? composeDelegatedHooks(undefined, undefined, manager) : undefined;
+  }
+  if (!(manager || runtime.delegatedTurnPersistence || runtime.conversationBinding?.hooks)) {
+    return;
+  }
+  return composeDelegatedHooks(
+    runtime.conversationBinding?.hooks,
+    runtime.delegatedTurnPersistence?.hooks(abortSignal),
+    manager
+  );
+}
+
+function externalStopSignalOption(runtimeData: RuntimeData | undefined): {
+  externalStopSignal?: AbortSignal;
+} {
+  return runtimeData?.signal ? { externalStopSignal: runtimeData.signal } : {};
+}
+
+function buildRuntimeToolLoopOptions(
+  runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps'> {
+  if (!runtime.childExecution) {
+    return buildToolLoopOptions(
+      runtimeData,
+      runtime.toolSearchProcessor,
+      runtime.toolHistoryFilter
+    );
+  }
+  return {
+    maxSteps: runtime.childExecution.maxSteps,
+    ...(runtime.childExecution.inputProcessors
+      ? { inputProcessors: runtime.childExecution.inputProcessors }
+      : {}),
+  };
+}
+
+/** Shared option assembly for initial, approval and resume stream legs. */
 export function buildStreamOptions(
   params: BuildStreamOptionsParams
 ): BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } {
@@ -333,9 +410,17 @@ export function buildStreamOptions(
     toolCallId,
   } = params;
 
-  return {
-    ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
+  const loop = buildRuntimeToolLoopOptions(runtime, runtimeData);
+  const hooks = buildStreamHooks(params);
+  const options: BrainstrikeAgentStreamOptions & { runId?: string; toolCallId?: string } = {
+    ...loop,
+    ...(!runtime.childExecution && runtime.rootDelegatedContextProcessor
+      ? {
+          inputProcessors: [runtime.rootDelegatedContextProcessor, ...(loop.inputProcessors ?? [])],
+        }
+      : {}),
     abortSignal,
+    ...(hooks ? { hooks } : {}),
     ...(runId === undefined ? {} : { runId }),
     ...(toolCallId === undefined ? {} : { toolCallId }),
     ...buildAssistantStreamMessageIdOption(runtimeData),
@@ -347,6 +432,13 @@ export function buildStreamOptions(
     ...(delegationUsage
       ? {
           delegation: createDelegationConfig({
+            abortSignal,
+            ...externalStopSignalOption(runtimeData),
+            childPromptFacts: {
+              byPersonaId: runtime.childPromptFacts,
+              dispatchingAgentId: runtime.agent.id,
+            },
+            workQueue: runtime.delegatedExecutionOptions?.workQueue,
             ...(runtime.conversationBinding
               ? { conversationBinding: runtime.conversationBinding }
               : {}),
@@ -354,6 +446,9 @@ export function buildStreamOptions(
             logger,
             onChildUsage: delegationUsage.onChildUsage,
             personasById: runtime.personasById,
+            subagentSettings: runtime.subagentSettings,
+            synthesisOutcomes: runtime.delegatedExecutionOptions?.synthesisOutcomes,
+            turnPersistence: runtime.delegatedTurnPersistence,
           }),
         }
       : {}),
@@ -361,4 +456,22 @@ export function buildStreamOptions(
     // this key, even if one is passed.
     ...(leg === 'resume' || requireToolApproval === undefined ? {} : { requireToolApproval }),
   };
+  const backgroundResults = createActiveBackgroundResultsProcessor(
+    runtime,
+    runtimeData,
+    delegationOutcomes
+  );
+  if (backgroundResults) {
+    // Before history projections and the input-step token limiter.
+    options.inputProcessors = [backgroundResults, ...(options.inputProcessors ?? [])];
+  }
+  // The run owner serializes stream legs; descendants read this same leg context lazily.
+  if (runtime.delegatedExecutionOptions) {
+    Object.assign(runtime.delegatedExecutionOptions, {
+      abortSignal,
+      delegation: options.delegation,
+      hooks: options.hooks,
+    });
+  }
+  return options;
 }

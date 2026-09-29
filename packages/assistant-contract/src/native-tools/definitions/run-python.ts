@@ -17,6 +17,7 @@ export const runPython = defineNativeTool({
   description:
     'Run Python in an OS sandbox for computation, parsing, and data wrangling. Network only to allowedDomains you name, each run needing explicit per-call user approval (omit for none); writes only to a scratch dir deleted afterwards; reads unrestricted. print() to return values. Requires approval',
   discovery: { family: 'Python', namespace: 'execution' },
+  executionBudget: { defaultMs: 30_000, maxMs: 600_000 },
   id: 'brainstrike.runPython',
   inputSchema: RunPythonInputSchema,
   kind: 'desktop',

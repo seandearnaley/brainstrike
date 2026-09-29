@@ -37,6 +37,8 @@ import {
   mcpInstances,
   resetMastraStreamHarness,
   setMockStreamParts,
+  setStreamCompletion,
+  setStreamPartFailure,
   setSuspendedRuns,
 } from './fixtures/mastra-stream-harness';
 
@@ -75,6 +77,123 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     resetMastraStreamHarness();
   });
 
+  it('fails before exposing a decision when native snapshot completion rejects', async () => {
+    const failure = new Error('Native snapshot write failed');
+    const completion = vi.fn(async () => {
+      throw failure;
+    });
+    setStreamCompletion(completion);
+    setMockStreamParts([
+      {
+        payload: {
+          args: { path: 'file.txt' },
+          toolCallId: 'unsaved-approval',
+          toolName: 'brainstrike.writeWorkspaceFile',
+        },
+        runId: 'unsaved-run',
+        type: 'tool-call-approval',
+      },
+    ]);
+    const stream = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'Write the file', type: 'text' }], role: 'user' }],
+      { requireToolApproval: true, runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+    const chunks: StreamChunk[] = [];
+    await expect(
+      (async () => {
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+      })()
+    ).rejects.toThrow('Native snapshot write failed');
+    expect(completion).toHaveBeenCalledTimes(1);
+    expect(chunks.some((chunk) => chunk.type === 'tool-approval-required')).toBe(false);
+  });
+
+  it('drops a withheld pause notice when the user stops the run before native close', async () => {
+    // A parallel delegation step keeps streaming after one sibling pauses, so
+    // the leg reads to native close and withholds the notice until then. A
+    // Stop in that window cancels paused work: the decision is unresumable and
+    // neither its notice nor its durable "awaiting your approval" row may
+    // surface (Codex review of #3187).
+    const controller = new AbortController();
+    setMockStreamParts([
+      {
+        payload: {
+          args: { path: 'file.txt' },
+          toolCallId: 'stopped-approval',
+          toolName: 'brainstrike.writeWorkspaceFile',
+        },
+        runId: 'stopped-run',
+        type: 'tool-call-approval',
+      },
+      { textDelta: 'a sibling still streaming', type: 'text-delta' },
+    ]);
+    const stream = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'Write the file', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai', signal: controller.signal },
+      }
+    );
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+      if (chunk.type === 'text-delta') {
+        // The pause part has been read and withheld; the sibling's text proves
+        // the leg is still open. Stop now, before native close.
+        controller.abort();
+      }
+    }
+    expect(chunks.some((chunk) => chunk.type === 'text-delta')).toBe(true);
+    expect(chunks.some((chunk) => chunk.type === 'tool-approval-required')).toBe(false);
+    expect(
+      chunks.some(
+        (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'tool.approval.requested'
+      )
+    ).toBe(false);
+  });
+
+  it('publishes a withheld pause notice when a later sibling fails the leg', async () => {
+    // The pause already reached Mastra and is parked durably; a failure
+    // elsewhere in the same leg must not hide it behind reload rediscovery.
+    // Only a rejected completion join (previous case) or a Stop discards it.
+    const failure = new Error('sibling projection failed');
+    setStreamPartFailure(1, failure);
+    setMockStreamParts([
+      {
+        payload: {
+          args: { path: 'file.txt' },
+          toolCallId: 'orphaned-approval',
+          toolName: 'brainstrike.writeWorkspaceFile',
+        },
+        runId: 'orphaned-run',
+        type: 'tool-call-approval',
+      },
+      { textDelta: 'never delivered', type: 'text-delta' },
+    ]);
+    const stream = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'Write the file', type: 'text' }], role: 'user' }],
+      { requireToolApproval: true, runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+    const chunks: StreamChunk[] = [];
+    await expect(
+      (async () => {
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+      })()
+    ).rejects.toThrow('sibling projection failed');
+    expect(
+      chunks.filter((chunk) => chunk.type === 'tool-approval-required').map((c) => c.toolCallId)
+    ).toEqual(['orphaned-approval']);
+    expect(
+      chunks.some(
+        (chunk) => chunk.type === 'run-event' && chunk.event.kind === 'tool.approval.requested'
+      )
+    ).toBe(true);
+  });
+
   it('passes tool approval through as a pending non-error stream state', async () => {
     setMockStreamParts([
       {
@@ -105,6 +224,9 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     const streamOptions = agentInstances.at(-1)?.streamCalls.at(-1)?.options as {
       requireToolApproval?: boolean;
     };
+    // The initial leg passes the caller's explicit option through unchanged;
+    // no run-wide predicate is ever synthesized (per-call approval rides on
+    // the per-tool function-form flag, approval-gate.ts).
     expect(streamOptions.requireToolApproval).toBe(true);
     // The durable run event leads the pause (see the dedicated ordering test
     // below); the transient chunks it precedes are pinned EXACTLY here.
@@ -745,6 +867,14 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     // posture).
     expect(approveGate({ toolName: 'brainstrike_runPython' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
+    expect(chunks).toContainEqual({
+      decision: 'approve',
+      reason: 'user',
+      runId: 'run-approval-1',
+      toolCallId: 'tool-call-1',
+      toolName: 'workspace.writeFile',
+      type: 'tool-approval-answered',
+    });
     expect(chunks).toContainEqual({
       finishReason: 'stop',
       path: [],
@@ -1396,6 +1526,14 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       chunks.push(chunk as StreamChunk);
     }
 
+    expect(chunks).toContainEqual({
+      decision: 'decline',
+      reason: 'user',
+      runId: 'run-approval-2',
+      toolCallId: 'tool-call-2',
+      toolName: 'shell_tool',
+      type: 'tool-approval-answered',
+    });
     // Stage 1 — the Mastra boundary maps it to the TERMINAL decline tool event,
     // carrying the shared `DeclinedToolCallResult` envelope (with the user's
     // own reason) rather than an error string.

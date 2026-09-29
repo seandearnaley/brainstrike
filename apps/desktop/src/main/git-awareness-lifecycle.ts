@@ -9,7 +9,7 @@
  * `utilityProcess.fork`, which Electron rejects before ready). `main.ts`
  * keeps the returned services in its shutdown-runner slots: git-inventory
  * and forge are graceful-shutdown steps BEFORE 'database' (both read the
- * DB), and `runGracefulShutdown` is untouched by this move.
+ * DB); `main/desktop-graceful-shutdown.ts` owns that order.
  */
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';

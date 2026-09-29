@@ -58,6 +58,8 @@ const cpSyncMock = vi.fn();
 const openSyncMock = vi.fn(() => 123);
 const writeFileSyncMock = vi.fn();
 const closeSyncMock = vi.fn();
+const writeSyncMock = vi.fn();
+const fsyncSyncMock = vi.fn();
 const unlinkSyncMock = vi.fn();
 const utimesSyncMock = vi.fn();
 const statSyncMock = vi.fn(() => ({ mtimeMs: Date.now() }));
@@ -76,6 +78,7 @@ vi.mock('node:fs', () => ({
     closeSync: closeSyncMock,
     cpSync: cpSyncMock,
     existsSync: existsSyncMock,
+    fsyncSync: fsyncSyncMock,
     lstatSync: lstatSyncMock,
     mkdirSync: mkdirSyncMock,
     openSync: openSyncMock,
@@ -87,8 +90,10 @@ vi.mock('node:fs', () => ({
     unlinkSync: unlinkSyncMock,
     utimesSync: utimesSyncMock,
     writeFileSync: writeFileSyncMock,
+    writeSync: writeSyncMock,
   },
   existsSync: existsSyncMock,
+  fsyncSync: fsyncSyncMock,
   lstatSync: lstatSyncMock,
   mkdirSync: mkdirSyncMock,
   openSync: openSyncMock,
@@ -100,6 +105,7 @@ vi.mock('node:fs', () => ({
   unlinkSync: unlinkSyncMock,
   utimesSync: utimesSyncMock,
   writeFileSync: writeFileSyncMock,
+  writeSync: writeSyncMock,
 }));
 
 const appGetPathMock = vi.fn(() => '/mock/documents');
@@ -128,6 +134,7 @@ vi.mock('@electric-sql/pglite-pgvector', () => ({ vector: { name: 'vector' } }))
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   migrate: (...args: unknown[]) => migrateMock(...args),
+  rebuildCrashSensitiveIndexes: vi.fn(async () => ({ rebuilt: [], totalDurationMs: 0 })),
 }));
 vi.mock('@brainstrike/db/react', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
@@ -154,8 +161,9 @@ describe('db-main lifecycle', () => {
     vi.clearAllMocks();
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
-    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
-    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
+    // The utility-process host receives both fields from main; it derives nothing.
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/mock/documents';
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     existsSyncMock.mockReturnValue(true);
     // clearAllMocks() resets call history but NOT implementations, so without this
@@ -338,15 +346,6 @@ describe('db-main lifecycle', () => {
     expect(wipedDataDir).toBe(false);
   });
 
-  it('closeDatabase still closes handle when syncToFs fails', async () => {
-    const { initializeMainDatabase, closeDatabase } = await import('../../db-main');
-    await initializeMainDatabase();
-    syncToFsMock.mockRejectedValueOnce(new Error('sync failed'));
-    await expect(closeDatabase()).resolves.toBeUndefined();
-    expect(syncToFsMock).toHaveBeenCalled();
-    expect(closeMock).toHaveBeenCalled();
-  });
-
   it('reinitializeDatabase closes and recreates', async () => {
     const { initializeMainDatabase, reinitializeDatabase } = await import('../../db-main');
     const first = await initializeMainDatabase();
@@ -361,24 +360,9 @@ describe('db-main lifecycle', () => {
     await expect(initializeMainDatabase()).rejects.toThrow(/migrations failed/i);
   });
 
-  it('computes production data dir when NODE_ENV=production', async () => {
-    process.env['NODE_ENV'] = 'production';
-    existsSyncMock.mockImplementation(() => false);
-    const { initializeMainDatabase } = await import('../../db-main');
-    await initializeMainDatabase();
-    const expectedPath = path.join(
-      '/mock/documents',
-      'BrainStrike',
-      'profiles',
-      'default',
-      'pgdata'
-    );
-    expect(mkdirSyncMock).not.toHaveBeenCalledWith(expect.not.stringContaining('BrainStrike-dev'));
-    expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
-  });
-
   it('uses profile-scoped data directory in development mode', async () => {
     process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = path.join('/mock/documents', 'BrainStrike-dev');
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'feature-branch';
     existsSyncMock.mockImplementation(() => false);
 
@@ -390,47 +374,6 @@ describe('db-main lifecycle', () => {
     expect(diagnostics.dataDir).toBe(
       path.join('/mock/documents', 'BrainStrike-dev', 'profiles', 'feature-branch', 'pgdata')
     );
-  });
-
-  it('derives a worktree-scoped profile when no explicit profile is set', async () => {
-    process.env['NODE_ENV'] = 'development';
-    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
-
-    const worktreeRoot = '/repo/worktrees/wt-a';
-    const gitPointerPath = path.join(worktreeRoot, '.git');
-    const resolvedGitDir = '/repo/main/.git/worktrees/wt-a';
-    const gitHeadPath = path.join(resolvedGitDir, 'HEAD');
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(worktreeRoot);
-
-    existsSyncMock.mockImplementation(
-      (candidate: string) => candidate === gitPointerPath || candidate === gitHeadPath
-    );
-    lstatSyncMock.mockImplementation((candidate: string) => ({
-      isDirectory: () => false,
-      isFile: () => candidate === gitPointerPath,
-    }));
-    readFileSyncMock.mockImplementation((candidate: string) => {
-      if (candidate === gitPointerPath) {
-        return `gitdir: ${resolvedGitDir}`;
-      }
-      if (candidate === gitHeadPath) {
-        return 'ref: refs/heads/feature/awesome';
-      }
-      return '';
-    });
-
-    try {
-      const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
-      await initializeMainDatabase();
-
-      const diagnostics = getDatabaseDiagnostics();
-      expect(diagnostics.databaseProfile).toMatch(/^branch-feature-awesome-wt-[a-f0-9]{8}$/);
-      expect(diagnostics.dataDir).toContain(
-        path.join('profiles', diagnostics.databaseProfile ?? '', 'pgdata')
-      );
-    } finally {
-      cwdSpy.mockRestore();
-    }
   });
 
   it('fails fast with concurrency category when lock is held by another process', async () => {
@@ -589,8 +532,12 @@ describe('db-main lifecycle', () => {
     expect(writeFileSyncMock.mock.invocationCallOrder[0]).toBeLessThan(
       PGliteMock.mock.invocationCallOrder[0] ?? 0
     );
+    // The first unlink is now the clean-shutdown marker's; the startup lock's must follow migration.
+    const startupLockUnlink = unlinkSyncMock.mock.calls.findIndex(([target]) =>
+      String(target).includes('brainstrike-pglite-initialization-')
+    );
     expect(migrateMock.mock.invocationCallOrder[0]).toBeLessThan(
-      unlinkSyncMock.mock.invocationCallOrder[0] ?? 0
+      unlinkSyncMock.mock.invocationCallOrder[startupLockUnlink] ?? 0
     );
   });
 
@@ -658,42 +605,74 @@ describe('db-main lifecycle', () => {
     expect(firstLockPath).toBe(secondLockPath);
   });
 
-  it('auto-recovers from database corruption during initialization', async () => {
+  it('never resets on corruption during initialization', async () => {
     const corruptionError = new Error("right sibling's left-link doesn't match") as Error & {
       code: string;
     };
     corruptionError.code = 'XX002';
 
-    // First call throws corruption error, second succeeds
     // Use function syntax for Vitest 4 constructor mocks (need this reference to prevent arrow conversion)
     PGliteMock.mockImplementationOnce(function (this: Record<string, unknown>) {
       Object.assign(this, {}); // Reference this to keep function syntax
       throw corruptionError;
     });
 
-    const { initializeMainDatabase } = await import('../../db-main');
-    const db = await initializeMainDatabase();
+    const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(
+      `The desktop database reported an integrity error while opening: right sibling's left-link doesn't match; details={"code":"XX002"}. BrainStrike did not delete or replace it.`
+    );
 
-    // Should have attempted reset (rmSync called) and succeeded on retry
-    expect(rmSyncMock).toHaveBeenCalled();
-    expect(db).toBeDefined();
+    expect(rmSyncMock).not.toHaveBeenCalled();
+    expect(cpSyncMock).not.toHaveBeenCalled();
+    expect(PGliteMock).toHaveBeenCalledTimes(1);
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.lastInitializationFailure?.category).toBe('corruption');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('open-database');
+    expect(diagnostics.databaseLockHeld).toBe(false);
   });
 
-  it('auto-recovers from database corruption during migration', async () => {
-    const corruptionError = new Error('could not locate a valid checkpoint record') as Error & {
-      code: string;
-    };
-    corruptionError.code = 'XX002';
+  it('never resets on corruption during migration and never keeps the un-migrated handle', async () => {
+    // The production shape: PGlite's coded error is wrapped by the migration runner and again by
+    // `migrate()`, so the SQLSTATE is only reachable through the `cause` chain.
+    const pgError = Object.assign(new Error('could not locate a valid checkpoint record'), {
+      code: 'XX002',
+    });
+    const runnerError = new Error(
+      'Migration "0099_probe" failed: could not locate a valid checkpoint record',
+      { cause: pgError }
+    );
+    migrateMock.mockRejectedValueOnce(new Error(runnerError.message, { cause: runnerError }));
 
-    // First migration throws corruption, second succeeds
-    migrateMock.mockRejectedValueOnce(corruptionError);
+    const { initializeMainDatabase, getDatabase, getDatabaseDiagnostics } = await import(
+      '../../db-main'
+    );
+    await expect(initializeMainDatabase()).rejects.toThrow(
+      'Database migrations failed with an integrity error: Migration "0099_probe" failed: could not locate a valid checkpoint record. BrainStrike did not delete or replace the database.'
+    );
+
+    expect(rmSyncMock).not.toHaveBeenCalled();
+    expect(cpSyncMock).not.toHaveBeenCalled();
+    expect(closeMock).toHaveBeenCalledTimes(1);
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.lastInitializationFailure?.category).toBe('corruption');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('migration');
+    expect(diagnostics.hasDatabaseHandle).toBe(false);
+    expect(diagnostics.databaseLockHeld).toBe(false);
+
+    // The next caller re-opens and re-migrates instead of receiving the closed handle.
+    await getDatabase();
+    expect(PGliteMock).toHaveBeenCalledTimes(2);
+    expect(migrateMock).toHaveBeenCalledTimes(2);
+    expect(getDatabaseDiagnostics().hasDatabaseHandle).toBe(true);
+  });
+
+  it('keeps the non-corruption migration failure text', async () => {
+    migrateMock.mockRejectedValueOnce(new Error('relation already exists'));
 
     const { initializeMainDatabase } = await import('../../db-main');
-    const db = await initializeMainDatabase();
-
-    // Should have attempted reset and succeeded on retry
-    expect(rmSyncMock).toHaveBeenCalled();
-    expect(db).toBeDefined();
+    await expect(initializeMainDatabase()).rejects.toThrow(
+      'Database migrations failed with pgvector: relation already exists'
+    );
   });
 
   it('does not auto-recover from wasm abort during initialization', async () => {
@@ -727,25 +706,9 @@ describe('db-main lifecycle', () => {
     expect(diagnostics.lastInitializationFailure?.stage).toBe('open-database');
   });
 
-  it('throws if auto-recovery fails', async () => {
-    const corruptionError = new Error("right sibling's left-link doesn't match") as Error & {
-      code: string;
-    };
-    corruptionError.code = 'XX002';
-
-    // Both attempts fail with corruption
-    // Use function syntax for Vitest 4 constructor mocks (need this reference to prevent arrow conversion)
-    PGliteMock.mockImplementation(function (this: Record<string, unknown>) {
-      Object.assign(this, {}); // Reference this to keep function syntax
-      throw corruptionError;
-    });
-
-    const { initializeMainDatabase } = await import('../../db-main');
-    await expect(initializeMainDatabase()).rejects.toThrow(/auto-recovery failed/i);
-  });
-
   it('resetLocalDatabase deletes parent app data directory', async () => {
     process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = path.join('/mock/documents', 'BrainStrike-dev');
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
     vi.resetModules();
 
@@ -777,6 +740,7 @@ describe('db-main lifecycle', () => {
 
   it('prunes stale profile backups during reset', async () => {
     process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = path.join('/mock/documents', 'BrainStrike-dev');
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
     vi.resetModules();
     readdirSyncMock.mockReturnValueOnce([
@@ -800,26 +764,14 @@ describe('db-main lifecycle', () => {
     );
   });
 
-  it('tracks runtime corruption recovery in diagnostics', async () => {
-    // Ensure we reset any prior constructor override from previous tests
-    PGliteMock.mockImplementation(function (this: {
-      close: () => Promise<void>;
-      query: () => Promise<unknown>;
-      exec: () => Promise<void>;
-    }) {
-      this.close = closeMock;
-      this.query = queryMock;
-      this.exec = execMock;
-    });
+  it('has no runtime path that resets the database on corruption', async () => {
+    const dbMain = await import('../../db-main');
 
-    const { handleRuntimeCorruption, getDatabaseDiagnostics } = await import('../../db-main');
-
-    await handleRuntimeCorruption('db:query');
-
-    const diagnostics = getDatabaseDiagnostics();
-    expect(diagnostics.runtimeCorruptionRecoveryCount).toBe(1);
-    expect(diagnostics.lastRuntimeCorruptionContext).toBe('db:query');
-    expect(diagnostics.lastRuntimeCorruptionAt).not.toBeNull();
+    // The only entry points that remove a profile are the user-confirmed resets.
+    expect(dbMain).not.toHaveProperty('handleRuntimeCorruption');
+    expect(dbMain.getDatabaseDiagnostics()).not.toHaveProperty('runtimeCorruptionRecoveryCount');
+    expect(dbMain.getDatabaseDiagnostics()).not.toHaveProperty('lastRuntimeCorruptionAt');
+    expect(dbMain.getDatabaseDiagnostics()).not.toHaveProperty('lastRuntimeCorruptionContext');
   });
 
   it('exposes a test-only helper to reset mutable diagnostics state', async () => {
@@ -834,6 +786,5 @@ describe('db-main lifecycle', () => {
     const diagnostics = getDatabaseDiagnostics();
     expect(diagnostics.initializationAttemptCount).toBe(0);
     expect(diagnostics.lastInitializationFailure).toBeNull();
-    expect(diagnostics.runtimeCorruptionRecoveryCount).toBe(0);
   });
 });

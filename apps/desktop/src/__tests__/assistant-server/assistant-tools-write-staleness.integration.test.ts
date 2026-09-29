@@ -1,17 +1,22 @@
+import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { type RuntimeData, resetFileReadState, withFileLock } from '@brainstrike/agent';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
+import { createBudgetedHost } from './fixtures/budgeted-host';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
   return {
     ...actual,
+    withFileLock: vi.fn(actual.withFileLock),
   };
 });
 
@@ -97,6 +102,326 @@ describe('read-before-write staleness guard', () => {
   beforeEach(() => {
     resetFileReadState();
   });
+
+  it('keeps sibling native execution read observations separate in one shared tool registry', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const file = path.join(workspaceRootPath, 'README.md');
+    try {
+      await promisify(execFile)('git', ['init', '--quiet', workspaceRootPath]);
+      await fsPromises.utimes(file, new Date(1000), new Date(1000));
+      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const read = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+      const write = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+      const cedar = { threadId: 'child-cedar', toolCallId: 'cedar-edit' };
+      const flint = { threadId: 'child-flint', toolCallId: 'flint-edit' };
+      await read({ path: '/README.md' }, cedar);
+      await read({ path: '/README.md' }, flint);
+      await write({ content: '# Cedar\n', path: '/README.md' }, cedar);
+      await expect(write({ content: '# Flint\n', path: '/README.md' }, flint)).rejects.toThrow(
+        /changed on disk since/i
+      );
+      expect(await fsPromises.readFile(file, 'utf8')).toBe('# Cedar\n');
+      await read({ path: '/README.md' }, flint);
+      await write({ content: '# Flint after reread\n', path: '/README.md' }, flint);
+      expect(await fsPromises.readFile(file, 'utf8')).toBe('# Flint after reread\n');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('preserves dirty user files and disjoint child edits in a real shared repository', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    try {
+      const git = (args: string[]) =>
+        promisify(execFile)('git', ['-C', workspaceRootPath, ...args]);
+      await git(['init', '--quiet']);
+      await git(['add', '.']);
+      await git([
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.invalid',
+        'commit',
+        '--quiet',
+        '-m',
+        'baseline',
+      ]);
+      await fsPromises.writeFile(path.join(workspaceRootPath, 'README.md'), '# User draft\n');
+      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const read = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+      const write = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+      const cedar = { threadId: 'child-cedar', toolCallId: 'cedar-edit' };
+      const flint = { threadId: 'child-flint', toolCallId: 'flint-edit' };
+      await read({ path: '/src/main.ts' }, cedar);
+      await read({ path: '/src/lib/math.ts' }, flint);
+      await Promise.all([
+        write({ content: '// Cedar\n', path: '/src/main.ts' }, cedar),
+        write({ content: '// Flint\n', path: '/src/lib/math.ts' }, flint),
+      ]);
+      expect(await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8')).toBe(
+        '# User draft\n'
+      );
+      expect(await fsPromises.readFile(path.join(workspaceRootPath, 'src/main.ts'), 'utf8')).toBe(
+        '// Cedar\n'
+      );
+      expect(
+        await fsPromises.readFile(path.join(workspaceRootPath, 'src/lib/math.ts'), 'utf8')
+      ).toBe('// Flint\n');
+      expect((await git(['status', '--porcelain'])).stdout.trim().split('\n')).toHaveLength(3);
+      expect((await git(['rev-list', '--count', 'HEAD'])).stdout.trim()).toBe('1');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it.each([
+    ['writeWorkspaceFile', { content: 'Late effect', path: '/README.md' }],
+    [
+      'stringReplaceWorkspaceFile',
+      { newStr: 'Late effect', oldStr: 'Completed child effect', path: '/README.md' },
+    ],
+    ['deleteWorkspaceFile', { path: '/README.md' }],
+    ['renameWorkspaceFile', { fromPath: '/README.md', toPath: '/new-parent/moved.md' }],
+  ] as const)(
+    'stopping a child prevents a queued %s while preserving completed work',
+    async (name, input) => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const release = Promise.withResolvers<void>();
+      let holding: Promise<void> | undefined;
+      let mutation: Promise<unknown> | undefined;
+      try {
+        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+        const write = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+        await write(
+          { content: 'Completed child effect', path: '/README.md' },
+          { agent: { threadId: 'child-stopped', toolCallId: 'completed-write' } }
+        );
+        const canonicalPath = realpathSync(path.join(workspaceRootPath, 'README.md'));
+        vi.mocked(withFileLock).mockClear();
+        holding = withFileLock(canonicalPath, () => release.promise);
+        const controller = new AbortController();
+        mutation = Promise.resolve(
+          requireToolExecute(tools, `brainstrike.${name}`)(input, {
+            abortSignal: controller.signal,
+            agent: { threadId: 'child-stopped', toolCallId: 'queued-mutation' },
+          })
+        );
+        // Observe admission to the real path lock before stopping the child.
+        await vi.waitFor(() =>
+          expect(
+            vi.mocked(withFileLock).mock.calls.filter(([key]) => key === canonicalPath)
+          ).toHaveLength(2)
+        );
+        controller.abort(new Error('Selected child stopped'));
+        const rejected = expect(mutation).rejects.toThrow('Selected child stopped');
+        release.resolve();
+        await rejected;
+        expect(await fsPromises.readFile(canonicalPath, 'utf8')).toBe('Completed child effect');
+        await expect(
+          fsPromises.stat(path.join(workspaceRootPath, 'new-parent'))
+        ).rejects.toMatchObject({ code: 'ENOENT' });
+        await write(
+          { content: 'Sibling still active', path: '/sibling.txt' },
+          { agent: { threadId: 'child-sibling', toolCallId: 'sibling-write' } }
+        );
+        expect(await fsPromises.readFile(path.join(workspaceRootPath, 'sibling.txt'), 'utf8')).toBe(
+          'Sibling still active'
+        );
+      } finally {
+        release.resolve();
+        await Promise.allSettled([holding, mutation]);
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }
+  );
+
+  it('keeps the child on its bound non-Git root and refuses a disconnected root instead of switching folders', async () => {
+    const firstRoot = await createWorkspaceFixture();
+    const focusedRoot = await createWorkspaceFixture();
+    try {
+      const roots = [
+        { displayName: 'Bound', path: firstRoot, rootId: 'bound-root' },
+        { displayName: 'Focused', path: focusedRoot, rootId: 'focused-root' },
+      ];
+      const runtime = {
+        ...guardRuntime(firstRoot),
+        boundWorkspaceRootId: 'bound-root',
+        workspaceRootPath: focusedRoot,
+        workspaceRoots: roots,
+      };
+      const tools = buildDesktopAssistantTools(runtime);
+      const execution = { agent: { threadId: 'child-bound', toolCallId: 'bound-write' } };
+      const command = { command: process.platform === 'win32' ? 'cd' : 'pwd' };
+      const shell = await requireToolExecute<{ cwd: string; rootId: string; exitCode: number }>(
+        tools,
+        'brainstrike.executeCommand'
+      )(command, execution);
+      expect(shell).toMatchObject({
+        cwd: await fsPromises.realpath(firstRoot),
+        exitCode: 0,
+        rootId: 'bound-root',
+      });
+
+      await requireToolExecute(tools, 'brainstrike.writeWorkspaceFile')(
+        { content: 'Bound child effect', path: '/child.txt' },
+        execution
+      );
+      expect(await fsPromises.readFile(path.join(firstRoot, 'child.txt'), 'utf8')).toBe(
+        'Bound child effect'
+      );
+      await expect(
+        fsPromises.readFile(path.join(focusedRoot, 'child.txt'), 'utf8')
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      const disconnected = buildDesktopAssistantTools({
+        ...runtime,
+        workspaceRoots: roots.filter((root) => root.rootId !== 'bound-root'),
+      });
+      await expect(
+        requireToolExecute(disconnected, 'brainstrike.executeCommand')(command, execution)
+      ).rejects.toThrow(/bound workspace root.*no longer open/i);
+      await expect(
+        requireToolExecute(disconnected, 'brainstrike.writeWorkspaceFile')(
+          { content: 'Must not switch roots', path: '/other.txt' },
+          execution
+        )
+      ).rejects.toThrow(/bound workspace root.*no longer open/i);
+      await expect(
+        fsPromises.readFile(path.join(focusedRoot, 'other.txt'), 'utf8')
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await fsPromises.readFile(path.join(firstRoot, 'child.txt'), 'utf8')).toBe(
+        'Bound child effect'
+      );
+    } finally {
+      await fsPromises.rm(firstRoot, { force: true, recursive: true });
+      await fsPromises.rm(focusedRoot, { force: true, recursive: true });
+    }
+  });
+
+  it.each([
+    ['brainstrike.writeWorkspaceFile', { content: 'stopped', path: '/README.md' }],
+    [
+      'brainstrike.stringReplaceWorkspaceFile',
+      { newStr: 'stopped', oldStr: 'before', path: '/README.md' },
+    ],
+    ['brainstrike.deleteWorkspaceFile', { path: '/README.md' }],
+    ['brainstrike.renameWorkspaceFile', { fromPath: '/README.md', toPath: '/renamed.md' }],
+  ])('refuses an already stopped %s before acquiring a path lock', async (toolId, input) => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const controller = new AbortController();
+    const reason = new Error('Selected child already stopped');
+    controller.abort(reason);
+    const lock = vi.mocked(withFileLock);
+    lock.mockClear();
+    try {
+      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      await expect(
+        requireToolExecute(tools, toolId)(input, {
+          abortSignal: controller.signal,
+          agent: { threadId: 'child-cedar', toolCallId: 'stopped-write' },
+        })
+      ).rejects.toBe(reason);
+      expect(lock).not.toHaveBeenCalled();
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it.each(['guard-run', 'resumed-run'])(
+    'attributes a delegated native write on %s to its durable child run instead of the parent',
+    async (hostRunId) => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const database = await wasmLoader.createPGlite('memory://child-checkpoint');
+      try {
+        await migrate(database);
+        await database.exec(`INSERT INTO mastra_threads
+        (id, "resourceId", title, "createdAt", "updatedAt") VALUES
+        ('guard-thread', 'guard-resource', 'Parent', NOW(), NOW()),
+        ('child-cedar', 'child-resource', 'Cedar', NOW(), NOW());
+        INSERT INTO brainstrike_assistant_thread_runs
+        (id, resource_id, thread_id, provider, model, runtime_kind, status,
+         started_at, created_at, updated_at, turn_message_id) VALUES
+        ('guard-run', 'guard-resource', 'guard-thread', 'openai', 'test', 'desktop', 'running',
+         NOW(), NOW(), NOW(), 'user-turn');`);
+        if (hostRunId !== 'guard-run') {
+          await database.query(
+            `INSERT INTO brainstrike_assistant_thread_runs
+          (id, resource_id, thread_id, provider, model, runtime_kind, status,
+           started_at, created_at, updated_at, turn_message_id) VALUES
+          ($1, 'guard-resource', 'guard-thread', 'openai', 'test', 'desktop', 'running',
+           NOW(), NOW(), NOW(), 'user-turn')`,
+            [hostRunId]
+          );
+        }
+        const originalHost = createBudgetedHost(database, 'guard-run');
+        const host = createBudgetedHost(database, hostRunId);
+        await originalHost.persist({
+          childResourceId: 'child-resource',
+          childThreadId: 'child-cedar',
+          configuration: { maxSteps: 16, persona: { id: 'worker' } },
+          parentResourceId: 'guard-resource',
+          parentRuntimeRunId: 'parent-native',
+          parentThreadId: 'guard-thread',
+          parentToolCallId: 'delegate-cedar',
+          personaId: 'worker',
+        });
+        const identity = {
+          childRuntimeRunId: 'cedar-native',
+          parentRuntimeRunId: 'parent-native',
+          parentToolCallId: 'delegate-cedar',
+          personaId: 'worker',
+        };
+        await host.bindRun(identity);
+        const event = await host.persistEvent(
+          identity,
+          'cedar-message',
+          {
+            id: 'cedar-start',
+            kind: 'run.started',
+            label: 'Cedar started',
+            status: 'running',
+            timestamp: new Date().toISOString(),
+          },
+          0
+        );
+        getDatabaseMock.mockResolvedValue(database);
+        const tools = buildDesktopAssistantTools({
+          ...guardRuntime(workspaceRootPath),
+          memory: { resourceId: 'guard-resource', runId: hostRunId, threadId: 'guard-thread' },
+        });
+        const execute = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+        await expect(
+          execute(
+            {
+              agent: { threadId: 'forged-child' },
+              content: 'Forged ownership',
+              path: '/cedar.txt',
+              threadId: 'forged-child',
+            },
+            { agent: { threadId: 'child-cedar', toolCallId: 'cedar-write' } }
+          )
+        ).rejects.toThrow(/Unrecognized keys/);
+        await expect(
+          fsPromises.stat(path.join(workspaceRootPath, 'cedar.txt'))
+        ).rejects.toMatchObject({ code: 'ENOENT' });
+        await execute(
+          { content: 'Cedar completed work\n', path: '/cedar.txt' },
+          { agent: { threadId: 'child-cedar', toolCallId: 'cedar-write' } }
+        );
+        expect(
+          (
+            await database.query(`SELECT thread_id, run_id, resource_id
+        FROM brainstrike_assistant_edit_checkpoints WHERE tool_call_id = 'cedar-write'`)
+          ).rows
+        ).toEqual([
+          { resource_id: 'child-resource', run_id: event.runId, thread_id: 'child-cedar' },
+        ]);
+      } finally {
+        getDatabaseMock.mockReset();
+        await database.close();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }
+  );
 
   it('write refuses when the file changed on disk after the assistant read it', async () => {
     const workspaceRootPath = await createWorkspaceFixture();

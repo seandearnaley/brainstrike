@@ -660,7 +660,21 @@ describe('desktop native tool provider prompt budget', () => {
       // roughly four times looser than the one it will actually hit — a 2.1M
       // emoji document sits inside `maxLength` and is refused. Twenty tokens to
       // stop the model discovering the real unit from a failed call.
-      manageCanvasDefinitionTokens: 254,
+      //
+      // 254 → 290 (canvas contract, 2026-09-15): the description now says
+      // `create` needs content and the write IS the deliverable — never an
+      // empty or placeholder canvas, call create once when the content is
+      // ready. Live-app verifier runs 6 and 7 pre-created an empty shell
+      // behind one approval and wrote the report behind a second; the
+      // `empty_document` refusal closes the literal shell and these 36 tokens
+      // close the stub. Trim-first was applied: the unpinned "to fill in
+      // later" clause was dropped (-4). Measured full authored surface
+      // 10353 → 10389 (7 tokens of headroom left under the UNCHANGED 10,396
+      // ceiling — the 107 between the recorded 10246 and 10353 is earlier
+      // drift, not this change). The band is deliberately NOT raised:
+      // `docs/agents/assistant-providers.md` (2026-09-04) keeps the ceilings
+      // pending BST-1633 and raises only when the ceiling fires, after a trim.
+      manageCanvasDefinitionTokens: 290,
       manageWorktreeDefinitionTokens: 278,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {

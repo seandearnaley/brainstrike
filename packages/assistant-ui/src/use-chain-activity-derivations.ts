@@ -36,7 +36,7 @@ export function useChainActivityDerivations(
   groupParts: readonly unknown[]
 ): ChainActivityDerivations {
   const activityFallbackMs = useMemo(() => {
-    const ids = new Set(groupParts.filter(isToolCallPart).map((part) => part['toolCallId']));
+    const ids = collectGroupToolCallIds(groupParts);
     return runEventsSpanMs(
       messageParts.filter((part) => {
         const event = readAssistantRunEventDataPart(part);
@@ -56,4 +56,26 @@ export function useChainActivityDerivations(
   const taskList = useMemo(() => deriveTaskListFromParts(messageParts), [messageParts]);
 
   return { activityFallbackMs, shellOutputs, taskList, toolDurations };
+}
+
+/**
+ * Current-group tool-call ids in a single pass, replacing the previous
+ * `filter(isToolCallPart).map(...)` chain (two intermediate arrays per
+ * streamed chunk). Only string ids are collected: `useChainActivityDerivations`
+ * probes the set with string ids only (guarded by `typeof id === 'string'`),
+ * and `Set` membership uses SameValueZero with no coercion, so a non-string
+ * entry could never have matched — dropping such entries changes no lookup.
+ */
+export function collectGroupToolCallIds(groupParts: readonly unknown[]): Set<string> {
+  const ids = new Set<string>();
+  for (const part of groupParts) {
+    if (!isToolCallPart(part)) {
+      continue;
+    }
+    const toolCallId = part['toolCallId'];
+    if (typeof toolCallId === 'string') {
+      ids.add(toolCallId);
+    }
+  }
+  return ids;
 }

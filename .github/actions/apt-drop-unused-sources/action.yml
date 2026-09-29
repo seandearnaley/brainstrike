@@ -4,7 +4,7 @@ description: >-
   step runs apt (directly, or via `playwright install-deps`). Callers MUST check
   out first — a local composite action is resolved off the runner's filesystem
   before any of its steps run.
-# ONE mechanism, five call sites. `setup-workspace` is deliberately NOT the home
+# ONE mechanism, many call sites. `setup-workspace` is deliberately NOT the home
 # for this: the Unit lane's `Install the Linux OS-fence dependencies` step runs
 # BEFORE its `Setup workspace` step (the fence binaries are provisioned ahead of
 # the workspace install), so folding this in there would leave the single

@@ -6,7 +6,7 @@ import { isDesktopRenderer } from './workspace-tab-utils';
 /**
  * Cmd/Ctrl+T opens (or focuses) the Terminal workspace app (BST-1270).
  * Desktop-only — web must leave the browser's native new-tab shortcut
- * untouched (same platform split as Ctrl/Cmd+W in useWorkspaceTabHotkeys) —
+ * untouched (the browser reserves ⌘T as it does ⌘W and Ctrl+Tab) —
  * and inert unless the Terminal app is REGISTERED, so the chord never dead-
  * ends on a renderer without the pty bridge. The platform check runs lazily
  * inside the handler so the answer reflects keystroke-time state.

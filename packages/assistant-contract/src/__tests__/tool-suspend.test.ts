@@ -201,6 +201,39 @@ describe('tool-suspend contract', () => {
       true
     );
   });
+
+  it('carries the host leg that surfaced the pause beside the native run id', () => {
+    const action = {
+      hostRunId: 'run-host-leg-1',
+      resumeData: { answer: 'us-east-1' },
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+      toolCallId: 't',
+    };
+
+    expect(isAssistantToolResumeAction(action)).toBe(true);
+    expect(readToolResumeRunConfigAction(runConfig(action))).toEqual({ action });
+  });
+
+  it.each([
+    ['blank', '   '],
+    ['oversized', 'h'.repeat(ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS + 1)],
+    ['non-string', 7],
+    ['explicitly undefined', undefined],
+  ])('rejects a %s hostRunId', (_caseName, hostRunId) => {
+    expect(
+      isAssistantToolResumeAction({ hostRunId, resumeData: 'answer', runId: 'r', toolCallId: 't' })
+    ).toBe(false);
+  });
+
+  it('rejects an inherited hostRunId', () => {
+    const action = Object.assign(Object.create({ hostRunId: 'run-host-leg-1' }) as object, {
+      resumeData: 'answer',
+      runId: 'r',
+      toolCallId: 't',
+    });
+
+    expect(isAssistantToolResumeAction(action)).toBe(false);
+  });
 });
 
 describe('isRediscoveredToolSuspend', () => {
@@ -212,6 +245,34 @@ describe('isRediscoveredToolSuspend', () => {
     toolCallId: 'call-suspend-1',
     toolName: 'brainstrike.askUser',
   };
+
+  it('rejects a present unknown or unscoped durable decision state', () => {
+    const request = {
+      runId: 'root',
+      stale: false,
+      suspendedAt: '2026-09-10T00:00:00Z',
+      toolCallId: 'parent-call',
+      toolName: 'brainstrike.askUser',
+    };
+    const delegation = {
+      path: [
+        {
+          childRuntimeRunId: 'child',
+          parentRuntimeRunId: 'root',
+          parentToolCallId: 'parent-call',
+          personaId: 'worker',
+        },
+      ],
+      toolCallId: 'leaf',
+    };
+    expect(
+      isRediscoveredToolSuspend({ ...request, decisionState: 'interrupted', delegation })
+    ).toBe(true);
+    expect(isRediscoveredToolSuspend({ ...request, decisionState: 'unknown', delegation })).toBe(
+      false
+    );
+    expect(isRediscoveredToolSuspend({ ...request, decisionState: 'claimed' })).toBe(false);
+  });
 
   it('accepts a fully-formed rediscovered suspend, with or without optional fields', () => {
     expect(isRediscoveredToolSuspend(base)).toBe(true);

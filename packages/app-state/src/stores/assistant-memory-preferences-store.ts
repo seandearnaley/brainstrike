@@ -31,7 +31,7 @@ const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {
   'openrouter/google/gemini-3-flash-preview': 'openrouter/google/gemini-3.5-flash',
   // BST-1697 delistings. Keys are provider-prefixed composite targets, so the
   // OpenRouter route id carries its own vendor segment as well.
-  'openrouter/inclusionai/ling-3.0-flash:free': 'openrouter/nvidia/nemotron-3.5-lightning',
+  'openrouter/inclusionai/ling-3.0-flash:free': 'openrouter/inclusionai/ling-3.0-flash',
   'openrouter/kwaipilot/kat-coder-air-v2.5': 'openrouter/kwaipilot/kat-coder-pro-v2.5',
   'openrouter/qwen/qwen3.8-max': 'openrouter/qwen/qwen3.8-max-0902',
   'openrouter/stealth/ox-alpha': 'openrouter/qwen/qwen3.8-flash',

@@ -1,26 +1,26 @@
+import './embedding-host-runtime-fixture';
 import {
   recordEmbeddingBatchTelemetry,
   recordEmbeddingTelemetryFailure,
   removeEmbeddingTelemetrySource,
 } from '@brainstrike/embedding-worker';
-import { resetEmbeddingTelemetryForTests } from '@brainstrike/embedding-worker/testing';
 import { act, render, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createEmbeddingHostCommand } from '../../../embedding-host-shared';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
-
-const {
+import {
   commandListenerRef,
+  createEmbeddingCacheRepositoryMock,
   currentDbRef,
   dbHandle,
+  detectDeviceCapabilitiesMock,
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
-  getEmbeddingQueueMock,
-  createEmbeddingCacheRepositoryMock,
-  detectDeviceCapabilitiesMock,
   ensureVectorPreferencesHydratedMock,
   generateQueryEmbeddingMock,
+  getEmbeddingQueueMock,
   initializeWithModelMock,
+  installEmbeddingHostRuntimeFixture,
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
@@ -28,175 +28,10 @@ const {
   startEmbeddingWorkerMock,
   stopMock,
   storeState,
-} = vi.hoisted(() => ({
-  commandListenerRef: {
-    current: null as null | ((command: unknown) => void),
-  },
-  createEmbeddingCacheRepositoryMock: vi.fn(),
-  currentDbRef: {
-    current: null as null | { query: ReturnType<typeof vi.fn> },
-  },
-  dbHandle: { query: vi.fn() },
-  detectDeviceCapabilitiesMock: vi.fn(),
-  embeddingCacheRepository: {
-    get: vi.fn(),
-    getBatch: vi.fn(),
-    set: vi.fn(),
-    setBatch: vi.fn(),
-  },
-  embeddingQueueBootstrapMock: vi.fn(),
-  ensureVectorPreferencesHydratedMock: vi.fn(),
-  generateQueryEmbeddingMock: vi.fn(async () => ({
-    embedding: [0.1, 0.2],
-    runtime: {
-      device: 'webgpu',
-      dtype: 'fp32',
-      fallbackApplied: false,
-    },
-  })),
-  getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
-  initializeWithModelMock: vi.fn(async () => {}),
-  queryEmbeddingListenerRef: {
-    current: null as null | ((request: unknown) => void),
-  },
-  reportQueryEmbeddingResponseMock: vi.fn(),
-  reportStatusMock: vi.fn(),
-  setDetectedDevicePrefMock: vi.fn(),
-  startEmbeddingWorkerMock: vi.fn(),
-  stopMock: vi.fn(),
-  storeState: {
-    devicePref: 'webgpu' as 'wasm' | 'webgpu',
-    devicePrefConfigured: true,
-    hasHydrated: false,
-    reinitEveryN: 200,
-    setDetectedDevicePref: vi.fn((devicePref: 'wasm' | 'webgpu') => {
-      storeState.devicePref = devicePref;
-      setDetectedDevicePrefMock(devicePref);
-    }),
-  },
-}));
-
-vi.mock('@brainstrike/db', () => ({
-  createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
-  usePGliteDatabase: () => currentDbRef.current,
-}));
-vi.mock('@brainstrike/db/react', () => ({
-  createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
-  usePGliteDatabase: () => currentDbRef.current,
-}));
-
-vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
-  ensureVectorPreferencesHydrated: ensureVectorPreferencesHydratedMock,
-  useVectorPreferencesStore: Object.assign(
-    (selector: (state: typeof storeState) => unknown) => selector(storeState),
-    {
-      getState: () => storeState,
-    }
-  ),
-}));
-
-vi.mock('@brainstrike/embeddings', () => ({
-  detectDeviceCapabilities: detectDeviceCapabilitiesMock,
-}));
-
-vi.mock('@brainstrike/embeddings/worker', () => ({
-  createForegroundEmbeddingGate: () => ({
-    begin: () => {},
-    end: () => {},
-    isActive: () => false,
-    waitUntilInactive: async () => {},
-  }),
-  POWER_BROADCAST_CHANNEL: 'brainstrike-test-power',
-  runCoordinatedQueryEmbedding: async (options: { generate: () => Promise<unknown> }) =>
-    options.generate(),
-  startEmbeddingWorker: startEmbeddingWorkerMock,
-}));
-
-vi.mock('@brainstrike/embeddings/service', () => ({
-  SimpleEmbeddingService: class {
-    initializeWithModel = initializeWithModelMock;
-    generateQueryEmbedding = generateQueryEmbeddingMock;
-    dispose = vi.fn(async () => {});
-  },
-}));
-
-vi.mock('../../../renderer/create-embedding-queue', () => ({
-  ...(() => {
-    embeddingQueueBootstrapMock();
-    return {
-      getEmbeddingQueue: getEmbeddingQueueMock,
-    };
-  })(),
-}));
-
-vi.mock('../../../renderer/components/embedding-worker-config', () => ({
-  createEmbeddingWorkerConfig: () => ({
-    db: dbHandle,
-  }),
-}));
+} from './embedding-host-runtime-fixture';
 
 describe('EmbeddingHostRuntime', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    stopMock.mockResolvedValue(undefined);
-    resetEmbeddingTelemetryForTests();
-    currentDbRef.current = dbHandle;
-    storeState.hasHydrated = false;
-    storeState.devicePref = 'webgpu';
-    storeState.devicePrefConfigured = true;
-    storeState.reinitEveryN = 200;
-    setDetectedDevicePrefMock.mockClear();
-    detectDeviceCapabilitiesMock.mockResolvedValue({
-      detectedAt: 1,
-      recommendationReason: 'test default',
-      recommendedDevice: 'webgpu',
-      wasmAvailable: true,
-      webgpuAdapterAvailable: true,
-      webgpuAdapterInfo: null,
-      webgpuApiPresent: true,
-      webgpuUnavailableReason: null,
-      webWorkersAvailable: true,
-    });
-    ensureVectorPreferencesHydratedMock.mockImplementation(async () => {
-      if (!storeState.hasHydrated) {
-        throw new Error('Vector preferences store failed to hydrate.');
-      }
-      return storeState;
-    });
-    createEmbeddingCacheRepositoryMock.mockReturnValue(embeddingCacheRepository);
-    startEmbeddingWorkerMock.mockResolvedValue({
-      stop: stopMock,
-    });
-
-    Object.defineProperty(window, 'embeddingHost', {
-      configurable: true,
-      value: {
-        onCommand: (callback: (command: unknown) => void) => {
-          commandListenerRef.current = callback;
-          return () => {
-            commandListenerRef.current = null;
-          };
-        },
-        onQueryEmbeddingRequest: (callback: (request: unknown) => void) => {
-          queryEmbeddingListenerRef.current = callback;
-          return () => {
-            queryEmbeddingListenerRef.current = null;
-          };
-        },
-        reportQueryEmbeddingResponse: reportQueryEmbeddingResponseMock,
-        reportStatus: reportStatusMock,
-      },
-    });
-
-    Object.defineProperty(window, 'power', {
-      configurable: true,
-      value: {
-        onPowerState: () => () => {},
-      },
-    });
-
-    window.history.replaceState({}, '', '/?mode=embedding-host&runtimeId=test-runtime');
-  });
+  installEmbeddingHostRuntimeFixture();
 
   it('waits for vector preference hydration before starting the worker', async () => {
     let resolveHydration: ((value: typeof storeState) => void) | null = null;
@@ -632,6 +467,72 @@ describe('EmbeddingHostRuntime', () => {
     );
   });
 
+  it.each(['started', 'failed'] as const)(
+    'joins in-flight startup before acknowledging Stop (%s)',
+    async (outcome) => {
+      storeState.hasHydrated = true;
+      const starting = Promise.withResolvers<{ stop: typeof stopMock }>();
+      startEmbeddingWorkerMock.mockReturnValue(starting.promise);
+      const view = render(<EmbeddingHostRuntime />);
+      await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce());
+      reportStatusMock.mockClear();
+      const command = createEmbeddingHostCommand('stop', 'test-runtime');
+      await act(async () => {
+        commandListenerRef.current?.(command);
+      });
+      expect(reportStatusMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'stopped' })
+      );
+      await act(async () => {
+        if (outcome === 'started') {
+          starting.resolve({ stop: stopMock });
+        } else {
+          starting.reject(new Error('Startup device is unavailable'));
+        }
+      });
+      await waitFor(() =>
+        expect(reportStatusMock).toHaveBeenLastCalledWith(
+          expect.objectContaining({ commandId: command.requestId, state: 'stopped' })
+        )
+      );
+      expect(reportStatusMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'running' })
+      );
+      expect(reportStatusMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'error' })
+      );
+      expect(stopMock).toHaveBeenCalledTimes(outcome === 'started' ? 1 : 0);
+      view.unmount();
+    }
+  );
+
+  it.each(['stop', 'reset'] as const)(
+    'reports a failed %s without starting a replacement worker',
+    async (action) => {
+      storeState.hasHydrated = true;
+      const view = render(<EmbeddingHostRuntime />);
+      await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce());
+      stopMock.mockRejectedValueOnce(new Error('Worker drain failed'));
+      const command =
+        action === 'stop'
+          ? createEmbeddingHostCommand('stop', 'test-runtime')
+          : createEmbeddingHostCommand('reset', 'test-runtime', 'replacement-runtime');
+      await act(async () => commandListenerRef.current?.(command));
+      await waitFor(() =>
+        expect(reportStatusMock).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            commandId: command.requestId,
+            lastError: 'Worker drain failed',
+            runtimeId: 'test-runtime',
+            state: 'error',
+          })
+        )
+      );
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+      view.unmount();
+    }
+  );
+
   it('does not report stopped status again after unmount cleanup finishes', async () => {
     storeState.hasHydrated = true;
     let resolveStop: (() => void) | null = null;
@@ -662,39 +563,38 @@ describe('EmbeddingHostRuntime', () => {
     expect(stoppedReports).toHaveLength(0);
   });
 
-  it('waits for an in-flight stop before restarting on db changes', async () => {
-    storeState.hasHydrated = true;
-    const nextDbHandle = { query: vi.fn() };
-    let resolveStop: (() => void) | null = null;
-    stopMock.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveStop = resolve;
-        })
-    );
-
-    const view = render(<EmbeddingHostRuntime />);
-
-    await waitFor(() => {
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
-    });
-
-    currentDbRef.current = nextDbHandle;
-    view.rerender(<EmbeddingHostRuntime />);
-
-    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
-
-    const finishStop = resolveStop as (() => void) | null;
-    if (!finishStop) {
-      throw new Error('Expected embedding host stop to be pending.');
+  it.each(['stopped', 'failed'] as const)(
+    'joins the old database worker Stop before replacement (%s)',
+    async (outcome) => {
+      storeState.hasHydrated = true;
+      const stopping = Promise.withResolvers<void>();
+      stopMock.mockReturnValueOnce(stopping.promise);
+      const view = render(<EmbeddingHostRuntime />);
+      await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce());
+      reportStatusMock.mockClear();
+      currentDbRef.current = { query: vi.fn() };
+      view.rerender(<EmbeddingHostRuntime />);
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+      await act(async () => {
+        if (outcome === 'stopped') {
+          stopping.resolve();
+        } else {
+          stopping.reject(new Error('Old database worker drain failed'));
+        }
+      });
+      await waitFor(() =>
+        expect(reportStatusMock).toHaveBeenLastCalledWith(
+          expect.objectContaining(
+            outcome === 'stopped'
+              ? { state: 'running' }
+              : { lastError: 'Old database worker drain failed', state: 'error' }
+          )
+        )
+      );
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(outcome === 'stopped' ? 2 : 1);
+      view.unmount();
     }
-    finishStop();
-
-    await waitFor(() => {
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
-    });
-    expect(stopMock).toHaveBeenCalledTimes(1);
-  });
+  );
 
   it('continues cleanup if bridge teardown callbacks throw', async () => {
     storeState.hasHydrated = true;
@@ -799,6 +699,14 @@ describe('EmbeddingHostRuntime', () => {
       }),
       undefined,
       'webgpu'
+    );
+    // A user's search waits on the model read, and host-window work defaults to
+    // background, which the desktop scheduler rejects while integrity is
+    // contained (BST-1870): the read must name the foreground lane.
+    expect(dbHandle.query).toHaveBeenCalledWith(
+      expect.stringContaining('FROM models'),
+      ['Xenova/all-MiniLM-L6-v2'],
+      expect.objectContaining({ priority: 'foreground' })
     );
     expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledWith({ forceReload: true });
     expect(reportStatusMock).toHaveBeenCalledWith(

@@ -1,5 +1,5 @@
-import type { IFileNode } from '@brainstrike/types';
-import { describe, expect, it } from 'vitest';
+import type { FileHandle, IFileNode } from '@brainstrike/types';
+import { describe, expect, it, vi } from 'vitest';
 import { FileTreeIndex } from '../tree/file-tree-index';
 
 const createMockFileNode = (overrides: Partial<IFileNode> = {}): IFileNode =>
@@ -87,22 +87,44 @@ describe('FileTreeIndex', () => {
   });
 
   describe('getHandle', () => {
-    it('should return handle info for file with web handle', () => {
-      const index = new FileTreeIndex();
-      const mockWebHandle = { getFile: () => Promise.resolve(new File([], 'test')) };
-      const fileNode = createMockFileNode({
-        handle: mockWebHandle as unknown as FileSystemFileHandle,
-        size: 1024,
-      });
-      index.addNodes([fileNode], null);
+    it.each(['raw', 'canonical'] as const)(
+      'indexes the readable capability of a %s web handle',
+      async (form) => {
+        const index = new FileTreeIndex();
+        const file = new File(['contents'], 'file.txt');
+        const mockWebHandle: FileSystemFileHandle = {
+          createWritable: vi.fn(),
+          getFile: vi.fn().mockResolvedValue(file),
+          isSameEntry: vi.fn(),
+          kind: 'file',
+          name: 'file.txt',
+          queryPermission: vi.fn(),
+          requestPermission: vi.fn(),
+        };
+        const descriptor: FileHandle = {
+          _internal: mockWebHandle,
+          kind: 'file',
+          name: 'file.txt',
+          path: 'src/file.txt',
+          platform: 'web',
+          rootId: 'web-root',
+        };
+        const fileNode = createMockFileNode({
+          handle: form === 'raw' ? mockWebHandle : descriptor,
+          size: 1024,
+        });
+        index.addNodes([fileNode], null);
 
-      const result = index.getHandle('folder-123', 'src/file.txt');
+        const result = index.getHandle('folder-123', 'src/file.txt');
 
-      expect(result).toBeDefined();
-      expect(result?.webHandle).toBe(mockWebHandle);
-      expect(result?.fileName).toBe('file.txt');
-      expect(result?.fileSize).toBe(1024);
-    });
+        expect(result).toBeDefined();
+        expect(result?.webHandle).toBe(mockWebHandle);
+        expect(result?.fileName).toBe('file.txt');
+        expect(result?.fileSize).toBe(1024);
+        expect(mockWebHandle.getFile).not.toHaveBeenCalled();
+        expect(await result?.webHandle?.getFile()).toBe(file);
+      }
+    );
 
     it('should return handle info for file with electron handle', () => {
       const index = new FileTreeIndex();
@@ -111,9 +133,10 @@ describe('FileTreeIndex', () => {
         name: 'file.txt',
         path: '/absolute/path/file.txt',
         platform: 'electron' as const,
+        rootId: 'native-root',
       };
       const fileNode = createMockFileNode({
-        handle: mockElectronHandle as unknown as FileSystemFileHandle,
+        handle: mockElectronHandle,
         size: 2048,
       });
       index.addNodes([fileNode], null);

@@ -19,9 +19,13 @@
  * building blocks are invoked with the right arguments, rather than folded
  * into the whole-object comparison.
  */
+import { BackgroundTaskManager } from '@mastra/core/background-tasks';
+import type { MastraMemory } from '@mastra/core/memory';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeData } from '../../../types';
 import type { MastraAgentRuntime } from '../../agent-runtime';
+import { createDelegatedConversationBinding } from '../../delegated-conversation-binding';
+import { createDelegatedTurnPersistence } from '../../delegated-turn-persistence';
 import * as subagentDelegation from '../../subagent-delegation';
 import {
   buildAssistantStreamMessageIdOption,
@@ -33,7 +37,11 @@ import {
 
 function makeRuntime(overrides: Partial<MastraAgentRuntime> = {}): MastraAgentRuntime {
   return {
+    // Runtime shape: `agent` and `childPromptFacts` are required fields the
+    // delegation fragment reads (child prompt manifests, debug pack Task 4).
+    agent: { id: 'root-agent' },
     askTools: new Map(),
+    childPromptFacts: new Map(),
     permissionEnforced: false,
     personasById: new Map(),
     toolHistoryFilter: undefined,
@@ -101,7 +109,7 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
 
     // Literal copy of createToolApprovalTurnAttempt's `approvalOptions`
     // expression (the gate is resolved BEFORE this spread, by
-    // resolveResumeApprovalGate — buildStreamOptions receives the already-
+    // resolveRequireToolApproval — buildStreamOptions receives the already-
     // resolved value, matching today's factory).
     const expected = {
       ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
@@ -194,14 +202,136 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
     expect(withoutMemory).not.toHaveProperty('memory');
   });
 
+  it.each(['initial', 'approval', 'resume'] as const)(
+    'omits child tool hooks on the %s leg without active delegation',
+    (leg) => {
+      const hooks = vi.fn(() => ({}));
+      const runtime = makeRuntime({
+        delegatedTurnPersistence: {
+          finalize: async () => undefined,
+          hooks,
+          prepare: () => undefined,
+          processor: {
+            id: 'child-persistence',
+            processInputStep: ({ messageList }) => messageList,
+            processOutputResult: ({ messageList }) => messageList,
+          },
+        },
+      });
+      const options = buildStreamOptions({
+        abortSignal: new AbortController().signal,
+        delegationOutcomes: undefined,
+        delegationUsage: undefined,
+        leg,
+        memoryOption: { resource: 'owner', thread: 'root' },
+        requireToolApproval: undefined,
+        runtime,
+        runtimeData: undefined,
+      });
+      expect(options).not.toHaveProperty('hooks');
+      expect(hooks).not.toHaveBeenCalled();
+    }
+  );
+
+  it('observes background execution without enabling inactive delegation hooks', async () => {
+    const hooks = vi.fn(() => ({}));
+    const binding = createDelegatedConversationBinding(async () => undefined);
+    if (!binding.hooks?.beforeToolCall) {
+      throw new Error('Missing binding hook');
+    }
+    const persistence = createDelegatedTurnPersistence({} as MastraMemory, {
+      resourceId: 'owner',
+      threadId: 'root',
+    });
+    if (!persistence) {
+      throw new Error('Missing persistence');
+    }
+    const capture = vi.spyOn(binding.hooks, 'beforeToolCall');
+    const runtime = makeRuntime({
+      backgroundTaskManager: new BackgroundTaskManager({ enabled: true }),
+      conversationBinding: {
+        ...binding,
+        readBackgroundGeneration: async () => ({ generationRunId: 'run', nativeRunIds: ['run'] }),
+      },
+      delegatedTurnPersistence: { ...persistence, hooks },
+    });
+    const options = buildStreamOptions({
+      abortSignal: new AbortController().signal,
+      delegationOutcomes: undefined,
+      delegationUsage: undefined,
+      leg: 'initial',
+      memoryOption: undefined,
+      requireToolApproval: undefined,
+      runtime,
+      runtimeData: { memory: { resourceId: 'owner', threadId: 'root' } },
+    });
+    await options.hooks?.beforeToolCall?.({ context: {}, input: {}, toolName: 'root-tool' });
+    expect(hooks).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it.each(['initial', 'approval', 'resume'] as const)(
+    'preserves the real input-capture and persistence hooks on the %s leg',
+    async (leg) => {
+      const binding = createDelegatedConversationBinding(async () => undefined);
+      const memory = {
+        getThreadById: async () => ({ id: 'child' }),
+        saveMessages: async () => ({ messages: [] }),
+      } as unknown as MastraMemory;
+      const persistence = createDelegatedTurnPersistence(memory, {
+        resourceId: 'owner',
+        threadId: 'root',
+      });
+      if (!(persistence && binding.hooks?.beforeToolCall)) {
+        throw new Error('Expected both delegated hook owners');
+      }
+      const abortSignal = new AbortController().signal;
+      const persistenceHooks = persistence.hooks(abortSignal);
+      // Both after-call owners must survive composition on every stream leg.
+      expect(Object.keys(binding.hooks).sort()).toEqual(['afterToolCall', 'beforeToolCall']);
+      expect(Object.keys(persistenceHooks)).toEqual(['afterToolCall']);
+      const capture = vi.spyOn(binding.hooks, 'beforeToolCall');
+      const release = vi.spyOn(binding.hooks, 'afterToolCall');
+      const persist = vi.spyOn(persistenceHooks, 'afterToolCall');
+      vi.spyOn(persistence, 'hooks').mockReturnValue(persistenceHooks);
+      const options = buildStreamOptions({
+        abortSignal,
+        delegationOutcomes: undefined,
+        delegationUsage: { onChildUsage: vi.fn() } as never,
+        leg,
+        memoryOption: { resource: 'owner', thread: 'root' },
+        requireToolApproval: undefined,
+        runtime: makeRuntime({
+          conversationBinding: binding,
+          delegatedTurnPersistence: persistence,
+        }),
+        runtimeData: undefined,
+      });
+      expect(persistence.hooks).toHaveBeenCalledExactlyOnceWith(abortSignal);
+      const call = { context: { toolCallId: 'read-1' }, input: {}, toolName: 'read' };
+      await options.hooks?.beforeToolCall?.(call);
+      await options.hooks?.afterToolCall?.({ ...call, output: {} });
+      expect(capture).toHaveBeenCalledExactlyOnceWith(call);
+      expect(persist).toHaveBeenCalledExactlyOnceWith({ ...call, output: {} });
+      expect(release).toHaveBeenCalledExactlyOnceWith({ ...call, output: {} });
+      const failure = new Error('Controlled invocation cleanup failure');
+      release.mockImplementationOnce(() => {
+        throw failure;
+      });
+      await expect(options.hooks?.afterToolCall?.({ ...call, output: {} })).rejects.toBe(failure);
+      expect(persist).toHaveBeenCalledTimes(2);
+    }
+  );
+
   it('delegation: builds the SAME createDelegationConfig fragment the factories build today, only when delegationUsage is present', () => {
     const createDelegationConfigSpy = vi.spyOn(subagentDelegation, 'createDelegationConfig');
     const runtime = makeRuntime({ personasById: new Map([['p1', {} as never]]) });
     const delegationOutcomes = subagentDelegation.createDelegationOutcomeCapture();
     const onChildUsage = vi.fn();
+    const abortSignal = new AbortController().signal;
 
     const actual = buildStreamOptions({
-      abortSignal: new AbortController().signal,
+      abortSignal,
       delegationOutcomes,
       delegationUsage: { onChildUsage } as never,
       leg: 'initial',
@@ -213,10 +343,13 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
 
     expect(createDelegationConfigSpy).toHaveBeenCalledTimes(1);
     expect(createDelegationConfigSpy).toHaveBeenCalledWith({
+      abortSignal,
+      childPromptFacts: { byPersonaId: runtime.childPromptFacts, dispatchingAgentId: 'root-agent' },
       delegationOutcomes,
       logger: expect.anything(),
       onChildUsage,
       personasById: runtime.personasById,
+      turnPersistence: runtime.delegatedTurnPersistence,
     });
     expect(actual.delegation).toBeDefined();
   });

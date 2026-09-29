@@ -13,6 +13,12 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { summarizeLockfileDiff } from './lockfile-diff-summary.mjs';
 
+// Every CLI that receives this id must list it in its model catalog; an unknown
+// id silently caps the context window at 200k. claude-code-review.yml pins one
+// that does. claude.yml (@claude) repeats the id but runs the CLI bundled with
+// claude-code-action@v1, which may lag — see docs/agents/ci-quality.md.
+export const claudeReviewModel = 'claude-opus-5-5';
+
 // The model has no tools at all. --tools= empties the built-in set and ignores
 // user, project, and local settings, so it is the hard cap and no permission
 // rule can widen it. Nothing needs to be granted: the diff arrives in the prompt
@@ -30,8 +36,19 @@ export const claudeReviewToolArgs = Object.freeze([
 const workflowPath = '.github/workflows/claude-code-review.yml';
 const selfPaths = new Set([workflowPath, 'scripts/claude-review.mjs']);
 const shaPattern = /^[a-f0-9]{40}$/;
-const ghCommand = (args) =>
-  execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+// `input` is the child's stdin. Anything that scales with, or quotes, PR content
+// travels there — never as an argument. Node refuses any argv element holding
+// a NUL byte (ERR_INVALID_ARG_VALUE), and a reviewer that faithfully quotes a
+// control character from the diff produces exactly that; see reportReview().
+const ghCommand = (args, { input } = {}) =>
+  execFileSync('gh', args, { encoding: 'utf8', input, maxBuffer: 32 * 1024 * 1024 });
+// Stable, greppable prefixes for failures in the job log. The step summary
+// carries the same text, but the summary is not in the log stream.
+export const PUBLICATION_FAILURE_PREFIX = 'CLAUDE_REVIEW_PUBLICATION_FAILED:';
+export const CLAUDE_CLI_FAILURE_PREFIX = 'CLAUDE_REVIEW_CLI_FAILED:';
+const CLI_DIAGNOSTIC_LIMIT = 500;
+const CLI_FAILURE_REASON_LIMIT = 4096;
+const CLI_JSON_DIAGNOSTIC_INPUT_LIMIT = 64 * 1024;
 const gitHeadCommand = () =>
   execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const statePath = (env) => path.join(env.RUNNER_TEMP, 'claude-review-request.json');
@@ -42,6 +59,79 @@ const statePath = (env) => path.join(env.RUNNER_TEMP, 'claude-review-request.jso
 const captureDir = (env) => path.join(env.RUNNER_TEMP, 'claude-review-capture');
 const promptPath = (env) => path.join(captureDir(env), 'prompt.txt');
 const resultPath = (env) => path.join(env.RUNNER_TEMP, 'claude-review-result.json');
+
+function sanitizeCliDiagnostic(value, limit = CLI_DIAGNOSTIC_LIMIT) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const printable = Array.from(value.slice(0, limit), (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159) ? ' ' : character;
+  }).join('');
+  return printable.replace(/\s+/gu, ' ').trim();
+}
+
+function describeCliStdout(stdout) {
+  const raw = String(stdout ?? '');
+  if (!raw) {
+    return [];
+  }
+  if (raw.length > CLI_JSON_DIAGNOSTIC_INPUT_LIMIT) {
+    return ['stdout=omitted_over_limit'];
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return [];
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    const diagnostic = sanitizeCliDiagnostic(trimmed);
+    return diagnostic ? [`stdout=${diagnostic}`] : [];
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    return [`stdout_json_type=${Array.isArray(parsed) ? 'array' : typeof parsed}`];
+  }
+  const diagnostics = [];
+  for (const key of ['subtype', 'is_error', 'api_error_status', 'terminal_reason', 'error']) {
+    const value = parsed[key];
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      const diagnostic = sanitizeCliDiagnostic(String(value));
+      if (diagnostic) {
+        diagnostics.push(`${key}=${diagnostic}`);
+      }
+    }
+  }
+  if (Array.isArray(parsed.errors)) {
+    const errors = sanitizeCliDiagnostic(
+      parsed.errors.filter((value) => typeof value === 'string').join(' | ')
+    );
+    if (errors) {
+      diagnostics.push(`errors=${errors}`);
+    }
+  }
+  if (parsed.is_error === true) {
+    const result = sanitizeCliDiagnostic(parsed.result);
+    if (result) {
+      diagnostics.push(`result=${result}`);
+    }
+  }
+  return diagnostics;
+}
+
+function describeCliFailure(child) {
+  const exit = child.signal
+    ? `terminated by signal ${sanitizeCliDiagnostic(String(child.signal))}`
+    : `exited ${child.status ?? 'unknown'}`;
+  const diagnostics = [];
+  const stderr = sanitizeCliDiagnostic(String(child.stderr ?? ''));
+  if (stderr) {
+    diagnostics.push(`stderr=${stderr}`);
+  }
+  diagnostics.push(...describeCliStdout(child.stdout));
+  return [`Claude CLI ${exit}`, ...diagnostics].join('; ');
+}
 
 function output(env, key, value) {
   const delimiter = `claude_${randomUUID()}`;
@@ -298,12 +388,17 @@ ${fenced}END ${fence}
  * is the reason the 128 KiB MAX_ARG_STRLEN ceiling is gone rather than worked
  * around.
  */
-export function runReview({ env = process.env, spawn = spawnSync, claude = 'claude' } = {}) {
+export function runReview({
+  env = process.env,
+  spawn = spawnSync,
+  claude = 'claude',
+  stderr = process.stderr,
+} = {}) {
   const request = JSON.parse(readFileSync(statePath(env), 'utf8'));
   const args = [
     '-p',
     '--model',
-    'claude-opus-5',
+    claudeReviewModel,
     '--max-turns',
     '80',
     ...claudeReviewToolArgs,
@@ -324,9 +419,7 @@ export function runReview({ env = process.env, spawn = spawnSync, claude = 'clau
       throw child.error;
     }
     if (child.status !== 0) {
-      throw new Error(
-        `The Claude CLI exited ${child.status}. This includes the 80-turn cap and cancellation. ${String(child.stderr ?? '').slice(0, 500)}`
-      );
+      throw new Error(describeCliFailure(child));
     }
     const parsed = JSON.parse(child.stdout);
     if (!parsed.structured_output) {
@@ -335,7 +428,11 @@ export function runReview({ env = process.env, spawn = spawnSync, claude = 'clau
     result.conclusion = 'success';
     result.structuredOutput = JSON.stringify(parsed.structured_output);
   } catch (error) {
-    result.reason = error.message;
+    result.reason = sanitizeCliDiagnostic(
+      error instanceof Error ? error.message : String(error),
+      CLI_FAILURE_REASON_LIMIT
+    );
+    stderr.write(`${CLAUDE_CLI_FAILURE_PREFIX} ${result.reason}\n`);
   } finally {
     closeSync(promptFd);
   }
@@ -366,7 +463,7 @@ export function validateReviewResult(raw, request) {
 }
 
 /** The trusted reporter, not the model, owns GitHub publication and coverage state. */
-export function reportReview({ env = process.env, gh = ghCommand } = {}) {
+export function reportReview({ env = process.env, gh = ghCommand, stderr = process.stderr } = {}) {
   const request = JSON.parse(readFileSync(statePath(env), 'utf8'));
   let disposition = request.disposition;
   let reason = request.reason;
@@ -417,18 +514,22 @@ export function reportReview({ env = process.env, gh = ghCommand } = {}) {
       if (body.length > 65_536) {
         throw new Error('Claude review exceeds the GitHub comment body limit.');
       }
-      const commentUrl = gh([
-        'pr',
-        'comment',
-        String(request.number),
-        '--repo',
-        request.repository,
-        '--body',
-        body,
-      ]).trim();
+      // The body reaches gh on stdin (`--body-file -`), never as an argument.
+      // Twice on #3119 a completed, exact-head-validated review was refused at
+      // this line because the reviewer had quoted a NUL byte from the diff and
+      // Node rejects NUL in argv. A pipe carries any byte sequence, so the
+      // reviewer's text is published exactly as written — nothing is stripped
+      // or escaped. Same lesson as the prompt's 128 KiB argv ceiling (BST-1666).
+      const commentUrl = gh(
+        ['pr', 'comment', String(request.number), '--repo', request.repository, '--body-file', '-'],
+        { input: body }
+      ).trim();
       body += `\nPublished disposition: ${commentUrl}\n`;
     } catch (error) {
       disposition = 'incomplete';
+      // Both surfaces: the step summary for a human in the browser, and stderr
+      // so the job log names the cause instead of a bare exit code.
+      stderr.write(`${PUBLICATION_FAILURE_PREFIX} ${error.message}\n`);
       body = `## Claude auto-review did not complete\n\nRequested head: \`${request.head}\`\n\nScope: ${request.scope}\n\nPublication failed: ${error.message}\n\nWorkflow: ${request.runUrl}\n`;
     }
   }

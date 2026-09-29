@@ -1,4 +1,3 @@
-import type { ElectronAPI } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type UseEmbeddingControlsOptions, useEmbeddingControls } from '../use-embedding-controls';
@@ -189,7 +188,7 @@ import { useVectorQueueState } from '../vector-status/use-vector-queue-state';
 
 describe('useEmbeddingControls', () => {
   const mockToast = vi.fn();
-  const testWindow = window as Window & { electronAPI?: unknown };
+  const testWindow = window as Window & { embeddingHost?: unknown };
   const mockChunkRepository = {
     clearEmbeddingsForSet: vi.fn(async () => 10),
     getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 50, totalChunks: 100 })),
@@ -202,7 +201,7 @@ describe('useEmbeddingControls', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    Reflect.deleteProperty(testWindow, 'electronAPI');
+    Reflect.deleteProperty(testWindow, 'embeddingHost');
 
     // Reset mocks to defaults
     vi.mocked(usePGliteDatabase).mockReturnValue({} as ReturnType<typeof usePGliteDatabase>);
@@ -350,7 +349,7 @@ describe('useEmbeddingControls', () => {
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
 
-      // On web (no electronAPI), willAutoStartWorker should be true when worker not running
+      // Without the desktop embedding host, web auto-start remains available.
       expect(result.current.dropdownProps.willAutoStartWorker).toBe(true);
     });
 
@@ -387,7 +386,13 @@ describe('useEmbeddingControls', () => {
     });
 
     it('does not expose hidden desktop host startup as dropdown starting state', () => {
-      testWindow.electronAPI = {} as ElectronAPI;
+      testWindow.embeddingHost = {
+        ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+        getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+        onStatus: vi.fn(() => () => {}),
+        reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+        stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+      };
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
         clearWorkerError: vi.fn(),
         resetWorker: vi.fn(async () => {}),
@@ -581,7 +586,7 @@ describe('useEmbeddingControls', () => {
     });
 
     it('returns "disabled" on web when no activity', () => {
-      // On web (no electronAPI), should return 'disabled' when idle
+      // Without the desktop embedding host, an idle web worker is disabled.
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
         clearWorkerError: vi.fn(),
         resetWorker: vi.fn(async () => {}),

@@ -1,10 +1,21 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createDesktopDatabaseIntegrity } from '../../database-integrity-state';
 import { registerClipboardIpcHandlers } from '../../ipc-clipboard';
 import { registerContextFilesIpcHandlers } from '../../ipc-context-files';
+import { registerDatabaseIntegrityIpcHandlers } from '../../ipc-domains/database-integrity-ipc';
+import {
+  mcpContentContract,
+  mcpContract,
+  mcpElicitationContract,
+  mcpPathSelectionContract,
+  mcpTasksContract,
+} from '../../ipc-domains/mcp.contract';
 import { registerSkillsIpcHandlers } from '../../ipc-skills';
 import { registerUserCommandsIpcHandlers } from '../../ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from '../../ipc-user-personas';
+import { createDesktopIpcRegistry, registerDomain } from '../../platform/desktop-ipc-registry';
+import type { Contract, Handlers } from '../../platform/ipc-contract';
 import { clearWindowRoleByWebContentsId } from '../../window-role';
 import {
   createAllowlistedSenderFrame,
@@ -147,5 +158,96 @@ describe('contract-registered leaf domains are visible-UI-only by construction (
         dispose();
       }
     );
+  });
+});
+
+describe('contract-registered MCP invokes are visible-UI-only by construction (BST-996)', () => {
+  const contracts = [
+    mcpContract,
+    mcpPathSelectionContract,
+    mcpContentContract,
+    mcpElicitationContract,
+    mcpTasksContract,
+  ];
+
+  beforeEach(() => {
+    resetElectronMainTestHarness();
+    trackTestWindowRole(HIDDEN_SENDER_ID, 'embedding-host');
+  });
+
+  afterEach(() => {
+    clearWindowRoleByWebContentsId(HIDDEN_SENDER_ID);
+  });
+
+  it.each(contracts)('rejects hidden senders before parsing every invoke', async (contract) => {
+    const registry = createDesktopIpcRegistry({ ipcMain: mockIpcMain as never });
+    const handlers = Object.fromEntries(
+      Object.entries(contract)
+        .filter(([, spec]) => spec.kind === 'invoke')
+        .map(([key]) => [key, vi.fn(() => SENTINEL)])
+    ) as Handlers<Contract>;
+    registerDomain(registry, 'mcp', contract, handlers);
+    const event = {
+      sender: { id: HIDDEN_SENDER_ID },
+      senderFrame: createAllowlistedSenderFrame('embedding-host'),
+    } as unknown as IpcMainInvokeEvent;
+
+    for (const spec of Object.values(contract)) {
+      if (spec.kind === 'invoke') {
+        await expect(registeredHandler(spec.channel)(event, 'malformed')).rejects.toThrow(
+          `Desktop IPC ${spec.channel} requires sender role visible-ui.`
+        );
+      }
+    }
+  });
+});
+
+describe('db:integrity:state is readable by the visible UI and the embedding host only (BST-1870)', () => {
+  const CHANNEL = 'db:integrity:state';
+  const ROLE_IDS = { chunking: 8_910_003, embedding: 8_910_002, visible: 8_910_001 };
+  const UNTRACKED_ID = 8_910_005;
+  const REJECTION = `Desktop IPC ${CHANNEL} requires sender role embedding-host, visible-ui.`;
+  let dispose: () => void = () => undefined;
+
+  beforeEach(() => {
+    resetElectronMainTestHarness();
+    dispose = registerDatabaseIntegrityIpcHandlers({
+      integrity: createDesktopDatabaseIntegrity({
+        logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+        now: () => new Date('2026-09-29T12:00:00.000Z'),
+      }),
+    });
+  });
+
+  afterEach(() => {
+    dispose();
+    for (const id of Object.values(ROLE_IDS)) {
+      clearWindowRoleByWebContentsId(id);
+    }
+  });
+
+  it.each([
+    ['visible-ui', ROLE_IDS.visible],
+    ['embedding-host', ROLE_IDS.embedding],
+  ] as const)('accepts the %s sender and replies with the result envelope', async (role, id) => {
+    await expect(registeredHandler(CHANNEL)(createTrustedInvokeEvent(role, id))).resolves.toEqual({
+      ok: true,
+      value: { revision: 0, state: { kind: 'healthy' } },
+    });
+  });
+
+  it('rejects a chunking-host sender', async () => {
+    const event = createTrustedInvokeEvent('chunking-host', ROLE_IDS.chunking);
+
+    await expect(registeredHandler(CHANNEL)(event)).rejects.toThrow(REJECTION);
+  });
+
+  it('rejects an untracked sender', async () => {
+    const event = {
+      sender: { id: UNTRACKED_ID },
+      senderFrame: createAllowlistedSenderFrame('visible-ui'),
+    } as unknown as IpcMainInvokeEvent;
+
+    await expect(registeredHandler(CHANNEL)(event)).rejects.toThrow(REJECTION);
   });
 });

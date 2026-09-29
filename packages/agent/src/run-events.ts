@@ -8,7 +8,9 @@ export {
   type AssistantRunEventMetadata,
   type AssistantRunEventSink,
   type AssistantRunEventStatus,
+  boundRunEventReason,
   createAssistantRunEvent,
   emitAssistantRunEventSafely,
+  MAX_RUN_EVENT_REASON_CHARS,
   sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/assistant-contract/run-events';

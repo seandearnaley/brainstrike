@@ -1,761 +1,522 @@
 # Assistant Runtime: Resilience, Permissions, Hooks, Plan Mode
 
-> Extracted from AGENTS.md (2026-07-12). Read before changing the assistant tool/stream chain, tool approval, lifecycle hooks, or plan-mode/suspension. Keep this doc updated with the code.
+> Read before changing the assistant tool/stream chain, tool approval, lifecycle
+> hooks, or plan-mode/suspension. Rules here are true now; the record behind each
+> is in `assistant-runtime/<topic>.md`.
+
+## Existing-runtime conversation panels
+
+- `AssistantConversationPanel` binds `ChatThreadUI` to a supplied public
+  assistant-ui runtime. Opening or closing a visible panel invokes no model and
+  cancels no host-owned run. Main runtime construction is unchanged.
+- Give every pane its own runtime provider, error boundary and composer input
+  identity; callbacks and `threadKey` name the same conversation.
+- Size a child provider's error row so it reserves its own height inside the
+  bounded flex column; the transcript and composer take the rest. An error never
+  pushes the composer below the pane.
+- Host integration limits and the paired runtime/browser tests live in
+  `assistant-subagents.md`.
+
+## Native suspension completion
+
+- Await Mastra's public `getFullOutput()` on the initial, approval-resume and
+  suspended-tool-resume legs before publishing a terminal pause or completion.
+  Native pause parts can precede durable snapshot storage, so an immediately
+  submitted decision must find the snapshot and runtime disposal must not race
+  its writer.
+- Keep an already-mapped terminal error on a provider error part instead of
+  rethrowing it through the completion accessor. A synthetic steered step-finish
+  skips the join and aborts without consuming later native work.
+- Fail the stream on a failed native snapshot write rather than exposing an
+  unresumable decision.
+- **A pause part does not end the leg's read.** `streamAttemptChunks` reads to
+  native close. Withhold each pause's decision-exposing chunks
+  (`isPauseNoticeChunk`) and publish them together behind the completion join;
+  the leg then ends ONCE with a `tool-calls` finish (`resolveLegPart` strips the
+  per-pause finish, `concludeClosedStream` emits the leg's).
+- A resumed leg whose sibling calls stay suspended closes with no pause part and
+  a `getFullOutput()` that rejects; `readNativeStreamStatus` reads the
+  synchronous `suspended` status, skips the join, and ends as the pause it is.
+- Exit rules for withheld notices, each drained where published so no exit
+  repeats one: a rejected completion join DISCARDS them; an explicit root Stop
+  drops them; any other later failure in the leg and a genuinely missing finish
+  PUBLISH them ahead of the failure or synthetic ending.
+- Scoped chunks never nest at this seam: a child leg withholds its own children's
+  notices in its own loop, and the continuation layer wraps only published
+  chunks.
+- Keep every notice actionable across legs in the renderer and lock the buttons
+  while a leg streams (`actionLockedByRun`).
+
+Settled: a pause part does not end the leg's read (2026-09-14). Evidence:
+`assistant-runtime/pause-part-does-not-end-leg.md`.
+Guard: `packages/agent/src/__tests__/specialist-fanout.integration.spec.ts`,
+`packages/agent/src/__tests__/resumed-worker-context.integration.spec.ts`.
 
 ## ASSISTANT RESILIENCE (CRITICAL)
 
-The assistant tool→stream chain must never freeze the thread. The renderer safety
-net, the two server-side resilience layers, and the Mastra error-processor layer
-below are LIVE.
+The assistant tool→stream chain never freezes the thread. Four layers are LIVE:
+the renderer safety net, the per-tool guard, the stream inactivity watchdog, and
+the Mastra error-processor layer.
 
-1. **Renderer safety net (LIVE)** — `packages/assistant-ui/src/assistant-panel-error-boundary.tsx`
-   wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
-   the runtime). The data-stream adapter surfaces transport errors via `onError`
-   and rethrow (never swallows). A run rejected BEFORE any stream part (e.g.
-   typed `memory_credential_missing` → HTTP 400) has zero message parts;
-   `AssistantMessage` mounts `AssistantMessageError` (ErrorPrimitive) so that
-   rejection renders as a visible error block — styling lives on the
-   error-conditional `Message`, never on the always-rendered `Root` (a styled
-   Root paints an empty red bar under every assistant message).
-   The adapter also owns a 30-second combined watchdog for asynchronous auth
-   header and request-body preparation before `fetch`. It passes an internal
-   abort signal through the body-preparation seam: user Stop aborts that work
-   immediately, while expiry throws the typed
-   `AssistantRequestPreparationTimeoutError`, invokes `onError`, and renders
-   through the same zero-part error path. A prepared run that resolves after
-   Stop/expiry is terminally completed as cancelled/failed and can never become
-   the active fetch body. Invalid watchdog values throw; they never disable the
-   bound. Built-in local model warmup runs in a separate pre-watchdog phase
-   because it can include a visible multi-file download. Stop detaches the
-   assistant run from that warmup immediately; the shared renderer-host
-   download may continue in the background, and its broadcast progress remains
-   visible. Auth headers, request persistence, and request-body construction
-   still share the bounded watchdog for every provider, including local.
+### Renderer safety net
 
-   Renderer consumers read the optional desktop assistant transport through
-   `getAssistantBridge()` from `@brainstrike/assistant-contract`. That contract
-   owns the `window.assistant` shape, returns no capability on web/SSR, and
-   reports a present malformed bridge at most once per renderer process so hot
-   render/request probes cannot flood logs; do not recreate local bridge
-   interfaces, unchecked double casts, or web stubs.
+- `packages/assistant-ui/src/assistant-panel-error-boundary.tsx` wraps
+  `ChatThreadUI` inside `AssistantRuntimeProvider`, so reset preserves the
+  runtime. The data-stream adapter surfaces ambiguous transport errors via
+  `onError` and rethrow. A host-proven pre-admission rejection reports `onError`
+  and yields an incomplete error result so fire-and-forget append settles visibly.
+- Render pre-stream rejection visibly: mount `AssistantMessageError` on a
+  zero-part `AssistantMessage`; style `Message` conditionally, never `Root`.
+  Evidence: `assistant-runtime/pre-admission-rejection.md`. Guard: `packages/assistant-ui/src/__tests__/data-stream-runtime-hook.test.tsx`, `assistant-run-admission-rejection.test.tsx`.
+- The adapter owns a 30-second combined watchdog over asynchronous auth-header
+  and request-body preparation before `fetch`, passing an internal abort signal
+  through the body-preparation seam. Stop aborts that work immediately; expiry
+  throws `AssistantRequestPreparationTimeoutError` through the same zero-part
+  error path. A prepared run resolving after Stop or expiry is terminally
+  completed as cancelled/failed and never becomes the active fetch body. Invalid
+  watchdog values throw; they never disable the bound.
+- Run built-in local model warmup in a separate pre-watchdog phase (it can
+  include a visible multi-file download). Stop detaches the assistant run from
+  the warmup immediately while the shared renderer-host download continues with
+  visible broadcast progress. Auth headers, request persistence and request-body
+  construction share the bounded watchdog for every provider, local included.
+- **A local run's Stop is classified by the run's own abort signal, never by the
+  error's shape:** Electron IPC keeps only an error's message, so a hidden-host
+  abort arrives as a plain `Error`. A cancelled completion stores no reason, like
+  the data-stream Stop. Evidence: `assistant-runtime/local-run-stop-classification.md`.
+  Guard: `packages/assistant-ui/src/__tests__/local-runtime-adapter.test.ts`.
+- Read the optional desktop assistant transport through `getAssistantBridge()`
+  from `@brainstrike/assistant-contract`, which owns the `window.assistant`
+  shape, returns no capability on web/SSR, and reports a malformed bridge at most
+  once per renderer process. Do not recreate local bridge interfaces, unchecked
+  double casts, or web stubs.
 
-2. **Per-tool guard (LIVE)** —
-   `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` wraps
-   the combined Mastra tool map in `createMastraAgentRuntime`'s tool pipeline
-   (`packages/agent/src/mastra/runtime-assembly/tool-pipeline.ts`) after local
-   and MCP tools are sanitized/discovered. Tool timeouts and throws resolve to structured
-   `GuardedToolError` payloads; guarded timeout/failure payloads are surfaced as
-   failed tool events, not successful completions. Generic exceptions retain a
-   redacted `tool_failed` message because they may contain host paths or secrets.
-   Trusted `ToolInputError` validation failures instead retain their bounded,
-   model-correctable message as `tool_input_invalid`; only application-owned
-   validation code may construct that error.
-   **The guard also CANCELS the work it gave up on (BST-1594).** Winning the
-   race only stops the wait, so the guard publishes a deadline `AbortSignal`
-   through `packages/agent/src/tools/tool-guard-deadline.ts` and aborts it
-   BEFORE resolving the `tool_timeout`. The seam is keyed by TOOL-CALL ID via
-   the single `readToolCallId` reader, not by execution-context identity:
-   Mastra reconstructs the context object between the guarded `execute` and the
-   tool's own callback (verified at @mastra/core 1.55), so a context-identity
-   WeakMap would silently read empty. Registration returns a release the guard
-   runs in its `finally`. The MCP runtime client folds the deadline into its
-   `tools/call` signal (never replacing `context.abortSignal`, whose identity
-   carries the `retainRawMcpCallToolResult` marker), so the SDK sends
-   `notifications/cancelled` instead of leaving a progress-deferred request
-   dangling. A call with no tool-call id publishes nothing and keeps the
-   pre-guard behaviour — the caller's signal and the SDK request bounds still
-   apply. The id is PROVIDER data, so two live executions can collide on it; the
-   later registration wins and the collision is LOGGED (`error`, not thrown —
-   a provider-chosen id must not take a working tool call down) so a
-   mis-routed cancellation is diagnosable rather than invisible. Verifier over a
-   real spawned stdio child:
-   `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spec.ts`
-   with `packages/agent/test-fixtures/mcp-stdio-progress-cancellation-server.mjs`.
+### Per-tool guard
 
-3. **Stream inactivity watchdog (LIVE)** —
-   `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
-   `StreamStalledError`). `streamAttemptChunks` wraps the raw Mastra iterator.
-   The window is PHASE-AWARE across THREE phases (BST-1408, extended for
-   reasoning): `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` governs the wait for the
-   provider to produce its first OUTPUT **in each step**,
-   `BRAINSTRIKE_STREAM_REASONING_GAP_MS` every gap while it is emitting
-   REASONING, and `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is
-   demonstrably ANSWERING — see the config list below for why they must not be
-   re-merged, why the phase boundary is provider output rather than "the first
-   part", and why a reasoning delta is not an answer. Since
-   BST-1409 a stall ends the ATTEMPT, not the turn; see ATTEMPTS VS TURNS below.
-   Only an unrecoverable stall emits a visible assistant message, a terminal
-   `run.failed` event, and an error finish so the renderer does not remain
-   in-flight forever.
-   An EMPTY MODEL RESPONSE rides the same attempt rails: a terminal `finish`
-   whose reason would complete the run, on a turn the model contributed
-   NOTHING to (no text/reasoning delta carrying a non-whitespace character —
-   whitespace-only output renders an equally empty bubble — and no
-   tool-lifecycle part, across every attempt; the deltas themselves still
-   stream, since formatting whitespace between real tokens is meaningful —
-   `ToolLifecycleState.sawModelContribution`, carried
-   like the billing flags; resume legs initialize it true because the resumed
-   tool call is model output), throws `EmptyModelResponseError` from the
-   mapper's `finish` case instead of completing. Field case 2026-08-23:
-   OpenRouter's `stealth/ox-alpha` route degraded into HTTP 200 streams with
-   one instant zero-usage step and a clean `stop` finish; mapping that to
-   `run.finished` painted an empty assistant bubble marked "success". An
-   ABNORMAL finish reason is deliberately NOT re-classified — it already fails
-   the run with its own truth (gate: `COMPLETED_FINISH_REASONS`, shared with
-   `makeTerminalRunEvent` so the two cannot drift).
-   The adjacent `withToolCallInputTimeout` wrapper applies its OWN, much wider
-   `BRAINSTRIKE_TOOL_CALL_INPUT_MS` window as an absolute deadline from the
-   first streamed tool-input marker to its matching input end/complete call.
-   `tool-call-delta` proves transport activity and continues to render
-   progress, but it never extends that deadline: a provider cannot keep a run
-   alive indefinitely by dribbling incomplete JSON arguments. The two windows
-   are DELIBERATELY decoupled and must not be re-merged (BST-839): the
-   inactivity window asks "is the transport still delivering parts?", this one
-   asks "will this call ever become executable?". Reusing the 120s inactivity
-   window as the input budget false-positived on legitimate large argument
-   payloads — a model writing tens of KB of file content streams argument
-   deltas continuously for minutes on a slow upstream route (observed on
-   OpenRouter → GLM, which took >120s to stream one file-write input while the
-   transport was demonstrably healthy). The wrapper ignores non-tool stream parts before
-   probing tool-call IDs, so ordinary text and reasoning deltas do not allocate
-   identifier candidate arrays. Expiry uses the distinct
-   `tool_call_input_streaming_timeout` terminal code and aborts before an
-   incomplete call can execute. A complete call leaves this layer and remains
-   governed by the ordinary per-tool execution guard.
-   Every initial, approval-resume, and suspended-tool-resume stream owns an
-   internal AbortController linked to the caller's signal. The watchdog rejects
-   with `StreamStalledError` first, then aborts that exact controller so provider
-   work cannot outlive the terminal stream without misclassifying the timeout as
-   a user cancellation. Stream teardown also aborts the controller before
-   disposal, preventing late provider progress/results from reaching a closed
-   consumer. For the built-in local provider this signal crosses
-   `LlmHostChatModel → LocalLlmHostClient → LlmHostManager`, removes the exact
-   pending request, and sends the hidden renderer's cancel command.
-   When watchdog expiry or caller Stop aborts a memory-backed turn, Mastra
-   (>= 1.62) itself persists the cancelled run's transcript through its
-   `MessageHistory` output processor — completed tool work and any partial
-   text, partial tool calls filtered — without awaiting that write. The stream
-   adapter's abort seam (`mastra/aborted-turn-persistence.ts`) then persists
-   the user input, every assistant message with its partial text RETAINED, and
-   only COMPLETED tool invocations from Mastra's live `MessageList`, appends
-   `[Assistant turn aborted before completion.]` as the last text part, and
-   awaits the save before runtime disposal. Incomplete tool calls are the one
-   thing excluded, so Stop cannot resurrect execution on the next turn; the
-   awaited save is also the join that keeps Mastra's floating write from racing
-   storage close (contract and measurements in
-   `docs/agents/assistant-persistence.md`). The same finalizer covers approval
-   and suspended-tool resume streams, while Mastra read-only memory remains
-   write-free. Ordinary completion still uses Mastra's finish writer only;
-   teardown never performs a second normal write.
+- `applyToolGuards` (`packages/agent/src/tools/guard-tool-execution.ts`) wraps the
+  combined Mastra tool map in `createMastraAgentRuntime`'s tool pipeline
+  (`packages/agent/src/mastra/runtime-assembly/tool-pipeline.ts`) after local and
+  MCP tools are sanitized and discovered.
+- Resolve tool timeouts and throws to structured `GuardedToolError` payloads and
+  surface them as FAILED tool events, never successful completions. Delegated
+  `tool-result` parts use the same display projection and canonical guarded-error
+  classification as root results; native `isError` alone cannot classify a
+  guarded failure.
+- Keep a redacted `tool_failed` message for a generic exception (it may carry host
+  paths or secrets). A trusted `ToolInputError` keeps its bounded,
+  model-correctable message as `tool_input_invalid`; only application-owned
+  validation code constructs that error.
+- **The budget is PER CALL, not one flat ceiling.** A native tool declares
+  `executionBudget: { defaultMs, maxMs }` on its `defineNativeTool()` definition
+  (validated at definition time).
+  `packages/agent/src/tools/resolve-tool-guard-budget.ts` is the SINGLE place the
+  `{ grantedMs, guardMs }` arithmetic lives. A tool that declares no budget keeps
+  the flat `BRAINSTRIKE_TOOL_TIMEOUT_MS` default.
+- Grant a declared budget to LOCAL tools only: `tool-pipeline.ts`'s `budgetFor`
+  matches on the SANITIZED local tool id, never on name equality, so a
+  third-party MCP tool named like a native one cannot inherit its budget. Every
+  MCP tool keeps the flat default until BST-1779 extends declared budgets to MCP.
+- State the GRANTED budget in `formatToolTimeoutMessage`, never the guard window,
+  and offer the larger-timeout remedy ONLY when `grantedMs < declaredMaxMs`. Tell
+  a call already at the declared max to split the work instead. Units: seconds in
+  prose; the one parameter VALUE is labelled `ms`.
+- **`resolveGuardedToolSignal` is mandatory for any tool that owns a process or a
+  network request** (`packages/agent/src/tools/tool-guard-deadline.ts`). The guard
+  stops the WAIT, not the work, so fold its deadline into the tool's own signal;
+  it returns the execution signal BY IDENTITY when there is no deadline
+  (`retainRawMcpCallToolResult` keys on it). `manageCommandSession` deliberately
+  does not fold it in — a session outlives any one guarded call.
+- **The guard also CANCELS the work it gave up on.** It publishes a deadline
+  `AbortSignal` keyed by TOOL-CALL ID (the single `readToolCallId` reader, never
+  execution-context identity) and aborts it BEFORE resolving `tool_timeout`; registration
+  returns a release the guard runs in its `finally`. The MCP runtime client folds it into
+  its `tools/call` signal without replacing `context.abortSignal`, so the SDK sends
+  `notifications/cancelled`. A call with no tool-call id publishes nothing and keeps the
+  pre-guard behaviour. The id is PROVIDER data: the later registration wins; the collision is LOGGED at `error`, never thrown.
 
-4. **Mastra error-processor layer (LIVE)** —
-   `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
-   `buildToolLoopOptions` (`new Agent` in `agent-runtime.ts`; the tool-loop
-   options in `runtime-assembly/stream-options.ts`, moved out of
-   `agent-streaming.ts` by BST-1649). Adopts three `@mastra/core`
-   built-ins that recover on EMITTED provider/API errors — disjoint from the
-   guard (tool-execute failures) and watchdog (silent stalls), so no
-   double-wrapping:
-   - **StreamErrorRetryProcessor** — retries transient mid-stream errors
-     (OpenAI Responses `error`/`response.failed`, provider `isRetryable`, and an
-     `isEconnResetStreamError` matcher with capped exponential backoff). Since
-     core 1.51 the config additionally sets `retryUnknownErrors: true` — an
-     UNKNOWN stream error (matched by nothing) is retried under the same
-     bounded budget/backoff, while known-terminal authorization failures
-     (401/403 or `invalid_api_key`-class codes, walked through the cause
-     chain) surface immediately with NO retry (a bad key must fail loudly) —
-     and `maxRetryAfterMs` pinned to the SAME 30s ceiling as the backoff cap,
-     clamping provider `Retry-After` headers so neither our wait nor the
-     provider's demand can stall a retry past it; the wait is abort-aware.
-     **ERROR-PROCESSOR ORDER IS LOAD-BEARING** (do not relitigate): Mastra's
-     ProcessorRunner returns at the FIRST processor that requests a retry, so
-     the stack is [PrefillErrorHandler, ProviderHistoryCompat,
-     StreamErrorRetryProcessor] — the FIXUP processors must see the error (at
-     `retryCount === 0`) before the unknown-error retry, or a deterministic
-     prefill/history-compat rejection is blindly re-sent unchanged until the
-     budget burns. Pinned by the prompt-sensitive prefill test (the scripted
-     model keeps rejecting while the prompt still ends with an assistant
-     message — a blind retry cannot fake recovery). Deliberate trade-off:
-     deterministic non-auth errors (e.g. 400 context-length) eat the bounded
-     ~3s unknown-retry budget before surfacing.
-   - **PrefillErrorHandler** — recovers reloaded-thread assistant-prefill
-     rejections (Anthropic / Qwen `enable_thinking`).
-   - **ProviderHistoryCompat** — cross-provider `mastra_messages` reuse.
-   Placement (verified against the compiled loop, do NOT relitigate): the two
-   `processAPIError`-only processors + ProviderHistoryCompat's REACTIVE rules go
-   on the Agent-config `errorProcessors` seam (never clobbered by the per-call
-   TokenLimiter). ProviderHistoryCompat's PREEMPTIVE `processLLMRequest` rules
-   (strip foreign reasoning — the ONLY place that incompatibility is handled)
-   fire ONLY from `inputProcessors`, so a SECOND ProviderHistoryCompat instance
-   is composed into the per-call `inputProcessors` array ALONGSIDE the
-   TokenLimiter in `buildToolLoopOptions` (composing, not clobbering — their
-   hooks are disjoint stages). **`maxProcessorRetries` MUST stay pinned**
-   (`ASSISTANT_MAX_PROCESSOR_RETRIES = 3`): any `errorProcessors` flips Mastra's
-   implicit default to 10. The whole layer is EXCLUDED for the built-in local
-   provider (the hidden llm-host owns its own engine-fault recovery; no
-   hosted-provider wire quirks apply).
+Settled: the budget is per call; the guard cancels its abandoned work; the
+keying is by tool-call id. Evidence: `assistant-runtime/tool-guard-budgets.md`.
+Guard: `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spec.ts`
+(real spawned stdio child).
 
-Every provider/model error that reaches the stream mapper is classified at that
-single choke point; no provider-specific fetch wrapper or retry-attempt
-instrumentation participates. The terminal `run.failed` event carries one
-namespaced `metadata.runError` object with exactly `code`, optional `message`,
-`causeChain`, `httpStatus`, `providerRequestId`, and `responseHeaders`. The
-extractor walks bounded `Error.cause` / AI SDK `APICallError` shapes and, when
-the code is not on the explicit stable allowlist, classifies by provider
-evidence: `mastra_agent_stream_provider_error` when the walk found an
-`httpStatus`, `providerRequestId`, allowlisted `responseHeaders`, or an AI SDK
-api-call error marker (`AI_APICallError` / `AI_RetryError` name, or
-`url` + `requestBodyValues` — these exist only for calls that crossed to a
-provider), and `mastra_agent_stream_local_error` when it found none — a local
-runtime fault (e.g. a TypeError inside the stream chain) must never wear the
-provider label (the 2026-08-03 grepSearch-projection incident), and a real
-provider failure that arrived without response metadata must never wear the
-local one. The extractor emits at most
-four bounded cause strings. Every truncated string ends with `… [truncated]`;
-truncation is never silent.
+### Stream inactivity watchdog
 
-The adjacent diagnostic breadcrumb uses the provider code plus validated HTTP
-status in its diagnostic code so unrelated provider failures do not collapse
-into one fingerprint. Content-policy tripwires terminate visibly through their
-own `mastra_agent_stream_tripwire` diagnostic and never carry the provider
-`metadata.runError` envelope. Mastra 1.51's canonical tripwire shape is
-`{type:'tripwire', payload:{reason,retry?,metadata?,processorId?}}`; the mapper
-must read that payload rather than the obsolete top-level fixture shape. The
-bounded reason becomes visible assistant text plus durable `run.failed.detail`.
-The sanitized processor fields travel under `metadata.tripwire` and the same
-object is logged with durable run/thread/resource/root correlation. Arbitrary
-metadata is JSON-validated, passed through the shared run-event denial-list,
-then reduced by value shape before either persistence or logging: only
-identifier-shaped values for the explicit safe diagnostic keys plus finite
-numbers, booleans, null, and Mastra's literal `[REDACTED_MATCH]` marker retain
-their value. Other strings become character-count summaries. Arrays and objects
-are capped at 32 items/keys and use the reserved `__brainstrikeSummary`
-envelope for unambiguous type/count/omission bookkeeping; keys are capped at
-128 characters. Processor ids are capped at 256 characters. The visible,
-durable, and logged tripwire reason is capped at the shared 600-character
-provider-error limit because policy-triggering content must not gain a larger
-server-log exposure than it has in the thread.
-Malformed fields are enumerated in
-`metadata.tripwire.malformedFields`, and a missing/malformed reason produces an
-explicit visible compatibility error rather than the generic word "tripwire".
-The pre-1.51 top-level or payload `tripwireReason` reader remains an explicit
-compatibility input tagged `source:'legacy-tripwire-reason'`, including hybrid
-parts that also carry current sibling fields but omit `payload.reason`; remove
-it only alongside a Mastra compatibility-baseline change and its paired
-regression test.
+- `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
+  `StreamStalledError`) wraps the raw Mastra iterator in `streamAttemptChunks`.
+- The window is PHASE-AWARE across four phases: `awaiting-output`, `reasoning`,
+  `streaming`, and `tool-executing`. Keep them separate — see the config list
+  below. A stall ends the ATTEMPT, not the turn. Only an unrecoverable stall emits
+  a visible assistant message, a terminal `run.failed` event, and an error finish.
+- **Only a GUARDED call may enter `tool-executing` — an ALLOW-list, not a
+  deny-list.** `hasExecutionGuardBehindToolCall` (`mastra-watchdog-options.ts`)
+  tests a tool name against `runtime.toolNameMap`'s KEYS, exactly the set that
+  went through `applyToolGuards`; anything else stays on the tight window.
+  Provider-executed, subagent delegation and Mastra-injected memory tools are
+  never in the set and keep riding the ordinary provider-silence windows.
+- Track the phase by REFERENCE COUNT on `toolCallId` so parallel calls hold it
+  open until the last settles, and let it OVERRIDE the current provider phase.
+  `tool-call` is `started`; `tool-result`, `tool-error`, `tool-output-denied`,
+  `tool-call-approval` and `tool-call-suspended` are `settled` — approval and
+  suspension settle deliberately, because the call is waiting on a HUMAN.
+  Scaffolding (`start`, `step-start`) CLEARS the in-flight set.
+- **Classify a DELEGATED child's calls through the envelope.** UNWRAP a
+  `tool-output` whose `toolName` starts with `SUBAGENT_DELEGATION_TOOL_PREFIX` and
+  is not itself `providerExecuted` — POSITIVE identification, never "not in the
+  guarded set" — and apply the allow-list to the nested part, under a fixed bound.
+- **Each BACKGROUND child has its own watchdog** (`background-child-watchdog.ts`):
+  the same classifiers and windows over its task's own output, from execution
+  start until its stream ends or parks. A stall ends that child ALONE
+  (`endStalledExecution`): its task fails with `BackgroundChildStalledError`
+  naming the phase and window, and the parent is woken like any failed task.
+- **The parent watchdog judges only the parent.** Child parts, lifecycle events and
+  host rows move no phase (`createMastraStreamPartRouter`). A task HOLDS the leg
+  from dispatch to terminal or suspension: while a held child is watched the
+  parent sets no window; held work nothing watches waits the first-output window.
+- **Seed a resumed, approval-approved call into the phase.** Mastra never replays a
+  suspended step's `tool-call` part, so `collectResumedGuardedToolCallIds` passes the
+  resumed call plus its siblings — filtered by `hasExecutionGuardBehindToolCall` — as
+  `initialToolCallIds`. Gate the scaffolding clear on `hasSeenProviderOutput` so a
+  seeded id survives leading scaffolding.
+- A `tool-executing` stall is TERMINAL: `isRecoverableStall` (`turn-attempts.ts`)
+  refuses recovery with `tool-still-executing`, because a continuation could
+  launch a SECOND execution of a tool that may still be alive.
+- Every GUARD window is below `toolExecutingMs` by construction, so a guard that
+  answers is never pre-empted. Tool-lifecycle HOOKS are NOT covered: they compose
+  outside the guard and are capped only individually. Keep `resolveStalledVisibleMessage`
+  honest about that; add no aggregate hook cap or env knob without a measured case.
+- **An EMPTY MODEL RESPONSE rides the same attempt rails.** A terminal `finish`
+  on a turn the model contributed nothing to — no text/reasoning delta carrying a
+  non-whitespace character and no tool-lifecycle part, across every attempt
+  (`ToolLifecycleState.sawModelContribution`; resume legs initialize it true) —
+  throws `EmptyModelResponseError` from the mapper's `finish` case. Do NOT
+  re-classify an abnormal finish reason: it already fails the run with its own
+  truth (`COMPLETED_FINISH_REASONS`, shared with `makeTerminalRunEvent`).
+- `withToolCallInputTimeout` applies its own, much wider `BRAINSTRIKE_TOOL_CALL_INPUT_MS`
+  window as an absolute deadline from the first streamed tool-input marker to its
+  matching input end. `tool-call-delta` renders progress but never extends that
+  deadline. Keep the two windows DECOUPLED. Expiry uses
+  `tool_call_input_streaming_timeout` and aborts before an incomplete call can execute.
+- Every initial, approval-resume and suspended-tool-resume stream owns an internal
+  AbortController linked to the caller's signal. The watchdog rejects with
+  `StreamStalledError` FIRST, then aborts that controller, so provider work cannot
+  outlive the terminal stream and the timeout is not misclassified as a user
+  cancellation. Teardown also aborts before disposal. The built-in local provider
+  forwards it to the hidden renderer's cancel command (`LlmHostManager`).
+- On watchdog expiry or caller Stop for a memory-backed turn, the abort seam
+  (`mastra/aborted-turn-persistence.ts`) persists the user input, every assistant
+  message with partial text RETAINED, and only COMPLETED tool invocations, appends
+  `[Assistant turn aborted before completion.]`, and AWAITS the save before
+  runtime disposal. Incomplete tool calls are the one exclusion, so Stop cannot
+  resurrect execution next turn. Ordinary completion still uses Mastra's finish
+  writer only; teardown never performs a second normal write.
+- Delegated children's abort snapshots follow `assistant-subagents.md` § Cancelled
+  child transcript durability, joined before attempt replacement and disposal.
 
-Response headers are a literal, case-normalized allowlist limited to
-rate-limit, `Retry-After`, and provider request-id variants. Request/response
-bodies, arbitrary `data` or provider metadata, request headers, URLs,
-credentials, and retry-attempt payloads never enter the event. OpenRouter's
-documented canonical token-limit vocabulary is still recognized across both
-mid-stream raw errors and the AI SDK pre-stream `APICallError.data` envelope,
-and remains visible in the bounded user-facing failure. Other providers use the
-same generic extractor and stable fallback code. `readProviderRunError` /
-`isProviderRunError`, exported by `@brainstrike/agent`, are the strict consumer
-boundary; downstream integrations must not hand-parse arbitrary event metadata.
+Settled: the phase boundary is provider output, not the first part; a running
+tool is never measured against a provider-silence window; Mastra's
+`tool-execution-start`/`-end` chunks are not the boundary; each background child
+has its own watchdog and the parent judges only itself (2026-09-22). Evidence:
+`assistant-runtime/stream-watchdog-phases.md`.
+Guard: `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec.ts`,
+`packages/agent/src/__tests__/mastra-stream-watchdogs.integration.spec.ts`, `packages/agent/src/__tests__/background-child-watchdog.integration.spec.ts`,
+`packages/agent/src/mastra/__tests__/mastra-background-watchdog-holds.spec.ts`, `packages/agent/src/mastra/__tests__/background-child-watchdog.spec.ts`.
 
-The provider-error termination log is also the durable diagnostic correlation
-choke point. It copies `runId`, `threadId`, and `resourceId` from
-`runtimeData.memory` plus `rootId` from the server-validated
-`runtimeData.boundWorkspaceRootId` into the structured logger context argument.
-The run id remains the renderer-minted durable run created before dispatch;
-there is no second producer. These values MUST NOT use logger bindings, ambient
-async context, `mainRootId`, or another inferred-root fallback: the diagnostic
-converter promotes only explicit context keys, and an absent identity stays
-absent rather than being guessed.
+### Mastra error-processor layer
 
-Hosted agent loops default to 100 model steps when the user has not configured
-an explicit lower limit. The Output & Limits UI must describe that finite
-default truthfully; an unset override is not an unbounded or "Open" run.
-Output-limit finishes are terminal failures, not successful completions:
-`finishReason: length` emits `run.failed`, an error finish, and a failed durable
-run outcome. The desktop data-stream session receives the selected provider,
-model, and `requestedReasoningEffort` as narrow output-limit context; that field
-is absent for Auto even when provider options contain a resolved wire effort.
-When Kimi K3 reaches the limit at explicit `high` or `max`, the terminal copy
-tells the user to retry at Low or Auto; it never changes effort, retries, or
-enlarges the output window automatically. Other models and efforts retain the
-generic output-limit failure. Hosted Web accepts but ignores the shared wire
-field because its trust boundary owns model/generation policy server-side and
-currently exposes no explicit client reasoning-effort path.
+- `packages/agent/src/mastra/error-processors.ts` is wired into `new Agent`
+  (`agent-runtime.ts`) plus `buildToolLoopOptions`
+  (`runtime-assembly/stream-options.ts`). It adopts three `@mastra/core`
+  built-ins that recover on EMITTED provider/API errors — disjoint from the guard
+  (tool-execute failures) and the watchdog (silent stalls), so nothing is
+  double-wrapped.
+- **StreamErrorRetryProcessor** retries transient mid-stream errors with capped
+  exponential backoff, sets `retryUnknownErrors: true`, surfaces known-terminal
+  authorization failures (401/403 or `invalid_api_key`-class codes, walked
+  through the cause chain) immediately with NO retry, and pins `maxRetryAfterMs`
+  to the same ceiling as the backoff cap so neither our wait nor a provider
+  `Retry-After` can stall past it. The wait is abort-aware.
+- **ERROR-PROCESSOR ORDER IS LOAD-BEARING.** The stack is [PrefillErrorHandler,
+  ProviderHistoryCompat, StreamErrorRetryProcessor]: Mastra's ProcessorRunner
+  returns at the FIRST processor requesting a retry, so the fixup processors must
+  see the error before the unknown-error retry.
+- **PrefillErrorHandler** recovers reloaded-thread assistant-prefill rejections;
+  **ProviderHistoryCompat** handles cross-provider `mastra_messages` reuse.
+- Placement: the two `processAPIError`-only processors plus ProviderHistoryCompat's
+  REACTIVE rules go on the Agent-config `errorProcessors` seam. Its PREEMPTIVE
+  `processLLMRequest` rules (the ONLY place foreign reasoning is stripped) fire
+  only from `inputProcessors`, so a SECOND instance composes into the per-call
+  `inputProcessors` array alongside the TokenLimiter, never clobbering it.
+- Keep `maxProcessorRetries` pinned (`ASSISTANT_MAX_PROCESSOR_RETRIES = 3`): any
+  `errorProcessors` flips Mastra's implicit default to 10.
+- EXCLUDE the whole layer for the built-in local provider; the hidden llm-host
+  owns its own engine-fault recovery.
 
-**EVERY error finish is a failed durable outcome, not just `length`.** All three
-parts of that sentence apply to `finishReason: 'error'` too — the finish emitted
-by `makeProviderErrorTermination`, `makeStreamStalledTermination`,
-`makeToolCallInputTimeoutTermination`, and the empty-model-response termination
-(all five abnormal-ending policies live in
-`packages/agent/src/mastra/stream-termination.ts` since BST-986; the watchdog
-MECHANISM stays in `../stream/with-*-timeout.ts`). This was NOT true until 2026-07-25:
-`getAbnormalFinishMessage` returns `undefined` for `'error'` (deliberately — the
-termination helpers already emit the human detail as a visible text-delta, so a
-message here would double-report it), and `terminalFailureText` was only ever
-assigned from that message, so an error finish fell through to
-`{status: 'completed', error: null}`. A provider failure therefore emitted a
-`run.failed` run event while `thread_runs` recorded the run as SUCCEEDED — the
-ledger contradicted its own events, and the debug bundle's Failure summary
-(which reads `thread_runs`) reported success for exactly the runs it exists to
-diagnose.
+### Provider errors, tripwires and finish reasons
 
-`handleFinish` now sets `terminalFailureText` for an `'error'` finish without
-emitting a visible message, taking the text from the preceding `run.failed`
-event's label and falling back to `ERROR_FINISH_FALLBACK_TEXT`. Two paired tests
-in `data-stream-session.spec.ts` keep this honest: one pins the run-event-derived
-text, one pins the bare-finish fallback — either alone would pass without the
-other's mechanism working. Do not "simplify" this by making
-`getAbnormalFinishMessage` return a string for `'error'`; that reintroduces the
-duplicate visible message. `tool-calls` and `stop` correctly remain
-`completed` — they are intermediate/normal finishes, not terminals.
+- Classify every provider/model error at the single stream-mapper choke point. No
+  provider-specific fetch wrapper or retry-attempt instrumentation participates.
+- The terminal `run.failed` event carries one namespaced `metadata.runError`
+  object with exactly `code`, optional `message`, `causeChain`, `httpStatus`,
+  `providerRequestId`, `responseHeaders`. When the code is off the stable
+  allowlist, classify by provider evidence:
+  `mastra_agent_stream_provider_error` when the bounded cause walk found an
+  `httpStatus`, `providerRequestId`, allowlisted `responseHeaders` or an AI SDK
+  api-call marker, and `mastra_agent_stream_local_error` when it found none. A
+  local runtime fault must never wear the provider label, nor the reverse. Emit at
+  most four bounded cause strings; end every truncated string with
+  `… [truncated]`.
+- Response headers are a literal, case-normalized allowlist limited to rate-limit,
+  `Retry-After` and provider request-id variants. Request/response bodies,
+  arbitrary `data` or provider metadata, request headers, URLs, credentials and
+  retry-attempt payloads never enter the event. `readProviderRunError` /
+  `isProviderRunError` are the strict consumer boundary; downstream integrations
+  do not hand-parse event metadata.
+- Terminate content-policy tripwires through their own
+  `mastra_agent_stream_tripwire` diagnostic; they never carry the provider
+  `metadata.runError` envelope. Read the canonical
+  `{type:'tripwire', payload:{reason,retry?,metadata?,processorId?}}` payload.
+  Sanitize arbitrary metadata by value shape before persistence or logging, cap
+  the visible/durable/logged reason at the shared 600-character provider-error
+  limit, enumerate malformed fields in `metadata.tripwire.malformedFields`, and
+  produce an explicit visible compatibility error for a missing reason rather than
+  the bare word "tripwire". Remove the tagged legacy `tripwireReason` reader only
+  alongside a Mastra compatibility-baseline change and its regression test.
+- The provider-error termination log is the durable correlation choke point: copy
+  `runId`, `threadId`, `resourceId` from `runtimeData.memory` and `rootId` from
+  the server-validated `runtimeData.boundWorkspaceRootId` into the structured
+  logger context argument. Never use logger bindings, ambient async context,
+  `mainRootId`, or an inferred-root fallback; an absent identity stays absent.
+- Hosted agent loops default to 100 model steps with no explicit lower limit. The
+  Output & Limits UI describes that finite default truthfully. Output-limit
+  finishes are terminal failures: `finishReason: length` emits `run.failed`, an
+  error finish, and a failed durable run outcome.
+- **EVERY error finish is a failed durable outcome, not just `length`.**
+  `handleFinish` sets `terminalFailureText` for an `'error'` finish WITHOUT
+  emitting a visible message, taking the text from the preceding `run.failed`
+  event's **`detail`** and falling back to `ERROR_FINISH_FALLBACK_TEXT`. Do not
+  make `getAbnormalFinishMessage` return a string for `'error'` — that
+  reintroduces the duplicate visible message. `tool-calls` and `stop` remain
+  `completed`. `makeRunFailedChunk` carries the detail and stays a separate helper
+  so a positional slip cannot write a timestamp into the detail field.
+- **A provider-evidenced HTTP 401 is a REJECTED CREDENTIAL and the visible detail
+  says so**, with the remedy keyed by the run provider's registry `authType`
+  (`resolveProviderError`, `mastra-chunk-decoding.ts`). Adding a registry
+  `authType` is a compile error here until it picks a remedy. Guidance comes FIRST
+  so the clamp can only shorten the provider's own text. 401 is the ONE
+  wrong-credential status, mirroring the Settings "Test connection" classifier.
+  The `runError` envelope is unchanged; only the detail changes.
+- **Finish-reason absence is distinct from a raw unsupported value.**
+  `readFinishReason` / `resolveFinishReason` preserve a missing, empty or
+  non-string field as the internal `'absent'` sentinel; the AI SDK's literal
+  `'unknown'` also remains completed. Only a non-empty raw value outside the
+  SDK/Brainstrike union becomes `'unrecognized'`, emits `run.failed`, surfaces the
+  explicit message, and persists `thread_runs` as failed. Map `absent` to the
+  wire's completed `unknown` and `unrecognized` to the terminal `error` before
+  data-stream serialization. Intermediate steps start as `absent`. Never infer
+  provider failure from the AI SDK `unknown` value.
 
-The durable text comes from the `run.failed` event's **`detail`**, not its
-`label`: all three terminations share the generic label "Assistant run failed",
-so persisting the label alone yields a correct status with no forensic value.
-`makeRunFailedChunk` exists to carry that detail. It is a separate helper rather
-than another optional parameter on `makeRunEventChunk` because `detail` and
-`timestamp` are both `string`, so a positional slip between them would
-type-check cleanly while writing a timestamp into the detail field.
+Settled: the provider/local split is evidence-based; the 401 remedy is keyed by
+`authType`; an error finish is a failed durable outcome. Evidence:
+`assistant-runtime/error-processors-and-run-errors.md`.
+Guard: `packages/agent/src/__tests__/mastra-error-processors.spec.ts`,
+`packages/agent/src/mastra/__tests__/mastra-chunk-decoding.spec.ts`,
+`packages/agent/src/__tests__/mastra-stream-termination.spec.ts`.
 
-**A provider-evidenced HTTP 401 is a REJECTED CREDENTIAL, and the visible
-detail says so — with the remedy for THAT provider's auth type (BST-1384).**
-`resolveProviderError` (`mastra-chunk-decoding.ts`) rewrites the human detail
-for a run error whose `httpStatus` is 401 into "<remedy> Provider response:
-<body>", where the remedy is keyed by the registry `authType` of the run's
-provider (subject = registry `displayName`):
-`api_key` → "rejected the API key … Update the key in Settings → Providers, or
-verify it in the provider dashboard"; `oauth_subscription` → "rejected the
-sign-in session … Sign in again in Settings → Providers" (its stored key is the
-`oauth-subscription-no-api-key` placeholder — an api-key remedy would be a
-dead end); `aws` → "rejected the AWS credentials … Update the Bedrock credential
-… or refresh the AWS profile session"; `none` → "rejected the request as
-unauthorized … Check the runtime’s API token under Settings → Local Runtimes"
-(the optional local-runtime bearer is `providerOptions.apiToken`, not a Settings
-key); unknown provider → a neutral "rejected the credential" sentence. Adding a
-registry `authType` is a compile error here until it picks a remedy. Guidance
-comes FIRST so the visible clamp can only ever shorten the provider's own text
-(pinned by the clamp spec). 401 is the ONE wrong-credential status, mirroring
-the Settings "Test connection" probe's settled classifier
-(`provider-verification.ts`: 403 = authenticated-but-limited, 429 = rate-limited
-VALID credential) — a run must never blame the credential for a status the
-probe reports as verified. The `runError` envelope (code, `httpStatus`, the
-`mastra_agent_stream_provider_error:401` log fingerprint, debug-bundle fields)
-is byte-identical to before; only the detail changes. DELIBERATE asymmetry with
-the probe, do not "fix" either side to match the other: the probe composes its
-detail from the status alone (bodies are never echoed there), while this path
-appends the provider body — it is the user's only provider-side evidence, the
-pre-change visible detail WAS the raw body, and `runError.message` persists it
-regardless, so nothing new is exposed (some providers do echo a partially
-masked key in a 401 body, e.g. OpenAI's `Incorrect API key provided: sk-…XYZ`).
-Motivating field failure (2026-08-21): OpenRouter's 401 body is literally "User
-not found." for ANY unrecognized key, so a revoked stored key surfaced as an
-opaque app failure and read as a regression for a day. Pinned by the
-`rejected credential (HTTP 401)` block in `mastra-chunk-decoding.spec.ts`.
+### Raw/model tool-output split
 
-**Finish-reason absence is distinct from a raw unsupported value (BST-868).**
-`readFinishReason` and `resolveFinishReason` preserve a missing, empty, or
-non-string Mastra field as Brainstrike's internal `'absent'` sentinel. The AI
-SDK's literal `'unknown'` also remains completed because that upstream value
-already combines "provider omitted the field" with provider values the SDK does
-not recognize; Brainstrike cannot safely reconstruct that lost distinction.
-Only a non-empty raw value outside the SDK/Brainstrike union becomes the
-internal `'unrecognized'` sentinel, emits `run.failed`, surfaces the explicit
-"unrecognized finish reason" message, and persists `thread_runs` as failed.
-Before data-stream serialization, internal `absent` becomes assistant-stream
-0.3.37's completed wire value (behavior verified at 0.3.25, unchanged by the
-0.3.34 and 0.3.37 lockstep bumps — `unknown` is still in the completed-status
-union at 0.3.37) `unknown`; internal `unrecognized` becomes the
-terminal wire value `error`. Intermediate steps start as `absent`, never as the
-SDK-owned `unknown`. Keep these internal sentinels out of the legacy data-stream
-protocol and never infer provider failure from the AI SDK `unknown` value.
+- `createMastraAgentRuntime` composes tools in this order (the stage sequence
+  lives in `runtime-assembly/tool-pipeline.ts`): `sanitize/discover → timeout
+  guard → lifecycle hooks → plan/permission/suspend gates → provider-native swap
+  → artifact settlement → model-output projection → Agent`.
+- The unregistered MCP Apps path captures its admission capability immediately
+  after the plan/permission/suspend gates. Admission returns an opaque one-use
+  executor bound to the exact post-gate tool entry and server/tool identity; the
+  Apps preparer has no separate invocation, guard or hook injection seam. The host
+  authority creates a generation-bound preparation id and requires its paired
+  release callback to settle before a denied or cancelled call completes. A tool
+  omitted by any ordinary gate is absent and fails visibly. Replaying a bound
+  executor fails visibly.
+- Project through Mastra's native `toModelOutput`, so the mapping observes the
+  post-hook execution result without replacing it. A discriminated internal
+  carrier takes PostToolUse context to `toModelOutput`; Mastra's official
+  display/transcript transforms unwrap it so live consumers and the durable
+  transcript retain the exact domain result.
+- Generated/default projections use the 2000-token / 8000-serialized-character
+  ceiling. Purpose-built domain projectors MUST self-fit complete output within
+  the run's context-window-scaled default and fail loudly on overflow; the central
+  seam never truncates an opaque page after its continuation was computed. Guarded
+  failures bypass custom projectors.
+- Strip successful PostToolUse metadata before projection, then append its context
+  centrally without reordering content and fit it into the remaining final
+  envelope. Only hook context may be truncated at that composition stage. The
+  `skill` activation exception keeps its complete instruction budget plus a
+  dedicated bounded hook allowance and structural reserve.
+- Invoke a reused parent-owned tool under a save/restore active-budget context for
+  the synchronous custom-projector call, so a pinned child producer fits the
+  child's resolved tier. Every desktop custom projector is synchronous and the
+  context is restored before any returned Promise can be observed.
+- Never shape-guess `{toolCallId,input,output}` as adapter metadata — that exact
+  object is valid domain evidence. A future direct AI SDK adapter belongs at a
+  separately typed boundary.
+- A purpose-built projector that emits a recognizable canonical envelope MUST
+  accept its own envelope idempotently, because Mastra may replay a stored
+  `providerMetadata.mastra.modelOutput` through it. Validate stored/settled replay
+  against the fixed ceiling tier and fresh projections against the per-run tier;
+  never reinterpret arbitrary lookalike domain objects.
+- `ModelOutputProjectionObserver` receives `(toolName, output)` at the final
+  projection seam. `RunTokenDiagnostics` retains one privacy-safe per-call sample
+  (tool id, serialized model-facing character count, booleans only) and emits one
+  internal `tool-call-telemetry` chunk before the terminal finish; a run without
+  the desktop run-persistence capability discards it before renderer
+  serialization. Recognize generic truncation only from a final
+  `{type:'json', value:{truncated:true}}` projection; attach zero-match,
+  request-offset and typed truncation metadata in a private WeakMap so no
+  projected-text parsing or user search data enters telemetry.
+- At run end the same instance may emit one `token-estimate-calibration` chunk.
+  Emit it whenever there is something new to report — a measured tool-output
+  projection, a `promptBreakdown` to source a baseline from, or both — and skip it
+  only when neither is available. Both resume iterators compute `promptBreakdown`
+  from the resumed runtime's own breakdown with `messages: []`. The
+  `model_visible_projection_count > 0` ratio-eligibility gate lives in the
+  `estimator-calibration.sql` lens, not the writer.
+- Pre-request conversation compaction reads the latest thread-scoped calibration
+  row whose `prompt_baseline_tokens` is NOT NULL and triggers on
+  `previousPromptBaseline + conversationMessageTokens >= 0.90 * inputBudget`. The
+  deterministic message-side target is
+  `max(1024, 0.70 * inputBudget - previousPromptBaseline)`.
+- Run that lookup CONCURRENTLY with the unprojected-message load (`Promise.all`),
+  never sequenced after it. A missing row uses baseline 0 at `debug` under
+  `conversation_compaction_baseline_unavailable`; a failed read or a
+  corrupt/out-of-range value also falls back to 0 but at `warn` under its own
+  distinct code.
+- When the baseline alone is at or above the 70% target, recency pruning and the
+  deterministic path toward the 1024-token floor STILL run; only the AGENTIC
+  summarizer is skipped, under `conversation_compaction_baseline_exceeds_target`,
+  latched once per thread per process. `createContextOverflowRecovery` is a
+  separate path and stays enabled.
+- With a trusted `toolOutputArtifactStore`, settlement-wrap the final native/MCP
+  tool map after policy/provider transforms and before `toModelOutput`. Fully
+  retain non-media results above 12,000 UTF-8 bytes before an artifact envelope
+  reaches display/transcript. MCP settlement also consults the generic model
+  projector before retaining an otherwise-inline result: compare the actual
+  bounded value with complete source text including JSON escaping and the domain
+  reserve, and settle on any loss. No second size constant approximates the model
+  projection.
+- Store the complete raw output before publishing a recovery page; storage
+  failures fail visibly. Runtime settlement requires an explicit reader resolver
+  that resolves exactly ONE eligible reader from the canonical name map before
+  storage; zero or multiple matches fail visibly without writing an artifact.
+- MCP Apps retain their complete marker, origin and ordinary result in
+  display/transcript output; only the ordinary result is serialized for model
+  artifact recovery. Apps media takes the inline media path. Keep the eligible
+  artifact reader on the core discovery surface so recovery never requires a
+  search call.
+- `brainstrike.webExtract` uses the smaller of 2400 characters and the run's
+  resolved domain-projection character budget. With no durable store, an oversized
+  extract produces an explicit model-output-unavailable projection; it never
+  silently clips source text.
+- Keep the original in-process result and authenticated PostToolUse context in a
+  module-private WeakMap carrier, away from public persistence. After settlement,
+  bypass any domain projector and project a bounded initial-page view that omits
+  the redundant artifact reference and carries one concrete reader/cursor action,
+  recomputing its cursor if the preview must shrink. Public-shape guessing is
+  forbidden. Storage failure, a missing tool-call id, incoherent returned metadata
+  or output above the 16 MiB settlement cap throws visibly.
+- Exclude the `skill` tool (its instruction payload cannot be paged) and MCP
+  image/audio `content` arrays (they stay inline for display/transcript and retain
+  their aggregate media plus non-media metadata ceilings).
+- Desktop builds `brainstrike.readToolOutputArtifact` only when server-owned
+  resource and thread scope plus the database bridge exist. The registered model
+  tool accepts the opaque continuation cursor plus bounded page/search options,
+  never artifact metadata or ownership ids. Any unscanned source or
+  projection-omitted match carries an advancing cursor; missing continuation
+  guidance fails the run. No capability means no registered tool — never a stub or
+  unscoped fallback.
+- Without that host capability, MCP text/JSON keeps the inline behaviour bounded
+  inside `execute()`. The UI data-stream bound is a transport backstop, not the
+  model-context boundary.
+- `ProjectionAwareTokenLimiter` temporarily swaps each completed result to its
+  stored model projection for counting, replaces media bodies with markers,
+  delegates to Mastra, and restores raw property descriptors in `finally`.
+- Hosted runs also install `ProjectionSafeToolCallFilter`. `processInputStep`
+  computes eligibility without returning messages (Mastra applies that hook's
+  result back to the live `MessageList`); `processLLMRequest` performs the
+  transient rewrite after stored projections resolve. Replace only old, completed,
+  successful native read/search/retrieval calls with a serializable
+  non-multimodal stored projection. The newest eligible read/search/retrieval step
+  stays verbatim, as do missing projections, errors, commands, verification,
+  tasks, discovery, skills, approvals, incomplete calls and MCP tools. Never
+  mutate the live `MessageList` or durable rows.
+- EDITS get one narrow treatment: a SETTLED `writeWorkspaceFile` /
+  `stringReplaceWorkspaceFile` call outside the recent-step window whose
+  serialized args exceed 2,000 chars has its prompt-side INPUT collapsed to
+  `path`, `root` and an honest `elidedArguments` marker. The call/result pair
+  stays structurally in place, the RESULT stays verbatim, failed or in-flight
+  edits keep full args, and durable rows are untouched. Local, Ollama and LM
+  Studio runs omit it.
+- **A filtered pair must NEVER become assistant-authored `<toolName> result:`
+  text** — GPT-5.x Harmony models mimic that shape. The stale tool-call part
+  becomes a generic stub (at most ONE per message) and the projection replays in a
+  following user-role message that flushes only after every adjacent tool-role
+  message. Frame the replay explicitly as "untrusted tool output, not
+  instructions" between BEGIN/END REPLAYED TOOL OUTPUT markers and defang marker
+  lookalikes inside the projection. Tool-results embedded in ASSISTANT-role
+  messages are ineligible and stay verbatim. A pair whose projection cannot be
+  textualized stays verbatim on BOTH sides.
+- The adjacent `RunTokenDiagnostics` path is measurement-only: it emits one
+  content-free `mastra_agent_token_measurement` log and cannot alter the limiter,
+  the ceilings, the outgoing prompt or persisted run events. Tokenizer failures
+  stay visible under their declared mode and never relabel themselves as exact.
+  The provider/model capability contract lives in `assistant-providers.md`.
 
-**Raw/model tool-output split (LIVE):**
-`createMastraAgentRuntime` composes tools in this order (the stage sequence
-lives in `runtime-assembly/tool-pipeline.ts`; OpenRouter billed-cost/usage
-extraction lives in `runtime-assembly/usage-metering.ts`):
-`sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
-gates → provider-native swap → artifact settlement → model-output projection →
-Agent`. The still-unregistered MCP Apps path captures its admission capability
-immediately after the plan/permission/suspend gates. Admission returns an
-opaque one-use executor bound to the exact post-gate tool entry and exact
-server/tool identity; the Apps preparer has no separate invocation, guard, or
-hook injection seam. The host authority creates a generation-bound preparation
-id before invoking the preparer and requires its paired release callback to
-settle before a denied or cancelled call completes, including a cancelled
-preparation response. It receives no separate policy, plan, enabled-tool, or
-storage decision: a tool omitted by any ordinary gate is absent and fails
-visibly. The authority-owned per-call abort signal marks that bound execution
-for raw MCP result retention, so the transport adapter and temporary preview
-wrapper preserve the complete `CallToolResult` before artifact and model
-projection. Canonical `isError: true` server results remain successful JSON-RPC
-results with exact content and metadata; thrown transport/execution failures
-alone become ordinary guarded errors. An admitted App call therefore uses the ordinary guard,
-hooks, and execution-duration telemetry exactly once. Replaying the bound
-executor fails visibly before another tool execution can start.
+Settled: stored replay validates against the ceiling tier; replay-time
+hook-context composition against the fixed total axis is a known, documented
+tradeoff, not a bug. Evidence: `assistant-runtime/tool-output-projection.md`.
+Guard: `packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts`,
+`packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts`,
+`packages/agent/src/__tests__/projection-safe-tool-call-filter.spec.ts`.
 
-The final
-projection uses Mastra's native `toModelOutput`, so the mapping observes the
-post-hook execution result without replacing it. A discriminated internal
-carrier takes PostToolUse context to `toModelOutput`; Mastra's official
-display/transcript transforms unwrap it so live application consumers and the
-durable transcript retain the exact domain result. Generated/default
-projections use the unchanged 2000-token / 8000-serialized-character ceiling.
-Purpose-built domain projectors MUST self-fit complete output within the active
-run's context-window-scaled default (500..3000 tokens / 2000..12000
-characters; 1500 / 6000 at the 128k anchor) and fail loudly on overflow; the
-central seam never truncates an
-opaque page after its continuation was computed. Guarded failures bypass custom
-projectors. Successful PostToolUse metadata is stripped before projection
-(one explicit internal envelope preserves every original result shape),
-then its context is appended centrally without reordering content and fitted
-into the remaining final 8000-character envelope. Only hook context may be
-truncated at that composition stage. The `skill` activation exception keeps
-its complete 6000-token instruction budget and adds a dedicated bounded hook
-allowance plus structural reserve instead of rebinding to the generic
-1500-token domain budget. Persona agents receive the same projections before
-their independent permission gate. A reused parent-owned tool is invoked under
-a save/restore active-budget context for the synchronous custom-projector call,
-so a pinned child producer fits to the child's resolved tier rather than the
-construction-time parent tier; every desktop custom projector is synchronous,
-and the context is restored before any returned Promise can be observed.
-Mastra 1.51's documented CoreTool
-projection callback receives the raw execute output. Brainstrike never
-shape-guesses `{toolCallId,input,output}` as adapter metadata because that exact
-object is valid domain evidence; a future direct AI SDK adapter belongs at a
-separately typed boundary.
-Mastra may replay a stored `providerMetadata.mastra.modelOutput` through the
-same tool projector while preparing a later same-run provider step. A
-purpose-built projector that emits a recognizable canonical envelope must
-therefore accept its own envelope idempotently. Stored/settled replay validates
-the default domain portion against the fixed ceiling tier rather than a smaller
-current-run budget; fresh projections use the per-run resolved tier. It must
-validate the applicable domain budget and never reinterpret arbitrary lookalike
-domain objects. `grepSearch` pins this
-with the exact `{ type: 'text', value: 'grep …' }` replay that previously
-terminated a hosted Claude verification run.
+### Hosted native-tool definition and prompt budget
 
-**Known tradeoff (BST-1206 review): replay's hook-context composition also
-uses the ceiling tier, not the resolved one — documented, not yet fixed.**
-When a settled/replayed projection carries `hookContext`, the domain payload
-(validated above, accepted at the ceiling tier — up to 12,000 chars) is
-combined with that hook context via `composeHookContextWithProjection`, which
-ALSO receives the ceiling-tier budget object on replay, not the current run's
-resolved one. In principle this could be tightened — accept the stored domain
-projection at the ceiling tier (unchanged, for the reasons above) while fitting
-any newly-composed hook context against the resolved budget, truncating the
-hook context (never the domain payload) when it does not fit. In practice this
-composition step's *total* envelope check is `totalSerializedChars`
-(`MAX_MODEL_TOOL_RESULT_CHAR_BUDGET`, the fixed 8000-character raw-output
-ceiling mentioned above) — a THIRD budget axis, deliberately left fixed and out
-of BST-1206's scope (only the domain and transport budgets scale; see
-`tool-output-limits.ts`'s anchor/floor/ceiling formula). Because that field is
-identical on both the ceiling-tier and per-run-resolved `ModelProjectionBudget`
-objects today, passing one or the other to `composeHookContextWithProjection`
-on replay currently has NO differential effect — making the fix meaningful
-requires also scaling `totalSerializedChars`/`totalTokens`, which would expand
-BST-1206's scope reactively during PR stabilization instead of as a deliberate,
-separately-tested change. Net effect: a projection settled during a huge-window
-run (domain payload sized up to the 12,000-char ceiling) that replays with hook
-context on a small-window run (e.g. an 8192-token local model) can compose a
-combined envelope sized for the ORIGINAL run's budget, not the replaying run's
-— the same 12,000-char-vs-3000-token-window mismatch the domain-only case
-already accepts by design, just one layer further out. BST-1219's paired FRESH-
-path work has now landed: desktop projector producers receive the resolved
-per-run domain budget and the downstream fresh assertion uses that same
-unfloored value. Replay budget context was deliberately not widened. The
-remaining deferred tradeoff is therefore narrower and unchanged: only replay-
-time hook-context composition against the fixed `totalSerializedChars` /
-`totalTokens` axis described above.
+- Maintain no parallel provider-tool catalog. `@brainstrike/assistant-contract`
+  supplies canonical ids and descriptions from the per-tool `defineNativeTool`
+  declarations; `NATIVE_TOOL_INPUT_SCHEMAS` derives the exact Zod input object for
+  each desktop native id from those same declarations. The desktop registry uses
+  those objects directly, `validateToolInput` parses with the same map, and Mastra
+  performs the Standard Schema → provider JSON Schema conversion.
+- `NATIVE_TOOL_SCHEMAS` is lossy display metadata (`toToolSchemaDisplay`) and MUST
+  NOT enter execution, validation or provider registration.
+- Guard the hosted surface at both sides of Mastra's conversion boundary: the
+  authored full-registry red baseline fits within 7,900 `o200k_base` tokens, and
+  the live actual Mastra/OpenRouter core surface plus resolved instructions fit
+  within 5,000. Enable a representative workspace skill in the fixture — a
+  registry measured without `workspaceSkills` is an undercount. The authored guard
+  is not evidence for the provider payload.
+- The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
+  ProjectionSafeToolCallFilter → ToolProjectionRewriteProcessor →
+  ProviderHistoryCompat → OpenAIToolSearchHistoryCompat →
+  OpenAIDuplicateItemCompat → ProjectionAwareTokenLimiter. The OpenAI-only
+  compatibility seams are absent for every other provider; token limiting is
+  always last.
+- OpenAIDuplicateItemCompat canonicalizes duplicated OpenAI item references at the
+  transient boundary without trading one 400 for another: reasoning/text ids keep
+  their newest occurrence; a tool call and its output are kept as the newest
+  COMPLETE pair; trailing reasoning in an edited message is swept; emptied
+  messages are removed. Within-message repeats are untouched and durable history
+  is never mutated. It runs after the other compat rewrites.
+- Initial streams, approval resumes and suspending-tool resumes reuse the same
+  discovery and history-filter processor instances, so same-process approval
+  executors stay available while persisted discovery results provide restart
+  reconstruction.
+- Default instructions state cross-tool routing and non-negotiable invariants
+  once; canonical descriptions and schemas carry per-tool mechanics. See
+  `docs/agents/workspace-context.md` for the instruction invariants that cannot be
+  compacted away.
 
-`ModelOutputProjectionObserver` receives `(toolName, output)` at this final
-projection seam. `RunTokenDiagnostics` uses it to retain one privacy-safe
-per-call sample (tool id, actual serialized model-facing character count, and
-booleans only), then emits one internal `tool-call-telemetry` chunk before the
-terminal finish. Desktop consumes that chunk through the run-persistence
-capability and writes migration 083's durable ledger; a run without that host
-capability discards the internal chunk before renderer serialization. Generic
-truncation is recognized only from final `{type:'json', value:{truncated:true}}`
-projections. `grepSearch` and `globWorkspace` attach zero-match, request-offset,
-and typed truncation metadata to their raw result in a private WeakMap before
-projection, so no projected-text parsing or user search data enters telemetry.
-
-At run end, the same diagnostics instance may emit one internal
-`token-estimate-calibration` chunk for a completed run. The numerator,
-`estimatedPromptTokens`, is the chars/4 backstop over model-visible
-tool-output projections plus tool definitions, each counted once. The
-denominator is `finalStepPromptTokens`, the single most recent step's
-prompt-token count; via Mastra's resend behavior that prompt already contains
-every prior tool output exactly once, unlike the cross-step accumulated billing
-total. Both figures therefore use the same final-prompt-content basis.
-Conversation/system-prompt text outside tool outputs and definitions is excluded
-from both. The desktop run-persistence capability consumes the chunk before
-renderer serialization; incomplete runs, failed measurement, or missing
-model/provider attribution emit no sample.
-
-The chunk also carries `promptBreakdownBaselineTokens` when a run-start
-`promptBreakdown` exists: `systemInstructionsTokens + (taskListTokens ?? 0) +
-(toolDefinitionsTokens ?? 0)`. Desktop persists it as migration 091's nullable
-`prompt_baseline_tokens`. **BST-1232 review: eligibility for this chunk is no
-longer "at least one measured tool-output projection".** That gate would have
-meant an ordinary tool-free chat turn — and, before the companion fix below,
-EVERY resume leg (tool-approval and suspended-tool) — never persisted a
-baseline at all, silently starving the next turn's trigger of the one value
-this migration exists to give it. The chunk is now emitted whenever there is
-SOMETHING new to report: a measured tool-output projection (`
-modelVisibleProjectionCount > 0`), a `promptBreakdown` to source a baseline
-from, or both; it is skipped only when NEITHER is available. Both resume
-iterators (`createToolApprovalIteratorFromRuntime`,
-`createToolResumeIteratorFromRuntime` in `agent-streaming.ts`) now compute
-`promptBreakdown` from the resumed runtime's own `instructionBreakdown` +
-`toolDefinitionContextBreakdown()` (with `messages: []` — a resume sends no
-new messages) so their calibration row carries the same baseline the initial
-turn would have reported, since prompt composition is unchanged across a
-resume. A zero-projection row can therefore still have a positive
-`estimatedPromptTokens` (from the static tool-definition catalog alone) even
-though nothing was actually measured from a live tool output; the
-`estimator-calibration.sql` lens, not the writer, is where the
-`model_visible_projection_count > 0` RATIO-eligibility gate now lives (its
-WHERE clause requires it explicitly — `estimated_prompt_tokens > 0` alone is
-no longer sufficient to exclude these rows).
-
-Pre-request conversation compaction runs before the next runtime/prompt is
-assembled, so it reads the latest thread-scoped calibration row **whose
-`prompt_baseline_tokens` is NOT NULL** (belt-and-braces alongside the write-side
-fix above: a future leg that forgets to thread `promptBreakdown` cannot shadow
-an earlier real baseline with a later NULL-baseline row) and triggers on
-`previousPromptBaseline + conversationMessageTokens >= 0.90 * inputBudget`. The
-deterministic message-side target is
-`max(1024, 0.70 * inputBudget - previousPromptBaseline)`; the 1024-token floor
-preserves a minimally useful recent exchange/tool-result window when message
-deletion alone cannot reach the nominal total target.
-
-The lookup always runs CONCURRENTLY with the unprojected-message load
-(`Promise.all`), never sequenced after it: neither depends on the other's
-result, so sequencing them would add pure latency for no benefit, and
-concurrency also means the lookup's DB round trip still fires even if message
-loading itself later throws (e.g. a missing trusted compaction-overlay
-lookup) — `agent-stream-init-and-memory.integration.test.ts` pins this by
-counting `getDatabase` calls; an earlier "load messages first, then decide
-whether to bother with the lookup" ordering silently regressed it in review.
-A non-negative baseline only pushes the total UP, never pulls it back under,
-so once the conversation-message share alone already clears the 90% trigger
-the (already-fetched, free) baseline cannot change that decision and recency
-pruning starts immediately. Either way, a missing row (no calibration yet — expected on a
-thread's first turn) uses baseline 0 (the pre-091 behavior) and stays at
-`debug` under code `conversation_compaction_baseline_unavailable`; a failed
-DB read or a corrupt/out-of-range persisted value ALSO falls back to 0 but is
-now `warn`-level under its own distinct code
-(`conversation_compaction_baseline_lookup_failed` /
-`conversation_compaction_baseline_corrupt` respectively) — the earlier
-single-debug-code version made either failure silently and invisibly revert
-the trigger to its pre-fix behavior for every later turn on that thread.
-
-If the baseline alone is at or above the 70% target — realistic on small
-context windows with a large tool catalog — recency pruning and the
-deterministic path toward the 1024-token floor STILL run: pruning is entirely
-message-side (it reclaims tool-output bloat) and is completely unaffected by
-a baseline that message deletion structurally cannot reduce, so skipping it
-would just let the thread grow until the provider throws and overflow
-recovery performs the identical pruning one wasted round trip later. Only the
-AGENTIC summarizer is skipped, under warn code
-`conversation_compaction_baseline_exceeds_target` — latched to once per
-thread for the process lifetime so a thread parked in this steady state does
-not repeat the warning every turn — because it chases the same message-side
-reclaim target that a dominant baseline makes structurally unreachable.
-Provider context-overflow recovery (`createContextOverflowRecovery`) is a
-separate path unaffected by any of the above and stays enabled.
-
-When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
-tool map is settlement-wrapped after policy/provider transforms and before
-`toModelOutput`. Non-media results above 12,000 UTF-8 bytes are fully retained
-before an artifact envelope can reach display/transcript.
-MCP settlement also consults the generic model projector before retaining an
-otherwise-inline result (BST-1655). A 9 KB issue can fit the 12 KB artifact
-ceiling yet exceed the final 8 KB model envelope. The projection owner compares
-its actual bounded value with complete source text, including JSON escaping and
-the domain reserve used with PostToolUse context; any loss requires settlement.
-This predicate applies only to MCP tools from the eligible runtime map. Task
-status projections and inline media keep their dedicated contracts. No second
-size constant approximates the model projection. The complete raw output is
-stored before publishing a recovery page; storage failures still fail visibly.
-Runtime settlement requires an explicit reader resolver. It resolves exactly
-one eligible reader from the canonical name map before storage; zero or
-multiple matches fail visibly without writing an artifact. Recovery pages use
-the exact callable id. MCP Apps retain their complete marker,
-origin, and ordinary result in display/transcript output so sandbox mounting
-and hydration remain valid; only the ordinary result is serialized for model
-artifact recovery. Apps media takes the existing inline media path. The eligible
-artifact reader remains on the core discovery surface, so recovery never
-requires a search call. The reader's own model projector receives
-the sanitized tool through the central projection wrapper's receiver and fits
-continuation guidance with that same id. Standalone page helpers retain their canonical-name default.
-A trusted per-tool canonical-name map may lower the inline threshold by
-serialized characters when a complete domain projection has a tighter budget.
-`brainstrike.webExtract` uses the smaller of 2400 characters and the active
-run's resolved domain-projection character budget: smaller extracts project
-every source byte and exact URL directly; larger extracts settle completely
-and continue through the artifact reader instead of clipping or re-fetching.
-If a stricter-threshold artifact still fits one model page, settlement keeps
-the rich raw display and publishes a complete page without an EOF cursor. If
-no durable store exists, an oversized web extract produces an explicit
-model-output-unavailable projection; it never silently clips source text.
-A module-private WeakMap carrier keeps the original in-process result and authenticated
-PostToolUse context away from public persistence. Once settlement succeeds,
-model projection bypasses any domain projector for the original result and
-projects a bounded initial-page view instead. That model view omits the
-redundant artifact reference and carries one concrete reader/cursor action,
-recomputing its cursor if the preview must shrink to fit. Display and transcript
-keep the full envelope only when continuation is required. Public-shape guessing is forbidden. Storage failure, a
-missing tool-call id, incoherent returned
-metadata, or output above the explicit 16 MiB settlement cap throws visibly.
-The `skill` tool is excluded because its instruction payload cannot be paged.
-MCP image/audio `content` arrays are also excluded: they must stay inline so
-display/transcript can render media, and they retain the explicit aggregate
-media plus non-media metadata ceilings with or without durable settlement.
-Desktop builds the paired `brainstrike.readToolOutputArtifact` capability only
-when server-owned resource and thread scope plus the database bridge exist.
-The registered model tool accepts the opaque continuation cursor plus bounded
-page/search options, never artifact metadata or ownership ids. Plain calls
-return the raw bounded page; `pattern` calls search the same validated slice and
-project compact grep-style matching lines. Any unscanned source or
-projection-omitted match carries an advancing cursor; missing continuation
-guidance fails the run. Artifact-mint hints advertise whole-result delegation
-only when persona assembly registered an artifact-reader-capable `agent-*` tool
-for that run. No capability means no registered tool; Desktop never installs a
-stub or an unscoped fallback.
-
-Without that trusted host capability, MCP text/JSON keeps the temporary inline
-behavior and is bounded inside `execute()` before inline persistence. The UI
-data-stream bound is a separate transport backstop, not the model-context
-boundary.
-
-Mastra 1.51's TokenLimiter counts raw DB tool results before applying
-`toModelOutput`. `ProjectionAwareTokenLimiter` temporarily swaps each completed
-result to its stored model projection for counting, replaces media bodies with
-markers, delegates to Mastra, and restores raw property descriptors in
-`finally`. `mastra-tool-execution.integration.spec.ts` must keep proving the
-configured-limit path reaches the next provider step and preserves MCP media;
-`mastra-memory-persistence.integration.spec.ts` must keep proving a later turn
-replays the stored projection rather than the raw sentinel.
-
-Hosted runs also install `ProjectionSafeToolCallFilter`, a provider-boundary
-equivalent of Mastra 1.51's `ToolCallFilter({ preserveModelOutput: true })`.
-`processInputStep` computes eligibility without returning messages because
-Mastra applies that hook's result back to the live `MessageList`.
-`processLLMRequest` performs the transient rewrite after stored model
-projections are resolved. It replaces only old, completed, successful native
-read/search/retrieval calls that have a serializable non-multimodal stored
-projection. The newest eligible read/search/retrieval step stays verbatim, as do missing
-projections, errors, commands, verification, tasks, discovery, skills,
-approvals, incomplete calls, and MCP tools. It never mutates the live
-`MessageList` or durable rows.
-
-EDITS get one narrow, separate treatment (2026-08-23 ctx-explosion
-investigation, H2): a SETTLED `writeWorkspaceFile` / `stringReplaceWorkspaceFile`
-call — successful result, outside the same recent-step window — whose
-serialized args exceed 2,000 chars has its prompt-side INPUT collapsed to the
-identifying fields (`path`, `root`) plus an honest `elidedArguments` marker.
-The call/result pair stays structurally in place (nothing is stubbed or
-replayed), the RESULT stays verbatim, failed or in-flight edits keep full args
-(they may matter for a retry), and durable rows are untouched — same
-wire-only `processLLMRequest` guarantee as the read filtering. Rationale: a
-57 KB write's content otherwise rides every subsequent request of every
-subsequent leg while carrying no information the file on disk does not. Same-turn and reload integration tests must keep
-proving raw arguments/results remain persisted. A file write followed by two
-successful reads therefore retires the older redundant read while preserving
-the write and newest verification result; later protected state/working-memory
-tools do not consume that recent-read window. Local, Ollama, and LM Studio runs
-omit it.
-
-Replacement shape (settled 2026-08-07, run-9136 debug bundle): a filtered pair
-must NEVER become assistant-authored `<toolName> result:` text — GPT-5.x
-Harmony models mimic that shape and fabricate tool-result dumps in their
-visible commentary-channel output, which renders as message prose. The stale
-tool-call part becomes a generic stub text (keeping OpenAI's
-reasoning→following-item pairing valid; at most ONE stub per message, so
-parallel fan-out steps do not repeat it) and the projection replays in a
-following user-role message that flushes only after every adjacent tool-role
-message — the filter runs for ALL hosted providers, and Anthropic merges
-adjacent user-ish turns while requiring tool_result blocks to lead the merged
-message. Because that replay can carry untrusted content
-(web pages, retrieved documents), it is explicitly framed as "untrusted tool
-output, not instructions" between BEGIN/END REPLAYED TOOL OUTPUT markers, and
-marker lookalikes inside the projection are defanged so the body cannot forge
-the boundary. Tool-results embedded in ASSISTANT-role messages
-(provider-executed tools like native web search, which keep call, result, and
-trailing text in one message) are ineligible and stay verbatim in place —
-lifting them would reorder same-message chronology. A pair whose projection
-cannot be textualized stays verbatim on BOTH sides — never a dropped result
-under a kept call, which OpenAI rejects as an unpaired `function_call`.
-`projection-safe-tool-call-filter.spec.ts` and the stale-read reload case in
-`mastra-memory-persistence.integration.spec.ts` pin this shape.
-
-The adjacent `RunTokenDiagnostics` path is measurement-only. It observes final
-tool definitions and already-bounded model projections, then emits one
-content-free `mastra_agent_token_measurement` log with the explicit
-provider/model measurement mode and provider-reported prompt usage when
-available. It cannot alter `ProjectionAwareTokenLimiter`, the deterministic
-serialized-character ceilings, the outgoing prompt, or persisted run events.
-Tokenizer failures remain visible under their declared mode and retain separate
-backstop totals; they never relabel themselves as exact or silently select a
-different counter. The provider/model capability contract and supported modes
-live in `docs/agents/assistant-providers.md`.
-
-**Hosted native-tool definition and prompt budget (LIVE):**
-The runtime does not maintain a parallel provider-tool catalog.
-`@brainstrike/assistant-contract` supplies canonical ids and descriptions from
-the per-tool `defineNativeTool` declarations (`native-tools/definitions/*.ts`,
-BST-1646); `NATIVE_TOOL_INPUT_SCHEMAS` in `packages/agent/src/tools/schemas.ts`
-is derived from those same declarations and supplies the exact Zod input object
-for each desktop native id. The desktop registry
-uses those objects directly, `validateToolInput` parses with the same map, and
-Mastra performs the Standard Schema → provider JSON Schema conversion. The
-browser-safe `NATIVE_TOOL_SCHEMAS` registry is lossy display metadata derived
-from those same Zod objects (`toToolSchemaDisplay`, BST-1646) and MUST NOT
-enter execution, validation, or provider registration.
-
-The hosted surface is guarded at both sides of Mastra's conversion boundary.
-The authored full-registry red baseline must fit within 7,900 `o200k_base`
-tokens. The live actual Mastra/OpenRouter core surface and resolved instructions
-must fit within 5,000 tokens, materially below the retired 11,500-token eager
-boundary. Live hosted first requests add Mastra's `search_tools` and `load_tool` controls;
-deferred post-gate definitions are appended on later steps.
-The production-equivalent fixture enables a representative workspace skill so
-both numbers include the three default skill tools, conditional skills
-guidance, and first-turn `SkillsProcessor` metadata; a registry measured
-without `workspaceSkills` is an undercount.
-Mastra 1.51 currently expands optional fields for the routed `openai/*` model;
-the authored guard is therefore not evidence for the provider payload. The
-regression constructs the real desktop registry and real hosted runtime
-(`apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`);
-an isolated description, schema estimate, or hand-built provider payload is
-not sufficient evidence.
-
-The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
-ProjectionSafeToolCallFilter → ToolProjectionRewriteProcessor → ProviderHistoryCompat →
-OpenAIToolSearchHistoryCompat → OpenAIDuplicateItemCompat →
-ProjectionAwareTokenLimiter. The OpenAI-only compatibility seams are absent for
-every other provider; token limiting is always last. OpenAIDuplicateItemCompat
-(BST-1095) canonicalizes duplicated OpenAI item references at the transient
-boundary — Mastra's sealed-boundary re-key can double-persist one assistant
-response under two message ids, and a prompt carrying both copies serializes
-two input items per `rs_`/`fc_`/`call_` id, which OpenAI rejects with
-"Duplicate item found". Canonicalization must not trade that 400 for another:
-reasoning/text ids keep their newest occurrence; a tool call and its output
-(tool-role for client tools, assistant-role for provider-executed tools like
-native web search) are kept as the newest COMPLETE pair so no
-`function_call_output` survives without a preceding call; reasoning left
-trailing in an edited message is swept ("reasoning without its required
-following item" is also a 400); emptied messages are removed. Within-message
-repeats are untouched (multi-summary reasoning merges provider-side) and
-durable history is never mutated. It runs after the other compat rewrites so
-it sees the item references they produce. Initial streams, approval resumes, and suspending-tool resumes reuse the
-same discovery and history-filter processor instances so same-process approval
-executors remain available while persisted discovery results provide restart
-reconstruction.
-
-Default instructions should state cross-tool routing and non-negotiable
-invariants once, while canonical descriptions/schemas carry per-tool mechanics.
-See `docs/agents/workspace-context.md` for the instruction invariants that
-cannot be compacted away.
+Evidence: `assistant-runtime/native-tool-prompt-budget.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`
+(real desktop registry + real hosted runtime; an isolated description, schema
+estimate or hand-built provider payload is not sufficient evidence).
 
 > **LIVE validation requirement:** A prior attempt wired the guard + watchdog into
 > the live path and BROKE real Mastra tool calling (hosted-provider tools silently
@@ -763,2813 +524,1736 @@ cannot be compacted away.
 > layers MUST preserve coverage that runs the actual Mastra agent loop end to end
 > with real tool `execute`, not only mocked stream parts. The current proofs live
 > in `packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts` and
-> `mastra-error-processors.spec.ts` (retry, prefill recovery, TokenLimiter
-> clobber-guard regression, pinned `maxProcessorRetries`, bounded-terminal).
+> `mastra-error-processors.spec.ts`.
 
-## MCP TASK STATUS AND RESTART CONTROLS (BST-1565)
+## MCP TASK STATUS AND RESTART CONTROLS
 
-`McpTaskStatusCard` is a controlled, browser-safe status surface, not a tool
-result card. It receives the bounded `McpTaskPresentation` contract and one
-injected controller port; it neither imports the agent runtime nor reconstructs
-Tasks authority in the renderer. Recover and Cancel submit the complete opaque
-handle unchanged. The agent-owned controller revalidates protocol, capability,
-server/resource, principal, and authority epoch before and after the existing
-repository/lifecycle/interaction authority runs.
-
-The card remains truthful while actions are pending: recovery does not switch
-to live and cancellation does not show `cancelled` until the controller returns
-an observed state. Actions are single-flight by complete opaque authority
-handle, so newer observations for the same handle stay pending while an
-authority-epoch or other handle replacement fences the stale outcome. Stable
-diagnostics render as a
-focused alert; successful actions move focus to the live status summary, which
-is a polite status region. The identity is never rendered, the transition list
-is already bounded by the contract, and unexpected authority errors use fixed
-copy rather than exposing paths or credentials. The component is exported for
-opt-in composition only; host registration and advertisement of Tasks are
-governed by `docs/agents/assistant-providers.md`.
+- `McpTaskStatusCard` is a controlled, browser-safe status surface, not a tool
+  result card. It takes the bounded `McpTaskPresentation` contract plus one
+  injected controller port; it neither imports the agent runtime nor reconstructs
+  Tasks authority in the renderer. Recover and Cancel submit the complete opaque
+  handle unchanged.
+- The agent-owned controller revalidates protocol, capability, server/resource,
+  principal and authority epoch before and after the existing
+  repository/lifecycle/interaction authority runs.
+- Keep the card truthful while actions are pending: recovery does not switch to
+  live and cancellation does not show `cancelled` until the controller returns an
+  observed state. Actions are single-flight by complete opaque authority handle;
+  an authority-epoch or other handle replacement fences the stale outcome.
+- Render stable diagnostics as a focused alert and move focus on success to the
+  live status summary (a polite status region). Never render the identity; use
+  fixed copy for unexpected authority errors rather than exposing paths or
+  credentials.
+- The component is exported for opt-in composition only. Host registration and
+  advertisement of Tasks are governed by `docs/agents/assistant-providers.md`.
 
 ### TOOL-PATH WIRING (BST-1566)
 
 The agent runtime's MCP tool path is production-wired for a created task
-(`packages/agent/src/mastra/mcp-task-tool-result.ts`, consumed by
-`executeMcpTool` in `mcp-runtime-client.ts`):
+(`packages/agent/src/mastra/mcp-task-tool-result.ts`, consumed by `executeMcpTool`
+in `mcp-runtime-client.ts`).
 
-- **Capability, not environment.** `MastraAgentRuntimeOptions.mcpTaskTracking?:
-  McpTaskTrackingCapability` (the port in `packages/agent/src/mcp/task-tracking.ts`)
-  is threaded exactly like `toolOutputArtifactStore`: runtime option →
-  `composeRuntimeToolMap` → `createMcpRuntimeClient({ mcpTaskTracking,
-  toolTimeoutMs })`, and it survives `toAiSdkStyleStream`'s `optionsOverride`
+- **Capability, not environment.** Thread `mcpTaskTracking` exactly like
+  `toolOutputArtifactStore`: runtime option → `composeRuntimeToolMap` →
+  `createMcpRuntimeClient`, surviving `toAiSdkStyleStream`'s `optionsOverride`
   Pick. Only a trusted host composes it; web and host-less runs leave it absent
   and every MCP call stays synchronous.
-- **Detection covers both wire shapes.** A `tools/call` answer is a created task
-  when it is the bare `resultType: 'task'` result OR the client extension
-  registry's neutral envelope `{ [REGISTERED_EXTENSION_RESULT_KEY]: task,
-  content: [], resultType: 'complete' }` (`readRegisteredExtensionResult` is the
-  inverse of `rewriteIncomingMessage`; never re-implement the unwrap). Both are
-  parsed with `parseMcpCreateTaskResult` — a malformed task throws, it is never
-  coerced into an ordinary result. Detection runs before the raw-result
-  retention and `isError` branches: a task has no content to retain.
+- **Detection covers both wire shapes** — the bare `resultType: 'task'` result and
+  the client extension registry's neutral envelope, unwrapped by
+  `readRegisteredExtensionResult` (never re-implement the unwrap). Both parse
+  through `parseMcpCreateTaskResult`; a malformed task throws and is never
+  coerced. Detection runs before raw-result retention and the `isError` branch.
 - **NO SILENT FALLBACK.** A task result on a runtime without `mcpTaskTracking`
-  throws `MCP tool "<server>.<tool>" returned a task but this host has no task
-  tracking capability`. The task is never dropped, never returned as raw state.
+  throws. The task is never dropped and never returned as raw state.
 - **Identity.** `track()` receives `configuredServerId = server.name`, which IS
-  the host authority snapshot's `configuredServerId` (mapped verbatim in
-  `createMcpRuntimeClient`) and therefore matches `McpTaskHandle.serverId` on
-  the desktop host; `toolName` is the unprefixed MCP tool name.
-- **App-originated calls return the wire task.** When the Apps admission
-  executor marked the call for raw retention (`shouldRetainRawMcpCallToolResult`),
-  the tool still hands the task to `track()` so the host owns it, then returns
-  the canonical `CreateTaskResult` unchanged WITHOUT awaiting settlement: the
-  MCP App client expects that result and its frame bridge aborts inbound
-  requests after 10 s, far under the settlement wait. This branch runs before
-  the ordinary settlement branch; a tracking-less host still throws.
-- **Bounded settlement.** After `track()` the tool awaits
-  `awaitSettlement(handle, { timeoutMs, signal })` with
+  the host authority snapshot's `configuredServerId`; `toolName` is the unprefixed
+  MCP tool name.
+- **App-originated calls return the wire task.** When the Apps admission executor
+  marked the call for raw retention, hand the task to `track()` so the host owns
+  it, then return the canonical `CreateTaskResult` unchanged WITHOUT awaiting
+  settlement. This branch runs before the ordinary settlement branch; a
+  tracking-less host still throws.
+- **Bounded settlement.** After `track()`, await `awaitSettlement` with
   `timeoutMs = min(45_000, floor(0.75 × toolTimeoutMs))`
-  (`MCP_TASK_SETTLEMENT_WAIT_MS`, `resolveMcpTaskSettlementTimeoutMs`). The
-  guard's ceiling (`BRAINSTRIKE_TOOL_TIMEOUT_MS`, default 60s) is not observable
-  from inside `execute`, so the wait is capped under the ceiling that
-  `applyToolGuards` enforces; the remaining quarter covers the `tools/call`
-  round trip and `track()` so the guard can never report a timed-out tool for a
-  task that is tracked and healthy. A ceiling too small to hold any wait throws
-  at runtime construction. Timeout is not an error: the capability resolves
-  `{ settled: false, reason: 'timeout', task }` and the tool returns the live
-  presentation the status card keeps updating.
-- **Persisted marker vs model projection.** The tool's RAW domain result (what
-  persists on the tool invocation, and what the live display/transcript
-  transforms pass through unchanged) is
-  `createMcpTaskToolInvocationResult(presentation)` from
-  `@brainstrike/assistant-contract` (`{ kind: 'mcp-task', task }`). The
-  MODEL-visible output goes through the existing `toModelOutput` seam:
-  tracking-capable runtimes give every MCP tool `projectMcpTaskToolModelOutput`,
-  which returns `{ type: 'json', value: projectMcpTaskForContext(task) }` for the
-  marker and `undefined` for every other result (the pipeline then applies its
-  generic projection, so non-task MCP results are unchanged). The projection
-  never carries the control handle or raw task state and is bounded by
-  `MCP_TASK_CONTEXT_MAX_BYTES` (2,048), tightened to the run's
-  `domainModelResultCharBudget` via `getActiveToolResultBudget()` so the
-  smallest scaled budget cannot trip the domain-projection RangeError.
+  (`resolveMcpTaskSettlementTimeoutMs`), so the wait is capped under the guard
+  ceiling that is not observable from inside `execute`. A ceiling too small to
+  hold any wait throws at runtime construction. Timeout is not an error: resolve
+  `{ settled: false, reason: 'timeout', task }` and return the live presentation.
+- **Persisted marker vs model projection.** The RAW domain result is
+  `createMcpTaskToolInvocationResult(presentation)` (`{ kind: 'mcp-task', task }`).
+  The MODEL-visible output goes through `toModelOutput`:
+  `projectMcpTaskToolModelOutput` returns the bounded context projection for the
+  marker and `undefined` for every other result. The projection never carries the
+  control handle or raw task state and is tightened to the run's
+  `domainModelResultCharBudget`.
 
-Tests: `packages/agent/src/__tests__/mcp-task-tool-result.spec.ts` (detection
-both shapes, malformed rejection, timeout resolution, absent-capability throw,
-settled/timeout flows, projection bound at the smallest budget) and the "MCP
-task results" block in `mcp-runtime-client.spec.ts` (end-to-end through the
-runtime tool, `track` identity, persisted marker, model projection).
+Evidence: `assistant-runtime/mcp-task-tool-path.md`.
+Guard: `packages/agent/src/__tests__/mcp-task-tool-result.spec.ts`, the "MCP task
+results" block in `packages/agent/src/__tests__/mcp-runtime-client.spec.ts`.
 
 ### TOOL-PATH WIRING (BST-1572)
 
-The ordinary model-initiated MCP tool path now persists the renderer-owned Apps
-mount marker when the executing tool definition advertises
-`_meta.ui.resourceUri` (`packages/agent/src/mastra/mcp-app-tool-result.ts`,
-consumed by `executeMcpTool` in `mcp-runtime-client.ts`):
+The ordinary model-initiated MCP tool path persists the renderer-owned Apps mount
+marker when the executing tool definition advertises `_meta.ui.resourceUri`
+(`packages/agent/src/mastra/mcp-app-tool-result.ts`).
 
-- **Strict definition detection.** A definition with no own `_meta.ui` member
-  is an ordinary MCP tool and is unchanged. A present `_meta.ui` is parsed by
-  `parseMcpAppToolMeta` from `@brainstrike/mcp-app-host` before `tools/call`;
-  invalid keys, shapes, visibility, size, or a non-`ui://` resource URI throw
-  visibly before the remote tool can execute. A valid `ui` object without
-  `resourceUri` remains an ordinary result.
-- **Ordinary calls only.** The Apps admission executor marks its authority-owned
-  abort signal with `retainRawMcpCallToolResult`; that early return remains
-  before Apps marker construction and preserves the complete `CallToolResult`
-  for preview/authority execution. The marker is built only on the ordinary
-  model-initiated path.
-- **Ordering and ordinary result.** Created Tasks first settle to their existing
-  task marker (except app-originated raw-retention calls, which return the
-  CreateTaskResult after `track()` — see the BST-1566 section). For non-task calls the raw successful `CallToolResult` is kept
-  when there is no `structuredContent` or when media is present; otherwise the
-  existing `structuredContent` value is used. Canonical `isError: true` throws
-  before any Apps marker exists. The selected value is exactly the result this
-  path returned before BST-1572.
-- **Persisted marker and identity.** `createMcpAppToolResult` calls
-  `createMcpAppToolInvocationResult` with `serverId = server.name` (the
-  configured server id), the unprefixed MCP `toolName`, the strict `ui://`
-  `resourceUri`, and `mimeType: 'text/html;profile=mcp-app'`. The raw domain
-  result is `{ kind: 'mcp-app', app: { mimeType, resourceUri, serverId,
-  toolName }, result: ordinaryResult }`. Existing hook display/transcript
-  transforms and bounded artifact settlement preserve this small raw domain
-  marker exactly as they do the sibling Tasks marker.
-- **Model projection.** Apps metadata never reaches the model.
-  `projectMcpAppOrTaskToolModelOutput` composes the Tasks projector with the
-  Apps marker reader. The central `toModelOutput` seam unwraps `result` before
-  the custom projector and before generic fallback, so a nested task keeps its
-  bounded task projection and every other Apps result receives exactly the
-  generic projection its `ordinaryResult` would have received without the
-  marker. Definitions with neither Tasks capability nor `_meta.ui` retain no
-  custom projector.
+- **Strict definition detection.** A definition with no own `_meta.ui` member is
+  an ordinary MCP tool. Parse a present `_meta.ui` with `parseMcpAppToolMeta`
+  BEFORE `tools/call`; invalid keys, shapes, visibility, size or a non-`ui://`
+  resource URI throw visibly before the remote tool can execute. A valid `ui`
+  object without `resourceUri` remains an ordinary result.
+- **Ordinary calls only.** The Apps admission executor's `retainRawMcpCallToolResult`
+  early return stays ahead of Apps marker construction; the marker is built only
+  on the ordinary model-initiated path.
+- **Ordering and ordinary result.** Created Tasks settle to their task marker
+  first (except app-originated raw-retention calls). For non-task calls keep the
+  raw successful `CallToolResult` when there is no `structuredContent` or when
+  media is present; otherwise use `structuredContent`. Canonical `isError: true`
+  throws before any Apps marker exists.
+- **Persisted marker and identity.** `createMcpAppToolResult` uses
+  `serverId = server.name`, the unprefixed `toolName`, the strict `ui://`
+  `resourceUri` and `mimeType: 'text/html;profile=mcp-app'`. Hook
+  display/transcript transforms and bounded artifact settlement preserve this raw
+  domain marker exactly as they do the Tasks marker.
+- **Apps metadata never reaches the model.** `projectMcpAppOrTaskToolModelOutput`
+  composes the Tasks projector with the Apps marker reader; the central
+  `toModelOutput` seam unwraps `result` before the custom projector and before
+  generic fallback. Definitions with neither Tasks capability nor `_meta.ui`
+  retain no custom projector.
 
-Tests: the "MCP Apps tool results" block in
-`packages/agent/src/__tests__/mcp-runtime-client.spec.ts` pins both ordinary
-result shapes, strict metadata failure, unchanged non-Apps tools, `isError`
-ordering, persisted marker identity, and marker-free model projection;
-`mcp-app-tool-call.spec.ts` pins the unchanged admission executor path.
+Evidence: `assistant-runtime/mcp-app-tool-path.md`.
+Guard: the "MCP Apps tool results" block in
+`packages/agent/src/__tests__/mcp-runtime-client.spec.ts`,
+`packages/agent/src/__tests__/mcp-app-tool-call.spec.ts`.
 
-### ATTEMPTS VS TURNS (BST-1409)
+### ATTEMPTS VS TURNS
 
-A turn may span several provider ATTEMPTS. `runTurnAttempts` (`turn-attempts.ts`,
-moved out of `agent-streaming.ts` by BST-1649) owns the turn; `streamAttemptChunks`
-(still in `agent-streaming.ts`) owns one attempt and now PROPAGATES a
-watchdog error instead of deciding the turn's fate. `runtime.dispose()` moved to
-the turn's `finally` and has exactly one owner across all three legs — the
-runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
+A turn may span several provider ATTEMPTS. `runTurnAttempts` (`turn-attempts.ts`)
+owns the turn; `streamAttemptChunks` (`agent-streaming.ts`) owns one attempt and
+PROPAGATES a watchdog error instead of deciding the turn's fate. `runtime.dispose()`
+lives in the turn's `finally` with exactly one owner across all three legs.
 
-- **A stall ends the attempt.** The turn continues with a fresh
-  `agent.stream` carrying the original request plus everything the stalled
-  attempt produced, read from Mastra's in-memory `messageList` on the stream
-  result. Bounded by `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` (default 2).
-- **Why the message list, not memory.** On core 1.59 an aborted stream
-  persisted NOTHING to `mastra_messages` — measured, not assumed (BST-1415):
-  not the completed tool calls, not even the user's message. Mastra >= 1.62
-  (BST-1667) changed that: its `MessageHistory` output processor persists the
-  aborted attempt's transcript, partial tool calls filtered, without awaiting
-  it — so the continuation is no longer the turn's only writer. The message
-  list stays the recovery source because it is complete and synchronous, and
-  re-sending the original request in a continuation stays non-duplicative
-  because Mastra's `saveMessages` upserts by message id; the recovered-stall
-  proof asserts exactly one user row and no abort marker.
-- **`readProducedMessages()` returns `undefined` vs `[]` and the difference is
-  SAFETY-CRITICAL.** `[]` means the attempt genuinely produced nothing (a stall
-  before the first step), so continuing from the request alone re-runs nothing.
-  `undefined` means we could not tell, and continuing would re-send the request
-  as if the turn never started — every completed tool would execute a second
-  time. A turn that cannot prove what it produced does NOT resume.
-  An empty list is additionally CORROBORATED against what the attempt was
-  observed to do: `terminalToolCallStates` gains an entry per completed tool
-  call, so `produced.length === 0` while tools demonstrably ran is a
-  contradiction and refuses recovery too. That trust would otherwise rest
-  entirely on the reader, and being wrong reaches the re-execution outcome
-  through the branch treated as safe.
-- **Five refusals, all terminal:** user cancel (a decision, not a transport
-  fault), budget exhausted, unreadable produced messages, produced messages that
-  contradict completed tools, and `ToolCallInputStreamingTimeoutError` (a
-  generation fault — re-sending the same prompt has no reason to change it).
-  Recovery covers `StreamStalledError` only.
-- **Recovery is never silent.** Each stall emits `run.stalled` and each
-  continuation `run.resumed`, both carrying attempt/budget and the stall's full
-  BST-1408 breadcrumb (phase, parts-seen, `lastPartType`). A RECOVERED stall is
-  followed by no `run.failed`, so its `run.stalled` is the only durable record
-  of it and must carry the whole breadcrumb, not a subset. A refused stall's
+- **A stall ends the attempt.** Continue the turn with a fresh `agent.stream`
+  carrying the original request plus everything the stalled attempt produced, read
+  from Mastra's in-memory `messageList` on the stream result. Bounded by
+  `BRAINSTRIKE_STREAM_STALL_ATTEMPTS`.
+- Recover from the MESSAGE LIST, not memory: it is complete and synchronous, and
+  re-sending the original request stays non-duplicative because Mastra's
+  `saveMessages` upserts by message id.
+- **`readProducedMessages()` returning `undefined` vs `[]` is SAFETY-CRITICAL.**
+  `[]` means the attempt produced nothing, so continuing re-runs nothing.
+  `undefined` means we could not tell, and continuing would re-execute every
+  completed tool. A turn that cannot prove what it produced does NOT resume.
+  CORROBORATE an empty list against `terminalToolCallStates`: `produced.length ===
+  0` while tools demonstrably ran is a contradiction and also refuses recovery.
+- **Five refusals, all terminal:** user cancel, budget exhausted, unreadable
+  produced messages, produced messages contradicting completed tools, and
+  `ToolCallInputStreamingTimeoutError`. Recovery covers `StreamStalledError` only.
+- **Recovery is never silent.** Emit `run.stalled` per stall and `run.resumed` per
+  continuation, both carrying attempt/budget and the stall's FULL breadcrumb
+  (phase, parts-seen, `lastPartType`). A recovered stall's `run.stalled` is its
+  only durable record, so it must carry the whole breadcrumb. A refused stall's
   `run.stalled` names the refusal.
-- **Per-attempt state, EXCEPT billing.** `ToolLifecycleState` is built per
-  attempt (`createTurnAttemptLifecycleState`), and the split is not uniform:
-  latency and in-flight lifecycle (`streamStartedAtMs`, `firstTextLatencyMs`,
-  the delegation tracker, the tool-call maps) are per attempt, because carrying
-  them would mis-time latency and re-settle tools the replaced attempt already
-  settled. BILLING is per TURN — a recovered turn really did spend the stalled
-  attempt's tokens, and the `message-finish` is what the run ledger and spend
-  analytics persist. `stepBilledCostUsd` / `stepCount` / the billed-cost flags
-  carry directly; TOKENS ride separate `carried*` fields because Mastra's finish
-  usage is cumulative over ONE stream and `stepped*` keeps its per-stream
-  meaning for the steered finish. Context sizes never accumulate: they describe
-  the latest step's prompt, and inflating them would claim a context window that
-  never existed.
-- **A replaced attempt SETTLES what it started.** The turn drains both
-  `makeCancelledDelegationRunEventChunks` AND
-  `makePendingToolOutputRunEventChunks` before discarding the attempt — the same
-  pair the terminal path drains. Without the second, a tool whose only terminal
-  observation was a `tool-output` part loses its `tool.completed` row and its
-  duration outright, because the continuation treats that tool result as INPUT
-  and never re-emits it.
-- **One turn reports one `run.started`.** A continuation is a fresh
-  `agent.stream`, so Mastra re-emits `start` and the mapper would produce a
-  second `run.started`; `withoutDuplicateRunStarted` drops it, and `run.resumed`
-  is what marks the new attempt. Left in, the timeline shows two "Assistant run
-  started" rows for one turn and every started/finished aggregation
-  double-counts recovered runs.
+- **Per-attempt state, EXCEPT billing.** Build `ToolLifecycleState` per attempt.
+  Latency and in-flight lifecycle are per attempt; BILLING is per TURN.
+  `stepBilledCostUsd` / `stepCount` / the billed-cost flags carry directly; TOKENS
+  ride separate `carried*` fields because Mastra's finish usage is cumulative over
+  ONE stream. Context sizes never accumulate.
+- **A replaced attempt SETTLES what it started.** Drain both
+  `makeCancelledDelegationRunEventChunks` AND `makePendingToolOutputRunEventChunks`
+  before discarding the attempt — the same pair the terminal path drains.
+- **One turn reports one `run.started`.** `withoutDuplicateRunStarted` drops the
+  continuation's re-emitted `start`; `run.resumed` marks the new attempt.
 - **A continuation that cannot be CONSTRUCTED terminates like everything else.**
-  `handleStreamFailure` already disposes the runtime and rethrows, so the turn
-  must not dispose again (`dispose()` has no idempotency guard, and a throw from
-  a second `mcpClient.disconnect()` would replace the original error). The turn
-  yields the same visible-text + `run.failed` + error-finish triple instead of
-  throwing mid-stream, which would have been the one ending whose cause is
-  invisible in the durable timeline.
+  `handleStreamFailure` already disposes the runtime and rethrows, so the turn must
+  not dispose again. The turn yields the same visible-text + `run.failed` +
+  error-finish triple instead of throwing mid-stream.
 - **Only the INITIAL leg recovers.** Approval- and suspend-resume consume a
-  one-shot approval/snapshot that cannot be re-issued, so they run through the
-  same turn runner with `maxAttempts: 1` and keep the pre-BST-1409 behavior.
-- **Construction failures still REJECT the returned promise.** The first attempt
-  is built eagerly, before the generator is returned: a run rejected before any
-  stream part must surface as a transport rejection the renderer renders as an
-  error block (see the renderer safety net above), never as a mid-stream throw.
-  Pinned by the `stream_failure`/`empty_stream` cases in `mastra-streaming.spec.ts`.
-- Paired tests: `mastra-stall-recovery.integration.spec.ts` (recovery, budget
-  exhaustion, opt-out, user-cancel, continuation prompt contents, orphan drain
-  across a recovery). Every recovery case asserts the TOOL-EXECUTION COUNT: a
-  continuation that lost the completed steps would still answer plausibly, it
-  would just re-run every tool first, so only the count proves the carry-forward.
+  one-shot approval/snapshot, so they run the same turn runner with
+  `maxAttempts: 1`.
+- **Construction failures REJECT the returned promise** — the first attempt is
+  built eagerly, before the generator is returned, so the renderer renders a
+  transport rejection as an error block.
+- **Construction errors retain cleanup failures.** Attempt runtime disposal once;
+  if disposal also fails, carry both in an `AggregateError` cause and report
+  incomplete cleanup explicitly. An original `MastraAgentError` retains its code
+  and context; successful cleanup rethrows it unchanged.
 
-Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
-defined in `packages/agent/src/config/resilience-config.ts`:
-- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
-- `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000) — the tolerated gap
-  between parts, once the provider is demonstrably ANSWERING. Scoped to that
-  phase only since BST-1408, and narrowed again to exclude reasoning (see the
-  reasoning-gap entry below).
-- `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` (default 600000) — the budget for the
-  provider to produce its first output, **per step, not per stream**.
-  DELIBERATELY decoupled from the inactivity window and never tighter than it,
-  for the same reason the tool-call-input budget is (BST-839): the two answer
-  different questions — "has the provider started answering yet?" versus "is it
-  still delivering?". Sharing one number killed a healthy 18-minute turn,
-  because a request carrying ~169k prompt tokens at `reasoning.effort: 'max'`
-  can spend minutes producing nothing observable, which is indistinguishable
-  from a wedged transport at the stream-part layer. Same explicit-vs-default
-  resolution as the input budget: two EXPLICIT values in a contradictory shape
-  throw; an unset first-output window widens to the inactivity window.
+Settled: recover from the message list; `undefined` never resumes; billing is per
+turn. Evidence: `assistant-runtime/stall-recovery.md`.
+Guard: `packages/agent/src/__tests__/mastra-stall-recovery.integration.spec.ts`
+(every recovery case asserts the TOOL-EXECUTION COUNT),
+`packages/agent/src/__tests__/mastra-streaming.spec.ts`.
 
-- `BRAINSTRIKE_STREAM_REASONING_GAP_MS` (default 600000) — the tolerated gap
-  between REASONING parts. Same explicit-vs-default resolution and same
-  never-tighter-than-inactivity invariant as the first-output window.
+Config lives in `packages/agent/src/config/resilience-config.ts` and parses
+strictly — a malformed value THROWS. Read the file for defaults rather than
+restating them here.
 
-  **A REASONING DELTA IS NOT AN ANSWER — do not relitigate.** BST-1408 split
-  "has it started?" from "is it still delivering?" but left reasoning on the
-  wrong side of that line: any non-scaffolding part flipped the stream to
-  `streaming`, so the FIRST reasoning token armed the 120s window for the rest
-  of the step. Interleaved-thinking models emit a burst of thought, pause to
-  think further, then continue — so that window was armed against precisely the
-  pauses high reasoning effort is made of. `google/gemini-3.7-flash` at
-  `reasoning.effort: 'high'` died on both attempts of one turn (run-352bcf33),
-  each time with `phase: 'streaming'` and `lastPartType: 'reasoning-delta'`.
-
-  Reasoning shares the first-output BUDGET because it asks the first-output
-  QUESTION: the model is working and has not begun its answer. It is a separate
-  phase rather than an addition to the scaffolding set, because a reasoning part
-  IS provider output — folding it into scaffolding would let it re-arm the
-  first-output window on every delta and would erode the closed-list rule that
-  makes unknown new part types default to "this is output".
-
-  The phase moves BOTH ways: the next answer part returns the stream to
-  `streaming`, so a wedged provider mid-answer is still caught by the tight
-  window, and reasoning resuming after text widens it again.
-
-  Owned by `MASTRA_REASONING_PART_KINDS` in `agent-streaming.ts`, typed
-  `Partial<Record<StaticMastraChunkType, …>>` — the SAME union derived from
-  Mastra's own `ChunkType['type']` that `MASTRA_STATIC_CHUNK_DISPOSITIONS` is
-  checked against — so a Mastra rename fails to COMPILE here rather than
-  silently dropping a type back into the tight window.
-
-  CONTENT vs MARKER inside that record is load-bearing. A thinking delta ENTERS
-  the reasoning phase; block bookkeeping (`reasoning-end`,
-  `reasoning-signature`) only PRESERVES the phase already in effect. Providers
-  exist that emit `text-start` BEFORE `reasoning-end`, so a marker that set the
-  phase would widen the window back out exactly as the answer began. Preserving
-  keeps a not-yet-answering stream wide — the gap between `reasoning-end` and
-  the first `text-delta` is still "has it begun answering?" — and an
-  already-answering stream tight.
-
-  `resolveStalledVisibleMessage` (stream-termination.ts) has its own branch for
-  this phase: "stalled without output" would be actively wrong when the model
-  was producing reasoning and stopped mid-thought.
-
-  **THE PHASE BOUNDARY IS PROVIDER OUTPUT, NOT "THE FIRST PART" — do not
-  relitigate.** Measured through the real Mastra loop, a turn's raw parts are:
-
-  ```
-  start       t+0ms      <- framework, instant
-  step-start  t+7ms      <- framework, instant
-  tool-call   t+312ms    <- provider, after 305ms of thinking
-  step-start  t+321ms    <- framework, instant
-  text-start  t+723ms    <- provider, after 402ms of thinking
-  ```
-
-  A rule that ends the wide window at the first RAW part therefore covers ~0ms
-  of provider time and measures every real time-to-first-token against the tight
-  one — which is the exact failure the split exists to prevent. Worse, Mastra
-  opens EVERY step with that prologue, so time-to-first-output recurs throughout
-  a turn: the captured incident's fatal gap was a MID-TURN step's TTFT
-  (`run.step.started` 07:51:41 → silence → killed 07:56:48), not the opening
-  one. `withInactivityTimeout` therefore takes a `countsAsProviderOutput`
-  classifier; `MASTRA_SCAFFOLDING_PART_TYPES` (`start`, `step-start`) both KEEPS
-  and RE-ARMS the wide window, so each step gets its own budget. That set is a
-  CLOSED list of scaffolding rather than an allowlist of output kinds: a Mastra
-  release adding a new provider part type must default to "this is output"
-  (tightening on a part known to come from the provider), never to "this is
-  free". The real-loop coverage is
-  `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec.ts` —
-  it exists because the shared fake-Mastra harness feeds a hand-written part
-  list with NO prologue and structurally cannot see this.
-- `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` (default 2) — provider attempts per turn
-  before a stall becomes terminal. `1` disables recovery (the pre-BST-1409
-  behavior) and is what the terminal-path specs pin. Deliberately small: a
-  resume re-sends the whole prompt (~169k tokens in the captured incident), so
-  an unbounded budget would let a reliably-stalling route bill one turn
-  repeatedly.
-- `BRAINSTRIKE_TOOL_CALL_INPUT_MS` (default 600000) is the maximum wall-clock
-  time for one incomplete streamed tool input; argument deltas do not reset it.
-  Decoupled from — and never tighter than — the inactivity window (BST-839).
-  That invariant is enforced only when the value is EXPLICIT (env or override);
-  when it is left at its default it widens to the inactivity window instead of
-  throwing, so a deliberately long `BRAINSTRIKE_STREAM_INACTIVITY_MS` cannot
-  fail a run by naming a variable the operator never set. Widening a default is
-  not a silent fallback — nothing configured is overridden, and the documented
-  rule still holds.
+- `BRAINSTRIKE_TOOL_TIMEOUT_MS` is the FALLBACK per-tool guard budget, applying
+  only to a tool with no declared `executionBudget`.
+- `BRAINSTRIKE_STREAM_INACTIVITY_MS` is the tolerated gap once the provider is
+  demonstrably ANSWERING.
+- `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` is the budget for the provider's first
+  output, **per step, not per stream**.
+- `BRAINSTRIKE_STREAM_REASONING_GAP_MS` is the tolerated gap between REASONING
+  parts. A reasoning delta is not an answer: it shares the first-output budget
+  because it asks the first-output question. The phase moves BOTH ways.
+- `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` is provider attempts per turn before a
+  stall becomes terminal; `1` disables recovery.
+- `BRAINSTRIKE_TOOL_CALL_INPUT_MS` is the maximum wall-clock time for one
+  incomplete streamed tool input; argument deltas do not reset it.
+- `BRAINSTRIKE_APPROVAL_STALE_MS` is the advisory age after which a REDISCOVERED
+  suspended approval is flagged `stale`. Deliberately decoupled from the stream
+  and tool windows; advisory only — both buttons stay enabled, never an
+  auto-decline.
+- `toolExecutingMs` is DERIVED, never configured: `resolveToolExecutingMs` sizes
+  it from `MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS`, which is itself derived from the
+  native tool catalog. Never restate either number by hand.
+- Enforce `<=` invariants only against EXPLICITLY configured values: stream
+  inactivity <= tool-call input budget, <= first-output window, <= reasoning-gap
+  window. An unset window widens to the inactivity window rather than throwing.
+- Own the reasoning part set in `MASTRA_REASONING_PART_KINDS`
+  (`mastra-watchdog-options.ts`), typed against Mastra's own `ChunkType['type']` union so
+  a rename fails to COMPILE. CONTENT enters the reasoning phase; block bookkeeping
+  markers only PRESERVE the phase already in effect.
+- `MASTRA_SCAFFOLDING_PART_TYPES` (`start`, `step-start`) is a CLOSED list: a new
+  Mastra provider part type defaults to "this is output", never to "this is free".
 - A local-runtime inactivity termination includes the normalized provider and
-  selected model in both the structured error log and visible run failure. Do
-  not include bearer tokens or silently restart/unload the external server. The
-  timeout aborts the exact active provider request; it never lengthens the
-  window or leaves generation running after the visible terminal failure.
-- Invariant: tool timeout < stream inactivity <= tool-call input budget, and
-  stream inactivity <= stream first-output window, and stream inactivity <=
-  stream reasoning-gap window (all `<=` comparisons are enforced only against an
-  explicitly configured value; see above). The
-  FOUNDATIONAL tool-timeout ordering is checked before any derived window, so a
-  config breaking several invariants names the first thing to fix.
-- The stall diagnostic and the durable `run.failed` metadata carry `phase`
-  (`awaiting-output` | `reasoning` | `streaming`), `partsSeen` (scaffolding included — it is
-  transport activity, and `partsSeen: 2` beside `awaiting-output` is precisely
-  the "prologue arrived, provider never did" story), and `lastPartType`
-  (BST-1408). `lastPartType` is the last part the caller could NAME: an
-  undescribable part leaves the previous name in place rather than erasing the
-  breadcrumb. The user-visible text differs by phase too — a step that never
-  started reads "produced no output within Xms of the request starting", not
-  "stalled ... without output", which implied it had been streaming. `inactivityMs` alone could not say WHICH silence
-  fired or what the provider last sent, so the 2026-08-22 incident had to be
-  reconstructed by inference from run-event timestamps. The watchdog itself
-  stays generic over the stream element: `describePart` supplies the Mastra part
-  type from the call site rather than the timer module assuming a shape.
-- `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
-  which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced
-  notice (see PERMISSION ENGINE §restart-safe rediscovery). Deliberately
-  DECOUPLED from the two timeouts above: a human approval may legitimately take
-  hours after a restart, so it is NOT tied to the in-flight stream/tool windows.
-  Advisory only — both buttons stay enabled, never an auto-decline.
+  selected model in both the structured error log and the visible run failure.
+  Never include bearer tokens; never silently restart or unload the external
+  server. The timeout aborts the exact active provider request.
+- The stall diagnostic and durable `run.failed` metadata carry `phase`,
+  `partsSeen` (scaffolding included) and `lastPartType` — the last part the caller
+  could NAME, leaving the previous name in place for an undescribable part. The
+  visible text differs by phase. `describePart` supplies the Mastra part type from
+  the call site; the timer module assumes no shape.
 
-Stream part continuity: run-event data parts ('aui-data') CLOSE the active
-text/reasoning append in assistant-stream's accumulator, slicing visible text
-into fragments. `DataStreamMapper` therefore defers run events that arrive
-while a text/reasoning part is streaming and flushes them at the next boundary
-(tool start, approval, finish, error, stream end) — never drop them, never
-emit them mid-part (proof: data-stream-text-continuity.spec.ts).
+Settled: the first-output and inactivity windows stay decoupled (BST-839); the
+phase boundary is provider output; a reasoning delta is not an answer. Evidence:
+`assistant-runtime/resilience-config-rationale.md`.
 
-Open tool-call args streams have a related ordering contract (BST-962), whose
-decoder-side justification CHANGED at assistant-stream 0.3.35 — read this whole
-paragraph before reasoning about the mapper's deferral machinery.
+Stream part continuity and tool-call args ordering:
 
-Through 0.3.34 the `DataStreamDecoder` closed the ACTIVE call's argsText
-controller on every frame in a `TOOL_CALL_ARGS_CLOSING_CHUNKS` set
-(`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/`aui-text-delta`/`aui-reasoning-delta`/
-`aui-data`), so ANY such frame between a call's `b` and its `9` made the next
-`c` args delta append to a closed controller — an unhandled "Cannot enqueue a
-chunk into a readable stream that is closed" TypeError that errored the whole
-renderer pipeline (the visible chat died with the enqueue error) while the
-agent-side run completed invisibly.
+- Run-event data parts (`aui-data`) CLOSE the active text/reasoning append in
+  assistant-stream's accumulator, so `DataStreamMapper` DEFERS run events arriving
+  mid text/reasoning and flushes them at the next boundary (tool start, approval,
+  finish, error, stream end). Never drop them, never emit them mid-part.
+- The mapper's four obligations are unchanged and deliberately more conservative
+  than the pinned decoder requires: (a) defer aui-data parts while `openArgsCallId`
+  is set, flushing after that call's `9`; (b) close an open args stream — emitting
+  its `9` with accumulated args — before text/reasoning deltas, error/finish
+  frames and approval/suspend notices; (c) prefer DEFERRAL over premature
+  flushing; (d) close the window EAGERLY when a tool start already carries the
+  complete input, so the window never spans tool EXECUTION.
+- (b) stays load-bearing because `closeOpenToolCallArgs()` closes the argsText
+  with no `9`; (d) stays load-bearing for LATENCY. Whether the args-specific half
+  of (a)/(c) may be relaxed needs its own ticket and evidence — not a dependency
+  bump.
+- assistant-stream is pinned by the workspace catalog (`pnpm-workspace.yaml`),
+  currently 0.3.41; read the pin rather than a version named in prose.
 
-**0.3.35 removed that set entirely** — `TOOL_CALL_ARGS_CLOSING_CHUNKS` does not
-exist anywhere in the pinned 0.3.37 dist. At 0.3.37 an argsText closes ONLY on
-an explicit frame: the complete `9`; a `c` delta carrying `isFinal: true`; the
-call's `a` result (which marks it closed); and the stream-wide
-`closeOpenToolCallArgs()` that `3`/`e`/`d` and decoder flush run. A `0`/`g`/`h`/
-`aui-data`/`aui-text-delta`/`aui-reasoning-delta` frame between a call's `b` and
-its `9` now closes nothing. Two further consequences, both verified against the
-0.3.37 decoder source rather than inferred:
+Evidence: `assistant-runtime/args-stream-ordering.md`.
+Guard: `packages/agent/src/__tests__/data-stream-text-continuity.spec.ts`
+(the BST-962 describe block and its `expectDecoderSafeArgsStream` sweep).
 
-- The crash class is GONE as described. A `c` delta for an already-closed args
-  stream is now dropped behind a one-shot `console.warn` ("Dropped tool-call
-  args delta for closed args stream"), not an unhandled TypeError. What STILL
-  throws in strict mode (the default) is a duplicate `b` tool-call id, and a
-  `c`/`a` naming an id the decoder never saw.
-- Interleaved args across PARALLEL calls (`b`-A, `b`-B, `c`-A) is no longer
-  decoder-lethal: distinct ids get distinct controllers and `c`-A still resolves
-  to A's open controller. The previous "already lethal at the `b`" note applied
-  to the pre-0.3.35 decoder and is retained below only as history.
+Completion, title generation and replay:
 
-The mapper's obligations are UNCHANGED by this bump — deliberately. It still
-(a) defers aui-data parts (run events, shell output, context breakdown,
-child-run usage) while `openArgsCallId` is set, flushing after that call's `9`;
-(b) closes an open args stream — emitting its `9` with the accumulated args —
-before text/reasoning deltas, error/finish frames, and approval/suspend notices
-(pauses produce no later boundary, so the notice cannot be deferred);
-(c) prefers DEFERRAL over premature flushing everywhere; (d) closes the window
-EAGERLY (`b` immediately followed by its `9`) when a tool start already carries
-the complete input — the non-streaming provider path (`tool-call` part, no
-`input_stream_*` events) — so the window never spans tool EXECUTION, which would
-buffer live shell output and run events until the result; a late
-`input_stream_end` after any forced close is dropped by the `argsEmitted` guard.
+- The renderer's data-stream runtime defers assistant-stream's decoded
+  `message-finish` until decoder flush, so an immediate next turn cannot abort a
+  still-draining text controller. Aborted runs propagate the authoritative abort
+  reason without surfacing cancellation teardown as a new assistant error; server
+  subscriptions detach without double-closing their stream controller.
+- Desktop assistant execution is owned by the main-process data-stream session,
+  not one renderer HTTP response. A response close detaches only that
+  subscription; the source continues to terminal state and stays replayable for
+  the session retention window. User Stop is the distinct authoritative cancel
+  path (`POST /assistant/cancel` with the validated run id). Do not infer user
+  intent from navigation, renderer reload, or a dropped socket.
+- `streamAttemptChunks` starts `Agent.generateTitleFromUserMessage` before
+  yielding the terminal finish, and the generator's `finally` AWAITS that started
+  task before aborting the internal controller or shutting down the per-run Mastra
+  instance. The wait happens after the finish reaches the UI. Approval/suspend
+  terminal parts and memory-free runs never start the task.
+- Each desktop response exposes an opaque absolute replay cursor in
+  `X-Brainstrike-Assistant-Event-Id` and the durable message identity in
+  `X-Brainstrike-Assistant-Message-Id`. While the run is active the renderer
+  stores the cursor, run ID, assistant message ID and exact runtime parent in thread-scoped
+  `sessionStorage` and live runtime state; only bootstrap or transport failure reconnects with
+  `GET /assistant/resume` plus `Last-Event-ID`, never a second model request.
+- Replay reuses the durable assistant message ID and its persisted parent rather
+  than appending a duplicate. Remove the hydrated durable leaf before replay,
+  reconcile the history append to the durable ID, and map the temporary local ID
+  back through the public thread `export`/`import` API after assistant-ui's
+  `runEnd`. Do not patch assistant-ui internals to add a message-ID input. A
+  missing exact host admission anchor, or a leaf with descendants, is a visible replay error,
+  never a guessed parent.
+- Give transient replay failures at most two automatic retries; a missing or
+  expired session is a visible 404 that clears the stale renderer record.
+  Terminal completion, failure or explicit Stop clears the record. Resolve the
+  endpoint base from the assistant runtime API (`getAuth()`/`getUrl()`), never the
+  legacy optional `window.assistant.url` field alone.
 
-Which of those still carry a LIVE justification at 0.3.37, so a future reader
-does not delete them as dead weight:
+Evidence: `assistant-runtime/title-generation-and-replay.md`.
 
-- (b) is still load-bearing for `3`/`e`/`d`: `closeOpenToolCallArgs()` closes the
-  argsText WITHOUT any `9`, so a call whose args were never completed settles
-  with partial args. Emitting the `9` first is what preserves them.
-- (d) is still load-bearing for LATENCY, independent of any decoder behavior: an
-  args window spanning execution buffers live shell output and run events until
-  the result.
-- (a) and (c) keep an independent justification from the paragraph above — an
-  `aui-data` part CLOSES the active text/reasoning append in the ACCUMULATOR,
-  which 0.3.35 did not touch — but their args-specific half is now strictly more
-  conservative than the pinned decoder requires.
-
-That conservatism is intentional and is why this bump needed no mapper change:
-the emitted wire stays valid against both the pre-0.3.35 and post-0.3.35
-decoders. Whether the args-specific half of (a)/(c) should be relaxed now that
-the crash class is gone is a real question, but NOT one to settle inside a
-dependency bump — it needs its own ticket and its own evidence.
-
-The incident producer was an OM-observer run event landing mid
-`updateWorkingMemory` args (debug bundle 2026-07-28T15-43-22Z). Proof: the
-BST-962 describe block in data-stream-text-continuity.spec.ts, including the
-`expectDecoderSafeArgsStream` invariant sweep — which asserts the mapper's
-stricter ordering, and whose docblock records that it now outruns what the
-decoder needs. The renderer's
-data-stream runtime also defers assistant-stream's decoded `message-finish` until
-decoder flush: assistant-stream 0.3.37 emits that marker before its trailing
-`part-finish`, and exposing completion early lets an immediate next turn abort a
-still-draining text controller. Aborted runs propagate the authoritative abort
-reason without surfacing cancellation teardown as a new assistant error; server
-subscriptions detach without double-closing their stream controller. Desktop
-assistant execution is owned by the main-process data-stream session, not by one
-renderer HTTP response. A response close detaches only that subscription; the
-source continues to terminal state and remains replayable for the session
-retention window. User Stop is the distinct authoritative cancel path: the
-renderer posts the validated run id to `POST /assistant/cancel`, which aborts
-the registered execution controller. Do not infer user intent from navigation,
-renderer reload, or a dropped socket.
-
-Mastra title generation has its own finish-boundary lifecycle. The PGlite
-memory factory opts into top-level `generateTitle`, while
-`streamAttemptChunks` starts the public
-`Agent.generateTitleFromUserMessage` request before yielding the terminal
-finish. The downstream data-stream consumer stops pulling immediately after
-that finish, so the generator's `finally` must await the already-started title
-task before aborting the internal stream controller or shutting down the
-per-run Mastra instance. This wait happens after the finish has reached the UI:
-it protects background persistence without adding title-model latency to the
-visible assistant response. Approval/suspend terminal parts and memory-free
-runs never start the task.
-
-Each desktop response exposes an opaque absolute replay cursor in
-`X-Brainstrike-Assistant-Event-Id` and the durable assistant message identity in
-`X-Brainstrike-Assistant-Message-Id`. While the run is active, the renderer
-stores only `{assistantMessageId, eventId, runId}` in thread-scoped
-`sessionStorage`. After history hydration on renderer reload, it reconnects with
-`GET /assistant/resume` plus `Last-Event-ID`; it never composes a second model
-request. Replay must reuse the durable assistant message ID and its persisted
-parent rather than append a duplicate hydrated message. The installed
-assistant-ui runtime creates a temporary streaming message for `resumeRun`;
-Brainstrike removes the hydrated durable leaf before replay, then reconciles
-the history append to the durable ID and maps the temporary local ID back
-through the public thread `export`/`import` API after assistant-ui's `runEnd`
-event. Waiting for `runEnd` is required because error and incomplete outcomes
-can update the local message after the replay iterator closes. Do not patch
-assistant-ui internals to add a message-ID input. A missing durable leaf or a
-leaf with descendants is a visible replay error, never a guessed parent.
-Transient replay
-failures receive at most two automatic retries; a missing/expired session is a
-visible 404 and clears the stale renderer record. Terminal completion, failure,
-or explicit Stop clears the record. The endpoint base must come from the
-already-resolved assistant runtime API (`getAuth()`/`getUrl()`), never from the
-legacy optional `window.assistant.url` field alone.
-
-### ACTIVITY GROUPS (BST-1656, re-based on `MessagePrimitive.GroupedParts`)
+### ACTIVITY GROUPS
 
 The assistant message renders its parts through `MessagePrimitive.GroupedParts`
 (`packages/assistant-ui/src/assistant-activity-parts.tsx`) with
 `groupAssistantActivityPart` (`assistant-activity-grouping.ts`) as the grouper.
-The library's legacy `components.ChainOfThought` path is gone from this repo
-and must not return: its grouper ends a group on ANY part that is not
-`tool-call`/`reasoning`, and this runtime emits a `brainstrike.run-event` data
-part around every tool call (live via `aui-data` → `part-start`, and woven
-between parts on reload), so every call rendered as its own "Worked · 1 step"
-group. Grouping rule (pinned by `assistant-activity-grouping.test.ts`):
+The library's legacy `components.ChainOfThought` path is gone and must not return.
 
-- `reasoning` / `tool-call` → the activity group.
-- `brainstrike.run-event` → group-transparent, EXCEPT `isAlwaysVisibleRunEvent`
+- Grouping: `reasoning` / `tool-call` join the activity group;
+  `brainstrike.run-event` is group-transparent EXCEPT `isAlwaysVisibleRunEvent`
   kinds, which stay standalone so a collapsed group can never hide a failed or
-  cancelled run, a skipped MCP server, or a pending approval row.
-- shell-output / context-breakdown / child-run-usage → transparent (they
-  render `null` either way).
-- tool-approval / tool-suspend cards, `text`, and unknown data parts →
-  standalone. A pause is a real boundary.
+  cancelled run, a skipped MCP server, or a pending approval; shell-output,
+  context-breakdown and child-run-usage are transparent; tool-approval /
+  tool-suspend cards, `text` and unknown data parts are standalone, because a
+  pause is a real boundary.
+- A valid approval card replaces duplicate pause chrome by explicit `timelineRunId` +
+  surface call; root decision routing stays separate. Preserve child navigation and history.
 - MCP-app tool calls stay inside the group: Brainstrike detects apps by RESULT
   shape only, and a call must not change groups when its result lands.
-- A `group-activity` node holding only transparent data parts (no
-  `reasoning`/`tool-call` — for example a trailing `run.finished` after the
-  final text) renders its children bare: `ActivityGroup`
-  (`assistant-activity-parts.tsx`) returns them directly instead of mounting
-  `ActivityTrace` — no chrome, no `assistant-activity-group` test id.
+- A `group-activity` node holding only transparent data parts renders its children
+  bare — no chrome, no `assistant-activity-group` test id.
+- Pass `indicator="no-text"` to `GroupedParts` and drop the slot exactly when the
+  TRAILING group holds an activity part (`trailingGroupHasActivity`). `"never"`
+  blanks the bubble from Send until the first part arrives; suppressing on "any
+  activity part anywhere" darkens the window where the slot is the turn's only
+  live affordance.
+- Chronology: each contiguous group renders at its own position. Never hoist later
+  parts into an earlier group or suppress later groups.
+- `ActivityGroup`'s `isActivityActive` is true when the group's own status is
+  `running`; OR any of the group's ACTIVITY parts is `requires-action` (read the
+  tool parts, never raw `GroupPart.status`, which mirrors the group's LAST
+  member); OR the message is still running, this group holds its last part, and
+  the group's own status has not resolved to `incomplete`. Only the trailing group
+  gets that last treatment.
+- Derive the `Stopped` / `Activity failed` headline from the group's ACTIVITY
+  parts, never from a transparent data member. Incomplete group status is
+  authoritative (cancelled → Stopped, other reasons → Activity failed). A
+  completed call with the canonical `isError` flag counts once into `· N failed`
+  and never turns the group itself failed.
+- Render live reasoning text directly from `useMessagePartReasoning`, never
+  through the text-part renderer. Each reasoning part carries its own disclosure
+  (open while streaming, collapsed once settled, a manual toggle sticks).
+  Reasoning-only groups omit the step count.
+- Correlate tool durations and shell output by call id across the message; each
+  group's elapsed fallback uses only its own tool events. The turn-wide task list
+  renders once, in the group holding the message's first activity part.
+- **COLLAPSED BY DEFAULT at ALL times** — `ActivityTrace`'s `expanded` derivation
+  is `userExpanded ?? false`, never `?? isActive`. An explicit user toggle sticks
+  for the life of the mounted trace.
+- `ActivityTrace` (`activity-trace.tsx`) owns the MARKUP only: the phase and every
+  string derived from it live in `activity-trace-labels.ts`, and its two hooks in
+  `use-activity-trace-clock.ts` / `use-label-enter-class.ts`. A `.tsx` file in this
+  package exports components and nothing else, or Vite's Fast Refresh loses the
+  boundary.
+- The header is two rows: a status row (glyph, label, elapsed) and, only while
+  active, a fixed-height one-line detail row (`bs-trace-detail`) entirely removed
+  from the DOM once the group finishes — never a zero-height placeholder.
+- Live label precedence in `summarizeActivity`'s `liveLabel`: `Waiting for
+  approval` > `<Verb-ing> <target>` > `Thinking` > `Working`. The detail line names
+  only the current running tool's target and carries no label of its own.
+  `toolStepState` maps ANY `requires-action` status to `waiting`.
+- The elapsed clock (`useElapsedMs`, gated by `isActive && !waiting`) pauses while
+  the run is blocked on the user. `ActivitySummary.waiting` is the single source
+  for both consumers and is NARROWER than the label: it requires a gated step AND
+  no tool step still running. The badge stays visible but frozen, so the header's
+  height never shifts.
+- Scope that pause precisely: only the LIVE clock pauses, only while mounted. The
+  reload-surviving value is `runEventsSpanMs`, which DOES include waiting time;
+  within a session `useElapsedMs` re-anchors from whichever is larger. Nothing
+  subtracts wait time from a persisted duration.
+- At rest the headline is `restingLabel`: unique DONE-verb phrases in
+  first-occurrence order, capped at three. Only verbs flagged `countsFiles`
+  (`activity-verbs.ts`) carry a distinct-target file count, deduped on the
+  untruncated `targetKey`. The flag is a property of the VERB, never its family.
+- The meta reads `· Worked for Ns · N steps · N failed`, each segment carrying its
+  own `·` and omitted when zero; `Stopped after Ns` continues its own headline as
+  one phrase. When `Stopped after Ns` or `Activity failed` wins, demote
+  `summary.verbs` — NOT `summary.resting` — into a `· <verb summary>` meta
+  segment, so a `Worked`/`Thought` placeholder can never be demoted.
+- `counts.failed` / `data-failed-steps` / `· N failed` count tool steps in state
+  `failed` ONLY: a cancelled call is neither failed nor part of the verb summary.
+- Bound the headline and live label on one line through
+  `.bs-activity-summary-label` / `.bs-activity-live-label` in `overrides.css`, and
+  keep the row's flex line stylesheet-owned. Why: the browser test lane has no
+  Tailwind utilities, so a `truncate` class leaves the invariant unverified.
+- `message.metadata.custom.brainstrikeActivitySummary` overrides the resting
+  headline of a FINISHED group only: a non-empty post-trim string used verbatim,
+  validated AND rendered trimmed; a non-string or blank value is ignored, never
+  coerced. It never displaces a `Stopped` / `Activity failed` headline and never
+  demotes into the meta slot. No producer writes this key today.
+- Keep the layout fixed-height: the status row is `min-height: 2rem` and the phase
+  glyph sits in a `1rem` box regardless of its contents.
+- The live-label region carries `aria-live="off"` plus a visually hidden
+  `aria-live="polite"` phrase that flips only on phase change. That live region is
+  a SIBLING of the disclosure button, never a child — a button's children are
+  presentational per ARIA and several screen readers prune the subtree. The
+  button's name stays `Expand activity` / `Collapse activity` with
+  `aria-describedby` pointing at the summary row.
+- `.bs-trace-collapse` animates the OPEN direction only; the body also carries the
+  `hidden` attribute that e2e and role-based queries rely on — do not remove it.
+- Every verb lives in `activity-verbs.ts`'s `TOOL_VERBS`, total over
+  `NATIVE_TOOL_IDS` and enforced by the `Record<NativeToolId, ActivityVerb>` type,
+  so a tool added to the catalog without a verb fails to compile. Non-native names
+  fall through `verbForTool`: delegation reads `Delegating to <persona>`, a dotted
+  non-`brainstrike.` name reads `Calling server.tool`, anything else reads
+  `Using <name>` rather than guessing.
+- Test ids and data attributes are unchanged: `assistant-activity-group`,
+  `assistant-activity-summary`, `assistant-activity-body`,
+  `assistant-activity-working`, `assistant-activity-failed-count`, `data-active`,
+  `data-failed`, `data-failed-steps`, `data-state`.
 
-`AssistantActivityParts` passes `indicator="no-text"` to `GroupedParts` (the
-library default), required for parity with the legacy path's empty-message
-placeholders (`EmptyParts`, `ConditionalEmpty`) — `"never"` blanks the
-assistant bubble from Send until the first part arrives, which regressed the
-pre-first-token thinking indicator. The library also emits that slot whenever
-the last part is a tool call or transparent data part, i.e. while an activity
-group is live; the renderer drops it exactly when the TRAILING group holds an
-activity part (`trailingGroupHasActivity(state.message.parts)`), so that
-group's header is the sole live status and no second "Thinking" row trails a
-collapsed group (CDT pass 4). The slot still renders for a running message
-with no activity in its trailing group — zero parts, only standalone data such
-as `run.started`, or `[…, text, tool.started]`, where the earlier group is no
-longer trailing (it reads `Worked`) and the bare data-only group renders
-nothing, so the slot is the turn's only live affordance until the next
-tool-call part lands. Suppressing on "any activity part anywhere" darkened
-that window (review finding, wave 3). A trailing approval/suspend card is
-standalone as well, but a message paused on one is `requires-action`, not
-`running`, so the library emits no slot there regardless.
+Evidence: `assistant-runtime/activity-grouping.md`,
+`assistant-runtime/activity-trace-header.md`.
+Guard: `packages/assistant-ui/src/__tests__/assistant-activity-grouping.test.ts`,
+`packages/assistant-ui/src/__tests__/activity-verbs.test.ts`.
 
-Chronology rulings (unchanged): each contiguous group renders at its own
-position; never hoist later parts into an earlier group or suppress later
-groups. Group status is the library's `GroupPart.status` (running if any part
-runs, else the last part's). `ActivityGroup`'s `isActivityActive` reads `true`
-when: the group's own status is `running`; OR any of the group's ACTIVITY
-parts is `requires-action` — a call paused at its approval gate carries this
-status, never `running`, for as long as the gate stays open, and only this
-branch makes the model's `waiting` → `Waiting for approval` label
-(`activity-trace-model.ts`) reachable (BST-1679 task 6). That clause reads the
-activity parts, never the raw group status: `GroupPart.status` mirrors the
-group's LAST member, which a group-transparent run-event data part (or a
-settled sibling call) can be, so reading it raw darkened the whole approval
-wait in the same shape finding 1 (below) fixed for the headline. It is a
-`.some` over the parts, matching `liveLabel`'s own `findLast(waiting)`: ANY
-gated call holds the pause. OR the message is
-still running, this group holds the message's last part, and the group's own
-status has not resolved to `incomplete` — a tool call's result can land in the
-same streamed chunk that fences the next call into the same coalesced group,
-so a purely part-derived status would otherwise flash "Worked" for the
-model-latency gap between two calls of the same run. Only the trailing group
-gets this treatment: earlier, genuinely finished groups stay inactive when
-later thinking starts (BST-1656 ruling preserved). The reasoning disclosure
-renders live reasoning text directly from `useMessagePartReasoning`, never
-through the text-part renderer; each reasoning part carries its own
-disclosure (open while it streams, collapsed once it settles, a manual toggle
-sticks), so a group with several thinking blocks never opens or closes them
-together — test ids and labels unchanged. Reasoning-only groups omit the step
-count. Incomplete group status is authoritative (cancelled → Stopped; other
-reasons → Activity failed); a completed call with the canonical `isError`
-flag is counted once into the header's `· N failed` suffix — it never turns
-the group itself failed, only the group's own incomplete status does. The
-group's `Stopped`/`Activity failed` headline is derived from its ACTIVITY
-parts (running if any runs, else the last reasoning/tool-call part's status),
-never from a transparent data member, so a trailing `tool.completed`/
-`tool.started` cannot mask an interrupted call (PR #3061 review finding 1:
-`getGroupStatus` mirrors the group's own last member — including transparent
-data parts — which can read "complete" even though an earlier, resultless
-call in the same group is `incomplete`) — and a group whose activity all
-resolved reads `Worked` even on a cancelled/errored message (the standalone
-`run.*` row carries the run outcome; this narrowed an earlier, over-wide fix
-that inherited the message's incomplete reason onto the whole trailing group,
-including one whose own activity had already resolved). Tool
-durations and shell output correlate by call id across the message; each
-group's elapsed fallback uses only its own tool events. The turn-wide task
-list renders once, in the group holding the
-message's first activity part.
+L1 step rows and L2 bodies (`activity-step-row.tsx` / `activity-trace-model.ts`):
 
-COLLAPSED BY DEFAULT (BST-1677 wave 3, Sean's request; header now
-`ActivityTrace`, BST-1679): a group's body renders collapsed at ALL times —
-running or done — `ActivityTrace`'s `expanded` derivation is
-`userExpanded ?? false`, never `?? isActive`. An explicit user toggle sticks
-for the life of the mounted trace, exactly as before — it can still be
-expanded while running.
+- Each entry in `deriveActivitySteps`'s part-order list renders one
+  `StepRowHeader` inside `.bs-step-list`: family icon · verb in tense · target
+  chip · timing slot · state glyph · chevron.
+- The ACTIVE tense covers `running` AND `waiting` (`ACTIVE_TENSE_STATES`): a call
+  paused at its approval gate is in flight, and the glyph is what says why the
+  step is standing still. Only `done`, `failed` and `cancelled` read the done
+  tense.
+- The target chip falls back to the TOOL ID when the args name no primary arg;
+  `targetTitle` stays the untruncated primary arg, never the id. The timing slot
+  renders only when the caller supplies timing.
+- The row IS the card's own header: `ToolFallback`, `SubagentExecutionCard` and
+  `TaskListToolCard` render it in place of a second header.
+- `RowShell` splits into two forms. A card with something to expand renders a real
+  `<button aria-controls aria-expanded aria-label>` whose accessible name CONTAINS
+  its visible label (WCAG 2.5.3): verb and target lead, the affordance trails as a
+  clause. The affordance wording (`Expand details` / `Collapse details`) is the
+  e2e contract, matched as a SUBSTRING. Drop `aria-describedby` on a
+  content-named row — content already in the name must not also be a description.
+- `nameFromContent={false}` is the one opt-out, used by the reasoning row, whose
+  `label` already names the step (`Show thinking` / `Hide thinking`). The prop
+  defaults to the ACCESSIBLE behaviour so a later row is compliant by default.
+- `aria-expanded` is always present; emit `aria-controls` ONLY while the element
+  it names is mounted. A row whose body stays in the DOM opts back in with
+  `controlsAlwaysMounted` — only the reasoning row does.
+- A card with nothing to expand renders the non-interactive form: a
+  `<div role="group" aria-labelledby>` with no chevron and no `aria-expanded`.
+- Put the raw tool id in visually hidden text OUTSIDE the row's named content
+  span, plus the row's own `title` (the e2e text contract). `trailing` — the
+  result-summary chip, resolved-root chip and the subagent `· N tool calls` count
+  — renders in that same OUTSIDE position, right after the content span.
+- The interactive row's three a11y surfaces are disjoint: NAME is
+  `<verb> <target>, <affordance>` from `contentAccessibleName`; DESCRIPTION is the
+  raw tool id via `title` (HTML-AAM) and only that; TRAILING content sits in
+  neither, staying reachable in browse mode.
+- State glyphs are named, never colour-only: `STEP_STATE_LABELS`
+  (`activity-step-tokens.ts`) is the total `role="img"`/`aria-label` map over
+  `StepGlyphState`.
+- ONE function derives a step's state, `toolStepStateFor`
+  (`activity-trace-model.ts`), consumed by the trace headline, `ToolFallback`,
+  `SubagentExecutionCard` and `TaskListToolCard`, so a step can never read two
+  states on two surfaces. Both refinements on a generic `done` live INSIDE it
+  (`settledResultOverride`, `runPythonStepState`); the only outside refinement is
+  `resolveDelegationState`'s `no-answer`.
+- `Waiting for approval` is a LIVE pause only: map `status.type ===
+  'requires-action'` to `waiting` and nothing else. A resultless call on a settled
+  message falls through to `settledResultOverride` and reads `Completed` on every
+  surface — never a renderer guess.
+- `readResultError` is the ONE reader of "does this result state an error" and
+  "what does it say". It reads the success discriminator FIRST: an `ok: true`
+  result stays `done` however its `error` member is shaped. Otherwise it
+  recognises a non-empty `error` string, an `ok: false` envelope whose
+  `error.message` explains it, or a result-level `isError: true`. The part-level
+  `isError` flag is a separate branch supplying only the generic message.
+  Ordering hazard: this branch runs BEFORE `settledResultOverride`, so a
+  tool-specific reading can never soften a result that states an error.
+- Exactly one live mark renders per running row: the state glyph.
+  `ToolRunTiming` passes `showMark={false}`, and the reasoning row keeps its own
+  indicator pair. Only the group's LAST running tool row shimmers
+  (`deriveStepMeta` → `ActivityStepMetaProvider` → `useIsLastRunningStep`, which
+  answers `true` outside any provider so a standalone running card still shimmers).
+- Rows reveal with `bs-trace-reveal` and a positional `:nth-child` stagger capped
+  at 5. The `:nth-child` rules set `--bs-stagger` on the list's DIRECT children
+  (the wrappers) and the row reads it by INHERITANCE, so `.bs-trace-reveal` must
+  default through `var(--bs-stagger, 0)` and never declare the property itself.
+- A subagent delegation is a step whose verb names the PERSONA; `STEP_VERB`
+  (`subagent-execution-card.tsx`) is total over `StepGlyphState`.
+  `TaskListToolCard` uses `family="tasks"` with its own verb pair.
+- `CheckpointRevertButton` is a SIBLING of the row inside `.bs-step-row-line`,
+  never nested inside its `<button>`. It hides only for `running`/`failed`; a
+  CANCELLED edit keeps its revert control, since a captured checkpoint means the
+  mutation landed.
+- `ToolFallback` (`tool-fallback.tsx`) is the composition ROOT only: the row is
+  `ToolFallbackRow`, everything below it is `ToolFallbackBody`, and the pure
+  derivations are `tool-fallback-state.ts`. `@brainstrike/assistant-ui/tool-fallback`
+  stays the subpath `mcp-app-host-ui` imports, exporting only `ToolFallback`.
+- Detail level maps to row behaviour via `resolveToolDisplayPolicy`: `compact`
+  hides the details expander and result-summary chip; `standard` shows both
+  collapsed; `developer` auto-opens the body and adds raw I/O.
+  `SubagentExecutionCard`'s `· N tool calls` chip reads the SAME
+  `policy.showResultSummary` gate, but its `expanded` is its own `useState`. The
+  `in <root>` chip is NEVER gated by detail level.
+- Only `developer` shows run-event rows inside the trace. Those rows are direct
+  children of `.bs-step-list`, CONSUME `:nth-child` slots but carry no
+  `.bs-trace-reveal`; `.bs-step-list`'s row rhythm makes an exception for them —
+  see `ui-conventions.md`'s "Step rows" paragraph for the geometry.
 
-`ActivityTrace` (`activity-trace.tsx`) renders the header as two rows: the
-status row (glyph, label, elapsed) and, only while active, a fixed-height
-detail line (`bs-trace-detail`, one line, entirely removed from the DOM once
-the group finishes — never a zero-height placeholder). That file owns the
-MARKUP only (BST-1684): the phase and every string derived from it
-(`phaseOf`, `headlineFor`, `metaFor`, `verbMetaFor`, `stepLabel`,
-`isWaitingForUser`, `announcementFor`) live in `activity-trace-labels.ts`, and
-its two hooks in `use-activity-trace-clock.ts` (`useElapsedMs`) /
-`use-label-enter-class.ts` (`useLabelEnterClass`) — a `.tsx` file in this
-package exports components and nothing else, or Vite's Fast Refresh loses the
-boundary. While running, the
-live label follows a fixed precedence in `summarizeActivity`'s `liveLabel`
-(`activity-trace-model.ts`, over `deriveActivitySteps`'s step list):
-`Waiting for approval` (any step `waiting`) > `<Verb-ing> <target>` (the last
-running tool step) > `Thinking` (a running reasoning step, no tool running
-yet) > `Working` (no step running yet). The detail line under it names only
-the current running tool's target; it carries no label of its own.
-`toolStepState` (`activity-trace-model.ts`) maps ANY `requires-action` status
-— an approval gate's `interrupt`/`tool-calls` reason and a tool-suspend pause
-alike — to the `waiting` step state, so `summarizeActivity` reads both as
-`Waiting for approval`: this copy was already this broad, it only became
-observable once `isActivityActive` kept the group live through the pause
-(BST-1679 task 6, per the ruling above).
+Evidence: `assistant-runtime/activity-step-rows.md`.
+Guard: `packages/assistant-ui/src/__tests__/activity-step-row.test.tsx`,
+`packages/assistant-ui/src/__tests__/tool-fallback-a11y.test.tsx`.
 
-The elapsed clock (`useElapsedMs`, gated by `isActive && !waiting` where
-`waiting` is the same `phase === 'running' && summary.waiting` test the
-sr-announcement makes) pauses while the run is blocked on the user, so their
-own deliberation time does not inflate the LIVE readout and an abandoned
-in-session pause does not tick forever. `ActivitySummary.waiting`
-(`activity-trace-model.ts`) is the single source for both consumers and is
-deliberately NARROWER than the `Waiting for approval` label: a gated step
-wins the label race even while a sibling tool call still executes, and that
-run is not paused on anyone — `waiting` requires a gated step AND no tool
-step still running, so genuine concurrent work keeps ticking under the
-waiting headline. The elapsed badge itself stays visible but frozen — not
-hidden — across the wait, so the header's height never shifts across the
-running → waiting → running cycle (BST-1679 task 6).
+HYDRATION LIVENESS (do not relitigate):
 
-Scope of that pause, precisely (do not overstate it): only the LIVE clock
-pauses, and only for as long as the group stays mounted. The value that
-survives a reload is `runEventsSpanMs` — the group's own run-event span,
-wall-clock first-to-last — and it DOES include the time spent waiting, so a
-reloaded turn's `Worked for Ns` reads longer than the live clock did. Within
-a session the same span is the seed (`fallbackMs`), so a second pause
-re-anchors the clock from whichever is larger — the run-event span or the
-accumulated live time (`useElapsedMs` takes the max). Nothing subtracts wait
-time from a persisted duration.
+- Every animated "still happening" indicator carries `data-live="true"`, and a
+  reloaded thread renders NONE unless a pause is genuinely pending.
+- Part-derived status is safe by construction (hydrated messages are `complete`).
+  Run-event rows are the hazard: a `running` row whose owning message has settled
+  resolves to the renderer-only `'interrupted'` status, never persisted, unless a
+  `brainstrike.tool-approval` / `brainstrike.tool-suspend` data part for the same
+  `toolCallId` exists in the thread.
+- Leave an ABSENT message status alone: liveness is never guessed. Subagent child
+  rows follow the same rule.
 
-At rest the headline is the verb summary from `restingLabel`: unique
-DONE-verb phrases in first-occurrence order, capped at three (`+N more` for
-the rest). Verbs flagged `countsFiles` (`activity-verbs.ts`) — and ONLY those
-— carry a distinct-target file count, deduped on the untruncated `targetKey`
-rather than the display-capped `target` (so two long paths sharing a
-head/tail after 64-char middle-ellipsising still count as two files).
-`countsFiles: 'always'` counts from one (`Edited 1 file`), `'plural'` only
-from two (`Read 2 files`, but a single read stays the bare `Read`). The flag
-is a property of the VERB, never of its family: the `read` family also covers
-directory listings, artifact reads and context reads, whose targets are not
-files, and folding the family read "Listed 2 files" for them (review
-finding). Exactly five ids carry it — `readWorkspaceFile` (`plural`),
-`writeWorkspaceFile` / `stringReplaceWorkspaceFile` / `deleteWorkspaceFile` /
-`renameWorkspaceFile` (`always`) — pinned by `activity-verbs.test.ts`. The
-meta reads `· Worked for Ns · N steps · N failed` (each segment carries its
-own `·`, since no whitespace separates the spans; `Stopped after Ns` is the
-one exception, continuing its own headline as one phrase) (step/failed
-counts from `summary.counts`, each segment omitted when zero). The headline
-shrinks and ellipsises on one line (`.bs-activity-summary-label`,
-`overrides.css`) so an unbounded model-written summary truncates instead of
-pushing the meta out of the row; the row's flex line
-(`.bs-activity-summary-row`) is stylesheet-owned for the same reason. `Stopped after
-Ns` and `Activity failed` remain the headlines for the GROUP'S OWN incomplete
-status (unchanged rule: cancelled → Stopped, any other reason → Activity
-failed) — a failed tool step alone never fails the group, only its own
-`incompleteReason` does — and whenever either headline wins, the verb summary
-that would otherwise have been the headline is demoted to a
-`· <verb summary>` meta segment instead of disappearing. That demotion reads
-`summary.verbs`, NOT `summary.resting`: the model reports the verb summary
-and the headline separately, and `verbs` is null when no tool step settled,
-precisely so the `Worked`/`Thought` placeholder can never be demoted into the
-meta as "Stopped after 4.0s · Worked · 1 step" (PR #3064 review finding 1).
-`counts.failed` / `data-failed-steps` / the `· N failed` segment count tool
-steps in state `failed` ONLY: a cancelled call is neither failed nor part of
-the verb summary (phase 1's `summarizeToolActivity` folded any `incomplete`,
-cancellations included, into its failed count). A reasoning-only
-group (no settled tool step) reads `Thought` at rest; a live reasoning
-block's own disclosure pill uses the same pair, `Thinking` while its part
-streams and `Thought` once it settles (`ActivityReasoningBlock`,
-`assistant-activity-parts.tsx`) — the identical `Thinking`/`Thought` pair
-`deriveActivitySteps` assigns every reasoning step (`REASONING_VERB`).
+Evidence: `assistant-runtime/hydration-liveness.md`.
+Guard: `packages/assistant-ui/src/__tests__/assistant-hydration-liveness.test.tsx`.
 
-The resting headline can be overridden by
-`message.metadata.custom.brainstrikeActivitySummary`
-(`readActivitySummaryOverride`, `assistant-activity-parts.tsx`): read-only
-today, a non-empty (post-trim) string is used verbatim — validated AND
-rendered trimmed, never with its padding; a non-string or blank value is
-ignored, never coerced. It replaces the resting headline of a FINISHED
-group only: a stopped or failed group keeps its `Stopped` / `Activity
-failed` headline and never demotes the override into the `· <verbs>` meta
-slot. No producer writes this key in this repo — it is a seam for a future
-model-written summary (spec §4.2).
+### Renderer stream-insulation boundary
 
-Layout is fixed-height by design (scroll-anchoring rule, §4.7 of the design
-spec): the status row is `min-height: 2rem` and the phase glyph sits in a
-`1rem` box (`bs-trace-phase-glyph`/`bs-trace-phase-icon`) regardless of
-whether it holds a lucide icon or the animated mark, so swapping icons never
-changes the row's height. The live label truncates on one line through
-`.bs-activity-live-label` (`overrides.css`), the running counterpart of
-`.bs-activity-summary-label` — stylesheet-owned for the same reason: the
-browser test lane has no Tailwind utilities, so `truncate` on the span left
-that invariant unverified. The live-label region carries `aria-live="off"` (a
-cycling label would narrate every tool) plus a visually hidden
-`aria-live="polite"` phrase that flips only on phase change: `Working` /
-`Waiting for approval` (the one case whose text isn't just the phase's fixed
-string) / `Finished` / `Stopped` / `Failed`. That live region is a SIBLING of
-the disclosure button, never a child: a `button`'s children are presentational
-per ARIA and several screen readers prune the subtree, so a live region inside
-it may never fire. The button's own name stays `Expand activity` /
-`Collapse activity`, with `aria-describedby` pointing at the summary row so
-the verb summary, elapsed and counts that the static `aria-label` would
-otherwise suppress still reach AT (PR #3064 review finding 3).
+- `insulateAssistantStreamPipeline` (`packages/assistant-ui/src/stream-insulation.ts`)
+  makes late-enqueue states STRUCTURALLY unreachable instead of racing them: the
+  pipeline reads a guarded byte source that translates an expected transport abort
+  into a clean EOF, and the consumer reads through a cancellation firewall.
+  Cancelling the run cancels the byte source, never the pipeline, which drains to
+  its natural close in the background.
+- Because an insulated abort ends in clean EOF, `run()` re-throws the
+  authoritative abort reason after the loop. An aborted run must never fabricate a
+  successful finish.
+- Completion wins only after the buffered terminal `complete` message has already
+  been yielded, and that decision reads the flush-time flag surfaced by
+  `deferMessageFinishUntilFlush`, NEVER the accumulated message's status —
+  `AssistantMessageAccumulator.flush()` fabricates a terminal status for any
+  stream that ends while running.
+- Abort-gate the usage and context-breakdown taps so a draining stream cannot
+  report late usage. Real faults stay loud: pre-cancellation pipeline/transport
+  errors propagate to the consumer; post-cancellation non-abort drain failures log
+  with diagnostic context.
+- Do NOT re-route the decoded pipeline around this boundary or pass raw
+  `response.body` into the decoder directly. Remove the boundary only after
+  consuming an assistant-stream release containing the upstream fix AND re-proving
+  the browser sweeps green without it. `patchedDependencies` are banned — see
+  `ci-quality.md`.
 
-The disclosure's `.bs-trace-collapse` grid transition animates the OPEN
-direction only: the body also carries the `hidden` attribute (which e2e and
-role-based queries rely on — do not remove it), so closing applies
-`display: none` in the same commit and is instant by design.
+Evidence: `assistant-runtime/stream-insulation.md`.
+Guard: `packages/assistant-ui/src/__tests__/stream-insulation.test.ts`,
+`packages/assistant-ui/src/__tests__/data-stream-runtime-cancellation.browser.test.ts`.
 
-Every verb (`active`/`done`/icon family) lives in `activity-verbs.ts`'s
-`TOOL_VERBS`, total over `NATIVE_TOOL_IDS` — 39 native tool ids (36
-`brainstrike.*` desktop ids plus the three unprefixed Agent Skills ids
-`skill`/`skill_read`/`skill_search`) — pinned both by
-`activity-verbs.test.ts` and by the `Record<NativeToolId, ActivityVerb>` type
-itself (a tool added to the catalog without a verb entry fails to compile).
-Non-native tool names fall through `verbForTool`: a subagent delegation
-(`agent-<persona>` prefix) reads `Delegating to <persona>` /
-`Delegated to <persona>`; a dotted, non-`brainstrike.`-prefixed name (an MCP
-tool, `server.tool`) reads `Calling server.tool` / `Called server.tool`;
-anything else reads `Using <name>` / `Used <name>` rather than guessing.
+Live shell output (`executeCommand` streaming):
 
-Test ids and data attributes are unchanged from the pre-`ActivityTrace`
-header: `assistant-activity-group`, `assistant-activity-summary`,
-`assistant-activity-body`, `assistant-activity-working`,
-`assistant-activity-failed-count`, `data-active`, `data-failed`,
-`data-failed-steps`, `data-state`.
+- `executeCommand` streams subprocess stdout/stderr incrementally through
+  `writer.custom({ type: SHELL_OUTPUT_STREAM_PART_TYPE, … })`
+  (`packages/agent/src/mastra/shell-output-stream.ts`), which places the slice on
+  the fullStream VERBATIM — deliberately NOT `writer.write`, which wraps it as a
+  `tool-output` part that collides with subagent delegation and masquerades as a
+  successful tool result.
+- `processMastraStreamPart` maps that part to a transient `shell-output`
+  StreamChunk and `DataStreamMapper.handleShellOutput` emits it as a
+  `SHELL_OUTPUT_DATA_NAME` aui-data part, under the same text-part deferral.
+- It is NOT a run-event kind ON PURPOSE: run-event metadata is redaction-sanitized
+  (which strips `output`/`text`), so live slices stay TRANSIENT and absent on
+  reload. The FINAL captured output persists as the tool result.
+- A COMBINED streaming cap (`MAX_STREAMED_OUTPUT_BYTES`, separate from the capture
+  cap) emits one truncation notice and stops streaming; teardown and capture
+  continue unchanged.
+- Accept both writer shapes: Mastra hands a plain tool OBJECT the raw
+  `outputWriter` fn plus top-level `toolCallId`, and a `createTool` instance
+  `writer.custom` plus `agent.toolCallId`.
+- The renderer accumulates slices per toolCallId INCREMENTALLY
+  (`createShellOutputAccumulator` + `ShellOutputProvider`), O(new parts) per
+  update, keeping record identity stable when no shell slice arrived. Do NOT
+  replace it with a full rescan (`collectShellOutputs` is the pure/batch variant):
+  the rebuild is quadratic and its fresh record identity re-renders every tool
+  card in the turn. Same rule for `ToolDurationProvider`.
+- `background:true` on the one-shot tool is not the persistence mechanism.
+- `resolveCommandCwd` throws `ToolInputError` (never a plain `Error`) for a
+  nonexistent cwd and for one resolving outside the workspace root, so the guard
+  surfaces the actionable message as `tool_input_invalid`. The same typing applies
+  to `resolveWorkspaceRoot`'s qualifier failures.
 
-L1 STEP ROWS / L2 BODIES (BST-1681 phase 3, `activity-step-row.tsx` /
-`activity-trace-model.ts`): each entry in `deriveActivitySteps`'s part-order
-list (tool calls and reasoning parts) renders as one `StepRowHeader`
-(`activity-step-row.tsx`) row inside `.bs-step-list`: family icon
-(`StepFamilyIcon`) · verb in tense (`Reading` while running, `Read` once
-settled — the same `active`/`done` pair every `ActivityVerb` carries,
-`activity-verbs.ts`) · target chip · timing slot · state glyph
-(`StepStateGlyph`) · chevron. The ACTIVE tense covers `running` AND `waiting`
-(`ACTIVE_TENSE_STATES`, `tool-fallback-state.ts`): a call paused at its approval
-gate is in flight, so "Ran rm -rf build" under a Waiting glyph would assert an
-outcome that does not exist — the glyph is what says why the step is standing
-still. Only the settled states (`done`, `failed`, `cancelled`) read the done
-tense; the subagent card's `STEP_VERB` has always mapped waiting to its active
-form. The target chip falls back to the TOOL ID when the args name no primary
-arg (`ToolFallback` passes `primaryArg?.display ?? toolName`), so an
-argument-less MCP call reads "Called legacy.echo · legacy.echo" rather than
-leaving the slot empty; `targetTitle` stays the untruncated primary arg, never
-the id. The timing slot renders only when the caller supplies timing — the
-reasoning and task-list rows pass none, and an empty flex item would still
-spend its gap. The row IS the card's own header —
-`ToolFallback`, `SubagentExecutionCard` and `TaskListToolCard` all render it
-in place of a second header, so a step never shows its verb twice. `RowShell`
-(`activity-step-row.tsx`) splits into the two forms a step can take: a card
-with something to expand renders the row as a real
-`<button aria-controls aria-expanded aria-label>`. Its accessible name
-CONTAINS its visible label (BST-1682, WCAG 2.5.3 Label in Name): the verb and
-target lead, the toggle affordance trails as a clause with only its first
-character lowered — `Read src/app.ts, expand details` — so a speech-input user
-can say what they see and no AT configuration can lose the step's identity
-along with a suppressed description. The affordance wording itself
-(`Expand details` / `Collapse details`) is unchanged and still the e2e
-contract, but the e2e specs now match it as a SUBSTRING
-(`getByRole('button', { name: /expand details/i })` in
-`apps/desktop/e2e/mcp-packaged-core.desktop.test.ts` and
-`apps/web/e2e/assistant-ui-panel.test.ts`) — an `exact: true` equality on the
-bare affordance can never resolve again. `aria-describedby` goes with it:
-content that is already IN the name must not also be a description, or AT
-reads the row twice. The one opt-out is `nameFromContent={false}`, which the
-reasoning row passes because its `label` ALREADY names the step —
-`Show thinking` / `Hide thinking` stays its whole name (an e2e and BST-1656
-behaviour contract; `Thinking, show thinking` would only stutter) and it keeps
-`aria-describedby` on its content. The prop defaults to the ACCESSIBLE
-behaviour on purpose, so a row added later is compliant without its author
-knowing the rule exists. `aria-expanded` is always present; `aria-controls` is
-emitted ONLY while the element it names is mounted — the convention every
-other disclosure in the package already follows
-(`assistant-run-timeline.tsx`, `assistant-tool-approval-notice.tsx`) — so the
-tool / subagent / task cards, which unmount their body while collapsed, drop
-it there rather than leave a dangling IDREF. A row whose body stays in the
-DOM either way opts back in with `controlsAlwaysMounted`: only the reasoning
-row does, since its `bs-chain-of-thought-panel` is always mounted and only
-its CONTENT is gated on `open` (pinned by `tool-fallback-a11y.test.tsx` and
-the BST-1656 fingerprint in
-`assistant-reasoning-disclosure.behavior.test.tsx`, which compares
-`aria-controls` across a manual toggle). A card with nothing to expand (no body — e.g. a subagent
-delegation with zero child rows) renders the non-interactive form instead, a
-`<div role="group" aria-labelledby>` with no chevron and no `aria-expanded`.
-The raw tool id is visually hidden text OUTSIDE the row's named content span,
-plus the row's own `title` — the e2e text contract — never INSIDE the
-content span, which would otherwise fold `brainstrike.readWorkspaceFile` into
-the non-interactive row's `aria-labelledby` name alongside its verb and
-target. `trailing` (`StepRowHeader`'s prop for the result-summary chip, the
-resolved-root chip, and the subagent card's `· N tool calls` count) renders
-in that same OUTSIDE position, right after the content span
-(`activity-step-row.tsx`) — it used to sit inside the content span, which
-named a zero-row delegation "Delegating to Explorer · 0 tool calls" instead
-of just its verb (BST-1686). The chip stays visible row text; it just plays
-no part in naming or describing the step, same as the sr-only id beside it.
+Evidence: `assistant-runtime/shell-output-streaming.md`.
+Guard: the streaming case in
+`packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts`, the
+`runExecuteCommand — cwd containment` cases in
+`apps/desktop/src/__tests__/assistant-server/execute-command-tool.integration.test.ts`.
 
-The interactive row's three a11y-reachable surfaces are deliberately
-disjoint, ruled in BST-1682 review round 2: NAME is `<verb> <target>,
-<affordance>` (`contentAccessibleName`, `activity-step-row.tsx`) — the
-content-composed string above, nothing else. DESCRIPTION is the raw tool id,
-and only that: with `aria-describedby` no longer emitted on a content-named
-row, the button's `title` attribute becomes its accessible description per
-HTML-AAM, so a screen reader announces "Read src/app.ts, expand details,
-collapsed, button — brainstrike.readWorkspaceFile" on focus. This is kept
-deliberately, not an oversight — the `title` is the one place the raw id
-still reaches AT, and it does so honestly, as a description rather than
-competing with the visible label for the name. Pinned in
-`activity-step-row.test.tsx` (`toHaveAccessibleDescription`, both the
-carries-it and the has-none case). TRAILING content (result summary, root
-name, `· N tool calls`) sits inside `.bs-step-row-content` today but in
-NEITHER the name nor the description — it is result metadata a user did not
-ask to hear announced on every focus, not the label they would speak. It
-stays reachable in browse mode (screen-reader users can still read it as
-text) even though focus mode skips it. BST-1686 (PR #3067) moves `trailing`
-out of the content span entirely; this paragraph does not need updating for
-that move, since trailing's a11y treatment (reachable, not named) is
-unchanged either way.
+Persistent command sessions (`apps/desktop/src/assistant-server/command-session-manager.ts`)
+are the desktop-main source of truth for commands that must outlive one tool call.
+They do NOT replace `executeCommand`, which stays the bounded, wait-for-exit path.
 
-State glyphs are named, never colour-only: `STEP_STATE_LABELS`
-(`activity-step-tokens.ts`) is the total `role="img"`/`aria-label` map —
-`Completed | Running | Failed | Stopped | Waiting for approval | No answer`
-— over `StepGlyphState` (`ActivityStepState` plus the subagent-only
-`no-answer` arm). A step's state is derived by ONE function only,
-`toolStepStateFor` (`activity-trace-model.ts`): the trace headline
-(`deriveActivitySteps`), `ToolFallback` (`resolveCardStatus`,
-`tool-fallback-state.ts`),
-`SubagentExecutionCard` (`resolveDelegationState`) and `TaskListToolCard` all
-consume it, so a step can never read two different states on two surfaces.
-The two refinements layered on top of a generic `done` both live INSIDE that
-function — a declined-envelope result reads `cancelled`
-(`settledResultOverride`), and a settled `run_python` result reads
-done/failed/cancelled by kind (`runPythonStepState`) — plus one refinement
-outside it that only the subagent card may make: `resolveDelegationState`
-reads `no-answer` off the delegation's OWN result shape, strictly on top of a
-generic `done`. `Waiting for approval` is a LIVE pause only:
-`toolStepStateFor` maps `status.type === 'requires-action'` to `waiting`,
-nothing else — a resultless call on a settled (`complete`) message falls
-through to `settledResultOverride` and reads `Completed` on every surface
-(not `Unknown`; the reload-after-abandoned-approval residue is persistence
-work, BST-1678, never a renderer guess). A result that STATES its own
-failure is `failed` on every surface too, and `readResultError`
-(`activity-trace-model.ts`) is the ONE reader of that — it answers both
-"does this result state an error" (the state machine's `statesResultError`
-wrapper) and "what does it say" (`ToolFallback`'s error line, via
-`resolveErrorMessage`, `tool-fallback-state.ts`), because two copies of that
-shape list had already
-drifted. It reads the success discriminator FIRST: an `ok: true` result stays
-`done` and shows no error line however its `error` member is shaped (string or
-record) — that is advisory domain data. Otherwise it recognises a non-empty
-`error` string, an `ok: false` envelope whose `error.message` explains it, or
-a result-level `isError: true` (which states no message of its own and takes
-`TOOL_EXECUTION_FAILED_MESSAGE`). The part-level `isError` flag is a separate
-branch in the card: a signal about the CALL, not something the result states,
-so it supplies only the generic message. Ordering hazard inside
-`toolStepStateFor`: this branch runs BEFORE `settledResultOverride`, so a
-tool-specific reading can never soften a result that states an error — one
-that must win has to move above the branch, not into the override.
-
-Exactly one live mark renders per running row: the state glyph
-(`StepStateGlyph`'s `running` arm renders `BrainstrikeThinkingMark`, which
-carries `data-live="true"` by default). `ToolRunTiming` (`tool-fallback-row.tsx`)
-passes `showMark={false}` into its `AssistantThinkingIndicator` so the timing
-slot's own progress label never grows a second live mark, and the reasoning
-row's `ReasoningGlyph` (`assistant-activity-parts.tsx`) keeps its own
-pre-existing `assistant-reasoning-indicator` / `assistant-reasoning-static-mark`
-pair rather than the generic glyph. Only the group's LAST running tool row
-shimmers: `ActivityGroup` computes `deriveStepMeta(steps)`
-(`activity-step-meta.ts`) once per snapshot and hands it down through
-`ActivityStepMetaProvider` (`activity-step-context.tsx`, over the context
-object in `activity-step-meta-context.ts`); `useIsLastRunningStep`
-(`use-is-last-running-step.ts`) answers `true` outside any provider, so a
-standalone running card (rendered without a group) still shimmers. Rows
-reveal with `bs-trace-reveal` and a positional `:nth-child` stagger on
-`.bs-step-list`, capped at 5 (`overrides.css`) — no row carries its own
-index, and a row already visible when a new one arrives does not re-animate
-(the animation runs once per mount). The `:nth-child` rules set
-`--bs-stagger` on the list's DIRECT children, which are the WRAPPERS
-(`ActivityPartLayout`'s div; two more levels for `ToolFallback`), and the row
-reads it by INHERITANCE — so `.bs-trace-reveal` must default through
-`var(--bs-stagger, 0)` and never declare the property on itself, which would
-shadow the inherited value and flatten every delay to 0.
-
-Reasoning is a step with its own verb pair, `Thinking` / `Thought`
-(`ActivityReasoningBlock`, `assistant-activity-parts.tsx`), rendered through
-the shared row with `family="other"` and `icon={Brain}`. A subagent
-delegation is a step whose verb names the PERSONA, not the assistant —
-`STEP_VERB` (`subagent-execution-card.tsx`) is total over `StepGlyphState`:
-`Delegating to <Label>` (running AND waiting — a gate has not started the
-child either way), `<Label> finished`, `<Label> gave no answer`, `<Label>
-failed`, `<Label> stopped` (cancelled). `TaskListToolCard`
-(`todo-progress.tsx`) reads the same shared row with `family="tasks"` and its
-own verb pair, `Updating tasks` / `Updated tasks`. The checkpoint revert
-control (`CheckpointRevertButton`, `tool-fallback-row.tsx`) is a SIBLING of the
-row inside `.bs-step-row-line`, never nested inside its `<button>` — nested
-interactives are invalid HTML — and it hides only for the `running`/`failed`
-states; a CANCELLED edit keeps its revert control, since a captured
-checkpoint means the mutation landed regardless of how the call itself
-settled.
-
-`ToolFallback` (`tool-fallback.tsx`) is the composition ROOT only (BST-1684,
-splitting the React Doctor complexity warning the phase-3 re-skin left
-behind): the `.bs-step-row-line` — `StepRowHeader` + `ToolRunTiming` + the
-`CheckpointRevertButton` sibling — is `ToolFallbackRow`
-(`tool-fallback-row.tsx`); everything below the row (error line, live shell
-pane, `run_python` surface, details pane) is `ToolFallbackBody`
-(`tool-fallback-body.tsx`); and the pure derivations (`resolveCardStatus`,
-`resolveErrorMessage`, `ACTIVE_TENSE_STATES`, `formatResult`,
-`extractResolvedRootName`) are `tool-fallback-state.ts`. The card's DOM, test
-ids and prop rules are unchanged by that split — it is a file boundary, not a
-behaviour one. `@brainstrike/assistant-ui/tool-fallback` stays the subpath
-`mcp-app-host-ui` imports; only `ToolFallback` is exported from it.
-
-Detail level maps to concrete row behaviour via `resolveToolDisplayPolicy`
-(`assistant-detail-level.ts`): `compact` hides the details expander and the
-result-summary chip (`showDetailsExpander: false`, `showResultSummary:
-false`); `standard` shows both, collapsed by default; `developer` auto-opens
-the body (`defaultExpanded: true`) and adds raw I/O (`showRawIo: true`).
-`SubagentExecutionCard`'s own trailing chip, `· N tool calls`
-(`subagent-execution-card.tsx`), reads the SAME `policy.showResultSummary`
-gate as `ToolFallback`'s result-summary chip (BST-1686) — it is a result
-summary too, and used to be the one trailing chip in the trace the Detail
-control never touched. The card deliberately adopts only that one flag:
-`expanded` is its own `useState`, never `policy.defaultExpanded` or
-`showDetailsExpander` (`subagent-execution-card.tsx`), because the
-delegation rows ARE the card's substance, not raw I/O to gate. One row chip
-is NEVER gated by detail level: `ToolFallback`'s `in <root>` chip
-(`extractResolvedRootName`, target disambiguation in a multi-root
-workspace) renders whenever a result carries a `rootName`, unconditional on
-the policy — unlike the result-summary chips beside it, which
-`policy.showResultSummary` gates. Only `developer` shows run-event rows
-inside the trace: `AssistantRunTimelineDataPart`
-(`assistant-run-timeline-data-part.tsx`) reads
-`shouldShowBackgroundActivity(detailLevel)` and renders the full
-`AssistantRunTimeline` row only there (every other level still shows the
-`isAlwaysVisibleRunEvent` kinds standalone, per the grouping rule above).
-Those run-event rows are direct children of `.bs-step-list` too — they are
-group-transparent (`groupAssistantActivityPart`), so `AssistantActivityParts`
-renders their `dataRendererUI` straight into the list alongside the
-`ActivityPartLayout`-wrapped step rows. They CONSUME `:nth-child` slots —
-shifting the reveal delay of every step row after them one step along — but
-carry no `.bs-trace-reveal` of their own and do not animate;
-`.bs-step-list`'s own row rhythm (`> * + *` block
-margins) makes an exception for them (`.bs-run-timeline`, `overrides.css`) —
-see ui-conventions.md's "Step rows" paragraph for the geometry.
-
-HYDRATION LIVENESS (do not relitigate): every animated "still happening"
-indicator carries `data-live="true"` (`BrainstrikeThinkingMark`,
-`AssistantThinkingIndicator`, the subagent pulse), and
-`assistant-hydration-liveness.test.tsx` asserts a reloaded thread renders NONE
-unless a pause is genuinely pending. Part-derived status is safe by
-construction (hydrated messages are `complete`, so a resultless tool call
-inherits it). Run-event rows are the hazard: a `running` row whose owning
-message has settled resolves to the renderer-only `'interrupted'` status
-(`AssistantRunEventDisplayStatus`; never persisted) unless a
-`brainstrike.tool-approval` / `brainstrike.tool-suspend` data part for the same
-`toolCallId` exists in the thread — the live notice, or the synthetic message
-`appendSuspendedPauseMessages` re-appends for a still-suspended pause. An
-ABSENT message status is left alone: liveness is never guessed. Subagent child
-rows follow the same rule (`readLiveSubagentToolRowsFromMessages`). Between
-history hydration (messages land `complete`) and `beginAssistantReplay`
-removing the durable leaf it replays, an in-flight row can briefly read
-"Interrupted" — the replay re-creates the message right after, so the window
-is short and self-correcting.
-
-### Renderer stream-insulation boundary (BST-704, LIVE)
-
-assistant-stream 0.3.37's
-decoder/tool pipeline hand-rolls nested stream controllers (merge streams,
-tool-call sub-streams) whose settlement paths (`setResponse`, detached
-part-finish continuations) enqueue with NO cancellation guard — if downstream
-cancellation or an upstream abort error propagates into that pipeline
-mid-settlement, the late enqueue rejects as an unhandled renderer TypeError
-("Cannot enqueue a chunk into a readable stream that is closed"; upstream root
-fix is unreleased assistant-ui/assistant-ui#5045, and `patchedDependencies` are
-banned — see ci-quality.md). `insulateAssistantStreamPipeline`
-(`packages/assistant-ui/src/stream-insulation.ts`) therefore makes
-those states STRUCTURALLY unreachable instead of racing them: the pipeline
-reads a guarded byte source that translates an expected transport abort (the
-run's AbortSignal fired) into a clean EOF, and the consumer reads through a
-cancellation firewall — cancelling the run never cancels the pipeline; the
-byte source is cancelled and the pipeline drains to its natural close in the
-background, so every in-flight settlement lands in an open stream. Because an
-insulated abort now ends in clean EOF, `run()` re-throws the authoritative
-abort reason after the loop (an aborted run must never fabricate a successful
-finish). Completion wins only after the buffered terminal `complete` message
-has already been yielded: because that marker is deferred until decoder EOF, a
-superseding abort in the yield-to-iterator-EOF gap must not rewrite the finished
-run as cancelled. That decision reads the flush-time flag surfaced by
-`deferMessageFinishUntilFlush`, NEVER the accumulated message's status:
-`AssistantMessageAccumulator.flush()` fabricates a terminal status for any
-stream that ends while still running, so message status is terminal on EVERY
-drained EOF and cannot distinguish "run finished" from "stream was cut" (using
-it marks every aborted run complete — proven by the abort-reason unit test,
-whose expected rejection then never fires). The usage/context-breakdown taps
-are abort-gated so a draining stream cannot report late usage. Real faults stay loud: pre-cancellation
-pipeline/transport errors propagate to the consumer, post-cancellation
-non-abort drain failures log with diagnostic context. Do NOT re-route the
-decoded pipeline around this boundary or pass raw `response.body` into the
-decoder directly. Proof: `stream-insulation.test.ts` (contract + deterministic
-incident-class settlement) and
-`data-stream-runtime-cancellation.browser.test.ts` (real-Chromium
-abort/supersede interleaving sweeps; the incident environment is the Electron
-renderer). Remove the boundary only after consuming an assistant-stream
-release containing #5045 AND re-proving the browser sweeps green without it.
-
-Live shell output (executeCommand streaming): `executeCommand` streams its
-subprocess stdout/stderr incrementally through Mastra's tool `writer` as it is
-produced (a long build/test run is visible live, not only on exit). The tool
-writes via `writer.custom({ type: SHELL_OUTPUT_STREAM_PART_TYPE, … })`
-(`packages/agent/src/mastra/shell-output-stream.ts`), which places the slice on
-the fullStream VERBATIM — deliberately NOT `writer.write` (that wraps it as a
-`tool-output` part, colliding with subagent delegation and masquerading as a
-successful tool result). `processMastraStreamPart` maps that part to a dedicated
-transient `shell-output` StreamChunk; `DataStreamMapper.handleShellOutput` emits
-it as a `SHELL_OUTPUT_DATA_NAME` aui-data part (subject to the SAME text-part
-deferral). It is NOT a run-event kind ON PURPOSE: run-events are persisted
-server-side into `assistant_run_events` (and their metadata is redaction-
-sanitized, which strips `output`/`text` keys) — a `shell-output` StreamChunk is
-ignored by that persistence tap (`chunk.type !== 'run-event'`), so live slices
-are TRANSIENT (never persisted; absent on reload — the FINAL captured output
-persists as the tool result). A COMBINED streaming cap
-(`MAX_STREAMED_OUTPUT_BYTES`, separate from the 1 MB capture cap) stops a runaway
-process flooding the stream: at the cap one truncation notice is emitted,
-streaming stops, and teardown/capture continue unchanged. Mastra hands a plain
-tool OBJECT the raw `outputWriter` fn + top-level `toolCallId` (a `createTool`
-instance gets `writer.custom` + `agent.toolCallId`); the desktop wiring accepts
-both. The renderer accumulates slices per toolCallId INCREMENTALLY
-(`createShellOutputAccumulator` + `ShellOutputProvider`, via
-`useChainActivityDerivations`) into the live tool card (`LiveShellOutputPane`,
-shown only while running). The accumulator is O(new parts) per streamed update
-and keeps record identity stable when no shell slice arrived — do NOT replace
-it with a full rescan per update (`collectShellOutputs` is the pure/batch
-variant): the full rebuild is quadratic over a chatty command and its
-per-chunk fresh record identity re-renders every tool card in the turn. Same
-rule for `ToolDurationProvider` (value-stable via `useStableRecord`).
-`background:true` on the one-shot tool is not the persistence mechanism. The
-desktop application-layer command-session manager below owns that lifecycle;
-model exposure remains a separate permission/discovery slice. Proofs:
-mastra-tool-execution.integration.spec ('streams incremental shell-output …'),
-execute-command-tool.test / execute-command-live-loop.test, shell-output-parts.test.
-
-Persistent command sessions (desktop application layer):
-`apps/desktop/src/assistant-server/command-session-manager.ts` is the
-desktop-main source of truth for commands that must outlive one tool call (for
-example a dev server). It deliberately does NOT replace `executeCommand`, which
-remains the bounded, wait-for-exit path for normal tests/builds.
-
-- A session belongs to one DB-backed workspace `rootId`; all list/get/read/
-  write/stop/remove operations require that same root. A cross-root lookup is
-  indistinguishable from an unknown id.
+- A session belongs to one DB-backed workspace `rootId`; every
+  list/get/read/write/stop/remove operation requires that same root, and a
+  cross-root lookup is indistinguishable from an unknown id.
 - `start()` resolves and realpaths the requested cwd inside that root, then
-  returns immediately after a real `node-pty` spawn. Unsupported roots,
-  escaping/nonexistent cwd, startup failure, exited writes, and invalid cursors
-  surface typed errors; there is no cwd or cursor fallback.
-- Combined PTY output is memory-only and capped at 2 Mi UTF-16 code units.
-  Retention uses head-evicted, fixed-size adaptive blocks: Latin-1 terminal
-  output stays one byte per code unit, and a block upgrades to UTF-16LE only
-  when wider code units enter it. Tiny PTY events are copied into bounded
-  blocks instead of retained as individual references, appends never rebuild
-  the full retained buffer after it reaches the cap, and reads decode only the
-  requested retained suffix. Oversized events copy their retained suffix so a
-  V8 sliced string cannot pin the discarded parent.
-  Reads use absolute cursors; `-1` attaches at the live tail without replay.
-  The manager applies the requested UTF-16 page limit while decoding retained
-  blocks, before joining the page, and backs the page cursor off a high
-  surrogate rather than splitting a pair. An evicted cursor returns the
-  retained page with explicit `hasMore`,
-  `truncatedBeforeCursor` + `bufferStartCursor`; a cursor beyond the produced
-  output throws. This mirrors OpenCode's bounded absolute-cursor replay shape
-  and prevents duplicate polling output.
-- Model-facing inventory and reads are producer-paged below a 5,500 UTF-8 byte
-  result ceiling, which is deliberately below the durable artifact-settlement
-  threshold. List continuation uses `offset`/`nextOffset`; read continuation
-  advances `nextCursor` only through the emitted UTF-16 code units and exposes
-  `availableEndCursor` plus `remainingUtf16CodeUnits`. A page never splits a
-  surrogate pair. This source-owned paging is load-bearing for bounded live
-  delivery. The canonical session-tool ids are additionally registered as
-  non-durable outputs, so artifact settlement skips them even when a lifecycle
-  hook wraps a result: command-session output must never be copied into the
-  seven-day tool-output artifact store.
-- Running/exited state is typed. The newest 25 exited sessions per root remain
-  readable; older exited sessions are evicted. Command text, cwd, environment,
-  and raw output are never logged or persisted.
-- Tree reaping walks descendants before killing the PTY leader, then applies a
-  POSIX process-group backstop and waits for the PTY exit event. Reaping is
-  idempotent across abort/stop/remove/dispose races; operations on an already
-  exited session surface typed state. Bulk disposal settles every PTY and logs
-  any missing exit acknowledgement so one stuck process cannot skip the rest of
-  graceful shutdown. Root disconnect reaps by the durable DB id returned from
-  the path-keyed disconnect update (never the possibly divergent adapter id);
+  returns immediately after a real `node-pty` spawn. Unsupported roots, escaping
+  or nonexistent cwd, startup failure, exited writes and invalid cursors surface
+  typed errors. There is no cwd or cursor fallback.
+- Combined PTY output is memory-only and capped, retained in head-evicted,
+  fixed-size adaptive blocks that stay one byte per code unit for Latin-1 output
+  and upgrade to UTF-16LE only when wider code units enter. Copy tiny PTY events
+  into bounded blocks rather than retaining individual references; never rebuild
+  the full buffer after it reaches the cap; decode only the requested retained
+  suffix; copy an oversized event's retained suffix so a V8 sliced string cannot
+  pin the discarded parent.
+- Reads use absolute cursors; `-1` attaches at the live tail without replay. Apply
+  the requested UTF-16 page limit while decoding, before joining the page, and
+  back the page cursor off a high surrogate rather than splitting a pair. An
+  evicted cursor returns the retained page with explicit `hasMore`,
+  `truncatedBeforeCursor` and `bufferStartCursor`; a cursor beyond the produced
+  output throws.
+- Model-facing inventory and reads are producer-paged below a UTF-8 result ceiling
+  deliberately under the durable artifact-settlement threshold. List continuation
+  uses `offset`/`nextOffset`; read continuation advances `nextCursor` only through
+  emitted UTF-16 code units and exposes `availableEndCursor` plus
+  `remainingUtf16CodeUnits`. A page never splits a surrogate pair. The canonical
+  session-tool ids are registered as non-durable outputs, so artifact settlement
+  skips them even when a lifecycle hook wraps a result.
+- Running/exited state is typed; the newest exited sessions per root remain
+  readable and older ones are evicted. Command text, cwd, environment and raw
+  output are never logged or persisted.
+- Tree reaping walks descendants before killing the PTY leader, applies a POSIX
+  process-group backstop, and waits for the PTY exit event. Reaping is idempotent
+  across abort/stop/remove/dispose races. Bulk disposal settles every PTY and logs
+  any missing exit acknowledgement. Root disconnect reaps by the durable DB id
+  returned from the path-keyed disconnect update, never a divergent adapter id;
   factory reset and graceful shutdown dispose all sessions.
-- Hosted desktop models receive two deferred operations through the ordinary
-  native registry: read-risk `inspectCommandSessions` (list/read) and
-  execute-risk `manageCommandSession` (start/write/stop/remove). The latter is
-  omitted in plan mode and follows the normal ask/deny discovery and approval
-  gates. Both tools own a target-aware transcript transform: start command/cwd,
-  write data, streamed input deltas, session cwd, PTY output, and guarded error
-  messages/reasons are replaced by allowlisted metadata before PGlite
-  persistence, while the live display and current model step retain the bounded
-  domain result. The built-in local provider omits both because it lacks
-  deferred tool discovery. Web never constructs the desktop registry, and its
-  explicit native tool-id partition omits both from settings, request
-  allowlists, and the model tool menu, so it exposes no stub or fallback. Do not
-  widen `executeCommand` in place. The command-session inventory UI is a separate
-  follow-up slice.
+- Hosted desktop models receive read-risk `inspectCommandSessions` and
+  execute-risk `manageCommandSession` through the ordinary native registry. The
+  latter is omitted in plan mode and follows the normal ask/deny gates. Both own a
+  target-aware transcript transform replacing commands, cwd, written data,
+  streamed input deltas, PTY output and guarded error messages with allowlisted
+  metadata before PGlite persistence, while the live display and current model
+  step retain the bounded domain result. The built-in local provider omits both;
+  web never constructs the desktop registry. Do not widen `executeCommand` in
+  place.
 
-Proofs: `command-session-manager.test.ts` (scoping, cursors/gaps, retention,
-stdin, typed failures, startup-abort/dispose races, stuck-PTY settlement) and
-`command-session-manager.integration.test.ts` (real PTY HTTP server survival,
-natural non-zero exit, and leader/descendant reaping), plus the command-session
-cases in `assistant-tools-read.integration.test.ts` (transcript redaction, UTF-8
-result ceilings, manager/tool continuation composition, and surrogate-safe
-paging).
+Evidence: `assistant-runtime/command-sessions.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/command-session-manager.test.ts`,
+`command-session-manager.integration.test.ts`, the command-session cases in
+`assistant-tools-read.integration.test.ts`.
 
-Parallel tool calls: Mastra executes tool calls within a step concurrently
-(default concurrency 10; `toolCallConcurrency` loop option). Mastra forces
-sequential execution when the run-wide `requireToolApproval` is set OR any active
-tool carries the per-tool `requireApproval` flag / a suspend schema. The
-permission engine (see PERMISSION ENGINE below) marks `'ask'` tools with the
-PER-TOOL `requireApproval`, so a run that includes any ask tool executes its step
-sequentially (the price of the per-tool gate), but only the ask tool actually
-suspends — allowed tools still run. A run with no ask tools stays parallel. The
-approval-resume path sets the run-wide `requireToolApproval`. The data-stream
-mapper and UI key all per-call state by toolCallId and handle interleaving.
+Parallel tool calls:
 
-When changing this flow, update this section and the related tests.
+- Mastra executes a step's tool calls concurrently and forces sequential execution
+  when the run-wide `requireToolApproval` is set (ANY truthy value) or any active
+  tool carries the per-tool `requireApproval` flag or a suspend schema.
+- The permission engine marks `'ask'` tools with the PER-TOOL flag in its FUNCTION
+  form (`approval-gate.ts`), which Mastra converts to `requireApproval: true` plus
+  a per-call `needsApprovalFn`. Only the ask tool suspends; allowed tools still
+  run, and a run with no ask tools stays parallel.
+- NEVER synthesize a run-wide predicate on the initial leg — it serialized every
+  step of every run with an ask tool.
+- The approval-resume path sets the run-wide `requireToolApproval`, so the ROOT's
+  resumed step is always sequential. DELEGATED CHILDREN get no run-wide gate, so
+  their mode comes from the CALLED tools' flags alone.
+- Because a parallel foreach resume re-raises the step's approval for every
+  allowed sibling, both approval entry points pass `approvalResumeLeg: true` and
+  `resolveChildToolCallConcurrency` builds that leg's children with
+  `toolCallConcurrency.limit = 1`. BLAST RADIUS: that option is run-level, so the
+  WHOLE resumed leg runs child tool calls sequentially until the leg ends.
+- The data-stream mapper and UI key all per-call state by toolCallId and handle
+  interleaving.
 
----
+Settled: do not relitigate by re-flagging the approved tool — that re-prompts its
+next call and recreates the loop the grant ended (2026-09-13). Evidence:
+`assistant-runtime/parallel-tool-calls.md`.
+Guard: `packages/agent/src/mastra/__tests__/build-persona-subagents.spec.ts`,
+`packages/agent/src/__tests__/worker-delegation.integration.spec.ts`.
 
-## WHERE THE MASTRA STREAMING SPECS LIVE (BST-988)
+## WHERE THE MASTRA STREAMING SPECS LIVE
 
-`packages/agent/src/__tests__/mastra-streaming.spec.ts` was a single 4,246-line
-file covering the whole stream boundary. BST-986 split `agent-streaming.ts` into
-modules; the spec is now split to match. Five files share ONE fake-Mastra harness
-(`packages/agent/src/__tests__/fixtures/mastra-stream-harness.ts` — the mocked
-`Agent`/`Mastra`/MCP classes plus the mutable stream-part queue they read):
+Five files share ONE fake-Mastra harness
+(`packages/agent/src/__tests__/fixtures/mastra-stream-harness.ts`):
 
 | Spec | Pins |
 | --- | --- |
-| `mastra-tool-lifecycle.spec.ts` | `mastra/tool-lifecycle-processors.ts` — `ToolLifecycleState`, `mapToolLifecyclePart`, `mapGenericToolEvent`, `makePendingToolOutputRunEventChunks`, `makeLifecycleStepMetadata` |
-| `mastra-tool-approval-chunks.spec.ts` | `mastra/tool-approval-chunks.ts` (`makeApprovalRequiredChunks`, `makeToolSuspendRequiredChunks`) **paired with** `streamMastraToolApprovalAction` / `streamMastraToolResumeAction` — a pause that cannot be resumed is a bug in the PAIR, so splitting these across two files would let either side stay green while the contract broke |
-| `mastra-stream-termination.spec.ts` | `mastra/stream-termination.ts` (`makeProviderErrorTermination`, `makeTripwireTermination`) plus the `run.finished`-vs-`run.failed` finish-reason policy, which is one question even though its code is split across `agent-streaming.ts` and `makeFinishChunk` |
-| `mastra-stream-watchdogs.integration.spec.ts` | `makeStreamWatchdogTermination` through the real elapsed-time behavior of the inactivity and tool-call-input watchdogs; the suffix keeps these wall-clock-sensitive cases in the uncached integration lane |
-| `mastra-streaming.spec.ts` | What no single module owns: the async-iterator contract, the R6 unknown-chunk diagnostic, token measurement, cross-step usage/cost accumulation, steering, observational-memory chunks, and everything reached through `createMastraAgentRuntime` |
-| `openai-duplicate-item-compat.spec.ts` + `openai-reasoning-item-replay.integration.spec.ts` | `mastra/openai-duplicate-item-compat.ts` (BST-1095) — the unit spec pins keep-newest/drop-stale semantics and proves via the real `@ai-sdk/openai` serializer that each item id reaches the wire once; the integration spec seeds real PGlite with the double-persisted history shape and asserts every prompt the real agent loop produces carries each OpenAI item reference in at most one message (plus approval suspend/resume replay regression coverage) |
+| `mastra-tool-lifecycle.spec.ts` | `mastra/tool-lifecycle-processors.ts` |
+| `mastra-tool-approval-chunks.spec.ts` | `mastra/tool-approval-chunks.ts` **paired with** `streamMastraToolApprovalAction` / `streamMastraToolResumeAction` — a pause that cannot be resumed is a bug in the PAIR |
+| `mastra-stream-termination.spec.ts` | `mastra/stream-termination.ts` plus the `run.finished`-vs-`run.failed` finish-reason policy |
+| `mastra-stream-watchdogs.integration.spec.ts` | the watchdogs through real elapsed time; the suffix keeps these wall-clock cases in the uncached integration lane |
+| `mastra-streaming.spec.ts` | what no single module owns: the async-iterator contract, the unknown-chunk diagnostic, token measurement, cross-step usage/cost accumulation, steering, observational-memory chunks, everything reached through `createMastraAgentRuntime` |
+| `openai-duplicate-item-compat.spec.ts` + `openai-reasoning-item-replay.integration.spec.ts` | `mastra/openai-duplicate-item-compat.ts` — unit keep-newest/drop-stale semantics through the real serializer, integration over real PGlite with the double-persisted history shape |
 
-**These are integration specs, not unit specs — deliberately.** They drive
-`streamMastraAgent` over a fake Mastra stream instead of importing the module
-under test, because the mappers are reachable only through the R6 dispatch
-(`processMastraStreamPart`) and the ORDERING they must produce is a property of
-the dispatch loop, not of any single mapper. Contrast
-`packages/agent/src/mastra/__tests__/mastra-chunk-decoding.spec.ts` (BST-985),
-which CAN import its subject directly because those decoders are pure. Put a new
-case in the file whose module owns the behaviour; add a file only when a new
-module seam appears.
+- **These are integration specs, not unit specs — deliberately.** They drive
+  `streamMastraAgent` over a fake Mastra stream because the mappers are reachable
+  only through the R6 dispatch and the ORDERING they produce is a property of the
+  dispatch loop. Contrast `packages/agent/src/mastra/__tests__/mastra-chunk-decoding.spec.ts`,
+  which CAN import its subject because those decoders are pure.
+- Put a new case in the file whose module owns the behaviour; add a file only when
+  a new module seam appears. `mastra/stream-run-event-chunks.ts` has no dedicated
+  spec on purpose — every module-seam spec exercises it.
+- Mocked dependencies do not by themselves make a watchdog case cache-safe. A
+  watchdog test using deterministic time, or whose verdict does not depend on
+  scheduler progress, belongs in the cacheable unit lane. Do not narrow the
+  BST-839 case's 10x per-gap headroom merely to shorten the integration lane.
 
-`mastra/stream-run-event-chunks.ts` has no dedicated spec on purpose: its
-minting helpers are used by all four module-seam specs above, so each of those
-files exercises it and no coherent set of cases pins it alone.
-
-Mocked dependencies do not by themselves make a watchdog case cache-safe. The
-two watchdog specs above drive production `Date.now` / `setTimeout` behavior
-with real elapsed-time gaps, so their verdict still depends on un-hashed host
-scheduling and every invocation must execute them. A watchdog test that uses
-deterministic/fake time, or whose verdict does not depend on scheduler progress,
-stays in the cacheable unit lane. The BST-839 case deliberately keeps 10x
-per-gap headroom (20ms stream gaps against a 200ms inactivity window) while its
-~400ms total stream remains long enough to prove the old coupled-timeout
-regression; do not narrow that margin merely to shorten the integration lane.
+Evidence: `assistant-runtime/streaming-spec-layout.md`.
 
 ## THREAD SCROLLING (STICK-TO-BOTTOM + JUMP-TO-LATEST)
 
-Scroll position is owned by the REPO's follow engine
-(`packages/assistant-ui/src/thread-scroll-follow.tsx`), never by panel state
-and — since the 0.15 upgrade — never by @assistant-ui. The tier-1 scroller is
-a PLAIN div wired to `ThreadScrollFollow` (one engine per panel via
-`ThreadScrollFollowProvider` in ChatThreadUI): a thread pinned at the bottom
-follows streaming growth; the moment the user scrolls up, `isAtBottom` flips
-false and the engine stops writing `scrollTop` — streaming can never steal the
-reading position back. Re-engaging is an explicit user act.
+- Scroll position is owned by the REPO's follow engine
+  (`packages/assistant-ui/src/thread-scroll-follow.tsx`), never by panel state and
+  never by @assistant-ui. The tier-1 scroller is a PLAIN div wired to
+  `ThreadScrollFollow` (one engine per panel via `ThreadScrollFollowProvider`).
+- A thread pinned at the bottom follows streaming growth; the moment the user
+  scrolls up, `isAtBottom` flips false and the engine stops writing `scrollTop`.
+  Re-engaging is an explicit user act.
+- `ThreadPrimitive.Viewport` must not return. The engine is a parity port of the
+  library's algorithm with a STABLE observer lifecycle — attached once per scroller
+  element, never re-created by renders — and that stability IS the fix.
+- Detect content growth by `MutationObserver`, measure immediately, then verify in
+  one coalesced `requestAnimationFrame`. Mutation delivery can precede Chromium's
+  final layout and a scroller `ResizeObserver` does not reliably observe
+  scroll-height-only growth. Pointer, wheel and touch intent plus detach cancel a
+  pending frame.
+- The scroller, message list, button and engine are one owned module pair —
+  `assistant-thread-messages.tsx` + `thread-scroll-follow.tsx`, re-exported from
+  `assistant-ui-panel.tsx`. The panel only composes them.
+- `ThreadMessageNavigationContext` supplies explicit message navigation, scoped to
+  one conversation. `ThreadMessagesRegion` waits for loaded history, resolves raw
+  native IDs through the mapper's source-ID metadata, and focuses the message
+  root. Static navigation calls `scrollToMessage` (which disengages following);
+  virtual navigation uses the TanStack instance's `scrollToIndex`. Both use an
+  instant opening position and `focus({ preventScroll: true })`. A mounted-range
+  observer waits for an offscreen virtual row; no timer or polling loop.
+- **Jump-to-latest** is the follow engine's button: DISABLED while at bottom,
+  scroll + re-engage when clicked, hidden via `:disabled { opacity: 0 }` so there
+  is no layout shift. It mounts inside `ThreadScrollRegion` as a SIBLING of the
+  scroller.
+- **No explicit `behavior` on explicit scrolls** — an explicit option bypasses CSS
+  `scroll-behavior` and therefore the global `prefers-reduced-motion` override.
+  Streaming growth follow is the exception and uses `'instant'`.
+- **`overflow-anchor: none` is SCOPED to the pinned state** via `data-pinned`.
+  Scrolled up, native anchoring is the ONLY thing holding the reader's text still
+  when content ABOVE the fold resizes. Do not simplify this to a blanket rule.
+- **No jump on attach or run start.** The ONE navigation jump is the thread SWITCH
+  (`switchKeyRef` → `jumpToBottomInstant()`), which requires a `threadKey` prop and
+  never routes through the explicit-request listeners.
+- There is deliberately NO collapsed-history affordance: every message renders.
+  Which messages MOUNT is the render tier's business.
+- **Follow-up queue dispatch re-pins explicitly when the thread was pinned.** The
+  dispatch captures `getIsAtBottom()` BEFORE the flush and fires `scrollToBottom`
+  after appending; a reader who scrolled up is never yanked. Do not remove this as
+  redundant with the engine's resize re-stick — that path loses the clamp-ordering
+  race.
+- **A `scroll` event the engine itself authored never disengages follow.** A
+  `measure` write claims the `scrollTop` it MOVED to (`unechoedWriteTop`) and the
+  listener swallows that one echo. Two rules follow: **authorship is the
+  discriminator, not movement** (events coalesce, so a user round trip arrives as
+  ONE net-zero event that must still disengage), and **`lastScrollTop` is the last
+  position `handleScroll` PROCESSED**, not the position before the current event.
+- Two placement rules keep the claim honest: make it in `measure` and NOT in
+  `write`, because only `measure` performs the synchronous `handleScroll` that
+  justifies swallowing an echo — the explicit-request writes never judge, so their
+  echo is the ONLY thing that can re-pin the thread. And claim only a write that
+  MOVED the position; a no-op write dispatches no event, so its claim would linger.
 
-**Why repo-owned:** the library's `useThreadViewportAutoScroll` broke twice
-upstream (0.14.28 and 0.15.x tear down its ResizeObserver on every `isRunning`
-flip, silently unpinning follow on every send), and the failure is not
-workable at its public API — the scrollTop clamp misread is indistinguishable
-from a real user scroll from outside (two app-level workarounds were built and
-failed the BST-1039 test; see dependency-updates-breaking-changes.md). The
-engine is a parity port of the library's algorithm with a STABLE observer
-lifecycle (attached once per scroller element, never re-created by renders) —
-the stable lifecycle is the fix. `ThreadPrimitive.Viewport` must not return:
-`assistant-ui-panel-architecture.test.ts` pins the plain-div scroller.
+Evidence: `assistant-runtime/thread-scroll-follow.md`.
+Guard: `packages/assistant-ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`,
+`follow-up-queue-repin.browser.test.tsx`, the BST-896 case in
+`assistant-ui-panel-architecture.test.ts`.
 
-Content growth is detected by `MutationObserver`, measured immediately, then
-verified in one coalesced `requestAnimationFrame`. Mutation delivery can
-precede Chromium's final layout, while a `ResizeObserver` attached to the
-scroller does not reliably observe scroll-height-only growth; relying only on
-the synchronous read can therefore miss the new bottom. Pointer, wheel, and
-touch intent plus detach cancel a pending frame so user navigation, or an
-unmounted scroller, cannot receive a deferred follow write.
+### Render tiers
 
-The scroller, the message list, the button and the engine are one owned
-module pair — `assistant-thread-messages.tsx` (`ThreadMessagesRegion`,
-`ThreadScrollRegion`, `ThreadScrollToBottom`) + `thread-scroll-follow.tsx`,
-re-exported from assistant-ui-panel.tsx. The panel only composes them and
-hands over the message components.
+`ThreadMessagesRegion` picks one of two renderers by message count and publishes
+the choice as `data-thread-render-tier` on the viewport — tier selection is
+observable, never silent. The threshold is `THREAD_VIRTUALIZATION_THRESHOLD`
+(`assistant-thread-messages.tsx`).
 
-- **Jump-to-latest** (`ThreadScrollToBottom`) is the follow engine's button
-  (`ThreadStaticScrollToBottom`): DISABLED
-  while at bottom, scroll + re-engage when clicked; we style it
-  (`.bs-scroll-to-bottom`, hidden via `:disabled { opacity: 0 }` — no layout
-  shift either way). It mounts inside `ThreadScrollRegion` as a SIBLING of the
-  scroller, not a child, so it stays anchored ~1rem above the composer instead
-  of scrolling away; that works outside the scroller element because the
-  follow engine lives in `ThreadScrollFollowProvider` context above both.
-- **No explicit `behavior` on explicit scrolls.** An explicit option bypasses
-  CSS `scroll-behavior`, and therefore the global `prefers-reduced-motion`
-  override in globals.css — the engine's `scrollToBottom()` deliberately omits
-  it so `scrollTo`'s default routes through CSS. Streaming growth follow is the
-  exception: `'instant'`, because CSS smooth cannot keep up with per-token
-  growth (same stance the library took).
-- **`overflow-anchor: none` is SCOPED to the pinned state** via `data-pinned`
-  on `.bs-thread-scroll-region` (mirroring `isAtBottom`). Pinned, JS owns
-  `scrollTop` and native scroll anchoring would double-adjust. Scrolled up, the
-  library writes nothing, so native anchoring is the ONLY thing holding the
-  reader's text still when content ABOVE the fold resizes (async markdown/Shiki,
-  images resolving, tool cards or chain-of-thought folds collapsing, edit
-  composers swapping in). Disabling it unconditionally makes the text jump —
-  do not "simplify" this back to a blanket rule.
-- **No jump on attach or run start** (the library's
-  `scrollToBottomOnInitialize`/`scrollToBottomOnRunStart` equivalents) — that
-  is the reload-hydration stance in assistant-persistence.md: reopening a
-  thread restores its position instead of jumping to the newest message. The
-  ONE navigation jump is the thread SWITCH (`switchKeyRef` in
-  ThreadMessagesRegion → `jumpToBottomInstant()`), parity with the library's
-  `scrollToBottomOnThreadSwitch`; it requires a `threadKey` prop and never
-  routes through the explicit-request listeners.
-- There is deliberately NO collapsed-history affordance (removed in BST-896):
-  every message renders. Which messages MOUNT is the render tier's business —
-  see below.
-- **Follow-up queue dispatch re-pins explicitly when the thread was pinned**
-  (BST-1039). The flush unmounts the composer's chip row, and the browser's
-  resulting `scrollTop` clamp can be misread as a user scroll by the follow
-  engine's bookkeeping — silently unpinning follow with no user act. The
-  dispatch in `follow-up-queue.tsx` captures `getIsAtBottom()` BEFORE the
-  flush and fires the engine's `scrollToBottom` after appending; a reader who
-  scrolled up is never yanked. Do not "simplify" this away as redundant with
-  the engine's own resize re-stick — that path loses the clamp-ordering race.
-- **A `scroll` event the engine itself authored never disengages follow.**
-  A `measure` write claims the `scrollTop` it MOVED to (`unechoedWriteTop`) and
-  the scroll listener swallows that one echo. A scroll event carries no position
-  of its own — `handleScroll` reads LIVE geometry — and `measure` writes
-  `scrollTop` synchronously and judges the result in the same breath, clearing
-  `pendingFollow`, while the browser dispatches that write's event a task
-  LATER. Resize the viewport in between and the leftover event is judged
-  against dimensions the engine has never measured ("not at bottom, position
-  did not move down"), which is indistinguishable from a reader parked above
-  the end; follow then disengaged with no user act and never recovered,
-  because `measure` only re-sticks while pinned. The chip row mounting
-  (shrinks the viewport from OUTSIDE the scroller) plus a streamed chunk
-  (grows the content inside it) is exactly that window, and neither fires a
-  scroll event of its own. Two rules follow, both load-bearing:
-  **authorship is the discriminator, not movement** — scroll events coalesce,
-  so a user round trip to the end and back arrives as ONE event whose net
-  movement against the last PROCESSED position is zero (the tier-switch suite
-  relies on that event still disengaging); and **`lastScrollTop` is not the
-  position before the current event**, it is the last one `handleScroll`
-  processed. This was a ~9% `Browser tests` flake in
-  `follow-up-queue-repin.browser.test.tsx`, always landing exactly
-  `Δclient + Δscroll` px short of the bottom.
-  Two placement rules keep the claim honest, and neither is optional.
-  It is made in `measure` and NOT in `write`, because the justification for
-  swallowing an echo is the synchronous `handleScroll` that only `measure`
-  performs: the explicit-request writes (`scrollToBottom` — the jump button and
-  the BST-1039 dispatch re-pin — and `jumpToBottomInstant`) never judge, so
-  their echo is the ONLY thing that can re-pin the thread. Swallowing it leaves
-  the jump button stuck on, which the default CSS smooth scroll hides and a
-  **reduced-motion** user (`scroll-behavior: auto`, so the write lands
-  synchronously) hits immediately — that is the third case in the paired suite.
-  And only a write that MOVED the position is claimed: a no-op write dispatches
-  no scroll event, so its claim could never be consumed and would linger until
-  some unrelated event happened to land on that exact pixel.
-
-Paired tests: `packages/assistant-ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
-(real Chromium against the real follow engine: pinned/unpinned button states,
-click-to-bottom, growth below vs ABOVE the reading position, anchor scoping,
-and the own-write echo — that suite forces the squeeze, the growth and the
-stale event into ONE synchronous task so neither observer can have measured,
-which is the interleaving CI produced under load),
-the BST-896 case in `assistant-ui-panel-architecture.test.ts`, which pins the
-plain-div scroller, the engine wiring, the absent `behavior`, and the scoped
-CSS rule, and `follow-up-queue-repin.browser.test.tsx` (BST-1039: real chips +
-real bridge — pinned dispatch requests the explicit re-pin, scrolled-up
-dispatch never does).
-
-### Render tiers (BST-897)
-
-`ThreadMessagesRegion` picks one of two renderers by message count and
-publishes the choice as `data-thread-render-tier` on the viewport — tier
-selection is observable, never silent.
-
-**Tier 1 — `static`** (below `THREAD_VIRTUALIZATION_THRESHOLD`, currently 400).
-Every message is a real DOM row from `ThreadPrimitive.Messages`; off-screen
-rows are cheap via `content-visibility: auto` + `contain-intrinsic-size` in
-overrides.css, which keeps find-in-page, selection, screen readers and anchor
-links working — that is why it is the DEFAULT tier. Containment is NEVER
-applied to the last row: the streaming message grows token by token and a
-lagging intrinsic size fights the follow logic. The streaming message is always
-the last row and the library's message root carries no "running" attribute, so
-`:not(:last-child)` IS the streaming exclusion. Scrolling is exactly as
-described above.
-
-**Tier 2 — `virtual`** (at or above the threshold). The list becomes an
-end-anchored TanStack virtualizer (`anchorTo: 'end'`, `followOnAppend`,
-`getItemKey` = message id, `measureElement`) driven by the library's documented
-escape hatch, `unstable_useThreadMessageIds` +
-`ThreadPrimitive.Unstable_MessageById`. Mounted rows are bounded by the
-viewport, not by thread length.
-
-- **One scroll owner per tier.** On tier 2 the virtualizer writes `scrollTop`,
-  so every library-driven scroll is off: `autoScroll={false}` and
-  `scrollToBottomOnThreadSwitch={false}`. Never run the library's
-  stick-to-bottom hook and the virtualizer on one container.
-- **`overflow-anchor: none` is UNCONDITIONAL on tier 2**, via
-  `[data-thread-render-tier="virtual"]`, independent of `data-pinned`. The
-  pinned-only scoping above is the static tier's rule: it holds because the
-  library writes `scrollTop` only while pinned. The virtualizer corrects
-  `scrollTop` in every state — item re-measurement fires while the reader is
-  scrolled up too — so native anchoring would double-adjust there as well. Two
-  independent selectors setting the same value; they never disagree.
+- **Tier 1 — `static`.** Every message is a real DOM row from
+  `ThreadPrimitive.Messages`; off-screen rows are cheap via
+  `content-visibility: auto` + `contain-intrinsic-size`, which keeps find-in-page,
+  selection, screen readers and anchor links working — that is why it is the
+  DEFAULT. Containment is NEVER applied to the last row; the streaming message is
+  always last and the message root carries no "running" attribute, so
+  `:not(:last-child)` IS the streaming exclusion.
+- **Tier 2 — `virtual`.** An end-anchored TanStack virtualizer
+  (`anchorTo: 'end'`, `followOnAppend`, `getItemKey` = message id,
+  `measureElement`) driven by `unstable_useThreadMessageIds` +
+  `ThreadPrimitive.Unstable_MessageById`. Mounted rows are bounded by the
+  viewport, not by thread length.
+- **One scroll owner per tier.** On tier 2 the virtualizer writes `scrollTop`, so
+  every library-driven scroll is off. Never run the library's stick-to-bottom hook
+  and the virtualizer on one container.
+- **`overflow-anchor: none` is UNCONDITIONAL on tier 2**, independent of
+  `data-pinned`, because the virtualizer corrects `scrollTop` in every state.
+- **Measurement corrections are immediate**: tier 2 overrides the static
+  viewport's `scroll-behavior: smooth` with `auto`. Explicit user jumps still use
+  the virtualizer's smooth option unless reduced motion is enabled.
+- **Native scroll completion**: enable the virtualizer's `useScrollendEvent`. Its
+  timer-based reset reports a stale cached offset and can drop the end pin; native
+  `scrollend` reads the current offset. Keep this on the public API; do not add
+  another scroll writer or a longer reset delay.
+- **Virtual layout ownership.** React Virtual's `directDomUpdates` owns container
+  size and per-item row transforms; React sets only the static absolute-position
+  base. Keep the ref composed with list-offset measurement and the mode constant
+  across tier switches.
+- **End affordance subscription.** Vendor notifications coalesce by visible range
+  and `isScrolling` — that is not an end-state subscription. Wrap the exported
+  `observeElementOffset`, call the vendor callback first, then publish `isAtEnd()`,
+  and also publish from `onChange` after vendor layout writes. The wrapper
+  delegates observer setup and cleanup unchanged and never writes scroll position.
+- **Clamped compensation belongs to the vendor.** Keep the React Virtual /
+  Virtual Core patch floor; do not add a second scroll writer or weaken the
+  true-bottom assertion.
+- **Browser interaction admission.** Observe native `scrollend` before simulating
+  an independent scroll-away gesture. One animation frame is not a completion
+  signal. Synthetic scroll plus event delivery belongs in React `act`. This is
+  test synchronization, not a production delay.
 - **Opening position.** `scrollToBottomOnInitialize` / `scrollToBottomOnRunStart`
-  stay `false` in both tiers. Tier 2's equivalent is explicit: entering the
-  virtual tier anchors to the newest message with `behavior: 'instant'` (never
-  animated), but only when the reader was not already scrolled up — a thread
-  crossing the threshold mid-session must not yank the viewport away. The
-  anchor re-arms when `threadKey` changes or when the thread drops back to the
-  static tier.
-- **Pinnedness at the switch is RECORDED, never measured.** The anchor effect
-  runs after the commit that already swapped the renderer, so the viewport is
-  sized by the virtualizer's ESTIMATES by then, not the static list's real row
-  heights; measuring `scrollHeight` there compares a stale `scrollTop` against a
-  size that just changed, and the verdict flips depending on whether the
-  estimate happens to run above or below the real height. The static tier's own
-  `isAtBottom` is recorded while it is still the truth and read back on the
-  swap. **Testing consequence:** a test that scrolls up and then crosses the
-  threshold must wait for the LIBRARY to disengage — the jump button rendering
-  enabled — not just for `viewport.scrollTop`, which is written synchronously
-  and says nothing about the recorded value. Cross while the recorded value is
-  still `true` and the swap anchors to the newest message, which is a terminal
-  state: the viewport is legitimately pinned and no amount of waiting recovers
-  the scrolled-up position.
-- **`aria-live` forks per tier.** Every insertion into a live region is an
-  announcement. Tier 1's only insertions are new messages, so the viewport stays
-  `aria-live="polite"`. Tier 2 mounts and unmounts rows as the user SCROLLS, so
-  the same setting would read out every row entering the overscan window; it is
-  `off` there until a dedicated new-message live region exists.
-- **Reduced motion, tier 2.** The no-explicit-`behavior` rule above is a tier-1
-  rule. The virtualizer's behavior argument is not merely forwarded to
-  `scrollTo`; it drives the instance's scroll state machine (a `'smooth'`
-  scroll suppresses measurement corrections so re-measuring items cannot push
-  the target away mid-animation). It therefore must be explicit, and the
-  jump button checks `prefers-reduced-motion` itself.
-- **One control, one chrome.** Class, icon, label and test id are declared once
-  and shared; only the behaviour differs — `ThreadPrimitive.ScrollToBottom` on
-  tier 1, `isAtEnd()` / `scrollToEnd()` on tier 2. The button takes plain
-  `{ atEnd, jumpToEnd }` values, never the virtualizer: its identity never
-  changes, so a child memoized on it would freeze.
-- **Message markup never forks.** Both tiers render the SAME components map
-  through library primitives; the tier decides which messages mount, never how
-  they render. CSS that keyed off "direct child of the viewport" must account
-  for tier 2's `.bs-virtual-message` position wrapper.
-- **Row spacing must live inside the measured box.** `measureElement` measures
-  the border box, so margins on a row — and the virtualizer's `paddingEnd` —
-  are invisible to it: margins make consecutive rows overlap, and trailing
-  padding outside the measured rows only reaches the DOM on the next React
-  commit, so a correction fired while the last message is still growing is
-  clamped by exactly that gap and the thread rests just above the true bottom.
-  Tier 2 puts inter-message spacing and the trailing gap on the row wrapper as
-  padding.
+  stay `false` in both tiers. Entering the virtual tier anchors to the newest
+  message with `behavior: 'instant'`, but only when the reader was not already
+  scrolled up. The anchor re-arms on `threadKey` change or a drop back to static.
+- **Pinnedness at the switch is RECORDED, never measured.** The anchor effect runs
+  after the renderer swap, so the viewport is sized by ESTIMATES. Record the static
+  tier's own `isAtBottom` while it is still the truth and read it back on the
+  swap. Testing consequence: a test that scrolls up then crosses the threshold
+  must wait for the LIBRARY to disengage — the jump button rendering enabled — not
+  for `viewport.scrollTop`.
+- **`aria-live` forks per tier.** Tier 1's only insertions are new messages, so
+  the viewport stays `aria-live="polite"`. Tier 2 mounts and unmounts rows as the
+  user SCROLLS, so it is `off` there until a dedicated new-message live region
+  exists.
+- **Reduced motion, tier 2.** The no-explicit-`behavior` rule is a tier-1 rule.
+  The virtualizer's behavior argument drives its scroll state machine, so it must
+  be explicit and the jump button checks `prefers-reduced-motion` itself.
+- **One control, one chrome.** Class, icon, label and test id are declared once;
+  only the behaviour differs. The button takes plain `{ atEnd, jumpToEnd }` values,
+  never the virtualizer.
+- **Message markup never forks.** Both tiers render the SAME components map; the
+  tier decides which messages mount, never how they render. CSS keyed off "direct
+  child of the viewport" must account for tier 2's `.bs-virtual-message` wrapper.
+- **Row spacing must live inside the measured box.** `measureElement` measures the
+  border box, so margins on a row and the virtualizer's `paddingEnd` are invisible
+  to it. Tier 2 puts inter-message spacing and the trailing gap on the row wrapper
+  as padding.
 
-Paired tests: `packages/assistant-ui/src/__tests__/assistant-thread-virtualization.browser.test.tsx`
-(real Chromium: tier attribute either side of the threshold, bounded DOM rows at
-N=1000 with all messages still reachable, opening at the newest message, append
-while scrolled up, streaming growth staying pinned, tier-1 containment computed
-styles) and the BST-897 case in `assistant-ui-panel-architecture.test.ts`.
+Evidence: `assistant-runtime/render-tiers.md`.
+Guard: `packages/assistant-ui/src/__tests__/assistant-thread-virtualization.browser.test.tsx`,
+the BST-897 case in `assistant-ui-panel-architecture.test.ts`.
 
----
-
-## IN-FLIGHT TOOL CARD PROGRESS (BST-849)
+## IN-FLIGHT TOOL CARD PROGRESS
 
 `ToolFallback`'s running row reads its label from what assistant-stream already
-delivers, so a 30–120 s argument stream is no longer indistinguishable from a
-hung run: `Receiving input · 12.4 KB · 42.0s` while the model is still sending
-argument text, `Running · 44.0s` while the tool executes, and the measured
-execution time once the call settles. The pure label lives in
-`packages/assistant-ui/src/tool-call-progress.ts`; the hooks in
-`use-tool-call-progress.ts`.
+delivers. The pure label lives in `packages/assistant-ui/src/tool-call-progress.ts`;
+the hooks in `use-tool-call-progress.ts`.
 
 - **The signal is the accumulator's `state`, NOT `status.isArgsComplete`.**
-  `AssistantMessageAccumulator` (assistant-stream, pinned in lockstep with
-  `@assistant-ui/core`) stamps `state: 'partial-call'` on the tool-call part
-  it opens, flips it to `'call'` on `tool-call-args-text-finish`, and to
-  `'result'` with the result. It ALSO writes `status: { type: 'running',
-  isArgsComplete: false }` at creation and never flips that flag, so the typed
-  field cannot carry the distinction. `state` is undeclared on
-  `@assistant-ui/core`'s public `ToolCallMessagePart`, so
-  `readToolCallArgsState` narrows it off the props (the accumulator spreads
-  the whole part into the renderer) rather than casting.
+  `AssistantMessageAccumulator` stamps `state: 'partial-call'`, flips it to
+  `'call'` on `tool-call-args-text-finish` and to `'result'` with the result, while
+  writing `status: { type: 'running', isArgsComplete: false }` once and never
+  flipping it. `state` is undeclared on the public `ToolCallMessagePart`, so
+  `readToolCallArgsState` narrows it off the props rather than casting.
 - **Fallback is silence, not a claim.** An absent or unrecognised `state`, or a
-  `partial-call` part that has received zero bytes (a zero-argument tool, a
-  call delivered whole, the window before the first delta), reads as plain
-  `Running`. "Receiving input" is asserted only once bytes have arrived.
-- **Elapsed comes from `part.timing`** (`startedAt` at part creation,
-  `completedAt` with the result), ticking once per second while running via
-  `useToolCallElapsedMs`; no timing means no timer — never a fabricated clock.
-- **Byte count is incremental** (`useIncrementalUtf8ByteLength`): the
-  accumulator only appends, so only the new suffix is encoded per delta —
-  re-encoding the whole text per emission is O(n²) allocation on the render
-  frame budget.
-- **Contract test:** `packages/assistant-ui/src/__tests__/tool-call-args-state.contract.test.ts`
-  drives the INSTALLED accumulator through part-start → delta → args-finish →
-  result and asserts `state`, `status`, and `timing` at each step. A
-  dependency bump that renames `state`, starts flipping `isArgsComplete`, or
-  drops `timing` fails there — otherwise the UI would silently revert to
-  plain `Running` for the whole stream while every other documented runtime
-  behaviour stayed green. Re-derive this section and that test together.
+  `partial-call` part that has received zero bytes, reads as plain `Running`.
+  "Receiving input" is asserted only once bytes have arrived.
+- **Elapsed comes from `part.timing`**, ticking once per second while running via
+  `useToolCallElapsedMs`. No timing means no timer — never a fabricated clock.
+- **Byte count is incremental** (`useIncrementalUtf8ByteLength`): the accumulator
+  only appends, so encode only the new suffix per delta.
+- Re-derive this section and its contract test together.
+
+Evidence: `assistant-runtime/tool-card-progress.md`.
+Guard: `packages/assistant-ui/src/__tests__/tool-call-args-state.contract.test.ts`
+(drives the INSTALLED accumulator through part-start → delta → args-finish →
+result; a dependency bump that renames `state`, starts flipping
+`isArgsComplete`, or drops `timing` fails there).
 
 ## POST-EDIT LSP DIAGNOSTICS (report R2 Phase A)
 
-After a successful workspace edit, a language server runs over the edited file
-and its diagnostics (errors/warnings) are attached to the tool result, so the
-agent learns about a broken edit immediately instead of only when a later
-build/test fails. Desktop-only (needs child processes + fs; web omits it —
-capability-gated, no `isElectron()`).
+After a successful workspace edit a language server runs over the edited file and
+its diagnostics are attached to the tool result. Desktop-only (needs child
+processes + fs; web omits it — capability-gated, no `isElectron()`).
 
-- **Bespoke, not the core primitive.** Core 1.51 ships an LSP primitive but
-  only inside its (non-adopted) Workspace/sandbox model and behind unexported
-  deep paths, so `apps/desktop/src/assistant-server/lsp-diagnostics.ts` lifts
-  the WIRE PROTOCOL (standard `vscode-jsonrpc` + `vscode-languageserver-
-  protocol`, both bundled desktop deps), not the class.
-- **Bundled flagship server.** Phase A ships TypeScript/JavaScript only, via a
-  BUNDLED `typescript-language-server` + the JavaScript TypeScript 6
-  compatibility API (desktop `dependencies`, so it works out-of-box).
-  TypeScript 7's native compiler owns the workspace `tsc` binary, while the
-  official `@typescript/typescript6` package re-exports the JS API from its
-  `@typescript/old` dependency. The LSP resolver therefore follows that
-  package-scoped forwarding dependency to the real `tsserver.js`; it must not
-  assume the server is adjacent to the compatibility wrapper's
-  `lib/typescript.js`. Reliability recipe (all three required, verified):
-  spawn the server's `cli.mjs` through `process.execPath` +
-  `ELECTRON_RUN_AS_NODE=1` (packaged apps have no standalone `node`); pin
-  `initializationOptions.tsserver.path` to the bundled real TypeScript 6
-  `tsserver.js` (deterministic — OUR TS version); and advertise the
-  `textDocument.publishDiagnostics` client capability (without it the server
-  stays silent). Diagnostics land as two pushes (`[]` then the real set), so a
-  settle-window is mandatory — an empty publish is polled a little longer
-  before the "clean" verdict is trusted. This intentionally means agent-facing
-  diagnostics come from TypeScript 6 while build/type-check gates run native
-  TypeScript 7. The full compiler parity sweep covers every non-emitting project
-  command, and the real-subprocess LSP integration additionally checks the
-  embeddings WebGPU surface that relies on the current DOM library declarations;
-  do not remove that cross-major control while the LSP stays on TypeScript 6.
-  The desktop manifest must list the compatibility implementation
-  (`@typescript/old`) as a production dependency and unpack it explicitly:
-  Electron Builder packages the `@typescript/typescript6` wrapper but does not
-  retain that wrapper's private dependency by inference. The build-config
-  contract has a mutation control for both the dependency and unpack rule.
-  The root also owns that exact alias so `.vscode/settings.json` can point
-  `typescript.tsdk` at `node_modules/@typescript/old/lib`; the compiler-wiring
-  guard requires both the path and its `tsserver.js`, preventing VS Code from
-  silently falling back to its bundled compiler.
-  Python/Go/Rust discovery + the config surface are the remaining Phase B work.
-- **`lspInspect` tool (Phase B).** A read-risk native tool for semantic
-  navigation: `{path, line (1-based), match}`. Prefer a markerless single
-  JavaScript/TypeScript identifier as `match`; the cursor is its first character
-  when it occurs exactly once on the target line. If the identifier repeats on
-  that line, use a unique line fragment with exactly one `<<<` cursor marker
-  before the intended occurrence. The tool reads the file through the checked
-  reader and anchors the identifier or marker-stripped fragment against the REAL
-  line text. A markerless identifier missing from the requested line returns up
-  to five actual candidate line numbers for an explicit retry; it never jumps
-  lines itself. Missing and ambiguous matches refuse, while marked fragments
-  resolve the column as fragment-start + marker-offset, so a partial or stale
-  quote can never silently inspect the wrong position (same
-  validate-before-position convention as `stringReplace`). Returns up to four
-  groups — hover (inferred type/docs), the inspected line's diagnostics,
-  definition locations (with a one-line preview + workspace-relative path,
-  URIs converted via `fileURLToPath` so Windows drive letters survive), and
-  implementations. Reuses the same pooled connection + per-file diagnose lock;
-  each hover/definition/implementation query is independently bounded
-  (`QUERY_TIMEOUT_MS`) and never throws. A malformed
-  marker / out-of-range line / unmatched or ambiguous `match` is an actionable
-  input error thrown for the model to correct. Registered across the full multi-registry checklist (read-risk,
-  no approval).
-- **An unanswered inspect query is never an empty one (BST-1614).** A bounded
-  query that TIMED OUT or THREW must not degrade to the same value the server's
-  own "nothing here" answer produces. `queryHover`/`queryLocations` therefore
-  return a `QueryOutcome` — `{ok:true, value}` or `{ok:false, reason}` — and
-  `withTimeout`'s fallback is the `QUERY_TIMED_OUT` sentinel symbol, never
-  `null`. Every leg that did not answer lands in `LspInspectionResult.queryFailures`
-  as `{query, reason:'timeout'|'error', message}`, where `query` is named for the RESULT FIELD it fills (`hover` / `diagnostics` /
-  `definition` / `implementation`) and `message` says what is UNKNOWN and what
-  not to conclude ("do not conclude it has no definition or is dead code").
-  `detail` text from a rejected request is bounded and collapsed to one line by
-  `boundQueryFailureDetail` AT THE PRODUCER: `queryFailures` is a RETURNED
-  value, and a consumer other than the projection gets these strings raw.
-  Four invariants, all test-pinned:
-  (1) a partial failure NEVER flips `available` to false — a hover that worked
-  is still returned alongside the failures; (2) the failures are logged with
-  `logger.warn`, visible at the DEFAULT `INFO` level, so a human chasing a
-  wrong "no definition" claim finds the cause without enabling debug logging;
-  (3) `| unanswered=<queries>` goes in the projection HEADER, which is the only
-  unconditional line and is self-bounding, so the "absent group is not
-  verified-empty" signal never depends on a line that fits; (4) the
-  `query_unanswered:` detail lines sit in a PRIORITY-ORDERED prelude above the
-  droppable result lines — ahead of `hover`, because they prevent a wrong
-  conclusion while hover is only informational — but the prelude is itself
-  fit-aware. `domainModelResultCharBudget` is per-run (`resolveScaledToolResult
-  Budget` clamps the domain allowance to 500..3000 tokens, so a small context
-  window floors it at 2000 chars) and a maximal header + three failure lines +
-  clipped hover measures 4338 chars, so forcing them in would make the closing
-  `assertProjectionFits` THROW — failing the tool call outright exactly when
-  the language server is already misbehaving. Do not make any prelude line
-  unconditional. Do not reintroduce a bare `catch { return []; }` on either
-  query, and do not give `withTimeout` a fallback that a real answer could
-  equal.
-- **Diagnostics settlement is RETURNED, never inferred from the map
-  (BST-1614).** `waitForDiagnostics` resolves to a `DiagnosticsWait` —
-  `{settled:true, diagnostics}` only for a non-empty publish or an empty one
-  that survived the FULL `DIAGNOSTIC_SETTLE_MS` window, `{settled:false}`
-  otherwise — and both `diagnose`/`getEditDiagnostics` and `inspect` read that
-  value. The old `hasPublishedFor` map probe is gone, and re-adding one is a
-  regression: the diagnostics map is mutable and shared, so (a) a preliminary
-  empty publish landing near the 6s deadline leaves an entry behind while the
-  settle window never completes, and (b) a publish arriving during the up-to-4s
-  semantic queries repopulates it after `inspect` already captured the line
-  diagnostics. Either way a post-hoc `has()` reports a never-settled leg as
-  ANSWERED, resurrecting the false "this line is clean" verdict inside the very
-  leg added to prevent it. Both paths are pinned in
-  `lsp-inspect-query-failures.test.ts`.
-  Pinned by
-  `apps/desktop/src/__tests__/assistant-server/lsp-inspect-query-failures.test.ts`
-  (fake JSON-RPC wire: per-query timeout, throw, and the mixed case) plus the
-  projection cases in
-  `workspace-inspection-model-projections.test.ts`.
-- **Pool + lifecycle.** One pooled server child process per workspace `rootId`
-  (module-level Map, mirroring `execute-command-tool`'s `liveChildProcesses`).
-  All acquisition goes through `acquireLspServer`, which registers the pool
-  entry (a `Promise<LspServerConnection>`) in the same synchronous frame as
-  the miss check — the diagnose locks are per-FILE, so concurrent
-  first-touches of different files under one root race creation, and a bare
-  get → create → set would spawn two children and orphan one. Do not inline
-  `pool.get`/`pool.set` at call sites.
-  Every server MUST be torn down: `disposeLspServers()` is wired into BOTH the
-  factory-reset `runtimes[]` and graceful shutdown in `main.ts` (alongside the
-  shell/terminal reapers); `evictLspServersForRoot(rootId)` fires from the
-  `fs:removeRoot` IPC handler. Disposal awaits the child process's actual exit,
-  not merely `child.kill()` accepting the signal, so each caller awaiting that
-  connection's disposal observes honest settlement. Pool closure against new
-  acquisitions during global/root teardown is separate follow-up territory.
-  The no-orphan proof is the heart of `lsp-diagnostics.integration.test.ts`.
-- **No silent fallbacks.** An unresolvable server, an unsupported language, or
-  a diagnostics timeout all resolve to an honest result the caller attaches —
-  never a throw that would fail the already-applied edit. Unsupported languages
-  (markdown/json) OMIT the `lsp` field entirely (no note spam); a supported
-  language whose server is unavailable/timed out attaches `{available:false,
-  message}`. Diagnostics are self-bounded (≤15, message ≤300 chars, errors
-  first) because `lsp.diagnostics` is NESTED and not a trimmable collection key
-  — the transport budget guard cannot rescue an oversized blob.
-- **Scope note.** Wired into `write` + `stringReplace` (content-editing tools,
-  where diagnostics catch a just-introduced error); `rename` is deliberately
-  excluded (content unchanged → diagnostics would report pre-existing state as
-  noise, plus a bonus read).
+- **Bespoke, not the core primitive.** `apps/desktop/src/assistant-server/lsp-diagnostics.ts`
+  lifts the WIRE PROTOCOL (`vscode-jsonrpc` + `vscode-languageserver-protocol`),
+  not Mastra's Workspace/sandbox LSP class.
+- **Bundled flagship server**, TypeScript/JavaScript only. Follow the
+  package-scoped forwarding dependency from the TypeScript 6 compatibility wrapper
+  to the real `tsserver.js`; never assume the server sits next to the wrapper's
+  `lib/typescript.js`. All three reliability steps are required: spawn `cli.mjs`
+  through `process.execPath` + `ELECTRON_RUN_AS_NODE=1`; pin
+  `initializationOptions.tsserver.path` to the bundled `tsserver.js`; advertise
+  the `textDocument.publishDiagnostics` client capability. Diagnostics land as two
+  pushes (`[]` then the real set), so a settle window is mandatory.
+- Agent-facing diagnostics therefore come from TypeScript 6 while build and
+  type-check gates run native TypeScript 7. Keep the cross-major control (the full
+  compiler parity sweep plus the real-subprocess LSP integration's WebGPU surface
+  check) while the LSP stays on TypeScript 6. The desktop manifest lists the
+  compatibility implementation as a production dependency and unpacks it
+  explicitly; the root owns the same alias so `.vscode/settings.json` can point
+  `typescript.tsdk` at it.
+- **`lspInspect`** is a read-risk native tool taking `{path, line (1-based),
+  match}`. Prefer a markerless single identifier; if it repeats on the line, use a
+  unique fragment with exactly one `<<<` cursor marker. Anchor the identifier or
+  marker-stripped fragment against the REAL line text read through the checked
+  reader. A markerless identifier missing from the line returns up to five actual
+  candidate line numbers for an explicit retry; it never jumps lines itself.
+  Missing and ambiguous matches refuse. Returns up to four groups — hover, the
+  line's diagnostics, definition locations and implementations — reusing the
+  pooled connection and per-file diagnose lock, each query independently bounded
+  and never throwing.
+- **An unanswered inspect query is never an empty one.** `queryHover` /
+  `queryLocations` return a `QueryOutcome`, and `withTimeout`'s fallback is the
+  `QUERY_TIMED_OUT` sentinel symbol, never `null`. Every leg that did not answer
+  lands in `LspInspectionResult.queryFailures` as
+  `{query, reason:'timeout'|'error', message}`, where `query` names the RESULT
+  FIELD it fills and `message` says what is UNKNOWN and what not to conclude.
+  Bound and collapse `detail` AT THE PRODUCER.
+- Four invariants: a partial failure NEVER flips `available` to false; failures
+  log at `logger.warn` so they are visible at the default level;
+  `| unanswered=<queries>` goes in the projection HEADER, the only unconditional,
+  self-bounding line; the `query_unanswered:` detail lines sit in a
+  PRIORITY-ORDERED but itself fit-aware prelude above the droppable result lines.
+  Do not make any prelude line unconditional, do not reintroduce a bare
+  `catch { return []; }`, and do not give `withTimeout` a fallback a real answer
+  could equal.
+- **Diagnostics settlement is RETURNED, never inferred from the map.**
+  `waitForDiagnostics` resolves to a `DiagnosticsWait` — `{settled:true,
+  diagnostics}` only for a non-empty publish or an empty one that survived the
+  FULL settle window — and both `diagnose`/`getEditDiagnostics` and `inspect` read
+  that value. Re-adding a `hasPublishedFor` map probe is a regression: the map is
+  mutable and shared, so a post-hoc `has()` reports a never-settled leg as
+  ANSWERED.
+- **Pool + lifecycle.** One pooled server child per workspace `rootId`. All
+  acquisition goes through `acquireLspServer`, which registers the pool entry in
+  the same synchronous frame as the miss check. Do not inline `pool.get`/`pool.set`
+  at call sites. Every server MUST be torn down: `disposeLspServers()` is wired
+  into both the factory-reset `runtimes[]` and graceful shutdown;
+  `evictLspServersForRoot(rootId)` fires from the `fs:removeRoot` IPC handler.
+  Disposal awaits the child's actual exit, not merely `child.kill()`.
+- **No silent fallbacks.** An unresolvable server, unsupported language or
+  diagnostics timeout resolves to an honest result the caller attaches — never a
+  throw that would fail the already-applied edit. Unsupported languages OMIT the
+  `lsp` field entirely; a supported language whose server is unavailable attaches
+  `{available:false, message}`. Diagnostics are self-bounded because
+  `lsp.diagnostics` is NESTED and the transport budget guard cannot rescue an
+  oversized blob.
+- **Scope.** Wired into `write` + `stringReplace` only; `rename` is deliberately
+  excluded (content unchanged). Diagnostics run OUTSIDE the per-file write lock.
 
-Diagnostics run OUTSIDE the per-file write lock (a language-server round-trip
-must not extend the write's critical section). Proofs:
-`lsp-diagnostics.integration.test.ts` (real subprocess: diagnostics,
-pooling, no-orphan dispose, honest degrade) + the `post-edit LSP diagnostics`
-cases in `assistant-tools-multiroot-and-gating.integration.test.ts`. When changing this flow, update
-this section and those tests.
+Evidence: `assistant-runtime/lsp-diagnostics.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/lsp-diagnostics.integration.test.ts`
+(real subprocess; the no-orphan proof),
+`lsp-inspect-query-failures.test.ts`, the post-edit cases in
+`assistant-tools-multiroot-and-gating.integration.test.ts`.
 
----
-
-## LOOP GUARDS (BST-1188)
+## LOOP GUARDS
 
 The desktop assistant server applies three thread-scoped, main-process-memory
-guards to stop an agent from repeatedly reconfirming evidence it already has.
-This is a desktop native-tool capability boundary: web does not construct these
-tools, and no network round trip or persistent store participates. Design
-settled across PR #2323 review (both an automated and an LLM reviewer found
-real correctness bugs in the first cut — several rulings below exist BECAUSE
-of that review; do not relitigate without re-reading it).
+guards plus one stateless guard so an agent stops reconfirming evidence it
+already has. This is a desktop native-tool capability boundary: web constructs
+none of these tools, and no network round trip or persistent store participates.
 
-- **Repeated identical calls — grepSearch/globWorkspace ONLY.**
-  `withRepeatedCallGuard` in
-  `apps/desktop/src/assistant-server/tool-call-loop-guards.ts` tracks stable,
-  recursively key-sorted arguments independently for each `(threadScope,
-  toolId)`. Calls one and two run normally, call three runs and stamps a
-  warning, and call four or later is REFUSED WITHOUT calling `run` at all.
-  Different arguments reset ONLY that tool's streak; an intervening call to
-  another tool NEVER resets it. **`readWorkspaceFile` deliberately does NOT
-  use this mechanism** — an args-only streak has no way to know the file
-  changed between calls, so it would either permanently refuse a legitimate
-  re-read after an edit (the refusal fires BEFORE the file is ever checked) or
-  stamp a false "results have not changed" warning on content that did change.
-  `readWorkspaceFile` relies solely on the mtime-aware window guard below,
-  which always re-reads the file first and can therefore never go stale that
-  way.
+- **Repeated identical calls — `grepSearch`/`globWorkspace` ONLY.**
+  `withRepeatedCallGuard` (`apps/desktop/src/assistant-server/tool-call-loop-guards.ts`)
+  tracks stable, recursively key-sorted arguments per `(threadScope, toolId)`.
+  Calls one and two run normally, call three runs and stamps a warning, call four
+  is REFUSED without calling `run`. Different arguments reset only that tool's
+  streak; another tool's call never resets it. `readWorkspaceFile` deliberately
+  does NOT use this mechanism — an args-only streak cannot know the file changed.
 - **The streak only advances on a call that PRODUCES a result.**
-  `peekRepeatedToolCall` is read-only with respect to the observable streak
-  (it never mutates `repeatedToolCalls`); `withRepeatedCallGuard` calls it
-  BEFORE `run`, then calls the mutating `commitRepeatedToolCall` only AFTER
-  `run` resolves. A call that throws (transient ripgrep/fs error) is never
-  committed, so it never advances the streak and never falsely tells the model
-  "the result already in context" when no attempt ever produced one. The peek
-  does separately promote cross-mechanism thread-scope LRU bookkeeping, as
-  detailed under the bounded-state ruling below.
-- **The warning is its own field, never folded into `hint`.** The grep/glob
-  purpose-built projectors' continuation logic returns its offset-form
-  continuation (and skips `hint` entirely) whenever the page was already
-  trimmed by the output-char budget — exactly the large/expensive repeats this
-  guard exists to stop. `withRepeatedCallGuard` therefore stamps
-  `result.loopGuardWarning` (mutated in place, never a spread into a new
-  object — the WeakMap-keyed telemetry in `tool-call-telemetry.ts` is tagged
-  onto the SAME object and a spread would silently drop that tag). Both
-  projectors render `loopGuardWarning` as its own `warning:` line
-  unconditionally, the same way they already render `liveNote`/`probeNote`,
-  so it survives regardless of the continuation branch.
+  `peekRepeatedToolCall` never mutates the observable streak;
+  `commitRepeatedToolCall` runs only after `run` resolves, so a transient error is
+  never committed.
+- **The warning is its own field, never folded into `hint`.** Stamp
+  `result.loopGuardWarning` by MUTATING IN PLACE, never a spread into a new object
+  — the WeakMap-keyed telemetry is tagged onto the SAME object. Both projectors
+  render it as an unconditional `warning:` line.
 - **Unchanged file-read windows.** `checkUnchangedReadWindow` keys a fresh
-  `readWorkspaceFile` request by root, normalized workspace path, requested
-  `startLine`/`endLine`, the EFFECTIVE `maxChars`, and observed mtime — two
-  reads of the same range with different `maxChars` are NOT the same read (a
-  bigger budget can return content the smaller one omitted), so `maxChars`
-  participates in the key. The first read returns content, the second
-  unchanged read returns `dedup: true` with `UNCHANGED_READ_STUB_MESSAGE`, and
-  the third returns the same non-throwing hard-refusal shape used by the
-  repeated-call guard. An mtime change resets the window (the model's next
-  identical-args request always sees the edit — this is what makes it safe for
-  `readWorkspaceFile` to skip the args-only streak above). A request with
-  `cursor` is a continuation and MUST NEVER enter this guard; paging must
-  continue normally.
-  - **Checked only AFTER a page is built, and only when it is NOT truncated.**
-    `runReadWorkspaceFile` calls `checkUnchangedReadWindow` after
-    `fitReadWorkspaceFileResult` has already produced `selected.result` — never
-    right after the file scan, where a later page-fitting failure (e.g.
-    `maxChars` too small to advance) would otherwise record an observation for
-    a call that never produced a page, priming the model's very next
-    (corrected) retry to look like a repeat of a read that never happened. And
-    only when `selected.result.truncated === false`: stubbing a TRUNCATED page
-    would discard the only `nextCursor` pointer to the rest of a large file and
-    misreport `truncated: false`/a full `endLine` — the stub's metadata always
-    comes from the real `selected.result`, not a re-derived guess.
+  `readWorkspaceFile` request by root, normalized path, requested
+  `startLine`/`endLine`, the EFFECTIVE `maxChars`, and observed mtime. First read
+  returns content, second returns `dedup: true` with `UNCHANGED_READ_STUB_MESSAGE`,
+  third returns the same non-throwing hard refusal. An mtime change resets the
+  window. A request with `cursor` is a continuation and MUST NEVER enter this
+  guard.
+- Check it only AFTER a page is built and only when `selected.result.truncated ===
+  false`. Stubbing a truncated page would discard the only `nextCursor` and
+  misreport `truncated`; recording before page-fitting would prime the model's
+  corrected retry to look like a repeat.
 - **Repeated string-replace failures.** `recordEditFailure` counts only
   consecutive `StringReplaceError` failures whose reason is `ambiguous` or
-  `not_found`, keyed by thread, root, and normalized workspace path. On failure
-  three and later, `runStringReplaceWorkspaceFile` APPENDS
-  `EDIT_FAILURE_HINT_MESSAGE` to the fuzzy matcher's own message rather than
-  replacing it — the matcher's diagnostic (matched line numbers, the "diverged
-  after N lines" cascade) is the single most actionable fact for widening
-  `oldStr`, and replacing it would throw away exactly what the model needs most
-  after two prior failures. `no_op` NEVER increments this streak. A successful
-  `stringReplaceWorkspaceFile` OR a successful `writeWorkspaceFile` to the same
-  path resets the streak — a full rewrite is the recovery path the hint itself
-  recommends, so it must count as recovery too.
-- **One shared scope authority.** Every mechanism MUST receive
-  `threadScope = readStateScope(runtimeData)` from
-  `apps/desktop/src/assistant-server/workspace-file-staleness.ts`; no tool may
-  derive a second thread key. This intentionally shares identity with the
+  `not_found`, keyed by thread, root and normalized path. On failure three and
+  later, APPEND `EDIT_FAILURE_HINT_MESSAGE` to the fuzzy matcher's own message
+  rather than replacing it. `no_op` never increments. A successful
+  `stringReplaceWorkspaceFile` OR `writeWorkspaceFile` to the same path resets.
+- **One shared scope authority.** Every mechanism receives
+  `threadScope = readStateScope(runtimeData)` from `workspace-file-staleness.ts`;
+  no tool derives a second thread key. This deliberately shares identity with the
   read-before-write mtime tracker.
 - **Refusal is data, NEVER an execution error.** `buildRepeatedCallRefusalResult`
-  returns `{ok:false, refused:true, error}` so the model receives a compact
-  decline and the run remains alive. For grep/glob, the object intentionally
-  lacks `outputMode`: `parseGrepToolResult` and
-  `parseGlobWorkspaceToolResult` reject it with
-  `ToolProjectionInputRejectedError`, then `projectExistingModelOutput` in
-  `packages/agent/src/mastra/tool-model-output.ts` catches that explicit marker
-  and emits the generic bounded projection. Other projector errors still fail
-  loudly. `readWorkspaceFile` already uses the generic JSON projection, so its
-  refusal passes directly.
-- **The unguarded read caller is load-bearing.** `workspace-context-tools.ts`
-  calls `runReadWorkspaceFile` directly for bulk context and MUST see no loop
-  guard or widened return. The three-argument overload therefore remains
-  exactly `Promise<ReadWorkspaceFileResult>`; ONLY the four-argument overload
-  used by `buildDesktopAssistantTools` can return `LoopGuardRefusalResult`.
+  returns `{ok:false, refused:true, error}`. For grep/glob it intentionally lacks
+  `outputMode`, so the parsers reject it with `ToolProjectionInputRejectedError`
+  and `projectExistingModelOutput` emits the generic bounded projection. Other
+  projector errors still fail loudly.
+- **The unguarded read caller is load-bearing.** `workspace-context-tools.ts` calls
+  `runReadWorkspaceFile` directly for bulk context and MUST see no loop guard: the
+  three-argument overload stays exactly `Promise<ReadWorkspaceFileResult>`.
 - **Dedup still records knowledge.** Before an unchanged-read stub or refusal
-  returns, `runReadWorkspaceFile` MUST call `recordKnownFileMtime` with the
-  loop guard's scope and the file's canonical path/mtime. The bytes are not
-  resent, but the thread's knowledge is current; omitting this write corrupts
-  the next write-staleness decision.
-- **Ephemeral, not factory-reset state — and now bounded (BST-1197).** The three
-  maps are process-local. `resetToolCallLoopGuards` serves test isolation AND
-  one production caller: after BST-1192 commits a stale-read projection
-  rewrite batch, it resets that exact `readStateScope(runtimeData)` thread. A
-  dedup stub must never refer the model to an earlier result the newly
-  committed overlay will collapse on the next replay. This mirrors
-  `packages/agent/src/tools/file-read-state.ts` and its `resetFileReadState`
-  and MUST NOT be wired into factory reset. Each per-thread map holds at most
-  the exported `MAX_KEYS_PER_THREAD_SCOPE` (256) keys, using that module's
-  insertion-order, delete-then-set LRU-on-write technique. One shared activity
-  tracker across all three mechanisms holds at most the exported
-  `MAX_TRACKED_THREAD_SCOPES` (256) thread scopes; overflow evicts the
-  least-recently-active scope from every store. The unchanged-read and
-  edit-failure mechanisms are intentionally whole-thread, non-consecutive
-  dedup: their designed behavior is for a key to survive arbitrary unrelated
-  activity between touches. A tight 8-key cap defeated that behavior in
-  ordinary multi-file sessions (PR #2332 review), so 256 preserves useful
-  history while remaining bounded. Repeated-tool state only has grepSearch and
-  globWorkspace entries in practice (at most a couple per thread), making the
-  same generous cap harmless headroom there.
+  returns, call `recordKnownFileMtime` with the loop guard's scope and the file's
+  canonical path/mtime, or the next write-staleness decision is corrupt.
+- **Ephemeral, not factory-reset state — and bounded.** The maps are process-local.
+  `resetToolCallLoopGuards` serves test isolation and one production caller (after
+  a stale-read projection rewrite batch commits). This MUST NOT be wired into
+  factory reset. Each per-thread map holds at most `MAX_KEYS_PER_THREAD_SCOPE`
+  keys with delete-then-set LRU-on-write; one shared activity tracker holds at
+  most `MAX_TRACKED_THREAD_SCOPES` scopes, and overflow evicts the
+  least-recently-active scope from every store.
+- Every write path promotes its scope through `getOrCreateScopeMap` and the read
+  path promotes through the same shared `touchThreadScope`. The read-path touch is
+  required because a refused call returns before commit. It changes only LRU
+  bookkeeping; peeking still never advances the observable streak.
 
-  Every write path (`commitRepeatedToolCall`, `checkUnchangedReadWindow`, and
-  `recordEditFailure`) promotes its scope through `getOrCreateScopeMap`, and the
-  read path (`peekRepeatedToolCall`) promotes it through the same shared
-  `touchThreadScope`. The read-path touch is required because a refused call
-  returns before commit: without it, a thread actively stuck in a refuse-only
-  loop could be evicted as falsely idle and have its refusal silently undone
-  (PR #2332 review, threads 1 and 3). This promotion changes only LRU
-  bookkeeping; peeking still never advances the observable successful-call
-  streak. The bounds remain lossless: a key or scope is forgotten only after
-  `MAX_KEYS_PER_THREAD_SCOPE` or `MAX_TRACKED_THREAD_SCOPES` OTHER identities
-  are touched in between, respectively. At that point the activity is no
-  longer meaningfully contiguous, so restarting at fresh/one is correct.
-
-Paired proofs live in `tool-call-loop-guards.test.ts`,
-`loop-guard-projection-round-trip.test.ts`,
-`assistant-tools-read.integration.test.ts`, and
-`string-replace-workspace-file-live-loop.test.ts`. When changing this flow,
-update this section and those tests.
+Evidence: `assistant-runtime/loop-guards.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/tool-call-loop-guards.test.ts`,
+`loop-guard-projection-round-trip.test.ts`, `assistant-tools-read.integration.test.ts`,
+`string-replace-workspace-file-live-loop.test.ts`.
 
 ## GUTTER-PREFIX WRITE GUARD (BST-1202)
 
-`readWorkspaceFile` renders model-visible pages in
-`read-workspace-file-tool.ts` (`renderReadWorkspaceFilePage`) with an unpadded
-`${line}: ` prefix. `gutter-prefix-guard.ts` conservatively identifies that
-display form before it can be pasted back onto disk. Refusal requires ALL of:
-at least three lines matching the exact `^\d+: ` shape; those captured numbers
-forming a monotonic NON-DECREASING run (an exact adjacent repeat is tolerated,
-a decrease is not) with a TIGHT SPAN (`max - min < 2 * count`); and the run's
-first (smallest) number being greater than 1. Do not broaden the prefix shape.
+`readWorkspaceFile` renders model-visible pages with an unpadded `${line}: `
+prefix; `gutter-prefix-guard.ts` conservatively identifies that display form
+before it can be pasted back onto disk.
 
-The tight-span bound (not a strict `+1` requirement, and not a majority-of-
-lines proportion — PR #2352 review replaced the original design that used
-both) is what does the actual discriminating work: it tolerates a single
-deleted line from an edited paste (`10,11,13,14,15`, span 5 over 5 matches)
-and a repeated boundary number — `renderReadWorkspaceFilePage` re-emits the
-SAME line number as the prefix on both halves of a line split across a page
-boundary, so a verbatim paste of two continuation pages repeats it — while
-still rejecting two unrelated reads pasted back to back (`40,41,100,101`,
-span 61 over 4 matches) and non-sequential content that merely starts with
-digits (`12,45,90`).
+- Refusal requires ALL of: at least three lines matching the exact `^\d+: ` shape;
+  those numbers forming a monotonic NON-DECREASING run (an exact adjacent repeat
+  is tolerated, a decrease is not) with a TIGHT SPAN (`max - min < 2 * count`);
+  and the run's smallest number being greater than 1. Do not broaden the prefix
+  shape.
+- The tight-span bound does the discriminating work: it tolerates a single deleted
+  line and the repeated boundary number a page split re-emits, while rejecting two
+  unrelated reads pasted back to back and non-sequential content that merely
+  starts with digits.
+- **Known coverage boundary — deliberate.** A page-1 paste is NEVER refused:
+  legitimate 1-based numeric-key content is textually IDENTICAL to it. Blocking
+  the legitimate write is strictly worse than missing this paste shape. Do not
+  relax the `first > 1` requirement.
+- The guard applies only to `writeWorkspaceFile.content` and
+  `stringReplaceWorkspaceFile.newStr`. It deliberately does not inspect `oldStr`.
+- In `runWriteWorkspaceFile` the `MAX_WRITE_WORKSPACE_FILE_BYTES` size check runs
+  BEFORE the guard, so an over-limit payload never pays for the guard's
+  `split('\n')`.
+- This is a fourth, independent, STATELESS mechanism: no thread scope, no Map, no
+  participation in the loop-guard bounds. A match throws `ToolInputError` before
+  locks, disk I/O or `recordEditFailure`, so a gutter refusal consumes zero
+  edit-failure streak slots.
+- An out-of-safe-integer captured number disqualifies only that ONE line — it is
+  skipped, never a reason to abort the whole check, so it cannot defeat the guard.
 
-**Known coverage boundary — deliberate, not an oversight.** A page-1 paste
-(gutter numbers starting at 1, e.g. a verbatim `1: a\n2: b\n3: c`) is NEVER
-refused. Legitimate sequential numeric-key content — a YAML mapping
-(`1: January\n2: February\n3: March`), a numbered config list, any 1-based
-enumeration — is textually IDENTICAL to a page-1 gutter paste (the common
-case, since `readWorkspaceFile` defaults to starting at line 1); no signal in
-the text distinguishes them. Blocking the legitimate write is strictly worse
-than missing this one paste shape: a false refusal makes an ordinary numbered
-write permanently impossible through these tools, while a missed page-1 paste
-still gets caught by the model's own read-verify cycle after the corrupted
-write lands. Only a read that started past line 1 (an explicit `startLine`,
-or a continuation cursor) produces gutter numbers starting above 1, so only
-THOSE pastes are guarded. Do not relax the `first > 1` requirement to close
-this gap — it would reopen the YAML/numbered-mapping false positive instead.
-
-The guard applies only to `writeWorkspaceFile.content` and
-`stringReplaceWorkspaceFile.newStr`. It deliberately does not inspect
-`stringReplaceWorkspaceFile.oldStr` (quoted from real file content), and delete
-and rename have no content argument. In `runWriteWorkspaceFile` the
-`MAX_WRITE_WORKSPACE_FILE_BYTES` size check runs BEFORE the guard (both are
-pure pre-lock validations) so an over-limit payload is rejected before it
-pays for the guard's `split('\n')` pass. This is a fourth, independent,
-STATELESS mechanism: it has no thread scope or Map and does not participate
-in `MAX_KEYS_PER_THREAD_SCOPE`/`MAX_TRACKED_THREAD_SCOPES`. A match throws
-`ToolInputError` before locks, disk I/O, or the "Repeated string-replace
-failures" path above can reach `recordEditFailure`; a gutter refusal consumes
-zero edit-failure streak slots. An out-of-safe-integer captured number (e.g.
-an attacker appending `99999999999999999999: x` to an otherwise perfect
-gutter block) disqualifies only that ONE line — it is skipped, not treated as
-a reason to abort the whole check, so it cannot be used to defeat the guard.
-
----
+Evidence: `assistant-runtime/gutter-prefix-guard.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/gutter-prefix-guard.test.ts`.
 
 ## PERMISSION ENGINE (TOOL APPROVAL)
 
-Scope note: MCP elicitation (a server asking the user for input or link consent
-DURING a tool call, BST-1584) is a separate consent channel from tool approval
-and suspension. Approval/suspension ride the assistant stream and render as
-thread cards; elicitation is host-scoped — desktop main's presenter authority
-pushes it over IPC to an app-wide modal (`McpElicitationHost`) and receives the
-settlement back over IPC. Neither channel resumes or approves the other; see
-`docs/agents/assistant-providers.md` (client input / elicitation).
+Scope note: MCP elicitation is a SEPARATE consent channel. Approval and
+suspension ride the assistant stream and render as thread cards; elicitation is
+host-scoped over IPC to an app-wide modal. Neither channel resumes or approves the
+other — see `docs/agents/assistant-providers.md`.
 
-Renderer execution boundary (BST-1233): production desktop main does not import
-or register `ipc-tools.ts`, the visible preload exposes no `tools.execute`, and
-desktop Settings supplies no playground execution callback. The `window.tools`
-bridge is selection-event-only. Consequently renderer code — including the
-renderer-hosted local LLM adapter — receives no desktop executor and cannot
-invoke native, assistant, shell, or MCP tools directly. The shared local-runtime
-adapter remains executor-agnostic for explicit non-desktop embeddings/tests,
-but local tool definitions are omitted when no executor is present. Tool
-execution stays on the assistant server path below, where the
-permission engine owns policy and per-call approvals; there is no compatibility
-fallback that reconstructs approval state or accepts a renderer-supplied
-workspace path. `ipc-tools.ts` is retained only as an unregistered legacy unit
-harness: it preserves coverage of the former exploit path while production has
-no import edge to it, and it throws before handler registration unless
-`NODE_ENV === 'test'`. `tools-ipc-main-wiring.test.ts` pins the production seams
-(main registration, preload/channel exposure, shared Window declaration, and
-Settings callback) closed.
-
-Mutation tools PROMPT for per-call approval by default. The permission policy
-store (`packages/app-state/src/stores/permission-policy-store.ts`) defaults to
-`enforce: true` with policies `{read:allow, mcp:allow, edit:ask, execute:ask}`,
-so by default read/MCP tools run free while edits and shell commands suspend the
-run for user approval. A user can turn `enforce` off (explicit opt-out), set a
-category to `allow`/YOLO, or grant a session category. Its platform storage is
-resolved through a local deferred state-storage proxy, so an optimized
-chunk-evaluation cycle cannot make Zustand silently omit the `persist` API; a
-later hydration retries resolution and genuine adapter failures remain visible.
+- **Renderer execution boundary.** Production desktop main does not import or
+  register `ipc-tools.ts`, the visible preload exposes no `tools.execute`, and
+  desktop Settings supplies no playground execution callback. The `window.tools`
+  bridge is selection-event-only, so renderer code — the renderer-hosted local LLM
+  adapter included — cannot invoke native, assistant, shell or MCP tools directly.
+  Local tool definitions are omitted when no executor is present. There is no
+  compatibility fallback that reconstructs approval state or accepts a
+  renderer-supplied workspace path. `ipc-tools.ts` is retained only as an
+  unregistered legacy unit harness and throws before handler registration unless
+  `NODE_ENV === 'test'`.
+- Mutation tools PROMPT for per-call approval by default. The permission policy
+  store (`packages/app-state/src/stores/permission-policy-store.ts`) defaults to
+  `enforce: true` with `{read:allow, mcp:allow, edit:ask, execute:ask}`. A user
+  may turn `enforce` off, set a category to `allow`, or grant a session category.
+  Resolve its platform storage through a local deferred state-storage proxy so an
+  optimized chunk-evaluation cycle cannot make Zustand omit the `persist` API; a
+  later hydration retries and genuine adapter failures remain visible.
 
 Flow (desktop assistant server → agent runtime):
-1. The renderer attaches the persisted policy snapshot to the request only when
-   `enforce` is true. **ONE producer, at request-composition time (BST-1652 — do
-   not add a second):** `prepareRequestData`
-   (`packages/app-shell/src/hooks/use-assistant-request-lifecycle.ts`) calls
-   `getPermissionToolGateSnapshotInput()` against the LIVE store and sets
-   `permissionPolicyRequest` unconditionally — to the snapshot when
-   `permissionEnforceable` (the desktop data-stream transport) and `enforce`,
-   otherwise to `undefined`, which `JSON.stringify` drops. That fresh read is
-   what closes the grant→resume race ("Always allow" flips the store and
-   approves the pending call in the SAME synchronous handler, with no re-render
-   in between). Consequently `buildAssistantRequestData` deliberately does NOT
-   take or emit the field and `assistant-ui-panel-wrapper.tsx` deliberately does
-   NOT subscribe to the permission-policy store during render: a render-time
-   value could only be overwritten, while the subscription re-rendered the whole
-   assistant panel on every grant. Pinned from both sides by
-   `use-assistant-request-lifecycle.test.ts` ("permission-policy freshness at the
-   request-composition seam"), the "never attaches permissionPolicyRequest" case
-   in `assistant-ui-panel-wrapper-runtime.test.ts`, and the commit counters in
-   `assistant-ui-panel-wrapper-store-subscription.test.tsx`.
-   `resolveRequestPermissionPolicy` (agent) builds the trusted
-   `PermissionToolGateSnapshot` with a SERVER-built `riskByTool`
-   (`buildNativeToolRiskMap`) — the client never classifies tool risk.
 
-   WIRE SHAPE — the field's disappearance for an opted-out request is a
-   JSON-BOUNDARY ASSUMPTION, NOT the presence-means-non-default rule that a
-   neighbouring opt-in field (`subagentPersonasRequest`) uses by genuinely
-   omitting its key. Here the key is always present on the producer's object
-   and only serialization removes it; `planMode` is written the same way. Read
-   the VALUE — pass it to `resolveRequestPermissionPolicy`, which treats an
-   absent key and an explicit `undefined` identically. Full rationale
-   (including why `exactOptionalPropertyTypes` never catches drift here) is on
-   the field declaration in `packages/agent/src/types.ts`. Pinned from both
-   ends: "leaves the opt-in keys PRESENT with undefined values"
-   (`use-assistant-request-lifecycle.test.ts`) fixes the producer's shape, and
-   the "wire-shape contract" cases
-   (`packages/agent/src/__tests__/permission-policy-request.spec.ts`) fix the
-   resolver's indifference to it. The unconditional write is load-bearing and
-   must NOT be simplified to conditional spread: it has to clobber a stale
-   snapshot inherited from `requestData`, not skip it.
-2. `filterToolsByPermissionWithMetadata` (`packages/agent/src/mastra/permission-tool-gate.ts`)
-   gates the tool map BEFORE the immutable `Agent` is built: `'deny'`→omit;
-   `'allow'`→keep unchanged; `'ask'`→keep a CLONE with Mastra's PER-TOOL
-   `requireApproval: true` and record in `askToolIds`.
-   SUSPENDING tools included (`brainstrike.runPython`; BST-1097, mechanism
-   re-based at the @mastra/core ^1.57 adoption — the old SELF-APPROVING
-   exception and its registry are gone): an `'ask'` decision takes the SAME
-   `requireApproval` clone as every other ask tool — the framework's
-   pre-execution approval is Gate A. The 1.56 approval rework made the old
-   self-raised in-tool suspension unworkable (the framework consumes the
-   `{approved}` resume before the tool can read it — an unfinishable loop)
-   and simultaneously made the clone safe: the suspend-resume transport
-   attaches the `approved: true` rider Mastra's per-leg re-check demands, so
-   the tool's OWN `suspend()` pause (Gate B) stays resumable under the flag.
-   `resolveSelfApprovalDecision` (exported beside the gate — same resolver,
-   same risk lookup, cannot drift) is still injected at the composition root,
-   now ONLY for the direct-invocation guard: an `'ask'` call outside an agent
-   run refuses rather than running unprompted.
-3. PER-TOOL, not global: marking each ask tool with `requireApproval` (Mastra
-   >=1.37) makes Mastra suspend ONLY when that tool is actually called — allowed
-   `read`/`mcp` tools in the same run still run free. We deliberately do NOT force
-   the run-wide `requireToolApproval` (it would suspend EVERY tool call, breaking
-   the read-only default). `resolveAskToolsForRun` (in the tool pipeline,
-   `runtime-assembly/tool-pipeline.ts`)
-   only decides whether ask tools may STAY: WITH Mastra workflow storage they stay
-   (their per-tool flag suspends + the resume path can restore the run); WITHOUT
-   storage (`streamMastraToolApprovalAction` throws) they are fail-safe OMITTED
-   (never run an approval-required tool unprompted — no-silent-fallbacks).
-4. The approval UI + resume chain (`makeApprovalRequiredChunks` →
+1. **ONE producer, at request-composition time.** `prepareRequestData`
+   (`packages/app-shell/src/hooks/use-assistant-request-lifecycle.ts`) reads the
+   LIVE store and sets `permissionPolicyRequest` UNCONDITIONALLY — the snapshot
+   when the transport is `permissionEnforceable` and `enforce` is on, otherwise
+   `undefined`, which `JSON.stringify` drops. That fresh read closes the
+   grant→resume race. `buildAssistantRequestData` deliberately does NOT carry the
+   field, and `assistant-ui-panel-wrapper.tsx` deliberately does NOT subscribe to
+   the store during render. The unconditional write must NOT become a conditional
+   spread: it has to clobber a stale snapshot inherited from `requestData`.
+   `resolveRequestPermissionPolicy` builds the trusted snapshot with a
+   SERVER-built `riskByTool`; the client never classifies tool risk.
+   WIRE SHAPE: read the VALUE, never presence — `resolveRequestPermissionPolicy`
+   treats an absent key and an explicit `undefined` identically.
+2. `filterToolsByPermissionWithMetadata` (`mastra/permission-tool-gate.ts`) gates
+   the tool map BEFORE the immutable `Agent` is built: `'deny'` omits, `'allow'`
+   keeps unchanged, `'ask'` keeps unchanged and records in `askToolIds`/`askTools`.
+   The composition site then clones every kept ask tool through
+   `applyLiveApprovalGate` with the FUNCTION form of Mastra's PER-TOOL
+   `requireApproval`, evaluated on every call against the runtime's live gate.
+   Never a static `true` — Mastra copies that boolean once per stream call, so a
+   remembered session grant could never lift it.
+   SUSPENDING tools take the same function-form clone; the framework's
+   pre-execution approval is Gate A and the tool's own `suspend()` pause is Gate B,
+   kept resumable by the `approved: true` rider.
+   `resolveSelfApprovalDecision` is still injected at the composition root, now
+   ONLY for the direct-invocation guard.
+3. PER-TOOL, not global: allowed `read`/`mcp` tools in the same run still run
+   free, and a tool a remembered session grant allows runs free from its next call
+   on. Do NOT force run-wide `requireToolApproval`. `resolveAskToolsForRun` only
+   decides whether ask tools may STAY: WITH Mastra workflow storage they stay;
+   WITHOUT storage they are fail-safe OMITTED.
+4. The approval UI and resume chain runs `makeApprovalRequiredChunks` →
    `tool-approval-required` chunk → `DataStreamMapper.handleToolApprovalRequired`
-   → `TOOL_APPROVAL_DATA_NAME` data part → `assistant-tool-approval-notice.tsx`)
-   prompts the user; approve→execute, decline→skip. Valid
-   `brainstrike.executeCommand` arguments render as a selectable,
-   whitespace-preserving command block plus the supplied working directory,
-   workspace root, and timeout (an omitted working directory is labeled as the
-   selected-workspace default). Its local guard mirrors the strict agent
-   schema, including unknown-key rejection; malformed arguments show the
-   existing visible preview error and unmodified raw arguments rather than a
-   guessed command. File-edit previews label the target path and optional
-   workspace root separately in their combined text, with an explicit
-   separator; long identifiers truncate only visually while their complete
-   text remains available to assistive technology and on hover. Live and
-   rediscovered approvals share this component.
-   `brainstrike.runSkillScript` uses a separate semantic preview that names the
-   activated skill and skill-relative script while showing the explicit
-   mounted root, root-relative cwd, runtime, and structured argv. It never
-   presents or accepts a model-supplied absolute skill path; malformed typed
-   arguments stay on the same visible raw-arguments error path.
-   `brainstrike.runPython` (BST-1070 Gate A) renders the code plus
-   always-rendered fact rows (internet / write / read / time limit / sandbox)
-   from a server-computed `executionContext`
-   (`CodeExecutionApprovalContext`, tool-approval contract): host facts the
-   model's args cannot carry, derived by
-   `resolveRunPythonExecutionContext` from the tool's own strict schema plus
-   the constants execute() uses. It is forwarded in THREE places — stamped in
-   `makeApprovalRequiredChunks`, spread through
-   `DataStreamMapper.handleToolApprovalRequired`'s field-by-field rebuild
-   (miss it and every LIVE approval degrades while rediscovered ones work —
-   pinned by a live-transport test), and RECOMPUTED on rediscovery in
-   `status-endpoints.ts` beside `riskCategory`. Fail-safe: args that fail
-   strict narrowing or an absent/invalid context keep Approve/Decline but
-   SUPPRESS the grant buttons (parent-side `resolveApprovalPreviewPolicy`,
-   riding the existing null-`grantCategory` gating path) with a visible
-   reason — no "always allow" for a call the card cannot read. Copy rule the
-   fence contract forces: an empty `allowRead` under `defaultReadAccess:
-   'permissive'` renders "most files on this computer", NEVER "can't read
-   your files". Settled result surface (`run-python-result.tsx`, mounted by
-   `tool-fallback-body.tsx`): killed ≠ completed ≠ didn't-run, non-zero exit is an
-   amber finish (destructive chrome is reserved for `unavailable`), cancelled
-   never renders as success or empty, and truncation is a per-stream note.
-   Structurally narrowed result numbers must be safe integers (non-negative
-   exit/omitted-byte values and a positive timeout) before this purpose-built
-   surface renders. Malformed numbers stay on the generic tool-result path
-   rather than producing `NaN`/`Infinity` UI. The card-level status maps
-   cancelled/timed-out/killed to a `stopped` state
-   instead of the generic green check.
-   The built-in local provider admits a call to this chain only after its
-   arguments parse as a root JSON object. A
-   `local_tool_call_arguments_invalid` generation ends visibly with typed
-   `run.failed` metadata before Mastra can create an approval snapshot; there
-   are therefore no enabled Approve/Decline controls and no resume action for
-   malformed Gemma output. Valid arguments are canonicalized before suspension,
-   so the approval notice, durable snapshot, resumed card, and execution share
-   one value.
-   Alongside Approve/Decline the notice offers GRANT actions when (a) a
-   `ToolApprovalGrantProvider`
-   is mounted above it (app-shell wraps the panel, same outside-in pattern as
-   `EditCheckpointProvider`; no provider → no buttons, capability gating) and
-   (b) the approval carries a valid `riskCategory` (policy-driven ask —
-   non-policy pauses never over-promise a grant): "Always allow <tool>" →
-   `setToolOverride(toolId,'allow')` (persisted), "Allow <category> this
-   session" → `grantSessionCategory` (session-lived), and — in a compact
-   overflow menu (`approval-grant-overflow`) — "Allow all tools this session"
-   → `grantAllSessionCategories()`, which grants ALL FOUR risk categories in
-   ONE atomic store `set()` (a single subscriber notification, never a partial
-   grant set). SETTLED: the blanket action is four category grants, NOT a
-   session-yolo flag — per-tool DENY overrides still beat it (the safe
-   direction), it changes no wire contract, and Settings > Permissions lists
-   each granted category individually revocable plus a "Revoke all" button
-   (`clearSessionGrants`). All grant actions record the grant
-   FIRST, then approve the pending call through the normal resume; the
-   pending call still resolves through `streamMastraToolApprovalAction`.
-   TIMING (confirmed): the grant takes effect on the SAME resumed leg, not
-   just the next request — `useAssistantRequestLifecycle.prepareRequestData`
-   reads the permission posture FRESH from the store
-   (`getPermissionToolGateSnapshotInput()`) at request-composition time,
-   precisely because the grant + approve happen in one synchronous handler
-   with no re-render in between (the same fresh-read pattern as plan-mode
-   exit). The wrapper's reactive subscription additionally keeps later
-   requests in sync.
-   An OpenRouter approval pause terminates its transport leg with zero-token
-   usage and no claimed cost: Mastra emits the pause before that model step's
-   `step-finish`. Approval resume emits the deferred step finish before later
-   steps, so normal terminal aggregation records the exact total then.
-   Management surface: Settings > Permissions lists per-tool overrides
-   (change decision / remove via `setToolOverride(id,null)`) and active
-   session grants (revoke via `revokeSessionCategory`). The chunk carries an optional
-   `riskCategory`/`policyDecision` so the notice can name the reason. The
-   data-stream mapper correlates Mastra's transient tool error emitted before a
-   deliberate `suspend()` and suppresses only that call's false failure fallback;
-   unrelated tool failures remain visible. Before either approval decision is
-   applied, the resume adapter reads Mastra's storage-backed
-   `listSuspendedRuns()` snapshot and exact-matches both `runId` and
-   `toolCallId`. That durable snapshot is the authority for the original tool
-   name and arguments. The resumed stream is seeded with that exact invocation
-   before terminal output is mapped, so live completed cards retain the same
-   arguments shown by the approval notice. A missing snapshot, tool name, or
-   argument payload fails visibly before approve/decline executes; never invent
-   `{}` or trust the client action as a fallback. Runtime reconstruction also
-   reads Mastra's durable suspended-call snapshot before runtime reconstruction
-   and preserves the execute-backed `brainstrike.webSearch` implementation only
-   when that exact call is being resumed. A same-click read grant changes
-   authorization immediately, but must not replace the suspended Tavily function
-   with provider-native search: Mastra's durable invocation names the function
-   and otherwise finishes without executing it. Resuming a different tool keeps
-   provider-native search available, and a fresh later turn may select it. The
-   approve/decline resume (`streamMastraToolApprovalAction`) passes
-   `requireToolApproval: true` (the resume API needs it); the gate runs again on
-   resume so the ask tools keep their per-tool flag. Because run-wide
-   `requireToolApproval: true` would suspend EVERY tool call on the resumed leg,
-   `resolveResumeApprovalGate` (`attempt-legs.ts`, moved out of `agent-streaming.ts`
-   by BST-1649) substitutes the FUNCTION form of
-   the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
-   read/internal-state tools keep running, ask-gated mutations may suspend again,
-   and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
-   `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt — as are
-   the SELF-APPROVING suspending tools (BST-1097), but ONLY from the ASK-SET
-   half: re-gating one there would make Mastra consume its `{approved}` resume
-   before the tool sees it, so the tool re-runs with no resume data and
-   suspends Gate A again — an approval loop that can never complete. The
-   EXPLICIT GLOBAL posture still gates them: with `permissionEnforced ===
-   false` there is no snapshot, the injected decision resolves `'allow'`, and
-   the in-tool gate is inert — exempting them there would make run_python the
-   one execute-risk tool a global approval request never prompts for (and the
-   loop cannot occur, because the inert self-gate never re-suspends after the
-   framework consumes the approval). The symmetric transport rule also
-   holds: `streamMastraToolResumeAction` verifies via
-   `assertResumedCallIsSuspendPause` that the targeted call is suspended on a
-   PLAIN `suspend()` pause (`requiresApproval === false` in the snapshot) —
-   a generic resume payload must never answer an approval pause, mirroring
-   `readResumedApprovalToolCall`'s `requiresApproval === true` requirement in
-   the other direction. An EMPTY
-   `askTools` on the resumed leg is AMBIGUOUS and is disambiguated by the
-   runtime's `permissionEnforced` flag (`permissionSnapshot !== undefined`),
-   NOT by `askTools.size` alone:
-   - **A policy WAS enforced (`permissionEnforced === true`) but resolved nothing
-     to `'ask'`** — every remaining tool is ALLOWED, e.g. after "Allow all tools
-     this session" grants all four categories (denied tools were already omitted
-     from the map). This is an all-allowed posture: the resume gate gates
-     NOTHING, so a later mutation tool in the SAME resumed run is NOT re-prompted.
-     (Without this, granting all categories then approving re-prompted every
-     subsequent tool — the opposite of "allow all this session".)
-   - **No policy was enforced (`permissionEnforced === false`) yet the caller set
-     run-wide `requireToolApproval: true`** — a genuine explicit GLOBAL approval
-     request (the pre-permission-engine behavior); the resumed leg keeps gating
-     every non-internal tool.
-   Per-tool DENY still wins in both cases: a denied tool never enters the gated
-   map, so it never reaches the resume gate. A non-empty `askTools` always gates
-   exactly the ask set regardless of posture.
+   → `TOOL_APPROVAL_DATA_NAME` data part → `assistant-tool-approval-notice.tsx`.
+   Approve executes, decline skips. Live and rediscovered approvals share the
+   component.
 
-THE PAUSE IS ALSO A DURABLE ROW (BST-1402). Every approval pause writes a
-`tool.approval.requested` run event to `brainstrike_assistant_run_events`
-carrying the paused call's `toolCallId`. It exists so a LIST-WIDE question —
-"which threads are waiting on me?" — can be answered in SQL: rediscovering
-pauses from Mastra's suspended-workflow snapshot is a per-thread round trip and
-cannot be run for a whole thread list. Its consumer is the Threads panel's
-"needs you" projection (`use-threads-awaiting-approval.ts`, one resource-scoped
-live query; see `docs/agents/assistant-persistence.md` § THREAD GROUPS). Two
-properties of that row are load-bearing:
-- RESOLUTION IS DERIVED AND RUN-AGNOSTIC. Nothing marks the row answered. A
-  pause is resolved by the LATER existence of `tool.started` / `tool.completed`
-  / `tool.failed` / `tool.resume.unsupported` for the SAME
-  `metadata->>'toolCallId'`. PAIRING is on that id and never on `run_id`: the
-  approve/decline resume is a SEPARATE leg that mints its own `runId` and its
-  own `thread_runs` row, so the event that answers a pause always carries a
-  different run id than the pause. `tool.started` counts as resolved here (a
-  tool that started was approved) even though the run-timeline derivation does
-  not treat it as terminal — the two ask different questions, which is exactly
-  why `tool.started` needs an ORDERING guard the three terminals do not: the
-  approval gate runs inside `toolCallStep`, so the PAUSING leg already emitted
-  a `tool.started` for that same call before the pause row. The guard compares
-  `occurred_at` (`sequence` is per-run and meaningless across the two legs).
-  The SQL, the guard, and the producer shapes that make it load-bearing are
-  specified once in `docs/agents/assistant-persistence.md` § THREAD GROUPS — do
-  not restate the rule here. Two earlier restatements each drifted: one into the
-  opposite ruling ("no ordering guard is needed"), and one into a run-scoped
-  guard that a step with two gated calls defeats.
-- IT DELIBERATELY IGNORES `thread_runs.status`. A leg that pauses for approval
-  finishes with `finishReason: 'tool-calls'`, which every terminal writer
-  records as `completed`, so a `status = 'running'` join would make the
-  projection permanently EMPTY while the user's obligation and the suspended
-  Mastra snapshot both outlive that row. For the same reason the startup
-  run-reap does not gate it.
-- AN ABANDONED PAUSE STAYS LIT (BST-1417, known). The only thing that clears
-  the glyph is an outcome event for that `toolCallId`. A pause the user never
-  answers — and whose suspended snapshot is later discarded — leaves the row
-  unresolved forever, so its thread keeps the "needs you" glyph with no pause
-  left to answer. Lighting it is the safe direction (never silently drop an
-  obligation), but it is a real dead end, not a design intent to defend.
+Previews and grants:
 
-APPROVAL ACTION MESSAGES ARE BOOKKEEPING, NOT CONVERSATION: clicking
-Approve/Decline (and the suspend notice's Approve/Reject/Answer) appends a user
-message whose `metadata.custom` + `runConfig.custom` carry the action under
-`TOOL_APPROVAL_RUN_CONFIG_KEY` / `TOOL_SUSPEND_RUN_CONFIG_KEY`, with an echo
-text ("Approved <tool>." / "Approved the plan."). Approval actions are a strict
-wire object: exactly the own keys `action`, `runId`, `toolCallId`, and optional
-`toolName`; the two required ids and any present tool name are non-empty and
-bounded by the shared 512-character approval-transport constants. Suspend
-resume actions mirror that exact-own-key and identifier contract for
-`resumeData`, `runId`, `toolCallId`, and optional `toolName`; only the
-`resumeData` value stays tool-defined for Mastra's resume schema. Extra own or
-inherited fields, blank identifiers, and oversized identifiers are malformed.
-Every Desktop and Hosted Web boundary parses BOTH continuation kinds before
-dispatch: either malformed action returns the corresponding
-`invalid_tool_approval_action` / `invalid_tool_resume_action` HTTP 400, and two
-valid actions return `conflicting_tool_continuation_actions` / HTTP 400. Hosted
-Web deliberately has no tool registry or durable Mastra workflow store: both
-the Vercel Preview function and Vite dev/preview return
-`tool_approval_unavailable` / HTTP 409 for a valid approval/decline action and
-`tool_resume_unavailable` / HTTP 409 for a valid suspend-resume action. This is
-identical in local Vite and Vercel Preview so a long-lived dev process cannot
-advertise continuation behavior that fails when Vercel routes the next request
-to another instance. The deployable Vercel wrappers fail closed outside Preview
-as `production_auth_required`; public production requires application
-authentication plus distributed quota/cost controls. Hosted Web likewise
-rejects every non-empty `Last-Event-ID` with
-`stream_resume_unavailable` / HTTP 409 after enforcing the body-size bound;
-process-local replay is not a distributed capability. Normal Web turns run
-without workflow storage, so approval/suspending tools remain fail-safe omitted.
-Before any Vite dev/preview assistant route reaches those contracts, its
-developer-key boundary requires a loopback TCP peer, a `localhost`/loopback
-`Host`, same-origin browser provenance (while permitting no-`Origin` loopback
-CLI calls), and `application/json` on POST. Boundary failures are typed 403/415
-responses and drain the incoming request; they never fall through to Vite or
-touch the assistant runtime. Vercel entrypoints use their separate deployment
-boundary rather than this local socket check.
-That message is THREAD-STATE ONLY:
-- The panel renders it as a compact outcome chip
-  (`approval-action-chip.tsx`, `data-testid="approval-action-chip"`), never a
-  prompt bubble — BOTH marker kinds: per-tool approvals ("Approved
-  <tool>"/"Declined <tool>") and suspend resumes ("Approved/Rejected the plan"
-  with a feedback note, "Answered: <truncated answer>"). The recognizers are
-  STRICT (canonical contract guards + only the resumeData shapes the suspend
-  notice actually produces); an unrecognized/malformed marker falls through to
-  the ordinary bubble — content is never hidden behind a guessed chip. The
-  message stays in thread state so the notices' outcome locking
-  (`resolveApprovalRunOutcome`/`resolveSuspendRunOutcome`) and the resume
-  `runConfig` keep working.
-- The shared transport (`data-stream-runtime.ts` `run()`, both apps) excludes
-  action messages (BOTH keys — `approval-action-message.ts` is the single
-  recognizer) from EVERY outbound payload BEFORE
-  `selectTransportMessagesForMastraMemory`, so a regenerate-after-approval leg
-  anchors on the previous REAL user message instead of the echo, and
-  non-memory full-history resends never replay it. Action legs themselves
-  (runConfig carries either key) ship `messages: []` — the desktop and web
-  resume routes read the action from `runConfig` and ignore messages. The
-  transport recognizer uses the SAME strict contract guards as the chip
-  (`isAssistantToolApprovalAction`/`isAssistantToolResumeAction`, keyed per
-  run-config key), NOT a loose "is a record" check: wire-exclusion and
-  chip-rendering MUST agree on what an action message is. A
-  record-but-structurally-invalid marker (e.g. `{}`) is NOT an action — the chip
-  renders it as an ordinary bubble, so the transport keeps it on the wire rather
-  than silently dropping a user-visible prompt (no-silent-fallbacks). Proof:
-  `data-stream-runtime.test.ts` ("keeps a record-but-INVALID … marker on the
-  wire").
-- Mastra never persists the echo (neither resume path passes messages), so it
-  is absent after reload — restart-safe rediscovery owns the post-restart UI.
-  Pinned live in `mastra-tool-approval-suspend.integration.spec.ts`
-  ("never persists an approval action echo").
+- `brainstrike.executeCommand` renders a selectable, whitespace-preserving command
+  block plus working directory, workspace root and timeout. Its local guard
+  mirrors the strict agent schema including unknown-key rejection; malformed
+  arguments show the visible preview error and unmodified raw arguments, never a
+  guessed command. `runSkillScript` uses a semantic preview naming the activated
+  skill and skill-relative script; it never presents or accepts a model-supplied
+  absolute skill path.
+- `brainstrike.runPython` renders the code plus always-rendered fact rows from a
+  server-computed `executionContext`, forwarded in THREE places: stamped in
+  `makeApprovalRequiredChunks`, spread through the mapper's field-by-field
+  rebuild, and RECOMPUTED on rediscovery in `status-endpoints.ts`. Fail-safe: args
+  that fail strict narrowing or an absent/invalid context keep Approve/Decline but
+  SUPPRESS the grant buttons with a visible reason. Copy rule: an empty
+  `allowRead` under `defaultReadAccess: 'permissive'` renders "most files on this
+  computer", NEVER "can't read your files". On the settled result surface, killed
+  ≠ completed ≠ didn't-run, non-zero exit is an amber finish, cancelled never
+  renders as success or empty, truncation is a per-stream note, and structurally
+  narrowed numbers must be safe integers before the purpose-built surface renders.
+- The built-in local provider admits a call only after its arguments parse as a
+  root JSON object; a `local_tool_call_arguments_invalid` generation ends visibly
+  with typed `run.failed` metadata before Mastra can create a snapshot. Valid
+  arguments are canonicalized before suspension, so notice, snapshot, resumed card
+  and execution share one value.
+- Offer GRANT actions only when a `ToolApprovalGrantProvider` is mounted above the
+  notice AND the approval carries a valid `riskCategory`. "Always allow <tool>"
+  persists a per-tool override; "Allow <category> this session" is session-lived;
+  the overflow "Allow all tools this session" grants ALL FOUR categories in ONE
+  atomic store `set()`. SETTLED: the blanket action is four category grants, NOT a
+  session-yolo flag — per-tool DENY still beats it and Settings lists each granted
+  category individually revocable.
+- All grant actions record the grant FIRST, then approve the pending call through
+  the normal resume. The grant takes effect on the SAME resumed leg because
+  `prepareRequestData` reads the posture fresh. The same holds for a DELEGATED
+  child's pause: the child's snapshot contributes only its denies.
+- **PARKED SIBLINGS.** A session grant is a policy change, so the approval leg
+  resumes, in the SAME leg, every parked BACKGROUND sibling whose pending leaf the
+  runtime's fresh snapshot now allows (`findGrantedBackgroundApprovals`). Walk each
+  sibling from its DISPATCH address through the binding's `resolveParkedInvocation`,
+  because no leaf identity exists yet and `resolveToolAction` refuses a bare
+  address by design. Record a policy answer through `recordToolActionAnswers`
+  directly as `consumed` under the leg; a policy answer never takes a claim (the
+  ledger permits ONE `claimed` row per root).
+- **ALL OR NONE.** Every answer a leg records at once is ONE host transaction
+  naming each leaf at most once. A refused answer records nothing, so the user's
+  own pause stays answerable.
+- **ALREADY ANSWERED OR STOPPED IS NOT A REFUSAL.** Discovery skips a parked
+  sibling the write would refuse for a reason of its own:
+  `readUnanswerableToolActionLeaves` names `'answered'` (the leaf carries a durable
+  decision — states ENUMERATED in the read, not "any row") and `'stopped'` (the
+  leaf's thread chain carries a cancellation request for this turn). Both writes
+  and this read build the stopped predicate from ONE `stoppedSubtreeExists`
+  fragment, so the skip can be neither narrower nor broader than the write.
+  ROOT-WIDE admission failure stays fatal for the whole write, as does a leaf
+  answered or stopped in the window between that read and the write.
+- **DECISIONS DURING A RUN.** The installed assistant-ui runtime CANCELS the
+  in-flight run when a message is appended, so every decision goes through
+  `submitDecisionOrQueue` (`decision-dispatch.ts`): idle thread → append; running
+  thread → the host's LIVE transport (`POST /assistant/decide`, applied INSIDE the
+  running leg); only on 404 or a host with none → the follow-up queue, dispatched
+  one per run end. It reports `'delivered' | 'queued' | 'sent'`; a transport
+  rejection propagates so the card unlocks and shows `Decision not sent: <reason>`
+  inline. BOTH notices report it, and for a synchronous `thread().append` throw.
+  `append` returns `void` and rethrows anything but `MessageNotSentError`, so
+  neither notice wraps it in a promise; a failed resumed run is observed through
+  thread state.
+- Both notices clear `sendError` when a new submit starts, and a spent message
+  never outlives its context: the approval notice DERIVES the alert from the
+  run-outcome key (which names the DECISION by index, not `action`/`state`), and
+  the typed-resume notice clears on the `pending`/`completed` transition.
+- The leg streams one `tool-approval-answered` chunk per sibling, shipped as the
+  `brainstrike.tool-approval-answered` data part; the notice scans for a part with
+  its own identity key and locks as "Allowed by session grant". Neither request
+  nor answer part is stored with the message, so after a reload only a leaf
+  rediscovery still finds suspended gets a card back. A mid-run reload replays the
+  session buffer, answers included. A one-shot Approve changes no policy, so the
+  ask set still holds the tool and siblings stay parked.
+- The root card for BACKGROUND children exists only because the leg's publish seam
+  synthesizes it (`withRootPauseNotices`); the parent-level pause Mastra writes on
+  a still-open dispatching turn is dropped as a second delivery.
+- The delegated notice NAMES its child — persona label plus the root's prompt
+  (`describeDelegationOwner`). Both the name and the host answer come from ONE
+  incremental thread index (`answered-approvals-index.tsx`), never a per-card
+  selector walking every message part on every store update, which stalls the
+  renderer during a fan-out. The main process logs `renderer_unresponsive` /
+  `renderer_responsive_again` with timing so a hang is durable evidence.
+- **SWARM-AWARE PRESENTATION.** The thread shows ONE full approval card per risk
+  category while a decision is pending; every already-answered approval and every
+  pending approval BEHIND its category's card renders as a one-line row
+  (`approval-row.tsx`). Answered details contain no decision/grant controls. A row for a durable
+  `decisionState` ALSO renders its recovery status under the collapsed line, and
+  the embedded card omits it — that status is safety information with no control
+  beside it, so it must be readable without opening the row. Pending-since and
+  stale lines stay in the card beside the actionable controls. The choice is pure
+  (`approval-presentation.ts`) and the rank is computed ONCE per thread change by
+  `ApprovalRanksProvider` from the SAME incremental index.
+- Delegated approvals use the owner's durable `colorId` for the standalone card
+  or row, with depth indentation and persona chain text. Unverified delegated owners
+  use neutral `unresolved`; root approvals inherit the panel. Parts remain standalone.
+  Both forms carry `data-testid="assistant-tool-approval-notice"` and
+  `data-approval-presentation="card|row"`; `approval-delegation-owner` names the
+  persona chain; `use-approval-notice-state.ts` owns outcome/lock/submit logic.
+- A host acknowledgement permanently locks that exact decision in root and child
+  views. A later run failure or Stop cannot undo admission. Only an unacknowledged
+  submission uses the outcome-stamped optimistic lock and retry lifecycle.
+  Its key includes `decisionIndex`: action/state alone resurrects spent locks.
+  Evidence: `assistant-runtime/approval-history-and-memory-context.md`.
+  Guards: `assistant-tool-approval-live-answer.test.tsx`, `child-view-owner-approval-answers.test.tsx`, `assistant-activity-parts.test.tsx`.
+- **APPROVALS STRIP.** `approval-queue-strip.tsx` stays at the composer and counts
+  every pending approval from the same ranks provider, including non-policy asks.
+  Its shared Radix review popup lists requests in timeline order with flat cards,
+  verified child identity and action previews; opening it never scrolls the timeline.
+  Both views share transient submission/error state, the decision hook and host route; no second queue.
+  Category grants record policy FIRST and submit ONE decision; only policy buckets
+  offer grants. Preserve the label suffix "…for the N waiting approvals" so it
+  differs from card grants. Evidence: `assistant-runtime/approval-attention.md`.
+- **CHILD VIEWS READ THE ROOT'S ANSWERS.** The host publishes
+  `tool-approval-answered` on the ROOT leg only, so a child view reads its owning
+  root's answers BY IDENTITY (`getToolActionIdentityKey`): the delegated
+  conversation root publishes its registered runtime thread, `ChildView` passes it
+  as `ownerThread`, and `AnsweredApprovalsProvider` indexes the owner's messages
+  incrementally beside its own and folds in ONLY their answers. Requests,
+  delegation prompts and user decisions stay the view's own. No second writer and
+  no second delivery. A genuinely pending child card keeps its buttons; a child
+  view with no registered owning runtime reads no root answers.
+- An OpenRouter approval pause terminates its transport leg with zero-token usage
+  and no claimed cost; approval resume emits the deferred step finish before later
+  steps, so terminal aggregation records the exact total.
+- Settings > Permissions lists per-tool overrides and active session grants, each
+  individually revocable plus "Revoke all". The chunk carries an optional
+  `riskCategory`/`policyDecision` so the notice can name the reason. The mapper
+  correlates Mastra's transient tool error emitted before a deliberate `suspend()`
+  and suppresses only that call's false failure fallback.
+- Before either approval decision applies, the resume adapter reads Mastra's
+  storage-backed `listSuspendedRuns()` snapshot and exact-matches both `runId` and
+  `toolCallId`. That durable snapshot is the authority for the original tool name
+  and arguments; the resumed stream is seeded with that exact invocation. A
+  missing snapshot, tool name or argument payload fails visibly before
+  approve/decline executes — never invent `{}` or trust the client action.
+- Runtime reconstruction preserves the execute-backed `brainstrike.webSearch`
+  implementation only when that exact call is being resumed; resuming a different
+  tool keeps provider-native search available.
+- `streamMastraToolApprovalAction` passes `requireToolApproval: true` because the
+  resume API needs it, and `resolveRequireToolApproval` substitutes the runtime's
+  live predicate so allowed tools keep running. The canonical Mastra internal ids
+  (`internal-approval-exempt-tools.ts`) stay exempt, as do the SELF-APPROVING
+  suspending tools — but ONLY from the ASK-SET half, because re-gating one there
+  creates an approval loop that can never complete. The EXPLICIT GLOBAL posture
+  still gates them.
+- `streamMastraToolResumeAction` verifies via `assertResumedCallIsSuspendPause`
+  that the targeted call is suspended on a PLAIN `suspend()` pause; a generic
+  resume payload must never answer an approval pause, mirroring
+  `readResumedApprovalToolCall`'s requirement in the other direction.
+- An EMPTY `askTools` on the resumed leg is AMBIGUOUS and is disambiguated by
+  `permissionEnforced`, NOT by `askTools.size`: enforced-but-nothing-asked is an
+  all-allowed posture that gates NOTHING, while not-enforced plus a caller-set
+  run-wide `requireToolApproval` keeps gating every non-internal tool. Per-tool
+  DENY wins in both cases; a non-empty `askTools` always gates exactly the ask set.
 
-NAME-FORM CONTRACT (settled — the rediscovery live bug class): Mastra registers
-tools under SANITIZED ids (`brainstrike.executeCommand` → `brainstrike_executeCommand`,
-see `tool-sanitizer.ts`) and its stream parts + suspended-run snapshots carry
-that registered id. Every CLIENT-FACING approval surface, though, is keyed by
-the ORIGINAL dotted name: `riskByTool` (`buildNativeToolRiskMap`), per-tool
-overrides (`setToolOverride` from "Always allow"), and the notice label. The
-bridges:
-- `askTools` stays SINGLE-keyed by sanitized id (dual-keying would inflate
-  `askTools.size`, corrupting the empty-ask-set posture check in
-  `resolveResumeApprovalGate` — disambiguated by `permissionEnforced`, see above —
-  and duplicate the gate's per-tool logs — do not
-  relitigate). `resolveAskToolMetadata(askTools, name)` (permission-tool-gate.ts)
-  resolves metadata under EITHER form: `get(name)` first, else a scan over
-  `meta.originalName`.
-- `makeApprovalRequiredChunks` uses that lookup; the emitted chunk's `toolName`
-  is always the ORIGINAL name — resolved as
-  `sanitizedNameMap?.get(raw) ?? denormalizeNativeToolName(raw)`, the SAME
-  MAP-WINS order as `resolveDiscoveredApprovalToolName`,
-  `listSuspendedMastraRuns` (below) and `ProjectionSafeToolCallFilter`
-  (`projection-safe-tool-call-filter.ts`). The runtime `toolNameMap` is
-  AUTHORITATIVE — it is the only layer that can bridge MCP names — and the
-  static native reverse map is only the fallback for a route whose runtime
-  registered no natives: `apps/desktop/src/ipc-agent.ts` streams with NO
-  `tools`, so a native pause there has no map entry and would otherwise label
-  the notice `brainstrike_executeCommand`.
-  **ORDER IS LOAD-BEARING, do not "simplify" it to
-  `denormalizeNativeToolName(map.get(raw) ?? raw)`** (settled on #1987 review):
-  `sanitizeTools` records `map.set(uniqueName, name)` UNCONDITIONALLY, including
-  the identity case, so a tool registered under the literal underscored id
-  `brainstrike_executeCommand` maps to ITSELF — denormalizing a successful hit
-  would rewrite that authoritative original to `brainstrike.executeCommand`,
-  mislabelling the notice and submitting the wrong id to per-tool grant
-  handling. (A colon/dot original like `brainstrike:executeCommand` is NOT
-  affected either way: the map VALUE is not a key of the reverse map.)
-  `makeUnsupportedApprovalChunks` (the malformed-pause termination, whose
-  tool-event `name` + `run.failed` `toolName` are the only names the user sees)
-  resolves identically. Proof in `mastra-tool-approval-chunks.spec.ts`: the two
-  "denormalizes a native … no sanitized name map entry exists" cases pin the
-  FALLBACK half, "keeps a MAPPED approval tool name authoritative even when it
-  looks like a sanitized native id" pins the ORDER, and "passes an underscored
-  NON-native approval tool name through unchanged" pins that the fallback never
-  fabricates a dotted name by blind `_`→`.` swap.
-  A policy-driven
-  pause (non-empty `askTools`) whose tool resolves under NEITHER form still
-  surfaces the pause but omits `riskCategory`/`policyDecision` (never
-  fabricated) and logs `logger.error` code
-  `mastra_agent_approval_metadata_unresolved`.
-- `listSuspendedMastraRuns` maps each discovered `toolCall.toolName` back to the
-  original: the discovery runtime's `toolNameMap` first (tools registered), else
-  the static native reverse map (`denormalizeNativeToolName` — this is what
-  makes the desktop KEYLESS discovery route resolve natives), else the
-  registered id passes through with `logger.warn` code
-  `mastra_agent_suspended_tool_name_unmapped`. The desktop route then warns with
-  `assistant_suspended_approval_risk_unresolved` when a rediscovered approval
-  still has no risk category (honest degradation: no reason line, no grant
-  buttons). Live proof: the dotted-id cases in
-  `mastra-suspended-runs-discovery.integration.spec.ts` and
-  `mastra-tool-approval-suspend.integration.spec.ts`.
-  KNOWN DISPLAY GAP (documented follow-up, NOT a bug): on the KEYLESS discovery
-  route (empty `toolNameMap`) an MCP tool falls through BOTH maps —
-  `denormalizeNativeToolName` only reverses KNOWN NATIVE ids, and MCP sanitization
-  is not safely reversible (an underscore in an MCP server/tool name could be
-  original, so a blind `_`→`.` swap would FABRICATE a wrong dotted name — a
-  no-silent-fallbacks violation). So a rediscovered MCP approval displays its
-  sanitized id (`someServer_someTool`, not `someServer.someTool`). Display-only:
-  MCP is absent from the native risk map, so grant actions are correctly absent
-  anyway, and the pause still surfaces for approve/decline. A future fix would
-  persist the MCP name map alongside the suspended run.
+Settled: one producer for the policy snapshot; the function-form per-tool gate;
+parked siblings are answered in the same leg; already-answered or stopped is not a
+refusal; the optimistic lock key is an identity. Evidence:
+`assistant-runtime/permission-gate-wiring.md`,
+`assistant-runtime/approval-ui-and-grants.md`.
+Guard: `packages/agent/src/__tests__/permission-policy-request.spec.ts`,
+`packages/agent/src/__tests__/background-worker-policy.integration.spec.ts`,
+`packages/agent/src/__tests__/data-stream-approval-answered.spec.ts`,
+`packages/assistant-ui/src/__tests__/assistant-tool-approval-notice-panel.test.tsx`,
+`approval-presentation.test.ts`, `approval-row.test.tsx`,
+`approval-queue-strip.test.tsx`, `child-view-owner-approval-answers.test.tsx`,
+`apps/desktop/src/__tests__/main/tools-ipc-main-wiring.test.ts`,
+`apps/desktop/src/__tests__/assistant-server/delegated-runtime.integration.test.ts`
+(the whole flow through the REAL desktop host, ledger and background store — the
+proof every host-boundary change must carry).
 
-Migration (enforce-on is a SECURITY fix): the store bumps to v2. Under v1,
-`false` was the default AND always persisted, so a pre-v2 `false` slice is
-indistinguishable from an opt-out — `migrate` adopts the secure default (`true`)
-for ANY pre-v2 slice (a genuine v1 opt-out gets re-prompted once, the safe
-direction). Only a v2+ persisted boolean is honored verbatim. Skipping this would
-leave upgrading `enforce:false` users with the now-always-registered, ungated
-`executeCommand` — the regression this guards against.
-The store also sanitizes every current-version hydration through the shared
-persist merge: malformed `enforce`/`yolo` values take secure defaults, invalid
-policy and override entries are dropped/defaulted, and persisted action-shaped
-keys or `sessionGrants` never enter live state. The merge returns live state
-unchanged when no persisted snapshot exists and preserves the session-only grant
-set across a late hydration.
+THE PAUSE IS ALSO A DURABLE ROW:
 
-Web: the in-renderer LocalRuntimeChat never reaches `streamMastraAgent` (no
-assistant server / storage), so ask tools are fail-safe-omitted there and web
-local chat is unaffected (desktop-first).
+- Every approval pause writes a `tool.approval.requested` run event carrying the
+  paused call's `toolCallId`, so a LIST-WIDE "which threads are waiting on me?"
+  can be answered in SQL. Its consumer is the Threads panel's "needs you"
+  projection.
+- RESOLUTION IS DERIVED AND RUN-AGNOSTIC. Nothing marks the row answered; a pause
+  is resolved by the LATER existence of `tool.started` / `tool.completed` /
+  `tool.failed` / `tool.resume.unsupported` for the SAME `metadata->>'toolCallId'`.
+  PAIRING is on that id and never on `run_id`. The SQL, the `tool.started`
+  ordering guard and the producer shapes that make it load-bearing are specified
+  once in `docs/agents/assistant-persistence.md` § THREAD GROUPS — do not restate
+  the rule here. Two earlier restatements each drifted.
+- IT DELIBERATELY IGNORES `thread_runs.status`: a leg that pauses finishes
+  `tool-calls`, recorded as `completed`, so a `status = 'running'` join would make
+  the projection permanently empty. The startup run-reap does not gate it either.
+- AN ABANDONED PAUSE STAYS LIT (known). Only an outcome event for that
+  `toolCallId` clears the glyph. Lighting it is the safe direction, but it is a
+  real dead end, not a design intent to defend.
 
-Live-loop proof (real Agent + real PGlite workflow storage, no agent mock):
-`packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts` —
-suspend→approve→execute, suspend→decline→skip, AND an allowed read tool runs
-FREE while an ask tool is in the map (the per-tool-not-global guard). NOTE: the
-scripted model's synchronous stream starves the event loop during the
-PGlite-backed resume; the test drains with a per-chunk `setImmediate` yield
-(mirrors real streaming) — a harness concern, not a production bug.
+APPROVAL ACTION MESSAGES ARE BOOKKEEPING, NOT CONVERSATION:
 
-Restart-safe rediscovery (a run suspended for approval OR by a tool's
-`suspend()` survives a desktop restart / renderer reload, but the LIVE notice —
-a never-persisted stream data part — is gone on reload): on thread open the
-desktop history adapter rediscovers both pause kinds and re-surfaces working
-notices, REUSING the (already restart-safe, stateless)
-`streamMastraToolApprovalAction` / `streamMastraToolResumeAction` resume seams
-untouched. Unified since BST-1084 — the previous "non-approval pauses are
-tolerated + skipped" behavior is GONE, and with it the silent stranding path
-that blocked run_python's Gate B. Flow:
-- `listSuspendedMastraRuns(filter, options)` (`suspended-run-discovery.ts`,
-  moved out of `agent-streaming.ts` by BST-1649) wraps
-  `agent.listSuspendedRuns` — rebuilds a FRESH runtime (no in-memory handle),
-  returns `{ approvals, suspends }`: approval-gated calls
-  (`requiresApproval === true`) and non-approval `suspend()` pauses
-  (submitPlan/askUser), both with `toolName` mapped back to the ORIGINAL dotted
-  form (see NAME-FORM CONTRACT above), suspends carrying the tool-defined
-  `suspendPayload` recovered from the durable snapshot (so a rediscovered
-  plan/question renders its real content). Only a call missing its ids (e.g. a
-  delegation-thread run) is tolerated + skipped (debug-logged). Discovery is
-  CONTEXT-FREE + KEYLESS: the stable agent id
-  (`brainstrike-assistant`) is provider-independent, so listing constructs a
-  keyless `ollama` agent (no provider/apiKey from the renderer, no inference).
-  Desktop constructs the paired PGlite memory/storage with observational memory
-  and semantic recall disabled for this discovery request. An explicitly enabled
-  observational-memory configuration could otherwise resolve its provider key
-  before the inert listing model is reached, violating the keyless contract.
-- Desktop route `GET /assistant/suspended-runs?threadId=&resourceId=`
-  (`apps/desktop/src/assistant-server/status-endpoints.ts`): recomputes `riskCategory` from
-  `buildNativeToolRiskMap()` (approvals), stamps `stale` against
-  `BRAINSTRIKE_APPROVAL_STALE_MS` (both kinds), and flags a suspend whose tool
-  has no `hasRegisteredSuspendResumeUi` with `resumeSupported: false` + a loud
-  warning — the live path's honesty contract, never a silent drop. Missing
-  thread ctx → 400; no storage → 503. Response is `SuspendedRunsResponse`
-  (`suspends` is ADDITIVE; a client that only knows approvals ignores it).
-- Renderer client `createSuspendedRunDiscovery` (app-shell,
-  desktop-capability-gated — web omits it, no `isElectron()`) → hydration
-  injection `appendSuspendedPauseMessages` appends one synthetic trailing
-  assistant message per pause — `TOOL_APPROVAL_DATA_NAME` for approvals,
-  `TOOL_SUSPEND_DATA_NAME` for suspends, interleaved oldest-first — identical
-  to the live mapper's output; the existing notices + their resume seams render
-  unchanged (an unregistered suspend gets the same dead-end notice as live).
-  Staleness is display-only (D5) via the SHARED `RediscoveredPauseLines`
-  (`packages/assistant-ui/src/rediscovered-pause-lines.tsx`, used by
-  both notice kinds): a muted "Pending since <relative>" line always, an amber
-  advisory when `stale`, controls enabled, NO auto-decline / auto-answer.
-- Restart proofs extend the same specs: a run suspended under `openai` is
-  rediscovered by a keyless `ollama` listing over the same PGlite DB and resumed
-  to execution by a THIRD fresh runtime — for approvals
-  (mastra-tool-approval-suspend.integration.spec.ts) AND for suspend() pauses
-  with their payload (mastra-tool-suspend-resume.integration.spec.ts, the
-  BST-1084 headline proof).
-- **Corrupt snapshot rows (BST-558, settled — do not relitigate.)** Every
-  TARGETED snapshot read in `PgliteWorkflowsStore`
-  (`loadWorkflowSnapshot`, `getWorkflowRunById`, `updateWorkflowResults`)
-  THROWS on a snapshot that is not an object or lacks `context`: the malformed
-  row is the answer the caller asked for, so skipping it would be a lie.
-  `listWorkflowRuns` — which backs `agent.listSuspendedRuns` and therefore this
-  rediscovery flow — is the ONE deliberate exception: it still returns the
-  intact rows, because throwing for the page would let a single corrupt row
-  make EVERY pending approval undiscoverable (a total outage traded for a
-  partial one). The corruption is not swallowed: each excluded row is logged at
-  ERROR severity with code `mastra_workflow_snapshot_malformed`, which the
-  DIAGNOSTIC EVENTS contract eagerly flushes into
-  `brainstrike_diagnostic_events` and surfaces in the debug bundle. Do not
-  downgrade it to a warn/debug log, and do not make listing throw.
-- **The ERROR record is emitted ONCE PER RUN PER PROCESS** (settled — do not
-  relitigate), guarded by `PgliteWorkflowsStore#reportedMalformedRuns`. A
-  corrupt row is PERMANENT in production (`deleteWorkflowRunById` has no
-  production caller) while the listing runs on every renderer reload AND on
-  every `readResumedApprovalToolCall` during tool approval — so an unguarded
-  ERROR would write another eagerly flushed `brainstrike_diagnostic_events` row
-  per approval, forever, for one unfixable condition, bounded only by retention
-  purge. Repeats carry no information: `computeDiagnosticFingerprint(code,
-  scope, message)` is identical every time. This is NOT a silent fallback — the
-  condition is reported at ERROR once, and suppressed repeats still emit a
-  `debug` record. Do not remove the guard, and do not re-report per call.
-- **`total` and `runs.length` may legitimately disagree** (settled — do not
-  relitigate). `total` comes from a separate `SELECT COUNT(*)` and is
-  AUTHORITATIVE for what matches the filter IN STORAGE — that is what keeps page
-  boundaries stable, so it must not shrink as corrupt rows are excluded page by
-  page. `runs` is what is SERVABLE; the invariant is `runs.length <= total`, and
-  the shortfall is exactly the excluded corrupt rows (genuinely unfetchable —
-  `getWorkflowRunById` throws for them by design). Excluding corrupt rows from
-  the COUNT would need a SQL predicate mirroring `parseWorkflowSnapshot`'s JS
-  predicate, and any drift between the two would silently miscount. No in-repo
-  consumer reads `total`: `agent.listSuspendedRuns` destructures `{ runs }`
-  only. The corruption signal is the ERROR diagnostic, not the arithmetic.
+- Clicking a decision appends a user message whose `metadata.custom` +
+  `runConfig.custom` carry the action with an echo text. Approval actions are a
+  strict wire object: exactly the own keys `action`, `runId`, `toolCallId` and
+  optional `toolName`/`hostRunId`, each non-empty and bounded by the shared
+  approval-transport constants. Suspend resume actions mirror that contract for
+  `resumeData`, `runId`, `toolCallId` and optional `toolName`/`hostRunId`. Extra
+  own or inherited fields, blank identifiers and oversized identifiers are
+  malformed.
+- `runId` is the NATIVE Mastra run the resume routes address; `hostRunId` is the
+  DURABLE host leg copied from the pause. The two are never interchangeable — see
+  the DURABLE-PARENT INVARIANT in `assistant-persistence.md`.
+- Every Desktop and Hosted Web boundary parses BOTH continuation kinds before
+  dispatch: a malformed action returns `invalid_tool_approval_action` /
+  `invalid_tool_resume_action` HTTP 400, and two valid actions return
+  `conflicting_tool_continuation_actions` / 400.
+- Hosted Web has no tool registry or durable workflow store: both the Vercel
+  Preview function and Vite dev/preview return `tool_approval_unavailable` /
+  `tool_resume_unavailable` HTTP 409, identically, so a long-lived dev process
+  cannot advertise behaviour that fails on another instance. Deployable Vercel
+  wrappers fail closed outside Preview as `production_auth_required`. Hosted Web
+  rejects every non-empty `Last-Event-ID` with `stream_resume_unavailable` / 409
+  after enforcing the body-size bound. Normal Web turns run without workflow
+  storage, so approval/suspending tools stay fail-safe omitted.
+- Before any Vite dev/preview assistant route reaches those contracts, its
+  developer-key boundary requires a loopback TCP peer, a loopback `Host`,
+  same-origin browser provenance (permitting no-`Origin` loopback CLI calls) and
+  `application/json` on POST. Boundary failures are typed 403/415 responses that
+  drain the request and never fall through to Vite. Vercel entrypoints use their
+  separate deployment boundary.
+- The panel renders the action message as a compact outcome chip
+  (`approval-action-chip.tsx`), never a prompt bubble. The recognizers are STRICT;
+  an unrecognized or malformed marker falls through to the ordinary bubble —
+  content is never hidden behind a guessed chip.
+- The shared transport excludes action messages (BOTH keys, via the single
+  recognizer `approval-action-message.ts`) from EVERY outbound payload BEFORE
+  `selectTransportMessagesForMastraMemory`. Action legs themselves ship
+  `messages: []`. The transport recognizer uses the SAME strict guards as the chip:
+  a record-but-structurally-invalid marker is NOT an action, so the transport
+  keeps it on the wire rather than silently dropping a user-visible prompt.
+- Mastra never persists the echo, so it is absent after reload; restart-safe
+  rediscovery owns the post-restart UI.
 
-When changing this flow, update this section and the related tests.
+Evidence: `assistant-runtime/approval-durable-row.md`.
+Guard: `packages/assistant-ui/src/__tests__/data-stream-runtime.test.ts`,
+`packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`
+("never persists an approval action echo").
 
-NOTE: the per-tool approval gate is SEPARATE from tool SUSPENSION (submitPlan /
-askUser) — see PLAN MODE & TOOL SUSPENSION below. Approval pauses BEFORE a tool
-runs (`tool-call-approval` → `approveToolCall`/`declineToolCall`); suspension
-pauses DURING a tool's `execute` via `suspend()` (`tool-call-suspended` →
-`resumeStream`). run_python's Gate B network escalation (BST-1070) is the
-third registered suspending tool: per-call, argument-aware, and structurally
-ungrantable — the escalation card (`RunPythonNetworkNotice`) requires every
-named domain individually ticked, renders deny primary/autofocused, and has
-no grant surface at all. submitPlan/askUser are classified `riskCategory:'read'` so the
+NAME-FORM CONTRACT (the rediscovery live bug class):
+
+- Mastra registers tools under SANITIZED ids and its stream parts and suspended-run
+  snapshots carry that registered id. Every CLIENT-FACING approval surface is keyed
+  by the ORIGINAL dotted name.
+- `askTools` stays SINGLE-keyed by sanitized id — dual-keying would inflate
+  `askTools.size` and corrupt the empty-ask-set posture check.
+  `resolveAskToolMetadata(askTools, name)` resolves metadata under EITHER form:
+  `get(name)` first, else a scan over `meta.originalName`.
+- The emitted chunk's `toolName` is always the ORIGINAL name, resolved as
+  `sanitizedNameMap?.get(raw) ?? denormalizeNativeToolName(raw)` — the SAME
+  MAP-WINS order as `resolveDiscoveredApprovalToolName`, `listSuspendedMastraRuns`
+  and `ProjectionSafeToolCallFilter`. The runtime `toolNameMap` is AUTHORITATIVE
+  (it is the only layer that can bridge MCP names); the static native reverse map
+  is only the fallback for a route whose runtime registered no natives.
+- **ORDER IS LOAD-BEARING; do not simplify it to
+  `denormalizeNativeToolName(map.get(raw) ?? raw)`.** `sanitizeTools` records
+  `map.set(uniqueName, name)` UNCONDITIONALLY including the identity case, so
+  denormalizing a successful hit would rewrite an authoritative original and submit
+  the wrong id to per-tool grant handling. `makeUnsupportedApprovalChunks` resolves
+  identically.
+- A policy-driven pause whose tool resolves under NEITHER form still surfaces the
+  pause but omits `riskCategory`/`policyDecision` (never fabricated) and logs
+  `mastra_agent_approval_metadata_unresolved` at error.
+- `listSuspendedMastraRuns` maps each discovered `toolCall.toolName` back through
+  the discovery runtime's `toolNameMap` first, else the static native reverse map,
+  else passes the registered id through with
+  `mastra_agent_suspended_tool_name_unmapped`. The desktop route then warns
+  `assistant_suspended_approval_risk_unresolved` when a rediscovered approval has
+  no risk category — honest degradation: no reason line, no grant buttons.
+- KNOWN DISPLAY GAP (documented follow-up, NOT a bug): on the KEYLESS discovery
+  route an MCP tool falls through BOTH maps, because MCP sanitization is not safely
+  reversible, so a rediscovered MCP approval displays its sanitized id.
+  Display-only: MCP is absent from the native risk map, so grant actions are
+  correctly absent anyway and the pause still surfaces for approve/decline.
+- Store migration (enforce-on is a SECURITY fix): v2 adopts the secure default
+  `true` for ANY pre-v2 slice, because a pre-v2 `false` is indistinguishable from
+  an opt-out. Only a v2+ persisted boolean is honored verbatim. The store also
+  sanitizes every current-version hydration through the shared persist merge:
+  malformed `enforce`/`yolo` take secure defaults, invalid policy and override
+  entries are dropped, and persisted action-shaped keys or `sessionGrants` never
+  enter live state.
+- Web's in-renderer LocalRuntimeChat never reaches `streamMastraAgent`, so ask
+  tools are fail-safe-omitted there.
+
+Evidence: `assistant-runtime/tool-name-form-contract.md`.
+Guard: the four name-form cases in
+`packages/agent/src/__tests__/mastra-tool-approval-chunks.spec.ts`, the dotted-id
+cases in `mastra-suspended-runs-discovery.integration.spec.ts`.
+
+Restart-safe rediscovery — a run suspended for approval OR by a tool's `suspend()`
+survives a desktop restart or renderer reload, but the LIVE notice (a
+never-persisted stream data part) does not:
+
+- On thread open the desktop history adapter rediscovers both pause kinds and
+  re-surfaces working notices, REUSING the already restart-safe, stateless resume
+  seams untouched. The old "non-approval pauses are tolerated + skipped" behaviour
+  is GONE, and with it the silent stranding path.
+- `listSuspendedMastraRuns` (`mastra/suspended-run-discovery.ts`) wraps
+  `agent.listSuspendedRuns`, rebuilds a FRESH runtime, and returns
+  `{ approvals, suspends }` with `toolName` mapped back to the ORIGINAL dotted
+  form and suspends carrying the `suspendPayload` recovered from the durable
+  snapshot. Only a call missing its ids is tolerated and skipped. Discovery is
+  CONTEXT-FREE and KEYLESS: the stable agent id is provider-independent, so listing
+  constructs a keyless agent with no provider or apiKey and no inference. Desktop
+  constructs the paired PGlite memory/storage with observational memory and
+  semantic recall DISABLED for this request, or an enabled configuration could
+  resolve a provider key and violate the keyless contract.
+- `GET /assistant/suspended-runs` recomputes `riskCategory`, stamps `stale` against
+  `BRAINSTRIKE_APPROVAL_STALE_MS`, and flags a suspend whose tool has no
+  `hasRegisteredSuspendResumeUi` with `resumeSupported: false` plus a loud warning
+  — never a silent drop. Missing thread ctx → 400; no storage → 503. `suspends` is
+  ADDITIVE in the response.
+- `createSuspendedRunDiscovery` is desktop-capability-gated (web omits it, no
+  `isElectron()`). `appendSuspendedPauseMessages` appends one synthetic trailing
+  assistant message per pause, interleaved oldest-first, identical to the live
+  mapper's output. Staleness is display-only via the SHARED
+  `RediscoveredPauseLines`: a muted "Pending since <relative>" line always, an
+  amber advisory when `stale`, controls enabled, NO auto-decline or auto-answer.
+- **Corrupt snapshot rows.** Every TARGETED snapshot read in `PgliteWorkflowsStore`
+  THROWS on a snapshot that is not an object or lacks `context` — the malformed row
+  is the answer the caller asked for. `listWorkflowRuns` is the ONE deliberate
+  exception: it returns the intact rows, because throwing for the page would make
+  EVERY pending approval undiscoverable. Each excluded row is logged at ERROR with
+  `mastra_workflow_snapshot_malformed`, eagerly flushed into
+  `brainstrike_diagnostic_events`. Do not downgrade it, and do not make listing
+  throw.
+- The ERROR record is emitted ONCE PER RUN PER PROCESS
+  (`PgliteWorkflowsStore#reportedMalformedRuns`), because a corrupt row is
+  permanent while the listing runs on every reload and every approval. Repeats
+  carry no information and suppressed repeats still emit a `debug` record.
+- `total` and `runs.length` may legitimately disagree: `total` is AUTHORITATIVE for
+  what matches the filter IN STORAGE and must not shrink as corrupt rows are
+  excluded; the invariant is `runs.length <= total`. The corruption signal is the
+  ERROR diagnostic, not the arithmetic.
+- Desktop request initialization validates `enabledNativeToolIds` against the
+  shared desktop catalog before constructing a stream; a stale or unknown id
+  returns `invalid_enabled_native_tool_ids` at stage `native_tool_preferences` with
+  a safe id or fingerprint and a correlation id, never silently dropped.
+  Workspace-root enrichment has its own `workspace_root_resolution` stage: a
+  persisted binding whose root is no longer live returns
+  `bound_workspace_root_unavailable` with HTTP 409, while unrelated resolution
+  faults keep the redacted correlation-id 502.
+- Catalogued tools intentionally unavailable for the active provider are a
+  capability omission, debug-logged separately, never mislabeled unknown. An
+  unavailable admitted model or tool returns the same actionable HTTP 409 as a
+  rejected persisted profile, including approval and question resume; it is never
+  rewrapped as a generic 502. Other initialization failures return only a safe
+  stage plus a correlation id.
+
+Settled: keyless, context-free discovery; listing tolerates corrupt rows while
+targeted reads throw; the ERROR is once per run per process; `total` stays
+authoritative. Evidence: `assistant-runtime/restart-safe-rediscovery.md`.
+Guard: `packages/agent/src/__tests__/mastra-suspended-runs-discovery.integration.spec.ts`,
+`mastra-tool-approval-suspend.integration.spec.ts`,
+`mastra-tool-suspend-resume.integration.spec.ts`.
+
+NOTE: the per-tool approval gate is SEPARATE from tool SUSPENSION — see PLAN MODE
+& TOOL SUSPENSION below. Approval pauses BEFORE a tool runs; suspension pauses
+DURING a tool's `execute` via `suspend()`. `run_python`'s Gate B network
+escalation is the third registered suspending tool: per-call, argument-aware and
+structurally ungrantable — the escalation card requires every named domain
+individually ticked, renders deny primary and autofocused, and has no grant
+surface at all. `submitPlan`/`askUser` are classified `riskCategory:'read'` so the
 permission engine never stacks an approval prompt on top of their own suspend.
-
-Desktop request initialization validates `enabledNativeToolIds` against the
-shared desktop catalog before constructing a stream. A stale/unknown id returns
-`invalid_enabled_native_tool_ids` at stage `native_tool_preferences` and logs a
-safe id or fingerprint with a correlation id; it is never silently dropped.
-Workspace-root enrichment has its own `workspace_root_resolution` initialization
-stage. A persisted binding whose root is no longer live returns the trusted
-`bound_workspace_root_unavailable` message with HTTP 409 so the user can
-reconnect it; unrelated resolution faults retain the redacted correlation-id
-502 response.
-Catalogued tools that are intentionally unavailable for the active provider
-(for example suspend/task/session tools under the built-in local model) are a
-capability omission, debug-logged separately, and are not mislabeled unknown.
-Other initialization failures return only a safe stage
-(`provider_model_bootstrap` or `stream_construction`) plus a correlation id;
-the structured main-process log retains the same pair and the redacted error.
-
----
 
 ## WORKSPACE-ROOT AUTHORIZATION
 
-Desktop workspace tools authorize filesystem access only from
-`RuntimeData.workspaceRoots`, populated server-side from live path-backed rows in
-the `roots` table. `workspaceRootPath`, `mainRootPath`, and related renderer
-fields are selection or ordering hints; they never synthesize an authorized
-root. A successful empty DB query records `workspaceRoots: []`. A failed query
-leaves the inventory absent, and root resolution fails closed and visibly rather
-than falling back to a renderer-provided absolute path. Focused selection and
-Tapestry reads must match exactly one entry in the same authoritative inventory.
-
----
+- Desktop workspace tools authorize filesystem access ONLY from
+  `RuntimeData.workspaceRoots`, populated server-side from live path-backed rows in
+  the `roots` table.
+- `workspaceRootPath`, `mainRootPath` and related renderer fields are selection or
+  ordering hints; they never synthesize an authorized root.
+- A successful empty DB query records `workspaceRoots: []`. A failed query leaves
+  the inventory absent and root resolution fails closed and visibly, never falling
+  back to a renderer-provided absolute path.
+- Focused selection and Tapestry reads must match exactly one entry in that same
+  authoritative inventory.
 
 ## TOOL-LIFECYCLE HOOKS (Claude-Code-style)
 
-User-authored shell commands that run at lifecycle events and (for blocking
-events) can refuse to proceed. **Desktop-only by construction** — shell hooks
-need Node `child_process` + absolute root paths + the assistant server; web
-constructs NO hook runner (capability-gated, no `isElectron()` checks).
+User-authored shell commands that run at lifecycle events and, for blocking
+events, can refuse to proceed. **Desktop-only by construction** — web constructs
+NO hook runner (capability-gated, no `isElectron()` checks).
 
-Seven events, three blocking (`PreToolUse`, `Stop`, `UserPromptSubmit`). A hook
-is `{ type:'command', command, matcher?:{tool_name}, timeout?, description? }`.
-It receives a JSON payload on **stdin** (secret-redacted), returns optional JSON
-on **stdout** (`{decision, reason, additionalContext}`); its **exit code** is
-authoritative: `2` = hard block on a blocking event, other non-zero =
-warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
-
-**Insertion points (do not move):**
-- `PreToolUse`/`PostToolUse` live in the tool-execute seam. `applyToolHooks`
+- Seven events, three blocking (`PreToolUse`, `Stop`, `UserPromptSubmit`). A hook
+  is `{ type:'command', command, matcher?:{tool_name}, timeout?, description? }`.
+  It receives a secret-redacted JSON payload on **stdin** and returns optional JSON
+  on **stdout** (`{decision, reason, additionalContext}`); its **exit code** is
+  authoritative: `2` = hard block on a blocking event, other non-zero =
+  warn-and-continue, `0` = ok. Per-hook timeout → SIGKILL.
+- **Insertion points (do not move).** `applyToolHooks`
   (`packages/agent/src/tools/hook-tool-wrap.ts`) is a SIBLING of `applyToolGuards`,
-  composed OUTSIDE the guard, BEFORE the permission gate:
-  `combinedTools → applyToolGuards → applyToolHooks → plan-mode → permission gate`
-  (`runtime-assembly/tool-pipeline.ts`, called from `agent-runtime.ts`). Permission runs downstream of `execute`, so **hooks
-  REFINE, never widen**: a PreToolUse hook can BLOCK a permitted tool but can
-  never allow a denied/ask tool. A block returns a `HookBlockedToolError`
-  (`error.code:'tool_blocked_by_hook'`, recognized by `isGuardedToolError`) so it
-  renders as a FAILED tool event. PostToolUse `additionalContext` is capped
-  (`HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET` 2000) and carried beside the original
-  result in the explicitly discriminated internal hook envelope. The reserved
-  JSON shape is NOT sufficient proof of provenance: every consumer also
-  requires membership in a private in-memory WeakSet, registered only after a
-  successful PostToolUse hook. A native/MCP result that copies the reserved
-  field/kind or reflective object properties is ordinary visible domain
-  evidence and can never inject model-only context or be stripped from
-  UI/persistence. Losing the in-memory provenance through cloning or
-  serialization likewise fails closed as visible data. Mastra's target-aware
-  display/transcript transforms restore the exact domain result before the live
-  UI and persistence boundary; the trusted envelope itself is never a public
-  or durable tool result. Because JSON persistence and Mastra's
-  transform protocol cannot represent an exact `undefined` result, a tool that
-  returns `undefined` while PostToolUse requests context fails visibly instead
-  of dropping the guidance or substituting a placeholder. The later
-  model-projection seam consumes that reserved envelope: domain projectors
-  receive the clean original result, and the provider view gets centrally
-  composed context within the final model-output budget. A hook-runner FAULT is
-  allow-on-fault (a runner bug must not brick tool calling).
-- `UserPromptSubmit`/`Stop` run in `packages/assistant-service/src/stream-init.ts`
-  (`initializeAgentStream`). A UserPromptSubmit block short-circuits the turn with
-  a visible message + `run.failed` and NEVER invokes the model; additionalContext
-  prepends a `system` message. The blocked branch returns an `ok:true` stream but
-  carries `terminalStatus:'failed'` (+ `terminalError`) on `AgentStreamSuccess`, so
-  ``runAssistantTurn` (packages/assistant-service/src/run-turn.ts, since BST-972 B3)` persists the `thread_runs` row as `failed` — never
-  the default `completed`, which would contradict the visible `run.failed`.
-  **Stop is NOTIFY-ONLY in v1** (surface the block reason as a `hook.notice`; NO
-  auto-continue). Stop is ALSO the only phase that may report a **Task Ledger
-  run verdict** (see the Run-verdict protocol below). The terminal Stop hook
-  (`withStopHook`) MUST run BEFORE the
-  `message-finish` chunk is yielded, not only in its `finally`: the live
-  data-stream consumer stops pulling the source the instant the mapper emits
-  `finish`, so a `hook.notice`/`hook.blocked` queued AFTER the finish reaches
-  neither the live renderer nor persistence. Running Stop at the finish boundary
-  lets the observer drain those queued run events (the mapper defers them past an
-  open text part and flushes at the boundary); `finally` still fires Stop for
-  streams that end without a finish chunk (bare return / throw / abort).
-  SessionStart/SessionEnd/Notification are implemented but UNWIRED in v1.
+  composed OUTSIDE the guard and BEFORE the permission gate:
+  `combinedTools → applyToolGuards → applyToolHooks → plan-mode → permission gate`.
+  Permission runs downstream of `execute`, so **hooks REFINE, never widen**: a
+  PreToolUse hook can BLOCK a permitted tool but can never allow a denied or ask
+  tool. A block returns `HookBlockedToolError` (`tool_blocked_by_hook`, recognized
+  by `isGuardedToolError`) and renders as a FAILED tool event.
+- PostToolUse `additionalContext` is capped and carried beside the original result
+  in an explicitly discriminated internal envelope. The reserved JSON shape is NOT
+  sufficient proof of provenance: every consumer also requires membership in a
+  private in-memory WeakSet registered only after a successful PostToolUse hook, so
+  a result that copies the reserved field is ordinary visible domain evidence.
+  Losing provenance through cloning or serialization fails closed as visible data.
+  Mastra's target-aware transforms restore the exact domain result before the live
+  UI and persistence boundary; the trusted envelope is never a public or durable
+  result. A tool returning `undefined` while PostToolUse requests context fails
+  visibly rather than dropping the guidance or substituting a placeholder. A
+  hook-runner FAULT is allow-on-fault.
+- `UserPromptSubmit`/`Stop` run in `packages/assistant-service/src/stream-init.ts`.
+  A UserPromptSubmit block short-circuits the turn with a visible message +
+  `run.failed` and NEVER invokes the model; `additionalContext` prepends a `system`
+  message. The blocked branch returns an `ok:true` stream carrying
+  `terminalStatus:'failed'`, so `runAssistantTurn`
+  (`packages/assistant-service/src/run-turn.ts`) persists `thread_runs` as failed.
+- **Stop is NOTIFY-ONLY in v1** and is the only phase that may report a Task Ledger
+  run verdict. `withStopHook` MUST run BEFORE the `message-finish` chunk is
+  yielded, not only in its `finally`: the live consumer stops pulling the instant
+  the mapper emits `finish`. `finally` still fires Stop for streams that end
+  without a finish chunk. SessionStart/SessionEnd/Notification are implemented but
+  UNWIRED in v1.
+- **Timeout invariant (honest ceiling — no summed guarantee).** There is NO
+  enforced `pre + tool + post` sum ceiling. `config.ts` rejects any hook whose
+  `timeout >= resolveToolTimeoutMs()`, and every hook is SIGKILLed at its own
+  timeout; a per-tool declared `executionBudget` does not widen that ceiling.
+  `PreToolUse`/`PostToolUse` run INSIDE the `tool-executing` phase and are bounded
+  by the per-hook SIGKILL plus the derived backstop, not by an aggregate cap.
+  `UserPromptSubmit` and `Stop` gate a user-visible boundary with the watchdog
+  DISARMED, so each carries its OWN aggregate bound applied by `runHooksForEvent`:
+  the in-flight hook is SIGKILLed at the remaining budget and the rest are skipped
+  with a loud warning. `UserPromptSubmit` also enforces the bound at config load
+  (a `HookConfigError` disables the phase when the combined declared timeout
+  reaches the ceiling); v1 has no config-load check for Stop, whose runtime cap is
+  authoritative.
+- **Malformed config = disable-with-visible-error, NOT throw-at-load.**
+  `loadHooksConfig` returns `{hooks, errors, sources}`; a malformed or untrusted
+  file contributes ZERO hooks and records a `HookConfigError` surfaced on THREE
+  channels (`logger.error`, a `hook.notice(failed)` run event, the settings
+  banner). Never throw at load — that bricks every run over a typo and hands a
+  malicious repo a DoS.
+- **Security spine.** Global hooks (`~/.brainstrike/hooks.json`) run without
+  approval. PROJECT hooks (`<root>/.brainstrike/hooks.json`) run ONLY after a
+  per-root approval pinned to the file's SHA-256, recorded in the persisted,
+  factory-reset-registered trust store. The renderer only ATTESTS approved hashes;
+  the server independently RE-READS and RE-HASHES disk and runs a root's hooks only
+  when `sha256(disk) === approvedSha256`. The hash is over RAW file BYTES, and the
+  approve-time review hashes those same bytes — never a utf8-decoded string. Trust
+  and parse come from ONE read (no read-vs-hash TOCTOU window). A project config's
+  descriptor is accepted only after a nonblocking open proves it a regular file
+  within the size bound, and its initially observed bytes are the only bytes read.
+  Keyed by durable `rootId`, never raw path.
+- Redact stdin payloads before spawn, mirroring the logger redact key set.
+  `createCredentialIsolatedChildEnvironment` removes every provider and Tavily
+  credential name before hooks and non-interactive command/skill children spawn —
+  required even for SHA-256-approved hooks, because approval authorizes the
+  reviewed command, not ambient disclosure. Interactive terminal/command-session
+  PTYs and the LSP child still inherit the full parent environment.
+- Merge order is global-first, then roots in mounted order; each loaded hook is
+  tagged with its source `cwd`/`rootId` (global hooks' cwd = the MAIN root — see
+  "WORKSPACE ROOT IDENTITY" in `docs/agents/workspace-context.md`).
+- Thread `RuntimeData.hookRunner` as trusted, agent-only, never serialized, plus
+  `RuntimeData.hookTrustRequest` on the wire. The server STRIPS any
+  client-supplied `hookRunner` and injects the server-built one.
+- **Run-verdict protocol.** A Stop hook may label the run's outcome by printing ONE
+  JSON line: `{"brainstrikeRunVerdict":{"verdict":…,"detail":…}}`. Hook stdout is
+  UNTRUSTED repo data, so `hooks/run-verdict.ts` parses strictly:
+  Stop-only by construction (`captureRunVerdict` is set solely by
+  `HookManager.runStop`); a bounded trailing-stdout scan whose window drops a
+  partial first line; the LAST valid line wins within a hook and the LAST hook with
+  a valid verdict wins across the phase; malformed JSON, unknown verdicts, a
+  non-string or oversized `detail`, or any extra key is ignored with a CONTENT-FREE
+  warning surfaced as a `hook.notice`. A bad line never fails the hook flow or the
+  run. This scan is separate from the decision protocol.
+- `withStopHook` hands Stop hooks a bounded TAIL of the RUN's assistant text, with
+  a `\n` inserted at step boundaries so line-anchored graders never see step N's
+  tail glued onto step N+1. The trim is amortized, omitted when the stream produced
+  no text, and never grows unbounded.
+- Persistence: `withStopHook` AWAITS the threaded `onRunVerdict` IN FRONT of the
+  `message-finish` yield, so the label lands before the post-stream `thread_runs`
+  status write. `recordDesktopAssistantHookRunOutcome` upserts via the desktop DB
+  handle and derives thread/resource ids from the runs row; a missing runs row
+  THROWS. It is byte-consistent with the repository's `recordRunOutcome` PLUS the
+  SQL precedence guard `source <> 'user'`: a hook label NEVER overwrites an
+  explicit user verdict, while a later user verdict still replaces a hook label.
+  Allow-on-fault: a failed verdict write is a loudly logged lost label, never a
+  lost finish. Run-event kinds: `hook.blocked`, `hook.notice`.
+- **Trust is keyed by the DB `roots.id`, NOT the adapter rootId (SECURITY).** They
+  are separate identity domains. The review IPC runs in MAIN, CONTAINMENT-checks
+  the reviewed realpath against mounted DB roots (`resolveDbRootForPath`; an
+  arbitrary or symlink-escaping path is refused) and returns the resolved
+  `dbRootId`, which the panel keys status/approve/revoke by.
+  `buildHookTrustRequest` is SCOPED to currently-mounted DB ids and attests NOTHING
+  until resolved or if the resolver is absent (fail closed).
+- The disconnect-severs property is SERVER-ENFORCED: `fs:removeRoot` asks
+  `WorkspaceRootRegistry` to remove the mount and converge the DB to the complete
+  remaining mounted-path set, with the persisted registry write first and a DB
+  failure rolling it back before the IPC rejects. Every server-side consumer of
+  `loadWorkspaceRootsFromDatabase` serves only `status='live'` rows.
+  `reconcileRoots` restores `status='live'` on remount by path-matching the KEPT
+  row, so disconnect ≠ delete.
+- CONVERGENCE: `WorkspaceRootRegistry` serializes add, restore, preference and
+  disconnect transitions. `rootsList` is its persisted mount inventory; only
+  successfully mounted, persisted presentation paths are supplied to
+  `markRootsDisconnectedExcept`. An EMPTY mounted set is meaningful and demotes
+  every comparable path-backed row. Web FSA rows stay outside this comparison.
+- Restore never guesses: malformed `rootsList` JSON or shape THROWS before DB
+  convergence; a missing or transiently unmountable folder stays persisted, is
+  returned as `permissionState:'unknown'`, and is excluded from the mounted DB
+  authorization set. Boot-time DB convergence is allow-on-fault with an ERROR log;
+  explicit disconnect is fail-closed with storage rollback.
+- Renderer state is a projection: `removeRootDirectory` awaits the authoritative
+  IPC transition and changes no renderer state when it rejects. `lastFolderPath` is
+  only a preference for an already-persisted, mounted root.
+- The trust store bumped to v2: pre-v2 adapter-keyed approvals are DROPPED at
+  migration. Factory reset clears the store unchanged.
+- Settings surface: `hooks-settings-section.tsx` per-root
+  trusted/untrusted/changed/parse-error plus approve/revoke, via the
+  `hooks:getProjectHooksForReview` IPC and the capability-gated `window.hooks`
+  preload bridge. LIVE mounted roots come from the file-explorer store, reactive to
+  mount/unmount with no restart. Each row's review is fetched independently; a
+  transport-level failure for one root renders THAT row `Unavailable`, never a
+  stale or empty "no hooks" lie.
+- **Deferred:** SessionStart/SessionEnd/Notification wiring; Stop auto-continue;
+  full hooks.json editor UI; rendering fetched `content` in-panel; a refetch on
+  approve/revoke/refocus; the `<userData>` vs home-dotfile decision.
 
-**Timeout invariant (honest ceiling — no summed guarantee).** There is NO
-enforced `pre + tool + post` sum ceiling. What IS enforced:
-- **Per-hook:** `config.ts` rejects any hook whose `timeout >=
-  resolveToolTimeoutMs()`; every hook is SIGKILLed at its own timeout (default
-  10_000ms). Chain: `per-hook (<60s) < BRAINSTRIKE_TOOL_TIMEOUT_MS (60_000) <
-  BRAINSTRIKE_STREAM_INACTIVITY_MS (120_000)`.
-- **Watchdog-covered in-stream phases** (`PreToolUse`/`PostToolUse`): bounded by
-  the per-hook SIGKILL + the stream inactivity watchdog (120s) as the backstop —
-  NOT by an aggregate cap. These run WHILE an `iterator.next()` is pending, so the
-  watchdog timer is armed and covers them.
-- **Boundary phases the watchdog CANNOT reach** (`UserPromptSubmit` + `Stop`):
-  both gate a user-visible boundary with the watchdog disarmed, so each carries
-  its OWN aggregate bound (`resolveToolTimeoutMs()`, 60s), applied at runtime by
-  `runHooksForEvent` (`aggregateTimeoutMs`, threaded via the manager's
-  `aggregateTimeoutMs` ctx): the in-flight hook is SIGKILLed at the remaining
-  budget and the rest are skipped with a loud warning (timeout ==
-  warn-and-continue; hooks proceed, never silently stall turn start / finish
-  delivery).
-  - `UserPromptSubmit` runs BEFORE the model is invoked; it ALSO enforces the
-    bound on the config-load end: `loadHooksConfig` disables the phase fail-LOUD
-    (a `HookConfigError`) when the combined declared timeout reaches the ceiling.
-    Over-budget config never silently truncates.
-  - `Stop` runs in FRONT of the `message-finish` yield (the watchdog is applied
-    UPSTREAM of the `withStopHook` seam and its timer is disarmed while Stop
-    awaits), so an unbounded chain of Stop hooks would delay finish delivery, the
-    Stop notices, HTTP stream close, and the `thread_runs` status write. The
-    runtime aggregate cap is its only bound — the watchdog does NOT cover it.
-    (v1 has no config-load check for the Stop combined timeout; the runtime cap
-    is authoritative.)
-
-**Malformed config = disable-with-visible-error (NOT throw-at-load).**
-`loadHooksConfig` returns `{hooks, errors, sources}`; a malformed/untrusted file
-contributes ZERO hooks (fail-CLOSED) AND records a `HookConfigError` surfaced on
-THREE channels (`logger.error`, a `hook.notice(failed)` run event via
-`reportConfigErrors`, the Hooks settings banner). Never throw at load — that
-would brick every run over a config typo and hand a malicious repo a DoS. This is
-loud + fail-closed, the opposite of a silent fallback.
-
-**Security spine (trust gate).** Global hooks (`~/.brainstrike/hooks.json`, the
-user's own machine) run without approval. **Project** hooks
-(`<root>/.brainstrike/hooks.json`, per mounted desktop root) run ONLY after a
-per-root approval **pinned to the file's SHA-256**. The trust store
-(`packages/app-state/src/stores/hook-trust-store.ts`, persisted,
-factory-reset-registered) records `{rootId → {approvedSha256, approvedAt}}`. The
-store resolves its platform storage through a local deferred state-storage
-proxy, preserving the `persist` API across optimized chunk cycles and retrying
-resolution on a later hydration without defaulting trust open. The
-renderer only ATTESTS approved hashes over the wire (`HookTrustRequest`); the
-server independently RE-READS + RE-HASHES disk (`trust.ts` `resolveTrustedRoots`)
-and runs a root's hooks only when `sha256(disk) === approvedSha256`. The trust
-hash is over the RAW file BYTES (`sha256OfBuffer`), and the approve-time review
-(`ipc-hooks-handlers.ts`) hashes those same bytes — never a utf8-decoded string,
-which would diverge for BOM/non-utf8 bytes and silently void an approval. Trust
-+ parse come from ONE read (`loadHooksConfig` reads the bytes once, hashes them,
-and parses those same bytes only when trusted — no read-vs-hash TOCTOU window). A
-changed file → untrusted (re-approve). A project config's descriptor is accepted
-only after a nonblocking open proves it is a regular file of at most
-`MAX_HOOKS_CONFIG_BYTES`; its initially observed bytes are the only bytes read.
-The loader and approve-time review share this reader, so oversized/special files
-produce a visible error before hashing. Keyed by durable `rootId`, never raw path.
-Stdin payloads are secret-redacted before spawn (`executor.ts` `redactSecrets`,
-mirrors the logger redact key set). The hook keeps ordinary parent shell/runtime
-variables, but `createCredentialIsolatedChildEnvironment` removes every provider
-and Tavily credential name derived from the same canonical registries used by
-desktop environment-file loading before hooks and non-interactive command/skill
-children spawn. This boundary is required even for SHA-256-approved project
-hooks: approval authorizes the reviewed command, not ambient disclosure of
-unrelated Brainstrike credentials. Scope: interactive terminal/command-session
-PTYs and the LSP child still inherit the full parent environment; those
-human-controlled/runtime-support processes are separate trust decisions.
-
-**Config paths (D6):** global `~/.brainstrike/hooks.json` (new home-dotfile, for
-discoverability); per-root `<root>/.brainstrike/hooks.json`. Merge order:
-global-first, then roots in mounted order; each loaded hook is tagged with its
-source `cwd`/`rootId` (global hooks' cwd = the MAIN root — client-declared
-`activeRootIds[0]`, `created_at` fallback; see "WORKSPACE ROOT IDENTITY" in
-`docs/agents/workspace-context.md`).
-
-**Threading:** `RuntimeData.hookRunner` (trusted, agent-only, never serialized —
-mirrors `localLlmHostClient`; preserved by `resolveRuntimeConfiguration`'s spread)
-+ `RuntimeData.hookTrustRequest` (wire). The server STRIPS any client-supplied
-`hookRunner` and injects the server-built one (closure over `HookManager`).
-
-**Run-verdict protocol (Task Ledger source 'hook').** A **Stop** hook (e.g. one
-that runs the test suite after the agent finishes) may label the run's outcome
-by printing ONE JSON line to stdout:
-`{"brainstrikeRunVerdict":{"verdict":"succeeded"|"failed"|"mixed","detail":"…"}}`.
-Rules (`hooks/run-verdict.ts`, strict — hook stdout is UNTRUSTED repo data):
-- **Stop-only by construction**: `captureRunVerdict` is set solely by
-  `HookManager.runStop` — a Pre/PostToolUse hook printing the line is ignored
-  (a post-tool hook on the last tool is NOT run-completion semantics).
-- **`assistant_message` stdin (BST-1251)**: `withStopHook` accumulates the
-  RUN's assistant text — every generation step's `text-delta` chunks, with a
-  `\n` inserted at step boundaries (any non-text chunk) so line-anchored
-  graders never see step N's tail glued onto step N+1 — and hands Stop hooks
-  a 64 KiB TAIL (`ASSISTANT_MESSAGE_TAIL_CHARS`; an acceptance hook grades
-  the END of the final answer). The trim is amortized (only past 2× the
-  bound; exact tail cut once at Stop), omitted entirely when the stream
-  produced no text, and never grows unbounded with the stream.
-- **Bounded scan**: only the trailing `RUN_VERDICT_STDOUT_SCAN_CHARS` (64 KiB)
-  of raw stdout are scanned; a window that slices mid-line drops the partial
-  first line. Candidate lines = lines containing the marker key. The LAST valid
-  line wins within a hook, and the LAST hook with a valid verdict wins across
-  the phase (mirrors the ledger's later-write-upserts rule).
-- **Strict or ignored, never coerced**: malformed JSON, unknown verdict values,
-  a non-string/oversized `detail` (> 2000 chars — the repository bound), or any
-  extra key ⇒ that line is ignored with a CONTENT-FREE warning (no stdout
-  excerpt leaks into logs/run events) surfaced as a `hook.notice` via
-  `surfaceOutcome`. A bad line never fails the hook flow or the run. This scan
-  is separate from the decision protocol (`{decision, reason,
-  additionalContext}` parses the WHOLE trimmed stdout as one JSON object).
-- **Persistence (main-process, path A)**: `withStopHook` awaits the threaded
-  `onRunVerdict` IN FRONT of the `message-finish` yield, so the label lands
-  before the post-stream `thread_runs` status write — a finishing run cannot
-  lose it to teardown. `recordDesktopAssistantHookRunOutcome`
-  (assistant-server/run-persistence.ts) upserts `brainstrike_assistant_run_outcomes` via the
-  desktop DB handle, deriving thread/resource ids from the runs row (mirrors
-  the run-event insert); a missing runs row THROWS (never a silent no-op).
-  The upsert is byte-consistent with the app-shell repository's
-  `recordRunOutcome` (documented duplication, like the bootstrap-SQL precedent)
-  PLUS the SQL precedence guard `source <> 'user'`: a hook label NEVER
-  overwrites an explicit user verdict (skip, logged), while a later user
-  verdict still replaces a hook label; the repository applies the SAME guard
-  for `source: 'hook'` writes. Allow-on-fault: a failed verdict write is a
-  loudly logged lost label, never a lost finish. No runId ⇒ no recorder is
-  threaded (hooks still run). See assistant-persistence.md § TASK LEDGER.
-
-**Run-event kinds:** `hook.blocked`, `hook.notice` (in `ASSISTANT_RUN_EVENT_KINDS`).
-
-**Settings + review IPC:** `hooks-settings-section.tsx` (per-root
-trusted/untrusted/changed/parse-error + approve/revoke) via
-`hooks:getProjectHooksForReview` IPC (`ipc-hooks.ts`) + `window.hooks` preload
-bridge (capability-gated). The LIVE mounted roots are threaded from the desktop
-settings page (`apps/desktop/.../settings/page-content.tsx`): it reads
-`activeRootIds` + `rootDescriptors` from the file-explorer zustand store (reactive
-to mount/unmount, no restart) and maps them to `HookReviewRoot`
-(`{rootId, absPath, displayName}`, sidebar order) for `createHooksSettingsCategory`.
-Capability-gated by construction — the WEB settings page never constructs the Hooks
-category, so it needs no roots. Each row's review is fetched independently; a
-transport-level bridge failure for one root renders THAT row `Unavailable` (a
-structured `error` review), never a stale/empty "no hooks" lie.
-
-**Trust is keyed by the DB `roots.id`, NOT the adapter rootId (SECURITY).** The
-adapter rootId is the durable identity of a persisted mount and is reused when
-the same canonical folder is picked again, while the DB id identifies the
-retained indexed row. They are separate identity domains and MUST NOT be assumed
-equal. The server keys trust by the DB id (its roots come from the DB
-`roots` table), so the panel MUST too or revoke/approve target a dead id while the
-server keeps trusting a live grant (the fail-OPEN #1570 closed). Mechanism:
-- The review IPC runs in MAIN (DB access): it CONTAINMENT-checks the reviewed path
-  against the mounted DB roots (realpath'd — `resolveDbRootForPath`; an arbitrary
-  or symlink-escaping path is refused, fixing the old "any absolute path" read) and
-  returns the resolved `dbRootId`. The panel keys status/approve/revoke by THAT id.
-- `buildHookTrustRequest` (hook-trust store) is SCOPED to the currently-mounted
-  roots' DB ids. The assistant wrapper resolves them via
-  `window.hooks.resolveTrustedRootIds(mountedPaths)` (same main DB-id seam) and
-  attests NOTHING until resolved / if the resolver is absent (fail closed). A
-  disconnected root's grant is therefore never presented to the server → its hooks
-  fail closed. The disconnect-severs property is additionally SERVER-ENFORCED:
-  `fs:removeRoot` asks the main-process `WorkspaceRootRegistry` to remove the
-  mount and converge the DB to the complete remaining mounted-path set. The
-  persisted registry write happens first, but a DB failure rolls it back before
-  the IPC rejects; the capability and renderer projection remain mounted. Every
-  server-side consumer of `loadWorkspaceRootsFromDatabase` (workspace tools,
-  hooks review containment, context-files scan, user /commands, checkpoint
-  revert) serves only `status='live'` rows. `reconcileRoots` (app-shell)
-  restores `status='live'` on remount — it path-matches the KEPT row, so
-  disconnect ≠ delete and a re-add resumes without re-indexing
-  (`workspace-roots.integration.test.ts` proves the full cycle). The renderer
-  attestation scoping above remains as defense-in-depth: a renderer that skips
-  scoping can at most re-run byte-identical already-approved hooks, never new
-  content (same-process trust model + the server's authoritative disk re-hash).
-- CONVERGENCE (do not relitigate): `WorkspaceRootRegistry` serializes add,
-  restore, preference, and disconnect transitions. `rootsList` is its persisted
-  mount inventory; only successfully mounted, persisted presentation paths are
-  supplied to `markRootsDisconnectedExcept`. An EMPTY mounted set is meaningful
-  and demotes every comparable path-backed row. Web FSA rows remain outside this
-  desktop comparison.
-- Restore never guesses. Malformed `rootsList` JSON or shape THROWS before DB
-  convergence. A missing or transiently unmountable folder remains persisted,
-  is returned as `permissionState:'unknown'`, and is excluded from the mounted
-  DB authorization set until a later restore succeeds. Boot-time DB convergence
-  remains allow-on-fault with an ERROR log so a transient DB failure does not
-  erase the Explorer restore; explicit disconnect remains fail-closed with
-  storage rollback.
-- Renderer state is a projection. `removeRootDirectory` awaits the authoritative
-  IPC transition and changes no renderer/store state when it rejects. The old
-  best-effort compensation loop and independent `lastFolderPath` root writer no
-  longer exist. `lastFolderPath` is only a preference for an already-persisted,
-  mounted root.
-- The store bumped to v2: pre-v2 adapter-keyed approvals are DROPPED at migration
-  (unremappable without DB access → re-approval is the safe direction; mirrors the
-  permission-policy v2 security bump). Factory reset clears the store unchanged.
-
-Live-loop proofs (real Agent + real `applyToolHooks`, no stream mocks):
-`packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts` (block / allow +
-PostToolUse context / runtime-threaded / no-runner regression / runner-fault).
-Server composition: `apps/desktop/src/__tests__/assistant-server/hooks/`.
-Run-verdict protocol: `hooks/run-verdict.test.ts` (strict parse + bounded scan),
-the verdict cases in `hooks/server-composition.integration.test.ts` (real Stop
-hooks: record-before-finish ordering, finally-path, malformed→notice,
-recorder-fault, non-Stop guard, last-hook-wins), and
-`apps/desktop/src/__tests__/assistant-server/hook-run-outcome.integration.test.ts`
-(real-PGlite precedence: hook lands / never over user / user over hook /
-unknown-run throws).
-
-**Deferred (documented follow-ups):** SessionStart/SessionEnd/Notification
-wiring; Stop auto-continue; full hooks.json
-editor UI; rendering the fetched `content` in-panel (approval is hash-only today);
-a refetch on approve/revoke/refocus (a disk edit after the fetch shows a stale
-badge until reopen — fail closed server-side); `<userData>` vs home-dotfile
-decision.
-
-When changing this flow, update this section and the paired tests.
-
----
+Evidence: `assistant-runtime/hook-events-and-timeouts.md`,
+`assistant-runtime/hook-config-and-trust.md`,
+`assistant-runtime/hook-run-verdict.md`,
+`assistant-runtime/hook-settings-and-root-identity.md`.
+Guard: the hook cases in
+`packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts` (real
+Agent + real `applyToolHooks`, no stream mocks),
+`apps/desktop/src/__tests__/assistant-server/hooks/run-verdict.test.ts`,
+`hooks/server-composition.integration.test.ts`,
+`apps/desktop/src/__tests__/assistant-server/hook-run-outcome.integration.test.ts`,
+`apps/desktop/src/__tests__/assistant-server/workspace-roots.integration.test.ts`.
 
 ## SYSTEM-INSTRUCTION COMPOSITION
 
 `composeRuntimeInstructions` (`agent-runtime.ts`) assembles what the model
-actually receives, in two halves that
-`composeCacheAwareInstructions` keeps apart:
+receives in two halves that `composeCacheAwareInstructions` keeps apart:
+**`stableText`** (the resolved instructions, the CURRENT-DATE note, the
+context-budget note — cached) and **`volatileText`** (the task-list note, re-sent
+each turn, never cached).
 
-- **`stableText`** — the resolved instructions, the CURRENT-DATE note, and the
-  context-budget note. Cached.
-- **`volatileText`** — the task-list note. Re-sent each turn; never cached.
+- **THE DATE IS COMPOSED OUTSIDE THE PROVIDER BRANCH.** Join
+  `buildCurrentDateNote` into `stableText` alongside the budget note; do NOT
+  thread it into `buildDefaultInstructions`. There are three instruction paths —
+  the hosted default, `buildLocalDefaultInstructions`, and a caller-supplied
+  override — and only the first takes options, so injecting there leaves the other
+  two shipping dateless prompts.
+- **DATE ONLY, and LOCAL.** A clock time would invalidate the cached prefix every
+  turn; a date moves at most once a day. The day is the user's, not UTC:
+  `toISOString()` would state tomorrow's date to anyone east of UTC in their early
+  morning. Format is `en-CA` (whose short date IS ISO 8601) plus the weekday name.
+- The clock is INJECTED (`composeRuntimeInstructions({ now })`) so the composed
+  instructions stay a pure function of their inputs.
 
-**THE DATE IS COMPOSED OUTSIDE THE PROVIDER BRANCH — do not relitigate.**
-`buildCurrentDateNote` is joined into `stableText` alongside the budget note,
-NOT threaded into `buildDefaultInstructions`. There are three supported
-instruction paths — the hosted default, `buildLocalDefaultInstructions` for the
-built-in local model, and a caller-supplied `instructions` override — and only
-the first takes options. Injecting there left the other two shipping dateless
-prompts; the local one arguably needs it most, since a small local model is the
-least able to recover from not knowing the date.
+Settled: a model with no date substitutes its training cutoff or a guess, and an
+observed run wrote a fabricated date into durable working memory. Evidence:
+`assistant-runtime/system-instruction-date.md`.
+Guard: the frozen-time case that drives `createMastraAgentRuntime` and asserts the
+date reaches `config.instructions` (asserting `buildCurrentDateNote` directly
+would prove only that it renders a date it was handed).
 
-Nothing in the prompt used to state the day. A model with no date does not
-abstain — it substitutes its training cutoff or a guess. An observed run
-reasoned "Today's date is unknown but likely later" and then wrote a fabricated
-date, three days off, into DURABLE working memory. It is also load-bearing for
-an instruction AGENTS.md already gives (treat dated material under
-`docs/superpowers/` and `docs/archive/` as historical evidence), which is
-unfollowable without a date to compare against.
+## RUN-CREATION SEAM: WHAT MAY COMPOSE AROUND IT
 
-**DATE ONLY, and LOCAL.** A clock time would invalidate the cached prefix on
-every turn; a date moves at most once a day. And the day is the user's, not
-UTC: Brainstrike is local-first, so the process clock IS the user's clock, and
-`toISOString()` would state tomorrow's date to anyone east of UTC in their early
-morning. The format is `en-CA` (whose short date IS ISO 8601) plus the weekday
-name — `03/04/2026` denotes two different days depending on the reader.
+`useAssistantRequestLifecycle.prepareRequestData` is the single place a run comes
+into existence in the renderer: it calls `createAssistantThreadRunPromise` →
+`repository.createThreadRun`, the SOLE runId minting site
+(`docs/agents/assistant-persistence.md`).
 
-The clock is INJECTED (`composeRuntimeInstructions({ now })`) so the composed
-instructions stay a pure function of their inputs. The paired guard drives
-`createMastraAgentRuntime` with frozen time and asserts the date reaches
-`config.instructions`; asserting `buildCurrentDateNote` directly would prove
-only that it renders a date it was handed.
-
-## RUN-CREATION SEAM: WHAT MAY COMPOSE AROUND IT (BST-1115 W5 T4b)
-
-`useAssistantRequestLifecycle.prepareRequestData` is the single place a run
-comes into existence in the renderer: it calls
-`createAssistantThreadRunPromise` → `repository.createThreadRun`, the SOLE
-runId minting site (`docs/agents/assistant-persistence.md`). Features that need
-to act "when a run starts" COMPOSE AROUND that callback in
-`assistant-ui-panel-wrapper.tsx`; they never add a second producer and never
-grow the lifecycle hook a feature-specific branch.
-
-- **It fires for EVERY run, not every user message.** A tool-approval resume, a
-  plan-mode continuation and a stream replay all reach it. Anything that must
+- Features that act "when a run starts" COMPOSE AROUND that callback in
+  `assistant-ui-panel-wrapper.tsx`. Never add a second producer; never grow the
+  lifecycle hook a feature-specific branch.
+- **It fires for EVERY run, not every user message.** Anything that must
   distinguish "the human sent something" needs a SECOND signal:
-  `AssistantUiPanel`'s `onThreadRunStart`, which is the composer form's
-  `onSubmitCapture` and fires for nothing else.
-- **Neither signal is sufficient alone.** assistant-ui's composer input calls
-  `form.requestSubmit()` on Enter unconditionally, so an Enter on an EMPTY
-  composer fires `onThreadRunStart` and sends nothing (`useComposerSend()`
-  returns null). The conjunction — a submit that is FOLLOWED by a run creation
-  — is the only honest reading of "a user-authored message started a new run".
-- **Conversation Rewind finalization is the first consumer.** `useRewindFinalization`
-  holds a read-and-cleared arming flag: `markUserAuthoredSend` (wired to
-  `onThreadRunStart`) arms it, and the wrapper's `prepareRequestData` wrapper
-  consumes it after the run row exists. That is what ends the one-level redo
-  window; see the FINALIZATION bullet in `assistant-persistence.md` for what
-  the main process then does.
+  `AssistantUiPanel`'s `onThreadRunStart`, the composer form's `onSubmitCapture`.
+- **Neither signal is sufficient alone** — Enter on an EMPTY composer fires
+  `onThreadRunStart` and sends nothing. The conjunction (a submit FOLLOWED by a run
+  creation) is the only honest reading.
+- Conversation Rewind finalization is the first consumer:
+  `markUserAuthoredSend` arms a read-and-cleared flag and the wrapper consumes it
+  after the run row exists.
 - **A composed effect MUST NOT be awaited by the send.** `finalizeAfterRunCreated`
-  returns `void` deliberately — the send is what the user asked for, and a
-  cleanup they did not ask for may never delay or fail it. Report failures
-  (log + toast); never swallow them, and never let one reach the composer.
-- **An abort that lands after run creation is not a send.** `prepareRequest`
-  throws the abort reason once `prepareRequestData` resolves, so the wrapper
-  re-checks `abortSignal.aborted` before firing a composed effect. The arming
-  flag stays set, and the retry that actually sends fires it.
+  returns `void` deliberately: a cleanup the user did not ask for may never delay
+  or fail the send. Report failures (log + toast); never swallow them and never let
+  one reach the composer.
+- **An abort that lands after run creation is not a send.** Re-check
+  `abortSignal.aborted` before firing a composed effect; the arming flag stays set
+  and the retry that actually sends fires it.
 
-Paired tests: `assistant-ui-panel-wrapper-rewind-finalization.test.tsx` (the
-wiring, including the never-settles and throwing-bridge cases) and
-`changes/__tests__/use-rewind-finalization.test.ts` (each half of the
-conjunction alone).
-
-When changing this flow, update this section and the paired tests.
-
----
+Evidence: `assistant-runtime/run-creation-seam.md`.
+Guard: `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-rewind-finalization.test.tsx`,
+`packages/app-shell/src/changes/__tests__/use-rewind-finalization.test.ts`.
 
 ## PLAN MODE & TOOL SUSPENSION (ask-user / submit-plan)
 
 Two SUSPENDING native tools pause the run DURING execution and resume with
-arbitrary data, on a NEW transport that PARALLELS the approval transport (it does
-not overload it). Built on `@mastra/core@1.55` tool `suspend()`/`suspendSchema`/
-`resumeSchema` + `agent.resumeStream(resumeData, {runId, toolCallId})`
-(re-verified at the 1.55 bump; 1.56 changes the approval half of this surface —
-see the version ceiling in mastra-boundary.md).
+arbitrary data, on a NEW transport that PARALLELS the approval transport rather
+than overloading it. Built on Mastra tool `suspend()`/`suspendSchema`/
+`resumeSchema` plus `agent.resumeStream(resumeData, {runId, toolCallId})`; the
+supported `@mastra/core` range lives in `packages/agent/package.json` and the
+version ceiling in `mastra-boundary.md`.
 
-- **`submitPlan`** (packages/agent/src/tools/submit-plan-tool.ts): takes a
-  structured plan INLINE (`{title, overview, steps[], risks?, verification?}` —
-  NOT an on-disk path like Mastra's builtin `submit_plan`), `suspend()`s with it,
-  and on resume returns `{status, feedback?}`. Resume vocab is the builtin-
-  compatible `{action:'approved'|'rejected', feedback?}` (SubmitPlanDecision).
-- **`askUser`** (ask-user-tool.ts): `{question, options?, selectionMode?}`,
-  resumes with the `{answer: string | string[]}` envelope (AskUserResumeData —
-  an OBJECT so the 1.56+ `approved: true` rider attaches when askUser is
-  ask-gated; a bare answer cannot carry the rider and would be denied by
-  Mastra). The tool still accepts the LEGACY bare `string | string[]`
-  (AskUserAnswer) so runs suspended before the envelope migration stay
-  resumable; multi-select joins with ", ".
-
-The renderer structurally narrows both tools' `suspendPayload` before displaying
-or resuming it. An absent payload (`undefined` or durable JSON `null`) retains
-the generic actionable fallback for legacy suspended runs. Core plan terms
-(`title`, `overview`, and the steps array)
-and the `askUser` question/options must be readable. Plan step titles and askUser
-options are decision terms, so one unreadable entry makes the decision
-unapprovable/unanswerable; unreadable advisory plan fields (`risks`,
-`verification`, or a step `detail`) remain omitted. A present non-array option
-list, an unknown `selectionMode`, or a selection mode without readable options
-likewise makes the question unanswerable rather than silently changing its
-interaction mode. An unreadable core payload renders a diagnostic failed alert
-with a scrollable raw-payload view capped at 4,000 serialized characters. The
-same bounded serialization is logged once per run/tool-call identity across
-renderer remounts; the raw malformed object never bypasses that cap. The process-local
-identity cache is capped at 64 entries with deterministic oldest-entry eviction;
-tests reset it explicitly rather than depending on file order. The user may
-safely reject an unreadable plan (never approve it). A readable question whose
-choice controls drift remains an explicit failed alert, shows the bounded raw
-payload, and offers a clearly-labelled free-text answer through the schema's
-supported string arm; it never guesses a choice interaction. If the question
-itself is unreadable there is no safe typed answer and no durable run event
-explaining the dead end, so its alert remains visible and cannot be dismissed or
-answered.
+- **`submitPlan`** takes a structured plan INLINE (`{title, overview, steps[],
+  risks?, verification?}`), `suspend()`s with it, and returns `{status, feedback?}`.
+  Resume vocab is the builtin-compatible `{action:'approved'|'rejected', feedback?}`.
+- **`askUser`** takes `{question, options?, selectionMode?}` and resumes with the
+  `{answer: string | string[]}` ENVELOPE — an object so the `approved: true` rider
+  can attach when askUser is ask-gated. It still accepts the LEGACY bare
+  `string | string[]` so pre-migration runs stay resumable; multi-select joins with
+  ", ".
+- The renderer structurally narrows both tools' `suspendPayload` before displaying
+  or resuming it. An absent payload retains the generic actionable fallback. Core
+  plan terms and the question/options must be readable; one unreadable decision
+  term makes the decision unapprovable, while unreadable advisory fields are simply
+  omitted. A present non-array option list, an unknown `selectionMode`, or a
+  selection mode without readable options likewise makes the question unanswerable
+  rather than silently changing its interaction mode.
+- An unreadable core payload renders a diagnostic failed alert with a scrollable
+  bounded raw-payload view; the same bounded serialization is logged once per
+  run/tool-call identity across remounts, through a capped process-local identity
+  cache with deterministic oldest-entry eviction. The user may safely reject an
+  unreadable plan, never approve it. A readable question whose choice controls
+  drift stays an explicit failed alert offering a clearly-labelled free-text
+  answer; if the question itself is unreadable its alert cannot be dismissed or
+  answered.
 
 **Transport table (parallel to approval):**
 
-| Layer | Approval | Suspend (this feature) |
+| Layer | Approval | Suspend |
 |---|---|---|
 | Stream chunk | `tool-approval-required` | `tool-suspend-required` |
 | Data part | `brainstrike.tool-approval` | `brainstrike.tool-suspend` |
@@ -3577,274 +2261,519 @@ answered.
 | Resume action | `AssistantToolApprovalAction` | `AssistantToolResumeAction` |
 | Server fn | `streamMastraToolApprovalAction` | `streamMastraToolResumeAction` |
 | Mastra call | `approveToolCall`/`declineToolCall` | `resumeStream(resumeData,{runId,toolCallId})` |
-| UI renderer | `AssistantToolApprovalNotice` | `AssistantToolSuspendNotice` (branches by toolName) |
+| UI renderer | `AssistantToolApprovalNotice` | `AssistantToolSuspendNotice` |
 
-Contract types + guards live in `@brainstrike/assistant-contract/tool-suspend`
-(`readToolResumeRunConfigAction` returns `{invalid:true}` on a malformed action —
-surfaced as a 400, never coerced).
+Contract types and guards live in
+`@brainstrike/assistant-contract/tool-suspend`; `readToolResumeRunConfigAction`
+returns `{invalid:true}` on a malformed action, surfaced as a 400, never coerced.
 
-**Stream path** (`mastra/tool-approval-chunks.ts`, dispatched from
-`agent-streaming.ts`): Mastra emits `tool-call-suspended` when a
-suspending tool calls `suspend()`. `makeToolSuspendRequiredChunks` turns it into
-a resumable `tool-suspend-required` chunk + a tool-calls finish and STOPS at the
-pause (this replaced the old `makeUnsupportedApprovalChunks` dead-end at ~936).
-A native OpenRouter pause finish has zero tokens and no billed-cost field because
-Mastra has not exposed that step's `step-finish` yet. Resume emits the deferred
-step finish before continuing, so the resumed terminal finish aggregates the
-pre-pause and subsequent step costs.
-A malformed pause (missing toolCallId/runId) still falls back to the unsupported
-termination so it fails visibly.
+- `makeToolSuspendRequiredChunks` turns Mastra's `tool-call-suspended` into a
+  resumable `tool-suspend-required` chunk plus a tool-calls finish, and STOPS at
+  the pause. A native OpenRouter pause finish has zero tokens and no billed-cost
+  field; resume emits the deferred step finish before continuing. A malformed pause
+  (missing toolCallId/runId) still falls back to the unsupported termination so it
+  fails visibly.
+- **Unknown resume schemas are REJECTED VISIBLY and NON-TERMINALLY.** Only tools in
+  `REGISTERED_SUSPEND_RESUME_TOOL_IDS` have a registered typed suspension UI. A
+  well-formed pause from any OTHER tool still becomes a `tool-suspend-required`
+  chunk, but `makeUnregisteredSuspendResumeNoticeChunk` PREPENDS a durable
+  `tool.resume.unsupported` run event and a coded `logger.error`. The tool-defined
+  `suspendPayload` is deliberately EXCLUDED from that durable metadata — run-event
+  metadata is allowlist-by-denial, not a content channel.
+- **Its OWN run-event kind, never `tool.failed`.** `tool.failed` is consumed as a
+  METRIC in three places that each enumerate kinds explicitly, so the new kind is
+  excluded from all three by construction: the run-ledger aggregation SQL would
+  double-count the call, `collectToolDurations` would invent a duration, and
+  `getMatchingFailedKind` would resolve the `tool.started` row to `failed` when the
+  tool IS still suspended. No tool ran and none failed: this is a CLIENT CAPABILITY
+  MISMATCH.
+- **No `tool.failed` is emitted upstream either — verified against the live loop.**
+  A real `suspend()` emits no `tool-error` at all; the observed durable sequence is
+  `run.started` → `run.step.started` → `tool.started` → `tool.resume.unsupported` →
+  `tool-suspend-required`. The mapper's line deleting the suspended call's
+  `pendingToolErrorTexts` entry stays as defence in depth; it is NOT evidence of
+  current behaviour.
+- **Tool-call args-stream discipline.** The decoder THROWS in strict mode on a
+  duplicate tool-call id or on a `c`/`a` naming an id it never saw, and some
+  providers emit trailing `tool-call-delta` parts after the complete call and after
+  the result. `data-stream-mapper.ts` therefore (1) emits the `c` args-delta frame
+  only while `toolState` exists AND `argsEmitted` is false, and (2) tracks
+  `settledToolCallIds` so a late progress event for a settled call is dropped
+  instead of auto-starting a duplicate `b`. Guard (1) is MORE valuable since the
+  decoder downgraded its failure to a one-shot warning, because silently discarded
+  args are still a correctness bug and now a quiet one.
+- Mastra's dynamic `data-om-*` chunks are handled by prefix: `-failed` variants map
+  to a durable `memory.observation.failed` run event; other OM bookkeeping is
+  deliberately silent and never trips the unrecognized-chunk warning.
+- **Durable AND always visible.** The `brainstrike.tool-suspend` data part is
+  transient, so the run event is what survives a reload, rehydrated as a run-event
+  data part; `tool.resume.unsupported` is in `isAlwaysVisibleRunEvent` so it renders
+  at the DEFAULT detail level.
+- `isAlwaysVisibleRunEvent` alone is NOT sufficient — settled, do not relitigate by
+  reverting the exemption. It only selects which component renders the row; both
+  paths then consult the render plan, whose first suppression rule hides ANY
+  `tool.*` event whose `toolCallId` has a `tool-call` part in the thread, and
+  `handleToolSuspendRequired` GUARANTEES that part exists. Both functions therefore
+  skip card suppression for always-visible kinds. The rule still applies to every
+  other `tool.*` row. Any test covering this MUST put the mapper's `tool-call` part
+  in the mock thread — a fixture with only the run-event part passes vacuously.
+- `kind` is a plain `text` column, so the new kind needs no migration — but the
+  read-path `requireRunEventKind` throws on an unknown kind, so DOWNGRADING to a
+  build predating this enum entry fails that thread's entire run-event hydration.
+  The constraint is one-directional and only bites on rollback.
+- **The tool card is SETTLED.** `handleToolSuspendRequired` emits a `tool-call`
+  part so the pause has a card. For a registered tool the missing result is correct;
+  for an unregistered one nothing ever will be, so the chunk carries
+  `resumeSupported: false` and the mapper emits a terminal `toolCallResult` with
+  `isError: true`. It is deliberately NOT recorded in `pendingToolErrorTexts`.
+- **The APPROVAL DECLINE is the second terminal under that same rule.** It arrives
+  as its own `'declined'` tool-event status and `handleToolDeclined` settles the
+  call (`toolCallResult` + `settledToolCallIds`) while recording NOTHING in
+  `pendingToolErrorTexts` and setting no `isError`. The frame carries the shared
+  `DeclinedToolCallResult` envelope, which `settledResultOverride` reads to render
+  the muted `stopped` treatment. The two terminals differ only in what they say
+  about the RUN: this one is over, the resume-unsupported one is still suspended.
+- Neither is the `makeUnsupportedApprovalChunks` idiom (`run.failed` + error
+  finish), because **Mastra persists the suspended workflow snapshot BEFORE the
+  stream part is mapped** — terminating the client stream removes nothing and a
+  durable `run.failed` would be false. Leaving the run suspended is INTENDED.
+  `makeUnsupportedApprovalChunks` stays terminal only because a MALFORMED pause is
+  genuinely unrecoverable.
+- `UnsupportedSuspendNotice` is the matching renderer surface: no guessed typed
+  action, but a `role="alert"` card saying the pause cannot be answered by this
+  build, with a Dismiss control. Its copy claims nothing about server-side state,
+  because it must also be true under version skew.
+- `AssistantToolSuspendNotice` dispatches through a total
+  `Record<RegisteredSuspendResumeToolId, …>`, so adding an id without a typed branch
+  is a COMPILE error, and `SUSPENDING_NATIVE_TOOL_IDS` is DERIVED from the same
+  registry. The REVERSE drift (a tool that can `suspend()` with no registered
+  resume UI) has no compile-time guard, so the scan script sweeps source
+  RECURSIVELY, comment-stripped, on the loose `\bsuspendSchema\b` token in two
+  scopes: the two declaration roots drive an exact match against
+  `REGISTERED_SUSPENDING_TOOL_MODULES`, and a repo-wide `apps` + `packages` sweep
+  must equal that set plus an explicit `ACKNOWLEDGED_NON_DECLARING_MODULES` list.
+  Every scan root is asserted to exist and be non-empty, because
+  `walkTypeScriptFiles` swallows a missing directory. Known limitation:
+  `stripComments` has no string-literal awareness. It lives in `test:scripts`
+  rather than a package spec because a package-scoped vitest reading a foreign
+  package's source is an unhashed turbo input.
+- **Resume** (`streamMastraToolResumeAction`) REQUIRES Mastra workflow storage
+  (throws without it), calls `resumeStream`, threads
+  `withRuntimeDerivedStreamOptions` so the rebuilt Agent keeps its native tools, and
+  does NOT pass `requireToolApproval`. It is stateless, holding no in-memory runId.
+- **Storage fail-safe** (`resolveSuspendToolsForRun`, `plan-mode-tool-gate.ts`): a
+  tool that can `suspend()` — detected structurally by an own `suspendSchema` — is
+  FAIL-SAFE omitted when there is no storage to resume it.
+- **Plan mode** is opt-in per request (`runtimeData.planMode`), sent only when the
+  persisted composer toggle is on and the transport is the desktop data-stream one.
+  `filterToolsForPlanMode` runs BEFORE the permission gate and keeps risk ∈ {read,
+  mcp}, omitting every edit/execute tool.
+- **A suspend schema is NOT an admission ticket.** Suspending tools survive on
+  their risk classification alone; an unclassified tool falls to `mcp`, which plan
+  mode keeps. `manageTaskList` (`riskCategory:'read'`) DELIBERATELY stays available
+  — it is thread bookkeeping, not workspace mutation.
+- `buildDefaultInstructions(toolNameMap, {planMode})` prepends a PLAN-MODE block.
+  THREE-SIDED local gating: the filter, the instruction block and the runtime
+  `planModeActive` guard all check `normalizedProvider !== 'local'`, and the
+  composer toggle is HIDDEN for the `'local'` provider rather than silently
+  no-opping.
+- **Approve exits plan mode:** approving a submitted plan clears the persisted
+  toggle BEFORE the resume request is composed (via the `PlanModeExitProvider`
+  seam), so the resume omits `planMode` and the rebuilt runtime unlocks the
+  mutation tools. REJECT keeps plan mode on so the model can revise.
 
-**Unknown resume schemas are REJECTED VISIBLY and NON-TERMINALLY (BST-558):** only
-tools listed in `REGISTERED_SUSPEND_RESUME_TOOL_IDS`
-(`@brainstrike/assistant-contract/tool-suspend` — today `askUser`, `runPython`
-(the BST-1070 Gate B network escalation), and `submitPlan`) have a registered
-typed suspension UI. A well-formed pause from any OTHER tool
-still becomes a `tool-suspend-required` chunk, but
-`makeUnregisteredSuspendResumeNoticeChunk` PREPENDS a durable
-`tool.resume.unsupported` run event
-(`UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND`; `unregisteredResumeSchema:true` +
-`resumeSupportedByClient:false` + `runStillSuspended:true` + `suspended:true` +
-the run/tool identifiers) and a coded `logger.error`. The tool-defined
-`suspendPayload` is deliberately EXCLUDED from that durable metadata (run-event
-metadata is allowlist-by-denial, not a content channel); it travels only on the
-transient chunk.
-
-**Its OWN run-event kind, never `tool.failed`.** `tool.failed` is consumed as a
-METRIC in three places, all of which enumerate kinds explicitly, so the new kind
-is excluded from each by construction:
-
-| Consumer | With `tool.failed` | With `tool.resume.unsupported` |
-| --- | --- | --- |
-| `RUN_LEDGER_AGGREGATION_SQL` (`assistant-memory-repository.ts`) | +1 `toolCallCount` AND +1 `failedToolCallCount`, permanently — and when a later build resumes the same pause its real `tool.completed` counts the ONE call twice | not matched by either `FILTER` |
-| `collectToolDurations` (`tool-durations.ts`) | closes the `tool.started`→terminal pair, inventing a duration for a tool that never finished | kind not in its allowlist; no duration recorded |
-| `getMatchingFailedKind` (`assistant-run-event-derivation.ts`) | resolves the `tool.started` row to `failed` | only `tool.failed` resolves it; the row stays `running`, which is TRUE — the tool IS still suspended |
-
-No tool ran and none failed: this is a CLIENT CAPABILITY MISMATCH. Recording it
-as a failed tool call would contradict `runStillSuspended: true` in the event's
-own metadata.
-
-**No `tool.failed` is emitted upstream either — verified against the live loop,
-do not relitigate from the comment alone.** `data-stream-mapper.ts` carries a
-line deleting the suspended call's `pendingToolErrorTexts` entry, added in #1606
-against @mastra/core 1.50 (behavior unchanged at the pinned 1.55) when Mastra reported `suspend()` through the
-`tool-error` path BEFORE the correlated suspension event. If that ordering still
-held, `makeToolLifecycleRunEventChunk` would convert the earlier part into a
-durable `tool.failed` and every claim in the table above would be void. It does
-not hold on @mastra/core 1.51: a real `suspend()` emits no `tool-error` at all.
-The observed durable sequence for an unregistered pause is `run.started` →
-`run.step.started` → `tool.started` → `tool.resume.unsupported` →
-`tool-suspend-required`. That is pinned by live-loop assertions (real Agent +
-real PGlite) in `mastra-tool-suspend-resume.integration.spec.ts`, not by a
-synthesized `tool-call-suspended` part — so a Mastra bump that reinstates the
-old ordering fails there instead of silently re-polluting the ledger. The
-mapper's delete stays as defence in depth; it is NOT evidence of current
-behaviour.
-
-**Tool-call args-stream discipline (BST-940 field failure, 2026-07-27).** The
-renderer's assistant-stream decoder closes a call's argsText controller on the
-complete `9` frame and THROWS in strict mode (the default) on a duplicate tool
-call id or on a `c`/`a` naming an id it never saw. GLM-5.2
-via OpenRouter emits trailing `tool-call-delta` parts after the complete tool
-call and after the result. `data-stream-mapper.ts` therefore (1) emits the `c`
-args-delta frame only while `toolState` exists AND `argsEmitted` is false, and
-(2) tracks `settledToolCallIds` so a late progress event for a settled call is
-dropped instead of auto-starting a duplicate `b`. Pinned by the "drops trailing
-args deltas" case in `data-stream-session.spec.ts`.
-
-Guard (2) is pinned by that still-live duplicate-id throw. Guard (1) changed
-severity at assistant-stream 0.3.35: appending into a CLOSED controller used to
-be an unhandled TypeError that failed the whole run, and is now dropped behind a
-one-shot `console.warn` (see the BST-962 paragraph above). The guard stays —
-silently discarded args are still a correctness bug, just no longer a visible
-crash, which makes the guard MORE valuable, not less, because the failure it
-prevents is now quiet.
-
-Mastra's dynamic `data-om-*` stream chunks are handled by prefix in
-`agent-streaming.ts`: `-failed` variants map to a durable
-`memory.observation.failed` run event (they were the only runtime evidence of
-the field failure); other OM bookkeeping is deliberately silent (Mastra
-persists it itself) and never trips the unrecognized-chunk warning.
-
-**Durable AND always visible.** The `brainstrike.tool-suspend` data part is
-transient (aui-data, never persisted), so after a reload the notice is gone. The
-run event is persisted to `brainstrike_assistant_run_events` and rehydrated as a
-run-event data part, and `tool.resume.unsupported` is in
-`isAlwaysVisibleRunEvent`, so the row renders at the DEFAULT (`standard`) detail
-level, not just Developer.
-
-`isAlwaysVisibleRunEvent` alone is NOT sufficient, and this is a settled ruling —
-do not relitigate it by reverting the exemption. It only selects which component
-renders the row; BOTH paths then consult the render plan, whose first suppression
-rule (`hasToolCallPartForEvent` in `resolveAssistantRunEventRenderPlan`, mirrored
-by `hasToolCard` in `initialRenderPlanKey`) hides ANY `tool.*` event whose
-`toolCallId` has a `tool-call` part in the thread. `tool.resume.unsupported` is
-the first `tool.*` kind ever added to the allowlist, and
-`handleToolSuspendRequired` GUARANTEES that part exists for exactly that id — so
-without an exemption the row would be hidden at every detail level. Both
-functions therefore skip card suppression for always-visible kinds. The rule
-still applies to every other `tool.*` row, because those genuinely duplicate a
-status their card owns; this row does not (the card reports a client capability
-error for one call, the row reports that the RUN is still suspended). Any test
-covering this MUST put the mapper's `tool-call` part in the mock thread — a
-fixture with only the run-event part is a shape the emitter cannot produce and
-passes vacuously. `run.failed`/`run.cancelled` never needed the exemption: they
-carry no `toolCallId` and are not `tool.*`.
-
-`kind` is a plain `text` column (no CHECK/enum), so
-the new kind needs no migration — but the read-path `requireRunEventKind` throws
-on an unknown kind and `listThreadRunEvents` maps the whole list, so DOWNGRADING
-to a build predating this enum entry fails that thread's entire run-event
-hydration. Enum and emitter ship together here (same build reads what it wrote);
-the constraint is one-directional and only bites on rollback.
-
-**The tool card is SETTLED.** `handleToolSuspendRequired` emits a `tool-call`
-part so the pause has a card; for a registered tool the missing result is
-correct (resume supplies it), but for an unregistered one nothing ever will, so
-the chunk carries `resumeSupported: false` and the mapper emits a terminal
-`toolCallResult` with `isError: true`. Without it, dismissing the notice — the
-only actionable control — would leave a permanently Running, unactionable card.
-It is deliberately NOT recorded in `pendingToolErrorTexts`: that would append
-"I couldn't complete the tool action because it failed" and mark the step
-errored, both false.
-
-**The APPROVAL DECLINE is the second terminal under that same rule (BST-1282,
-@mastra/core 1.59 `tool-output-denied`).** It arrives as its own tool-event
-status, `'declined'`, and `handleToolDeclined` settles the call — `toolCallResult`
-+ `settledToolCallIds`, because a declined call left pending is a permanent
-spinner — while recording NOTHING in `pendingToolErrorTexts` and setting no
-`isError`. `pendingToolErrorTexts` clears only on a following `text-delta`, so an
-error-path decline emitted the false sentence above whenever the model added no
-visible text after the denial, or the user pressed Stop. The frame instead
-carries the shared `DeclinedToolCallResult` envelope (`{kind: 'declined',
-message, reason?}`), which is what `settledResultOverride`
-(`activity-trace-model.ts`) reads to render the muted
-`stopped` treatment: a settled result with no envelope earns a green Completed
-for a tool that never ran, and `isError` paints destructive Failed chrome over
-something that never broke. The two terminals differ only in what they say about
-the RUN — this one is over (durable `tool.failed`, relabelled "Tool call
-declined"), the resume-unsupported one is still suspended.
-
-It is deliberately NOT the `makeUnsupportedApprovalChunks` idiom (`run.failed` +
-error finish). **Mastra persists the suspended workflow snapshot BEFORE the
-stream part is mapped**, so terminating the client stream removes nothing:
-`listSuspendedRuns()` still returns the run and a later resume can revive it. A
-durable `run.failed` claiming the run "was stopped" would be false. Leaving the
-run suspended is INTENDED — a build that later registers the tool's resume UI can
-still answer the same pause. `makeUnsupportedApprovalChunks` stays terminal
-because a MALFORMED pause (missing toolCallId/runId) genuinely is unrecoverable.
-
-`toolName` is resolved as `denormalizeNativeToolName(sanitizedNameMap?.get(raw) ??
-raw)` — the same map-then-static-reverse-map order as
-`resolveDiscoveredApprovalToolName`. The real stream part carries the SANITIZED id
-(`brainstrike_askUser`) and `sanitizedNameMap` is optional at every call site, so
-resolving on the dotted form alone would reject a perfectly resumable pause.
-
-Previously such a pause rendered a generic "Waiting on input" card with no error
-surface — a silent dead end. The renderer's `UnsupportedSuspendNotice` is the
-matching surface: still no guessed typed action (no-silent-wrong-render), but a
-`role="alert"` card that says the pause cannot be answered by this build, with a
-Dismiss control. Its copy claims nothing about server-side state, because it must
-also be true in a version skew where an older client renders a newer tool's pause.
-`AssistantToolSuspendNotice` dispatches through a total
-`Record<RegisteredSuspendResumeToolId, …>`, so adding an id to the registry
-without a typed branch is a COMPILE error. `SUSPENDING_NATIVE_TOOL_IDS`
-(plan-mode-tool-gate.ts) is DERIVED from the same registry. The REVERSE drift (a
-tool that can `suspend()` with no registered resume UI) has no compile-time
-guard, so `scripts/__tests__/suspending-tool-registry-contract.test.mjs` scans
-source RECURSIVELY, comment-stripped, on the loose token `\bsuspendSchema\b` so
-the `{ suspendSchema }` shorthand and a spread of a shared config object both
-count. Two scopes, because the token alone cannot tell a DECLARATION from a
-consumer that merely reads the property:
-
-- the two declaration roots — `packages/agent/src/tools` (defined) and
-  `apps/desktop/src/assistant-server` (registered, and it defines tools of its
-  own) — drive an exact match against `REGISTERED_SUSPENDING_TOOL_MODULES`;
-- a repo-wide sweep of `apps` + `packages` must equal that set plus an explicit
-  `ACKNOWLEDGED_NON_DECLARING_MODULES` list (today just `plan-mode-tool-gate.ts`,
-  which READS the property to detect suspending tools structurally).
-
-The sweep exists because the root list was itself unguarded: `walkTypeScriptFiles`
-swallows a missing directory, so a suspending tool in a NEW package, or a renamed
-root, would have silently stopped being covered while the exact match still passed
-on whatever the other root contained. Every scan root is additionally asserted to
-exist and be non-empty. Known limitation, deliberate: `stripComments` has no
-string-literal awareness, so a `suspendSchema` token after a `//` inside a string
-on the same line is missed. It is control-tested in the same file against
-subdirectory, shorthand, desktop-root, outside-every-declaration-root,
-renamed-root, comment-only, and test-file fixtures. It lives in `test:scripts`
-rather than a package spec because a package-scoped vitest reading a foreign
-package's source is an unhashed turbo input (stale-green cache landmine).
-
-`DataStreamMapper.handleToolSuspendRequired`
-emits the `brainstrike.tool-suspend` data part, honoring the text-part deferral
-contract (flush pending run events + finalize open text first). The data part is
-transient (aui-data, NOT persisted) — same as approval.
-
-**Resume** (`streamMastraToolResumeAction`): REQUIRES Mastra workflow storage
-(throws without it — no silent fallback), calls `resumeStream`, threads
-`withRuntimeDerivedStreamOptions` so the rebuilt Agent keeps its native tools
-(the same desktop write-on-approval fix), and does NOT pass `requireToolApproval`
-(that is approval-specific). Stateless: it holds no in-memory runId, so a future
-`listSuspendedRuns` rehydrator can call it with a discovered runId unchanged.
-
-**Storage fail-safe** (`resolveSuspendToolsForRun`, plan-mode-tool-gate.ts): a
-tool that can `suspend()` (detected structurally by an own `suspendSchema`) is
-FAIL-SAFE omitted from the map when there is no storage to resume it — mirrors
-the ask-tools omit in `resolveAskToolsForRun`. Web in-renderer LocalRuntimeChat
-has no server/storage, so both suspend tools are omitted there (desktop-first, v1).
-
-**Plan mode** (opt-in, per-request `runtimeData.planMode`): a persisted composer
-toggle (`assistant-preferences-store.planModeEnabled`) sends `planMode:true` only
-when on (presence-means-on, gated to the desktop data-stream transport in the
-app-shell wrapper). `filterToolsForPlanMode` runs BEFORE the permission gate in
-`createMastraAgentRuntime`'s tool pipeline (`runtime-assembly/tool-pipeline.ts`): it keeps risk ∈ {read, mcp} and
-OMITS every edit/execute tool, so the model investigates read-only and proposes a
-plan before any changes. **A suspend schema is NOT an admission ticket
-(BST-1073)**: the filter used to keep any suspending tool BEFORE consulting its
-risk, which was safe only because `submitPlan`/`askUser` are both classified
-`read`. It became a hole the moment a mutation tool needed to suspend —
-`run_python` requires a suspend schema for its per-call network escalation, and
-that would have admitted an execute-risk arbitrary-code tool into plan mode.
-Suspending tools now survive on their risk classification alone; an
-unclassified tool still falls to `mcp`, which plan mode keeps. `manageTaskList` (`riskCategory:'read'`) DELIBERATELY
-stays available in plan mode: it is thread bookkeeping (the assistant's own todo
-list), not workspace/fs mutation, so the model can plan its steps while planning.
-`buildDefaultInstructions(toolNameMap, {planMode})`
-prepends a PLAN-MODE block. THREE-SIDED local gating (mirrors the task-list tool):
-plan mode is EXCLUDED for provider `'local'` (the filter + the instruction block
-+ the runtime `planModeActive` guard all check `normalizedProvider !== 'local'`),
-and the composer toggle itself is HIDDEN for the `'local'` provider in the
-app-shell wrapper (`selectedProvider !== 'local'`) rather than silently no-opping.
-**Approve exits plan mode:** APPROVING a submitted plan clears the persisted
-`planModeEnabled` toggle BEFORE the resume request is composed (via the
-`PlanModeExitProvider` seam consumed by `AssistantToolSuspendNotice`), so the
-resume omits `planMode` and the rebuilt runtime unlocks the mutation tools;
-REJECT keeps plan mode on so the model can revise.
-
-**Cross-reload hydration:** in-session resume works today; cross-reload resume
-waits on the separate `listSuspendedRuns` feature (the data part is transient).
-`AssistantToolResumeAction`'s fields are all recoverable from
-`listSuspendedRuns().runs[].toolCalls[]`, so nothing here blocks it.
-
-Paired tests: packages/agent/src/__tests__/mastra-tool-suspend-resume.integration.spec.ts
-(real Agent + real PGlite: suspend→approve, reject-with-feedback, askUser
-free-text + multi-select, no-storage fail-safe omit + resume-throws, plan-mode
-drops edit / keeps submitPlan); the non-terminal unregistered-resume-schema
-rejection, the sanitized-id-with-NO-sanitizedNameMap regression guard, and the
-registered-tools-unaffected cases in `mastra-tool-approval-chunks.spec.ts`; the
-settle-the-tool-card + leave-a-resumable-pause-open cases in
-`data-stream-session.spec.ts`; plan-mode-tool-gate.spec.ts (registry derivation +
-every real factory registered) and
-`scripts/__tests__/suspending-tool-registry-contract.test.mjs` (the
-control-tested reverse-drift scan); the ledger-aggregation and
-run-event-hydration cases in
-`packages/assistant-data/src/__tests__/assistant-memory-repository.integration.test.ts`;
-the `isAlwaysVisibleRunEvent`, default-detail data-part, duration-pairing and
-`tool.started`-stays-running cases in the UI timeline specs; the streaming +
-data-part-continuity + default-instructions plan-mode specs; the desktop
-assistant-server resume-dispatch tests; and the UI suspend-notice tests.
-
-When changing this flow, update this section and the paired tests.
+Evidence: `assistant-runtime/suspending-tools.md`,
+`assistant-runtime/unregistered-suspend-resume.md`,
+`assistant-runtime/suspending-tool-registry-scan.md`,
+`assistant-runtime/plan-mode-gating.md`.
+Guard: `packages/agent/src/__tests__/mastra-tool-suspend-resume.integration.spec.ts`
+(real Agent + real PGlite), the unregistered-resume and sanitized-id cases in
+`mastra-tool-approval-chunks.spec.ts`, the settle-the-card cases in
+`data-stream-session.spec.ts`,
+`packages/agent/src/mastra/__tests__/plan-mode-tool-gate.spec.ts`,
+`scripts/__tests__/suspending-tool-registry-contract.test.mjs`.
 
 ---
+
+### Complete tool arguments at the decoder boundary
+
+`DataStreamMapper.finishToolArgs` is the shared argument-completion boundary. For
+the catalog-pinned assistant-stream decoder, `b` creates the tool part, `c`
+appends its argument text, and `9` closes that existing argument stream without
+reading `9.args`.
+
+- Emit complete non-streaming input as a `c` BEFORE `9`; never emit already
+  streamed JSON twice. All existing close paths use this helper and retain their
+  data/text deferral ordering. This applies to parent and delegated frames through
+  the same encoder.
+- When complete input arrives after a partial prefix, give the append-only
+  argument stream only the missing suffix before closure.
+- Defined empty objects and arrays are complete inputs too; absence is distinct
+  from an empty container. Incoming argument deltas supersede an earlier empty
+  start placeholder, and a later terminal's explicit empty input remains
+  authoritative. Native `tool-error` mapping forwards its optional complete args to
+  this boundary.
+- Ignore JSON whitespace outside strings for prefix matching, but require the
+  actual concatenated text to parse — whitespace can terminate a numeric token.
+  Already complete equivalent JSON may use different whitespace, key order or
+  escape spelling; compare canonical keys in CODEPOINT order, never locale
+  collation.
+- A complete input that cannot extend the partial prefix, or disagrees with an
+  already complete input, FAILS VISIBLY instead of appending a second JSON object
+  or claiming parity. The input closes exactly once before the error reaches the
+  session, which emits its ordinary error and error-finish frames while retaining
+  preceding text. This includes incompatible partial escape spellings; no earlier
+  bytes are rewritten.
+- Without authoritative complete input, an aborted partial stream retains its
+  existing partial-input behaviour. This is not a general JSON repair algorithm.
+- `9.args` remains part of the existing complete-call wire contract; the extra
+  delta is what started calls need in the installed decoder. Native persistence
+  reads neither frame. `completeArgsStream` remains a separate bookkeeping and
+  data-flush boundary and must still run after input closure.
+
+Evidence: `assistant-runtime/decoder-argument-completion.md`.
+Guard: the real-decoder regressions in
+`packages/agent/src/__tests__/data-stream-tool-input.spec.ts` (direct input, late
+complete input, streamed input, and approval with and without an open input
+stream).
+
+### Scoped child tool-event chronology
+
+- The shared live encoder creates a tool part BEFORE publishing its `tool.started`
+  data. Hydration uses the scoped event's existing native message and tool-call
+  ids to preserve that boundary even when earlier text or reasoning carries the
+  same millisecond timestamp. It mints no ordering timestamps and does not change
+  the event journal.
+- Cancelled missing tool parts retain their paired event history.
+- Hydration deduplicates tool calls within ONE assistant group, preserving
+  progressive snapshots without removing a same-id tool in a later turn or a
+  regenerated sibling. Native message assignment precedes tool anchoring, and a
+  trailing tool releases its lifecycle queue through the normal final flush.
+- Scoped tool completion or failure cannot precede its persisted tool part when
+  the loaded journal has no start event. The tool boundary is only a LOWER BOUND
+  for terminals: their timestamps still preserve text streamed while the tool was
+  running.
+- Never change content order or fabricate missing parts for a terminal-only or
+  mixed-legacy journal.
+
+Guard: the real desktop parity fixture, which compares every lifecycle data part
+in order alongside text/reasoning/input/result before and after native memory
+reconstruction (`apps/desktop/src/__tests__/assistant-server/delegated-stream-parity.integration.test.ts`),
+plus the paired hydration regressions for reused native tool ids across turns.
+Full resumed-message and receiver/replay parity remains BST-1719 work.
+
+### Renderer child conversation receiver
+
+`BrainstrikeDataStreamRuntimeAdapter` consumes scoped envelopes when the
+`onDelegatedConversation` consumer is supplied; the panel and the stable runtime
+hook forward the current callback.
+
+- Each native invocation owns ONE installed `DataStreamDecoder` and
+  `AssistantMessageAccumulator`. Changing the observed native message id does not
+  replace that decoder or lose an open tool input. Descendant envelopes use the
+  same receiver recursively.
+- Decode child tools from host results; never execute them against the parent's
+  client tool registry.
+- Updates are ephemeral FULL SNAPSHOTS carrying the immutable native invocation
+  coordinates and the latest observed native message id. Consumers replace state
+  for that invocation on replay. Native memory remains the only transcript writer:
+  this layer adds no store, migration, endpoint, synthetic native identity or
+  parent-model budget change. Parent part indices and existing auxiliary data stay
+  intact; child text never becomes parent text.
+- A receiver lifetime starts at the matching native opening frame. Full session
+  replay builds fresh decoders and replaces snapshots with no new model POST. An
+  unseeded suffix or mismatched opening identity FAILS VISIBLY rather than
+  presenting an incomplete prefix as a complete transcript.
+- Normal child error frames stay in that child. A missing child terminal produces
+  an incomplete child snapshot and fails the parent transport visibly. The response
+  owner settles every child pipeline even when an upstream fault bypasses stream
+  flush. Cancellation gates callbacks and drains vendor tool substreams through
+  normal closure, preserving the stream-insulation contract. No sleeps, retries or
+  timeout changes establish these lifecycle guarantees.
+- Receiver completion uses the same `deferMessageFinishUntilFlush` transform as the
+  parent; both final part streams and descendant receivers settle before a complete
+  snapshot is published. Producer failures and cancellations still emit their
+  required `d` finish frame — an error frame alone is a truncated stream, not a
+  valid child terminal. Cleanup preserves the primary
+  transport/envelope/abort failure and logs secondary settlement failures once.
+- Consumer presence selects receiver installation at run start; an installed
+  receiver reads the latest committed callback on each update, including callback
+  replacement during an active run.
+- Within a child receiver the FIRST observed failure remains authoritative across
+  observer, decoder, writer-close and descendant settlement errors.
+
+Evidence: `assistant-runtime/child-conversation-receiver.md`.
+Guard: the public adapter tests (concurrent children sharing tool ids, changed
+observed message ids with partial arguments, recursive descendants, replay
+replacement, malformed openings, partial updates, transport failure, abort), and
+the desktop native parity fixture, which drives the public replay adapter directly
+with the real host response rather than extracting child frames by hand.
+
+### Child response completion boundaries
+
+- Child assembly installs the shared response-boundary output processor alongside
+  the existing delegated turn-persistence processor.
+- Through Mastra's public `processOutputStep`, terminal response steps retain their
+  native assistant row boundary while tool-call steps remain open for results.
+- The production child stream projection is also exposed through the agent's
+  integration-fixture entrypoint, so desktop resume tests exercise the REAL mapper
+  and public receiver.
+- This changes no permission selection, enables no nesting, and replaces no native
+  memory processors.
+
+Guard: the reconstructed resume proof in `assistant-subagents.md`.
+
+### Delegated approval and resume coordinates
+
+- Approval and suspend actions may carry a strictly validated `delegation` path
+  plus the exact native leaf tool-call ID. A child notice routes to the root
+  transport run and call derived from its FIRST edge.
+- Matching decisions, optimistic notice state and notifications use the LEAF
+  identity, so a later child pause under the same root delegation alias is a NEW
+  decision. Ordinary root actions retain their existing contract.
+- The host validates root ownership and ancestry; the agent checks current native
+  snapshots both BEFORE and AFTER durable admission. Approval and generic resume
+  use their respective native transports and must match the pending leaf's pause
+  kind. No new native execution engine or workflow snapshot parser is introduced.
+- The resumed parent start retains its originally observed delegation name and
+  arguments, captured by the native before-tool hook and stored with the
+  invocation. The approved leaf tool remains separately identified for execution
+  configuration, including execute-backed web-search preservation.
+- Rediscovery returns leaf payloads with canonical root transport coordinates.
+
+Guard: the native resume parity fixture, `delegated-decision-contract.ts`, and the
+desktop host tests. Admission lifetime, keyless discovery and the remaining
+interaction acceptance gates live in `assistant-subagents.md`.
+
+### Durable delegated decision recovery display
+
+- The suspended-runs endpoint adds exact durable leaf admission state to native
+  rediscovery.
+- Shared approval, question and plan cards LOCK claimed, consumed or interrupted
+  decisions without claiming their effects succeeded. Root/leaf admission remains
+  authoritative for races; staleness alone remains advisory.
+- Prepare forwarded delegated pauses from the OBSERVED LEAF before the common
+  mapper checks typed UI support and approval metadata. Retain the root transport
+  target; native `agent-*` wrapper names cannot replace the leaf tool shown to the
+  user. Read-only persona gates remain unchanged.
+- The full state, ownership and verification contract lives in
+  `assistant-subagents.md`, “Durable delegated decision recovery display”.
+
+Guard: the paired production stream-loop and native process-restart tests
+(`apps/desktop/src/__tests__/assistant-server/delegated-process-restart.integration.test.ts`).
+
+### Shared transcript action capabilities
+
+- `AssistantActionBar` and `UserActionBar` read the public thread runtime
+  `capabilities.reload` and `capabilities.edit` respectively. The vendor action
+  primitives gate running and editing STATE but do not gate these capabilities.
+- OMIT an unsupported action, including in delegated external-store views. Do not
+  install fake `onReload` or `onEdit` handlers to enable them. Supported root
+  runtimes retain their existing actions; Copy remains available independently.
+- Explicit root cancellation also covers durable waiting child decisions. The
+  server records nonterminal cancellation INTENT before aborting execution or
+  closing a waiting turn's exact checkpoint bracket. Both native admission and
+  rediscovery consult that intent; an aborted initialization failure completes as
+  cancelled, using the same precedence as an aborted stream. Cancellation never
+  grants or consumes an unrelated child's decision. See
+  `assistant-persistence.md` for terminal publication and restart recovery.
+- Explicit custom-persona questions and plans pass through the same canonical
+  self-suspending-tool gate as root tools, with durable child host capability
+  required even when read permission allows the tool. The child inspector sends the
+  existing exact leaf decision envelope; it does not create a second root execution
+  or copy approval authority into a sibling.
+- Approving a delegated `submitPlan` PRESERVES root plan mode even from a forwarded
+  parent notice. Only a non-delegated plan may call the root mode-exit callback;
+  the existing exact child resume envelope still carries the approval.
+
+Guard: `packages/assistant-ui/src/__tests__/assistant-conversation-panel.test.tsx`
+(both capability states, using real public runtimes).
+
+### Recursive model/tool permit ownership
+
+- Delegated model steps and child guarded tools share the ROOT host-leg FIFO queue.
+  Native delegation waits do not consume a permit.
+- Each child stream has its OWN budget processor. Its authoritative cancellation
+  signal comes from the ROOT stream options, because Mastra omits
+  `processInputStep.abortSignal` on some native unwind passes and skips user
+  `onFinish` for aborted streams.
+- Stop rejects queued admission and releases model capacity; the existing native
+  completion join still drains descendants before terminal publication.
+- Durable reservations remain conservative when abort prevents usage settlement.
+
+Guard: `apps/desktop/src/__tests__/assistant-server/delegated-model-permit.integration.test.ts`.
+
+### Inactive workspace scroll geometry
+
+- The shared `ThreadScrollFollowProvider` IGNORES zero-height geometry from hidden
+  workspace tabs, in both Resize/MutationObserver measurement and scroll-event
+  handling. Hiding a tab is not evidence that the reader reached the bottom:
+  retain pinnedness and any pending explicit follow until visible geometry returns.
+- A pinned child follows new output when shown; an unpinned child retains its
+  reading position. Shared static scrolling preserves the last visible reader
+  position when a kept-alive workspace tab returns from zero geometry, including
+  Chromium anchor displacement.
+- Child conversation panels explicitly CLEAR inherited rewind capability, and their
+  rewind composer bridge leaves the root prompt handoff untouched: viewing a child
+  can neither restore the parent nor consume its draft.
+
+Guard: `packages/assistant-ui/src/__tests__/thread-scroll-follow.test.ts` (both
+pinned states) and the Electron workspace-navigation test, which switches two long
+children and a grandchild while retaining the parent draft.
+
+### Background conversation ownership
+
+- `runAssistantTurn` acquires a FIFO owner keyed by resource and ROOT THREAD before
+  initialization. Waiting input is abortable without releasing its predecessor or
+  starting its initializer. Independent roots do not share that queue.
+- Ownership ends only after the managed session closes AND its terminal status
+  write settles; completion is owned even when the caller has not awaited the
+  returned promise. Desktop turn checkpoints begin inside the admitted initializer.
+- Background child output enters the ordinary delegated projection.
+- Resume first validates the exact durable decision and claim, then reconstructs
+  the native executor through `getToolsForExecution`, resumes the ORIGINAL native
+  task, and forwards its real output writer. A further question or plan pause ends
+  the resume leg after native snapshot persistence, without premature parent
+  inference.
+- Explicit root Stop shuts native admission, cancels queued, paused and running
+  work, and joins the execution and workflow writes. Tab closure is NOT a stop
+  command.
+
+Guard: `packages/assistant-service/src/__tests__/run-turn.test.ts`,
+`packages/agent/src/__tests__/background-worker-stream.integration.spec.ts`,
+`apps/desktop/e2e/delegated-worker-write.desktop.test.ts`.
+
+### Background failure and stopped-pause ownership
+
+- ONLY explicit external root cancellation cancels paused native tasks. Provider
+  construction failure, watchdog failure and ordinary disposal abort the attempt
+  while RETAINING durable approvals and questions.
+- Construction and streaming cleanup join their background work; multiple failures
+  retain all causes and diagnostics.
+- A Stop after the response closes revokes the durable turn, waits for live owners,
+  CAS-cancels that turn's native background tasks, and deletes their workflow
+  snapshots before reporting success. Damaged decision payloads cannot prevent
+  root-owned teardown. A repeated Stop completes interrupted snapshot deletion.
+- Selected child Stop is a shared conversation capability SEPARATE from the root
+  composer's cancellation, and a reloaded pending decision exposes the same control
+  as a live child. The button waits for `/assistant/cancel-child` to join the
+  selected native owners, reports errors locally, then invalidates only that
+  child's live snapshot and hydrates its durable history. The default composer
+  Cancel is HIDDEN when this explicit child control owns cancellation, so there is
+  only one Stop. Root messaging remains usable after the child is stopped.
+- **A ROOT STOP RE-READS UNDECIDED PAUSES.** After a SUCCESSFUL cancel the run
+  session calls the panel's `onPausesCancelled` when the cancelled messages held a
+  pause notice with no durable `decisionState` (`undecided-pause-notices.ts`). The
+  panel bumps its stop generation in the data-stream runtime key beside
+  `historyGeneration`, so hydration re-runs discovery and the pause returns with
+  `decisionState: 'cancelled'` (a non-actionable "Turn cancelled" row) or, once its
+  snapshot is deleted, not at all. Liveness is never derived from message status: a
+  failed leg keeps its pauses actionable.
+- Gate that remount NARROWLY, because it throws the live runtime away:
+  `undecided-pause-notices.ts` looks only at the STOPPED TURN (from
+  `resolveTurnAnchorMessageId`) and counts only a pause NOTHING has answered — a
+  durable `decisionState`, the host's streamed `tool-approval-answered`, or the
+  user's own appended decision all settle it. In-session answers carry no durable
+  state, so counting them remounts the thread on the ordinary "approve a tool, keep
+  going, Stop" path.
+- **That renderer scope and the HOST CANCEL SCOPE MUST MOVE TOGETHER.** The gate
+  may stop at the turn only because `cancelDesktopAssistantRun`
+  (`apps/desktop/src/assistant-server/cancel-run.ts`) does too. Widening the host
+  cancel past the turn without widening this gate would leave an earlier turn's
+  cancelled card reading "Pending" with live buttons until the thread is reloaded.
+- The host writes that durable state BEFORE it answers: `cancelDesktopAssistantRun`
+  marks the turn's runs `cancelling` before awaiting owners.
+- The live composer DRAFT SURVIVES the remount: the panel calls `onStopReread`
+  immediately AFTER the bump in the same React batch, so the command reaches the
+  replacement, and app-shell re-enqueues that thread's recorded draft as a
+  `replace` composer command, applied once by the remounted bridge and acknowledged
+  by the wrapper. Only the TEXT draft travels; attachments and other per-mount
+  composer state are discarded. The same thread-scoped text survives renderer
+  reload in `assistant-composer-drafts.v1` sessionStorage — Zustand hydrates only
+  the draft map and creates one replacement command per nonempty draft; queued
+  commands and attachments are never persisted. Sending or clearing records an
+  empty draft, so it is not restored. Factory reset clears sessionStorage and
+  invokes the existing composer-store reset.
+- The draft carry is thread-scoped BY CONSTRUCTION: the command carries its
+  `threadId`, each wrapper passes only its own thread's command, the id is captured
+  at Stop time, and a stale callback whose panel has since switched threads neither
+  bumps nor notifies. It is NOT the global rewind slot (`rewind-composer-store.ts`),
+  which is one unkeyed slot every open thread's bridge drains.
+- The panel keeps no draft state: a host wiring no `onStopReread` keeps the old
+  behaviour. A failed cancel is logged and changes nothing; a failed rediscovery
+  during the re-read renders the existing discovery error notice. Storage
+  read/write failures are logged and shown as a destructive toast; failed writes do
+  not throw through the composer effect or claim reload recovery succeeded. Session
+  storage is session-scoped, not a guarantee that text stays only in memory.
+- Binding cleanup and delegated persistence both own after-tool-call work; stream
+  option assembly joins both hooks, including when either fails. Background resume
+  supplies the original native task thread and call identity to that completion
+  hook, because the leaf's mutated resume context cannot identify the parent
+  dispatch.
+- Active child input reuses the main composer's draft, button and Enter behaviour
+  through `ActiveConversationInputProvider`, invoking the selected child's
+  host-authorized transport — never root `onNew` or the root follow-up queue. A
+  failed acknowledgement retains the draft and request id for an explicit repeat,
+  and the provider keeps pending acknowledgement and error controls visible after a
+  child becomes idle or its transport owner retires. `canSend` represents active
+  transport admission SEPARATELY from that retained feedback: ordinary idle Send
+  and Enter stay blocked until the acknowledgement settles or the user explicitly
+  discards the draft. The host verifies owner/root, live host leg, observed native
+  child identity and cancellation admission before the native child signal owner
+  can accept input. Closing a child panel neither cancels nor starts execution.
+- Follow-up admission is rechecked INSIDE the per-child delivery queue after native
+  receipt lookup and again after signal persistence, immediately before native
+  enqueue. If durable Stop revoked admission in either await, no signal is sent and
+  a persisted but never-enqueued signal is removed. Both admission rejection and
+  native discard preserve the original non-delivery error alongside any failed
+  memory deletion; cleanup failure never overwrites the rejection or becomes
+  success.
+- Explicit search focus has a two-second failure boundary if the requested row
+  never enters the shared renderer. A failed focus reports through the navigation
+  alert and disconnects its observer; it does not crash or unmount the transcript.
+  In the static tier, targets taller than the viewport align their START rather
+  than centering above the visible frame; the virtual tier keeps its center
+  alignment through the virtualizer. Both tiers keep their own scroll owners.
+
+Settled: the stop-generation remount is gated to the stopped turn and to pauses
+nothing answered; the renderer gate and the host cancel scope move together; the
+text draft survives the remount. Evidence:
+`assistant-runtime/root-stop-rereads-pauses.md`.
+Guard: `packages/agent/src/__tests__/background-failure-cleanup.spec.ts`,
+`background-worker-stream.integration.spec.ts`,
+`apps/desktop/src/__tests__/assistant-server/delegated-waiting-cancel.integration.test.ts`,
+`packages/assistant-ui/src/__tests__/undecided-pause-notices.test.ts`,
+`root-stop-rediscovers-approvals.behavior.test.tsx`,
+`packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-stop-reread.test.tsx`,
+`use-stop-reread-draft-carry.test.ts`, and the `data-stream-runtime.test.ts` case
+that pins the cancelled messages.
+
+### Cancellation at queued native file mutations
+
+- The native workspace executor forwards `ToolExecutionContext.abortSignal` for
+  write, string replacement, delete and rename.
+- The operation checks BOTH this selected-child signal and the host-leg signal
+  INSIDE the canonical path lock, immediately before filesystem mutation. It does
+  not substitute the root signal for the child's signal.
+- A mutation already started completes ordinary checkpoint and index settlement,
+  preserving inspectable completed work.
+
+Guard: the real lock-contention integration cases, which verify all four cancelled
+mutations and an unaffected sibling
+(`apps/desktop/src/__tests__/assistant-server/delegated-cancellation.integration.test.ts`).
+This boundary does not itself claim UI selective-Stop acceptance.
+
+### Live approval answers while the parent is parked
+
+- A host `tool-approval-answered` is an INTERACTION BOUNDARY, like the approval
+  request: the data-stream mapper flushes queued data and publishes the answer at
+  the text boundary.
+- Still-streaming tool arguments retain their existing deferral until the argument
+  boundary; an answer must never truncate them.
+- Emit the initiating answer on reconstructed approval legs as well as live legs;
+  preserve continuation identity; a transient echo is not an acknowledgement. Never defer behind root
+  text. Evidence: `assistant-runtime/initiating-approval-answer.md`.
+
+Guard: `packages/agent/src/__tests__/data-stream-approval-answered.spec.ts`,
+`data-stream-text-continuity.spec.ts`, and the live three-child grant in
+`background-grant-wire.integration.spec.ts`.

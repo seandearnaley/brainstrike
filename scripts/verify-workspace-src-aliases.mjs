@@ -47,6 +47,17 @@ import { resolveThroughAliases } from '../packages/test-utils/workspace-src-alia
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
+function parseRepoRootArgument(argv) {
+  if (argv.length === 0) {
+    return;
+  }
+  const [argument, value] = argv;
+  if (argv.length !== 2 || argument !== '--repo-root' || !value || value.startsWith('--')) {
+    throw new Error('verify-workspace-src-aliases: expected only --repo-root <path>');
+  }
+  return resolve(value);
+}
+
 /**
  * Packages allowed to consume built artifacts from a test lane, keyed by
  * package name. Value: { reason: string, specifiers?: string[] } — when
@@ -591,9 +602,17 @@ export async function findWorkspaceSrcAliasViolations(options = {}) {
  */
 export async function main(options = {}) {
   const repoRoot = options.repoRoot ?? resolve(HERE, '..');
+  const appsRoot = join(repoRoot, 'apps');
+  const packagesRoot = join(repoRoot, 'packages');
+  if (!existsSync(packagesRoot)) {
+    throw new Error(`verify-workspace-src-aliases: missing packages/ under repo root ${repoRoot}`);
+  }
+  if (!existsSync(appsRoot)) {
+    throw new Error(`verify-workspace-src-aliases: missing apps/ under repo root ${repoRoot}`);
+  }
   const violations = await findWorkspaceSrcAliasViolations({
-    appsRoot: join(repoRoot, 'apps'),
-    packagesRoot: join(repoRoot, 'packages'),
+    appsRoot,
+    packagesRoot,
   });
   if (violations.length === 0) {
     console.log(
@@ -617,5 +636,5 @@ export async function main(options = {}) {
 const isDirectExecution =
   process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectExecution) {
-  await main();
+  await main({ repoRoot: parseRepoRootArgument(process.argv.slice(2)) });
 }

@@ -10,12 +10,18 @@ const KNOWN_FREE_PRICED_MODEL_KEYS = new Set<string>([]);
  * Anthropic prices cache reads at 0.1x base input on every Claude model EXCEPT
  * Claude Fable 5.1 (and the invite-only Claude Mythos 5.1), which read at
  * 0.025x — $0.25 / MTok against $10 / MTok input. Retrieved 2026-09-08 from
- * https://platform.claude.com/docs/en/about-claude/pricing (BST-1691). Keyed on
+ * https://platform.claude.com/docs/en/about-claude/pricing (BST-1691). Claude
+ * Opus 5.5 is the second exception: 0.05x — $0.20 / MTok against $4 / MTok
+ * input, same page, retrieved 2026-09-22 (BST-1804); the AWS Bedrock pricing
+ * page's global rate for the Bedrock route is the same $0.20. Keyed on
  * the model identity WITHOUT the Bedrock `anthropic.` vendor prefix, so the
  * Bedrock route inherits the same documented exception rather than a second
- * hand-maintained list. Cache WRITES stay at the ordinary 1.25x on this model.
+ * hand-maintained list. Cache WRITES stay at the ordinary 1.25x on both models.
  */
-const CACHE_READ_INPUT_MULTIPLIERS = new Map([['claude-fable-5-1', 0.025]]);
+const CACHE_READ_INPUT_MULTIPLIERS = new Map([
+  ['claude-fable-5-1', 0.025],
+  ['claude-opus-5-5', 0.05],
+]);
 const DEFAULT_CACHE_READ_INPUT_MULTIPLIER = 0.1;
 
 function cacheReadMultiplier(modelId: string): number {
@@ -170,9 +176,101 @@ describe('model pricing metadata', () => {
     const spark = models.find((model) => model.id === 'meta/muse-spark-1.1');
     const kimi = models.find((model) => model.id === 'moonshotai/kimi-k3');
     expect(sonnet?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
-    expect(glm?.pricing).toEqual({ inputPerMTok: 0.9282, outputPerMTok: 2.9172 });
+    // BST-1705 re-priced GLM-5.2 from 0.9282 / 2.9172 to 0.28 / 0.88 on
+    // 2026-09-10; BST-1804 re-read the live base as 0.6496 / 2.0416 on 2026-09-23.
+    expect(glm?.pricing).toEqual({ inputPerMTok: 0.6496, outputPerMTok: 2.0416 });
     expect(spark?.pricing).toEqual({ inputPerMTok: 1.25, outputPerMTok: 4.25 });
     expect(kimi?.pricing).toEqual({ inputPerMTok: 3, outputPerMTok: 15 });
+  });
+
+  /**
+   * BST-1705 corrected 21 of the 58 `openrouter` rows. THREE of them were not
+   * merely stale — they were read from the WRONG NUMBER in an otherwise
+   * correct payload, and each of those mistakes is repeatable by the next
+   * author who reads the Models API without checking what they are looking at.
+   * `scripts/openrouter-pricing-audit.mjs` can NAME all three (`surge-band`,
+   * `variant-route:<id>`), and its own header carries the same three.
+   *
+   * FOUR rows are pinned here: those three, plus `google/gemini-3.6-flash`,
+   * whose held 1.5 / 7.5 was exactly 2x the live base and matched no band, no
+   * tier and no variant route — a wrong number the audit classifies only as
+   * `moved-upstream`. Three named mistakes, four pinned rows; the counts are
+   * not in conflict.
+   *
+   * The mechanised version of this rule is
+   * `pnpm run audit:openrouter-pricing` (scripts/openrouter-pricing-audit.mjs);
+   * it is not a required check because the fact lives upstream and moves
+   * weekly. These pins are the part that CAN live in the required lane.
+   */
+  it('holds base rates, not surge bands or :batch routes, on the BST-1705 rows', () => {
+    const models = listProviderLlmModels('openrouter');
+    const rate = (id: string) => models.find((model) => model.id === id)?.pricing;
+    // Time-of-day surge: 0.132 / 0.528 is this route's 00:00-16:00 UTC band.
+    expect(rate('tencent/hy3')).toEqual({ inputPerMTok: 0.0825, outputPerMTok: 0.33 });
+    // `:batch` variant routes: 0.375 / 1.875 and 0.075 / 0.25 belong to
+    // google/gemini-3.7-flash:batch and z-ai/glm-5.3-flash:batch, which are
+    // separate routes we do not ship.
+    expect(rate('google/gemini-3.7-flash')).toEqual({ inputPerMTok: 0.75, outputPerMTok: 3.75 });
+    expect(rate('z-ai/glm-5.3-flash')).toEqual({ inputPerMTok: 0.15, outputPerMTok: 0.5 });
+    // Exactly 2x the gateway's base rate, from an unidentified source: neither
+    // the `:batch` twin (0.375 / 1.875) nor the direct `google` row, which
+    // holds the same 0.75 / 3.75 this row now does.
+    expect(rate('google/gemini-3.6-flash')).toEqual({ inputPerMTok: 0.75, outputPerMTok: 3.75 });
+  });
+
+  /**
+   * BST-1705 re-priced the `openrouter` GPT-5.x rows from the live Models API
+   * and left the direct `openai` block alone (one ticket, one route's source).
+   * BST-1804 then re-priced the direct block from developers.openai.com (pinned
+   * below), so the two blocks agree again on these four models — but each is
+   * still read from its OWN route's source. A sweep that copies one block over
+   * the other re-introduces the stale-mirror failure both tickets fixed.
+   */
+  it('prices the OpenRouter GPT-5.x rows from the gateway, not from the stale direct block', () => {
+    const models = listProviderLlmModels('openrouter');
+    const rate = (id: string) => models.find((model) => model.id === id)?.pricing;
+    // BST-1708: base rates unchanged; each row additionally carries its
+    // gateway long-context tier.
+    expect(rate('openai/gpt-5.5')).toEqual({
+      inputPerMTok: 5,
+      longContextTiers: [
+        { cacheReadPerMTok: 1, inputPerMTok: 10, minPromptTokens: 272_000, outputPerMTok: 45 },
+      ],
+      outputPerMTok: 30,
+    });
+    expect(rate('openai/gpt-5.4')).toEqual({
+      inputPerMTok: 2.5,
+      longContextTiers: [
+        { cacheReadPerMTok: 0.5, inputPerMTok: 5, minPromptTokens: 272_000, outputPerMTok: 22.5 },
+      ],
+      outputPerMTok: 15,
+    });
+    expect(rate('openai/gpt-5.6-terra')).toEqual({
+      inputPerMTok: 2,
+      longContextTiers: [
+        {
+          cacheReadPerMTok: 0.4,
+          cacheWritePerMTok: 5,
+          inputPerMTok: 4,
+          minPromptTokens: 272_000,
+          outputPerMTok: 18,
+        },
+      ],
+      outputPerMTok: 12,
+    });
+    expect(rate('openai/gpt-5.6-luna')).toEqual({
+      inputPerMTok: 0.2,
+      longContextTiers: [
+        {
+          cacheReadPerMTok: 0.04,
+          cacheWritePerMTok: 0.5,
+          inputPerMTok: 0.4,
+          minPromptTokens: 272_000,
+          outputPerMTok: 1.8,
+        },
+      ],
+      outputPerMTok: 1.2,
+    });
   });
 
   /**
@@ -183,6 +281,11 @@ describe('model pricing metadata', () => {
    * a faithful OpenRouter pass-through, so a future sweep could easily "fix"
    * this back into a mirror without reading the row note. This pin makes that
    * a failing test rather than a silent 2x cost misreport.
+   *
+   * BST-1804 re-read BOTH sources on 2026-09-23 and both still stand: OpenAI
+   * publishes 4/20 short-context and 8/30 above 272K, so the direct row is
+   * not a mis-read long-context tier; OpenRouter publishes 2/10 with a 4/15
+   * tier. The routes genuinely diverge, so the pair still differs.
    */
   it('prices the two GPT-5.6 Sol routes from their own sources', () => {
     const platformSol = listProviderLlmModels('openai').find((model) => model.id === 'gpt-5.6-sol');
@@ -190,7 +293,124 @@ describe('model pricing metadata', () => {
       (model) => model.id === 'openai/gpt-5.6-sol'
     );
     expect(platformSol?.pricing).toEqual({ inputPerMTok: 4, outputPerMTok: 20 });
-    expect(routedSol?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
+    // BST-1708: the routed row additionally carries its gateway
+    // long-context tier; the pair still differs.
+    expect(routedSol?.pricing).toEqual({
+      inputPerMTok: 2,
+      longContextTiers: [
+        {
+          cacheReadPerMTok: 0.4,
+          cacheWritePerMTok: 5,
+          inputPerMTok: 4,
+          minPromptTokens: 272_000,
+          outputPerMTok: 15,
+        },
+      ],
+      outputPerMTok: 10,
+    });
     expect(routedSol?.pricing).not.toEqual(platformSol?.pricing);
+  });
+
+  /**
+   * BST-1804. The direct `openai` rows had kept pre-2026 GPT-5 rates (five at
+   * 1.25 / 10) and a 400K window on the four 1.05M models. Every value below is
+   * OpenAI's standard short-context rate and context window as published on
+   * https://developers.openai.com/api/docs/models/<id>, retrieved 2026-09-23.
+   */
+  it('prices the direct OpenAI rows from developers.openai.com', () => {
+    const models = listProviderLlmModels('openai');
+    const row = (id: string) => {
+      const model = models.find((entry) => entry.id === id);
+      return { contextWindow: model?.contextWindow, pricing: model?.pricing };
+    };
+    const priced = (inputPerMTok: number, outputPerMTok: number, contextWindow: number) => ({
+      contextWindow,
+      pricing: { inputPerMTok, outputPerMTok },
+    });
+    expect(row('gpt-5.6-terra')).toEqual(priced(2, 12, 1_050_000));
+    expect(row('gpt-5.6-luna')).toEqual(priced(0.2, 1.2, 1_050_000));
+    expect(row('gpt-5.5')).toEqual(priced(5, 30, 1_050_000));
+    expect(row('gpt-5.5-pro')).toEqual(priced(30, 180, 1_050_000));
+    expect(row('gpt-5.4')).toEqual(priced(2.5, 15, 1_050_000));
+    expect(row('gpt-5.4-pro')).toEqual(priced(30, 180, 1_050_000));
+    expect(row('gpt-5.4-mini')).toEqual(priced(0.75, 4.5, 400_000));
+    expect(row('gpt-5.4-nano')).toEqual(priced(0.2, 1.25, 400_000));
+    expect(row('gpt-5.3-codex')).toEqual(priced(1.75, 14, 400_000));
+    expect(row('gpt-5.2')).toEqual(priced(1.75, 14, 400_000));
+    expect(row('gpt-5.2-pro')).toEqual(priced(21, 168, 400_000));
+  });
+
+  // BST-1804: https://ai.google.dev/gemini-api/docs/pricing, Standard paid
+  // tier (text/image/video input), retrieved 2026-09-23.
+  it('prices Gemini 3.1 Flash-Lite from the Google pricing page', () => {
+    const flashLite = listProviderLlmModels('google').find(
+      (model) => model.id === 'gemini-3.1-flash-lite'
+    );
+    expect(flashLite?.pricing).toEqual({ inputPerMTok: 0.25, outputPerMTok: 1.5 });
+  });
+
+  // BST-1804: same page, Standard paid tier; a flat rate with no prompt-size tier.
+  it('prices the Gemini 3.5 Flash default from the Google pricing page', () => {
+    const flash = listProviderLlmModels('google').find((model) => model.id === 'gemini-3.5-flash');
+    expect(flash?.pricing).toEqual({ inputPerMTok: 1.5, outputPerMTok: 9 });
+  });
+
+  // BST-1708: gateway long-context surcharge tiers (`min_prompt_tokens`
+  // overrides), recorded per-MTok from the OpenRouter Models API. Values
+  // below were read 2026-09-22 for the pre-refresh rows and read 2026-09-28
+  // for the BST-1804 rows (gpt-6-sol, gpt-6-luna, grok-4.7);
+  // anthropic/claude-opus-5.5 publishes no tier and stays flat.
+  it('carries long-context tiers on exactly the fourteen banded gateway rows', () => {
+    const tiered = new Map<string, unknown>();
+    for (const provider of listProviders()) {
+      for (const model of provider.models) {
+        if (model.type === 'llm' && model.pricing?.longContextTiers !== undefined) {
+          tiered.set(`${provider.id}/${model.id}`, model.pricing.longContextTiers);
+        }
+      }
+    }
+    expect([...tiered.keys()].sort()).toEqual(
+      [
+        'openrouter/google/gemini-3.1-pro-preview',
+        'openrouter/openai/gpt-5.4',
+        'openrouter/openai/gpt-5.5',
+        'openrouter/openai/gpt-5.6-luna',
+        'openrouter/openai/gpt-5.6-sol',
+        'openrouter/openai/gpt-5.6-terra',
+        'openrouter/openai/gpt-6-astra',
+        'openrouter/openai/gpt-6-luna',
+        'openrouter/openai/gpt-6-sol',
+        'openrouter/qwen/qwen3.6-flash',
+        'openrouter/qwen/qwen3.7-plus',
+        'openrouter/x-ai/grok-4.5',
+        'openrouter/x-ai/grok-4.6',
+        'openrouter/x-ai/grok-4.7',
+      ].sort()
+    );
+    expect(tiered.get('openrouter/openai/gpt-6-astra')).toEqual([
+      {
+        cacheReadPerMTok: 2,
+        cacheWritePerMTok: 25,
+        inputPerMTok: 20,
+        minPromptTokens: 272_000,
+        outputPerMTok: 75,
+      },
+    ]);
+    expect(tiered.get('openrouter/x-ai/grok-4.7')).toEqual([
+      {
+        cacheReadPerMTok: 0.8,
+        inputPerMTok: 3.2,
+        minPromptTokens: 200_000,
+        outputPerMTok: 9.6,
+      },
+    ]);
+    expect(tiered.get('openrouter/qwen/qwen3.6-flash')).toEqual([
+      {
+        cacheWritePerMTok: 0.9375,
+        inputPerMTok: 0.75,
+        minPromptTokens: 256_000,
+        outputPerMTok: 3,
+      },
+    ]);
   });
 });

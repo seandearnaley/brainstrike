@@ -21,7 +21,7 @@ import {
   EMPTY_SELECTION_PATHS,
   getWorkspaceSelectionPathCandidates,
   isSameOrDescendantSelectionPath,
-  isWorkspacePathSelected,
+  isWorkspaceNodeSelected,
 } from './optimized-file-tree-selection-counts';
 
 export type FileTreeRowBuildSource = 'main-thread' | 'normalized' | 'worker';
@@ -394,7 +394,7 @@ function computeFileSelectionState(
           selectionModel.materializedPaths
         )
       : folderId
-        ? isWorkspacePathSelected(selectedFilePaths, folderId, node.path)
+        ? isWorkspaceNodeSelected(selectedFilePaths, folderId, node)
         : false;
   return {
     checkboxState: isSelected,
@@ -522,7 +522,7 @@ function computeLoadedFileCheckboxState(
         node.path,
         selectionModel.materializedPaths
       )
-    : isWorkspacePathSelected(selectedFilePaths, folderId, node.path);
+    : isWorkspaceNodeSelected(selectedFilePaths, folderId, node);
 }
 
 function computeLoadedDirectoryCheckboxState(
@@ -839,7 +839,7 @@ function computeDirectorySelectionState(
   if (
     selectionModel.mode !== 'query' &&
     folderId &&
-    isWorkspacePathSelected(selectedFilePaths, folderId, node.path)
+    isWorkspaceNodeSelected(selectedFilePaths, folderId, node)
   ) {
     return createQueryDirectoryNodeSelectionState(true);
   }

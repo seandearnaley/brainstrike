@@ -28,7 +28,7 @@ import {
 } from '../utils/normalized-file-tree';
 import {
   buildHandleMap,
-  type FileSystemHandle,
+  type FileNodeHandle,
   rehydrateTree,
   toWorkerFileNodes,
 } from '../utils/worker-node-conversion';
@@ -615,7 +615,7 @@ export function shouldSkipSpecificPathLoad(
 function rehydrateWorkerChildrenStrict(
   path: string,
   children: WorkerFileNode[],
-  handleMap: Map<string, FileSystemHandle>
+  handleMap: Map<string, FileNodeHandle>
 ): IFileNode[] {
   const patchEstimate = estimateTreePayloadBytes(children);
   recordFileTreeTelemetry({
@@ -650,7 +650,7 @@ function rehydrateWorkerChildrenStrict(
 }
 
 export function applyWorkerPatchesToNormalizedTree(args: {
-  handleMap: Map<string, FileSystemHandle>;
+  handleMap: Map<string, FileNodeHandle>;
   normalizedTree: NormalizedFileTreeState;
   patches: readonly AccumulatedFileTreePatchMessage[];
 }): {
@@ -715,7 +715,7 @@ export function applyWorkerPatchesToNormalizedTree(args: {
 }
 
 export function applyWorkerExpandAllResult(args: {
-  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  handleMapRef: React.RefObject<Map<string, FileNodeHandle>>;
   normalizedTreeRef: React.RefObject<NormalizedFileTreeState>;
   onNodesIndexedRef: React.RefObject<
     ((nodes: IFileNode[], parentPath: string | null) => void) | undefined

@@ -34,7 +34,6 @@ export type {
   WorkerHealthStatus,
 } from './types.js';
 export {
-  createTimeoutPromise,
   createWorkerReadyWaiter,
   DEFAULT_WORKER_READY_TIMEOUT_MS,
   type WorkerReadyWaiterOptions,

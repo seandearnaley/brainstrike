@@ -1,6 +1,7 @@
 {
   "extends": "../../packages/config/tsconfig/node-library.json",
   "compilerOptions": {
+    "plugins": [{ "name": "@effect/language-service" }],
     "composite": true,
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
@@ -37,6 +38,9 @@
   "references": [
     {
       "path": "../types"
+    },
+    {
+      "path": "../effect-kit"
     },
     {
       "path": "../logging"

@@ -77,6 +77,9 @@ const LlmModelSchema = z.strictObject({
   anthropicReasoning: z
     .strictObject({
       defaultEffort: AnthropicEffortSchema,
+      // Whether the vendor leaves thinking no off state (BST-1706).
+      // Required when the ladder is declared so every row answers it.
+      mandatory: z.boolean(),
       supportedEfforts: z.array(AnthropicEffortSchema),
     })
     .optional(),
@@ -94,6 +97,20 @@ const LlmModelSchema = z.strictObject({
       cacheReadPerMTok: z.number().optional(),
       cacheWritePerMTok: z.number().optional(),
       inputPerMTok: z.number(),
+      // Gateway long-context surcharge bands (BST-1708): the upstream
+      // `pricing.overrides` entries keyed by `min_prompt_tokens`, recorded
+      // per-MTok like the base rates. Time-of-day bands are not modelled.
+      longContextTiers: z
+        .array(
+          z.strictObject({
+            cacheReadPerMTok: z.number().optional(),
+            cacheWritePerMTok: z.number().optional(),
+            inputPerMTok: z.number(),
+            minPromptTokens: z.number().int().positive(),
+            outputPerMTok: z.number(),
+          })
+        )
+        .optional(),
       outputPerMTok: z.number(),
     })
     .optional(),

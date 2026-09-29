@@ -8,12 +8,11 @@
  * response payload interpretation, and any host-specific bookkeeping stay in
  * the adapter and reach the channel through the hooks below.
  *
- * Adopted so far: the chunking and parser host managers. Adapters still to
- * migrate: db, llm, embedding — they still carry their own correlation code,
- * and the hooks here (`onLateResponse` for the DB host's abandoned-request
- * ledger, `onAbort` for the llm host's pre-cancel ledger and cancel-to-host,
- * `onTimeout`'s `terminate` policy for a transaction whose connection cannot
- * survive an abandoned statement) exist for them.
+ * Every host manager uses it: chunking, parser, db, llm and embedding. The
+ * hooks carry their host-specific needs: `onLateResponse` for the DB host's
+ * abandoned-request ledger, `onAbort` for the llm host's pre-cancel ledger and
+ * cancel-to-host, and `onTimeout`'s `terminate` policy for a transaction whose
+ * connection cannot survive an abandoned statement.
  *
  * This module deliberately never imports Electron: managers are constructed at
  * module scope before `app.whenReady`, so the channel must be safe to build in

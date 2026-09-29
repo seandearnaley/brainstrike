@@ -95,6 +95,9 @@
       "@brainstrike/notes-vault/desktop-contract": [
         "../../packages/notes-vault/dist/desktop/bridge-contract.d.ts"
       ],
+      "@brainstrike/effect-kit": [
+        "../../packages/effect-kit/dist/index.d.ts"
+      ],
       "@brainstrike/logging": [
         "../../packages/logging/dist/index.d.ts"
       ],

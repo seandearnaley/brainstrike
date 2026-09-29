@@ -30,22 +30,81 @@ const EXTENSION_ID = 'io.modelcontextprotocol/tasks';
 const SERVER_INFO = { name: 'brainstrike-tasks-ack-fixture', version: '1.0.0' };
 const cleanupTasks: Array<() => Promise<void>> = [];
 
-afterEach(async () => {
-  const results = await Promise.allSettled(
-    cleanupTasks
-      .splice(0)
-      .reverse()
-      .map((task) => task())
-  );
-  const failures = results.flatMap((result) =>
-    result.status === 'rejected' ? [result.reason] : []
-  );
+async function cleanupAfterTest(): Promise<void> {
+  const tasks = cleanupTasks.splice(0).reverse();
+  const failures: unknown[] = [];
+  for (const task of tasks) {
+    try {
+      await task();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   if (failures.length === 1) {
     throw failures[0];
   }
   if (failures.length > 1) {
     throw new AggregateError(failures, 'Tasks acknowledgement wire cleanup failed');
   }
+}
+
+afterEach(cleanupAfterTest);
+
+it('awaits each wire cleanup in reverse acquisition order', async () => {
+  const closed = Promise.withResolvers<void>();
+  const events: string[] = [];
+  cleanupTasks.push(async () => {
+    events.push('remove directory');
+  });
+  cleanupTasks.push(async () => {
+    events.push('close client');
+    await closed.promise;
+    events.push('client closed');
+  });
+
+  const cleanup = cleanupAfterTest();
+  try {
+    expect([...events]).toEqual(['close client']);
+  } finally {
+    closed.resolve();
+    await cleanup;
+  }
+  expect(events).toEqual(['close client', 'client closed', 'remove directory']);
+  await cleanupAfterTest();
+  expect(events).toHaveLength(3);
+});
+
+it('preserves the original cleanup failure and still releases earlier resources', async () => {
+  const failure = new Error('client close failed');
+  const releaseDirectory = vi.fn(async () => undefined);
+  cleanupTasks.push(releaseDirectory);
+  cleanupTasks.push(() => Promise.reject(failure));
+
+  await expect(cleanupAfterTest()).rejects.toBe(failure);
+  expect(releaseDirectory).toHaveBeenCalledTimes(1);
+  await cleanupAfterTest();
+  expect(releaseDirectory).toHaveBeenCalledTimes(1);
+});
+
+it('reports all synchronous and asynchronous cleanup failures in disposal order', async () => {
+  const closeFailure = new Error('client close failed');
+  const directoryFailure = new Error('directory removal failed');
+  const releaseEarlierResource = vi.fn(async () => undefined);
+  cleanupTasks.push(releaseEarlierResource);
+  cleanupTasks.push(() => {
+    throw directoryFailure;
+  });
+  cleanupTasks.push(() => Promise.reject(closeFailure));
+
+  const cleanup = cleanupAfterTest();
+  await expect(cleanup).rejects.toBeInstanceOf(AggregateError);
+  await expect(cleanup).rejects.toMatchObject({
+    errors: [closeFailure, directoryFailure],
+    message: 'Tasks acknowledgement wire cleanup failed',
+  });
+  expect(releaseEarlierResource).toHaveBeenCalledTimes(1);
+  await cleanupAfterTest();
+  expect(releaseEarlierResource).toHaveBeenCalledTimes(1);
 });
 
 function tasksRegistry(): McpClientExtensionRegistry {

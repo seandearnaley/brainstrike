@@ -1,3 +1,4 @@
+import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/app-reload';
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
@@ -206,6 +207,13 @@ if (!existingRoot) {
 
 const webDbPath = resolveWebDbPath();
 
+// Before the first render, so a marker the last reload left has already flagged
+// the notice. Under HMR this module re-executes: the uninstall keeps one listener.
+const stopAppReloadRecovery = startAppReloadRecovery({ buildId: __BRAINSTRIKE_BUILD_ID__ });
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopAppReloadRecovery);
+}
+
 root.render(
   <React.StrictMode>
     <DbProvider dbPath={webDbPath}>
@@ -213,7 +221,9 @@ root.render(
       <WebE2ETestHooks dbPath={webDbPath} />
       <DbSchemaVerifier>
         <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-          <RootLayoutContent />
+          <AppReloadGate buildId={__BRAINSTRIKE_BUILD_ID__}>
+            <RootLayoutContent />
+          </AppReloadGate>
         </AdaptersProvider>
       </DbSchemaVerifier>
     </DbProvider>
