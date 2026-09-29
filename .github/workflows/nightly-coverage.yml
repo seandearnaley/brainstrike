@@ -53,6 +53,39 @@ jobs:
           TEST_TIMEOUT_MULTIPLIER: "2"
         run: pnpm --filter @brainstrike/db test:pg-textsearch-durability
 
+  # BST-1875: the durability gate above closes cleanly, so it can never see
+  # crash-recovery damage. This job SIGKILLs a writer 200 times per platform
+  # mid-transaction against the real migrated schema, then runs desktop's
+  # production recovery and verifies every index access method. A PR run of the
+  # same file (10 iterations) gates every db change inside required `Unit`;
+  # this is the 200-iteration qualification a PGlite/pg_textsearch bump needs.
+  # 50 iterations took 138 s on a laptop (macOS arm64), so 200 is about 9 min;
+  # the ceilings leave room for slower runners, Windows especially.
+  sigkill-crash-gate:
+    name: SIGKILL crash gate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Run SIGKILL crash gate
+        timeout-minutes: 55
+        env:
+          NODE_ENV: test
+          TEST_TIMEOUT_MULTIPLIER: "2"
+          CRASH_GATE_ITERATIONS: "200"
+        run: pnpm --filter @brainstrike/db test:crash-gate
+
   package-coverage:
     name: Coverage packages (${{ matrix.shard }})
     runs-on: ubuntu-latest
