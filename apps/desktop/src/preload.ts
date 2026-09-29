@@ -941,7 +941,9 @@ if (shouldExposeBridge('windowFocus')) {
 // capability-checks `window.databaseIntegrity`; the embedding host gets its own
 // copy from hidden-preload.ts, the other hidden hosts get none, and web has no
 // preload at all.
-exposeBridge('databaseIntegrity', databaseIntegrityContract);
+if (shouldExposeBridge('databaseIntegrity')) {
+  exposeBridge('databaseIntegrity', databaseIntegrityContract);
+}
 
 // File-export save bridge (desktop-only): writes export bytes into the OS
 // Downloads folder from MAIN, bypassing Chromium's blob-download pipeline

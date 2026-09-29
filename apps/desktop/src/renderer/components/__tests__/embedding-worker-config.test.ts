@@ -187,6 +187,48 @@ describe('composeIntegrityHold', () => {
     await expect(later).rejects.toThrow('Database integrity watcher was disposed.');
   });
 
+  it('re-parks a claim whose containment began while the base permit was waiting', async () => {
+    const { push, watcher } = createIntegrityHarness({ revision: 0, state: { kind: 'healthy' } });
+    let releaseBase: () => void = () => undefined;
+    const base = vi
+      .fn<(options: { readonly label: string }) => Promise<void>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseBase = resolve;
+          })
+      )
+      .mockResolvedValue(undefined);
+    const log = vi.fn();
+    let settled = false;
+
+    const claim = composeIntegrityHold(
+      base,
+      watcher,
+      log
+    )({ label: 'embedding claim' }).then(() => {
+      settled = true;
+    });
+    await tick();
+    expect(base).toHaveBeenCalledTimes(1);
+
+    // Containment lands while the pressure gate still holds the claim.
+    push({ revision: 1, state: CONTAINED_STATE });
+    releaseBase();
+    await tick();
+    expect(settled).toBe(false);
+    expect(log).toHaveBeenCalledExactlyOnceWith(HOLD_WARNING, {
+      revision: 1,
+      state: CONTAINED_STATE,
+    });
+
+    // Once healthy again the claim re-runs every gate before it is admitted.
+    push({ revision: 2, state: { kind: 'healthy' } });
+    await claim;
+    expect(base).toHaveBeenCalledTimes(2);
+    watcher.dispose();
+  });
+
   it('rejects when the integrity state cannot be read instead of admitting the claim', async () => {
     const watcher = createDatabaseIntegrityWatcher({
       getState: () => Promise.reject(new Error('ipc unavailable')),

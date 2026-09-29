@@ -29,6 +29,14 @@ describe('getEmbeddingHostIntegrityWatcher', () => {
 
     expect(getEmbeddingHostIntegrityWatcher()).toBe(first);
     expect(onChanged).toHaveBeenCalledTimes(1);
-    first.dispose();
+  });
+
+  it('hands out no dispose: the claim permit relies on this watcher for the life of the host', async () => {
+    vi.stubGlobal('window', {
+      databaseIntegrity: { getState: vi.fn(), onChanged: vi.fn(() => () => undefined) },
+    });
+    const getEmbeddingHostIntegrityWatcher = await loadGetter();
+
+    expect(getEmbeddingHostIntegrityWatcher()).not.toHaveProperty('dispose');
   });
 });
