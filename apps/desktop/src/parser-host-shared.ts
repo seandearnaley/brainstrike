@@ -21,9 +21,9 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
  * `packages/chunking-worker/src/parsers/types.ts`.
  */
 export type ParserHostAstNode = {
-  type?: string;
-  start?: number;
-  end?: number;
+  type?: string | undefined;
+  start?: number | undefined;
+  end?: number | undefined;
 } & Record<string, unknown>;
 
 /** Parse options accepted by the host. */
@@ -62,31 +62,6 @@ export type ParserHostParseResponse = ParserHostParseFailure | ParserHostParseSu
  * `ParserHostManager.parse()`.
  */
 export const PARSER_HOST_PARSE_CHANNEL = DESKTOP_IPC_CHANNELS.files.parserHostParse;
-
-/**
- * Conservative type guard for `ParserHostParseRequest`. Shared between the
- * IPC layer (`ipc-parser-host.ts`) and the utility-process entry
- * (`parser-host-entry.ts`) so we don't drift two copies of the same logic.
- */
-export function isParserHostParseRequest(value: unknown): value is ParserHostParseRequest {
-  if (value === null || typeof value !== 'object') {
-    return false;
-  }
-  const v = value as Record<string, unknown>;
-  if (typeof v['requestId'] !== 'string' || typeof v['content'] !== 'string') {
-    return false;
-  }
-  const opts = v['options'];
-  if (opts === null || typeof opts !== 'object') {
-    return false;
-  }
-  const o = opts as Record<string, unknown>;
-  return (
-    (o['language'] === 'javascript' || o['language'] === 'typescript') &&
-    typeof o['jsx'] === 'boolean' &&
-    typeof o['errorRecovery'] === 'boolean'
-  );
-}
 
 /**
  * Best-effort extraction of `requestId` from an unknown payload — preserves

@@ -546,10 +546,11 @@ async function readWorkspaceFilePageSource(args: {
 }
 
 function requireReadWorkspaceFileCursorScope(
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  executionThreadId?: string
 ): ReadWorkspaceFileCursorScope {
   const resourceId = runtimeData?.memory?.resourceId;
-  const threadId = runtimeData?.memory?.threadId;
+  const threadId = executionThreadId ?? runtimeData?.memory?.threadId;
   if (!(resourceId?.trim() && threadId?.trim())) {
     throw new Error(
       'readWorkspaceFile continuation handles require a persisted assistant thread and workspace resource.'
@@ -679,7 +680,9 @@ export async function runReadWorkspaceFile(
 ): Promise<ReadWorkspaceFileResult | LoopGuardRefusalResult> {
   const domainModelResultCharBudget =
     loopGuard?.domainModelResultCharBudget ?? MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
-  const cursorScope = input.cursor ? requireReadWorkspaceFileCursorScope(runtimeData) : null;
+  const cursorScope = input.cursor
+    ? requireReadWorkspaceFileCursorScope(runtimeData, loopGuard?.threadScope)
+    : null;
   if (input.cursor && !cursorRegistry) {
     throw new Error('readWorkspaceFile continuation handles are unavailable in this read mode.');
   }
@@ -762,22 +765,30 @@ export async function runReadWorkspaceFile(
       }
       const nextCursor =
         page.nextPosition && cursorRegistry
-          ? cursorRegistry.issue(cursorScope ?? requireReadWorkspaceFileCursorScope(runtimeData), {
-              column: page.nextPosition.column,
-              endLine: effectiveEndLine,
-              line: page.nextPosition.line,
-              mtimeMs: file.mtimeMs,
-              path: file.path,
-              requestedEndLine: pageRequest.requestedEndLine,
-              requestedStartLine: pageRequest.requestedStartLine,
-              rootId: root.rootId,
-              size: file.size,
-            })
+          ? cursorRegistry.issue(
+              cursorScope ??
+                requireReadWorkspaceFileCursorScope(runtimeData, loopGuard?.threadScope),
+              {
+                column: page.nextPosition.column,
+                endLine: effectiveEndLine,
+                line: page.nextPosition.line,
+                mtimeMs: file.mtimeMs,
+                path: file.path,
+                requestedEndLine: pageRequest.requestedEndLine,
+                requestedStartLine: pageRequest.requestedStartLine,
+                rootId: root.rootId,
+                size: file.size,
+              }
+            )
           : null;
       // Only a successfully validated, model-visible page is this scope's
       // fresh observation. A rejected stale cursor must not vouch for changed
       // bytes and thereby disable the later write staleness guard.
-      recordKnownFileMtime(readStateScope(runtimeData), file.absolutePath, file.mtimeMs);
+      recordKnownFileMtime(
+        loopGuard?.threadScope ?? readStateScope(runtimeData),
+        file.absolutePath,
+        file.mtimeMs
+      );
       return { ...result, nextCursor };
     };
 

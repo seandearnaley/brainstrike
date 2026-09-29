@@ -5,6 +5,7 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ManagedWorktreeAuthorizer } from '../../ipc-domains/workspace-recent-roots';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 const handlers = new Map<string, IpcHandler>();
@@ -67,7 +68,7 @@ describe('ipc-handlers filesystem composition', () => {
 
   async function mountRoot(): Promise<DirectoryHandle> {
     return (await handlers.get('fs:requestDirectoryAccess')?.(
-      {} as IpcMainInvokeEvent
+      createTrustedInvokeEvent()
     )) as DirectoryHandle;
   }
 
@@ -86,8 +87,8 @@ describe('ipc-handlers filesystem composition', () => {
     vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
 
     const handle = await mountRoot();
-    const entries = await handlers.get('fs:readDirectory')?.({} as IpcMainInvokeEvent, handle);
-    const content = await handlers.get('fs:readFile')?.({} as IpcMainInvokeEvent, {
+    const entries = await handlers.get('fs:readDirectory')?.(createTrustedInvokeEvent(), handle);
+    const content = await handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), {
       kind: 'file',
       name: 'file.txt',
       path: '/mock/test/directory/file.txt',
@@ -117,13 +118,13 @@ describe('ipc-handlers filesystem composition', () => {
     } satisfies FileHandle;
 
     await expect(
-      handlers.get('fs:readDirectory')?.({} as IpcMainInvokeEvent, root)
+      handlers.get('fs:readDirectory')?.(createTrustedInvokeEvent(), root)
     ).resolves.toEqual([]);
-    await expect(handlers.get('fs:readFile')?.({} as IpcMainInvokeEvent, file)).resolves.toBe(
+    await expect(handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), file)).resolves.toBe(
       'file content'
     );
     await expect(
-      handlers.get('fs:readFileByPath')?.({} as IpcMainInvokeEvent, file.path)
+      handlers.get('fs:readFileByPath')?.(createTrustedInvokeEvent(), file.path)
     ).resolves.toBe('file content');
     expect(fileSystem.readDirectory).toHaveBeenCalledOnce();
     expect(fileSystem.readFile).toHaveBeenCalledTimes(2);
@@ -133,25 +134,25 @@ describe('ipc-handlers filesystem composition', () => {
   it('rejects unmounted, escaped, and malformed paths', async () => {
     const readByPath = handlers.get('fs:readFileByPath');
     await expect(
-      readByPath?.({} as IpcMainInvokeEvent, '/users/test/docs/file.txt')
+      readByPath?.(createTrustedInvokeEvent(), '/users/test/docs/file.txt')
     ).rejects.toThrow('outside every mounted workspace root');
 
     await mountRoot();
-    await expect(readByPath?.({} as IpcMainInvokeEvent, '/users/test/outside.txt')).rejects.toThrow(
-      'outside every mounted workspace root'
-    );
     await expect(
-      readByPath?.({} as IpcMainInvokeEvent, '/users/test/docs/\0malicious.txt')
+      readByPath?.(createTrustedInvokeEvent(), '/users/test/outside.txt')
+    ).rejects.toThrow('outside every mounted workspace root');
+    await expect(
+      readByPath?.(createTrustedInvokeEvent(), '/users/test/docs/\0malicious.txt')
     ).rejects.toThrow('null bytes');
     expect(fileSystem.readFileByPath).not.toHaveBeenCalled();
   });
 
   it('retains the existing guarded existence endpoint', async () => {
     await expect(
-      handlers.get('fs:exists')?.({} as IpcMainInvokeEvent, '/tmp/\0oops')
+      handlers.get('fs:exists')?.(createTrustedInvokeEvent(), '/tmp/\0oops')
     ).resolves.toBe(false);
     await expect(
-      handlers.get('fs:exists')?.({} as IpcMainInvokeEvent, '/users/test/docs')
+      handlers.get('fs:exists')?.(createTrustedInvokeEvent(), '/users/test/docs')
     ).resolves.toBe(true);
     expect(fileSystem.exists).toHaveBeenCalledWith(path.resolve('/users/test/docs'));
   });
@@ -159,7 +160,7 @@ describe('ipc-handlers filesystem composition', () => {
   it('threads the managed-worktree authorizer through the filesystem composition root', async () => {
     managedWorktreeAuthorizer.mockResolvedValue('authorized');
 
-    await handlers.get('fs:addRootByPath')?.({} as IpcMainInvokeEvent, '/managed/app/bright-fox');
+    await handlers.get('fs:addRootByPath')?.(createTrustedInvokeEvent(), '/managed/app/bright-fox');
 
     expect(managedWorktreeAuthorizer).toHaveBeenCalledWith('/managed/app/bright-fox');
   });

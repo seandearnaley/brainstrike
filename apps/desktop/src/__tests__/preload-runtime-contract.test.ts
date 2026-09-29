@@ -1,90 +1,17 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { BROWSER_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/browser-pane/availability';
-import { CHANGES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/changes/availability';
-import { FORGE_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/forge/availability';
-import { GIT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/git-panel/availability';
 import { PLATFORM_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/platform-bridge';
-import {
-  COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
-  TERMINAL_BRIDGE_REQUIRED_METHODS,
-} from '@brainstrike/app-shell/terminal-panel/availability';
-import { USER_COMMANDS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/user-commands-bridge';
 import { WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge';
-import { WORKTREES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/worktrees/availability';
 import { ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/provider-auth';
 import { SECRETS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/secrets-bridge';
-import { SKILLS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/skills-bridge';
-import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from '../platform/desktop-storage-authority';
-import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
+import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 
 function readPreloadSource(): string {
   return readFileSync(path.resolve(import.meta.dirname, '../preload.ts'), 'utf8');
-}
-
-function extractPreloadStringConstant(source: string, constantName: string): string {
-  const escapedConstantName = constantName.replaceAll('$', String.raw`\$`);
-  const match = source.match(
-    new RegExp(String.raw`const\s+${escapedConstantName}\s*=\s*['"]([^'"]+)['"]\s+as\s+const`)
-  );
-  if (!match?.[1]) {
-    throw new Error(`Missing preload constant ${constantName}.`);
-  }
-  return match[1];
-}
-
-function removePreloadStringConstantDefinitions(source: string): string {
-  return source.replaceAll(
-    /const\s+[A-Z0-9_]+_(?:CHANNEL|EVENT)\s*=\s*['"][^'"]+['"]\s+as\s+const;/g,
-    ''
-  );
-}
-
-function extractPreloadStringSet(source: string, constantName: string): string[] {
-  const sourceFile = ts.createSourceFile(
-    'preload.ts',
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
-  let values: string[] | undefined;
-  const visit = (node: ts.Node): void => {
-    if (!(ts.isVariableDeclaration(node) && ts.isIdentifier(node.name))) {
-      ts.forEachChild(node, visit);
-      return;
-    }
-    if (node.name.text !== constantName) {
-      return;
-    }
-    if (values !== undefined) {
-      throw new Error(`Multiple preload constants named ${constantName}.`);
-    }
-    const initializer = node.initializer;
-    const argument =
-      initializer && ts.isNewExpression(initializer) ? initializer.arguments?.[0] : undefined;
-    if (!(argument && ts.isArrayLiteralExpression(argument))) {
-      throw new Error(
-        `Preload constant ${constantName} must be constructed from an array literal.`
-      );
-    }
-    values = argument.elements.map((element) => {
-      if (!ts.isStringLiteral(element)) {
-        throw new Error(`Preload constant ${constantName} contains a non-string entry.`);
-      }
-      return element.text;
-    });
-  };
-  visit(sourceFile);
-  if (values === undefined) {
-    throw new Error(`Missing preload string set ${constantName}.`);
-  }
-  return values;
 }
 
 /**
@@ -172,90 +99,47 @@ function findRawIpcRendererChannels(source: string): string[] {
   });
 }
 
+/** Every channel string the manifest owns, flattened across its groups. */
+function listManifestChannels(): string[] {
+  return Object.values(DESKTOP_IPC_CHANNELS).flatMap((group) => Object.values(group));
+}
+
+/** `line: 'channel'` for every manifest channel that appears as a literal in `source`. */
+function findManifestChannelLiterals(source: string): string[] {
+  const findings: string[] = [];
+  for (const channel of listManifestChannels()) {
+    for (const quote of ["'", '"']) {
+      const literal = `${quote}${channel}${quote}`;
+      let index = source.indexOf(literal);
+      while (index !== -1) {
+        findings.push(`${source.slice(0, index).split('\n').length}: ${literal}`);
+        index = source.indexOf(literal, index + literal.length);
+      }
+    }
+  }
+  return findings.sort();
+}
+
 describe('preload runtime contract', () => {
-  it('keeps preload IPC contracts self-contained', () => {
+  it('sources every channel from the desktop IPC manifest instead of a local literal', () => {
+    // BST-1648: the manifest is the ONE place a channel string lives. The
+    // preload imports it (bundle: true inlines the pure module) and the
+    // AST walk in preload-sandbox-imports.test.ts proves the graph stays
+    // sandbox-pure. A literal that equals any manifest channel is a
+    // duplicate by definition.
     const preloadSource = readPreloadSource();
-
-    expect(preloadSource).not.toContain("from './db-shared'");
-    expect(preloadSource).not.toContain("from './platform/logging-api-contract'");
-    expect(preloadSource).toContain(
-      "const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch'"
-    );
-    expect(preloadSource).toContain(
-      "const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences'"
-    );
-    expect(preloadSource).toContain(
-      "const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences'"
-    );
-    expect(preloadSource).toContain(
-      "const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination'"
-    );
-    expect(preloadSource).toContain(
-      "const LOGGING_OPEN_DESTINATION_CHANNEL = 'logging:open-destination'"
-    );
-    expect(preloadSource).toContain(
-      "const LOGGING_GET_BUFFERED_LOGS_CHANNEL = 'logging:get-buffered-logs'"
-    );
-    expect(preloadSource).toContain(
-      "const LOGGING_INGEST_BUFFERED_RECORD_CHANNEL = 'logging:ingest-buffered-record'"
-    );
-    expect(preloadSource).toContain(
-      "const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated'"
-    );
-    expect(preloadSource).toContain(
-      "const LOGGING_DURABLE_RECORD_EVENT = 'logging:durable-record'"
-    );
-    expect(preloadSource).toContain(
-      "const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot'"
-    );
+    expect(preloadSource).toContain("from './platform/desktop-ipc-channels'");
+    const duplicatedLiterals = findManifestChannelLiterals(preloadSource);
+    expect(duplicatedLiterals).toEqual([]);
+    expect(preloadSource).not.toMatch(/['"]logging:[^'"]+['"]/);
   });
 
-  it('keeps the E2E seed routing keys in exact parity with MAIN authority', () => {
-    expect(
-      extractPreloadStringSet(readPreloadSource(), 'MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E')
-    ).toEqual([...MAIN_OWNED_DESKTOP_STORAGE_KEYS]);
-  });
-
-  it('keeps preload logging literals in parity with the platform logging contract', () => {
+  it('keeps the E2E seed routing keys sourced from MAIN authority', () => {
     const preloadSource = readPreloadSource();
-
-    expect({
-      durableRecord: extractPreloadStringConstant(preloadSource, 'LOGGING_DURABLE_RECORD_EVENT'),
-      getBufferedLogs: extractPreloadStringConstant(
-        preloadSource,
-        'LOGGING_GET_BUFFERED_LOGS_CHANNEL'
-      ),
-      getPreferences: extractPreloadStringConstant(
-        preloadSource,
-        'LOGGING_GET_PREFERENCES_CHANNEL'
-      ),
-      ingestBufferedRecord: extractPreloadStringConstant(
-        preloadSource,
-        'LOGGING_INGEST_BUFFERED_RECORD_CHANNEL'
-      ),
-      openDestination: extractPreloadStringConstant(
-        preloadSource,
-        'LOGGING_OPEN_DESTINATION_CHANNEL'
-      ),
-      preferencesUpdated: extractPreloadStringConstant(
-        preloadSource,
-        'LOGGING_PREFERENCES_UPDATED_EVENT'
-      ),
-      selectDestination: extractPreloadStringConstant(
-        preloadSource,
-        'LOGGING_SELECT_DESTINATION_CHANNEL'
-      ),
-      setPreferences: extractPreloadStringConstant(
-        preloadSource,
-        'LOGGING_SET_PREFERENCES_CHANNEL'
-      ),
-    }).toEqual(LOGGING_API_CHANNELS);
-
-    const preloadWithoutConstantDefinitions = preloadSource.replaceAll(
-      /const\s+LOGGING_[A-Z_]+_(?:CHANNEL|EVENT)\s*=\s*['"]logging:[^'"]+['"]\s+as\s+const;/g,
-      ''
+    expect(preloadSource).toContain("from './platform/desktop-storage-authority'");
+    expect(preloadSource).toContain(
+      'MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS)'
     );
-    expect(preloadWithoutConstantDefinitions).not.toMatch(/['"]logging:[^'"]+['"]/);
   });
 
   it('keeps deterministic E2E local-runtime bridge responses in preload', () => {
@@ -266,280 +150,48 @@ describe('preload runtime contract', () => {
     expect(preloadSource).toContain('createDisabledLocalRuntimeCatalog');
   });
 
-  it('keeps preload desktop diagnostics literal in parity with the platform diagnostics contract', () => {
+  it('keeps the desktop diagnostics bridge on the manifest channel', () => {
     const preloadSource = readPreloadSource();
-
-    expect(
-      extractPreloadStringConstant(preloadSource, 'DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL')
-    ).toBe(DESKTOP_PRELOAD_IPC_CHANNELS.diagnostics.getSnapshot);
-    expect(preloadSource).toContain("contextBridge.exposeInMainWorld('desktopDiagnostics'");
+    const bridge = extractExposedBridgeProperties(preloadSource, 'desktopDiagnostics');
+    expect(requireExposedBridgeProperty(bridge, 'desktopDiagnostics', 'getSnapshot')).toContain(
+      'ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot)'
+    );
   });
 
-  it('keeps preload bridge channel literals in parity with the desktop IPC channel catalog', () => {
+  it('derives the MCP bridge from pure manifests with no raw invoke escape hatch', () => {
     const preloadSource = readPreloadSource();
-    const expectedConstants = {
-      AGENT_CHAT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.agent.chat,
-      APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL:
-        DESKTOP_PRELOAD_IPC_CHANNELS.runtime.noteReloadIntent,
-      APP_POWER_SNAPSHOT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot,
-      APP_POWER_STATE_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerState,
-      ASSISTANT_GET_URL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl,
-      ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT:
-        DESKTOP_PRELOAD_IPC_CHANNELS.agent.previewContextSelectionUpdate,
-      ASSISTANT_ROOT_TREE_SELECTION_EVENT:
-        DESKTOP_PRELOAD_IPC_CHANNELS.agent.rootTreeSelectionUpdate,
-      ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT:
-        DESKTOP_PRELOAD_IPC_CHANNELS.agent.workspaceContextSelectionUpdate,
-      ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT:
-        DESKTOP_PRELOAD_IPC_CHANNELS.agent.workspaceContextTapestryUpdate,
-      BROWSER_CLOSE_TAB_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.closeTab,
-      BROWSER_CREATE_TAB_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.createTab,
-      BROWSER_GO_BACK_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.goBack,
-      BROWSER_GO_FORWARD_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.goForward,
-      BROWSER_LIST_TABS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.listTabs,
-      BROWSER_NAVIGATE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.navigate,
-      BROWSER_RELOAD_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.reload,
-      BROWSER_SELECT_TAB_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.selectTab,
-      BROWSER_SET_BOUNDS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.setBounds,
-      BROWSER_SET_OCCLUDED_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.setOccluded,
-      BROWSER_TABS_CHANGED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.browser.tabsChanged,
-      CHANGES_APPLY_REWIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.applyRewind,
-      CHANGES_FILE_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.fileDiff,
-      CHANGES_FINALIZE_REWINDS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.finalizeRewinds,
-      CHANGES_INVALIDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.changes.invalidated,
-      CHANGES_INVENTORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.inventory,
-      CHANGES_REDO_REWIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.redoRewind,
-      CHANGES_RESOLVE_VIEW_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.resolveView,
-      CHANGES_REWIND_PREVIEW_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.rewindPreview,
-      CLIPBOARD_WRITE_TEXT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.clipboard.writeText,
-      COMMAND_SESSIONS_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.commandSessions.list,
-      COMMAND_SESSIONS_READ_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.commandSessions.read,
-      COMMAND_SESSIONS_REMOVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.commandSessions.remove,
-      COMMAND_SESSIONS_STOP_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.commandSessions.stop,
-      COMMAND_SESSIONS_WRITE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.commandSessions.write,
-      DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.applyManagedCacheBatch,
-      DB_CLEAR_ALL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.clearAll,
-      DB_DIAGNOSTICS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.diagnostics,
-      DB_EXEC_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.exec,
-      DB_GET_USER_DATA_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.getUserDataPath,
-      DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL:
-        DESKTOP_PRELOAD_IPC_CHANNELS.db.insertChunksAndEnqueueEmbeddingJobs,
-      DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL:
-        DESKTOP_PRELOAD_IPC_CHANNELS.db.invalidateManagedCacheEntriesByIdentity,
-      DB_LIVE_QUERY_REFRESH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.liveQueryRefresh,
-      DB_LIVE_QUERY_START_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.liveQueryStart,
-      DB_LIVE_QUERY_STOP_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.liveQueryStop,
-      DB_LIVE_QUERY_UPDATE_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.db.liveQueryUpdate,
-      DB_PING_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.ping,
-      DB_QUERY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.query,
-      DB_RESET_LOCAL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.resetLocal,
-      DB_SCHEDULER_SNAPSHOT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.schedulerSnapshot,
-      DB_TEST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.test,
-      DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL:
-        DESKTOP_PRELOAD_IPC_CHANNELS.diagnostics.getSnapshot,
-      FILE_EXPORTS_SAVE_TO_DOWNLOADS_CHANNEL:
-        DESKTOP_PRELOAD_IPC_CHANNELS.fileExports.saveToDownloads,
-      FILE_SYSTEM_ADD_ROOT_BY_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.addRootByPath,
-      FILE_SYSTEM_EXISTS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.exists,
-      FILE_SYSTEM_LIST_RECENT_ROOTS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.listRecentRoots,
-      FILE_SYSTEM_READ_DIRECTORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readDirectory,
-      FILE_SYSTEM_READ_FILE_BY_ABSOLUTE_PATH_CHANNEL:
-        DESKTOP_PRELOAD_IPC_CHANNELS.files.readFileByAbsolutePath,
-      FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readFileByPath,
-      FILE_SYSTEM_READ_FILE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readFile,
-      FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL:
-        DESKTOP_PRELOAD_IPC_CHANNELS.files.requestDirectoryAccess,
-      FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.restoreLastFolder,
-      FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.saveLastFolder,
-      FILE_SYSTEM_UNWATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.unwatch,
-      FILE_SYSTEM_WATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.watch,
-      FILE_SYSTEM_WATCH_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.files.watchEvent,
-      FORGE_IDENTITY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.forge.identity,
-      FORGE_PR_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.forge.prStatus,
-      FORGE_PR_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.forge.prUpdated,
-      FORGE_REFRESH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.forge.refresh,
-      GIT_AHEAD_BEHIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.aheadBehind,
-      GIT_COMMIT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commit,
-      GIT_COMMIT_FILES_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commitFiles,
-      GIT_CREATE_BRANCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.createBranch,
-      GIT_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.diff,
-      GIT_FETCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.fetch,
-      GIT_HISTORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.history,
-      GIT_PULL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.pull,
-      GIT_PUSH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.push,
-      GIT_REPOSITORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.repository,
-      GIT_STAGE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.stage,
-      GIT_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.status,
-      GIT_STRUCTURED_FILE_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.structuredFileDiff,
-      GIT_SWITCH_BRANCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.switchBranch,
-      GIT_UNSTAGE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.unstage,
-      LAYOUT_LOAD_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.preferences.layoutLoad,
-      LAYOUT_SAVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.preferences.layoutSave,
-      MCP_APPS_EXECUTE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.appsExecute,
-      MCP_APPS_PREPARE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.appsPrepare,
-      MCP_APPS_PREPARE_SHELL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.appsPrepareShell,
-      MCP_APPS_RELEASE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.appsRelease,
-      MCP_APPS_RELEASE_SHELL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.appsReleaseShell,
-      MCP_CONFIG_CREATE_SAMPLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configCreateSample,
-      MCP_CONFIG_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGet,
-      MCP_CONFIG_GET_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGetPath,
-      MCP_CONFIG_READ_TEXT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configReadText,
-      MCP_CONFIG_SELECT_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSelectPath,
-      MCP_CONFIG_SET_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSetPath,
-      MCP_CONFIG_UNWATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUnwatch,
-      MCP_CONFIG_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated,
-      MCP_CONFIG_WATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configWatch,
-      MCP_CONFIG_WRITE_TEXT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configWriteText,
-      MCP_CONTENT_COMPLETE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentComplete,
-      MCP_CONTENT_GET_PROMPT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentGetPrompt,
-      MCP_CONTENT_READ_RESOURCE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentReadResource,
-      MCP_ELICITATION_REQUESTED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationRequested,
-      MCP_ELICITATION_RETIRED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationRetired,
-      MCP_ELICITATION_SETTLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationSettle,
-      MCP_STATUS_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusGet,
-      MCP_STATUS_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusUpdated,
-      MCP_TASK_ACT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskAct,
-      MCP_TASK_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskList,
-      MCP_TASK_STATUS_CHANGED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskStatusChanged,
-      MCP_TOOLS_DISABLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisable,
-      MCP_TOOLS_DISABLE_SERVER_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisableServer,
-      MCP_TOOLS_ENABLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsEnable,
-      MCP_TOOLS_ENABLE_SERVER_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsEnableServer,
-      MCP_TOOLS_GET_STATS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsGetStats,
-      MCP_TOOLS_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsList,
-      MCP_TOOLS_RESET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsReset,
-      MCP_TOOLS_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated,
-      PARSER_HOST_PARSE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.parserHostParse,
-      PROVIDER_AUTH_CANCEL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.cancel,
-      PROVIDER_AUTH_DISCONNECT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.disconnect,
-      PROVIDER_AUTH_START_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.start,
-      PROVIDER_AUTH_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.status,
-      RUNTIME_LIST_MODELS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.listModels,
-      RUNTIME_PROBE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.probe,
-      RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL:
-        DESKTOP_PRELOAD_IPC_CHANNELS.runtime.resolveOllamaCapabilities,
-      RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL:
-        DESKTOP_PRELOAD_IPC_CHANNELS.runtime.verifyEmbeddingDimensions,
-      SECRETS_CLEAR_ALL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.clearAll,
-      SECRETS_DELETE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.delete,
-      SECRETS_ENV_BOOTSTRAP_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.envBootstrap,
-      SECRETS_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.get,
-      SECRETS_GET_CREDENTIAL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.getCredential,
-      SECRETS_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.list,
-      SECRETS_LIST_STORED_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.listStored,
-      SECRETS_SAVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.save,
-      SECRETS_SAVE_CREDENTIAL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.saveCredential,
-      SETTINGS_CLEAR_ALL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.preferences.settingsClearAll,
-      SHELL_OPEN_EXTERNAL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.shell.openExternal,
-      SHELL_OPEN_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.shell.openPath,
-      SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.shell.showItemInFolder,
-      STORAGE_CLEAR_ALL_FOR_E2E_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.clearAllForE2e,
-      STORAGE_CLEAR_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.clear,
-      STORAGE_GET_ALL_KEYS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.getAllKeys,
-      STORAGE_GET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.getItem,
-      STORAGE_REMOVE_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.removeItem,
-      STORAGE_SEED_MAIN_OWNED_FOR_E2E_CHANNEL:
-        DESKTOP_PRELOAD_IPC_CHANNELS.storage.seedMainOwnedForE2e,
-      STORAGE_SET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.setItem,
-      WORKSPACE_FACTORY_RESET_GENERATION_EVENT:
-        DESKTOP_PRELOAD_IPC_CHANNELS.workspace.factoryResetGeneration,
-      WORKSPACE_OPEN_FOLDER_PICKER_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.workspace.openFolderPicker,
-      WORKSPACE_OPEN_PATH_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.workspace.openPath,
-      WORKSPACE_OPEN_PATH_READY_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.workspace.openPathReady,
-      WORKTREES_ADOPT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.adopt,
-      WORKTREES_ARCHIVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.archive,
-      WORKTREES_CHECKOUT_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.checkoutStatus,
-      WORKTREES_CREATE_BRANCH_HERE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.createBranchHere,
-      WORKTREES_CREATE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.create,
-      WORKTREES_CREATE_CONTEXT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.createContext,
-      WORKTREES_GET_SETTINGS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.getSettings,
-      WORKTREES_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.list,
-      WORKTREES_MANAGED_PATHS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.managedPaths,
-      WORKTREES_RESTORE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.restore,
-      WORKTREES_SET_SETTINGS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.setSettings,
-    } as const;
 
-    for (const [constantName, channel] of Object.entries(expectedConstants)) {
-      expect(extractPreloadStringConstant(preloadSource, constantName)).toBe(channel);
+    for (const contract of [
+      'mcpContract',
+      'mcpPathSelectionContract',
+      'mcpContentContract',
+      'mcpElicitationContract',
+      'mcpAppsContract',
+      'mcpTasksContract',
+    ]) {
+      expect(preloadSource).toContain(`createIpcBridge(ipcRenderer, ${contract})`);
     }
-    const mcpBridge = extractExposedBridgeProperties(preloadSource, 'mcp');
-    const appsBridge = requireExposedBridgeProperty(mcpBridge, 'mcp', 'apps');
-    expect(appsBridge).toContain('ipcRenderer.invoke(MCP_APPS_PREPARE_CHANNEL, request)');
-    expect(appsBridge).toContain('ipcRenderer.invoke(MCP_APPS_EXECUTE_CHANNEL, request)');
-    expect(appsBridge).toContain('ipcRenderer.invoke(MCP_APPS_RELEASE_CHANNEL, request)');
-    expect(appsBridge).toContain('readMcpAppResource(origin)');
-    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'getServerStatusSnapshot')).toContain(
-      'ipcRenderer.invoke(MCP_STATUS_GET_CHANNEL)'
+    expect(preloadSource).toContain(
+      'readResource: (origin: McpAppOrigin) => readMcpAppResource(origin)'
     );
-    const statusSubscription = requireExposedBridgeProperty(
-      mcpBridge,
-      'mcp',
-      'onServerStatusUpdated'
-    );
-    expect(statusSubscription).toContain('ipcRenderer.on(MCP_STATUS_UPDATED_EVENT, listener)');
-    expect(statusSubscription).toContain(
-      'ipcRenderer.removeListener(MCP_STATUS_UPDATED_EVENT, listener)'
-    );
-    // BST-1585: content browsing crosses IPC as three verb-specific channels;
-    // the renderer never gets a raw `invoke(method, params)` escape hatch.
-    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'readResource')).toContain(
-      'ipcRenderer.invoke(MCP_CONTENT_READ_RESOURCE_CHANNEL, request)'
-    );
-    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'getPrompt')).toContain(
-      'ipcRenderer.invoke(MCP_CONTENT_GET_PROMPT_CHANNEL, request)'
-    );
-    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'complete')).toContain(
-      'ipcRenderer.invoke(MCP_CONTENT_COMPLETE_CHANNEL, request)'
-    );
-    expect([...mcpBridge.keys()]).not.toContain('invoke');
-    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'settleElicitation')).toContain(
-      'ipcRenderer.invoke(MCP_ELICITATION_SETTLE_CHANNEL, settlement)'
-    );
-    for (const [property, constant] of [
-      ['onElicitationRequested', 'MCP_ELICITATION_REQUESTED_EVENT'],
-      ['onElicitationRetired', 'MCP_ELICITATION_RETIRED_EVENT'],
-    ] as const) {
-      const subscription = requireExposedBridgeProperty(mcpBridge, 'mcp', property);
-      expect(subscription).toContain(`ipcRenderer.on(${constant}, listener)`);
-      expect(subscription).toContain(`ipcRenderer.removeListener(${constant}, listener)`);
-    }
-    // Durable MCP Tasks bridge (BST-1566): act/list invokes plus the status push.
-    const tasksBridge = requireExposedBridgeProperty(mcpBridge, 'mcp', 'tasks');
-    expect(tasksBridge).toContain('ipcRenderer.invoke(MCP_TASK_ACT_CHANNEL, request)');
-    expect(tasksBridge).toContain('ipcRenderer.invoke(MCP_TASK_LIST_CHANNEL)');
-    expect(tasksBridge).toContain('ipcRenderer.on(MCP_TASK_STATUS_CHANGED_EVENT, listener)');
-    expect(tasksBridge).toContain(
-      'ipcRenderer.removeListener(MCP_TASK_STATUS_CHANGED_EVENT, listener)'
-    );
-
-    const preloadWithoutContractDefinitions = removePreloadStringConstantDefinitions(preloadSource);
-    for (const channel of Object.values(expectedConstants)) {
-      expect(preloadWithoutContractDefinitions).not.toContain(`'${channel}'`);
-      expect(preloadWithoutContractDefinitions).not.toContain(`"${channel}"`);
-    }
+    expect(preloadSource).not.toMatch(/ipcRenderer\.invoke\(DESKTOP_IPC_CHANNELS\.mcp\./);
   });
 
   it('keeps resolver-gated bridge key sets in parity with their required-method contracts', () => {
     const preloadSource = readPreloadSource();
     // Each of these bridges is disabled WHOLESALE by its resolver when any
     // required method is missing from the preload surface, so the exposed key
-    // set must match the resolver's required-method list exactly.
+    // set must match the resolver's required-method list exactly. Domains
+    // migrated to contract modules (BST-1648) are pinned by key-set equality
+    // in preload-contract-bridges.test.ts + ipc-domains/leaf-contracts.test.ts
+    // instead of this source walk.
     const expectedBridgeMethods: Record<string, readonly string[]> = {
       browser: BROWSER_BRIDGE_REQUIRED_METHODS,
-      changes: CHANGES_BRIDGE_REQUIRED_METHODS,
-      commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
       envBootstrap: ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS,
-      forge: FORGE_BRIDGE_REQUIRED_METHODS,
-      git: GIT_BRIDGE_REQUIRED_METHODS,
-      notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
       providerAuth: PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS,
       secrets: SECRETS_BRIDGE_REQUIRED_METHODS,
-      skills: SKILLS_BRIDGE_REQUIRED_METHODS,
-      terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
-      userCommands: USER_COMMANDS_BRIDGE_REQUIRED_METHODS,
       workspace: WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS,
-      worktrees: WORKTREES_BRIDGE_REQUIRED_METHODS,
     };
 
     for (const [bridgeName, requiredMethods] of Object.entries(expectedBridgeMethods)) {

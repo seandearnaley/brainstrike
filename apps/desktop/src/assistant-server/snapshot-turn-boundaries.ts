@@ -80,6 +80,11 @@ export interface CompleteLegParams {
 
 export interface TurnBoundaryController {
   readonly beginLeg: (params: BeginLegParams) => Promise<void>;
+  readonly completeCancelledTurn: (params: {
+    readonly threadId: string;
+    readonly runId: string;
+    readonly turnRunIds: readonly string[];
+  }) => Promise<void>;
   readonly completeLeg: (params: CompleteLegParams) => Promise<void>;
 }
 
@@ -100,9 +105,10 @@ export async function* observeTurnPauseChunks(
   state: LegPauseState
 ): AsyncIterable<StreamChunk> {
   for await (const chunk of stream) {
-    if (chunk.type === 'tool-approval-required') {
+    const decision = chunk.type === 'child-continuation-chunk' ? chunk.chunk : chunk;
+    if (decision.type === 'tool-approval-required') {
       state.paused = true;
-    } else if (chunk.type === 'tool-suspend-required' && chunk.resumeSupported !== false) {
+    } else if (decision.type === 'tool-suspend-required' && decision.resumeSupported !== false) {
       state.paused = true;
     }
     yield chunk;
@@ -238,7 +244,8 @@ export function createTurnBoundaryController(
   async function adoptOpenLedgerTurn(
     threadId: string,
     anchorMessageId: string | null,
-    runId: string
+    runId: string,
+    turnRunIds?: readonly string[]
   ): Promise<boolean> {
     let rows: Awaited<ReturnType<SnapshotRepository['snapshotsForThread']>>;
     try {
@@ -253,6 +260,9 @@ export function createTurnBoundaryController(
     const brackets = resolveSnapshotTurnBrackets(rows);
     const last = brackets.at(-1);
     if (!last || last.endRunId !== null || last.startByRoot.size === 0) {
+      return false;
+    }
+    if (turnRunIds && !(last.startRunId && turnRunIds.includes(last.startRunId))) {
       return false;
     }
     const startOutcomes = new Map<string, SnapshotCaptureOutcome>();
@@ -380,5 +390,26 @@ export function createTurnBoundaryController(
     }
   }
 
-  return { beginLeg, completeLeg };
+  async function completeCancelledTurn(params: {
+    readonly threadId: string;
+    readonly runId: string;
+    readonly turnRunIds: readonly string[];
+  }): Promise<void> {
+    if (!params.turnRunIds.includes(params.runId)) {
+      throw new Error('Cancellation run does not belong to the authoritative turn.');
+    }
+    const open = registry.openTurn(params.threadId);
+    if (open && !params.turnRunIds.includes(open.firstRunId)) {
+      return;
+    }
+    if (
+      !(open || (await adoptOpenLedgerTurn(params.threadId, null, params.runId, params.turnRunIds)))
+    ) {
+      return;
+    }
+    registry.attachRun(params.threadId, params.runId);
+    await completeLeg({ ...params, paused: false, status: 'cancelled' });
+  }
+
+  return { beginLeg, completeCancelledTurn, completeLeg };
 }

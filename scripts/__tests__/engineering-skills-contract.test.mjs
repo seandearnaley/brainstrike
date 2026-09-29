@@ -12,6 +12,22 @@ const domain = readRepoFile('docs/agents/domain.md');
 const issueTracker = readRepoFile('docs/agents/issue-tracker.md');
 const triageVocabulary = readRepoFile('docs/agents/triage-labels.md');
 
+test('review and CI budgets are discoverable without an external delivery skill', () => {
+  const quality = readRepoFile('docs/agents/ci-quality.md');
+  assert.match(agents, /PR review\/remediation, stacked delivery, CI reruns.*ci-quality\.md/);
+  for (const rule of [
+    /45 minutes/,
+    /90 minutes without an exact-head-ready PR layer/,
+    /initial whole-PR review and one re-review/,
+    /Do not push each comment\s+separately/,
+    /Keep one CI watcher/,
+    /Do not close\/reopen PRs/,
+    /before rebasing descendants once/,
+  ]) {
+    assert.match(quality, rule);
+  }
+});
+
 test('AGENTS routes each external engineering-skill contract exactly once', () => {
   for (const contractPath of [
     'docs/agents/issue-tracker.md',

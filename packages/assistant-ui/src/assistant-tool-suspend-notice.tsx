@@ -1,4 +1,5 @@
 import { type CreateAppendMessage, useAui, useAuiState } from '@assistant-ui/react';
+import { getToolActionIdentityKey, getToolActionTarget } from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import type {
   AskUserOption,
@@ -15,6 +16,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
 import { Button, Checkbox } from '@brainstrike/ui';
+import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
 import {
   createContext,
@@ -26,8 +28,19 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { ActiveThreadKeyContext } from './active-thread-key-context';
+import { useApprovalOwnerMessages } from './approval-owner-thread-context';
+import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recovery-context';
+import { submitDecisionOrQueue } from './decision-dispatch';
+import { useDecisionRoute } from './decision-route-context';
+import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
+import { useLiveDecisionTransport } from './live-decision-transport';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
+import {
+  isAssistantToolSuspendRequest,
+  resolveSuspendRunOutcomeDetail,
+} from './tool-decision-run-outcome';
 import { rememberUnreadablePauseLogIdentity } from './unreadable-pause-log-cache';
 
 const logger = createLogger('AssistantToolSuspendNotice');
@@ -169,145 +182,72 @@ function readAskUserQuestion(value: unknown): string | null {
   return isRecord(value) && typeof value['question'] === 'string' ? value['question'] : null;
 }
 
-function isAssistantToolSuspendRequest(value: unknown): value is AssistantToolSuspendRequest {
-  return (
-    isRecord(value) &&
-    typeof value['runId'] === 'string' &&
-    typeof value['toolCallId'] === 'string' &&
-    typeof value['toolName'] === 'string'
-  );
-}
-
-function isMatchingResumeAction(value: unknown, request: AssistantToolSuspendRequest): boolean {
-  return (
-    isRecord(value) &&
-    value['runId'] === request.runId &&
-    value['toolCallId'] === request.toolCallId
-  );
-}
-
-function getResumeActionFromMessage(message: unknown): unknown {
-  if (!isRecord(message)) {
-    return;
-  }
-  const metadata = message['metadata'];
-  if (!isRecord(metadata)) {
-    return;
-  }
-  const custom = metadata['custom'];
-  return isRecord(custom) ? custom[TOOL_SUSPEND_RUN_CONFIG_KEY] : undefined;
-}
-
-function getMessageRole(message: unknown): unknown {
-  return isRecord(message) ? message['role'] : undefined;
-}
-
-function getMessageStatusType(message: unknown): string | undefined {
-  if (!isRecord(message)) {
-    return;
-  }
-  const status = message['status'];
-  return isRecord(status) && typeof status['type'] === 'string' ? status['type'] : undefined;
-}
-
-/**
- * Lifecycle of the run kicked off by a resume for THIS suspended call:
- *   - `none`       — no matching resume appended yet.
- *   - `pending`    — a resume is in flight (still streaming, or awaiting a new run).
- *   - `retryable`  — the resumed run FAILED (assistant status `incomplete`); the
- *                    controls RE-ENABLE so the user can resubmit (mirrors the
- *                    approval notice — a stale/failed resume must not lock forever).
- *   - `completed`  — the resumed run finished successfully; controls stay locked.
- */
-type SuspendRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
-
-/**
- * Scan the thread for a `user` message carrying a matching `brainstrikeToolSuspend`
- * action, then classify the run that followed it. Mirrors the approval notice's
- * `resolveApprovalRunOutcome`: a failed resume is `retryable` (controls unlock),
- * never permanently locked.
- */
-function resolveSuspendRunOutcome(
-  messages: readonly unknown[],
-  request: AssistantToolSuspendRequest | null
-): SuspendRunOutcomeState {
-  if (!request) {
-    return 'none';
-  }
-  let submittedIndex = -1;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (
-      getMessageRole(message) === 'user' &&
-      isMatchingResumeAction(getResumeActionFromMessage(message), request)
-    ) {
-      submittedIndex = index;
-      break;
-    }
-  }
-  if (submittedIndex < 0) {
-    return 'none';
-  }
-
-  for (let index = submittedIndex + 1; index < messages.length; index += 1) {
-    const message = messages[index];
-    const role = getMessageRole(message);
-    if (role === 'user') {
-      return 'pending';
-    }
-    if (role !== 'assistant') {
-      continue;
-    }
-    const statusType = getMessageStatusType(message);
-    if (statusType === 'complete') {
-      return 'completed';
-    }
-    if (statusType === 'incomplete') {
-      return 'retryable';
-    }
-    return 'pending';
-  }
-  return 'pending';
-}
-
 /**
  * Shared resume-append hook for both suspend notices. Appends a `user` message
  * carrying the branch-specific `resumeData` under the suspend run-config key and
  * starts the run. Locks after submit (local state OR a still-running/completed
  * resume in the thread); a FAILED resume re-enables the controls so the user can
- * retry (see {@link resolveSuspendRunOutcome}).
+ * retry (see {@link resolveSuspendRunOutcome}). `sendError` says why the last
+ * submit was not sent (the append threw, or the host refused the live
+ * decision); null once a new submit starts.
  */
 function useSuspendResume(request: AssistantToolSuspendRequest | null) {
   const aui = useAui();
-  const [submitted, setSubmitted] = useState(false);
-  const runOutcome = useAuiState((state) =>
-    resolveSuspendRunOutcome(state.thread.messages, request)
-  );
-  // A failed resume (`retryable`) must clear the optimistic local lock so the
-  // buttons re-enable for a retry. Adjust the state during render on the
-  // TRANSITION into `retryable` (prev-outcome comparison) instead of via an
-  // effect — routing it through useEffect forces an extra render with a stale,
-  // still-locked UI between commits. Same net behavior as the approval notice's
-  // reset, without a set-state-in-effect cascade.
-  const [prevRunOutcome, setPrevRunOutcome] = useState(runOutcome);
-  if (runOutcome !== prevRunOutcome) {
-    setPrevRunOutcome(runOutcome);
-    if (submitted && runOutcome === 'retryable') {
-      setSubmitted(false);
+  const [submittedOutcomeKey, setSubmittedOutcomeKey] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const localRunOutcomeKey = useAuiState((state) => {
+    const outcome = resolveSuspendRunOutcomeDetail(state.thread.messages, request);
+    return `child:${outcome.state}:${outcome.decisionIndex}`;
+  });
+  const ownerOutcome = resolveSuspendRunOutcomeDetail(useApprovalOwnerMessages(), request);
+  const runOutcomeKey =
+    ownerOutcome.state === 'none'
+      ? localRunOutcomeKey
+      : `owner:${ownerOutcome.state}:${ownerOutcome.decisionIndex}`;
+  const runOutcome = runOutcomeKey.split(':')[1];
+  const submitted = submittedOutcomeKey === runOutcomeKey;
+  const [prevRunOutcomeKey, setPrevRunOutcomeKey] = useState(runOutcomeKey);
+  if (runOutcomeKey !== prevRunOutcomeKey) {
+    setPrevRunOutcomeKey(runOutcomeKey);
+    // A resume that DID start — this card's retry, or the same pause answered
+    // from the delegated child view that shares it — settles the question the
+    // error was about, so a stale "Decision not sent" must not sit beside the
+    // now-locked controls.
+    if (runOutcome === 'pending' || runOutcome === 'completed') {
+      setSendError(null);
     }
   }
   const lockedByRun = runOutcome === 'pending' || runOutcome === 'completed';
-  const locked = submitted || lockedByRun;
+  const threadKey = use(ActiveThreadKeyContext);
+  const isRunning = useAuiState((state) => state.thread.isRunning);
+  const deliverLive = useLiveDecisionTransport();
+  const decisionRoute = useDecisionRoute();
+  const recoveryBlocked = useAssistantDecisionRecoveryBlocked();
+  const queueThreadKey = decisionRoute?.queueThreadKey ?? threadKey;
+  const queued = useFollowUpQueueStore((state) =>
+    request
+      ? isDecisionQueued(state, followUpQueueKey(queueThreadKey), getToolActionIdentityKey(request))
+      : false
+  );
+  const locked =
+    recoveryBlocked ||
+    queued ||
+    submitted ||
+    lockedByRun ||
+    readRediscoveredPauseDisplay(request)?.decisionState !== undefined;
 
   const submit = useCallback(
     (resumeData: unknown, summary: string): void => {
       if (!request || locked) {
         return;
       }
+      setSendError(null);
       const action: AssistantToolResumeAction = {
         resumeData,
-        runId: request.runId,
-        toolCallId: request.toolCallId,
+        ...getToolActionTarget(request),
+        // Mirrors the approval echo: the pause's durable host leg is what the
+        // history topology adapter anchors the suspended message on.
+        ...(request.hostRunId ? { hostRunId: request.hostRunId } : {}),
         toolName: request.toolName,
       };
       const message = {
@@ -318,35 +258,67 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
         startRun: true,
       } satisfies CreateAppendMessage;
 
-      setSubmitted(true);
-      try {
-        void Promise.resolve(aui.thread().append(message)).catch((error: unknown) => {
-          setSubmitted(false);
+      const sendNow = (queued: CreateAppendMessage): void => {
+        setSubmittedOutcomeKey(runOutcomeKey);
+        // `append` returns void in the installed assistant-ui: a failed resumed
+        // run arrives as thread state (`retryable` above), never as a rejection
+        // here. Only a synchronous throw (e.g. an unavailable thread scope) is
+        // ours to report.
+        try {
+          aui.thread().append(queued);
+        } catch (error) {
+          setSubmittedOutcomeKey(null);
+          setSendError(getErrorMessage(error));
           logger.warn('Failed to append tool resume action', {
             error,
             runId: request.runId,
             toolCallId: request.toolCallId,
           });
-        });
-      } catch (error) {
-        setSubmitted(false);
-        logger.warn('Failed to append tool resume action', {
-          error,
-          runId: request.runId,
-          toolCallId: request.toolCallId,
-        });
-      }
+        }
+      };
+      // Same rule as the approval notice: a typed answer during a run is
+      // delivered into the run when the host offers a live transport, and
+      // otherwise waits in the follow-up queue instead of cancelling the run.
+      setSubmittedOutcomeKey(runOutcomeKey);
+      const dispatch = decisionRoute
+        ? decisionRoute.dispatch(message)
+        : submitDecisionOrQueue({
+            append: sendNow,
+            deliverLive,
+            identityKey: getToolActionIdentityKey(request),
+            isRunning,
+            message,
+            text: summary,
+            threadKey,
+          });
+      dispatch.then(
+        (outcome) => {
+          if (outcome === 'queued') {
+            setSubmittedOutcomeKey(null);
+          }
+        },
+        (error: unknown) => {
+          setSubmittedOutcomeKey(null);
+          setSendError(getErrorMessage(error));
+          logger.warn('Failed to deliver tool resume action', {
+            error,
+            runId: request.runId,
+            toolCallId: request.toolCallId,
+          });
+        }
+      );
     },
-    [aui, locked, request]
+    [aui, decisionRoute, deliverLive, isRunning, locked, request, runOutcomeKey, threadKey]
   );
 
-  return { locked, submit };
+  return { locked, sendError, submit };
 }
 
 function NoticeShell({
   children,
   icon,
   role,
+  sendError,
   testId,
   title,
   tone = 'pending',
@@ -354,6 +326,8 @@ function NoticeShell({
   children: ReactNode;
   icon: ReactNode;
   role?: 'alert';
+  /** Why the last decision was not sent; null when nothing failed (or nothing can be sent). */
+  sendError: string | null;
   testId: string;
   title: string;
   tone?: 'pending' | 'failed';
@@ -379,6 +353,11 @@ function NoticeShell({
         <div className="min-w-0">
           <p className="font-medium text-sm">{title}</p>
           {children}
+          {sendError === null ? null : (
+            <p className="mt-2 text-destructive text-xs" role="alert">
+              Decision not sent: {sendError}
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -389,12 +368,14 @@ function UnreadableSuspendPayloadNotice({
   children,
   detail,
   request,
+  sendError,
   testId,
   title,
 }: {
   children?: ReactNode;
   detail: string;
   request: AssistantToolSuspendRequest;
+  sendError: string | null;
   testId: string;
   title: string;
 }) {
@@ -419,6 +400,7 @@ function UnreadableSuspendPayloadNotice({
     <NoticeShell
       icon={<TriangleAlert className="size-4" />}
       role="alert"
+      sendError={sendError}
       testId={testId}
       title={title}
       tone="failed"
@@ -434,7 +416,7 @@ function UnreadableSuspendPayloadNotice({
 }
 
 function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest }) {
-  const { submit, locked } = useSuspendResume(request);
+  const { locked, sendError, submit } = useSuspendResume(request);
   const exitPlanMode = usePlanModeExit();
   const [feedback, setFeedback] = useState('');
   const plan = readSubmitPlanPayload(request.suspendPayload);
@@ -442,19 +424,23 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
   const approve = useCallback(() => {
     // Exit plan mode BEFORE composing the resume request so the rebuilt server
     // runtime unlocks the mutation tools for the approved plan. Reject keeps
-    // plan mode on (handled by NOT calling this on the reject path).
-    exitPlanMode?.();
+    // plan mode on (handled by NOT calling this on the reject path). Forwarded
+    // child plans have no authority to change the root's mode.
+    if (!request.delegation) {
+      exitPlanMode?.();
+    }
     submit(
       feedback.trim() ? { action: 'approved', feedback: feedback.trim() } : { action: 'approved' },
       'Approved the plan.'
     );
-  }, [exitPlanMode, feedback, submit]);
+  }, [exitPlanMode, feedback, request.delegation, submit]);
 
   if (plan === null) {
     return (
       <UnreadableSuspendPayloadNotice
         detail="The suspended request contains unreadable plan terms, so it cannot be approved. You can safely reject it so the assistant can revise."
         request={request}
+        sendError={sendError}
         testId="assistant-submit-plan-payload-unreadable"
         title="Plan details could not be read"
       >
@@ -476,6 +462,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
   return (
     <NoticeShell
       icon={<ListChecks className="size-4" />}
+      sendError={sendError}
       testId="assistant-submit-plan-notice"
       title={plan?.title ? `Plan: ${plan.title}` : 'Plan for your approval'}
     >
@@ -548,7 +535,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
 }
 
 function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
-  const { submit, locked } = useSuspendResume(request);
+  const { locked, sendError, submit } = useSuspendResume(request);
   // Answers resume through the {answer} OBJECT envelope (AskUserResumeData),
   // never the legacy bare string/array: the 1.56+ suspend-resume transport can
   // only attach the `approved: true` rider to plain-object payloads, and a
@@ -586,6 +573,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
             : 'The suspended request contains malformed question details, so it cannot be answered here.'
         }
         request={request}
+        sendError={sendError}
         testId="assistant-ask-user-payload-unreadable"
         title="Question details could not be read"
       >
@@ -619,6 +607,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   return (
     <NoticeShell
       icon={<MessageCircleQuestion className="size-4" />}
+      sendError={sendError}
       testId="assistant-ask-user-notice"
       title={payload?.question ?? 'The assistant has a question'}
     >
@@ -719,6 +708,7 @@ function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRe
     <NoticeShell
       icon={<TriangleAlert className="size-4" />}
       role="alert"
+      sendError={null}
       testId="assistant-tool-suspend-unsupported-notice"
       title={`Cannot resume ${request.toolName}`}
       tone="failed"
@@ -773,7 +763,7 @@ function wildcardGloss(domain: string): string | null {
 
 function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const domainsFieldId = useId();
-  const { submit, locked } = useSuspendResume(request);
+  const { locked, sendError, submit } = useSuspendResume(request);
   // Ticking state is LOCAL component state, never persisted, and resets if
   // the card remounts (design §3.3 point 3) — proportional friction is the
   // point: every named domain must be individually acknowledged.
@@ -804,6 +794,7 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
     return (
       <NoticeShell
         icon={<Globe className="size-4" />}
+        sendError={sendError}
         testId="assistant-run-python-network-notice"
         title="This script wants to reach the internet"
         tone="failed"
@@ -835,6 +826,7 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
   return (
     <NoticeShell
       icon={<Globe className="size-4" />}
+      sendError={sendError}
       testId="assistant-run-python-network-notice"
       title="This script wants to reach the internet"
       tone="failed"
@@ -944,7 +936,7 @@ export function AssistantToolSuspendNotice({ data }: AssistantToolSuspendNoticeP
   }
   if (hasRegisteredSuspendResumeUi(request.toolName)) {
     const RegisteredNotice = SUSPEND_NOTICE_BY_TOOL_ID[request.toolName];
-    return <RegisteredNotice request={request} />;
+    return <RegisteredNotice key={getToolActionIdentityKey(request)} request={request} />;
   }
   // Unknown suspending tool: never guess a typed action (no-silent-wrong-render)
   // AND never present it as still-actionable — surface the rejection.

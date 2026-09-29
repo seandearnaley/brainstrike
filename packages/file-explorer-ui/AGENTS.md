@@ -250,7 +250,8 @@ Do these before reaching for cleverness:
 
 ### TabbedFileEditor
 
-* Restores scroll from `editor-view-state-store`; uses hotkeys (`Ctrl/Cmd+W`, `Ctrl/Cmd+PageUp/Down`).
+* Restores scroll from `editor-view-state-store`.
+* Owns no tab chords: ⌘/Ctrl+W, Ctrl+PgUp/PgDn and the rest belong to the tab chord router in `packages/app-shell/src/tab-chords/`, which drives the workspace strip through `useWorkspaceTabs()`.
 * Calls `onLoadFileContent(compositeKey)` whenever an active tab is missing content (and not already loading).
 
 ---

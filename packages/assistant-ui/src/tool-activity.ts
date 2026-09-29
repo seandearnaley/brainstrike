@@ -1,5 +1,4 @@
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
-import { extractPrimaryArg } from './tool-summaries';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -8,66 +7,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** A message part is a tool call when its discriminant `type` is `'tool-call'`. */
 export function isToolCallPart(part: unknown): part is Record<string, unknown> {
   return isRecord(part) && part['type'] === 'tool-call';
-}
-
-function partStatusType(part: Record<string, unknown>): string | undefined {
-  const status = part['status'];
-  if (isRecord(status) && typeof status['type'] === 'string') {
-    return status['type'];
-  }
-  return;
-}
-
-function partToolName(part: Record<string, unknown>): string {
-  return typeof part['toolName'] === 'string' && part['toolName'].length > 0
-    ? part['toolName']
-    : 'tool';
-}
-
-export interface ToolActivitySummary {
-  /** Primary argument of the currently-running tool (file/query/path/…). */
-  activeArg: string | null;
-  /** Display name of the currently-running tool, when one is running. */
-  activeLabel: string | null;
-  /** Tool calls that ended incomplete (timeout / abort / thrown). */
-  failedCount: number;
-  /** Tool calls still running. */
-  runningCount: number;
-  /** Total tool-call parts in this turn (each renders as one step row). */
-  stepCount: number;
-}
-
-/**
- * Reduce a turn's chain-of-thought parts to a compact tool-activity summary.
- * Pure: only failure-by-status is counted here (a tool that "completes" with an
- * error result still surfaces its error in the expanded card, so it is not
- * double-counted as a header-level failure).
- */
-export function summarizeToolActivity(parts: readonly unknown[]): ToolActivitySummary {
-  let stepCount = 0;
-  let runningCount = 0;
-  let failedCount = 0;
-  let activeLabel: string | null = null;
-  let activeArg: string | null = null;
-
-  for (const part of parts) {
-    if (!isToolCallPart(part)) {
-      continue;
-    }
-    stepCount++;
-    const status = partStatusType(part);
-    if (status === 'running') {
-      runningCount++;
-      // Last running tool wins — it is the most recent "current step".
-      activeLabel = partToolName(part);
-      const argsText = typeof part['argsText'] === 'string' ? part['argsText'] : undefined;
-      activeArg = extractPrimaryArg(part['args'], argsText)?.display ?? null;
-    } else if (status === 'incomplete') {
-      failedCount++;
-    }
-  }
-
-  return { activeArg, activeLabel, failedCount, runningCount, stepCount };
 }
 
 /**

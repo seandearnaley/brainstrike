@@ -1,6 +1,9 @@
 {
   "extends": ["//"],
   "tasks": {
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs"]
+    },
     "test": {
       // startup-splash.test.ts asserts web/desktop startup-splash parity by
       // reading apps/desktop/index.html — a CROSS-PACKAGE file turbo's default

@@ -13,6 +13,7 @@ export const MASTRA_MEMORY_TABLES = {
 
 export const MASTRA_VECTOR_TABLE = 'mastra_vectors';
 export const MASTRA_WORKFLOW_TABLE = TABLE_WORKFLOW_SNAPSHOT;
+export const MASTRA_BACKGROUND_TASKS_TABLE = 'mastra_background_tasks';
 
 /**
  * Assistant-ui's client-owned branch topology layered over Mastra's durable
@@ -208,6 +209,55 @@ export const WORKSPACE_SNAPSHOTS_TABLE = 'brainstrike_workspace_snapshots';
 export const CANVAS_VERSIONS_TABLE = 'brainstrike_canvas_versions';
 
 /**
+ * Storage ceiling for a single canvas document, in UTF-8 BYTES.
+ *
+ * It lives beside the table rather than beside the schema because two places
+ * enforce it and they are in different packages: the `manageCanvas` input
+ * schema bounds each incoming FIELD, and the desktop repository bounds the
+ * COMPOSED result of an update — which is the only path that can produce a
+ * document larger than any field it was given. One constant, so the two cannot
+ * drift.
+ */
+export const CANVAS_HTML_MAX_BYTES = 8_000_000;
+
+const CANVAS_HTML_ENCODER = new TextEncoder();
+
+/**
+ * Whether `value` fits the canvas storage ceiling, in UTF-8 bytes.
+ *
+ * A PREDICATE rather than a byte count, because every caller only ever compares
+ * against the ceiling — and returning a count forces the measurement that the
+ * bounds below usually make unnecessary.
+ *
+ * Both bounds follow from UTF-8/UTF-16 arithmetic and decide most inputs
+ * without touching the encoder:
+ *   - UTF-8 length >= UTF-16 length, so more units than the ceiling is over it.
+ *   - UTF-8 length <= 3x UTF-16 length (a BMP unit is at most 3 bytes; a
+ *     surrogate PAIR is 2 units and 4 bytes, which is under that ratio), so
+ *     three times the units fitting means the bytes fit.
+ * Only the band between those needs a real encode. That matters here because
+ * this runs TWICE per tool call — `ManageCanvasInputSchema`'s superRefine
+ * re-parses through `ManageCanvasActionInputSchema` — and because Zod 4 runs
+ * checks non-abortively, so a payload that already failed `.max()` still
+ * reaches this. Materialising a ~32 MB `Uint8Array` on the hostile path, twice,
+ * is the thing worth avoiding.
+ *
+ * `TextEncoder`, not Node's `Buffer`: this package is a shared contract that
+ * ships to the renderer and the hosted web bundle, where `Buffer` is not a
+ * global and would be a ReferenceError the first time a canvas payload is
+ * parsed. The encoder is hoisted rather than constructed per call.
+ */
+export function canvasHtmlWithinByteCeiling(value: string): boolean {
+  if (value.length > CANVAS_HTML_MAX_BYTES) {
+    return false;
+  }
+  if (value.length * 3 <= CANVAS_HTML_MAX_BYTES) {
+    return true;
+  }
+  return CANVAS_HTML_ENCODER.encode(value).length <= CANVAS_HTML_MAX_BYTES;
+}
+
+/**
  * Privacy-safe per-tool model-output telemetry (BST-1190, migration 083 in
  * BOTH runners plus the app-shell bootstrap mirror). The mirror is required
  * because the repository's thread-delete CTE references every registered
@@ -243,7 +293,8 @@ export const ASSISTANT_COMPACTION_RANGES_TABLE = 'brainstrike_assistant_compacti
 
 /**
  * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
- * `thread_id`. All three delete implementations (single CTE, bulk CTE, and
+ * thread identity. Any matching ownership/provenance column selects a row.
+ * All three delete implementations (single CTE, bulk CTE, and
  * the Mastra `MemoryStorage.deleteThread` override) derive their stages from
  * this ONE list so the cascades can never drift again (BST-993 review: the
  * single/bulk CTEs had diverged in both stage-set and ordering).
@@ -251,21 +302,113 @@ export const ASSISTANT_COMPACTION_RANGES_TABLE = 'brainstrike_assistant_compacti
  * ("threadId" OR "lookupKey") and stays inline at each site.
  */
 export const THREAD_DELETE_SIDECAR_TABLES = [
-  { table: ASSISTANT_COMPACTION_RANGES_TABLE, threadColumn: 'thread_id' },
-  { table: ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE, threadColumn: 'thread_id' },
-  { table: 'brainstrike_canvas_versions', threadColumn: 'thread_id' },
-  { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumn: 'thread_id' },
-  { table: TOOL_CALL_TELEMETRY_TABLE, threadColumn: 'thread_id' },
-  { table: 'brainstrike_assistant_edit_checkpoints', threadColumn: 'thread_id' },
-  { table: 'brainstrike_assistant_run_errors', threadColumn: 'thread_id' },
-  { table: 'brainstrike_assistant_message_parents', threadColumn: 'thread_id' },
-  { table: 'brainstrike_assistant_message_tombstones', threadColumn: 'thread_id' },
-  { table: 'brainstrike_assistant_thread_placements', threadColumn: 'thread_id' },
+  // Artifacts are root-readable but child-produced; either identity owns deletion.
+  {
+    table: 'brainstrike_assistant_tool_output_artifacts',
+    threadColumns: ['thread_id', 'execution_thread_id'],
+  },
+  // Clear descendants atomically, including native (non-panel) deletion.
+  { table: 'brainstrike_thread_message_index', threadColumns: ['thread_id'] },
+  { table: 'brainstrike_thread_search_state', threadColumns: ['thread_id'] },
+  { table: MASTRA_BACKGROUND_TASKS_TABLE, threadColumns: ['thread_id'] },
+  { table: ASSISTANT_COMPACTION_RANGES_TABLE, threadColumns: ['thread_id'] },
+  { table: ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE, threadColumns: ['thread_id'] },
+  { table: 'brainstrike_canvas_versions', threadColumns: ['thread_id'] },
+  { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumns: ['thread_id'] },
+  { table: TOOL_CALL_TELEMETRY_TABLE, threadColumns: ['thread_id'] },
+  { table: 'brainstrike_assistant_edit_checkpoints', threadColumns: ['thread_id'] },
+  { table: 'brainstrike_assistant_run_errors', threadColumns: ['thread_id'] },
+  { table: 'brainstrike_assistant_message_parents', threadColumns: ['thread_id'] },
+  { table: 'brainstrike_assistant_message_tombstones', threadColumns: ['thread_id'] },
+  { table: 'brainstrike_assistant_thread_placements', threadColumns: ['thread_id'] },
   // Per-thread workspace snapshots (BST-1268, migration 094): deleting a
   // thread deletes its saved workspace.
-  { table: 'brainstrike_assistant_thread_workspaces', threadColumn: 'thread_id' },
+  { table: 'brainstrike_assistant_thread_workspaces', threadColumns: ['thread_id'] },
   // Shadow-git snapshot rows (BST-1164): deleting a thread deletes its
   // turn↔oid ledger. The shadow refs/objects those rows point at live on the
   // main-process filesystem and are pruned by SnapshotService GC, not by SQL.
-  { table: 'brainstrike_workspace_snapshots', threadColumn: 'thread_id' },
+  { table: 'brainstrike_workspace_snapshots', threadColumns: ['thread_id'] },
+  // Prompt manifests are keyed by the ROOT host run (their FK) but named by a
+  // thread: a delegation's first step by the thread that dispatched it (the
+  // child thread does not exist yet), a human follow-up by the child it was
+  // sent to. Deleting a delegated branch drops the prompts sent to and from it.
+  { table: 'brainstrike_assistant_prompt_manifests', threadColumns: ['thread_id'] },
 ] as const;
+
+/**
+ * Shared branch selection for all three deletion paths. Callers provide a
+ * `requested(id)` CTE and use WITH RECURSIVE. Validate the entire native ancestry
+ * and every descendant before any DELETE; one revoked scope empties the target
+ * set so callers can reject atomically. Legacy threads without graph rows keep
+ * their ordinary single-thread deletion semantics.
+ */
+export const DELEGATED_THREAD_DELETE_CTES = `
+  delegation_roots AS (
+    SELECT graph.* FROM brainstrike_delegated_conversations graph
+    JOIN mastra_threads native ON native.id = graph.thread_id
+      AND native."resourceId" = graph.owner_resource_id
+      AND native."resourceId" = graph.resource_id
+    WHERE graph.parent_thread_id IS NULL AND graph.thread_id = graph.root_thread_id
+      AND graph.root_thread_id IN (
+        SELECT root_thread_id FROM brainstrike_delegated_conversations
+        WHERE thread_id IN (SELECT id FROM requested)
+      )
+  ),
+  authorized_delegations AS (
+    SELECT * FROM delegation_roots
+    UNION
+    SELECT child.* FROM brainstrike_delegated_conversations child
+    JOIN authorized_delegations parent ON child.parent_thread_id = parent.thread_id
+      AND child.root_thread_id = parent.root_thread_id
+      AND child.owner_resource_id = parent.owner_resource_id
+    JOIN mastra_threads native ON native.id = child.thread_id
+      AND native."resourceId" = child.resource_id
+  ),
+  deletion_candidates(id) AS (
+    SELECT id FROM requested
+    UNION
+    SELECT child.thread_id FROM brainstrike_delegated_conversations child
+    JOIN deletion_candidates parent ON child.parent_thread_id = parent.id
+  ),
+  deletion_scope_validation AS (
+    SELECT NOT EXISTS (
+      SELECT 1 FROM brainstrike_delegated_conversations graph
+      JOIN deletion_candidates candidate ON candidate.id = graph.thread_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM authorized_delegations authorized WHERE authorized.thread_id = graph.thread_id
+      )
+    ) AS all_authorized
+  ),
+  deletion_threads AS (
+    SELECT id FROM deletion_candidates WHERE (SELECT all_authorized FROM deletion_scope_validation)
+  )`;
+
+/** Mastra's public background-task storage schema; shared with migrations/reset. */
+export const MASTRA_BACKGROUND_TASKS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS ${MASTRA_BACKGROUND_TASKS_TABLE} (
+  id TEXT PRIMARY KEY,
+  tool_call_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  thread_id TEXT,
+  resource_id TEXT,
+  status TEXT NOT NULL,
+  args JSONB NOT NULL,
+  result JSONB,
+  error JSONB,
+  suspend_payload JSONB,
+  retry_count INTEGER NOT NULL,
+  max_retries INTEGER NOT NULL,
+  timeout_ms INTEGER NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL,
+  "startedAt" TIMESTAMPTZ,
+  "suspendedAt" TIMESTAMPTZ,
+  "completedAt" TIMESTAMPTZ
+);
+ALTER TABLE ${MASTRA_BACKGROUND_TASKS_TABLE} ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_mastra_background_tasks_thread
+  ON ${MASTRA_BACKGROUND_TASKS_TABLE} (resource_id, thread_id, "createdAt", id);
+CREATE INDEX IF NOT EXISTS idx_mastra_background_tasks_status
+  ON ${MASTRA_BACKGROUND_TASKS_TABLE} (status, agent_id);
+`;

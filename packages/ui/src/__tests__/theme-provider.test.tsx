@@ -144,6 +144,46 @@ describe('ThemeProvider', () => {
     expect(mockClassList.add).toHaveBeenCalledWith('dark');
   });
 
+  it('re-applies the system theme on a runtime transition into system', async () => {
+    // Mount settled on dark, then switch to system at runtime: the effect must
+    // remove the explicit class first and re-add whatever matchMedia resolves
+    // (dark here). Clearing the call history after mount isolates the
+    // transition's own remove/add pair.
+    (mockStorageAdapter.getItem as ReturnType<typeof vi.fn>).mockResolvedValue('dark');
+    const { result } = renderHook(() => useTheme(), { wrapper });
+
+    await act(async () => {
+      vi.runAllTimers();
+      await vi.runAllTicks();
+    });
+    expect(result.current.theme).toBe('dark');
+
+    vi.clearAllMocks();
+    act(() => {
+      result.current.setTheme('system');
+    });
+
+    await act(async () => {
+      vi.runAllTimers();
+      await vi.runAllTicks();
+    });
+
+    expect(result.current.theme).toBe('system');
+    expect(mockClassList.remove).toHaveBeenCalledTimes(1);
+    expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark');
+    expect(mockClassList.add).toHaveBeenCalledTimes(1);
+    expect(mockClassList.add).toHaveBeenCalledWith('dark');
+    // The mocked DOMTokenList is stateless, so the pair above would also pass
+    // if the effect added before removing (leaving the real page classless).
+    // Compare the global invocation order instead: the transition's remove
+    // must precede its re-add. Last elements, so mount history (if any) cannot
+    // satisfy this by accident.
+    const removeOrder = vi.mocked(mockClassList.remove).mock.invocationCallOrder;
+    const addOrder = vi.mocked(mockClassList.add).mock.invocationCallOrder;
+    expect(removeOrder.at(-1)).toBeLessThan(addOrder.at(-1) ?? Number.NaN);
+    expect(mockStorageAdapter.setItem).toHaveBeenCalledWith('ui-theme', 'system');
+  });
+
   it('throws error when useTheme is used outside provider', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 

@@ -2,8 +2,8 @@ import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { buildInaccessibleContent, useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileHandle } from '@brainstrike/file-system';
 import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
+import { fileNodeToFileHandle } from '@brainstrike/file-system/file-node-handles';
 import { createLogger } from '@brainstrike/logging';
-import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { getKnownFileSize } from '@brainstrike/utils/file-content';
 
@@ -35,31 +35,6 @@ import {
   getFileNodeFromCache,
   refreshFileNodeCacheEntry,
 } from './utils/file-node-cache';
-
-// File handle creation helper
-function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): FileHandle {
-  const adapterPlatform = (fileSystemAdapter as { platform?: Platform }).platform;
-  const sourceHandle = fileNode.handle as { platform?: Platform; rootId?: string };
-  const handlePlatform = sourceHandle.platform;
-  const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
-
-  const fileHandle: FileHandle = {
-    _internal: fileNode.handle,
-    kind: 'file',
-    name: fileNode.name,
-    path: fileNode.path,
-    platform,
-    rootFolderId: fileNode.rootFolderId,
-    ...(sourceHandle.rootId === undefined ? {} : { rootId: sourceHandle.rootId }),
-  };
-
-  const knownFileSize = getKnownFileSize(fileNode.size);
-  if (knownFileSize !== null) {
-    fileHandle.size = knownFileSize;
-  }
-
-  return fileHandle;
-}
 
 // File node validation helper
 function isFileNodeValid(fileNode: IFileNode | null, folderId: string): boolean {
@@ -527,7 +502,7 @@ async function prepareFileReadRequest(
 
   markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
 
-  const fileHandle = createFileHandle(fileNode, fileSystemAdapter);
+  const fileHandle = fileNodeToFileHandle(fileNode);
   return { compositeKey, handle: fileHandle, path };
 }
 

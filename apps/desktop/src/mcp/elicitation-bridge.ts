@@ -19,8 +19,9 @@ import {
   type McpElicitationRetiredWire,
   parseMcpElicitationSettlement,
 } from '@brainstrike/assistant-contract';
-import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import { mcpElicitationContract } from '../ipc-domains/mcp.contract';
+import { type DesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
+import type { Handlers } from '../platform/ipc-contract';
 import { getTrackedWindowsByRole } from '../window-role';
 import {
   type McpElicitationPresentation,
@@ -61,8 +62,6 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
-const MCP_ELICITATION_SETTLE_SENDER_POLICY = { roles: ['visible-ui'] } as const;
-
 export function attachMcpElicitationBridge(
   runtime: McpElicitationBridgeRuntime,
   registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>
@@ -70,13 +69,13 @@ export function attachMcpElicitationBridge(
   const { elicitationPresenter } = runtime;
   const detach = elicitationPresenter.attach((presentation: McpElicitationPresentation) => {
     const wire: McpElicitationPresentationWire = presentation;
-    broadcast(DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationRequested, wire);
+    broadcast(mcpElicitationContract.onElicitationRequested.channel, wire);
   });
   let stopObserving: () => void;
   try {
     stopObserving = elicitationPresenter.observeFinalized(({ code, id }) => {
       const wire: McpElicitationRetiredWire = { code, id };
-      broadcast(DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationRetired, wire);
+      broadcast(mcpElicitationContract.onElicitationRetired.channel, wire);
     });
   } catch (error) {
     detach();
@@ -86,11 +85,8 @@ export function attachMcpElicitationBridge(
   // presentation is broadcast to every window, so only the visible UI may
   // settle: hidden inference hosts and untracked senders are rejected before
   // the payload is parsed (same policy as secrets and mcp:content:*).
-  registry.registerAuthorizedInvoke(
-    'mcp',
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationSettle,
-    MCP_ELICITATION_SETTLE_SENDER_POLICY,
-    (_event, settlement: unknown): void => {
+  const handlers: Handlers<typeof mcpElicitationContract> = {
+    settleElicitation: (settlement): void => {
       let parsed: ReturnType<typeof parseMcpElicitationSettlement>;
       try {
         parsed = parseMcpElicitationSettlement(settlement);
@@ -106,8 +102,9 @@ export function attachMcpElicitationBridge(
             : 'mcp-elicitation-settlement-invalid'
         );
       }
-    }
-  );
+    },
+  };
+  registerDomain(registry, 'mcp', mcpElicitationContract, handlers);
   return () => {
     // Detach first so the resulting `presenter-unavailable` finalizations still
     // reach the renderer before the observer is removed.

@@ -61,6 +61,24 @@ function credentialStateLabel(state: 'malformed' | 'missing' | 'stored' | 'unrea
   }
 }
 
+function McpCredentialFaultNotice({ server }: { readonly server: McpServerInfo }) {
+  const { auth } = server;
+  const hasFault =
+    auth &&
+    auth.type !== 'none' &&
+    (auth.credentialState === 'malformed' || auth.credentialState === 'unreadable');
+  return (
+    <div className="text-destructive text-xs" role="status">
+      {hasFault ? (
+        <>
+          Stored credentials are {credentialStateLabel(auth.credentialState)}. Open connection
+          details for more information.
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * "Connected" is a transport fact, not a statement that `tools/list` returned
  * (BST-1603). Without this line the row shows one green state for a server that
@@ -156,6 +174,68 @@ function McpExtensionStatus({ server }: { readonly server: McpServerInfo }) {
   );
 }
 
+// The host publishes terminal transport faults as error and OAuth consent
+// requirements as authentication-required. Connecting/disconnected are lifecycle
+// states; their diagnostic history remains available in Connection details.
+function hasConnectionFailure(server: McpServerInfo): boolean {
+  return server.state === 'error' || server.state === 'authentication-required';
+}
+
+function McpDiagnostics({ server }: { readonly server: McpServerInfo }) {
+  if (!server.diagnostics?.length) {
+    return null;
+  }
+  return (
+    <div
+      className="mt-1 whitespace-pre-line text-muted-foreground text-xs"
+      data-testid={`mcp-diagnostics-${server.configuredServerId}`}
+    >
+      {server.diagnostics
+        .map(
+          (diagnostic) =>
+            `${diagnostic.stream} · ${diagnostic.message}${
+              diagnostic.truncated ? ' · truncated' : ''
+            }`
+        )
+        .join('\n')}
+    </div>
+  );
+}
+
+function McpConnectionDetails({ server }: { readonly server: McpServerInfo }) {
+  return (
+    <details className="mt-2 text-muted-foreground text-xs">
+      <summary
+        aria-label={`Connection details for ${server.configuredServerId}`}
+        className="cursor-pointer rounded-sm py-1 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
+      >
+        Connection details
+      </summary>
+      <div className="mt-1 space-y-1 break-words">
+        <span className="text-muted-foreground">
+          transport {server.transport} · policy {server.configuredProtocol} · generation{' '}
+          {server.generation}
+        </span>
+        <McpAuthStatus server={server} />
+        <McpExtensionStatus server={server} />
+        {server.state === 'connected' && (
+          <div className="text-muted-foreground text-xs">
+            era {server.negotiated.era} · revision {server.negotiated.revision}
+            {server.negotiated.serverIdentity
+              ? ` · ${server.negotiated.serverIdentity.name} ${server.negotiated.serverIdentity.version}`
+              : ''}
+            {` · capabilities: ${
+              server.negotiated.advertisedCapabilityIds?.join(', ') ||
+              (server.negotiated.advertisedCapabilityIds ? 'none' : 'unavailable')
+            }`}
+          </div>
+        )}
+        {!hasConnectionFailure(server) && <McpDiagnostics server={server} />}
+      </div>
+    </details>
+  );
+}
+
 export function McpServerStatusRow({
   controlAvailable,
   onComplete,
@@ -235,25 +315,10 @@ export function McpServerStatusRow({
             {MCP_CONTROL_LABELS[action]}
           </Button>
         ))}
-        <span className="text-muted-foreground">
-          transport {server.transport} · policy {server.configuredProtocol} · generation{' '}
-          {server.generation}
-        </span>
       </div>
-      <McpAuthStatus server={server} />
-      <McpExtensionStatus server={server} />
+      <McpCredentialFaultNotice server={server} />
       {server.state === 'connected' && (
         <>
-          <div className="text-muted-foreground text-xs">
-            era {server.negotiated.era} · revision {server.negotiated.revision}
-            {server.negotiated.serverIdentity
-              ? ` · ${server.negotiated.serverIdentity.name} ${server.negotiated.serverIdentity.version}`
-              : ''}
-            {` · capabilities: ${
-              server.negotiated.advertisedCapabilityIds?.join(', ') ||
-              (server.negotiated.advertisedCapabilityIds ? 'none' : 'unavailable')
-            }`}
-          </div>
           <McpToolsAvailabilityNotice server={server} />
           {server.catalog && (
             <McpServerCatalog
@@ -281,21 +346,8 @@ export function McpServerStatusRow({
           MCP lifecycle control failed: {controlError}
         </div>
       )}
-      {server.diagnostics && server.diagnostics.length > 0 && (
-        <div
-          className="mt-1 whitespace-pre-line text-muted-foreground text-xs"
-          data-testid={`mcp-diagnostics-${server.configuredServerId}`}
-        >
-          {server.diagnostics
-            .map(
-              (diagnostic) =>
-                `${diagnostic.stream} · ${diagnostic.message}${
-                  diagnostic.truncated ? ' · truncated' : ''
-                }`
-            )
-            .join('\n')}
-        </div>
-      )}
+      {hasConnectionFailure(server) && <McpDiagnostics server={server} />}
+      <McpConnectionDetails key={server.generation} server={server} />
       <Dialog
         onOpenChange={(open) => {
           if (!open) {

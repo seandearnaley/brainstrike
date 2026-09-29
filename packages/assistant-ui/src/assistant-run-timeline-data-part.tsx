@@ -1,5 +1,8 @@
 import { type DataMessagePartComponent, useAuiState } from '@assistant-ui/react';
-import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
+import { type AssistantRunEvent, readAssistantRunEvent } from '@brainstrike/assistant-contract';
+import { useAnsweredApprovals } from './answered-approvals-context';
+import { approvalSurfaceCallKey } from './answered-approvals-index-model';
+import { approvalCardToolCallIds } from './approval-history';
 import { shouldShowBackgroundActivity } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { useAssistantRunEventDerivation } from './assistant-run-event-context';
@@ -45,6 +48,24 @@ export const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data })
   // Default detail keeps hidden rows out of the shared derivation context.
   // Terminal failures/cancellations retain their established per-row path.
   const { detailLevel } = useAssistantDetailLevel();
+  const event = readAssistantRunEvent(data);
+  const { cardedSurfaceCalls } = useAnsweredApprovals();
+  const toolCallId = event?.metadata?.['toolCallId'];
+  const hasIndexedCard =
+    event?.kind === 'tool.approval.requested' &&
+    typeof toolCallId === 'string' &&
+    event.runId !== undefined &&
+    cardedSurfaceCalls.has(approvalSurfaceCallKey(event.runId, toolCallId));
+  const hasLocalCard = useAuiState(
+    (state) =>
+      !hasIndexedCard &&
+      event?.kind === 'tool.approval.requested' &&
+      typeof toolCallId === 'string' &&
+      approvalCardToolCallIds(state.message.parts).has(toolCallId)
+  );
+  if (hasIndexedCard || hasLocalCard) {
+    return null;
+  }
   if (shouldShowBackgroundActivity(detailLevel)) {
     return <VisibleAssistantRunTimelineDataPart data={data} />;
   }

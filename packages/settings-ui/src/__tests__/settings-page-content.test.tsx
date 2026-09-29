@@ -57,7 +57,9 @@ describe('SettingsPageContent', () => {
       />
     );
 
-    expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument();
+    // The page owns its own title (BST-1668): Settings is a shell route, not
+    // a dialog whose DialogTitle supplied the heading.
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
     expect(screen.getByTestId('theme-settings')).toBeInTheDocument();
 
     const nav = screen.getByRole('navigation', { name: /settings categories/i });
@@ -169,6 +171,44 @@ describe('SettingsPageContent', () => {
     render(<SettingsPageContent categories={[]} />);
     expect(screen.getByText('No settings matched "".')).toBeInTheDocument();
     expect(screen.getByText(/Try adjusting your search/i)).toBeInTheDocument();
+  });
+
+  it('keeps the document layout by default', () => {
+    render(<SettingsPageContent categories={[makeCategory('advanced', 'Advanced')]} />);
+
+    const category = screen.getByTestId('settings-category-advanced');
+    expect(category).toHaveAttribute('data-layout', 'document');
+    expect(category.className).toContain('max-w-3xl');
+    expect(category.closest('section')?.className).toContain('overflow-y-auto');
+  });
+
+  it('renders a workspace category full width and lets it own scrolling (BST-1805)', () => {
+    const workspace: SettingsCategory = {
+      ...makeCategory('models', 'Model Catalog'),
+      layout: 'workspace',
+    };
+    render(<SettingsPageContent categories={[workspace]} />);
+
+    const category = screen.getByTestId('settings-category-models');
+    expect(category).toHaveAttribute('data-layout', 'workspace');
+    expect(category.className).not.toContain('max-w-3xl');
+    expect(category.className).toContain('flex-1');
+    expect(screen.getByTestId('category-models').parentElement?.className).toContain('flex-1');
+    const section = category.closest('section');
+    expect(section?.className).toContain('overflow-hidden');
+    expect(section?.className).not.toContain('overflow-y-auto');
+  });
+
+  it('renders header actions beside the category title', () => {
+    const withActions: SettingsCategory = {
+      ...makeCategory('models', 'Model Catalog', 'Browse models'),
+      headerActions: <button type="button">Refresh</button>,
+    };
+    render(<SettingsPageContent categories={[withActions]} />);
+
+    const header = screen.getByTestId('settings-category-header-models');
+    expect(within(header).getByRole('heading', { name: 'Model Catalog' })).toBeInTheDocument();
+    expect(within(header).getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
   });
 });
 

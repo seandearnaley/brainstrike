@@ -142,7 +142,7 @@ const CHUNKING_PRESETS: readonly ChunkingPresetDefinition[] = [
     label: 'Docs',
     strategy: 'semantic-markdown',
     tokenLimit: 4096,
-    tradeoff: "Non-markdown files won't benefit from the heading-family bias.",
+    tradeoff: 'Non-markdown files won’t benefit from the heading-family bias.',
   },
   {
     adaptiveRouting: false,

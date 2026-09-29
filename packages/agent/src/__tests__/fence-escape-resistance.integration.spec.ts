@@ -63,11 +63,14 @@ import {
  * srt is a fast-moving research preview and the escapes this suite chases live
  * in ITS profile generation, not ours — the root-wide-allowRead hole below was
  * an off-by-one in how srt 0.0.67 re-emits nested denies, and it is STILL
- * present at 0.0.73 (re-measured on the published tarball in BST-1285). A bump
- * can silently change any of that, so the pin is asserted as a test: bumping
- * srt REQUIRES re-greening this suite, not just the type-check.
+ * present at 0.0.75. The load-bearing evidence for that is the live run below,
+ * not source reading: 0.0.75 rewrote macOS deny emission around this logic
+ * (folding literal denies into regexes), so line-level identity of the
+ * re-emission test corroborates the result but cannot establish it on its own.
+ * A bump can silently change any of this, which is why the pin is asserted as a
+ * test: bumping srt REQUIRES re-greening this suite, not just the type-check.
  */
-const PINNED_SRT_VERSION = '0.0.73';
+const PINNED_SRT_VERSION = '0.0.75';
 
 /** Per-request output cap; small enough to overflow without minutes of I/O. */
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -537,9 +540,10 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
       expect(error.message).toContain('glob');
     });
 
-    it('REFUSES a root-wide allowRead, which srt 0.0.73 does not re-deny under (macOS)', async () => {
+    it('REFUSES a root-wide allowRead, which srt 0.0.75 does not re-deny under (macOS)', async () => {
       // BST-1071's live finding, re-measured against 0.0.73 in BST-1285 and
-      // STILL PRESENT. srt re-applies a nested deny on top of a broader
+      // against 0.0.75 in BST-1669, where this test passing IS the measurement:
+      // the hole is STILL PRESENT. srt re-applies a nested deny on top of a broader
       // allowRead by testing `denied.startsWith(allowed + "/")`; for
       // `allowed === "/"` that compares against "//" and never matches, so on
       // macOS `allowRead: ['/']` made ~/.ssh and ~/.config/gh readable. Linux

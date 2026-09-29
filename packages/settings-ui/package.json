@@ -56,6 +56,10 @@
       "types": "./dist/settings/models/model-selection-page.d.ts",
       "import": "./dist/settings/models/model-selection-page.js"
     },
+    "./settings/models/use-model-toggle": {
+      "types": "./dist/settings/models/use-model-toggle.d.ts",
+      "import": "./dist/settings/models/use-model-toggle.js"
+    },
     "./settings/providers/providers-settings-category": {
       "types": "./dist/settings/providers/providers-settings-category.d.ts",
       "import": "./dist/settings/providers/providers-settings-category.js"
@@ -111,8 +115,9 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm -w lint",
-    "test": "vitest run",
-    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test": "vitest run --exclude \"**/*.integration.test.*\"",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   }

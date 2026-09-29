@@ -222,8 +222,16 @@ vi.mock('electron', () => ({
   ipcMain: { handle: ipcHandleMock },
 }));
 
+vi.mock('../../window-role', () => ({
+  getTrackedWindowsByRole: vi.fn(() => []),
+  getWindowRoleByWebContentsId: vi.fn(() => 'visible-ui'),
+}));
+
 import { registerMcpIpcHandlers, resumeMcpRuntimeAfterFactoryReset } from '../../ipc-mcp';
+import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
+
+const VISIBLE_UI_EVENT = { sender: { id: 1 }, senderFrame: createAllowlistedSenderFrame() };
 
 const authority = createMcpAuthorityTestRuntime(async (serverId) => {
   const discovered = await listToolsMock(serverId);
@@ -263,7 +271,7 @@ function getIpcHandler<T extends unknown[]>(
   if (!handler) {
     throw new Error(`handler not registered for ${channel}`);
   }
-  return handler;
+  return (_event, ...args) => handler(VISIBLE_UI_EVENT, ...args);
 }
 
 /**

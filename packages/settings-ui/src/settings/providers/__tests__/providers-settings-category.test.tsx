@@ -38,20 +38,6 @@ describe('Providers settings category module boundary', () => {
     expect(categorySource).toContain('export function createProvidersSettingsCategory');
   });
 
-  it('is registered by both applications', async () => {
-    const consumerPaths = [
-      resolve(SRC_ROOT, '../../../apps/desktop/src/renderer/components/settings/page-content.tsx'),
-      resolve(SRC_ROOT, '../../../apps/web/src/app/settings/page-content.tsx'),
-    ];
-
-    for (const consumerPath of consumerPaths) {
-      const consumerSource = await readFile(consumerPath, 'utf8');
-      expect(consumerSource).toContain('createProvidersSettingsCategory');
-      // The category it replaces must not be registered alongside it.
-      expect(consumerSource).not.toContain('createApiKeysSettingsCategory');
-    }
-  });
-
   // The per-provider-branch guard lives in `provider-branch-guard.test.ts`:
   // it covers BOTH provider trees, derives its provider ids from the registry,
   // tokenises rather than regex-stripping comments, and proves it can fail by

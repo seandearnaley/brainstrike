@@ -12,15 +12,11 @@ const baseSettings = {
   masterEnabled: true,
 };
 
-const unfocusedHidden = { hasFocus: false, visibilityState: 'hidden' as const };
-const unfocusedVisibleNoFocus = { hasFocus: false, visibilityState: 'visible' as const };
-const focused = { hasFocus: true, visibilityState: 'visible' as const };
-
 describe('shouldNotify', () => {
-  it('allows a notification when master + event are on, permission granted, and the tab is hidden', () => {
+  it('allows a notification when master + event are on, permission granted, and the app is not active', () => {
     expect(
       shouldNotify({
-        focusState: unfocusedHidden,
+        appActive: false,
         kind: 'runFinished',
         permissionState: 'granted',
         settings: baseSettings,
@@ -28,21 +24,10 @@ describe('shouldNotify', () => {
     ).toBe(true);
   });
 
-  it('allows a notification when the tab is visible but the window lacks focus', () => {
+  it('never notifies while the app is active (visible and focused)', () => {
     expect(
       shouldNotify({
-        focusState: unfocusedVisibleNoFocus,
-        kind: 'runFinished',
-        permissionState: 'granted',
-        settings: baseSettings,
-      })
-    ).toBe(true);
-  });
-
-  it('never notifies a focused, visible user', () => {
-    expect(
-      shouldNotify({
-        focusState: focused,
+        appActive: true,
         kind: 'runFinished',
         permissionState: 'granted',
         settings: baseSettings,
@@ -53,7 +38,7 @@ describe('shouldNotify', () => {
   it('refuses when the master toggle is off', () => {
     expect(
       shouldNotify({
-        focusState: unfocusedHidden,
+        appActive: false,
         kind: 'runFinished',
         permissionState: 'granted',
         settings: { ...baseSettings, masterEnabled: false },
@@ -64,7 +49,7 @@ describe('shouldNotify', () => {
   it('refuses when the specific event toggle is off', () => {
     expect(
       shouldNotify({
-        focusState: unfocusedHidden,
+        appActive: false,
         kind: 'runFailed',
         permissionState: 'granted',
         settings: { ...baseSettings, events: { ...baseSettings.events, runFailed: false } },
@@ -75,7 +60,7 @@ describe('shouldNotify', () => {
   it('refuses when permission is denied', () => {
     expect(
       shouldNotify({
-        focusState: unfocusedHidden,
+        appActive: false,
         kind: 'runFinished',
         permissionState: 'denied',
         settings: baseSettings,
@@ -86,7 +71,7 @@ describe('shouldNotify', () => {
   it('refuses when permission is default (not yet granted)', () => {
     expect(
       shouldNotify({
-        focusState: unfocusedHidden,
+        appActive: false,
         kind: 'runFinished',
         permissionState: 'default',
         settings: baseSettings,
@@ -97,7 +82,7 @@ describe('shouldNotify', () => {
   it('refuses when the Notification API is unsupported', () => {
     expect(
       shouldNotify({
-        focusState: unfocusedHidden,
+        appActive: false,
         kind: 'runFinished',
         permissionState: 'unsupported',
         settings: baseSettings,

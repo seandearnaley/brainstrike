@@ -63,6 +63,8 @@ export interface ThreadScrollFollow {
    * decides the motion.
    */
   readonly scrollToBottom: () => void;
+  /** Explicit message navigation disengages follow without notifying re-pin callers. */
+  readonly scrollToMessage: (target: HTMLElement) => void;
   /** Subscribe to pinned-state changes (for `useSyncExternalStore`). */
   readonly subscribe: (listener: () => void) => () => void;
 }
@@ -73,9 +75,16 @@ function createThreadScrollFollow(): ThreadScrollFollow {
   /** True while a follow/explicit scroll is in flight and may still settle. */
   let pendingFollow = false;
   let lastScrollTop = 0;
+  let hidden = false;
   let lastScrollHeight = 0;
   let lastObservedScrollHeight = 0;
   let lastObservedClientHeight = 0;
+  /**
+   * The `scrollTop` a `measure` write moved to and has not yet seen echoed back
+   * as a `scroll` event, or null when no echo is outstanding. Claimed only in
+   * `measure`; consumed only in `onScroll`.
+   */
+  let unechoedWriteTop: number | null = null;
   const stateListeners = new Set<() => void>();
   const requestListeners = new Set<() => void>();
 
@@ -106,6 +115,12 @@ function createThreadScrollFollow(): ThreadScrollFollow {
    * clamp's scroll event is dispatched; the upstream bug was precisely that
    * its observer was being reconstructed at that moment and missed the
    * window.
+   *
+   * The related misread that WAS reachable — the engine's own write echoing
+   * back after a resize — is filtered before this runs; see `onScroll` in
+   * `attach`. Nothing here may assume `lastScrollTop` is the position
+   * immediately before the current event: it is the last one this function
+   * PROCESSED, and coalesced events skip over intermediate positions.
    */
   const handleScroll = (el: HTMLElement): void => {
     const nextAtBottom =
@@ -130,7 +145,27 @@ function createThreadScrollFollow(): ThreadScrollFollow {
 
   const measure = (el: HTMLElement): void => {
     const { scrollHeight, clientHeight } = el;
-    if (scrollHeight === lastObservedScrollHeight && clientHeight === lastObservedClientHeight) {
+    // Hidden workspace tabs report zero geometry. That is not a reader at
+    // the bottom; retain the visible tab's pinnedness until layout returns.
+    if (clientHeight === 0) {
+      hidden = true;
+      unechoedWriteTop = null;
+      return;
+    }
+    const resuming = hidden;
+    hidden = false;
+    const restoringReader = resuming && !isAtBottom && !pendingFollow;
+    const topBefore = el.scrollTop;
+    if (restoringReader) {
+      // Browser anchoring can displace a kept-alive viewport while hidden.
+      // Restore the last observed reading position before judging new geometry.
+      el.scrollTo({ behavior: 'instant', top: lastScrollTop });
+    }
+    if (
+      !resuming &&
+      scrollHeight === lastObservedScrollHeight &&
+      clientHeight === lastObservedClientHeight
+    ) {
       return;
     }
     lastObservedScrollHeight = scrollHeight;
@@ -143,16 +178,45 @@ function createThreadScrollFollow(): ThreadScrollFollow {
       // per-token streaming growth.
       write(el, 'instant');
     }
-    handleScroll(el);
+    if (restoringReader) {
+      // A clamp after hidden content shrank is not a user's request to follow.
+      lastScrollTop = el.scrollTop;
+      lastScrollHeight = el.scrollHeight;
+    } else {
+      handleScroll(el);
+    }
+    // The claim is made HERE, and only here, because the justification for
+    // swallowing an echo is the synchronous `handleScroll` immediately above —
+    // this is the one path that judges its own write in the same breath. The
+    // explicit-request writes (`scrollToBottom`, `jumpToBottomInstant`) do not
+    // judge, so their echo is the ONLY thing that can re-pin the thread and
+    // must never be swallowed; keeping the claim out of `write` makes that
+    // structural rather than a rule someone has to remember.
+    //
+    // Only a write that MOVED the position is claimed. A no-op write (already
+    // at the bottom — the steady state while pinned) dispatches no scroll
+    // event, so its claim could never be consumed and would sit there until
+    // some unrelated event happened to land on that exact pixel. A CSS
+    // (possibly smooth) write has not moved yet either, and is guarded for its
+    // whole animation by `pendingFollow` instead.
+    //
+    // Best-effort by construction: if the browser moves `scrollTop` between the
+    // write and its echo (scroll anchoring, a clamp), the claim simply misses
+    // and the event is judged as it was before this guard existed — no worse.
+    unechoedWriteTop = el.scrollTop === topBefore ? null : el.scrollTop;
   };
 
   return {
     attach: (el) => {
       element = el;
+      hidden = el.clientHeight === 0;
       lastScrollTop = el.scrollTop;
       lastScrollHeight = el.scrollHeight;
       lastObservedScrollHeight = el.scrollHeight;
       lastObservedClientHeight = el.clientHeight;
+      // A claim belongs to the element that was written; the previous
+      // scroller's echo must never be matched against this one's position.
+      unechoedWriteTop = null;
       let measurementFrame: number | null = null;
       const cancelScheduledMeasurement = (): void => {
         if (measurementFrame === null) {
@@ -170,9 +234,53 @@ function createThreadScrollFollow(): ThreadScrollFollow {
           measure(el);
         });
       };
-      const onScroll = () => handleScroll(el);
+      /**
+       * A `scroll` event carries no position of its own — `handleScroll` reads
+       * LIVE geometry — so an event is only evidence about the state it is
+       * judged against. `measure` writes `scrollTop` synchronously and judges
+       * the result in the same breath (clearing `pendingFollow`), while the
+       * browser dispatches that write's event a task LATER. If the viewport is
+       * resized in between, that leftover event is judged against dimensions
+       * the engine has never measured: "not at bottom, and the position did not
+       * move down" — indistinguishable from a reader parked above the end. That
+       * unpinned follow with no user act, permanently, since `measure` only
+       * re-sticks while pinned (BST-1039: the queue's chip row shrinks the
+       * viewport from OUTSIDE the scroller while a streamed chunk grows the
+       * content inside it, and neither fires a scroll event of its own).
+       *
+       * So a `measure` write CLAIMS the position it moved to and the echo is
+       * swallowed once: the synchronous judgement there already covered it, and
+       * `measure` is what will re-stick through the resize. See the claim site
+       * for why it lives in `measure` and not in `write`.
+       *
+       * Authorship is the discriminator, NOT "did scrollTop move" — scroll
+       * events coalesce, so a user round trip to the end and back reaches this
+       * as a single event whose net movement against the last PROCESSED
+       * position is zero (the tier-switch suite does exactly that, and it must
+       * still disengage). Anything the engine did not write is the user's.
+       */
+      const onScroll = () => {
+        if (el.clientHeight === 0) {
+          hidden = true;
+          unechoedWriteTop = null;
+          return;
+        }
+        if (hidden) {
+          measure(el);
+          return;
+        }
+        const isOwnWriteEcho = unechoedWriteTop === el.scrollTop;
+        unechoedWriteTop = null;
+        if (isOwnWriteEcho) {
+          lastScrollTop = el.scrollTop;
+          lastScrollHeight = el.scrollHeight;
+          return;
+        }
+        handleScroll(el);
+      };
       const onUserIntent = () => {
         pendingFollow = false;
+        unechoedWriteTop = null;
         cancelScheduledMeasurement();
       };
       const resizeObserver = new ResizeObserver(() => measure(el));
@@ -232,6 +340,22 @@ function createThreadScrollFollow(): ThreadScrollFollow {
       if (element) {
         write(element);
       }
+    },
+    scrollToMessage: (target) => {
+      if (!element?.contains(target)) {
+        throw new Error('The requested message is outside this conversation viewport.');
+      }
+      pendingFollow = false;
+      unechoedWriteTop = null;
+      setIsAtBottom(false);
+      element.scrollTo({
+        behavior: 'instant',
+        top:
+          element.scrollTop +
+          target.getBoundingClientRect().top -
+          element.getBoundingClientRect().top -
+          Math.max(0, (element.clientHeight - target.clientHeight) / 2),
+      });
     },
     subscribe: (listener) => {
       stateListeners.add(listener);

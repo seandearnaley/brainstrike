@@ -1,6 +1,14 @@
 import { createLogger } from '@brainstrike/logging';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
-import { ChevronLeft, ChevronRight, PanelLeft, PanelRight, Terminal, X } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  PanelLeft,
+  PanelRight,
+  PanelRightClose,
+  Terminal,
+  X,
+} from 'lucide-react';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import {
   Group,
@@ -1421,7 +1429,9 @@ export const IdeLayout = React.memo(function IdeLayout({
                       title={resolvedRightPanelChrome.hideButtonLabel}
                       variant="ghost"
                     >
-                      <ChevronRight className="h-4 w-4" />
+                      {/* A panel icon, not a chevron: the header hosts tab strips, and a
+                          chevron here read as a scroll button (BST-1836 defect 3). */}
+                      <PanelRightClose className="h-4 w-4" />
                     </Button>
                   </div>
                   <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

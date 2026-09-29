@@ -38,13 +38,9 @@
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
-    "@assistant-ui/react-data-stream": "catalog:",
     "@assistant-ui/react-markdown": "catalog:",
     "@assistant-ui/styles": "catalog:",
-    "@babel/core": "catalog:",
-    "@babel/plugin-transform-runtime": "catalog:",
-    "@babel/runtime": "catalog:",
-    "@biomejs/biome": "2.5.8",
+    "@biomejs/biome": "2.5.14",
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/e2e-test-utils": "workspace:*",
@@ -57,13 +53,11 @@
     "@radix-ui/react-scroll-area": "catalog:",
     "@radix-ui/react-tabs": "catalog:",
     "@radix-ui/react-toast": "catalog:",
-    "@rolldown/plugin-babel": "catalog:",
     "@shikijs/langs": "catalog:",
     "@shikijs/themes": "catalog:",
     "@tailwindcss/typography": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@testing-library/dom": "catalog:",
-    "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@testing-library/user-event": "catalog:",
     "@types/node": "catalog:",
@@ -77,6 +71,7 @@
     "jszip": "catalog:",
     "knip": "catalog:",
     "minimatch": "catalog:",
+    "oxc-transform-react": "catalog:",
     "pino": "catalog:",
     "playwright": "catalog:",
     "react-hotkeys-hook": "catalog:",
@@ -98,7 +93,7 @@
     "zustand": "catalog:"
   },
   "engines": {
-    "node": "24.x"
+    "node": ">=24.20.0 <25 || >=26.8.2 <27"
   },
   "private": true,
   "scripts": {
@@ -118,7 +113,7 @@
     "test:e2e:debug": "unset NO_COLOR; pnpm exec playwright test --debug",
     "test:e2e:full-browsers": "unset NO_COLOR; PLAYWRIGHT_FULL_BROWSER_COVERAGE=1 pnpm exec playwright test",
     "test:e2e:functional": "unset NO_COLOR; pnpm exec playwright test --project=functional",
-    "test:e2e:lane:assistant-state": "unset NO_COLOR; pnpm exec playwright test e2e/assistant-ui-panel.test.ts e2e/assistant-local-availability.test.ts e2e/assistant-panel.test.ts e2e/assistant-panel-interactions.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-assistant-state\"",
+    "test:e2e:lane:assistant-state": "unset NO_COLOR; pnpm exec playwright test e2e/assistant-ui-panel.test.ts e2e/assistant-local-availability.test.ts e2e/assistant-panel.test.ts e2e/assistant-panel-interactions.test.ts e2e/assistant-thread-tab-runs.test.ts e2e/assistant-tab-strip-geometry.test.ts e2e/tab-chords.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-assistant-state\"",
     "test:e2e:lane:clear-database": "unset NO_COLOR; pnpm exec playwright test e2e/clear-database-rows.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-clear-database\"",
     "test:e2e:lane:collection-drawer": "unset NO_COLOR; pnpm exec playwright test e2e/collection-debug-drawer.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-collection-drawer\"",
     "test:e2e:lane:db-startup": "unset NO_COLOR; pnpm exec playwright test e2e/tools-panel-persistence.test.ts e2e/web-db-worker-startup.test.ts e2e/embedding-worker-telemetry.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-db-startup\"",
@@ -129,13 +124,14 @@
     "test:e2e:lane:import-indexing": "unset NO_COLOR; pnpm exec playwright test e2e/database-import-backfill.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-import-indexing\"",
     "test:e2e:lane:indexing": "unset NO_COLOR; pnpm exec playwright test e2e/workspace-index-background-indexing.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-indexing\"",
     "test:e2e:lane:production-csp": "unset NO_COLOR; pnpm exec playwright test e2e/production-csp.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-production-csp\"",
-    "test:e2e:lane:settings-state": "unset NO_COLOR; pnpm exec playwright test e2e/background-indexing-settings.test.ts e2e/settings-models-and-providers.test.ts e2e/settings-modal-layering.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-settings-state\"",
+    "test:e2e:lane:settings-state": "unset NO_COLOR; pnpm exec playwright test e2e/background-indexing-settings.test.ts e2e/settings-models-and-providers.test.ts e2e/settings-popup-anchoring.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep \"@web-settings-state\"",
     "test:e2e:lane:smoke": "unset NO_COLOR; pnpm exec playwright test --project=functional --grep \"@web-smoke\" --workers=2 --max-failures=1 --global-timeout=600000",
     "test:e2e:perf": "unset NO_COLOR; pnpm exec playwright test --project=performance",
     "test:e2e:ui": "unset NO_COLOR; pnpm exec playwright test --ui",
     "test:ui": "vitest --ui",
     "test:watch": "vitest",
-    "type-check": "tsc --build --force && tsc --noEmit && tsc --noEmit --project tsconfig.test.json && pnpm run type-check:api",
+    "type-check": "tsc --build && tsc --noEmit && tsc --noEmit --project tsconfig.test.json && pnpm run type-check:api",
     "type-check:api": "tsc --noEmit --project api/tsconfig.json"
-  }
+  },
+  "type": "module"
 }

@@ -1,4 +1,7 @@
 // packages/agent/src/config/resilience-config.ts
+import { MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS } from '@brainstrike/assistant-contract';
+import { TOOL_GUARD_MARGIN_MS } from '../tools/resolve-tool-guard-budget';
+
 /**
  * Strict, no-silent-fallback configuration for assistant resilience timeouts.
  *
@@ -90,6 +93,23 @@ export const DEFAULT_STREAM_STALL_ATTEMPTS = 2;
  */
 export const DEFAULT_APPROVAL_STALE_MS = 86_400_000;
 
+/**
+ * Slack between the largest execution-guard budget and the stream watchdog's
+ * `tool-executing` backstop (BST-1777).
+ *
+ * The guarantee this buys is narrow and worth stating honestly (PR review):
+ * every GUARD window is below `toolExecutingMs` by construction, so a guard
+ * that answers is never pre-empted by the backstop. Tool-lifecycle hooks are
+ * NOT covered — they compose OUTSIDE the guard (`tool-pipeline.ts`), the
+ * `tool-executing` phase opens at the `tool-call` part before `PreToolUse`
+ * runs, and `hooks/config.ts` deliberately caps each hook individually with no
+ * aggregate pre+tool+post ceiling. Hook time rides this 30s slack and is not
+ * bounded, so a long enough hook chain can reach the backstop with a working
+ * guard — which is why the backstop's visible message does not claim the
+ * guard failed (`stream-termination.ts`).
+ */
+export const TOOL_EXECUTING_BACKSTOP_MARGIN_MS = 30_000;
+
 export interface AssistantResilienceConfig {
   streamFirstOutputMs: number;
   streamInactivityMs: number;
@@ -98,6 +118,8 @@ export interface AssistantResilienceConfig {
   /** Provider attempts per turn; 1 means a stall is immediately terminal. */
   streamStallAttempts: number;
   toolCallInputMs: number;
+  /** Backstop while a tool executes; derived, see resolveToolExecutingMs. */
+  toolExecutingMs: number;
   toolTimeoutMs: number;
 }
 
@@ -204,6 +226,19 @@ export function resolveApprovalStaleMs(override?: number): number {
   return resolvePositiveIntMs('BRAINSTRIKE_APPROVAL_STALE_MS', DEFAULT_APPROVAL_STALE_MS, override);
 }
 
+/**
+ * DERIVED, never configured: above the largest budget the guard can grant —
+ * the biggest declared native budget plus its margin, or the global default
+ * when an operator raised that higher. A knob here would be a second number to
+ * keep in step with the first, which is how BST-1777 happened.
+ */
+function resolveToolExecutingMs(toolTimeoutMs: number): number {
+  return (
+    Math.max(MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS, toolTimeoutMs) +
+    TOOL_EXECUTING_BACKSTOP_MARGIN_MS
+  );
+}
+
 export function resolveAssistantResilienceConfig(options?: {
   streamFirstOutputMs?: number;
   streamInactivityMs?: number;
@@ -214,14 +249,7 @@ export function resolveAssistantResilienceConfig(options?: {
 }): AssistantResilienceConfig {
   const toolTimeoutMs = resolveToolTimeoutMs(options?.toolTimeoutMs);
   const streamInactivityMs = resolveStreamInactivityMs(options?.streamInactivityMs);
-  // The FOUNDATIONAL ordering is checked before any derived window, so a config
-  // that violates several invariants at once names the first thing to fix
-  // rather than a consequence of it (review of #2586).
-  if (toolTimeoutMs >= streamInactivityMs) {
-    throw new Error(
-      `BRAINSTRIKE_TOOL_TIMEOUT_MS must be less than BRAINSTRIKE_STREAM_INACTIVITY_MS; received ${toolTimeoutMs}ms and ${streamInactivityMs}ms.`
-    );
-  }
+  const toolExecutingMs = resolveToolExecutingMs(toolTimeoutMs);
   const streamFirstOutputMs = resolveStreamFirstOutputWindow(streamInactivityMs, options);
   const streamReasoningGapMs = resolveStreamReasoningGapWindow(streamInactivityMs, options);
   const streamStallAttempts = resolveStreamStallAttempts(options?.streamStallAttempts);
@@ -248,6 +276,7 @@ export function resolveAssistantResilienceConfig(options?: {
       streamReasoningGapMs,
       streamStallAttempts,
       toolCallInputMs: resolvedToolCallInputMs,
+      toolExecutingMs,
       toolTimeoutMs,
     };
   }
@@ -257,6 +286,7 @@ export function resolveAssistantResilienceConfig(options?: {
     streamReasoningGapMs,
     streamStallAttempts,
     toolCallInputMs: Math.max(resolvedToolCallInputMs, streamInactivityMs),
+    toolExecutingMs,
     toolTimeoutMs,
   };
 }

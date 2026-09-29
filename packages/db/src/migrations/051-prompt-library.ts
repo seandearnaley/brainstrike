@@ -16,6 +16,7 @@ export const migration051PromptLibrary: Migration = {
     --> statement-breakpoint
     DROP TABLE IF EXISTS prompt_embedding_profiles;
   `,
+  ledgerKey: 'custom-051-prompt-library',
   name: 'prompt_library',
   up: `
     CREATE TABLE IF NOT EXISTS prompt_embedding_profiles (

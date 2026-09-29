@@ -14,10 +14,6 @@ import {
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import {
-  buildPermissionToolGateSnapshotInput,
-  usePermissionPolicyStore,
-} from '@brainstrike/app-state/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { useSelfImprovementSignalPreferencesStore } from '@brainstrike/app-state/stores/self-improvement-signal-preferences-store';
 import {
@@ -26,28 +22,15 @@ import {
 } from '@brainstrike/app-state/stores/skills-preferences-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
-import type {
-  AssistantRunEvent,
-  LocalLlmBackendFactory,
-  ProviderKeySource,
-} from '@brainstrike/assistant-contract';
-import { parseAssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
+import type { LocalLlmBackendFactory, ProviderKeySource } from '@brainstrike/assistant-contract';
 import {
   isSupportedProvider,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import { isAssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import {
-  type CumulativeUsageDisplay,
-  createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
-  createSuspendedRunDiscovery,
-  EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY,
   hasDurableAssistantUsageCapability,
-  type ModelPricingResolver,
-  resolveAssistantMemoryResourceId,
-  resolveCumulativeUsageDisplay,
   useAssistantThreadStore,
 } from '@brainstrike/assistant-data';
 import {
@@ -57,11 +40,7 @@ import {
   BudgetGuardrailProvider,
   DebugBundleProvider,
   EditCheckpointProvider,
-  hasDesktopLlmHost,
   RunVerdictProvider,
-  type ToolApprovalGrantHandlers,
-  ToolApprovalGrantProvider,
-  useContextUsageStore,
 } from '@brainstrike/assistant-ui';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db/react';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
@@ -71,7 +50,6 @@ import {
   useFileSystem,
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui/shell';
-import { createLogger } from '@brainstrike/logging';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
@@ -79,8 +57,16 @@ import type {
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
+import { AssistantDecisionProviders } from './assistant-decision-providers';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
+import { subscribeAssistantToolUpdates } from './assistant-panel/tool-update-subscriptions';
+import {
+  hasDesktopRuntimeBridge,
+  useAssistantExecutionControls,
+} from './assistant-panel/use-assistant-execution-controls';
+import { useAssistantUsageLedger } from './assistant-panel/use-assistant-usage-ledger';
+import { useModelSelectionReconcile } from './assistant-panel/use-model-selection-reconcile';
+import { useTerminalRunHandlers } from './assistant-panel/use-terminal-run-handlers';
 import { webBodyLimitProps } from './assistant-request-body-limit';
 import {
   buildTapestryRangesForUpdate,
@@ -90,7 +76,6 @@ import {
   resolveWriteBackFolderId,
 } from './assistant-selection-write-back';
 import {
-  type AssistantRunUsagePayload,
   addValuesToSet,
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
@@ -99,41 +84,33 @@ import {
   buildProviderOptionsWhenReady,
   copyProviderSettingsMap,
   type FixedProviderModels,
-  findFirstProviderWithEnabledModels,
   formatToolLabel,
   getBuiltInLocalPreferenceModelIds,
   getEnabledBuiltInLocalRegistryModelIds,
   getRuntimeProviderLlmModels,
   getToolDescription,
-  hasContextBreakdownChannel,
-  hasValidProviderModelSelection,
-  isLocalRuntimeProvider,
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
-  pickCacheTokenFields,
-  pickContextMeterUsage,
   resolveAdvertisedNativeToolIds,
   resolveAssistantMemoryDisabledReason,
-  resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveEffectiveObservationalMemorySettings,
   resolveHostedMemoryBackendAvailable,
-  resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
-  resolveProviderModelSelection,
   toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
 import { useChangeset } from './changes/use-changeset';
 import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
+import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
 import { useAssistantProviderSource } from './hooks/assistant-provider-source';
-import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
+import { useAssistantProviderDisabledReason } from './hooks/use-assistant-provider-disabled-reason';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useAssistantThreadRootBinding } from './hooks/use-assistant-thread-root-binding';
@@ -141,19 +118,23 @@ import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { useEnableModel } from './hooks/use-enable-model';
 import { useForgeBranchLookupActivation, useForgeRunEvents } from './hooks/use-forge-run-events';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
+import { useAssistantRootHistoryAdapter } from './use-assistant-root-history-adapter';
+import { useAssistantRunControls } from './use-assistant-run-controls';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
+import { useComposerDraftChannel } from './use-composer-draft-channel';
+import { useAssistantPanelThreadScope } from './use-delegated-conversation-root';
 import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
-import { hasDesktopAssistantBridge, useSteerActiveRun } from './use-steer-active-run';
 import { WorkspaceBarHost } from './workspace-bar/workspace-bar-host';
 
 export interface AssistantUiPanelWrapperProps {
@@ -162,11 +143,10 @@ export interface AssistantUiPanelWrapperProps {
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
+  onRunningChange?: (threadId: string, running: boolean) => void;
   providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
 }
-const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
-const EMPTY_MEMORY_THREADS = [] as const;
 
 declare global {
   interface Window {
@@ -178,44 +158,28 @@ declare global {
   }
 }
 
-function hasDesktopRuntimeBridge(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const desktopWindow = window as Window & {
-    desktopLifecycle?: unknown;
-  };
-  return (
-    typeof desktopWindow.desktopLifecycle === 'object' && desktopWindow.desktopLifecycle !== null
-  );
-}
-
-function hasDesktopAssistantBackend(): boolean {
-  // Single source of truth for "durable assistant usage is recorded here"
-  // (shared with the cost panel's read-side gate) — see
-  // assistant-durable-usage-capability.ts.
-  return hasDurableAssistantUsageCapability();
-}
-
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
 export function AssistantUiPanelWrapper({
   fixedProviderModels,
   loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
+  onRunningChange,
   providerReadErrors,
   providerKeySources,
 }: AssistantUiPanelWrapperProps) {
   const providerSource = useAssistantProviderSource();
-  const {
-    setModel,
-    clearModel,
-    getLocalRuntimeStatuses,
-    getLocalRuntimeModels,
-    getSelectedModel,
-    getSelectedProvider,
-    setProviderSettings,
-  } = useAssistantPreferencesStore();
+  const setModel = useAssistantPreferencesStore((state) => state.setModel);
+  const clearModel = useAssistantPreferencesStore((state) => state.clearModel);
+  const getLocalRuntimeStatuses = useAssistantPreferencesStore(
+    (state) => state.getLocalRuntimeStatuses
+  );
+  const getLocalRuntimeModels = useAssistantPreferencesStore(
+    (state) => state.getLocalRuntimeModels
+  );
+  const getSelectedModel = useAssistantPreferencesStore((state) => state.getSelectedModel);
+  const getSelectedProvider = useAssistantPreferencesStore((state) => state.getSelectedProvider);
+  const setProviderSettings = useAssistantPreferencesStore((state) => state.setProviderSettings);
   const { localRuntimeHint, localRuntimeModels } = useAssistantLocalRuntimeCatalog({
     getLocalRuntimeModels,
     getLocalRuntimeStatuses,
@@ -253,7 +217,6 @@ export function AssistantUiPanelWrapper({
   const registryHasLoaded = useModelRegistryStore((state) => state.hasLoaded);
   const downloadedModels = useModelRegistryStore((state) => state.downloadedModels);
   const registryError = useModelRegistryStore((state) => state.error);
-  const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
@@ -631,69 +594,17 @@ export function AssistantUiPanelWrapper({
     [pathToClientRootId, setTapestryRangesForKey]
   );
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.tools?.onRootTreeSelectionUpdate) {
-      return;
-    }
-
-    const unsubscribe = window.tools.onRootTreeSelectionUpdate(
-      (payload: AssistantSelectionUpdatePayload) => {
-        handleSelectionUpdate(payload);
-      }
-    );
-
-    return () => {
-      unsubscribe?.();
-    };
-  }, [handleSelectionUpdate]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.tools?.onPreviewContextSelectionUpdate) {
-      return;
-    }
-
-    const unsubscribe = window.tools.onPreviewContextSelectionUpdate(
-      (payload: AssistantSelectionUpdatePayload) => {
-        handleSelectionUpdate(payload);
-      }
-    );
-
-    return () => {
-      unsubscribe?.();
-    };
-  }, [handleSelectionUpdate]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.tools?.onWorkspaceContextSelectionUpdate) {
-      return;
-    }
-
-    const unsubscribe = window.tools.onWorkspaceContextSelectionUpdate(
-      (payload: AssistantWorkspaceContextSelectionUpdatePayload) => {
-        handleSelectionUpdate(payload);
-      }
-    );
-
-    return () => {
-      unsubscribe?.();
-    };
-  }, [handleSelectionUpdate]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.tools?.onWorkspaceContextTapestryUpdate) {
-      return;
-    }
-
-    const unsubscribe = window.tools.onWorkspaceContextTapestryUpdate(
-      (payload: AssistantWorkspaceTapestryUpdatePayload) => {
-        handleTapestryUpdate(payload);
-      }
-    );
-
-    return () => {
-      unsubscribe?.();
-    };
-  }, [handleTapestryUpdate]);
+  // Selection write-back bridge (BST-1652): one subscription over every
+  // available channel instead of four copy-pasted effects. See
+  // `assistant-panel/tool-update-subscriptions.ts`.
+  useEffect(
+    () =>
+      subscribeAssistantToolUpdates({
+        onSelectionUpdate: handleSelectionUpdate,
+        onTapestryUpdate: handleTapestryUpdate,
+      }),
+    [handleSelectionUpdate, handleTapestryUpdate]
+  );
 
   const nativeToolIds = resolveAdvertisedNativeToolIds({
     desktopBridgeAvailable: hasDesktopRuntimeBridge(),
@@ -781,18 +692,31 @@ export function AssistantUiPanelWrapper({
     () => (db ? createPgliteAssistantThreadRepository(db) : null),
     [db]
   );
-  const selectedThreadByResourceId = useAssistantThreadStore(
-    (state) => state.selectedThreadByResourceId
+  const {
+    desktopAssistantBackendAvailable,
+    localChatTransport,
+    planMode,
+    planModeAvailable,
+    planModeEnabledPref,
+    setPlanModeEnabled,
+    togglePlanMode,
+  } = useAssistantExecutionControls(selectedProvider);
+  const {
+    delegatedPanelBinding,
+    ensureResourceThreads,
+    memoryLoadState,
+    memoryResourceId,
+    memoryThreads,
+    refreshResourceThreads,
+    resourceThreadsReady,
+    selectedMemoryThreadId,
+  } = useAssistantPanelThreadScope(
+    memoryResourceIdOverride,
+    memoryThreadId,
+    currentModel,
+    effectiveProviderSettings,
+    planMode
   );
-  const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
-  const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
-  const refreshResourceThreads = useAssistantThreadStore((state) => state.refreshResourceThreads);
-  const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
-  const memoryThreads = useAssistantThreadStore(
-    (state) => state.threadsByResourceId[memoryResourceId] ?? EMPTY_MEMORY_THREADS
-  );
-  const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
-  const resourceThreadsReady = loadStateByResourceId[memoryResourceId]?.status === 'ready';
   const refreshThreadsAfterRun = useAssistantThreadTitleSync({
     enabled: Boolean(db && !dbInitializing && resourceThreadsReady),
     refreshResourceThreads,
@@ -809,31 +733,7 @@ export function AssistantUiPanelWrapper({
       memoryResourceId,
       selectedMemoryThreadId,
     });
-  const composerDraftCommand = useAssistantComposerCommandStore((state) =>
-    selectedMemoryThreadId ? state.commandsByThreadId[selectedMemoryThreadId]?.[0] : undefined
-  );
-  const acknowledgeComposerCommand = useAssistantComposerCommandStore((state) => state.acknowledge);
-  const recordComposerDraft = useAssistantComposerCommandStore((state) => state.recordDraft);
-  const handleComposerCommandApplied = useCallback(
-    (commandId: string) => {
-      if (!composerDraftCommand || composerDraftCommand.id !== commandId) {
-        throw new Error(`Cannot acknowledge unknown composer command: ${commandId}`);
-      }
-      acknowledgeComposerCommand(composerDraftCommand.threadId, commandId);
-    },
-    [acknowledgeComposerCommand, composerDraftCommand]
-  );
-  const handleComposerTextChange = useCallback(
-    (text: string) => {
-      if (!selectedMemoryThreadId) {
-        throw new Error('Cannot record composer text without an active assistant thread.');
-      }
-      recordComposerDraft(selectedMemoryThreadId, text);
-    },
-    [recordComposerDraft, selectedMemoryThreadId]
-  );
-  const memoryLoadState = loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const };
-  const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
+  const composerDraft = useComposerDraftChannel(selectedMemoryThreadId);
   const hostedMemoryBackendAvailable = resolveHostedMemoryBackendAvailable({
     desktopAssistantBackendAvailable,
     selectedProvider,
@@ -880,43 +780,18 @@ export function AssistantUiPanelWrapper({
       storedObservationalMemorySettings,
     ]
   );
-  // Desktop routes built-in local chat through the assistant server (real
-  // Mastra loop with persistence/run events; inference proxied to the hidden
-  // llm-host). Web has neither bridge and keeps the in-renderer local runtime.
-  const localChatTransport: 'data-stream' | 'local-runtime' =
-    hasDesktopRuntimeBridge() && desktopAssistantBackendAvailable && hasDesktopLlmHost()
-      ? 'data-stream'
-      : 'local-runtime';
-  // Permission enforcement (OPT-IN). Subscribe to the persisted posture so the
-  // request snapshot stays in sync; the serializable input is only attached to
-  // the request when the user enabled `enforce`. Scoped to the desktop
-  // data-stream transport — only it POSTs to the assistant server that runs the
-  // runtime permission gate (web's in-renderer local runtime has no server, so
-  // there is nothing to enforce against; tracked as a follow-up).
-  const permissionEnforce = usePermissionPolicyStore((state) => state.enforce);
-  const permissionPolicies = usePermissionPolicyStore((state) => state.policies);
-  const permissionYolo = usePermissionPolicyStore((state) => state.yolo);
-  const permissionSessionGrants = usePermissionPolicyStore((state) => state.sessionGrants);
-  const permissionPerToolOverrides = usePermissionPolicyStore((state) => state.perToolOverrides);
-  const permissionPolicyRequest = useMemo(() => {
-    if (!(permissionEnforce && localChatTransport === 'data-stream')) {
-      return;
-    }
-    return buildPermissionToolGateSnapshotInput({
-      enforce: permissionEnforce,
-      perToolOverrides: permissionPerToolOverrides,
-      policies: permissionPolicies,
-      sessionGrants: permissionSessionGrants,
-      yolo: permissionYolo,
-    });
-  }, [
-    localChatTransport,
-    permissionEnforce,
-    permissionPolicies,
-    permissionYolo,
-    permissionSessionGrants,
-    permissionPerToolOverrides,
-  ]);
+  // Permission enforcement (OPT-IN) is deliberately NOT read during render.
+  // `prepareRequestData` (hooks/use-assistant-request-lifecycle.ts) is the SOLE
+  // producer of `permissionPolicyRequest`: it reads the live store at
+  // request-composition time and sets the field unconditionally (to the
+  // snapshot, or to `undefined` when the posture is off or the transport is not
+  // the desktop data-stream server that runs the gate). A render-time snapshot
+  // could therefore never reach the wire — it would be overwritten — while a
+  // subscription to `sessionGrants`/`perToolOverrides` re-rendered the whole
+  // panel on exactly the interaction that must stay responsive: granting
+  // "Always allow" / "Allow <category> this session" to unblock a suspended
+  // run. See `assistant-ui-panel-wrapper-store-subscription.test.tsx` and the
+  // "permission-policy freshness at the request-composition seam" suite.
 
   // Hook-trust attestation (desktop hooks). Subscribe to the persisted approvals
   // so the wire snapshot stays in sync; the server independently re-hashes disk.
@@ -944,17 +819,6 @@ export function AssistantUiPanelWrapper({
     );
   }, [localChatTransport, hookApprovalsByRootId, mountedTrustRootIds]);
 
-  // Plan mode (OPT-IN, persisted). Desktop-hosted-first: only the data-stream
-  // transport reaches the assistant server that enforces the plan-mode tool gate
-  // (web's in-renderer local runtime has no server). Presence-means-on downstream.
-  const planModeEnabledPref = useAssistantPreferencesStore((state) => state.planModeEnabled);
-  const togglePlanMode = useAssistantPreferencesStore((state) => state.togglePlanMode);
-  const setPlanModeEnabled = useAssistantPreferencesStore((state) => state.setPlanModeEnabled);
-  // Plan mode is never offered for the built-in local provider (its server gate
-  // ignores planMode — see O3), so the composer toggle is hidden there rather
-  // than silently no-opping.
-  const planModeAvailable = localChatTransport === 'data-stream' && selectedProvider !== 'local';
-  const planMode = planModeEnabledPref && planModeAvailable;
   // Image attachments: every HOSTED provider routes through the data-stream
   // server path (desktop assistant server AND the web /api/assistant route
   // share the same image-aware conversion), so only the text-only built-in
@@ -1051,26 +915,12 @@ export function AssistantUiPanelWrapper({
     });
   }, [assistantThreadRepository, ensureResourceThreads, memoryResourceId]);
 
-  const historyAdapter = useMemo(() => {
-    if (!(assistantThreadRepository && selectedMemoryThreadId)) {
-      return;
-    }
-    // Restart-safe approval rediscovery is desktop-only (web never suspends —
-    // no assistant server/storage). Capability gating, no isElectron() check.
-    return createAssistantThreadHistoryAdapter({
-      repository: assistantThreadRepository,
-      resourceId: memoryResourceId,
-      threadId: selectedMemoryThreadId,
-      ...(desktopAssistantBackendAvailable
-        ? { discoverSuspendedRuns: createSuspendedRunDiscovery(resolveAssistantBaseUrl) }
-        : {}),
-    });
-  }, [
-    assistantThreadRepository,
-    desktopAssistantBackendAvailable,
-    memoryResourceId,
-    selectedMemoryThreadId,
-  ]);
+  const historyAdapter = useAssistantRootHistoryAdapter({
+    desktopBackend: desktopAssistantBackendAvailable,
+    repository: assistantThreadRepository,
+    resourceId: memoryResourceId,
+    threadId: selectedMemoryThreadId,
+  });
 
   const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
     agentLoopSettings,
@@ -1087,7 +937,6 @@ export function AssistantUiPanelWrapper({
     memoryResourceId,
     modelSettings: effectiveModelSettings,
     observationalMemorySettings,
-    permissionPolicyRequest,
     planMode,
     providerOptions,
     requestedReasoningEffort: selectedProviderSettings?.reasoningEffort,
@@ -1133,9 +982,12 @@ export function AssistantUiPanelWrapper({
     selectedMemoryThreadId,
     selectedProvider,
   });
-  // Mid-run steer transport (BST-588); the panel receives it only when the
-  // desktop repo (and thus the steer control endpoint) exists.
-  const steerActiveRun = useSteerActiveRun(getActiveSteerableRunId);
+  const { liveDecisionTransport, steerActiveRun } = useAssistantRunControls({
+    getActiveRunId: getActiveSteerableRunId,
+    ownerResourceId: memoryResourceId,
+    permissionEnforceable: localChatTransport === 'data-stream',
+    rootThreadId: selectedMemoryThreadId,
+  });
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
@@ -1156,120 +1008,23 @@ export function AssistantUiPanelWrapper({
     [enabledBuiltInLocalModelIds, enabledModelIds, getProviderLlmModels]
   );
 
-  const selectModelForProvider = useCallback(
-    (provider: SupportedProvider) => {
-      const modelToSelect =
-        resolveProviderModelSelection({
-          getProviderLlmModels,
-          isModelEnabled,
-          provider,
-        }) ?? (provider === 'local' ? enabledBuiltInLocalModelIds[0] : undefined);
-      if (!modelToSelect) {
-        return;
-      }
-      setModel(`${provider}::${modelToSelect}`);
-    },
-    [enabledBuiltInLocalModelIds, getProviderLlmModels, isModelEnabled, setModel]
-  );
-
-  const shouldSkipSelectionReconcile = useCallback(
-    (currentProvider: SupportedProvider | null) =>
-      providerDiscoveryState === 'idle' ||
-      providerDiscoveryState === 'loading' ||
-      (configuredProviders.length === 0 && !isLocalRuntimeProvider(currentProvider)),
-    [configuredProviders, providerDiscoveryState]
-  );
-
-  const hasValidCurrentModelSelection = useCallback(
-    (currentProvider: SupportedProvider) =>
-      hasValidProviderModelSelection({
-        currentProvider,
-        currentSelectedModel: getSelectedModel(),
-        isModelEnabled,
-        providerModelIds: getProviderLlmModels(currentProvider).map((model) => model.id),
-      }),
-    [getProviderLlmModels, getSelectedModel, isModelEnabled]
-  );
-
-  const handleLocalRuntimeSelection = useCallback(
-    (currentProvider: SupportedProvider): boolean =>
-      resolveLocalRuntimeSelection({
-        currentProvider,
-        currentSelectedModel: getSelectedModel(),
-        isModelEnabled,
-        providerHasEnabledModels,
-        selectModelForProvider,
-      }),
-    [getSelectedModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
-  );
-
-  const seedBuiltInLocalModelSelection = useCallback((): boolean => {
-    if (selectedModel !== null || !configuredProviders.includes('local')) {
-      return false;
-    }
-    const localModel = enabledBuiltInLocalModelIds[0];
-    if (!(localModel && enabledModelIds.has(localModel))) {
-      return false;
-    }
-    setModel(`local::${localModel}`);
-    return true;
-  }, [configuredProviders, enabledBuiltInLocalModelIds, enabledModelIds, selectedModel, setModel]);
-
-  useEffect(() => {
-    if (seedBuiltInLocalModelSelection()) {
-      return;
-    }
-
-    const currentProvider = getSelectedProvider();
-    if (shouldSkipSelectionReconcile(currentProvider)) {
-      return;
-    }
-
-    // Case 1: Current provider is no longer available
-    if (currentProvider && !configuredProviders.includes(currentProvider)) {
-      if (isLocalRuntimeProvider(currentProvider)) {
-        return;
-      }
-      clearModel();
-      return;
-    }
-
-    if (currentProvider && handleLocalRuntimeSelection(currentProvider)) {
-      return;
-    }
-
-    // Case 2: Current provider exists and has enabled models - nothing to do
-    if (
-      currentProvider &&
-      providerHasEnabledModels(currentProvider) &&
-      hasValidCurrentModelSelection(currentProvider)
-    ) {
-      return;
-    }
-
-    // Case 3: Find the first provider with enabled models
-    const next = findFirstProviderWithEnabledModels(configuredProviders, providerHasEnabledModels);
-    if (next) {
-      selectModelForProvider(next);
-      return;
-    }
-
-    // Case 4: No providers with enabled models, clear selection
-    if (currentProvider) {
-      clearModel();
-    }
-  }, [
-    configuredProviders,
-    enabledModelIds,
-    handleLocalRuntimeSelection,
-    hasValidCurrentModelSelection,
-    getSelectedProvider,
+  // Model reconcile (BST-1652). The DECISION is a pure function in
+  // `assistant-panel/model-selection-reconcile.ts` — every branch unit-tested
+  // without React — and this hook only applies it. Previously this was ~115
+  // lines of `useCallback` helpers plus an effect whose only observation seam
+  // was mounting the whole panel.
+  useModelSelectionReconcile({
     clearModel,
-    providerHasEnabledModels,
-    seedBuiltInLocalModelSelection,
-    selectModelForProvider,
-    shouldSkipSelectionReconcile,
-  ]);
+    configuredProviders,
+    discoveryState: providerDiscoveryState,
+    enabledBuiltInLocalModelIds,
+    enabledModelIds,
+    getProviderLlmModels,
+    getSelectedModel,
+    getSelectedProvider,
+    renderedSelectedModel: selectedModel,
+    setModel,
+  });
 
   const { handleModelChange, providerDraft } = useAssistantModelChange({
     currentModel,
@@ -1282,23 +1037,7 @@ export function AssistantUiPanelWrapper({
     setThreadDraftRuntime,
   });
 
-  const handleModelToggle = useCallback(
-    (providerId: string, modelId: string, enabled: boolean) => {
-      if (!isSupportedProvider(providerId)) {
-        return;
-      }
-
-      if (isLocalRuntimeProvider(providerId)) {
-        return;
-      }
-
-      // Always use database as the source of truth for model enabled state
-      if (db) {
-        void toggleModelInDb(db, modelId, enabled);
-      }
-    },
-    [db, toggleModelInDb]
-  );
+  const handleEnableModel = useEnableModel();
 
   const handleProviderSettingsChange = useCallback(
     (providerId: string, updates: AssistantProviderSettingsUpdate) => {
@@ -1387,30 +1126,21 @@ export function AssistantUiPanelWrapper({
     ]
   );
 
-  const providerDisabledReason = useMemo(
-    () =>
-      resolveAssistantProviderDisabledReason({
-        configuredProviders,
-        currentModel,
-        getProviderLlmModels,
-        localRuntimeHint,
-        providerHasEnabledModels,
-        ...(providerReadErrors ? { providerReadErrors } : {}),
-        selectedProvider,
-      }),
-    [
+  const providerDiscoveryReason = providerDiscoveryError
+    ? `Could not refresh available providers: ${providerDiscoveryError}`
+    : undefined;
+  const providerDisabledReason = useAssistantProviderDisabledReason(
+    {
       configuredProviders,
       currentModel,
       getProviderLlmModels,
       localRuntimeHint,
       providerHasEnabledModels,
-      providerReadErrors,
+      ...(providerReadErrors ? { providerReadErrors } : {}),
       selectedProvider,
-    ]
+    },
+    Boolean(memoryDisabledReason || (configuredProviders.length === 0 && providerDiscoveryReason))
   );
-  const providerDiscoveryReason = providerDiscoveryError
-    ? `Could not refresh available providers: ${providerDiscoveryError}`
-    : undefined;
   const runtimeDisabledReason =
     (configuredProviders.length === 0 ? providerDiscoveryReason : undefined) ??
     memoryDisabledReason ??
@@ -1418,37 +1148,6 @@ export function AssistantUiPanelWrapper({
     openRouterDisabledReason;
   const disabledReason = runtimeDisabledReason ?? providerDraft.reason;
   const panelNotice = disabledReason ?? providerDiscoveryReason;
-  // Bumped after each durable usage write COMMITS, so the cumulative re-read is
-  // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
-  // not a heuristic). Desktop-only: when the repo is absent (web) the cumulative
-  // line is simply not shown.
-  const [cumulativeUsage, setCumulativeUsage] = useState<CumulativeUsageDisplay | null>(null);
-  const clearThreadLiveRunUsage = useCallback(() => {
-    useContextUsageStore.getState().clearLiveRunUsage(selectedMemoryThreadId ?? 'active');
-  }, [selectedMemoryThreadId]);
-  // Terminal run bookkeeping + live-sum hygiene (review fix): a cancelled or
-  // failed run may never reach the abort-gated onUsage tap, so its accumulated
-  // live step usage would linger as phantom thread-total tokens (and a stuck
-  // 'live' badge) until the next successful run. Clear it on any non-completed
-  // terminal status; 'completed' rides handleUsage's own post-refresh clear.
-  // Thread attribution uses the CURRENT selection — a mid-run thread switch
-  // could miss, acceptable for a transient display sum.
-  const completeRequestAndSettleLiveUsage = useCallback(
-    async (
-      preparedRequestData: Record<string, unknown> | undefined,
-      status: 'cancelled' | 'completed' | 'failed',
-      error?: string
-    ): Promise<void> => {
-      try {
-        await completePreparedRequest(preparedRequestData, status, error);
-      } finally {
-        if (status !== 'completed') {
-          clearThreadLiveRunUsage();
-        }
-      }
-    },
-    [clearThreadLiveRunUsage, completePreparedRequest]
-  );
   // Conversation Rewind wiring (BST-1115), extracted whole into
   // `changes/use-wrapper-rewind-wiring.ts`: finalization composed around the
   // run-creation seam, the re-hydration generation, the standing "Last Turn"
@@ -1460,185 +1159,31 @@ export function AssistantUiPanelWrapper({
     publishTerminalRunIdentity,
     rewindGeneration,
   } = useWrapperRewindWiring({ prepareRequestData, threadId: selectedMemoryThreadId });
-  const resolveModelPricing = useCallback<ModelPricingResolver>(
-    (provider: string, model: string) => {
-      if (!isSupportedProvider(provider)) {
-        return;
-      }
-      return getProviderLlmModels(provider).find(
-        (candidate: LlmProviderModelDefinition) => candidate.id === model
-      )?.pricing;
-    },
-    [getProviderLlmModels]
-  );
-  // Monotonic load token: a slower in-flight load (e.g. an earlier thread) must
-  // never clobber a newer one. Every loader captures the id at call time and only
-  // commits state if it is still the latest — a single setState path (no
-  // cascading sets, no separate cancel flag per call).
-  const cumulativeUsageLoadIdRef = useRef(0);
-  const refreshCumulativeUsage = useCallback(async (): Promise<void> => {
-    cumulativeUsageLoadIdRef.current += 1;
-    const loadId = cumulativeUsageLoadIdRef.current;
-    if (!(assistantThreadRepository && selectedMemoryThreadId)) {
-      setCumulativeUsage(null);
-      return;
-    }
-    let next: CumulativeUsageDisplay | null = null;
-    try {
-      const usage =
-        await assistantThreadRepository.getThreadCumulativeUsage(selectedMemoryThreadId);
-      // A repo-backed thread with no rows yet is an honest ZERO baseline, not
-      // "no thread totals": the first run's live step usage must render as the
-      // thread-total headline (review fix), which the meter only does over a
-      // present cumulative value. A LOAD FAILURE stays null — "couldn't read"
-      // must never display as $0.00.
-      next =
-        resolveCumulativeUsageDisplay(usage, resolveModelPricing) ??
-        EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY;
-    } catch (error: unknown) {
-      assistantUsageWriteBackLogger.warn('Failed to load cumulative run usage', { error });
-    }
-    if (loadId === cumulativeUsageLoadIdRef.current) {
-      setCumulativeUsage(next);
-    }
-  }, [assistantThreadRepository, resolveModelPricing, selectedMemoryThreadId]);
-
-  // Record the run-start prompt breakdown (transient context-breakdown data
-  // part). Parsed with the contract guard so a malformed wire payload is stored
-  // as the explicit { invalid: true } marker the popover surfaces — never
-  // coerced, never dropped. Keyed by the SAME thread key contract as
-  // recordUsage (writer and meter reader must agree).
-  const handleContextBreakdown = useCallback(
-    (data: unknown) => {
-      const threadId = selectedMemoryThreadId ?? 'active';
-      useContextUsageStore
-        .getState()
-        .recordBreakdown(threadId, parseAssistantContextBreakdown(data));
-    },
-    [selectedMemoryThreadId]
-  );
-
-  // Child model-call usage (subagent / OM cycle, BST-953). The desktop server
-  // already wrote the durable row before the transient part reached the wire
-  // (its write queue may still be committing — the post-run refresh is the
-  // backstop); the renderer only re-reads so the thread total moves mid-run.
-  const handleChildRunUsage = useCallback(
-    (data: unknown) => {
-      if (!isAssistantChildRunUsage(data)) {
-        assistantUsageWriteBackLogger.warn('Ignoring malformed child-run-usage part', { data });
-        return;
-      }
-      void refreshCumulativeUsage();
-    },
-    [refreshCumulativeUsage]
-  );
-
-  // Live thread-total tick (BST-953): accumulate the in-flight run's billed
-  // step usage; handleUsage clears the sum once the run's durable row lands.
-  const handleStepUsage = useCallback(
-    (step: { inputTokens: number; outputTokens: number }) => {
-      useContextUsageStore.getState().recordLiveStepUsage(selectedMemoryThreadId ?? 'active', step);
-    },
-    [selectedMemoryThreadId]
-  );
-
-  // Record provider token usage. ONE usage derivation (the single tap) fans out
-  // to two sinks:
-  //   1. the session-lived zustand store (last-turn meter), keyed by the active
-  //      memory thread id (falls back to 'active' for non-memory sessions);
-  //   2. a DURABLE per-run row in brainstrike_assistant_run_usage, written only
-  //      when the PGlite-backed thread repo exists (desktop). On web the repo is
-  //      absent → the durable write is simply skipped (honest session-only
-  //      fallback; capability-gated, never an isElectron() check and never $0).
-  // model/provider are attributed from the REQUEST-START snapshot (the model that
-  // produced the tokens), never the live picker selection — the picker stays
-  // interactive mid-run. They are stored PER ROW so cost is attributable per
-  // model when a thread switches models mid-conversation.
-  const handleUsage = useCallback(
-    (usage: AssistantRunUsagePayload) => {
-      const threadId = selectedMemoryThreadId ?? 'active';
-      // A turn on a capability-absent transport (the in-renderer local
-      // runtime) can never have refreshed the breakdown — drop a stale one
-      // left over from an earlier hosted turn on the SAME thread so the
-      // popover never mixes one turn's category rows with another turn's
-      // exact totals (review fix).
-      if (!hasContextBreakdownChannel(selectedProvider, localChatTransport)) {
-        useContextUsageStore.getState().clearBreakdown(threadId);
-      }
-      useContextUsageStore.getState().recordUsage(threadId, pickContextMeterUsage(usage));
-      // Keep recency, latest-run details, and ordering fresh after each turn.
-      // Live title sync handles the later async write and logs subscription failures.
-      refreshThreadsAfterRun();
-
-      // Durable sink: requires a real thread id, the desktop PGlite repo, and the
-      // in-flight run's request-start usage context. A missing piece means we
-      // cannot attribute the row honestly, so we skip the durable write (the
-      // zustand sink still ran).
-      const runContext = getActiveRunUsageContext();
-      if (!(assistantThreadRepository && selectedMemoryThreadId && runContext)) {
-        // No durable sink → no refreshed cumulative will absorb the live sum;
-        // drop it now (the run is over, the exact usage is in the store).
-        useContextUsageStore.getState().clearLiveRunUsage(threadId);
-        return;
-      }
-      assistantThreadRepository
-        .recordRunUsage({
-          ...(usage.billedCostUsd === undefined ? {} : { billedCostUsd: usage.billedCostUsd }),
-          ...pickCacheTokenFields(usage),
-          inputTokens: usage.inputTokens,
-          model: runContext.model,
-          outputTokens: usage.outputTokens,
-          provider: runContext.provider,
-          resourceId: memoryResourceId,
-          // Request-start root (null when unattributed) — same snapshot source
-          // as model/provider, so cost is attributable per workspace root.
-          rootId: runContext.rootId,
-          runId: runContext.runId,
-          threadId: selectedMemoryThreadId,
-        })
-        // Re-read the cumulative total from the write's OWN completion so the
-        // SELECT provably follows the INSERT (not racing it on the PGlite queue).
-        .then(() => refreshCumulativeUsage())
-        .catch((error: unknown) => {
-          // Never swallow silently — durable usage is best-effort relative to the
-          // turn, but a failure must be observable.
-          assistantUsageWriteBackLogger.warn('Failed to persist durable run usage', { error });
-        })
-        // Clear the live sum only AFTER the refreshed cumulative absorbed the
-        // run's row (clearing earlier makes the thread total dip and jump).
-        .finally(() => {
-          useContextUsageStore.getState().clearLiveRunUsage(threadId);
-        });
-    },
-    [
-      assistantThreadRepository,
-      getActiveRunUsageContext,
-      localChatTransport,
-      memoryResourceId,
-      refreshCumulativeUsage,
-      refreshThreadsAfterRun,
-      selectedMemoryThreadId,
-      selectedProvider,
-    ]
-  );
-
-  // Initial / thread-switch load. The post-write refresh rides handleUsage's
-  // own completion, so this effect only fires on repo/thread change.
-  useEffect(() => {
-    void refreshCumulativeUsage();
-  }, [refreshCumulativeUsage]);
-
-  // A thread that just became selected cannot have an in-flight accumulation
-  // of its own (runs stream on the selected thread), so any lingering live
-  // sum on it is a stranded remainder — e.g. steps recorded before the user
-  // switched away mid-run (review fix: the switch re-keys handleStepUsage to
-  // the new thread, so the old thread's partial sum would otherwise persist
-  // until an unrelated later run cleared it). Keyed ONLY on the thread id —
-  // the refresh effect above also refires on pricing/repo identity changes,
-  // which must not wipe a genuinely live sum mid-run.
-  useEffect(() => {
-    useContextUsageStore.getState().clearLiveRunUsage(selectedMemoryThreadId ?? 'active');
-  }, [selectedMemoryThreadId]);
+  // Thread usage ledger (BST-1652), extracted whole into
+  // `assistant-panel/use-assistant-usage-ledger.ts`: every write into the
+  // session context-usage store, the durable run-usage rows, the cumulative
+  // re-read behind the meter's thread-total headline, and the live-sum settle
+  // paths. The wrapper only supplies the seams and forwards the handlers.
+  const {
+    completeRequestAndSettleLiveUsage,
+    cumulativeUsage,
+    handleChildRunUsage,
+    handleContextBreakdown,
+    handleStepUsage,
+    handleUsage,
+    prepareRequestAndResetLiveUsage,
+  } = useAssistantUsageLedger({
+    assistantThreadRepository,
+    completePreparedRequest,
+    getActiveRunUsageContext,
+    getProviderLlmModels,
+    localChatTransport,
+    memoryResourceId,
+    prepareRequestData: prepareRequestDataWithFinalization,
+    refreshThreadsAfterRun,
+    selectedMemoryThreadId,
+    selectedProvider,
+  });
 
   // OM informational stats (observed tokens + compaction saved). Desktop-only:
   // gated on the durable-assistant capability (NOT raw PGlite presence — web has
@@ -1771,131 +1316,108 @@ export function AssistantUiPanelWrapper({
   // own rootId-scoped cwd concept.
   const { refresh: refreshChangeset } = useChangeset(mainRootId ?? null, null);
 
-  // Re-read the checkpoint journal when a run reaches a terminal state — the
-  // journal rows are written in main during tool execution, after the last
-  // thread-open read, so the turn-level "Revert all edits" footer would
-  // otherwise stay empty for the turn that JUST ran until a thread switch.
-  // `publishTerminalRunIdentity` advances the standing "Last Turn" identity
-  // (BST-1115) — policy in `changes/use-wrapper-rewind-wiring.ts`.
-  const handleRunFinished = useCallback(
-    (event: AssistantRunEvent) => {
-      onRunFinished(event);
-      void refetchCheckpoints();
-      void refreshChangeset();
-      publishTerminalRunIdentity(event);
-    },
-    [onRunFinished, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
-  );
-  const handleRunFailed = useCallback(
-    (event: AssistantRunEvent) => {
-      onRunFailed(event);
-      void refetchCheckpoints();
-      void refreshChangeset();
-      publishTerminalRunIdentity(event);
-    },
-    [onRunFailed, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
-  );
-
-  // Grant actions for the tool-approval notice ("Always allow" / "Allow
-  // <category> this session"). Store-backed and stable: the wrapper already
-  // subscribes to perToolOverrides/sessionGrants for the request snapshot, so a
-  // grant recorded here reaches the very next request without extra plumbing.
-  const toolApprovalGrants = useMemo<ToolApprovalGrantHandlers>(
-    () => ({
-      grantAllToolsForSession: () =>
-        usePermissionPolicyStore.getState().grantAllSessionCategories(),
-      grantCategoryForSession: (category) =>
-        usePermissionPolicyStore.getState().grantSessionCategory(category),
-      grantToolAlways: (toolId) =>
-        usePermissionPolicyStore.getState().setToolOverride(toolId, 'allow'),
-    }),
-    []
-  );
+  // Terminal-run bookkeeping (checkpoint re-read, changeset refresh, "Last Turn"
+  // identity), extracted whole into `assistant-panel/use-terminal-run-handlers.ts`.
+  const { handleRunFailed, handleRunFinished } = useTerminalRunHandlers({
+    onRunFailed,
+    onRunFinished,
+    publishTerminalRunIdentity,
+    refetchCheckpoints,
+    refreshChangeset,
+  });
 
   return (
-    <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
-      <EditCheckpointProvider value={editCheckpoints}>
-        <RunVerdictProvider value={runVerdictBinding}>
-          <DebugBundleProvider value={debugBundleBinding}>
-            <BudgetGuardrailProvider value={budgetGuardrailBinding}>
-              <AssistantUiPanel
-                {...(composerDraftCommand ? { composerDraftCommand } : {})}
-                {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-                {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
-                completePreparedRequest={completeRequestAndSettleLiveUsage}
-                contextWindow={openRouterModelDef?.contextWindow}
-                {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                effectiveInputBudget={effectiveInputBudget}
-                omSegment={omSegment}
-                openRouterModelMetadataLookup={openRouterMetadata.lookup}
-                {...(selectedMemoryThreadId
-                  ? {
-                      onComposerDraftCommandApplied: handleComposerCommandApplied,
-                      onComposerTextChange: handleComposerTextChange,
-                    }
-                  : {})}
-                onChildRunUsage={handleChildRunUsage}
-                onContextBreakdown={handleContextBreakdown}
-                onProviderSettingsChange={handleProviderSettingsChange}
-                onProviderSettingsValidationChange={providerDraft.report}
-                onRunEditActivity={handleRunEditActivity}
-                onRunFailed={handleRunFailed}
-                onRunFinished={handleRunFinished}
-                onStepUsage={handleStepUsage}
-                onStreamActivity={renewActiveAssistantForegroundActivity}
-                onThreadRunStart={markUserAuthoredSend}
-                onToolApprovalRequired={onToolApprovalRequired}
-                onUsage={handleUsage}
-                pickerModels={pickerModels}
-                pickerProviders={pickerProviders}
-                prepareRequestData={prepareRequestDataWithFinalization}
-                providerGroups={providerGroups}
-                providerSettings={effectiveProviderSettings}
-                recentModels={validRecentModels}
-                workspaceBar={
-                  // The host owns the bar's live-refresh subscriptions.
-                  <WorkspaceBarHost
-                    assistantThreadRepository={assistantThreadRepository}
-                    {...(mainRootId && rootDescriptors?.[mainRootId]
-                      ? { currentMainRoot: rootDescriptors[mainRootId] }
-                      : {})}
-                    database={db}
-                    memoryResourceId={memoryResourceId}
-                    rootDescriptors={rootDescriptors}
-                    selectedMemoryThreadId={selectedMemoryThreadId}
-                  />
-                }
-                {...webBodyLimitProps(desktopAssistantBackendAvailable)}
-                requestData={requestData}
-                slashCommands={slashCommands}
-                {...(desktopAssistantBackendAvailable
-                  ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
-                  : {})}
-                toolMenu={toolMenu}
-                {...(historyAdapter ? { historyAdapter } : {})}
-                historyGeneration={rewindGeneration}
-                {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                localChatTransport={localChatTransport}
-                {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
-                {...(selectedProvider ? { selectedProvider } : {})}
-                {...(currentModel ? { selectedModel: currentModel } : {})}
-                disabled={!isProviderReady || Boolean(disabledReason)}
-                onModelChange={handleModelChange}
-                onModelToggle={handleModelToggle}
-                {...(panelNotice ? { disabledReason: panelNotice } : {})}
-                {...(planModeAvailable
-                  ? {
-                      onExitPlanMode: exitPlanMode,
-                      onTogglePlanMode: togglePlanMode,
-                      planModeEnabled: planModeEnabledPref,
-                    }
-                  : {})}
-              />
-            </BudgetGuardrailProvider>
-          </DebugBundleProvider>
-        </RunVerdictProvider>
-      </EditCheckpointProvider>
-    </ToolApprovalGrantProvider>
+    <DelegatedWorkspaceNavigation
+      ownerResourceId={memoryResourceId}
+      rootThreadId={selectedMemoryThreadId}
+    >
+      <AssistantDecisionProviders liveDecision={liveDecisionTransport}>
+        <EditCheckpointProvider value={editCheckpoints}>
+          <RunVerdictProvider value={runVerdictBinding}>
+            <DebugBundleProvider value={debugBundleBinding}>
+              <BudgetGuardrailProvider value={budgetGuardrailBinding}>
+                <AssistantUiPanel
+                  {...delegatedPanelBinding}
+                  composerDraftCommand={composerDraft.command}
+                  {...(onRunningChange ? { onRunningChange } : {})}
+                  {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+                  {...(steerActiveRun ? { onSteerActiveRun: steerActiveRun } : {})}
+                  completePreparedRequest={completeRequestAndSettleLiveUsage}
+                  contextWindow={openRouterModelDef?.contextWindow}
+                  cumulativeUsage={cumulativeUsage ?? undefined}
+                  effectiveInputBudget={effectiveInputBudget}
+                  omSegment={omSegment}
+                  openRouterModelMetadataLookup={openRouterMetadata.lookup}
+                  {...(selectedMemoryThreadId
+                    ? {
+                        onComposerDraftCommandApplied: composerDraft.onApplied,
+                        onComposerTextChange: composerDraft.onTextChange,
+                        onStopReread: composerDraft.onStopReread,
+                      }
+                    : {})}
+                  onChildRunUsage={handleChildRunUsage}
+                  onContextBreakdown={handleContextBreakdown}
+                  onProviderSettingsChange={handleProviderSettingsChange}
+                  onProviderSettingsValidationChange={providerDraft.report}
+                  onRunEditActivity={handleRunEditActivity}
+                  onRunFailed={handleRunFailed}
+                  onRunFinished={handleRunFinished}
+                  onStepUsage={handleStepUsage}
+                  onStreamActivity={renewActiveAssistantForegroundActivity}
+                  onThreadRunStart={markUserAuthoredSend}
+                  onToolApprovalRequired={onToolApprovalRequired}
+                  onUsage={handleUsage}
+                  pickerModels={pickerModels}
+                  pickerProviders={pickerProviders}
+                  prepareRequestData={prepareRequestAndResetLiveUsage}
+                  providerGroups={providerGroups}
+                  providerSettings={effectiveProviderSettings}
+                  recentModels={validRecentModels}
+                  workspaceBar={
+                    // The host owns the bar's live-refresh subscriptions.
+                    <WorkspaceBarHost
+                      assistantThreadRepository={assistantThreadRepository}
+                      {...(mainRootId && rootDescriptors?.[mainRootId]
+                        ? { currentMainRoot: rootDescriptors[mainRootId] }
+                        : {})}
+                      database={db}
+                      memoryResourceId={memoryResourceId}
+                      rootDescriptors={rootDescriptors}
+                      selectedMemoryThreadId={selectedMemoryThreadId}
+                    />
+                  }
+                  {...webBodyLimitProps(desktopAssistantBackendAvailable)}
+                  requestData={requestData}
+                  slashCommands={slashCommands}
+                  {...(desktopAssistantBackendAvailable
+                    ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+                    : {})}
+                  toolMenu={toolMenu}
+                  {...(historyAdapter ? { historyAdapter } : {})}
+                  historyGeneration={rewindGeneration}
+                  {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                  localChatTransport={localChatTransport}
+                  {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
+                  {...(selectedProvider ? { selectedProvider } : {})}
+                  {...(currentModel ? { selectedModel: currentModel } : {})}
+                  disabled={!isProviderReady || Boolean(disabledReason)}
+                  onEnableModel={handleEnableModel}
+                  onModelChange={handleModelChange}
+                  {...(panelNotice ? { disabledReason: panelNotice } : {})}
+                  {...(planModeAvailable
+                    ? {
+                        onExitPlanMode: exitPlanMode,
+                        onTogglePlanMode: togglePlanMode,
+                        planModeEnabled: planModeEnabledPref,
+                      }
+                    : {})}
+                />
+              </BudgetGuardrailProvider>
+            </DebugBundleProvider>
+          </RunVerdictProvider>
+        </EditCheckpointProvider>
+      </AssistantDecisionProviders>
+    </DelegatedWorkspaceNavigation>
   );
 }
 

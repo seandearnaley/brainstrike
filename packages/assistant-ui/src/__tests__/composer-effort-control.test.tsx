@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ComposerEffortControl } from '../composer-effort-control';
+import { MetadataProviders } from '../openrouter-model-metadata-context';
 
 function setup() {
   return userEvent.setup({ pointerEventsCheck: 0 });
@@ -23,6 +24,53 @@ describe('ComposerEffortControl', () => {
       />
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('offers undeclared OpenRouter efforts only after matching model metadata arrives', async () => {
+    const onChange = vi.fn();
+    const control = (
+      <ComposerEffortControl
+        onProviderSettingsChange={onChange}
+        selectedModel="openrouter::openai/gpt-5.4"
+        selectedProvider="openrouter"
+      />
+    );
+    const { rerender } = render(
+      <MetadataProviders value={{ state: 'loading' }}>{control}</MetadataProviders>
+    );
+    expect(screen.queryByTestId('composer-effort-trigger')).not.toBeInTheDocument();
+    rerender(
+      <MetadataProviders
+        value={{
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 400_000,
+              id: 'openai/gpt-5.4',
+              reasoning: {
+                defaultEnabled: true,
+                mandatory: false,
+                supportedEfforts: ['xhigh', 'high'],
+                supportsMaxTokens: false,
+              },
+              source: 'openrouter-models-api',
+              supportedParameters: ['reasoning'],
+            },
+          },
+          state: 'resolved',
+        }}
+      >
+        {control}
+      </MetadataProviders>
+    );
+    await openPopover(setup());
+    const slider = screen.getByRole('slider', { name: 'Reasoning effort' });
+    fireEvent.change(slider, { target: { value: slider.getAttribute('max') } });
+    expect(onChange).toHaveBeenCalledWith(
+      'openrouter',
+      expect.objectContaining({ reasoningEffort: 'xhigh' })
+    );
   });
 
   it('renders nothing without a selected provider', () => {

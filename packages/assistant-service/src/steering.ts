@@ -13,6 +13,8 @@ import type { AssistantRunSteeringControl } from '@brainstrike/assistant-contrac
 
 interface RunSteeringEntry {
   abortController?: AbortController;
+  readonly settle: () => void;
+  readonly settled: Promise<void>;
   stopRequested: boolean;
 }
 
@@ -30,7 +32,10 @@ export function registerSteerableRun(
   if (steerableRuns.has(runId)) {
     throw new Error(`Steerable run already registered: ${runId}`);
   }
+  const settlement = Promise.withResolvers<void>();
   const entry: RunSteeringEntry = {
+    settle: settlement.resolve,
+    settled: settlement.promise,
     ...(abortController ? { abortController } : {}),
     stopRequested: false,
   };
@@ -54,8 +59,20 @@ export function requestRunCancel(runId: string): boolean {
   return true;
 }
 
+/** Abort and await the actual owner cleanup, including terminal-write/unregister races. */
+export async function cancelSteerableRunAndWait(runId: string): Promise<void> {
+  const entry = steerableRuns.get(runId);
+  if (!entry?.abortController) {
+    return;
+  }
+  entry.abortController.abort(new Error('Assistant run canceled by user.'));
+  await entry.settled;
+}
+
 export function unregisterSteerableRun(runId: string): void {
+  const entry = steerableRuns.get(runId);
   steerableRuns.delete(runId);
+  entry?.settle();
 }
 
 /**
@@ -74,5 +91,8 @@ export function requestRunSteer(runId: string): boolean {
 
 /** Test-only: forget every registered run. */
 export function resetRunSteeringRegistry(): void {
+  for (const entry of steerableRuns.values()) {
+    entry.settle();
+  }
   steerableRuns.clear();
 }

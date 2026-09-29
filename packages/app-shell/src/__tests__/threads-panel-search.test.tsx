@@ -81,7 +81,7 @@ describe('ThreadsPanelSearch', () => {
     expect(result.querySelector('mark')?.textContent).toBe('hnsw');
 
     fireEvent.click(result);
-    expect(onSelectThread).toHaveBeenCalledWith('thread-1');
+    expect(onSelectThread).toHaveBeenCalledWith('thread-1', 'msg-1');
   });
 
   it('supports keyboard navigation from the input', () => {
@@ -96,7 +96,26 @@ describe('ThreadsPanelSearch', () => {
 
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onSelectThread).toHaveBeenCalledWith('thread-2');
+    expect(onSelectThread).toHaveBeenCalledWith('thread-2', 'msg-1');
+  });
+
+  it('selects an exact later message match by keyboard without losing the thread', () => {
+    useThreadSearchStore.setState({
+      query: 'hnsw',
+      results: [
+        {
+          ...RESULT,
+          matches: [MATCH, { ...MATCH, headline: 'second hnsw result', messageId: 'msg-2' }],
+        },
+      ],
+      semantic: { kind: 'used' },
+      status: 'results',
+    });
+    const { onSelectThread } = renderSearch();
+    const input = screen.getByTestId('thread-search-input');
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSelectThread).toHaveBeenCalledWith('thread-1', 'msg-2');
   });
 
   it('Escape clears the search', () => {

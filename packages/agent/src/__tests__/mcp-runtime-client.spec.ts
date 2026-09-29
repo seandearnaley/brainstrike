@@ -1,8 +1,6 @@
 import type { McpTaskPresentation } from '@brainstrike/assistant-contract';
-import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
-import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, standardSchemaToJSONSchema } from '@mastra/core/schema';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
@@ -24,85 +22,7 @@ import {
   readToolGuardDeadlineSignal,
   registerToolGuardDeadlineSignal,
 } from '../tools/tool-guard-deadline';
-
-type ExecutableTool = ToolsInput[string] & {
-  execute: (input: unknown, context?: unknown) => Promise<unknown>;
-  inputSchema?: unknown;
-  outputSchema?: unknown;
-  toModelOutput?: (output: unknown) => unknown;
-};
-
-function requireExecutableTool(tool: ToolsInput[string] | undefined): ExecutableTool {
-  if (!tool || typeof (tool as { execute?: unknown }).execute !== 'function') {
-    throw new Error('Expected an executable MCP tool');
-  }
-  return tool as ExecutableTool;
-}
-
-interface TestHostClient {
-  callTool: (...args: unknown[]) => Promise<ExplicitHttpMcpCallToolResult>;
-  close: ReturnType<typeof vi.fn>;
-  listTools: () => Promise<{ tools: unknown[] }>;
-  release?: () => void;
-}
-
-function createTestHost(clients: Record<string, TestHostClient>) {
-  const unwatch = vi.fn();
-  const host: McpHostPort = {
-    close: vi.fn(async () => ({
-      callbacksClosed: 0,
-      childProcessesClosed: 0,
-      clientsClosed: 0,
-      failures: [],
-      loopbackPortsClosed: 0,
-      probesClosed: 0,
-      requestsSettled: 0,
-      subscriptionsClosed: 0,
-    })),
-    invoke: vi.fn(async (operation, options) => {
-      const client = clients[operation.configuredServerId];
-      if (!client) {
-        throw new Error('unknown server');
-      }
-      if (operation.type === 'tools/list') {
-        return { result: await client.listTools(), type: 'tools/list' } as const;
-      }
-      return {
-        result: await client.callTool(
-          {
-            ...(operation._meta ? { _meta: operation._meta } : {}),
-            ...(operation.arguments ? { arguments: operation.arguments } : {}),
-            name: operation.toolName,
-          },
-          {
-            ...(options?.onProgress ? { onprogress: options.onProgress } : {}),
-            ...(options?.signal ? { signal: options.signal } : {}),
-          }
-        ),
-        type: 'tools/call',
-      } as const;
-    }),
-    replaceConfig: vi.fn(),
-    snapshot: () => ({
-      revision: 1,
-      servers: Object.keys(clients).map((name) => ({
-        configuredProtocol: 'legacy' as const,
-        configuredServerId: parseConfiguredMcpServerId(name),
-        generation: 7,
-        state: 'disconnected' as const,
-        transport: 'stdio' as const,
-      })),
-    }),
-    watch: vi.fn((filter) => {
-      const ids = filter.configuredServerIds;
-      if (ids?.length !== 1) {
-        throw new Error('test host requires one configured server id per lease');
-      }
-      return clients[ids[0]]?.release ?? unwatch;
-    }),
-  };
-  return { host, unwatch };
-}
+import { createTestHost, type ExecutableTool, requireExecutableTool } from './fixtures/mcp-runtime';
 
 describe('MCP runtime client', () => {
   it('rejects legacy runtime MCP config without a host capability', async () => {

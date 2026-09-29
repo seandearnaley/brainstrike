@@ -180,21 +180,16 @@ export function createWorktreeLedger(
       return rows[0] ? readRow(rows[0]) : null;
     },
     async hasRunningThread(id) {
-      // Probe first: `brainstrike_assistant_thread_runs` is renderer-lazy
-      // bootstrap DDL, so on a profile that has never opened the assistant the
-      // relation legitimately does not exist yet (probe-first relation rule).
-      const probe = await query(
-        "SELECT to_regclass('brainstrike_assistant_thread_runs') AS relation"
-      );
-      const relation = (probe[0] as { relation: string | null } | undefined)?.relation ?? null;
-      if (relation === null) {
-        return false;
-      }
+      // No probe (BST-1651): migration 118 owns
+      // `brainstrike_assistant_thread_runs`, so the probe-first relation rule
+      // no longer applies to it. The retired branch answered `false` — "no
+      // run is using this worktree" — for an absent relation, which is the
+      // fail-OPEN direction on a guard that exists to hold a worktree open.
       const rows = await query(
         `SELECT 1
            FROM brainstrike_assistant_thread_runs AS runs
            JOIN ${WORKTREE_LEDGER_TABLE} AS wt ON wt.thread_id = runs.thread_id
-          WHERE wt.id = $1 AND runs.status = 'running'
+          WHERE wt.id = $1 AND runs.status IN ('running', 'cancelling')
           LIMIT 1`,
         [id]
       );

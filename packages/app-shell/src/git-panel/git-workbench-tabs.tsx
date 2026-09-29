@@ -1,93 +1,68 @@
-import { type KeyboardEvent, type ReactElement, useRef } from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
+import type { ReactElement, ReactNode } from 'react';
 
 export type GitWorkbenchTab = 'changes' | 'history';
 
+function isGitWorkbenchTab(value: string): value is GitWorkbenchTab {
+  return value === 'changes' || value === 'history';
+}
+
+/**
+ * Changes|History on the shared `sm` switcher, in a 36px header row like the
+ * other panel headers. Only the active view is mounted.
+ */
 export function GitWorkbenchTabs({
   active,
   changedFiles,
+  changes,
+  history,
   onChange,
 }: {
   readonly active: GitWorkbenchTab;
   readonly changedFiles: number;
+  readonly changes: ReactNode;
+  readonly history: ReactNode;
   readonly onChange: (tab: GitWorkbenchTab) => void;
 }): ReactElement {
-  const changesRef = useRef<HTMLButtonElement>(null);
-  const historyRef = useRef<HTMLButtonElement>(null);
-
-  const selectAndFocus = (tab: GitWorkbenchTab): void => {
-    onChange(tab);
-    (tab === 'changes' ? changesRef : historyRef).current?.focus();
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
-    let nextTab: GitWorkbenchTab;
-    switch (event.key) {
-      case 'ArrowLeft':
-      case 'ArrowRight':
-        nextTab = active === 'changes' ? 'history' : 'changes';
-        break;
-      case 'End':
-        nextTab = 'history';
-        break;
-      case 'Home':
-        nextTab = 'changes';
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
-    selectAndFocus(nextTab);
-  };
-
   return (
-    <div
-      aria-orientation="horizontal"
-      className="grid h-10 shrink-0 grid-cols-2 border-border border-b"
-      role="tablist"
+    <Tabs
+      className="flex min-h-0 flex-1 flex-col"
+      onValueChange={(value) => {
+        if (isGitWorkbenchTab(value)) {
+          onChange(value);
+        }
+      }}
+      value={active}
     >
-      <button
-        aria-controls="git-workbench-changes-panel"
-        aria-selected={active === 'changes'}
-        className={`relative text-sm transition-colors hover:bg-accent/40 ${
-          active === 'changes' ? 'font-medium text-foreground' : 'text-muted-foreground'
-        }`}
-        id="git-workbench-changes-tab"
-        onClick={() => onChange('changes')}
-        onKeyDown={handleKeyDown}
-        ref={changesRef}
-        role="tab"
-        tabIndex={active === 'changes' ? 0 : -1}
-        type="button"
-      >
-        Changes
-        {changedFiles > 0 ? (
-          <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">
-            {changedFiles}
-          </span>
-        ) : null}
-        {active === 'changes' ? (
-          <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />
-        ) : null}
-      </button>
-      <button
-        aria-controls="git-workbench-history-panel"
-        aria-selected={active === 'history'}
-        className={`relative text-sm transition-colors hover:bg-accent/40 ${
-          active === 'history' ? 'font-medium text-foreground' : 'text-muted-foreground'
-        }`}
-        id="git-workbench-history-tab"
-        onClick={() => onChange('history')}
-        onKeyDown={handleKeyDown}
-        ref={historyRef}
-        role="tab"
-        tabIndex={active === 'history' ? 0 : -1}
-        type="button"
-      >
-        History
-        {active === 'history' ? (
-          <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />
-        ) : null}
-      </button>
-    </div>
+      <div className="flex h-9 shrink-0 items-center border-border border-b px-2">
+        <TabsList aria-label="Changes and history" className="grid w-full grid-cols-2" size="sm">
+          <TabsTrigger value="changes">
+            Changes
+            {changedFiles > 0 ? (
+              <>
+                {/* Visual count only; the sr-only text names it, so the tab reads
+                    "Changes, 3 changed files" rather than "Changes3". */}
+                <span
+                  aria-hidden="true"
+                  className="rounded-full bg-foreground/10 px-1.5 text-[10px] tabular-nums leading-4"
+                >
+                  {changedFiles}
+                </span>
+                <span className="sr-only">
+                  {`, ${changedFiles} changed ${changedFiles === 1 ? 'file' : 'files'}`}
+                </span>
+              </>
+            ) : null}
+          </TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+        </TabsList>
+      </div>
+      <TabsContent className="flex min-h-0 flex-1" value="changes">
+        {changes}
+      </TabsContent>
+      <TabsContent className="flex min-h-0 flex-1" value="history">
+        {history}
+      </TabsContent>
+    </Tabs>
   );
 }

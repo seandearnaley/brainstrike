@@ -11,6 +11,7 @@ import type { SupportedProvider } from '@brainstrike/assistant-contract/provider
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { Badge, Card, Input, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   formatMemoryScopeLabel,
   listObservationalMemoryModelOptions,
@@ -138,7 +139,13 @@ export function AssistantMemorySettingsSection({
   const db = usePGliteDatabase();
   useEnsureModelRegistry({ db });
 
-  const { hasLoaded, models, providers } = useModelRegistryStore();
+  const { hasLoaded, models, providers } = useModelRegistryStore(
+    useShallow((state) => ({
+      hasLoaded: state.hasLoaded,
+      models: state.models,
+      providers: state.providers,
+    }))
+  );
   const {
     observationalMemory,
     semanticRecall,
@@ -153,7 +160,23 @@ export function AssistantMemorySettingsSection({
     setSemanticRecallMessageRange,
     setSemanticRecallScope,
     setSemanticRecallTopK,
-  } = useAssistantMemoryPreferencesStore();
+  } = useAssistantMemoryPreferencesStore(
+    useShallow((state) => ({
+      observationalMemory: state.observationalMemory,
+      semanticRecall: state.semanticRecall,
+      setObservationalMemoryEnabled: state.setObservationalMemoryEnabled,
+      setObservationalMemoryModelTarget: state.setObservationalMemoryModelTarget,
+      setObservationalMemoryScope: state.setObservationalMemoryScope,
+      setObservationalRetrievalMode: state.setObservationalRetrievalMode,
+      setObservationMessageTokens: state.setObservationMessageTokens,
+      setReflectionObservationTokens: state.setReflectionObservationTokens,
+      setSemanticRecallEmbeddingModelTarget: state.setSemanticRecallEmbeddingModelTarget,
+      setSemanticRecallEnabled: state.setSemanticRecallEnabled,
+      setSemanticRecallMessageRange: state.setSemanticRecallMessageRange,
+      setSemanticRecallScope: state.setSemanticRecallScope,
+      setSemanticRecallTopK: state.setSemanticRecallTopK,
+    }))
+  );
 
   const observationOptions = listObservationalMemoryModelOptions({
     assistantMemoryBackendAvailable,

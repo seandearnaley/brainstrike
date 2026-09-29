@@ -1,5 +1,7 @@
+import { createRequire } from 'node:module';
 import {
   createMcpAppToolInvocationResult,
+  NATIVE_TOOL_ID,
   readMcpAppToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import {
@@ -8,8 +10,13 @@ import {
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import type { ToolsInput } from '@mastra/core/agent';
+import { RequestContext } from '@mastra/core/request-context';
 import { describe, expect, it, vi } from 'vitest';
-import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
+import { resolveEligibleArtifactReaderName } from '../mastra/runtime-assembly/tool-pipeline';
+import {
+  applyToolModelOutputProjections,
+  wouldTruncateMcpModelOutput,
+} from '../mastra/tool-model-output';
 import {
   applyToolOutputArtifactSettlement,
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
@@ -42,29 +49,33 @@ function executableTool(
   } as ToolsInput[string];
 }
 
-function readOutputTransform(tool: ToolsInput[string], output: unknown): unknown {
+function readOutputTransform(
+  tool: ToolsInput[string],
+  output: unknown,
+  target: 'display' | 'transcript' = 'display'
+): unknown {
   const transform = (
     tool as {
       transform?: {
-        display?: {
+        [key in 'display' | 'transcript']?: {
           output?: (context: {
             output: unknown;
             phase: 'output-available';
-            target: 'display';
+            target: 'display' | 'transcript';
             toolCallId: string;
             toolName: string;
           }) => unknown;
         };
       };
     }
-  ).transform?.display?.output;
+  ).transform?.[target]?.output;
   if (!transform) {
     throw new TypeError('Fixture tool is missing its display output transform.');
   }
   return transform({
     output,
     phase: 'output-available',
-    target: 'display',
+    target,
     toolCallId: 'call-1',
     toolName: 'fixture',
   });
@@ -77,12 +88,202 @@ function settlementStore(
 }
 
 describe('tool output artifact settlement', () => {
+  it('keeps root artifact identity bound to the host scope', async () => {
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) =>
+      reference(input.content.length)
+    );
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => 'x'.repeat(12_500)) },
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
+    );
+    await (tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }).execute(
+      {},
+      { agent: { threadId: 'native-root', toolCallId: 'root-call' } }
+    );
+    expect(store).toHaveBeenCalledWith({
+      content: 'x'.repeat(12_500),
+      format: 'text',
+      toolCallId: 'root-call',
+    });
+  });
+
+  it('accepts the installed CommonJS memory context at an ESM settlement boundary', async () => {
+    const { RequestContext: CommonJsRequestContext } = createRequire(import.meta.url)(
+      '@mastra/core/request-context'
+    ) as { RequestContext: typeof RequestContext };
+    const requestContext = new CommonJsRequestContext();
+    requestContext.set('MastraMemory', { resourceId: 'owner', thread: { id: 'commonjs-child' } });
+    expect(requestContext).not.toBeInstanceOf(RequestContext);
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) =>
+      reference(input.content.length)
+    );
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => 'x'.repeat(12_500)) },
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        requireExecutionThreadId: true,
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
+    );
+    await (tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }).execute(
+      {},
+      { requestContext, toolCallId: 'call' }
+    );
+    expect(store).toHaveBeenCalledWith(
+      expect.objectContaining({ executionThreadId: 'commonjs-child' })
+    );
+  });
+
+  it('requires native child execution scope and never accepts it from tool input', async () => {
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) =>
+      reference(input.content.length)
+    );
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => 'x'.repeat(12_500)) },
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        requireExecutionThreadId: true,
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
+    );
+    const execute = (tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> })
+      .execute;
+    await expect(
+      execute(
+        { executionThreadId: 'forged', threadId: 'forged' },
+        { agent: { toolCallId: 'call' } }
+      )
+    ).rejects.toMatchObject({ reason: 'missing_execution_thread_id' });
+    expect(store).not.toHaveBeenCalled();
+    await execute(
+      { executionThreadId: 'forged' },
+      { agent: { threadId: 'native-child', toolCallId: 'call' } }
+    );
+    expect(store).toHaveBeenCalledWith(
+      expect.objectContaining({ executionThreadId: 'native-child', toolCallId: 'call' })
+    );
+    const requestContext = new RequestContext();
+    requestContext.set('MastraMemory', { resourceId: 'owner', thread: { id: 'native-sdk-child' } });
+    await execute({}, { requestContext, toolCallId: 'sdk-call' });
+    expect(store).toHaveBeenLastCalledWith(
+      expect.objectContaining({ executionThreadId: 'native-sdk-child', toolCallId: 'sdk-call' })
+    );
+  });
+
+  it.each([0, 2])('rejects %i eligible readers before writing any artifact', async (count) => {
+    const readerIds = Array.from({ length: count }, (_, index) => `reader-${index}`);
+    const readers = Object.fromEntries(
+      readerIds.map((id) => [id, executableTool(async () => ({}))])
+    );
+    const names = new Map(readerIds.map((id) => [id, NATIVE_TOOL_ID.readToolOutputArtifact]));
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>();
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => 'x'.repeat(12_500)) },
+      {
+        getReaderToolName: () => resolveEligibleArtifactReaderName(readers, names),
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
+    );
+    await expect(
+      (tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }).execute(
+        {},
+        { agent: { toolCallId: 'call-1' } }
+      )
+    ).rejects.toThrow('one eligible artifact reader');
+    expect(store).not.toHaveBeenCalled();
+  });
+
+  it.each([7900, 9042, 11_900, 12_500])(
+    'preserves every byte of a %i-character MCP result inline or in storage',
+    async (length) => {
+      const output =
+        `${'x'.repeat(Math.floor(length / 2))}required-middle-criterion${'y'.repeat(length)}`.slice(
+          0,
+          length
+        );
+      const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) => ({
+        ...reference(new TextEncoder().encode(input.content).byteLength),
+        format: input.format,
+      }));
+      const tools = applyToolOutputArtifactSettlement(
+        { fixture: executableTool(async () => output) },
+        {
+          getReaderToolName: () => 'registered_reader',
+          store: settlementStore(store),
+          toolNameMap: new Map(),
+          wouldTruncateModelOutput: (name, value) =>
+            wouldTruncateMcpModelOutput(name, value, ANCHOR_TOOL_RESULT_BUDGET),
+        }
+      );
+      const projected = applyToolModelOutputProjections(
+        tools,
+        new Map(),
+        undefined,
+        ANCHOR_TOOL_RESULT_BUDGET
+      );
+      const tool = projected['fixture'] as {
+        execute: (...args: unknown[]) => Promise<unknown>;
+        toModelOutput: (output: unknown) => unknown;
+      };
+      const modelOutput = tool.toModelOutput(
+        await tool.execute({}, { agent: { toolCallId: 'call-1' } })
+      );
+      if (length === 7900) {
+        expect(modelOutput).toEqual({ type: 'text', value: output });
+        expect(store).not.toHaveBeenCalled();
+        return;
+      }
+      expect(store).toHaveBeenCalledExactlyOnceWith({
+        content: output,
+        format: 'text',
+        toolCallId: 'call-1',
+      });
+      expect(modelOutput).toMatchObject({
+        type: 'json',
+        value: { next: { tool: 'registered_reader' } },
+      });
+      expect(JSON.stringify(modelOutput)).not.toContain('tool_result_truncated');
+    }
+  );
+
+  it('surfaces storage failure for an MCP result that only exceeds the model budget', async () => {
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => 'x'.repeat(9042)) },
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        store: settlementStore(async () => {
+          throw new Error('storage offline');
+        }),
+        toolNameMap: new Map(),
+        wouldTruncateModelOutput: (name, value) =>
+          wouldTruncateMcpModelOutput(name, value, ANCHOR_TOOL_RESULT_BUDGET),
+      }
+    );
+    await expect(
+      (tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }).execute(
+        {},
+        { agent: { toolCallId: 'call-1' } }
+      )
+    ).rejects.toMatchObject({ reason: 'store_failed' });
+  });
+
   it('keeps an inline result byte-exact and does not touch storage when it fits', async () => {
     const output = { evidence: 'small' };
     const store = vi.fn<ToolOutputArtifactSettlementStore['store']>();
     const tools = applyToolOutputArtifactSettlement(
       { fixture: executableTool(async () => output) },
-      { store: settlementStore(store), toolNameMap: new Map() }
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
     );
 
     const result = await (
@@ -93,52 +294,75 @@ describe('tool output artifact settlement', () => {
     expect(store).not.toHaveBeenCalled();
   });
 
-  it('preserves an MCP Apps marker through hooks and artifact settlement', async () => {
-    const marker = createMcpAppToolInvocationResult(
-      {
-        mimeType: 'text/html;profile=mcp-app',
-        resourceUri: 'ui://issues/detail',
-        serverId: 'remote',
-        toolName: 'show_issue',
-      },
-      { issueId: 'BST-1572' }
-    );
-    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>();
-    const hooked = applyToolHooks(
-      { fixture: executableTool(async () => marker) },
-      {
-        hookRunner: {
-          postToolUse: vi.fn(async () => ({ additionalContext: 'inspect the issue details' })),
-          preToolUse: vi.fn(async () => ({ decision: 'allow' as const })),
+  it.each([0, 16, 9042, 12_500])(
+    'preserves an MCP Apps marker and ordinary recovery through hooks at %i chars',
+    async (length) => {
+      const marker = createMcpAppToolInvocationResult(
+        {
+          mimeType: 'text/html;profile=mcp-app',
+          resourceUri: 'ui://issues/detail',
+          serverId: 'remote',
+          toolName: 'show_issue',
         },
+        length === 0 ? null : { description: 'x'.repeat(length), issueId: 'BST-1572' }
+      );
+      const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) => ({
+        ...reference(new TextEncoder().encode(input.content).byteLength),
+        format: input.format,
+      }));
+      const hooked = applyToolHooks(
+        { fixture: executableTool(async () => marker) },
+        {
+          hookRunner: {
+            postToolUse: vi.fn(async () => ({ additionalContext: 'inspect the issue details' })),
+            preToolUse: vi.fn(async () => ({ decision: 'allow' as const })),
+          },
+          toolNameMap: new Map(),
+        }
+      );
+      const settled = applyToolOutputArtifactSettlement(hooked as ToolsInput, {
+        getReaderToolName: () => 'registered_reader',
+        store: settlementStore(store),
         toolNameMap: new Map(),
+        wouldTruncateModelOutput: (name, value) =>
+          wouldTruncateMcpModelOutput(name, value, ANCHOR_TOOL_RESULT_BUDGET),
+      });
+      const projected = applyToolModelOutputProjections(
+        settled,
+        new Map(),
+        undefined,
+        ANCHOR_TOOL_RESULT_BUDGET
+      );
+      const tool = projected['fixture'] as {
+        execute: (...args: unknown[]) => Promise<unknown>;
+        toModelOutput: (output: unknown) => unknown;
+      };
+
+      const result = await tool.execute({}, { agent: { toolCallId: 'call-1' } });
+      const display = readOutputTransform(tool, result);
+      const model = tool.toModelOutput(result);
+
+      expect(readMcpAppToolInvocationResult(display)).toEqual(marker);
+      expect(
+        readMcpAppToolInvocationResult(readOutputTransform(tool, result, 'transcript'))
+      ).toEqual(marker);
+      if (length > 8000) {
+        expect(store).toHaveBeenCalledExactlyOnceWith({
+          content: JSON.stringify(marker.result),
+          format: 'json',
+          toolCallId: 'call-1',
+        });
+        expect(JSON.stringify(model)).toContain('registered_reader');
+      } else {
+        expect(store).not.toHaveBeenCalled();
       }
-    );
-    const settled = applyToolOutputArtifactSettlement(hooked as ToolsInput, {
-      store: settlementStore(store),
-      toolNameMap: new Map(),
-    });
-    const projected = applyToolModelOutputProjections(
-      settled,
-      new Map(),
-      undefined,
-      ANCHOR_TOOL_RESULT_BUDGET
-    );
-    const tool = projected['fixture'] as {
-      execute: (...args: unknown[]) => Promise<unknown>;
-      toModelOutput: (output: unknown) => unknown;
-    };
-
-    const result = await tool.execute({}, { agent: { toolCallId: 'call-1' } });
-    const display = readOutputTransform(tool, result);
-    const model = tool.toModelOutput(result);
-
-    expect(readMcpAppToolInvocationResult(display)).toEqual(marker);
-    expect(store).not.toHaveBeenCalled();
-    expect(JSON.stringify(model)).toContain('BST-1572');
-    expect(JSON.stringify(model)).toContain('Post-tool context: inspect the issue details');
-    expect(JSON.stringify(model)).not.toContain('mcp-app');
-  });
+      if (length <= 16) {
+        expect(JSON.stringify(model)).toContain(length === 0 ? 'null' : 'BST-1572');
+      }
+      expect(JSON.stringify(model)).toContain('Post-tool context: inspect the issue details');
+      expect(JSON.stringify(model)).not.toContain('mcp-app');
+    }
+  );
 
   it('settles a tool above its stricter serialized-character threshold', async () => {
     const output = { payload: '雪\\n"quoted" 😀'.repeat(400) };
@@ -153,6 +377,7 @@ describe('tool output artifact settlement', () => {
     const tools = applyToolOutputArtifactSettlement(
       { fixture: executableTool(async () => output) },
       {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
         inlineMaxSerializedCharsByToolName: new Map([['brainstrike.webExtract', 1000]]),
         store: settlementStore(store),
         toolNameMap: new Map([['fixture', 'brainstrike.webExtract']]),
@@ -184,6 +409,7 @@ describe('tool output artifact settlement', () => {
     const settled = applyToolOutputArtifactSettlement(
       { fixture: executableTool(async () => output) },
       {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
         inlineMaxSerializedCharsByToolName: new Map([['brainstrike.webExtract', 1000]]),
         store: settlementStore(store),
         toolNameMap: new Map([['fixture', 'brainstrike.webExtract']]),
@@ -226,7 +452,11 @@ describe('tool output artifact settlement', () => {
     );
     const settled = applyToolOutputArtifactSettlement(
       { fixture: executableTool(async () => output) },
-      { store: settlementStore(store), toolNameMap: new Map([['fixture', 'workspace.read']]) }
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        store: settlementStore(store),
+        toolNameMap: new Map([['fixture', 'workspace.read']]),
+      }
     );
     const projected = applyToolModelOutputProjections(
       settled,
@@ -284,6 +514,7 @@ describe('tool output artifact settlement', () => {
         { fixture: executableTool(async () => output) },
         {
           getDelegationToolNames,
+          getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
           store,
           toolNameMap: new Map([['fixture', 'workspace.read']]),
         }
@@ -321,6 +552,7 @@ describe('tool output artifact settlement', () => {
       const tools = applyToolOutputArtifactSettlement(
         { fixture: executableTool(async () => output) },
         {
+          getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
           store: settlementStore(store),
           toolNameMap: new Map([['fixture', toolName]]),
         }
@@ -347,7 +579,11 @@ describe('tool output artifact settlement', () => {
     }));
     const settled = applyToolOutputArtifactSettlement(
       { fixture: executableTool(async () => output, projector) },
-      { store: settlementStore(store), toolNameMap: new Map() }
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
     );
     const projected = applyToolModelOutputProjections(
       settled,
@@ -372,8 +608,8 @@ describe('tool output artifact settlement', () => {
     expect(JSON.stringify(model)).not.toContain('kept');
   });
 
-  it('preserves oversized MCP media inline instead of settling it as text', async () => {
-    const output = {
+  it.each([false, true])('preserves oversized MCP media inline (Apps: %s)', async (isApp) => {
+    const ordinary = {
       content: [
         { text: 'A rendered image.', type: 'text' },
         {
@@ -383,10 +619,25 @@ describe('tool output artifact settlement', () => {
         },
       ],
     };
+    const output = isApp
+      ? createMcpAppToolInvocationResult(
+          {
+            mimeType: 'text/html;profile=mcp-app',
+            resourceUri: 'ui://image/detail',
+            serverId: 'remote',
+            toolName: 'show_image',
+          },
+          ordinary
+        )
+      : ordinary;
     const store = vi.fn<ToolOutputArtifactSettlementStore['store']>();
     const tools = applyToolOutputArtifactSettlement(
       { fixture: executableTool(async () => output) },
-      { store: settlementStore(store), toolNameMap: new Map() }
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
     );
     const tool = tools['fixture'] as {
       execute: (...args: unknown[]) => Promise<unknown>;
@@ -412,6 +663,7 @@ describe('tool output artifact settlement', () => {
       }
     );
     const settled = applyToolOutputArtifactSettlement(hooked as ToolsInput, {
+      getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
       store: settlementStore(async (input) => reference(input.content.length)),
       toolNameMap: new Map(),
     });
@@ -444,6 +696,7 @@ describe('tool output artifact settlement', () => {
         fixture: executableTool(async () => 'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES + 1)),
       },
       {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
         store: settlementStore(async () => {
           throw storeError;
         }),
@@ -469,6 +722,7 @@ describe('tool output artifact settlement', () => {
         fixture: executableTool(async () => 'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES + 1)),
       },
       {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
         store: settlementStore(async (input) => ({
           ...reference(input.content.length),
           id: '/tmp/untrusted-artifact.txt',
@@ -494,6 +748,7 @@ describe('tool output artifact settlement', () => {
         fixture: executableTool(async () => 'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES + 1)),
       },
       {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
         store: settlementStore(async (input) => reference(input.content.length)),
         toolNameMap: new Map(),
       }
@@ -517,7 +772,11 @@ describe('tool output artifact settlement', () => {
           'x'.repeat(TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES + 1)
         ),
       },
-      { store: settlementStore(store), toolNameMap: new Map() }
+      {
+        getReaderToolName: () => NATIVE_TOOL_ID.readToolOutputArtifact,
+        store: settlementStore(store),
+        toolNameMap: new Map(),
+      }
     );
 
     await expect(

@@ -1,3 +1,12 @@
+import {
+  type ActionOutcome,
+  createClosedTabHistory,
+  type OpenTab,
+  placeTabAtIndex,
+  type ReopenAttempt,
+  recordRemovedTabs,
+  reopenLastClosed,
+} from '@brainstrike/context-actions';
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
@@ -10,6 +19,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from 'react';
 import { useFileContentLoadAuthority } from '../file-content-load-authority-context';
 import { useTabManager } from '../hooks/use-tab-manager';
@@ -20,15 +30,25 @@ import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useTerminalHotkey } from './use-terminal-hotkey';
 import { useWorkspaceOpenFileRefresh } from './use-workspace-open-file-refresh';
-import { useWorkspaceTabHotkeys } from './use-workspace-tab-hotkeys';
 import {
   useWorkspaceTabs,
+  type WorkspaceTabRef,
   WorkspaceTabsContext,
   type WorkspaceTabsValue,
 } from './use-workspace-tabs';
 import type { WorkspaceApp } from './workspace-app';
+import { getFileName, getTabRootPath } from './workspace-tab-utils';
 
 const logger = createLogger('WorkspaceTabs');
+
+/** A closed workspace tab, remembered for Reopen Closed Tab (session-only). */
+type WorkspaceClosedTab =
+  | { readonly appId: string; readonly kind: 'app'; readonly label: string }
+  | { readonly compositeKey: string; readonly kind: 'file'; readonly name: string };
+
+function liveFileTabIds(): readonly string[] {
+  return useTabManagerStore.getState().tabs.map((tab) => tab.id);
+}
 
 /**
  * Registers the workspace open-file handler into the NEAREST IdeFileEditorContext.
@@ -70,7 +90,9 @@ function canAutoLoadFileContent(
 /**
  * Owns all workspace tab orchestration (BST-1258): file-tab lifecycle,
  * restoration/permission flows, app open/close/singleton semantics, selection
- * reconciliation, and hotkeys. The strip (panel header) and body (panel
+ * reconciliation, closed-tab history, and the Terminal hotkey. Tab chords are
+ * app-shell's focus-scoped router (BST-1842), driven through `onActivateTab`,
+ * `onCloseTab` and `onReopenClosedTab`. The strip (panel header) and body (panel
  * content) render in SIBLING subtrees, so this provider sits above the outer
  * IdeLayout and both consume it through context; all durable state lives in
  * the zustand stores (tab-manager, workspace-tab-selection), written directly
@@ -84,6 +106,7 @@ export function WorkspaceTabsProvider({
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
   const closeOtherTabs = useTabManagerStore((state) => state.closeOtherTabs);
   const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
+  const reorderTabs = useTabManagerStore((state) => state.reorderTabs);
   const fileContentLoadAuthority = useFileContentLoadAuthority();
   const retainedErrorOwnerRef = useRef<object>({});
 
@@ -144,6 +167,7 @@ export function WorkspaceTabsProvider({
   const mountedAppIdList = useWorkspaceTabSelectionStore((s) => s.mountedAppIds);
   const openApp = useWorkspaceTabSelectionStore((s) => s.openApp);
   const closeApp = useWorkspaceTabSelectionStore((s) => s.closeApp);
+  const closeApps = useWorkspaceTabSelectionStore((s) => s.closeApps);
   const selectEmpty = useWorkspaceTabSelectionStore((s) => s.selectEmpty);
   const selectFile = useWorkspaceTabSelectionStore((s) => s.selectFile);
   const selectionIntentRef = useRef(0);
@@ -293,27 +317,103 @@ export function WorkspaceTabsProvider({
     }
   }, [apps, invalidatePendingSelection, openApp, selectEmpty]);
 
-  const handleCloseApp = useCallback(
-    (appId: string) => {
-      invalidatePendingSelection();
-      const successor = closeApp(appId);
-      if (successor !== null) {
+  /**
+   * The store falls back app→app or app→empty on its own; when it landed on
+   * empty but file tabs remain, prefer the most recent file tab over the
+   * launcher (the store cannot see file tabs).
+   */
+  const preferActiveFileTabOverEmpty = useCallback(
+    (appSuccessor: string | null): void => {
+      if (appSuccessor !== null) {
         return;
       }
-      // The store falls back app→app or app→empty on its own; when it landed on
-      // empty but file tabs remain, prefer the most recent file tab over the
-      // launcher (the store cannot see file tabs).
-      if (useWorkspaceTabSelectionStore.getState().selection.kind === 'empty') {
-        const { activeTabId } = useTabManagerStore.getState();
-        if (activeTabId !== null) {
-          selectFile(activeTabId);
-        }
+      if (useWorkspaceTabSelectionStore.getState().selection.kind !== 'empty') {
+        return;
+      }
+      const { activeTabId } = useTabManagerStore.getState();
+      if (activeTabId !== null) {
+        selectFile(activeTabId);
       }
     },
-    [closeApp, invalidatePendingSelection, selectFile]
+    [selectFile]
   );
 
-  const handleCloseFileTab = useCallback(
+  // Every close path (✕, Delete, the menus, chords) records what it closed, so
+  // Reopen Closed Tab can restore it. Session-only: the history lives and dies
+  // with this provider, so it needs no factory-reset wiring. It belongs to ONE
+  // workspace session: when another thread's workspace is hydrated in (a
+  // replacement, not a close), the history is cleared, never recorded.
+  const [closedTabs] = useState(() => createClosedTabHistory<WorkspaceClosedTab>());
+  useEffect(() => {
+    const clearOnHydration =
+      <S extends { readonly hydration: object }>() =>
+      (state: S, previous: S): void => {
+        if (state.hydration !== previous.hydration) {
+          closedTabs.clear();
+        }
+      };
+    const unsubscribeTabs = useTabManagerStore.subscribe(clearOnHydration());
+    const unsubscribeApps = useWorkspaceTabSelectionStore.subscribe(clearOnHydration());
+    return () => {
+      unsubscribeTabs();
+      unsubscribeApps();
+    };
+  }, [closedTabs]);
+  /** Run an app close, then record exactly the app tabs it removed. */
+  const closeAppsRecorded = useCallback(
+    (close: () => void): void => {
+      const openAppTabs = (): readonly OpenTab<WorkspaceClosedTab>[] => {
+        const open = new Set(useWorkspaceTabSelectionStore.getState().openAppIds);
+        return apps.flatMap((app): OpenTab<WorkspaceClosedTab>[] =>
+          open.has(app.id)
+            ? [{ id: app.id, tab: { appId: app.id, kind: 'app', label: app.label } }]
+            : []
+        );
+      };
+      const before = openAppTabs();
+      close();
+      recordRemovedTabs(
+        closedTabs,
+        before,
+        openAppTabs().map((app) => app.id)
+      );
+    },
+    [apps, closedTabs]
+  );
+  /** Run a file-tab close, then record exactly the file tabs it removed. */
+  const closeFilesRecorded = useCallback(
+    (close: () => void): void => {
+      const before = useTabManagerStore.getState().tabs.map(
+        (tab): OpenTab<WorkspaceClosedTab> => ({
+          id: tab.id,
+          tab: { compositeKey: tab.compositeKey, kind: 'file', name: getFileName(tab.path) },
+        })
+      );
+      close();
+      recordRemovedTabs(closedTabs, before, liveFileTabIds());
+    },
+    [closedTabs]
+  );
+
+  const handleCloseApp = useCallback(
+    (appId: string) =>
+      closeAppsRecorded(() => {
+        invalidatePendingSelection();
+        preferActiveFileTabOverEmpty(closeApp(appId));
+      }),
+    [closeApp, closeAppsRecorded, invalidatePendingSelection, preferActiveFileTabOverEmpty]
+  );
+
+  const handleCloseApps = useCallback(
+    (appIds: readonly string[]) =>
+      closeAppsRecorded(() => {
+        invalidatePendingSelection();
+        preferActiveFileTabOverEmpty(closeApps(appIds));
+      }),
+    [closeApps, closeAppsRecorded, invalidatePendingSelection, preferActiveFileTabOverEmpty]
+  );
+
+  const closeFileTab = useCallback(
     (tabId: string) => {
       invalidatePendingSelection();
       // closeTab returns the successor activeTabId (or null if no tabs remain), so we
@@ -334,6 +434,10 @@ export function WorkspaceTabsProvider({
       }
     },
     [closeTab, fallbackToOpenApp, invalidatePendingSelection, selectFile]
+  );
+  const handleCloseFileTab = useCallback(
+    (tabId: string) => closeFilesRecorded(() => closeFileTab(tabId)),
+    [closeFileTab, closeFilesRecorded]
   );
 
   // If the workspace points at something that no longer exists — a file tab that
@@ -460,11 +564,6 @@ export function WorkspaceTabsProvider({
   );
 
   useTerminalHotkey(apps, handleOpenApp);
-  useWorkspaceTabHotkeys(selection, tabs, {
-    onCloseApp: handleCloseApp,
-    onCloseFileTab: handleCloseFileTab,
-    onSelectFileTab: handleSelectFileTab,
-  });
 
   const reconcileSelectionAfterBulkClose = useCallback(
     (nextActiveTabId: string | null): void => {
@@ -491,26 +590,101 @@ export function WorkspaceTabsProvider({
   // File-tab bulk operations never replace an app selection. When a file
   // selection is removed, reconcile it immediately instead of waiting for the
   // dead-selection safety effect on the next render.
-  const handleCloseAllFileTabs = useCallback(() => {
-    clearTabs();
-    reconcileSelectionAfterBulkClose(null);
-  }, [clearTabs, reconcileSelectionAfterBulkClose]);
+  const handleCloseAllFileTabs = useCallback(
+    () =>
+      closeFilesRecorded(() => {
+        clearTabs();
+        reconcileSelectionAfterBulkClose(null);
+      }),
+    [clearTabs, closeFilesRecorded, reconcileSelectionAfterBulkClose]
+  );
 
   const handleCloseOtherFileTabs = useCallback(
-    (tabId: string): void => {
-      const nextActiveTabId = closeOtherTabs(tabId);
-      reconcileSelectionAfterBulkClose(nextActiveTabId);
-    },
-    [closeOtherTabs, reconcileSelectionAfterBulkClose]
+    (tabId: string): void =>
+      closeFilesRecorded(() => {
+        const nextActiveTabId = closeOtherTabs(tabId);
+        reconcileSelectionAfterBulkClose(nextActiveTabId);
+      }),
+    [closeFilesRecorded, closeOtherTabs, reconcileSelectionAfterBulkClose]
   );
 
   const handleCloseFileTabsToRight = useCallback(
-    (tabId: string): void => {
-      const nextActiveTabId = closeTabsToRight(tabId);
-      reconcileSelectionAfterBulkClose(nextActiveTabId);
-    },
-    [closeTabsToRight, reconcileSelectionAfterBulkClose]
+    (tabId: string): void =>
+      closeFilesRecorded(() => {
+        const nextActiveTabId = closeTabsToRight(tabId);
+        reconcileSelectionAfterBulkClose(nextActiveTabId);
+      }),
+    [closeFilesRecorded, closeTabsToRight, reconcileSelectionAfterBulkClose]
   );
+
+  const openAppIdSet = useMemo(() => new Set(openApps.map((app) => app.id)), [openApps]);
+  const handleActivateTab = useCallback(
+    (id: string): Promise<void> => {
+      if (openAppIdSet.has(id)) {
+        handleOpenApp(id);
+        return Promise.resolve();
+      }
+      // Settles once the file tab is selected (after any permission prompt).
+      return handleSelectFileTab(id);
+    },
+    [handleOpenApp, handleSelectFileTab, openAppIdSet]
+  );
+  const handleCloseTab = useCallback(
+    (id: string): void => {
+      if (openAppIdSet.has(id)) {
+        handleCloseApp(id);
+        return;
+      }
+      handleCloseFileTab(id);
+    },
+    [handleCloseApp, handleCloseFileTab, openAppIdSet]
+  );
+
+  const hasClosedTabs = useCallback((): boolean => closedTabs.size() > 0, [closedTabs]);
+  // Only a confirmed-stale entry (an unregistered app, a disconnected folder)
+  // is dropped; an unexpected failure puts the entry back (reopenLastClosed).
+  const handleReopenClosedTab = useCallback(
+    (): Promise<ActionOutcome> =>
+      reopenLastClosed(closedTabs, ({ index, tab: entry }): ReopenAttempt => {
+        if (entry.kind === 'app') {
+          if (!apps.some((app) => app.id === entry.appId)) {
+            return {
+              error: `${entry.label} can no longer be reopened: it is not available`,
+              status: 'stale',
+            };
+          }
+          handleOpenApp(entry.appId);
+          return { status: 'reopened' };
+        }
+        if (getTabRootPath(entry, rootDescriptors) === null) {
+          return {
+            error: `"${entry.name}" can no longer be reopened: its folder is not connected`,
+            status: 'stale',
+          };
+        }
+        const wasOpen = liveFileTabIds().includes(entry.compositeKey);
+        handleOpenFileInTab(entry.compositeKey);
+        if (!wasOpen) {
+          reorderTabs(placeTabAtIndex(liveFileTabIds(), entry.compositeKey, index));
+        }
+        return { status: 'reopened' };
+      }),
+    [apps, closedTabs, handleOpenApp, handleOpenFileInTab, reorderTabs, rootDescriptors]
+  );
+
+  const tabOrder = useMemo<readonly WorkspaceTabRef[]>(() => {
+    const pinned: WorkspaceTabRef[] = [];
+    const dynamic: WorkspaceTabRef[] = [];
+    for (const app of openApps) {
+      (app.placement === 'pinned' ? pinned : dynamic).push({ id: app.id, label: app.label });
+    }
+    const files = tabs.map((tab) => ({
+      detail: tab.path,
+      id: tab.id,
+      label: getFileName(tab.path),
+    }));
+    return [...pinned, ...dynamic, ...files];
+  }, [openApps, tabs]);
 
   const value = useMemo<WorkspaceTabsValue>(
     () => ({
@@ -519,20 +693,29 @@ export function WorkspaceTabsProvider({
       fileContents,
       getTabStatusMessage: getStatusMessage,
       handleOpenFileInTab,
+      hasClosedTabs,
       isRestoring,
       loadingFiles,
       mountedAppIds,
+      onActivateTab: handleActivateTab,
       onCloseAllFileTabs: handleCloseAllFileTabs,
       onCloseApp: handleCloseApp,
+      onCloseApps: handleCloseApps,
       onCloseFileTab: handleCloseFileTab,
       onCloseFileTabsToRight: handleCloseFileTabsToRight,
       onCloseOtherFileTabs: handleCloseOtherFileTabs,
+      onCloseTab: handleCloseTab,
       onOpenApp: handleOpenApp,
+      onReopenClosedTab: handleReopenClosedTab,
+      // Reordering never writes selection, so it leaves a pending permission-prompt
+      // selection alone (invalidatePendingSelection is for selection writers).
+      onReorderFileTabs: reorderTabs,
       onRetryFileContent: handleRetryFileContent,
       onSelectFileTab: handleSelectFileTab,
       openApps,
       rootDescriptors,
       selection,
+      tabOrder,
       tabStatuses,
       tabs,
     }),
@@ -542,20 +725,27 @@ export function WorkspaceTabsProvider({
       fileContents,
       getStatusMessage,
       handleOpenFileInTab,
+      hasClosedTabs,
       isRestoring,
       loadingFiles,
       mountedAppIds,
+      handleActivateTab,
       handleCloseAllFileTabs,
       handleCloseApp,
+      handleCloseApps,
       handleCloseFileTab,
       handleCloseFileTabsToRight,
       handleCloseOtherFileTabs,
+      handleCloseTab,
       handleOpenApp,
+      handleReopenClosedTab,
       handleRetryFileContent,
       handleSelectFileTab,
       openApps,
+      reorderTabs,
       rootDescriptors,
       selection,
+      tabOrder,
       tabs,
       tabStatuses,
     ]

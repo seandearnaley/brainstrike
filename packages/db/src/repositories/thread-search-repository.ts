@@ -1,3 +1,4 @@
+import { runAtomicStatements } from '../atomic-transaction.js';
 import type {
   MarkThreadMessageEmbeddingErrorInput,
   StoreThreadMessageEmbeddingInput,
@@ -131,6 +132,25 @@ const UPSERT_CONFLICT_SQL = `
   WHERE ${INDEX_TABLE}.content_hash IS DISTINCT FROM EXCLUDED.content_hash
 `;
 
+/** Search visibility follows every native parent boundary from an owned root. */
+function ownedThreadsSql(ownerParameter: string): string {
+  return `WITH RECURSIVE search_owned_threads AS (
+    SELECT native.id AS thread_id, native."resourceId" AS resource_id, native.id AS root_thread_id
+    FROM mastra_threads native
+    LEFT JOIN brainstrike_delegated_conversations root ON root.thread_id = native.id
+    WHERE native."resourceId" = ${ownerParameter}
+      AND (root.thread_id IS NULL OR (root.parent_thread_id IS NULL
+        AND root.root_thread_id = native.id AND root.owner_resource_id = ${ownerParameter}
+        AND root.resource_id = native."resourceId"))
+    UNION ALL
+    SELECT child.thread_id, child.resource_id, parent.root_thread_id
+    FROM search_owned_threads parent
+    JOIN brainstrike_delegated_conversations child ON child.parent_thread_id = parent.thread_id
+      AND child.root_thread_id = parent.root_thread_id AND child.owner_resource_id = ${ownerParameter}
+    JOIN mastra_threads native ON native.id = child.thread_id AND native."resourceId" = child.resource_id
+  )`;
+}
+
 function requirePositiveInteger(value: number, field: string): void {
   if (!(Number.isInteger(value) && value > 0)) {
     throw new Error(`Thread search ${field} must be a positive integer.`);
@@ -193,6 +213,68 @@ interface VectorRow {
  */
 export class ThreadSearchRepository {
   constructor(private readonly db: ThreadSearchDatabase) {}
+
+  async getNavigationTarget(
+    ownerResourceId: string,
+    threadId: string,
+    messageId?: string
+  ): Promise<{
+    readonly rootThreadId: string;
+    readonly resourceId: string;
+    readonly title: string | null;
+    readonly displayName: string | null;
+  } | null> {
+    const result = await this.db.query<{
+      rootThreadId: string;
+      resourceId: string;
+      title: string | null;
+      displayName: string | null;
+    }>(
+      `${ownedThreadsSql('$1')}
+      SELECT owned.root_thread_id AS "rootThreadId", owned.resource_id AS "resourceId",
+        native.title, child.display_name AS "displayName"
+      FROM search_owned_threads owned
+      JOIN mastra_threads native ON native.id = owned.thread_id AND native."resourceId" = owned.resource_id
+      LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = owned.thread_id
+      WHERE owned.thread_id = $2 AND ($3::text IS NULL OR EXISTS (
+        SELECT 1 FROM mastra_messages message WHERE message.id = $3 AND message.thread_id = owned.thread_id
+          AND COALESCE(message."resourceId", native."resourceId") = owned.resource_id
+          AND NOT EXISTS (SELECT 1 FROM ${TOMBSTONES_TABLE} hidden WHERE hidden.message_id = message.id)
+      ))`,
+      [ownerResourceId, threadId, messageId ?? null]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /** Resolve a bounded result set with one ownership traversal. */
+  async getNavigationTitles(
+    ownerResourceId: string,
+    threadIds: readonly string[]
+  ): Promise<
+    readonly {
+      readonly threadId: string;
+      readonly title: string | null;
+      readonly displayName: string | null;
+    }[]
+  > {
+    if (threadIds.length === 0) {
+      return [];
+    }
+    const result = await this.db.query<{
+      threadId: string;
+      title: string | null;
+      displayName: string | null;
+    }>(
+      `${ownedThreadsSql('$1')}
+      SELECT owned.thread_id AS "threadId", native.title, child.display_name AS "displayName"
+      FROM search_owned_threads owned
+      JOIN mastra_threads native ON native.id = owned.thread_id AND native."resourceId" = owned.resource_id
+      LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = owned.thread_id
+      WHERE owned.thread_id = ANY($2::text[])`,
+      [ownerResourceId, threadIds]
+    );
+    return result.rows;
+  }
 
   async getEmbeddingProfile(): Promise<ThreadSearchEmbeddingProfile> {
     const result = await this.db.query<ThreadSearchEmbeddingProfile>(
@@ -409,7 +491,8 @@ export class ThreadSearchRepository {
       : 'NULL';
 
     const result = await this.db.query<FtsRow>(
-      `SELECT
+      `${ownedThreadsSql('$2')}
+       SELECT
          i.message_id AS "messageId",
          i.thread_id AS "threadId",
          i.role,
@@ -419,7 +502,8 @@ export class ThreadSearchRepository {
        FROM ${INDEX_TABLE} i
        JOIN mastra_threads t ON t.id = i.thread_id
        CROSS JOIN (SELECT websearch_to_tsquery('english', $1) AS query) q
-       WHERE i.resource_id = $2
+       JOIN search_owned_threads owned ON owned.thread_id = i.thread_id AND owned.resource_id = i.resource_id
+       WHERE TRUE
          AND i.content_tsvector @@ q.query
          AND ${NOT_TOMBSTONED_SQL}
        ORDER BY rank DESC, i.message_created_at DESC
@@ -457,7 +541,8 @@ export class ThreadSearchRepository {
     const queryVector = toVectorLiteral(queryEmbedding, profile.dimensions);
 
     const result = await this.runVectorSearchInTransaction<VectorRow>(
-      `SELECT
+      `${ownedThreadsSql('$2')}
+       SELECT
          i.message_id AS "messageId",
          i.thread_id AS "threadId",
          i.role,
@@ -466,7 +551,8 @@ export class ThreadSearchRepository {
          1 - (i.embedding <=> $1::vector) AS similarity
        FROM ${INDEX_TABLE} i
        JOIN mastra_threads t ON t.id = i.thread_id
-       WHERE i.resource_id = $2
+       JOIN search_owned_threads owned ON owned.thread_id = i.thread_id AND owned.resource_id = i.resource_id
+       WHERE TRUE
          AND i.embedding IS NOT NULL
          AND i.embedding_profile_id = $3
          AND 1 - (i.embedding <=> $1::vector) >= $4
@@ -499,9 +585,8 @@ export class ThreadSearchRepository {
    *    the controller's embedding-backlog WRITES that run alongside a search —
    *    cannot interleave inside the open transaction and get caught in a
    *    rollback.
-   * 3. Raw BEGIN/COMMIT over `query` (legacy/mock seams only): tuned, but a
-   *    concurrent statement on the shared connection can interleave inside
-   *    the open transaction (#1141 residual).
+   * A query-only handle is rejected because separate BEGIN/COMMIT calls cannot
+   * hold either transport's connection/admission lock.
    */
   private async runVectorSearchInTransaction<T>(
     searchSql: string,
@@ -510,40 +595,13 @@ export class ThreadSearchRepository {
     const tuning = hnswSearchTuningStatements().map((sql) => ({ sql }));
     const statements = [...tuning, { params, sql: searchSql }];
 
-    if (this.db.runTransaction) {
-      const result = await this.db.runTransaction(statements, statements.length - 1);
-      return { rows: result.rows as T[] };
-    }
-
-    if (this.db.transaction) {
-      const result = await this.db.transaction(async (tx) => {
-        for (const statement of tuning) {
-          await tx.query(statement.sql);
-        }
-        return await tx.query<T>(searchSql, params);
-      });
-      if (!result) {
-        // PGlite's transaction resolves undefined only when the callback
-        // signalled a rollback — which this callback never does.
-        throw new Error('Thread search vector transaction returned no result.');
-      }
-      return result;
-    }
-
-    await this.db.query('BEGIN');
-    try {
-      for (const statement of tuning) {
-        await this.db.query(statement.sql);
-      }
-      const result = await this.db.query<T>(searchSql, params);
-      await this.db.query('COMMIT');
-      return result;
-    } catch (err) {
-      await this.db.query('ROLLBACK').catch(() => {
-        // Surface the original failure, not a secondary rollback error.
-      });
-      throw err;
-    }
+    const result = await runAtomicStatements(
+      this.db,
+      statements,
+      statements.length - 1,
+      'Thread search vector search requires atomic transaction support.'
+    );
+    return { rows: result.rows as T[] };
   }
 
   /**
@@ -573,12 +631,14 @@ export class ThreadSearchRepository {
       threadId: string;
       title: string;
     }>(
-      `SELECT
+      `${ownedThreadsSql('$2')}
+       SELECT
          t.id AS "threadId",
          t.title,
          similarity(t.title, $1) AS similarity
        FROM mastra_threads t
-       WHERE t."resourceId" = $2
+       JOIN search_owned_threads owned ON owned.thread_id = t.id AND owned.resource_id = t."resourceId"
+       WHERE TRUE
          AND ${tokenClauses.join(' AND ')}
        ORDER BY similarity DESC, t."updatedAt" DESC
        LIMIT $${params.length}`,
@@ -598,12 +658,14 @@ export class ThreadSearchRepository {
   }): Promise<ThreadMessagePendingEmbedding[]> {
     requirePositiveInteger(options.limit, 'limit');
     const result = await this.db.query<ThreadMessagePendingEmbedding>(
-      `SELECT
+      `${ownedThreadsSql('$1')}
+       SELECT
          message_id AS "messageId",
          content_hash AS "contentHash",
          content_text AS "contentText"
-       FROM ${INDEX_TABLE}
-       WHERE resource_id = $1
+       FROM ${INDEX_TABLE} i
+       JOIN search_owned_threads owned ON owned.thread_id = i.thread_id AND owned.resource_id = i.resource_id
+       WHERE TRUE
          AND embedding IS NULL
          AND embedding_error IS NULL
          AND content_text <> ''
@@ -675,19 +737,21 @@ export class ThreadSearchRepository {
       indexedMessages: number | string;
       totalMessages: number | string;
     }>(
-      `SELECT
+      `${ownedThreadsSql('$1')}
+       SELECT
          (
            SELECT COUNT(*)::int
            FROM mastra_messages m
            JOIN mastra_threads t ON t.id = m.thread_id
-           WHERE COALESCE(m."resourceId", t."resourceId") = $1
+           JOIN search_owned_threads owned ON owned.thread_id = t.id
+             AND owned.resource_id = COALESCE(m."resourceId", t."resourceId")
          ) AS "totalMessages",
          COUNT(*)::int AS "indexedMessages",
          COUNT(*) FILTER (WHERE content_text <> '')::int AS "embeddableMessages",
          COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS "embeddedMessages",
          COUNT(*) FILTER (WHERE embedding_error IS NOT NULL)::int AS "erroredMessages"
-       FROM ${INDEX_TABLE}
-       WHERE resource_id = $1`,
+       FROM ${INDEX_TABLE} i
+       JOIN search_owned_threads owned ON owned.thread_id = i.thread_id AND owned.resource_id = i.resource_id`,
       [resourceId]
     );
     const row = result.rows[0];

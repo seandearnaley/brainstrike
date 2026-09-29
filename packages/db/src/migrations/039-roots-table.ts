@@ -27,6 +27,7 @@ export const migration039RootsTable: Migration = {
 
     DROP TABLE IF EXISTS roots;
   `,
+  ledgerKey: 'custom-039-roots-table',
   name: 'roots_table',
   up: `
     CREATE TABLE IF NOT EXISTS roots (

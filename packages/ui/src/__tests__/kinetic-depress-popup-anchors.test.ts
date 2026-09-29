@@ -27,7 +27,7 @@ import { describe, expect, it } from 'vitest';
  * mechanism is a SELECTOR, and jsdom/happy-dom have no layout engine to
  * reproduce the measurement with. The end-to-end proof — real browser, real
  * mouse press, measured geometry — is the alignment assertion in
- * `apps/web/e2e/settings-modal-layering.test.ts`.
+ * `apps/web/e2e/settings-popup-anchoring.test.ts`.
  */
 
 const UI_SRC = join(dirname(fileURLToPath(import.meta.url)), '..');

@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { THREAD_CONTROL_ROW_PITCH_PX } from '../assistant-thread-presentation';
 import {
   buildThreadPanelVisibleRows,
+  filterThreadPanelSelection,
   getThreadPanelCollapseId,
   getThreadPanelMemberSectionId,
   getThreadPanelRowHeightPx,
@@ -323,4 +324,29 @@ describe('getThreadPanelRowHeightPx', () => {
     expect(getThreadPanelRowHeightPx('thread')).toBe(THREAD_CONTROL_ROW_PITCH_PX);
     expect(getThreadPanelRowHeightPx('group')).not.toBe(THREAD_CONTROL_ROW_PITCH_PX);
   });
+});
+
+it('preserves selected ordinary threads hidden by disclosure while excluding child state rows', () => {
+  const selected = filterThreadPanelSelection(
+    new Set(['visible-root', 'hidden-root', 'child-state']),
+    [
+      {
+        groupId: null,
+        id: 'visible-root',
+        kind: 'thread',
+        parentId: null,
+        thread: thread('visible-root'),
+      },
+      {
+        depth: 1,
+        groupId: null,
+        id: 'child-state',
+        isError: false,
+        kind: 'delegated-state',
+        label: 'Loading child conversations',
+        parentId: 'visible-root',
+      },
+    ]
+  );
+  expect([...selected]).toEqual(['visible-root', 'hidden-root']);
 });

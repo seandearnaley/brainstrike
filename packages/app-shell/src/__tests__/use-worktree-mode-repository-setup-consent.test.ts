@@ -78,6 +78,7 @@ const ARGS = {
   primaryRootId: 'r-1',
   primaryRootPath: '/work/app',
   runId: null,
+  threadId: 'thread-1',
 };
 
 const CREATE_REQUEST = {

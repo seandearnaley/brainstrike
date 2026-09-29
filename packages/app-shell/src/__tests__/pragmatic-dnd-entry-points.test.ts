@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
  * The 3.0.0 major relocated every public API to a direct export path
  * (`/element/adapter` → `/adapter/element-adapter`, `/combine` → `/utils/combine`)
  * and kept the old paths as `@deprecated` re-export shims. Our shells
- * (`threads-panel-dnd-elements.tsx`, `assistant-thread-tabs-dnd-elements.tsx`)
+ * (`threads-panel-dnd-elements.tsx`, `@brainstrike/ui`'s `tab-strip-reorder.ts`)
  * now import the canonical paths — but the companion packages do NOT:
  * `@atlaskit/pragmatic-drag-and-drop-hitbox@2.0.1` and `-auto-scroll@3.0.1`
  * still import core through the LEGACY shims internally (verified in their

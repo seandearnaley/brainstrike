@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { type ReactElement, useLayoutEffect, useRef, useState } from 'react';
 import type { WorkspaceBarMode, WorkspaceBarWorktreeSummary } from './workspace-bar';
+import { WorktreeArchiveConfirmationDialog } from './worktree-archive-confirmation-dialog';
 import { WorktreeCreateDialog } from './worktree-create-dialog';
 import { WorktreePickerDialog } from './worktree-picker-dialog';
 
@@ -280,6 +281,9 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
         />
       ) : null}
       <WorktreePickerDialog picker={mode.picker} triggerRef={chipTriggerRef} />
+      {mode.archiveConfirmation ? (
+        <WorktreeArchiveConfirmationDialog confirmation={mode.archiveConfirmation} />
+      ) : null}
     </>
   );
 };

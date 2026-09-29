@@ -1,23 +1,33 @@
+import { deriveEffectiveInputBudget } from '@brainstrike/assistant-contract';
 import { GEMMA4_E2B_MODEL_ID } from '@brainstrike/assistant-contract/local-llm';
 import {
   type AssistantPersonaDefinition,
   PersonaToolRiskViolationError,
 } from '@brainstrike/assistant-contract/personas';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
-import type { Agent, ToolsInput } from '@mastra/core/agent';
+import { type Agent, MessageList, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
-import { createTool } from '@mastra/core/tools';
-import { describe, expect, it } from 'vitest';
+import { createTool, noopObserve } from '@mastra/core/tools';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { createListingOnlyModel } from '../../providers/listing-only-model';
 import {
   decodedTextModelOutputChars,
   resolveScaledToolResultBudget,
+  resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
 } from '../../stream/tool-output-limits';
-import { buildPersonaSubAgents } from '../build-persona-subagents';
+import { scriptedAgentModel, textParts } from '../../test-fixtures/scripted-agent-model';
+import { createAskUserTool } from '../../tools/ask-user-tool';
+import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
+import { buildPersonaSubAgents, resolveChildToolCallConcurrency } from '../build-persona-subagents';
+import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
 import type { PermissionToolGateLogger } from '../permission-tool-gate';
+import { ProjectionAwareTokenLimiter } from '../projection-aware-token-limiter';
 import { applyToolModelOutputProjections, getActiveToolResultBudget } from '../tool-model-output';
+import { BrainstrikeToolSearchProcessor } from '../tool-search-runtime';
 
 // Mastra vendors its own AI SDK v5 provider types (the workspace
 // `@ai-sdk/provider` is a different major and is NOT assignable), so extract
@@ -117,10 +127,272 @@ async function childToolKeys(agent: Agent): Promise<string[]> {
   return Object.keys(tools).sort();
 }
 
+const workerPersona: AssistantPersonaDefinition = {
+  ...explorePersona,
+  allowedToolIds: ['*'],
+  id: 'worker',
+  mode: 'worker',
+};
+function workerOptions(persona = workerPersona) {
+  const ids = [
+    ...ALL_TOOL_IDS,
+    'brainstrike.manageTaskList',
+    'linear.get_issue',
+    'linear.save_issue',
+  ];
+  return {
+    ...makeGuardedTools(ids),
+    conversationBinding: {
+      ...createDelegatedConversationBinding(async () => undefined),
+      bindRun: async () => ({ threadId: 'worker-child' }),
+      claimToolAction: async () => undefined,
+      finishToolActions: async () => undefined,
+      prepareToolAction: async () => undefined,
+      releaseUnexecutedToolAction: async () => undefined,
+      resolveToolAction: async () => [],
+    },
+    hasStorage: true,
+    languageModel: fakeModel,
+    localToolIds: new Set(
+      ids
+        .filter((id) => id.startsWith('brainstrike.'))
+        .map((id) => id.replace(/[^a-zA-Z0-9_-]/g, '_'))
+    ),
+    logger: noopLogger,
+    modelName: 'gpt-5.6-sol',
+    permissionSnapshot: readAllowSnapshot,
+    personas: [persona],
+    provider: 'openai',
+    resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+    subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  };
+}
+async function workerCatalog(child: Agent) {
+  const processors = await child.listConfiguredInputProcessors();
+  const processor = processors.find((value) => value instanceof BrainstrikeToolSearchProcessor);
+  if (!(processor instanceof BrainstrikeToolSearchProcessor)) {
+    throw new Error('Expected canonical worker discovery');
+  }
+  const messageList = new MessageList();
+  return processor.processInputStep({
+    abort(reason?: string): never {
+      throw new Error(reason ?? 'processor aborted');
+    },
+    messageList,
+    messages: messageList.get.all.db(),
+    model: createListingOnlyModel(),
+    retryCount: 0,
+    state: {},
+    stepNumber: 0,
+    steps: [],
+    systemMessages: [],
+    tools: await child.getToolsForExecution({}),
+  });
+}
+describe('resolveChildToolCallConcurrency', () => {
+  it('runs an approval-resume leg sequentially and every other leg in parallel', () => {
+    expect(resolveChildToolCallConcurrency(true)).toEqual({ limit: 1, strategy: 'called' });
+    expect(resolveChildToolCallConcurrency(false)).toEqual({ limit: 8, strategy: 'called' });
+    expect(resolveChildToolCallConcurrency(undefined)).toEqual({ limit: 8, strategy: 'called' });
+  });
+});
+
+describe('worker tool admission', () => {
+  it('derives the pinned worker input limit from its own model window', async () => {
+    const options = workerOptions({
+      ...workerPersona,
+      model: { modelId: 'qwen3', provider: 'ollama' },
+    });
+    const result = await buildPersonaSubAgents({ ...options, resolvePinnedModel: () => fakeModel });
+    const child = assertDefined(result.subAgents['worker'], 'Expected pinned worker');
+    const limiter = (await child.listConfiguredInputProcessors()).find(
+      (processor) => processor instanceof ProjectionAwareTokenLimiter
+    );
+    if (!(limiter instanceof ProjectionAwareTokenLimiter)) {
+      throw new Error('Missing worker context limiter');
+    }
+    const childWindow = resolveToolResultBudgetForModel('ollama', 'qwen3').contextWindow;
+    expect(childWindow).not.toBe(options.resolvedToolResultBudget.contextWindow);
+    expect(limiter.getMaxTokens()).toBe(deriveEffectiveInputBudget(childWindow));
+  });
+
+  it.each(['allow', 'deny'] as const)(
+    'advertises wildcard artifact delegation only when its actual reader is %s',
+    async (permission) => {
+      const options = workerOptions();
+      const reader = 'brainstrike.readToolOutputArtifact';
+      const result = await buildPersonaSubAgents({
+        ...options,
+        ...makeGuardedTools([reader, 'brainstrike.grepSearch']),
+        localToolIds: new Set(['brainstrike_readToolOutputArtifact', 'brainstrike_grepSearch']),
+        permissionSnapshot: {
+          ...readAllowSnapshot,
+          perToolOverrides: { [reader]: permission },
+        },
+      });
+      expect(result.subAgents['worker']).toBeDefined();
+      expect(result.artifactReaderDelegationTools).toEqual(
+        permission === 'allow' ? ['agent-worker'] : []
+      );
+    }
+  );
+
+  it('visibly omits a worker pinned to the embedded local model before resolving it', async () => {
+    const resolvePinnedModel = vi.fn(() => fakeModel);
+    const warn = vi.fn();
+    const result = await buildPersonaSubAgents({
+      ...workerOptions({ ...workerPersona, model: { modelId: 'local-worker', provider: 'local' } }),
+      logger: { ...noopLogger, warn },
+      resolvePinnedModel,
+    });
+    expect(result.subAgents).toEqual({});
+    expect(resolvePinnedModel).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'subagent_worker_local_model_unavailable' })
+    );
+  });
+  it('visibly omits a worker without its host catalog', async () => {
+    const { localToolIds: _removed, ...options } = workerOptions();
+    const warn = vi.fn();
+    const result = await buildPersonaSubAgents({ ...options, logger: { ...noopLogger, warn } });
+    expect(result.subAgents).toEqual({});
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'subagent_worker_catalog_unavailable' })
+    );
+  });
+  it('keeps deferred catalog names out of worker instructions', async () => {
+    const result = await buildPersonaSubAgents(workerOptions());
+    const child = assertDefined(result.subAgents['worker'], 'Expected worker');
+    expect(await child.getInstructions()).toBe(workerPersona.instructions);
+  });
+
+  it.each([
+    'storage',
+    'bindRun',
+    'claimToolAction',
+    'finishToolActions',
+    'prepareToolAction',
+    'releaseUnexecutedToolAction',
+    'resolveToolAction',
+  ] as const)('omits the worker without durable %s capability', async (missing) => {
+    const options = workerOptions();
+    const { [missing === 'storage' ? 'bindRun' : missing]: _removed, ...partialBinding } =
+      options.conversationBinding;
+    const result = await buildPersonaSubAgents({
+      ...options,
+      ...(missing === 'storage' ? { hasStorage: false } : { conversationBinding: partialBinding }),
+    });
+    expect(result.subAgents).toEqual({});
+    expect(result.delegationToolPersonas.size).toBe(0);
+  });
+  it('keeps only exact eligible native and MCP tools after deny gating', async () => {
+    const options = workerOptions({
+      ...workerPersona,
+      allowedToolIds: [
+        'brainstrike.readWorkspaceFile',
+        'brainstrike.writeWorkspaceFile',
+        'linear.get_issue',
+      ],
+    });
+    const result = await buildPersonaSubAgents({
+      ...options,
+      permissionSnapshot: {
+        ...readAllowSnapshot,
+        policies: { ...readAllowSnapshot.policies, edit: 'deny' },
+      },
+    });
+    const child = assertDefined(result.subAgents['worker'], 'Expected narrowed worker');
+    const catalog = await workerCatalog(child);
+    const inventory = await catalog.tools.list_available_tools.execute?.(
+      {},
+      { observe: noopObserve }
+    );
+    expect(inventory).toMatchObject({ total: 1 });
+    expect(await childToolKeys(child)).toContain('brainstrike_readWorkspaceFile');
+    if (!(inventory && 'tools' in inventory)) {
+      throw new Error('Expected a valid worker catalog result');
+    }
+    expect(inventory.tools.map(({ name }) => name)).toEqual(['linear_get_issue']);
+    for (const name of [
+      'linear_save_issue',
+      'brainstrike_writeWorkspaceFile',
+      'brainstrike_manageTaskList',
+    ]) {
+      await expect(
+        catalog.tools.load_tool.execute?.({ toolName: name }, { observe: noopObserve })
+      ).resolves.toMatchObject({
+        success: false,
+      });
+    }
+    await expect(
+      catalog.tools.load_tool.execute?.({ toolName: 'linear_get_issue' }, { observe: noopObserve })
+    ).resolves.toMatchObject({ success: true });
+  });
+  it('captures the effective wildcard catalog for admission and does not widen it on resume', async () => {
+    const initial = await buildPersonaSubAgents(workerOptions());
+    const admitted = assertDefined(initial.personasById.get('worker'), 'Missing admitted worker');
+    expect(admitted.allowedToolIds).not.toContain('*');
+    expect(admitted.allowedToolIds).not.toContain('brainstrike.manageTaskList');
+    const options = workerOptions();
+    options.guardedTools['new_write'] = makeTool('new_write');
+    options.toolNameMap.set('new_write', 'new.write');
+    const resumed = await buildPersonaSubAgents({
+      ...options,
+      delegatedPersonaSnapshots: [admitted],
+    });
+    expect(resumed.personasById.get('worker')?.allowedToolIds).toEqual(admitted.allowedToolIds);
+    expect(resumed.personasById.get('worker')?.allowedToolIds).not.toContain('new.write');
+    const child = assertDefined(resumed.subAgents['worker'], 'Expected resumed worker');
+    const catalog = await workerCatalog(child);
+    expect(catalog.tools).not.toHaveProperty('linear_get_issue');
+    await expect(
+      catalog.tools.load_tool.execute?.({ toolName: 'linear_get_issue' }, { observe: noopObserve })
+    ).resolves.toMatchObject({ success: true });
+  });
+
+  it('excludes the parent task list from a wildcard worker', async () => {
+    const result = await buildPersonaSubAgents(workerOptions());
+    const child = assertDefined(result.subAgents['worker'], 'Expected wildcard worker');
+    const catalog = await workerCatalog(child);
+    expect(await childToolKeys(child)).not.toContain('brainstrike_manageTaskList');
+    await expect(
+      catalog.tools.load_tool.execute?.(
+        { toolName: 'brainstrike_manageTaskList' },
+        { observe: noopObserve }
+      )
+    ).resolves.toMatchObject({ success: false });
+    expect(await childToolKeys(child)).toContain('brainstrike_writeWorkspaceFile');
+  });
+  it('omits a failed pinned worker without substituting the parent model', async () => {
+    const result = await buildPersonaSubAgents({
+      ...workerOptions({
+        ...workerPersona,
+        model: { modelId: 'missing-model', provider: 'anthropic' },
+      }),
+      resolvePinnedModel: () => {
+        throw new Error('missing credentials');
+      },
+    });
+    expect(result.subAgents).toEqual({});
+    expect(result.delegationToolPersonas.size).toBe(0);
+    expect(result.personasById.size).toBe(0);
+  });
+});
 describe('buildPersonaSubAgents', () => {
+  it('does not advertise recursive agents without durable host budgets', async () => {
+    const result = await buildPersonaSubAgents({
+      ...workerOptions(),
+      delegatedExecutionOptions: {},
+    });
+    const child = assertDefined(result.subAgents['worker'], 'Expected worker');
+    expect((await childToolKeys(child)).some((key) => key.startsWith('agent-'))).toBe(false);
+  });
+
   it('builds an explore child with exactly its 5 gated tools, no agents, no memory (read:allow)', async () => {
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
-    const result = buildPersonaSubAgents({
+    const result = await buildPersonaSubAgents({
       guardedTools,
       languageModel: fakeModel,
       logger: noopLogger,
@@ -128,13 +400,17 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
 
     const child = assertDefined(result.subAgents['explore'], 'Expected explore subagent');
     expect(result.delegationToolPersonas.get('agent-explore')).toBe('explore');
-    expect(result.personasById.get('explore')).toBe(explorePersona);
+    expect(result.personasById.get('explore')).toEqual(explorePersona);
     expect(child.hasOwnMemory()).toBe(false);
+    expect(await child.listConfiguredOutputProcessors()).toEqual([
+      expect.objectContaining({ id: 'brainstrike-response-boundaries' }),
+    ]);
 
     const keys = await childToolKeys(child);
     expect(keys).toEqual([
@@ -157,7 +433,7 @@ describe('buildPersonaSubAgents', () => {
     // tests stayed green — so this asserts the value that actually reaches the
     // model, on a persona whose cap (8) differs from any built-in's.
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
-    const result = buildPersonaSubAgents({
+    const result = await buildPersonaSubAgents({
       guardedTools,
       languageModel: fakeModel,
       logger: noopLogger,
@@ -165,6 +441,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
 
@@ -174,9 +451,9 @@ describe('buildPersonaSubAgents', () => {
     expect(description).toContain('at most 8 steps');
   });
 
-  it('registers no subagent when the policy gates every persona tool to ask (read:ask)', () => {
+  it('registers no subagent when the policy gates every persona tool to ask (read:ask)', async () => {
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
-    const result = buildPersonaSubAgents({
+    const result = await buildPersonaSubAgents({
       guardedTools,
       languageModel: fakeModel,
       logger: noopLogger,
@@ -184,13 +461,130 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     expect(result.subAgents['explore']).toBeUndefined();
     expect(result.delegationToolPersonas.size).toBe(0);
   });
 
-  it('re-asserts read-only and THROWS on an injected edit tool even when no permission snapshot gates it (defense-in-depth)', () => {
+  it('keeps per-tool read approvals only with native storage and complete durable host control', async () => {
+    const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
+    const conversationBinding = {
+      ...createDelegatedConversationBinding(async () => undefined),
+      bindRun: async () => ({ threadId: 'child' }),
+      claimToolAction: async () => undefined,
+      finishToolActions: async () => undefined,
+      prepareToolAction: async () => undefined,
+      releaseUnexecutedToolAction: async () => undefined,
+      resolveToolAction: async () => [],
+    };
+    const warnings: unknown[] = [];
+    const logger: PermissionToolGateLogger = {
+      ...noopLogger,
+      warn: (message, details) => {
+        warnings.push({ details, message });
+      },
+    };
+    const options = {
+      conversationBinding,
+      guardedTools,
+      hasStorage: true,
+      languageModel: fakeModel,
+      logger,
+      permissionSnapshot: readAskSnapshot,
+      personas: [explorePersona],
+      provider: 'openai',
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      toolNameMap,
+    };
+    const child = assertDefined(
+      (await buildPersonaSubAgents(options)).subAgents['explore'],
+      'Expected resumable read-only child'
+    );
+    const tools = await child.getToolsForExecution({});
+    expect(Object.keys(tools)).toHaveLength(5);
+    // Every kept ask tool carries the FUNCTION-form per-tool flag (settled
+    // 2026-09-15): Mastra converts it to `requireApproval: true` plus a
+    // per-call `needsApprovalFn` that reads the child's own live gate.
+    expect((await child.getDefaultOptions({})).requireToolApproval).toBeUndefined();
+    for (const tool of Object.values(tools)) {
+      expect(tool).toHaveProperty('requireApproval', true);
+      expect(typeof (tool as { needsApprovalFn?: unknown }).needsApprovalFn).toBe('function');
+    }
+    expect(
+      (await buildPersonaSubAgents({ ...options, hasStorage: false })).subAgents['explore']
+    ).toBeUndefined();
+    expect(warnings).toContainEqual({
+      details: { code: 'subagent_persona_empty_toolset', personaId: 'explore' },
+      message: 'Persona has no available tools after gating; not registering',
+    });
+    expect(
+      (
+        await buildPersonaSubAgents({
+          ...options,
+          conversationBinding: createDelegatedConversationBinding(async () => undefined),
+        })
+      ).subAgents['explore']
+    ).toBeUndefined();
+  });
+
+  it.each(['no-storage', 'incomplete-host', 'complete-host'] as const)(
+    'self-suspending read tools require durable child control (%s)',
+    async (capability) => {
+      const ids = [
+        'brainstrike.readWorkspaceFile',
+        'brainstrike.askUser',
+        'brainstrike.submitPlan',
+      ];
+      const { guardedTools, toolNameMap } = makeGuardedTools(ids);
+      guardedTools['brainstrike_askUser'] = createAskUserTool();
+      guardedTools['brainstrike_submitPlan'] = createSubmitPlanTool();
+      expect(guardedTools['brainstrike_askUser']).toHaveProperty('suspendSchema');
+      expect(guardedTools['brainstrike_submitPlan']).toHaveProperty('suspendSchema');
+      const baseBinding = {
+        ...createDelegatedConversationBinding(async () => undefined),
+        bindRun: async () => ({ threadId: 'child' }),
+        claimToolAction: async () => undefined,
+        finishToolActions: async () => undefined,
+        releaseUnexecutedToolAction: async () => undefined,
+        resolveToolAction: async () => [],
+      };
+      const conversationBinding =
+        capability === 'incomplete-host'
+          ? baseBinding
+          : { ...baseBinding, prepareToolAction: async () => undefined };
+      const result = await buildPersonaSubAgents({
+        conversationBinding,
+        guardedTools,
+        hasStorage: capability !== 'no-storage',
+        languageModel: fakeModel,
+        logger: noopLogger,
+        permissionSnapshot: readAllowSnapshot,
+        personas: [{ ...explorePersona, allowedToolIds: ids }],
+        provider: 'openai',
+        resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+        toolNameMap,
+      });
+      const child = assertDefined(
+        result.subAgents['explore'],
+        'The ordinary read tool keeps the child available'
+      );
+      const tools = await child.getToolsForExecution({});
+      expect(tools).toHaveProperty('brainstrike_readWorkspaceFile');
+      for (const toolId of ['brainstrike_askUser', 'brainstrike_submitPlan']) {
+        if (capability === 'complete-host') {
+          expect(tools).toHaveProperty(toolId);
+        } else {
+          expect(tools).not.toHaveProperty(toolId);
+        }
+      }
+    }
+  );
+
+  it('re-asserts read-only and THROWS on an injected edit tool even when no permission snapshot gates it (defense-in-depth)', async () => {
     // The dangerous case: with `enforce:false` (the user opted out of the
     // permission gate) the snapshot is undefined and the gate is passthrough —
     // so a hostile persona naming a mutation tool would otherwise KEEP it.
@@ -201,7 +595,7 @@ describe('buildPersonaSubAgents', () => {
       allowedToolIds: ['brainstrike.grepSearch', 'brainstrike.writeWorkspaceFile'],
     };
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
-    expect(() =>
+    await expect(
       buildPersonaSubAgents({
         guardedTools,
         languageModel: fakeModel,
@@ -210,14 +604,15 @@ describe('buildPersonaSubAgents', () => {
         personas: [hostilePersona],
         provider: 'openai',
         resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         toolNameMap,
       })
-    ).toThrow(PersonaToolRiskViolationError);
+    ).rejects.toThrow(PersonaToolRiskViolationError);
   });
 
   it('passes candidate map through unchanged when no permission snapshot is threaded', async () => {
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
-    const result = buildPersonaSubAgents({
+    const result = await buildPersonaSubAgents({
       guardedTools,
       languageModel: fakeModel,
       logger: noopLogger,
@@ -225,6 +620,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     const keys = await childToolKeys(
@@ -241,7 +637,7 @@ describe('buildPersonaSubAgents', () => {
       'brainstrike.readWorkspaceFile',
       'brainstrike.readWorkspaceDirectory',
     ]);
-    const result = buildPersonaSubAgents({
+    const result = await buildPersonaSubAgents({
       guardedTools,
       languageModel: fakeModel,
       logger: noopLogger,
@@ -249,6 +645,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [explorePersona],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     const keys = await childToolKeys(
@@ -267,7 +664,7 @@ describe('buildPersonaSubAgents', () => {
     const pinnedModel: LanguageModelV2 = { ...fakeModel, modelId: 'pinned-fake' };
     const resolvedPins: unknown[] = [];
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
-    const result = buildPersonaSubAgents({
+    const result = await buildPersonaSubAgents({
       guardedTools,
       languageModel: fakeModel,
       logger: noopLogger,
@@ -279,6 +676,7 @@ describe('buildPersonaSubAgents', () => {
         resolvedPins.push(persona.model);
         return pinnedModel;
       },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
 
@@ -291,7 +689,7 @@ describe('buildPersonaSubAgents', () => {
   it('does not invoke the resolver for un-pinned personas (parent model reuse)', async () => {
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
     let resolverCalls = 0;
-    const result = buildPersonaSubAgents({
+    const result = await buildPersonaSubAgents({
       guardedTools,
       languageModel: fakeModel,
       logger: noopLogger,
@@ -303,6 +701,7 @@ describe('buildPersonaSubAgents', () => {
         resolverCalls += 1;
         return fakeModel;
       },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     expect(resolverCalls).toBe(0);
@@ -313,7 +712,7 @@ describe('buildPersonaSubAgents', () => {
     expect(model.modelId).toBe('fake');
   });
 
-  it('skips a pinned persona whose resolution throws — with a warn, never a parent-model fallback', () => {
+  it('skips a pinned persona whose resolution throws — with a warn, never a parent-model fallback', async () => {
     const pinned: AssistantPersonaDefinition = {
       ...explorePersona,
       id: 'broken-pin',
@@ -327,7 +726,7 @@ describe('buildPersonaSubAgents', () => {
       },
     };
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
-    const result = buildPersonaSubAgents({
+    const result = await buildPersonaSubAgents({
       guardedTools,
       languageModel: fakeModel,
       logger,
@@ -338,6 +737,7 @@ describe('buildPersonaSubAgents', () => {
       resolvePinnedModel: () => {
         throw new Error('missing_api_key');
       },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     expect(result.subAgents['broken-pin']).toBeUndefined();
@@ -347,7 +747,7 @@ describe('buildPersonaSubAgents', () => {
     expect(result.subAgents['explore']).toBeDefined();
   });
 
-  it('skips a pinned persona when no resolver is threaded (never runs on the parent model)', () => {
+  it('skips a pinned persona when no resolver is threaded (never runs on the parent model)', async () => {
     const pinned: AssistantPersonaDefinition = {
       ...explorePersona,
       id: 'pinned-no-resolver',
@@ -361,7 +761,7 @@ describe('buildPersonaSubAgents', () => {
       },
     };
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
-    const result = buildPersonaSubAgents({
+    const result = await buildPersonaSubAgents({
       guardedTools,
       languageModel: fakeModel,
       logger,
@@ -369,6 +769,7 @@ describe('buildPersonaSubAgents', () => {
       personas: [pinned],
       provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       toolNameMap,
     });
     expect(result.subAgents['pinned-no-resolver']).toBeUndefined();
@@ -455,7 +856,7 @@ describe('buildPersonaSubAgents', () => {
     it('fits a pinned small-window child producer to the child budget, not its large parent', async () => {
       const largeParentBudget = resolveScaledToolResultBudget(1_050_000); // gpt-5.6-sol, ceiling tier
       const { guardedTools, toolNameMap } = makeDomainGuardedTools(largeParentBudget);
-      const result = buildPersonaSubAgents({
+      const result = await buildPersonaSubAgents({
         guardedTools,
         languageModel: fakeModel,
         logger: noopLogger,
@@ -464,6 +865,7 @@ describe('buildPersonaSubAgents', () => {
         provider: 'openai',
         resolvedToolResultBudget: largeParentBudget,
         resolvePinnedModel: () => fakeModel,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         toolNameMap,
       });
       const child = assertDefined(
@@ -479,7 +881,7 @@ describe('buildPersonaSubAgents', () => {
       const smallParentBudget = resolveScaledToolResultBudget(8192); // floor tier
       const { guardedTools, toolNameMap } = makeDomainGuardedTools(smallParentBudget);
       const pinnedLargeModel: LanguageModelV2 = { ...fakeModel, modelId: 'pinned-large' };
-      const result = buildPersonaSubAgents({
+      const result = await buildPersonaSubAgents({
         guardedTools,
         languageModel: fakeModel,
         logger: noopLogger,
@@ -488,6 +890,7 @@ describe('buildPersonaSubAgents', () => {
         provider: 'openai',
         resolvedToolResultBudget: smallParentBudget,
         resolvePinnedModel: () => pinnedLargeModel,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         toolNameMap,
       });
       const child = assertDefined(
@@ -502,7 +905,7 @@ describe('buildPersonaSubAgents', () => {
     it('keeps an un-pinned persona on the parent exact resolved budget', async () => {
       const parentBudget = resolveScaledToolResultBudget(131_072); // anchor tier
       const { guardedTools, toolNameMap } = makeDomainGuardedTools(parentBudget);
-      const result = buildPersonaSubAgents({
+      const result = await buildPersonaSubAgents({
         guardedTools,
         languageModel: fakeModel,
         logger: noopLogger,
@@ -510,6 +913,7 @@ describe('buildPersonaSubAgents', () => {
         personas: [makeDomainPersona()],
         provider: 'openai',
         resolvedToolResultBudget: parentBudget,
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
         toolNameMap,
       });
       const child = assertDefined(
@@ -540,4 +944,60 @@ describe('buildPersonaSubAgents', () => {
       );
     });
   });
+});
+
+it('passes the admitted child effort and output budget through the actual Mastra model call', async () => {
+  const model = scriptedAgentModel(() => textParts('Child settings applied'));
+  const result = await buildPersonaSubAgents({
+    ...makeGuardedTools(ALL_TOOL_IDS),
+    childExecutionConfiguration: {
+      model: 'gpt-5.6-sol',
+      modelSettings: { maxOutputTokens: 777 },
+      planMode: false,
+      provider: 'openai',
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    },
+    languageModel: model.model,
+    logger: noopLogger,
+    permissionSnapshot: readAllowSnapshot,
+    personas: [explorePersona],
+    provider: 'openai',
+    resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+    subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  });
+  const child = assertDefined(result.subAgents['explore'], 'Child missing');
+  const stream = await child.stream('Use your admitted settings.');
+  await stream.consumeStream();
+  expect(model.prompts).toHaveLength(1);
+  expect(model.prompts[0]).toMatchObject({
+    maxOutputTokens: 777,
+    providerOptions: { openai: { reasoningEffort: 'high' } },
+  });
+});
+
+it('does not apply generation options for one child model to a differently pinned sibling', async () => {
+  const model = scriptedAgentModel(() => textParts('Pinned defaults'));
+  const result = await buildPersonaSubAgents({
+    ...makeGuardedTools(ALL_TOOL_IDS),
+    childExecutionConfiguration: {
+      model: 'gpt-5.6-sol',
+      modelSettings: { maxOutputTokens: 777 },
+      planMode: false,
+      provider: 'openai',
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    },
+    languageModel: model.model,
+    logger: noopLogger,
+    permissionSnapshot: readAllowSnapshot,
+    personas: [{ ...explorePersona, model: { modelId: 'gpt-5.4-mini', provider: 'openai' } }],
+    provider: 'openai',
+    resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+    resolvePinnedModel: () => model.model,
+    subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  });
+  const child = assertDefined(result.subAgents['explore'], 'Child missing');
+  await (await child.stream('Use the pinned model defaults.')).consumeStream();
+  expect(model.prompts).toHaveLength(1);
+  expect(model.prompts[0]?.maxOutputTokens).toBeUndefined();
+  expect(model.prompts[0]?.providerOptions?.['openai']).toBeUndefined();
 });

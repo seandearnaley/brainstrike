@@ -19,11 +19,13 @@ import type { Migration } from './migration-runner';
  * `entity_kind='thread'` tombstone covers deletion, so no op-vocabulary
  * change is laid here.
  *
- * The same DDL is mirrored ADD-ONLY in the assistant-data renderer bootstrap
- * (`buildAssistantThreadRunsSchemaSql`) — keep the shapes byte-identical.
+ * BST-1651 retired the assistant-data renderer bootstrap that used to mirror
+ * this DDL: this migration is now the table's only author, and the repository
+ * probes for the relation instead of creating it.
  */
 export const migration095AssistantThreadWorkspaces: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_assistant_thread_workspaces;',
+  ledgerKey: 'custom-095-assistant-thread-workspaces',
   name: 'assistant_thread_workspaces',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_workspaces (

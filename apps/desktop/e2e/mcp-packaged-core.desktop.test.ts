@@ -389,7 +389,7 @@ async function verifyResourceRead(page: Page): Promise<void> {
  * DRAFT (never auto-sent).
  */
 async function verifyComposerPromptSelection(page: Page): Promise<void> {
-  const input = page.locator('#assistant-input');
+  const input = page.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: 30_000 });
   await input.fill('');
   await input.click();
@@ -460,7 +460,7 @@ async function executeAssistantTool(
     provider: 'openrouter',
   });
   await ensureAssistantShellVisible(page);
-  const input = page.locator('#assistant-input');
+  const input = page.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: 30_000 });
   await input.fill('Run the packaged modern MCP proof.');
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
@@ -487,9 +487,29 @@ async function executeAssistantTool(
   }
   await approval.getByRole('button', { name: /Approve/u }).click();
   await expect(completed).toBeVisible({ timeout: 90_000 });
-  const toolCard = page.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
+  const activity = page
+    .getByTestId('assistant-activity-group')
+    .filter({ hasText: 'legacy.echo' })
+    .last();
+  // Turn-finished sync: the group is collapsed at all times since BST-1679,
+  // so `aria-expanded` resolves immediately and proves nothing.
+  await expect(activity).toHaveAttribute('data-state', 'done');
+  const summary = activity.getByTestId('assistant-activity-summary');
+  await summary.click();
+  const toolCard = activity.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
-  await toolCard.getByRole('button', { exact: true, name: 'Expand details' }).click();
+  // BST-1682 (WCAG 2.5.3 Label in Name): the row's accessible name now leads
+  // with its visible content ("Called legacy.echo packaged-assistant-payload,
+  // expand details" — `extractPrimaryArg` falls back to the first
+  // string-valued arg, and this call's arg is `{ text: ASSISTANT_TOOL_PAYLOAD
+  // }`), so the affordance is matched as a substring — an `exact: true`
+  // equality here would never resolve again. `.first()` keeps the locator as
+  // tight as the old `exact: true` was: a substring match alone would trip
+  // Playwright's strict mode if the card ever grows a nested expandable row.
+  await toolCard
+    .getByRole('button', { name: /expand details/i })
+    .first()
+    .click();
   await expect(toolCard).toContainText(ASSISTANT_TOOL_PAYLOAD);
 }
 async function executeElicitationTool(
@@ -497,14 +517,14 @@ async function executeElicitationTool(
   modelProvider: Awaited<ReturnType<typeof startModelProviderShim>>
 ): Promise<void> {
   modelProvider.setScript({
-    discoveryQuery: 'elicit confirm',
+    deferredTool: true,
     finalText: 'Packaged MCP elicitation completed.',
     toolCall: {
       arguments: { text: ELICITATION_TOOL_PAYLOAD },
       name: 'oauth_elicit_confirm',
     },
   });
-  const input = page.locator('#assistant-input');
+  const input = page.getByRole('textbox', { name: 'Message input' });
   await input.fill('Run the packaged MCP elicitation proof.');
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
   // The first proof's resolved approval notice (disabled Approve) stays in the
@@ -528,12 +548,27 @@ async function executeElicitationTool(
   await expect(page.getByText('Packaged MCP elicitation completed.').first()).toBeVisible({
     timeout: 90_000,
   });
-  const toolCard = page
+  const activity = page
+    .getByTestId('assistant-activity-group')
+    .filter({ hasText: 'oauth.elicit_confirm' })
+    .last();
+  // Turn-finished sync: the group is collapsed at all times since BST-1679,
+  // so `aria-expanded` resolves immediately and proves nothing.
+  await expect(activity).toHaveAttribute('data-state', 'done');
+  const summary = activity.getByTestId('assistant-activity-summary');
+  await summary.click();
+  const toolCard = activity
     .getByTestId('tool-fallback')
     .filter({ hasText: 'oauth.elicit_confirm' })
     .last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
-  await toolCard.getByRole('button', { exact: true, name: 'Expand details' }).click();
+  // BST-1682 (WCAG 2.5.3 Label in Name): substring match, `.first()` keeps
+  // the locator single-match the way `exact: true` used to (see the sibling
+  // `executeAssistantTool` above).
+  await toolCard
+    .getByRole('button', { name: /expand details/i })
+    .first()
+    .click();
   await expect(toolCard).toContainText(ELICITATION_TOOL_PAYLOAD);
 }
 function parseJsonLines(contents: string): Record<string, unknown>[] {
@@ -662,7 +697,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
       }),
     ]);
     const modelProvider = await startModelProviderShim({
-      discoveryQuery: 'legacy echo',
+      deferredTool: true,
       finalText: 'Packaged MCP tool completed.',
       toolCall: {
         arguments: { text: ASSISTANT_TOOL_PAYLOAD },
@@ -781,10 +816,13 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     await waitForServerState(restarted.window, 'stdio', /Connected/i);
     const restartedStdioPid = await readOwnedPid(stdioPidFile, firstStdioPid);
     const beforeResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
-    await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
-    await expect(serverRow(restarted.window, 'oauth')).toContainText('OAuth credentials stored');
-    await restarted.window.getByRole('button', { exact: true, name: 'Connect oauth' }).click();
+    // A persisted grant reconnects during startup discovery, without another
+    // Connect action. Waiting for authentication-required encoded the old bug.
     await waitForServerState(restarted.window, 'oauth', /Connected/i);
+    await expect(serverRow(restarted.window, 'oauth')).toContainText('OAuth credentials stored');
+    await expect(
+      restarted.window.getByRole('button', { exact: true, name: 'Connect oauth' })
+    ).toHaveCount(0);
     const restartedBindings = await readOAuthLoopbackBindings(userDataDir);
     expect(restartedBindings.length).toBeGreaterThan(bindingsBeforeRestart.length);
     // The log file is cumulative, so only the records this launch appended say

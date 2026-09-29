@@ -111,12 +111,15 @@ describe('manageCanvas advertisement', () => {
     expect(withTool).toContain('update');
     expect(withTool).toContain('rewrite');
     expect(withTool).toContain('list');
+    expect(withTool).toContain('only when its content is ready');
+    expect(withTool).toContain('never an empty placeholder');
 
     const withoutTool = buildDefaultInstructions(
       new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
     );
     expect(withoutTool).not.toContain('manageCanvas');
     expect(withoutTool).not.toContain('canvas documents');
+    expect(withoutTool).not.toContain('placeholder');
   });
 });
 
@@ -151,6 +154,8 @@ describe('default assistant instructions', () => {
       toolDiscoveryEnabled: true,
     });
     expect(withDiscovery).toContain('search_tools');
+    expect(withDiscovery).toContain('list_available_tools');
+    expect(withDiscovery).toContain('not the complete catalog');
     // This run's map registers NO workspace-context tools, so the derived
     // family list must not advertise them (see the capability-coverage suite).
     expect(withDiscovery).not.toContain('workspace context and tapestry');
@@ -162,6 +167,7 @@ describe('default assistant instructions', () => {
 
     const withoutDiscovery = buildDefaultInstructions(toolNameMap);
     expect(withoutDiscovery).not.toContain('search_tools');
+    expect(withoutDiscovery).not.toContain('list_available_tools');
   });
 
   it('exports a focused builder that protects Brainstrike context-tool guidance', () => {
@@ -812,5 +818,136 @@ describe('tool-discovery capability coverage', () => {
     const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
     const line = text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
     expect(line.toLowerCase()).toContain('not loaded');
+  });
+});
+describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
+  // The hand-written ModelFacingToolNames interface had fallen EIGHT tools
+  // behind the catalog: a new tool got no slot, so no instruction could ever
+  // name it, and nothing failed. The slot map is now DERIVED from NATIVE_TOOLS.
+  const FORMERLY_MISSING = [
+    'brainstrike.inspectCommandSessions',
+    'brainstrike.listWorktrees',
+    'brainstrike.manageCommandSession',
+    'brainstrike.manageWorktree',
+    'brainstrike.queryDiagnostics',
+    'brainstrike.querySelf',
+    'brainstrike.readToolOutputArtifact',
+    'brainstrike.runPython',
+  ] as const;
+
+  it('resolves a model-facing name slot for every catalog id, including the eight that were missing', async () => {
+    const { NATIVE_TOOL_ID, NATIVE_TOOL_IDS } = await import(
+      '@brainstrike/assistant-contract/tool-metadata'
+    );
+    const { resolveModelFacingToolNames } = await import('../default-instructions');
+    const toolNameMap = new Map(
+      NATIVE_TOOL_IDS.map((id) => [id.replace(/[^a-zA-Z0-9_-]/g, '_'), id] as const)
+    );
+    const names = resolveModelFacingToolNames(toolNameMap);
+    for (const [key, id] of Object.entries(NATIVE_TOOL_ID)) {
+      expect(names[key as keyof typeof names], `${key} → ${id}`).toBe(
+        id.replace(/[^a-zA-Z0-9_-]/g, '_')
+      );
+    }
+    for (const id of FORMERLY_MISSING) {
+      expect(Object.values(names)).toContain(id.replace(/[^a-zA-Z0-9_-]/g, '_'));
+    }
+    expect(Object.keys(names)).toHaveLength(NATIVE_TOOL_IDS.length);
+  });
+
+  it('composes a definition-declared instruction into the prompt only when that tool is registered', async () => {
+    const { defineNativeTool, providerCompatibleInputSchema } = await import(
+      '@brainstrike/assistant-contract/tool-metadata'
+    );
+    const { z } = await import('zod');
+    const { composeNativeToolInstructions } = await import('../default-instructions');
+    const probe = defineNativeTool({
+      defaults: {
+        category: 'retrieval',
+        estimatedTokens: 1,
+        loadingTier: 'deferred',
+        requiresApproval: false,
+        riskCategory: 'read',
+      },
+      description: 'probe',
+      discovery: { family: 'diagnostics', namespace: 'database' },
+      id: 'brainstrike.instructionProbe',
+      inputSchema: providerCompatibleInputSchema(z.object({}).strict()),
+      instruction: (names) =>
+        `Use ${names.self} after ${names.of('brainstrike.grepSearch') ?? 'a search'}.`,
+      kind: 'desktop',
+      returns: 'probe',
+      surfaces: ['desktop'],
+    });
+
+    expect(
+      composeNativeToolInstructions(
+        [probe],
+        new Map([
+          ['brainstrike_instructionProbe', 'brainstrike.instructionProbe'],
+          ['brainstrike_grepSearch', 'brainstrike.grepSearch'],
+        ])
+      )
+    ).toEqual(['Use brainstrike_instructionProbe after brainstrike_grepSearch.']);
+    // Not registered this run → no line, never a line naming a missing verb.
+    expect(composeNativeToolInstructions([probe], new Map())).toEqual([]);
+    // A hook naming an id outside the catalog is a bug, not "unregistered".
+    const typo = defineNativeTool({
+      ...probe,
+      id: 'brainstrike.instructionTypo',
+      instruction: (names) => `${names.of('brainstrike.doesNotExist')}`,
+    });
+    expect(() =>
+      composeNativeToolInstructions(
+        [typo],
+        new Map([['brainstrike_instructionTypo', 'brainstrike.instructionTypo']])
+      )
+    ).toThrow(/not a native tool id/);
+  });
+});
+
+describe('buildDefaultInstructions delegation guidance', () => {
+  const personas = [{ description: 'Survey code', id: 'explore', label: 'Explorer' }];
+  const names = new Map<string, string>();
+
+  it('permits delegated deliverables only when an admitted Worker is available', () => {
+    const readOnly = buildDefaultInstructions(names, { personas });
+    expect(readOnly).toContain('Explorer is read-only');
+    expect(readOnly).toContain('never for mutations');
+
+    const withWorker = buildDefaultInstructions(names, {
+      personas: [
+        ...personas,
+        {
+          description: 'Implement changes and run checks',
+          id: 'worker',
+          label: 'Worker',
+          mode: 'worker',
+        } as const,
+      ],
+    });
+    expect(withWorker).toContain('agent-worker');
+    expect(withWorker).toContain('Delegate implementation and verification to Worker');
+    expect(withWorker).toContain('Explorer is read-only');
+    expect(withWorker).not.toContain('subagents are read-only');
+  });
+
+  it('names the delegation tools and, with background workers, keeps _background host-owned', () => {
+    const foreground = buildDefaultInstructions(names, { personas });
+    expect(foreground).toContain('agent-explore');
+    expect(foreground).not.toContain('_background');
+    const background = buildDefaultInstructions(names, { backgroundDelegation: true, personas });
+    expect(background).toContain('background workers');
+    expect(background).toContain('Do not set `_background.enabled` to false');
+    expect(background).toContain('until every subagent has returned');
+    expect(background).toContain('_background.maxRetries');
+    expect(background).toContain('waiting for approval');
+    expect(background).toContain('never ask the user for "resume input"');
+  });
+
+  it('says nothing about delegation without personas', () => {
+    expect(buildDefaultInstructions(names, { backgroundDelegation: true })).not.toContain(
+      'background workers'
+    );
   });
 });

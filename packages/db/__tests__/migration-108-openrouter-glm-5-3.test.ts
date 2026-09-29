@@ -167,7 +167,11 @@ describe('migration 108 in the production drizzle runner', () => {
 
     expect(result.success).toBe(true);
     expect(result.appliedMigrations).toContain('openrouter_glm_5_3');
-    expect(await readGlm53(db)).toEqual(EXPECTED_GLM_53_ROW);
+    // GLM 5.3 still leads the OpenRouter block, but at 2 rather than 1:
+    // migration 113 seeded qwen/qwen3.8-flash at sort_order 0, and BST-1697's
+    // migration 121 renumbers the whole block to the 1..N convention every
+    // other catalog migration follows. Relative order is unchanged.
+    expect(await readGlm53(db)).toEqual({ ...EXPECTED_GLM_53_ROW, sort_order: 2 });
 
     const ledger = await db.query<{ hash: string }>(`
       SELECT hash

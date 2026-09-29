@@ -9,7 +9,8 @@
     "types": [
       "node"
     ],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "plugins": [{ "name": "@effect/language-service" }]
   },
   "include": [
     "src/**/*"

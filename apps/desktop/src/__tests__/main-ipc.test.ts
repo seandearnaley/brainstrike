@@ -1,6 +1,13 @@
 import path from 'node:path';
 import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
+
+const lifecycleHandlers = vi.hoisted(() => new Map<string, () => void>());
+const ipcInvokeState = vi.hoisted(() => ({ event: null as unknown }));
+const registeredIpcHandlers = vi.hoisted(
+  () => new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
+);
 
 // Hoist the Electron mock to avoid factory/temporal dead zone issues
 vi.mock('electron', async () => {
@@ -9,6 +16,10 @@ vi.mock('electron', async () => {
     documentsPath: '/mock/userData',
     whenReadyResolved: true,
   });
+  app.on.mockImplementation((event: string, listener: () => void) => {
+    lifecycleHandlers.set(event, listener);
+    return app;
+  });
   const ipcMain = electronUtils.createIpcMainMock();
   Object.assign(ipcMain, {
     on: vi.fn(),
@@ -16,13 +27,20 @@ vi.mock('electron', async () => {
     removeHandler: vi.fn(),
     removeListener: vi.fn(),
   });
+  ipcMain.handle.mockImplementation((channel, handler) => {
+    registeredIpcHandlers.set(channel, handler);
+  });
   const ipcRenderer = electronUtils.createIpcRendererMock();
   const screen = electronUtils.createScreenMock();
   // Wire renderer invokes to main handlers for convenience
   const mockInvoke = (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke;
-  mockInvoke.mockImplementation(async (channel: string, ...args: unknown[]) =>
-    (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).__invoke(channel, ...args)
-  );
+  mockInvoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
+    const handler = registeredIpcHandlers.get(channel);
+    if (!handler) {
+      throw new Error(`No handler for channel: ${channel}`);
+    }
+    return handler(ipcInvokeState.event, ...args);
+  });
   const mockBrowserWindowInstance = {
     getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
     getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
@@ -78,7 +96,7 @@ vi.mock('electron', async () => {
 });
 
 // Import mocked Electron parts for use in assertions
-import { app, ipcMain, ipcRenderer } from 'electron';
+import { ipcMain, ipcRenderer } from 'electron';
 
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('@brainstrike/file-system/electron', () => {
@@ -110,6 +128,7 @@ import '../main';
 
 describe('db:getUserDataPath IPC handler', () => {
   beforeEach(() => {
+    ipcInvokeState.event = createTrustedInvokeEvent();
     (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).handle.mockClear();
     vi.mocked(ipcMain.removeHandler).mockClear();
     vi.mocked(ipcMain.removeListener).mockClear();
@@ -127,9 +146,7 @@ describe('db:getUserDataPath IPC handler', () => {
 
   it('unregisters MCP IPC handlers during will-quit shutdown', async () => {
     await Promise.resolve();
-    const willQuitHandler = vi
-      .mocked(app.on)
-      .mock.calls.find(([event]) => String(event) === 'will-quit')?.[1];
+    const willQuitHandler = lifecycleHandlers.get('will-quit');
     if (typeof willQuitHandler !== 'function') {
       throw new Error('will-quit handler not registered');
     }

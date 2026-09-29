@@ -1,6 +1,12 @@
 {
   "extends": ["//"],
   "tasks": {
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs"]
+    },
+    "build:renderer": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs"]
+    },
     "desktop-dev-dependencies": {
       // Synthetic transit task: build the complete desktop dependency graph
       // without a shell-sensitive `^...` filter or the desktop app itself.
@@ -17,6 +23,7 @@
       ]
     },
     "test": {
+      "env": ["$TURBO_EXTENDS$", "DESKTOP_TEST_SHARD", "DESKTOP_TEST_SHARD_REQUIRED"],
       // vite-config.test.ts asserts desktop/web Vite alias parity by reading
       // apps/web/vite.config.mts — a CROSS-PACKAGE file turbo's default input
       // hash for this package does not cover. Without this, a web-only Vite
@@ -26,7 +33,26 @@
       // reverse-direction read of apps/desktop/index.html.)
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/vite.config.mts"]
     },
+    "test:integration": {
+      // Native process-restart verifiers resolve public package exports outside
+      // Vitest's source aliases. Build every runtime dependency those spawned
+      // processes load, retaining the inherited source hash cascade.
+      "dependsOn": [
+        "$TURBO_EXTENDS$",
+        "@brainstrike/agent#build",
+        "@brainstrike/assistant-data#build",
+        "@brainstrike/assistant-service#build"
+      ],
+      "env": ["$TURBO_EXTENDS$", "DESKTOP_TEST_SHARD", "DESKTOP_TEST_SHARD_REQUIRED"]
+    },
     "test:coverage": {
+      // Coverage includes the same native process-restart integration test.
+      "dependsOn": [
+        "$TURBO_EXTENDS$",
+        "@brainstrike/agent#build",
+        "@brainstrike/assistant-data#build",
+        "@brainstrike/assistant-service#build"
+      ],
       // Same cross-package input: the coverage lane runs the full suite
       // including vite-config.test.ts.
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/vite.config.mts"]

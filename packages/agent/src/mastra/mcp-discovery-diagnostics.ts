@@ -10,7 +10,11 @@
  * other streaming concern depends on, so giving it an import of the MCP loader
  * would invert that dependency.
  */
-import type { AssistantRunEventMetadata } from '../run-events';
+import {
+  type AssistantRunEventMetadata,
+  boundRunEventReason,
+  MAX_RUN_EVENT_REASON_CHARS,
+} from '../run-events';
 import type { StreamChunk } from '../types';
 import { makeRunDetailEventChunk } from './stream-run-event-chunks';
 
@@ -44,42 +48,16 @@ export type McpDiscoverySkip =
       readonly timeoutMs: number;
     };
 
-/** Total length of a bounded reason, INCLUDING the ellipsis it may end with. */
-export const MAX_MCP_DISCOVERY_REASON_CHARS = 200;
-
-const REDACTED = '[redacted]';
-/** `https://user:pass@host` — credentials in the URL's userinfo section. */
-const URL_USERINFO = /(https?:\/\/)[^/\s@]+@/gi;
-/** `https://host/mcp?api_key=…` — credentials in a URL query string. */
-const URL_QUERY = /(https?:\/\/[^\s?]+)\?\S*/gi;
-
 /**
- * Prepare a provider failure message for DURABLE run-event metadata and for the
- * always-visible timeline `detail`.
- *
- * Two separate jobs, and the ordering matters:
- *
- * 1. REDACT. `sanitizeAssistantRunEventMetadata` redacts by KEY, not by value,
- *    so nothing downstream inspects this string. Before BST-1602 the reason
- *    reached at most a `debug` log line; it is now persisted and rendered, so a
- *    transport error like `fetch failed: 401 for https://host/mcp?api_key=…`
- *    would be a real disclosure. Truncation does NOT prevent that — such a
- *    message is comfortably under the bound (PR #2938 review) — so URL
- *    userinfo and query strings are stripped first.
- * 2. BOUND. Only then cap the length, to keep the row small.
- *
- * Sliced by CODE POINT, not UTF-16 code unit: `slice` can split a surrogate
- * pair and put a lone surrogate into durable JSON.
+ * BST-1602's redact-then-bound treatment for a durable, rendered failure
+ * reason. The implementation moved to `@brainstrike/assistant-contract`'s
+ * run-event contract in BST-1737, which needs the identical control for
+ * compaction failures — one copy of the redaction regexes, not two. These
+ * aliases keep the MCP-side call sites and their tests reading in the loader's
+ * own vocabulary; the behaviour is `boundRunEventReason`'s, unchanged.
  */
-export function boundMcpDiscoveryReason(value: unknown): string {
-  const raw = value instanceof Error ? value.message : String(value);
-  const redacted = raw.replace(URL_USERINFO, `$1${REDACTED}@`).replace(URL_QUERY, `$1?${REDACTED}`);
-  const points = Array.from(redacted);
-  if (points.length <= MAX_MCP_DISCOVERY_REASON_CHARS) {
-    return redacted;
-  }
-  return `${points.slice(0, MAX_MCP_DISCOVERY_REASON_CHARS - 1).join('')}…`;
-}
+export const MAX_MCP_DISCOVERY_REASON_CHARS = MAX_RUN_EVENT_REASON_CHARS;
+export const boundMcpDiscoveryReason = boundRunEventReason;
 
 const MCP_DISCOVERY_SKIP_RUN_EVENT_KIND = 'mcp.tools.unavailable' as const;
 

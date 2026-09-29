@@ -103,6 +103,7 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     primaryRootId: primaryRootId ?? null,
     primaryRootPath: primaryRootPath ?? null,
     runId: activeRunId,
+    threadId: selectedMemoryThreadId ?? null,
   });
   const onSwitchInNewWorktree = useCallback(
     (branch: string): void => {

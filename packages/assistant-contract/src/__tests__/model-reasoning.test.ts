@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GEMMA4_E2B_MODEL_ID } from '../local-llm.js';
 import {
-  ANTHROPIC_REASONING_EFFORTS,
   OPENAI_FAMILY_DEFAULT_EFFORTS,
   resolveModelReasoningSupport,
   resolveReasoningControlsAvailability,
@@ -59,8 +58,11 @@ describe('resolveModelReasoningSupport', () => {
 });
 
 describe('resolveReasoningControlsAvailability', () => {
-  it('keeps Ox Alpha mandatory and excludes an Off effort', () => {
-    expect(resolveReasoningControlsAvailability('openrouter', 'stealth/ox-alpha')).toEqual({
+  // Retargeted from the delisted stealth/ox-alpha (BST-1697) to GLM 5.3,
+  // which declares the same mandatory max/high/low ladder. The behaviour under
+  // test is that a mandatory ladder gets no synthesized Off effort.
+  it('keeps a mandatory OpenRouter ladder free of an Off effort', () => {
+    expect(resolveReasoningControlsAvailability('openrouter', 'z-ai/glm-5.3')).toEqual({
       available: true,
       defaultEffort: 'max',
       efforts: ['max', 'high', 'low'],
@@ -142,11 +144,10 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
-  it('keeps the full effort list for undeclared OpenRouter models', () => {
+  it('does not invent an effort list for undeclared OpenRouter models', () => {
     expect(resolveReasoningControlsAvailability('openrouter', 'qwen/qwen3.7-max')).toEqual({
-      available: true,
-      efforts: OPENAI_FAMILY_DEFAULT_EFFORTS,
-      family: 'openrouter',
+      available: false,
+      reason: 'no-reasoning-controls',
     });
   });
 
@@ -158,13 +159,123 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
-  it('offers anthropic efforts plus the thinking toggle family', () => {
-    expect(resolveReasoningControlsAvailability('anthropic', 'claude-sonnet-5')).toEqual({
+  /**
+   * BST-1698. GPT-5.6 Sol declares no per-model `reasoning` block, so it
+   * resolves through the undeclared OpenAI-family default set. This pins that
+   * `xhigh` reaches the menu — the question the ticket asked — and records the
+   * rest of today's shape so any change to it has to be deliberate.
+   *
+   * Asserted against a LITERAL list rather than
+   * `OPENAI_FAMILY_DEFAULT_EFFORTS`: the sibling test above compares the
+   * resolver's output to the very constant that feeds it, so dropping a rung
+   * from the constant moves both sides together and stays green. This is the
+   * pin that actually goes red.
+   *
+   * The offered set does NOT match Sol's vendor ladder in either direction,
+   * which is a BEHAVIOUR question deliberately left to a follow-up rather than
+   * ridden along on a pricing fix. Sol's model page
+   * (https://developers.openai.com/api/docs/models/gpt-5.6-sol, retrieved
+   * 2026-09-08) documents "none, low, medium (default), high, xhigh, and max":
+   * - `max` is offered only where a model declares its own
+   *   `reasoning.supportedEfforts`, so Sol cannot reach it from the menu even
+   *   though the vendor supports it.
+   * - `minimal` IS offered but is absent from Sol's documented ladder — the
+   *   same "offering an effort a route rejects is a broken menu entry" hazard
+   *   the Bedrock ladders call out.
+   * - `none` is expressed as "Auto (default)" (unset) rather than a menu rung.
+   */
+  it('offers xhigh but clamps max for GPT-5.6 Sol on the OpenAI path', () => {
+    const controls = resolveReasoningControlsAvailability('openai', 'gpt-5.6-sol');
+    expect(controls).toEqual({
       available: true,
-      efforts: ANTHROPIC_REASONING_EFFORTS,
+      efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+      family: 'openai',
+    });
+  });
+
+  /**
+   * BST-1692. GPT-6 Astra is the first DIRECT OpenAI row to declare its own
+   * ladder, because the undeclared default is wrong in both directions for it:
+   * it offers `minimal`, which OpenAI's Astra model page does not list, and it
+   * withholds `max`, which that page does list. Offering an effort the route
+   * rejects is a silent-degradation hazard; hiding one it accepts is a
+   * capability we never surface.
+   */
+  it('offers the documented GPT-6 Astra ladder, not the OpenAI family default', () => {
+    const availability = resolveReasoningControlsAvailability('openai', 'gpt-6-astra');
+    expect(availability).toEqual({
+      available: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      family: 'openai',
+    });
+    expect(OPENAI_FAMILY_DEFAULT_EFFORTS).toContain('minimal');
+    expect(OPENAI_FAMILY_DEFAULT_EFFORTS).not.toContain('max');
+  });
+
+  it.each([
+    ['claude-fable-5-1', ['low', 'medium', 'high', 'xhigh', 'max'], true],
+    ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max'], true],
+    ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max'], false],
+    ['claude-opus-4-8', ['low', 'medium', 'high', 'xhigh', 'max'], false],
+    ['claude-sonnet-5', ['low', 'medium', 'high', 'xhigh', 'max'], false],
+    ['claude-sonnet-4-6', ['low', 'medium', 'high', 'max'], false],
+  ] as const)('offers the documented Anthropic ladder for %s', (modelId, efforts, mandatory) => {
+    expect(resolveReasoningControlsAvailability('anthropic', modelId)).toEqual({
+      available: true,
+      defaultEffort: 'high',
+      efforts,
+      family: 'anthropic',
+      ...(mandatory ? { mandatory: true } : {}),
+    });
+  });
+
+  it('offers the Claude Opus 5.5 ladder with its medium default and no Thinking toggle', () => {
+    expect(resolveReasoningControlsAvailability('anthropic', 'claude-opus-5-5')).toEqual({
+      available: true,
+      defaultEffort: 'medium',
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      family: 'anthropic',
+      mandatory: true,
+    });
+  });
+
+  /**
+   * BST-1804. GPT-6 Sol and Luna declare their own ladders for the same reason
+   * Astra does, and unlike Astra they offer `none` and document a default.
+   */
+  it.each(['gpt-6-sol', 'gpt-6-luna'])(
+    'offers the documented %s ladder with its medium default, not the family default',
+    (modelId) => {
+      expect(resolveReasoningControlsAvailability('openai', modelId)).toEqual({
+        available: true,
+        defaultEffort: 'medium',
+        efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+        family: 'openai',
+      });
+    }
+  );
+
+  it('offers Haiku thinking without an effort ladder', () => {
+    expect(resolveReasoningControlsAvailability('anthropic', 'claude-haiku-4-5')).toEqual({
+      available: true,
+      efforts: [],
       family: 'anthropic',
     });
   });
+
+  it.each([undefined, 'claude-not-in-catalog'])(
+    'keeps the Thinking toggle but withholds the ladder without a declared model: %s',
+    (modelId) => {
+      // A persisted legacy budget is still sent for such an id (see
+      // anthropic-provider-options.test.ts), so the toggle that clears it must
+      // stay reachable; only the effort ladder has nothing to be judged against.
+      expect(resolveReasoningControlsAvailability('anthropic', modelId)).toEqual({
+        available: true,
+        efforts: [],
+        family: 'anthropic',
+      });
+    }
+  );
 
   it('offers google thinking levels, restricted for the Gemini 3 Pro line', () => {
     expect(resolveReasoningControlsAvailability('google', 'gemini-3.5-flash')).toEqual({

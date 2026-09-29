@@ -28,6 +28,7 @@ export const migration047RunUsageRootId: Migration = {
     ALTER TABLE IF EXISTS brainstrike_assistant_run_usage
       DROP COLUMN IF EXISTS root_id;
   `,
+  ledgerKey: 'custom-047-run-usage-root-id',
   name: 'run_usage_root_id',
   up: `
     ALTER TABLE IF EXISTS brainstrike_assistant_run_usage

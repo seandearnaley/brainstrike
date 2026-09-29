@@ -24,7 +24,7 @@ import type {
 import { Button, Popover, PopoverContent, PopoverTrigger, Switch } from '@brainstrike/ui';
 import { Brain, ChevronDown } from 'lucide-react';
 import { useCallback } from 'react';
-import { modelIdFromCompositeKey } from './composer-model-menu';
+import { modelIdFromCompositeKey } from './composer-picker-sections';
 import { useOpenRouterModelMetadataLookup } from './openrouter-model-metadata-context';
 import {
   buildEffortControlModel,

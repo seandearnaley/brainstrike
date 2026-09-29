@@ -1,8 +1,15 @@
-import type { ReactElement } from 'react';
+import { TabPanelBoundary } from '@brainstrike/ui';
+import type { ReactElement, ReactNode } from 'react';
 import { FileTabBody } from './file-tab-body';
 import { useWorkspaceTabs } from './use-workspace-tabs';
+import type { WorkspaceApp } from './workspace-app';
 import { WorkspaceLauncher } from './workspace-launcher';
-import { getTabRootPath } from './workspace-tab-utils';
+import { getFileName, getTabRootPath } from './workspace-tab-utils';
+
+/** Invokes an app's render callback while React renders it, inside the panel boundary. */
+function WorkspaceAppContent({ render }: { readonly render: WorkspaceApp['render'] }): ReactNode {
+  return render();
+}
 
 /**
  * The workspace panel's content area (BST-1258). Renders:
@@ -15,9 +22,18 @@ import { getTabRootPath } from './workspace-tab-utils';
  *   compositeKey, exactly as before);
  * - the launcher empty state when nothing resolvable is selected.
  *
- * `app.render()` is invoked inline on every re-render per the WorkspaceApp
- * contract (cheap + idempotent; React reconciles the same element type, so
- * stable component identity inside render() avoids remounts).
+ * Every app panel and the file body sit inside a `TabPanelBoundary`, so a
+ * render crash stays in its panel while the strip and other apps keep
+ * working. The file body's reset key is the compositeKey: switching files
+ * clears a caught crash. An app panel is keyed by its id, so its boundary
+ * never resets on its own: it stays crashed across tab switches until
+ * "Reload tab".
+ *
+ * `app.render()` runs on every re-render per the WorkspaceApp contract (cheap
+ * + idempotent; React reconciles the same element type, so stable component
+ * identity inside render() avoids remounts). It runs inside
+ * {@link WorkspaceAppContent}, below the boundary, so a callback that throws
+ * while building its element is contained too.
  */
 export function WorkspaceBody(): ReactElement {
   const {
@@ -70,7 +86,9 @@ export function WorkspaceBody(): ReactElement {
             key={app.id}
             role="tabpanel"
           >
-            {app.render()}
+            <TabPanelBoundary label={app.label}>
+              <WorkspaceAppContent render={app.render} />
+            </TabPanelBoundary>
           </div>
         );
       })}
@@ -81,17 +99,22 @@ export function WorkspaceBody(): ReactElement {
           id={`workspace-file-panel-${activeFileTab.id}`}
           role="tabpanel"
         >
-          <FileTabBody
-            content={fileContents[activeFileTab.compositeKey]}
-            {...(activeFileContentError ? { contentError: activeFileContentError } : {})}
-            isLoading={loadingFiles.has(activeFileTab.compositeKey)}
-            isRestoring={isRestoring}
-            key={activeFileTab.compositeKey}
-            onRetryContent={() => onRetryFileContent(activeFileTab.compositeKey)}
-            rootPath={getTabRootPath(activeFileTab, rootDescriptors)}
-            status={tabStatuses.get(activeFileTab.compositeKey)}
-            tab={activeFileTab}
-          />
+          <TabPanelBoundary
+            label={getFileName(activeFileTab.path)}
+            resetKey={activeFileTab.compositeKey}
+          >
+            <FileTabBody
+              content={fileContents[activeFileTab.compositeKey]}
+              {...(activeFileContentError ? { contentError: activeFileContentError } : {})}
+              isLoading={loadingFiles.has(activeFileTab.compositeKey)}
+              isRestoring={isRestoring}
+              key={activeFileTab.compositeKey}
+              onRetryContent={() => onRetryFileContent(activeFileTab.compositeKey)}
+              rootPath={getTabRootPath(activeFileTab, rootDescriptors)}
+              status={tabStatuses.get(activeFileTab.compositeKey)}
+              tab={activeFileTab}
+            />
+          </TabPanelBoundary>
         </div>
       ) : null}
       {showLauncher ? <WorkspaceLauncher /> : null}

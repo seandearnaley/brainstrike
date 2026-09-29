@@ -10,10 +10,9 @@
  * - `'allow'`→ tool KEPT, NOT in `askToolIds`.
  * - a session grant / YOLO downgrades `'ask'`→`'allow'`, so the tool is kept but
  *   NOT recorded as ask (it runs free, no approval).
- * - a SUSPENDING tool gated to `'ask'` (BST-1097, 1.56+ idiom) takes the SAME
- *   `requireApproval` clone as every other ask tool — the framework's
- *   pre-execution approval is Gate A, and the resume transport's
- *   `approved: true` rider keeps its own suspensions resumable under the flag.
+ * - a SUSPENDING tool gated to `'ask'` (BST-1097) is KEPT UNCHANGED like every
+ *   other ask tool: suspension is decided by the runtime's live predicate
+ *   (`approval-gate.ts`), never by a flag on the tool.
  */
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { describe, expect, it } from 'vitest';
@@ -79,10 +78,7 @@ describe('filterToolsByPermissionWithMetadata', () => {
     expect(result.tools).toHaveProperty('brainstrike_inspectCommandSessions');
     expect(result.askToolIds.has('brainstrike_inspectCommandSessions')).toBe(false);
     expect(result.askToolIds.has('brainstrike_manageCommandSession')).toBe(true);
-    expect(
-      (result.tools.brainstrike_manageCommandSession as { requireApproval?: unknown })
-        .requireApproval
-    ).toBe(true);
+    expect(result.askToolIds.has('brainstrike_inspectCommandSessions')).toBe(false);
   });
 
   it("keeps an 'ask' tool in the map AND records it in askToolIds", () => {
@@ -106,22 +102,24 @@ describe('filterToolsByPermissionWithMetadata', () => {
     });
     // 'allow' tool is NOT in askToolIds.
     expect(result.askToolIds.has('read_tool')).toBe(false);
-    // Each kept 'ask' tool is a CLONE carrying the PER-TOOL requireApproval flag
-    // (so only it suspends, not allowed tools in the same run); 'allow' is not.
-    expect((result.tools.edit_tool as { requireApproval?: unknown }).requireApproval).toBe(true);
-    expect((result.tools.execute_tool as { requireApproval?: unknown }).requireApproval).toBe(true);
+    // An 'ask' tool is kept UNCHANGED (same reference): the live predicate on
+    // the runtime decides suspension. A flag here would be OR-ed with that
+    // predicate by Mastra (agent-DsRUDsS_.js:26436) and a session grant could
+    // never lift the gate (the 70-card GLM run, 2026-09-15).
+    expect(result.tools.edit_tool).toBe(TOOLS.edit_tool);
+    expect(result.tools.execute_tool).toBe(TOOLS.execute_tool);
+    expect(result.tools.read_tool).toBe(TOOLS.read_tool);
     expect(
-      (result.tools.read_tool as { requireApproval?: unknown }).requireApproval
+      (result.tools.edit_tool as { requireApproval?: unknown }).requireApproval
     ).toBeUndefined();
   });
 
-  it('does NOT mutate the original ask tool when cloning (sets requireApproval on a copy)', () => {
+  it('never sets a per-tool requireApproval flag on any kept tool', () => {
     const input = { ...TOOLS };
     const result = filterToolsByPermissionWithMetadata(input, snapshot(), NAME_MAP, noopLogger());
-    // The clone carries the flag; the original input object is untouched.
-    expect((result.tools.edit_tool as { requireApproval?: unknown }).requireApproval).toBe(true);
-    expect((input.edit_tool as { requireApproval?: unknown }).requireApproval).toBeUndefined();
-    expect(result.tools.edit_tool).not.toBe(input.edit_tool);
+    for (const tool of Object.values(result.tools)) {
+      expect((tool as { requireApproval?: unknown }).requireApproval).toBeUndefined();
+    }
   });
 
   it("omits a 'deny' tool and does NOT record it in askToolIds", () => {
@@ -186,6 +184,21 @@ describe('filterToolsByPermissionWithMetadata', () => {
     expect(result.tools).toBe(input);
     expect(result.askToolIds.size).toBe(0);
     expect(result.askTools.size).toBe(0);
+    expect(result.deniedTools.size).toBe(0);
+  });
+
+  it('records each omitted deny tool with its risk bucket (debug-pack gate evidence)', () => {
+    const result = filterToolsByPermissionWithMetadata(
+      { ...TOOLS },
+      snapshot({ policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' } }),
+      NAME_MAP,
+      noopLogger()
+    );
+
+    expect(result.tools).not.toHaveProperty('edit_tool');
+    expect([...result.deniedTools.entries()]).toEqual([
+      ['edit_tool', { originalName: 'edit_tool', riskCategory: 'edit' }],
+    ]);
   });
 
   it('does not mutate the input tool map (purity)', () => {
@@ -204,12 +217,7 @@ describe('ask-gated suspending tools (BST-1097, 1.56+ idiom)', () => {
     return snapshot({ riskByTool: { 'brainstrike.runPython': 'execute' } });
   }
 
-  it("clones run_python with requireApproval on 'ask' — the framework pre-execution gate is Gate A (1.56+ idiom)", () => {
-    // Since the @mastra/core 1.56 approval rework, run_python takes the SAME
-    // requireApproval clone as every other ask tool: the framework collects
-    // the approval BEFORE execute() runs, and the resume transport's
-    // `approved: true` rider keeps its Gate B suspension resumable
-    // (agent-streaming.ts). The old self-approving exception is gone.
+  it("keeps run_python unchanged on 'ask' — the live predicate is Gate A, the tool's own suspend() is Gate B", () => {
     const tool = { id: 'brainstrike.runPython', suspendSchema: { kind: 'union' } };
     const result = filterToolsByPermissionWithMetadata(
       { brainstrike_runPython: tool },
@@ -217,17 +225,7 @@ describe('ask-gated suspending tools (BST-1097, 1.56+ idiom)', () => {
       RUN_PYTHON_NAME_MAP,
       noopLogger()
     );
-
-    const gated = result.tools['brainstrike_runPython'] as {
-      requireApproval?: unknown;
-      suspendSchema?: unknown;
-    };
-    expect(gated).not.toBe(tool);
-    expect(gated.requireApproval).toBe(true);
-    // The clone preserves the suspension surface — Gate B still works.
-    expect(gated.suspendSchema).toBe(tool.suspendSchema);
-    // Still an ask tool: the approval chunk's risk metadata and the
-    // no-storage fail-safe both key on this record.
+    expect(result.tools['brainstrike_runPython']).toBe(tool);
     expect(result.askToolIds.has('brainstrike_runPython')).toBe(true);
     expect(result.askTools.get('brainstrike_runPython')).toEqual({
       originalName: 'brainstrike.runPython',

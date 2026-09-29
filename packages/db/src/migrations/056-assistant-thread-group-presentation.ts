@@ -18,6 +18,7 @@ export const migration056AssistantThreadGroupPresentation: Migration = {
     ALTER TABLE brainstrike_assistant_thread_groups
       DROP COLUMN IF EXISTS color;
   `,
+  ledgerKey: 'custom-056-assistant-thread-group-presentation',
   name: 'assistant_thread_group_presentation',
   up: `
     ALTER TABLE brainstrike_assistant_thread_groups

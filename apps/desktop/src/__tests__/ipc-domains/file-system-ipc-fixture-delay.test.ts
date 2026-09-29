@@ -1,8 +1,8 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 
@@ -40,7 +40,7 @@ function registerFixture(overrides: Record<string, unknown> = {}): void {
 
 function readFixtureDirectory(): Promise<unknown> {
   return handlers.get('fs:readDirectory')?.(
-    {} as IpcMainInvokeEvent,
+    createTrustedInvokeEvent(),
     ROOT_HANDLE
   ) as Promise<unknown>;
 }

@@ -399,7 +399,24 @@ describe('createWorkspaceIndexingQosTransitionLogger', () => {
     );
   });
 
-  it('logs a reason change even when the state is unchanged', () => {
+  it('keeps reason-only changes out of info-level state transitions', () => {
+    const observe = createWorkspaceIndexingQosTransitionLogger('test-loop');
+
+    observe(resolve({ powerSource: 'battery' }));
+    observe(resolve({ thermalState: 'serious' }));
+    observe(resolve({ foregroundQueryActive: true }));
+
+    expect(captured).toHaveLength(2);
+    expect(captured[1]?.args).toContainEqual(
+      expect.objectContaining({
+        from: { reason: 'thermal-serious', state: 'system-constrained' },
+        to: { reason: 'foreground-query', state: 'foreground-yielding' },
+      })
+    );
+  });
+
+  it('logs reason-only changes at debug with a distinct message', () => {
+    setLogLevel(LogLevel.DEBUG);
     const observe = createWorkspaceIndexingQosTransitionLogger('test-loop');
 
     // Both resolve to system-constrained, but for different reasons.
@@ -407,6 +424,8 @@ describe('createWorkspaceIndexingQosTransitionLogger', () => {
     observe(resolve({ thermalState: 'serious' }));
 
     expect(captured).toHaveLength(2);
+    expect(captured[1]?.level).toBe(LogLevel.DEBUG);
+    expect(captured[1]?.message).toBe('Workspace indexing QoS reason changed');
     expect(captured[1]?.args).toContainEqual(
       expect.objectContaining({
         from: { reason: 'battery', state: 'system-constrained' },

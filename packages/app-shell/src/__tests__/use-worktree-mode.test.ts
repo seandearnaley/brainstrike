@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseWorktreeModeArgs } from '../hooks/use-worktree-mode';
 
 type FirstRequestState = UseWorktreeModeArgs['firstRequestState'];
-
 const {
   addRootByPathSpy,
   addRootDirectorySpy,
@@ -15,6 +14,7 @@ const {
   createContextSpy,
   createSpy,
   getSettingsSpy,
+  inspectArchiveSpy,
   listSpy,
   loggerErrorSpy,
   restoreSpy,
@@ -28,12 +28,12 @@ const {
   createContextSpy: vi.fn(),
   createSpy: vi.fn(),
   getSettingsSpy: vi.fn(),
+  inspectArchiveSpy: vi.fn(),
   listSpy: vi.fn(),
   loggerErrorSpy: vi.fn(),
   restoreSpy: vi.fn(),
   toastSpy: vi.fn(),
 }));
-
 vi.mock('../worktrees/worktrees-bridge', () => ({
   resolveWorktreesBridge: () => ({
     adopt: adoptSpy,
@@ -43,6 +43,7 @@ vi.mock('../worktrees/worktrees-bridge', () => ({
     createBranchHere: createBranchHereSpy,
     createContext: createContextSpy,
     getSettings: getSettingsSpy,
+    inspectArchive: inspectArchiveSpy,
     list: listSpy,
     listManagedPaths: vi.fn(),
     restore: restoreSpy,
@@ -72,7 +73,6 @@ import { useWorktreeMode } from '../hooks/use-worktree-mode';
 
 const onHandOffToLocal = vi.fn(() => Promise.resolve());
 const onSelectWorktree = vi.fn(() => Promise.resolve());
-
 const ARGS = {
   checkout: { branch: null, mode: 'local' as const, worktreeId: null, worktreePath: null },
   firstRequestState: 'unsent' as const,
@@ -82,19 +82,34 @@ const ARGS = {
   primaryRootId: 'r-1',
   primaryRootPath: '/work/app',
   runId: null,
+  threadId: 'thread-1',
 };
-
-const WORKTREE_CHECKOUT = {
+const WORKTREE_CHECKOUT: UseWorktreeModeArgs['checkout'] = {
   branch: 'bs/bright-fox',
   mode: 'worktree' as const,
   worktreeId: 'w-1',
   worktreePath: '/managed/app/bright-fox',
 };
+const ARCHIVE_SELECTION_CHANGES = [
+  [
+    'worktree',
+    { checkout: { ...WORKTREE_CHECKOUT, mode: 'local' as const }, threadId: 'thread-1' },
+  ],
+  ['thread', { checkout: WORKTREE_CHECKOUT, threadId: 'thread-2' }],
+] as const;
 
 const CREATE_REQUEST = {
   baseRef: 'main',
   branch: { name: 'bs/bright-fox' },
   name: 'bright-fox',
+} as const;
+
+const SINGLE_IGNORED_PREVIEW = {
+  confirmationToken: 'ignored-token',
+  ignoredEntryCount: 1,
+  ignoredTopLevelEntries: ['.env'],
+  ignoredTopLevelEntriesTruncated: false,
+  ignoredTopLevelEntryCount: 1,
 } as const;
 
 function entry(overrides: Partial<WorktreeListEntry> = {}): WorktreeListEntry {
@@ -140,6 +155,16 @@ describe('useWorktreeMode', () => {
     });
     listSpy.mockResolvedValue({ ok: true, value: [] });
     archiveSpy.mockResolvedValue({ ok: true, value: null });
+    inspectArchiveSpy.mockResolvedValue({
+      ok: true,
+      value: {
+        confirmationToken: null,
+        ignoredEntryCount: 0,
+        ignoredTopLevelEntries: [],
+        ignoredTopLevelEntriesTruncated: false,
+        ignoredTopLevelEntryCount: 0,
+      },
+    });
     createBranchHereSpy.mockResolvedValue({ ok: true, value: null });
     createContextSpy.mockResolvedValue({
       ok: true,
@@ -318,6 +343,46 @@ describe('useWorktreeMode', () => {
       expect.objectContaining({ title: 'Thread handed off — worktree not archived' })
     );
   });
+
+  it('requires confirmation before handing off and archiving ignored files', async () => {
+    inspectArchiveSpy.mockResolvedValueOnce({
+      ok: true,
+      value: SINGLE_IGNORED_PREVIEW,
+    });
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+
+    act(() => result.current?.onArchive?.());
+    await waitFor(() => expect(result.current?.archiveConfirmation).not.toBeNull());
+    expect(onHandOffToLocal).not.toHaveBeenCalled();
+    expect(archiveSpy).not.toHaveBeenCalled();
+
+    act(() => result.current?.archiveConfirmation?.onConfirm());
+    await waitFor(() => expect(archiveSpy).toHaveBeenCalledTimes(1));
+    expect(onHandOffToLocal).toHaveBeenCalledTimes(1);
+    expect(archiveSpy).toHaveBeenCalledWith({
+      confirmIgnoredEntries: 'ignored-token',
+      worktreeId: 'w-1',
+    });
+  });
+
+  it.each(ARCHIVE_SELECTION_CHANGES)(
+    'cancels ignored-file confirmation when the selected %s changes',
+    async (_identity, changedSelection) => {
+      inspectArchiveSpy.mockResolvedValueOnce({ ok: true, value: SINGLE_IGNORED_PREVIEW });
+      const initialSelection = { checkout: WORKTREE_CHECKOUT, threadId: 'thread-1' };
+      const { rerender, result } = renderHook(
+        ({ checkout, threadId }) => useWorktreeMode({ ...ARGS, checkout, threadId }),
+        { initialProps: initialSelection }
+      );
+      act(() => result.current?.onArchive?.());
+      await waitFor(() => expect(result.current?.archiveConfirmation).not.toBeNull());
+      rerender(changedSelection);
+      await waitFor(() => expect(result.current?.archiveConfirmation).toBeNull());
+      rerender(initialSelection);
+      expect(result.current?.archiveConfirmation).toBeNull();
+      expect(archiveSpy).not.toHaveBeenCalled();
+    }
+  );
 
   it('archives only after a successful hand-off, in that order', async () => {
     const callOrder: string[] = [];

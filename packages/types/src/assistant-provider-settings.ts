@@ -23,12 +23,16 @@
 /**
  * THE reasoning-effort vocabulary, weakest to strongest.
  *
+ * Mirrors the `reasoningEffort` enum of the installed `@ai-sdk/openai` (4.0.49)
+ * chat-options declaration; policed by
+ * `scripts/__tests__/ai-sdk-openai-mirror-contract.test.mjs`.
+ *
  * This is the union's MEMBERSHIP, not an offered list. Nothing here says a
  * given model accepts every value: what a particular model offers is resolved
  * per-family by `resolveReasoningControlsAvailability`
  * (`@brainstrike/assistant-contract/model-reasoning`), and narrowing an offered
  * list must never be expressed by narrowing this declaration — see the
- * `ANTHROPIC_REASONING_EFFORTS` ruling in `docs/agents/assistant-providers.md`.
+ * per-model `anthropicReasoning` ladder ruling in `docs/agents/assistant-providers.md`.
  * Its only job is to be the single place the values are written down.
  *
  * Declared as a value so the one place that needs them at RUNTIME — the Hosted
@@ -52,7 +56,7 @@ export const OPENAI_REASONING_EFFORT_VALUES = [
 export type OpenAiReasoningEffort = (typeof OPENAI_REASONING_EFFORT_VALUES)[number];
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 /**
- * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39).
+ * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.49).
  * `xhigh`/`max` are real wire values — omitting them made the picker offer a
  * strictly narrower range than the provider accepts.
  *
@@ -64,7 +68,7 @@ export type OpenAiReasoningSummary = 'auto' | 'detailed';
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /**
  * Mirrors the `reasoningConfig.maxReasoningEffort` enum of the installed
- * `@ai-sdk/amazon-bedrock` (5.0.57). Structurally identical to
+ * `@ai-sdk/amazon-bedrock` (5.0.76). Structurally identical to
  * `AnthropicEffort` today and deliberately declared separately: they mirror
  * two independent upstream packages, so aliasing one to the other would make
  * an upgrade to either silently redefine the other's picker.

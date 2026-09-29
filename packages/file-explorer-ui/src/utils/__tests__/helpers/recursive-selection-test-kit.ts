@@ -6,7 +6,12 @@ export function createFileNode(
 ): IFileNode {
   return {
     depth: 0,
-    handle: {} as FileSystemFileHandle,
+    handle: {
+      kind: 'file',
+      name: overrides.name,
+      path: overrides.path,
+      platform: 'electron',
+    },
     isVisible: true,
     rootFolderId: '/root',
     selectionState: 'unchecked',
@@ -21,7 +26,12 @@ export function createDirectoryNode(
   return {
     children: [],
     depth: 0,
-    handle: {} as FileSystemDirectoryHandle,
+    handle: {
+      kind: 'directory',
+      name: overrides.name,
+      path: overrides.path,
+      platform: 'electron',
+    },
     isVisible: true,
     loadState: 'unloaded',
     rootFolderId: '/root',

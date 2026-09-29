@@ -8,46 +8,49 @@
     "@tanstack/react-virtual": "catalog:"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.8",
-    "@commitlint/cli": "^21.2.2",
-    "@commitlint/config-conventional": "^21.2.2",
-    "@commitlint/types": "^21.2.0",
+    "@babel/core": "catalog:",
+    "@biomejs/biome": "2.5.14",
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
+    "@commitlint/types": "^21.2.3",
     "@jacobwolf/biome-unnecessary-effect": "^0.1.1",
-    "@mermaid-js/mermaid-cli": "^11.16.0",
+    "@mermaid-js/mermaid-cli": "^11.17.0",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
+    "@typescript-eslint/parser": "^8.69.0",
     "@typescript/native": "catalog:",
     "@typescript/old": "catalog:",
-    "@typescript-eslint/parser": "^8.67.0",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^10.8.1",
+    "eslint": "^10.10.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "catalog:",
     "happy-dom": "catalog:",
     "knip": "catalog:",
-    "lefthook": "^2.1.10",
+    "lefthook": "^2.1.12",
     "mermaid": "catalog:",
     "nyc": "^18.0.0",
+    "oxc-transform-react": "catalog:",
     "playwright": "catalog:",
-    "react-doctor": "0.9.11",
-    "turbo": "2.10.10",
+    "react-doctor": "0.9.13",
+    "turbo": "2.11.2",
     "typescript": "catalog:",
     "ultracite": "7.9.2",
-    "vercel": "^54.20.1",
+    "vercel": "58.4.4",
     "vite": "catalog:",
     "vitest": "catalog:",
     "yaml": "catalog:"
   },
   "engines": {
-    "node": ">=24.15.0 <25"
+    "node": ">=24.20.0 <25 || >=26.8.2 <27"
   },
   "keywords": [],
   "license": "ISC",
   "main": "index.js",
   "packageManager": "pnpm@11.15.0+sha512.266f8957a30d2be6e9468e5e66bcdedd35a794175f71b067ba8504d686cce1d0c0f429b33c323c3c569ad4891e667574a49ff71d1b89a22cc66f13c65818c578",
   "scripts": {
+    "audit:openrouter-pricing": "node scripts/openrouter-pricing-audit.mjs",
     "bench:chunking": "pnpm -w build --filter @brainstrike/db && node scripts/chunking-benchmark.mjs",
     "boundaries": "node scripts/turbo-boundaries.mjs",
     "build": "node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run build --summarize --log-order=grouped",
@@ -71,10 +74,10 @@
     "format-and-lint:fix": "biome check . --write",
     "arch:domain-boundaries": "node scripts/architecture-domain-boundaries.mjs",
     "arch:domain-contract": "node scripts/architecture-domain-contract.mjs",
-    "knip": "knip",
+    "knip": "node scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/platform-utils --filter=@brainstrike/build-utils && knip",
     "react-doctor": "react-doctor . --scope full",
-    "lint": "pnpm run lint:no-no-memo && pnpm run lint:assistant-run-id-producer && pnpm run lint:mastra-stream-chunk-contract && pnpm run lint:browser-events-literals && pnpm run lint:catalog-user-choice && pnpm run lint:e2e-destructive-tags && pnpm run lint:e2e-readiness-contracts && pnpm run lint:mastra-schema-init-order && pnpm run lint:no-source-cycles && pnpm run lint:no-raw-nul-bytes && pnpm run lint:model-catalog-migrations && pnpm run lint:package-build-strategies && pnpm run lint:tsup-build-invariants && pnpm run lint:minimum-release-age-exclusions && pnpm run arch:domain-contract && pnpm run arch:domain-boundaries && pnpm run lint:eslint && biome check . --fix",
-    "lint:ci": "pnpm run lint:no-no-memo && pnpm run lint:assistant-run-id-producer && pnpm run lint:mastra-stream-chunk-contract && pnpm run lint:browser-events-literals && pnpm run lint:catalog-user-choice && pnpm run lint:e2e-destructive-tags && pnpm run lint:e2e-readiness-contracts && pnpm run lint:mastra-schema-init-order && pnpm run lint:no-source-cycles && pnpm run lint:no-raw-nul-bytes && pnpm run lint:model-catalog-migrations && pnpm run lint:package-build-strategies && pnpm run lint:tsup-build-invariants && pnpm run lint:minimum-release-age-exclusions && pnpm run arch:domain-contract && pnpm run arch:domain-boundaries && pnpm run lint:eslint && biome check .",
+    "lint": "pnpm run lint:no-no-memo && pnpm run lint:assistant-run-id-producer && pnpm run lint:mastra-stream-chunk-contract && pnpm run lint:browser-events-literals && pnpm run lint:catalog-user-choice && pnpm run lint:e2e-destructive-tags && pnpm run lint:e2e-readiness-contracts && pnpm run lint:mastra-schema-init-order && pnpm run lint:no-source-cycles && pnpm run lint:private-test-input-locality && pnpm run lint:no-raw-nul-bytes && pnpm run lint:model-catalog-migrations && pnpm run lint:package-build-strategies && pnpm run lint:tsup-build-invariants && pnpm run lint:minimum-release-age-exclusions && pnpm run arch:domain-contract && pnpm run arch:domain-boundaries && pnpm run lint:eslint && biome check . --fix",
+    "lint:ci": "pnpm run lint:no-no-memo && pnpm run lint:assistant-run-id-producer && pnpm run lint:mastra-stream-chunk-contract && pnpm run lint:browser-events-literals && pnpm run lint:catalog-user-choice && pnpm run lint:e2e-destructive-tags && pnpm run lint:e2e-readiness-contracts && pnpm run lint:mastra-schema-init-order && pnpm run lint:no-source-cycles && pnpm run lint:private-test-input-locality && pnpm run lint:no-raw-nul-bytes && pnpm run lint:model-catalog-migrations && pnpm run lint:package-build-strategies && pnpm run lint:tsup-build-invariants && pnpm run lint:minimum-release-age-exclusions && pnpm run arch:domain-contract && pnpm run arch:domain-boundaries && pnpm run lint:eslint && biome check .",
     "lint:assistant-run-id-producer": "node scripts/assistant-run-id-producer-guard.mjs",
     "lint:mastra-stream-chunk-contract": "node scripts/mastra-stream-chunk-contract.mjs",
     "lint:browser-events-literals": "node scripts/browser-events-literal-guard.mjs",
@@ -82,6 +85,7 @@
     "lint:e2e-destructive-tags": "node scripts/check-e2e-destructive-tags.mjs",
     "lint:e2e-readiness-contracts": "node scripts/check-e2e-readiness-contracts.mjs",
     "lint:mastra-schema-init-order": "node scripts/verify-mastra-schema-init-order.mjs",
+    "lint:private-test-input-locality": "node scripts/verify-private-test-input-locality.mjs",
     "lint:no-source-cycles": "node scripts/verify-no-source-cycles.mjs",
     "lint:no-raw-nul-bytes": "node scripts/verify-no-raw-nul-bytes.mjs",
     "lint:model-catalog-migrations": "node scripts/model-catalog-migration-contract.mjs",
@@ -128,5 +132,12 @@
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.8.2",
+      "onFail": "download"
+    }
+  }
 }

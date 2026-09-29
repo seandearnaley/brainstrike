@@ -1,7 +1,6 @@
 import type { UsePGliteLiveQueryOptions } from '@brainstrike/db/react';
 import { usePGliteLiveQuery } from '@brainstrike/db/react';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
-import type { ElectronAPI } from '@brainstrike/types';
 import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -313,12 +312,15 @@ function createDeferred(): {
   return { promise, reject, resolve };
 }
 
-function createDesktopElectronApiStub(): ElectronAPI {
-  return {
-    fileSystem: {} as ElectronAPI['fileSystem'],
-    loadLayout: async () => ({ success: true }),
-    saveLayout: async () => ({ success: true }),
-    storage: {} as ElectronAPI['storage'],
+function setDesktopBackfillCapability(): void {
+  (window as Window & { embeddingHost?: unknown }).embeddingHost = {
+    ensureStarted: vi.fn(async () => undefined),
+    getBackfillsInFlight: vi.fn(async () => []),
+    getStatus: vi.fn(async () => undefined),
+    onBackfillProgress: vi.fn(() => () => {}),
+    onStatus: vi.fn(() => () => {}),
+    reset: vi.fn(async () => undefined),
+    stop: vi.fn(async () => undefined),
   };
 }
 
@@ -348,14 +350,8 @@ describe('useVectorQueueState', () => {
     vectorStatusUiStoreState.setActiveBackfill.mockReset();
     vectorStatusUiStoreState.setIsJobQueueActive.mockReset();
     const testWindow = window as Window & {
-      electronAPI?: unknown;
       embeddingHost?: unknown;
     };
-    Object.defineProperty(testWindow, 'electronAPI', {
-      configurable: true,
-      value: undefined,
-      writable: true,
-    });
     Object.defineProperty(testWindow, 'embeddingHost', {
       configurable: true,
       value: undefined,
@@ -673,7 +669,7 @@ describe('useVectorQueueState', () => {
   });
 
   it('clears stale active-set backfill state when the desktop host reports no in-flight backfills', async () => {
-    window.electronAPI = createDesktopElectronApiStub();
+    setDesktopBackfillCapability();
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-1',
       progress: { done: 7, total: 10 },
@@ -701,7 +697,7 @@ describe('useVectorQueueState', () => {
   });
 
   it('does not clear another collection backfill while reconciling the active set after reload', async () => {
-    window.electronAPI = createDesktopElectronApiStub();
+    setDesktopBackfillCapability();
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-2',
       progress: { done: 4, total: 10 },
@@ -733,7 +729,7 @@ describe('useVectorQueueState', () => {
   });
 
   it('restores an in-flight desktop backfill after reload and cleans up the recovery listener', async () => {
-    window.electronAPI = createDesktopElectronApiStub();
+    setDesktopBackfillCapability();
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_781_020_800_000);
 
     const controller = createMockController();
@@ -797,7 +793,7 @@ describe('useVectorQueueState', () => {
   });
 
   it('does not overwrite an existing real backfill while restoring desktop state', async () => {
-    window.electronAPI = createDesktopElectronApiStub();
+    setDesktopBackfillCapability();
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-1',
       progress: { done: 2, total: 10 },

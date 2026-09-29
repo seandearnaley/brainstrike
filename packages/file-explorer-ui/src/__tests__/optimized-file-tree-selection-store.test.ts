@@ -1,4 +1,5 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import * as fileTreeWorker from '@brainstrike/file-tree-worker';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
@@ -63,6 +64,131 @@ function inputs(
 }
 
 describe('createFileTreeSelectionStore', () => {
+  it('prepares absolute path aliases once while reading current selection membership', () => {
+    const folderId = '/workspace/project';
+    const row = fileRow(`${folderId}/src/index.ts`);
+    const relativeKey = encodeFileSelection(folderId, '/src/index.ts');
+    const pathDerivations = vi.spyOn(fileTreeWorker, 'isDescendantPath');
+    const store = createFileTreeSelectionStore(inputs(new Set(), { folderId }));
+
+    expect(store.getNodeState(row).checkboxState).toBe(false);
+    expect(pathDerivations).toHaveBeenCalledTimes(1);
+    pathDerivations.mockClear();
+
+    store.setInputs(inputs(new Set([relativeKey]), { folderId }));
+    expect(store.getNodeState(row).checkboxState).toBe(true);
+    expect(store.getNodeState(row).checkboxState).toBe(true);
+    store.setInputs(inputs(new Set(), { folderId }));
+    expect(store.getNodeState(row).checkboxState).toBe(false);
+    expect(pathDerivations.mock.calls.length).toBe(0);
+  });
+
+  it('does not repeat alias preparation across 10,000 unchanged file nodes', () => {
+    const folderId = '/workspace/large';
+    const rows = Array.from({ length: 10_000 }, (_, index) =>
+      fileRow(`${folderId}/src/file-${index}.ts`)
+    );
+    const store = createFileTreeSelectionStore(inputs(new Set(), { folderId }));
+    const pathDerivations = vi.spyOn(fileTreeWorker, 'isDescendantPath');
+    for (const row of rows) {
+      expect(store.getNodeState(row).checkboxState).toBe(false);
+    }
+    expect(pathDerivations).toHaveBeenCalledTimes(rows.length);
+    pathDerivations.mockClear();
+
+    store.setInputs(
+      inputs(new Set([encodeFileSelection(folderId, 'src/file-9999.ts')]), { folderId })
+    );
+    let selectedCount = 0;
+    for (const row of rows) {
+      if (store.getNodeState(row).checkboxState) {
+        selectedCount += 1;
+      }
+    }
+    expect(selectedCount).toBe(1);
+    expect(pathDerivations.mock.calls.length).toBe(0);
+  });
+
+  it.each([
+    ['/workspace/project', '/workspace/project/src/index.ts', 'src/index.ts'],
+    ['/workspace/project', '/workspace/project/src/index.ts', '/src/index.ts'],
+    ['/workspace/project', '/workspace/project/src/index.ts', '/workspace/project/src/index.ts'],
+    ['C:\\repo', 'C:\\repo\\src\\index.ts', 'src/index.ts'],
+    ['C:\\repo', 'C:\\repo\\src\\index.ts', '/src/index.ts'],
+    ['C:\\repo', 'C:\\repo\\src\\index.ts', 'C:\\repo\\src\\index.ts'],
+  ])(
+    'preserves cached membership for %s node %s selected as %s',
+    (folderId, path, selectedPath) => {
+      const row = fileRow(path);
+      const store = createFileTreeSelectionStore(inputs(new Set(), { folderId }));
+      expect(store.getNodeState(row).checkboxState).toBe(false);
+
+      store.setInputs(inputs(new Set([encodeFileSelection(folderId, selectedPath)]), { folderId }));
+      expect(store.getNodeState(row).checkboxState).toBe(true);
+      expect(store.getNodeState(fileRow(path)).checkboxState).toBe(true);
+
+      store.setInputs(inputs(new Set(), { folderId }));
+      expect(store.getNodeState(row).checkboxState).toBe(false);
+    }
+  );
+
+  it('invalidates prepared aliases when the same node changes folder or path', () => {
+    const folderId = '/workspace/project';
+    const row = fileRow(`${folderId}/src/index.ts`);
+    const selected = new Set([encodeFileSelection(folderId, 'src/index.ts')]);
+    const store = createFileTreeSelectionStore(inputs(selected, { folderId }));
+    expect(store.getNodeState(row).checkboxState).toBe(true);
+
+    store.setInputs(inputs(selected, { folderId: '/workspace/other' }));
+    expect(store.getNodeState(row).checkboxState).toBe(false);
+
+    store.setInputs(inputs(selected, { folderId }));
+    expect(store.getNodeState(row).checkboxState).toBe(true);
+    row.fileNode.path = `${folderId}/src/other.ts`;
+    expect(store.getNodeState(row).checkboxState).toBe(false);
+  });
+
+  it('shares prepared file aliases with loaded-child tri-state traversal', () => {
+    const folderId = '/workspace/project';
+    const childRow = fileRow(`${folderId}/src/index.ts`);
+    const siblingRow = fileRow(`${folderId}/src/other.ts`);
+    const directoryRow: FileTreeRowData = {
+      ...fileRow(`${folderId}/src`),
+      directoryTotalFiles: 2,
+      immediateChildren: [childRow.fileNode, siblingRow.fileNode],
+    };
+    directoryRow.fileNode = {
+      ...directoryRow.fileNode,
+      children: directoryRow.immediateChildren,
+      loadState: 'loaded',
+      type: 'directory',
+    };
+    const store = createFileTreeSelectionStore(inputs(new Set(), { folderId }));
+    const pathDerivations = vi.spyOn(fileTreeWorker, 'isDescendantPath');
+    expect(store.getNodeState(childRow).checkboxState).toBe(false);
+    expect(store.getNodeState(siblingRow).checkboxState).toBe(false);
+    expect(store.getNodeState(directoryRow).checkboxState).toBe(false);
+    expect(pathDerivations).toHaveBeenCalledTimes(3);
+    pathDerivations.mockClear();
+
+    store.setInputs(
+      inputs(new Set([encodeFileSelection(folderId, '/src/index.ts')]), { folderId })
+    );
+    expect(store.getNodeState(directoryRow).checkboxState).toBe('indeterminate');
+    expect(store.getNodeState(childRow).checkboxState).toBe(true);
+    store.setInputs(
+      inputs(
+        new Set([
+          encodeFileSelection(folderId, '/src/index.ts'),
+          encodeFileSelection(folderId, '/src/other.ts'),
+        ]),
+        { folderId }
+      )
+    );
+    expect(store.getNodeState(directoryRow).checkboxState).toBe(true);
+    expect(pathDerivations.mock.calls.length).toBe(0);
+  });
+
   it('returns the derived checkbox state for a node', () => {
     const store = createFileTreeSelectionStore(
       inputs(new Set([encodeFileSelection('root', '/a.ts')]))

@@ -62,30 +62,19 @@ async function openSearchIndexingSettings(args: { homePage: HomePage; page: Page
 
 async function readWorkspaceIndexRows(page: Page): Promise<WorkspaceIndexRow[]> {
   return await page.evaluate(async () => {
-    const api = (
-      window as Window & {
-        electronAPI?: {
-          db?: {
-            query?: (
-              sql: string,
-              params?: unknown[]
-            ) => Promise<{ rows: Record<string, unknown>[] }>;
-          };
-        };
-      }
-    ).electronAPI;
-    if (!api?.db?.query) {
+    const api = window.electronAPI;
+    if (!api?.db.query) {
       throw new Error('Desktop DB query bridge is unavailable.');
     }
 
-    const result = await api.db.query(
+    const result = await api.db.query<WorkspaceIndexRow>(
       `SELECT id, name, model_id, model_key, dimensions, system_role
        FROM embedding_sets
        WHERE system_role = $1
        ORDER BY created_at ASC`,
       ['workspace-index']
     );
-    return result.rows as WorkspaceIndexRow[];
+    return result.rows;
   });
 }
 

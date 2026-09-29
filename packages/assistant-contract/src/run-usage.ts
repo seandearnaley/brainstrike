@@ -32,7 +32,16 @@ export type AssistantChildRunUsageSource = Exclude<AssistantRunUsageKind, 'chat'
 
 export const CHILD_RUN_USAGE_DATA_NAME = 'brainstrike.child-run-usage';
 
+/** Native completion identity; ownership is resolved independently by the host. */
+export interface AssistantDelegatedUsageIdentity {
+  readonly parentRuntimeRunId: string;
+  readonly parentToolCallId: string;
+  readonly resourceId: string;
+  readonly threadId: string;
+}
+
 export interface AssistantChildRunUsage {
+  readonly delegation?: AssistantDelegatedUsageIdentity;
   /**
    * True when the token figures are local estimates (OM cycles), false when
    * they are provider-reported (subagent or compaction-summary aggregate usage).
@@ -65,6 +74,18 @@ function isOptionalNonEmptyString(value: unknown): value is string | undefined {
   return value === undefined || (typeof value === 'string' && value.length > 0);
 }
 
+export function isAssistantDelegatedUsageIdentity(
+  value: unknown
+): value is AssistantDelegatedUsageIdentity {
+  return (
+    isRecord(value) &&
+    ['parentRuntimeRunId', 'parentToolCallId', 'resourceId', 'threadId'].every((key) => {
+      const raw = value[key];
+      return typeof raw === 'string' && raw.trim().length > 0;
+    })
+  );
+}
+
 /** True when the value is a well-formed {@link AssistantChildRunUsage}. */
 export function isAssistantChildRunUsage(value: unknown): value is AssistantChildRunUsage {
   return (
@@ -76,6 +97,8 @@ export function isAssistantChildRunUsage(value: unknown): value is AssistantChil
     isCount(value['outputTokens']) &&
     isOptionalNonEmptyString(value['model']) &&
     isOptionalNonEmptyString(value['provider']) &&
-    isOptionalNonEmptyString(value['personaId'])
+    isOptionalNonEmptyString(value['personaId']) &&
+    (value['delegation'] === undefined ||
+      (value['source'] === 'subagent' && isAssistantDelegatedUsageIdentity(value['delegation'])))
   );
 }

@@ -11,6 +11,11 @@ import type { EnvBootstrapReport } from '@brainstrike/assistant-contract/env-boo
 import { ipcMain } from 'electron';
 import { listAgentProviders } from './agent-client-loader';
 import type { DesktopEnvLoadFailure } from './desktop-env';
+import {
+  decodeProviderArgs,
+  decodeProviderCredentialArgs,
+  decodeProviderValueArgs,
+} from './ipc-secrets-args';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import {
@@ -313,7 +318,8 @@ export function registerSecretsIpcHandlers(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.save,
     { roles: ['visible-ui'] },
-    async (_event, provider: string, value: string) => {
+    async (_event, ...args: readonly unknown[]) => {
+      const [provider, value] = decodeProviderValueArgs(args);
       // In test mode, use in-memory storage — the api_key JSON ENVELOPE, for
       // parity with the production single write path (saveKey → setCredential).
       if (isTestMode()) {
@@ -337,7 +343,8 @@ export function registerSecretsIpcHandlers(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.get,
     { roles: ['visible-ui'] },
-    async (_event, provider: string) => {
+    async (_event, ...args: readonly unknown[]) => {
+      const [provider] = decodeProviderArgs(args);
       // In test mode, check in-memory storage. Read through the SAME
       // credential mapping + string projection as the production service
       // (parseCredentialOrThrow / credentialToApiKey) so a typed variant
@@ -360,7 +367,8 @@ export function registerSecretsIpcHandlers(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.saveCredential,
     { roles: ['visible-ui'] },
-    async (_event, provider: string, credential: unknown) => {
+    async (_event, ...args: readonly unknown[]) => {
+      const [provider, credential] = decodeProviderCredentialArgs(args);
       // Single validation site: setCredential's guard. Test mode substitutes
       // the same guard because no service backs it.
       if (isTestMode()) {
@@ -383,7 +391,8 @@ export function registerSecretsIpcHandlers(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.getCredential,
     { roles: ['visible-ui'] },
-    async (_event, provider: string) => {
+    async (_event, ...args: readonly unknown[]) => {
+      const [provider] = decodeProviderArgs(args);
       // Failures are serialized as data — invoke drops custom error props.
       try {
         const credential = isTestMode()
@@ -403,7 +412,8 @@ export function registerSecretsIpcHandlers(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.delete,
     { roles: ['visible-ui'] },
-    async (_event, provider: string) => {
+    async (_event, ...args: readonly unknown[]) => {
+      const [provider] = decodeProviderArgs(args);
       // In test mode, remove from in-memory storage
       if (isTestMode()) {
         testModeSecrets.delete(provider);

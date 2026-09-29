@@ -1,6 +1,7 @@
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
@@ -30,6 +31,8 @@ import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../window-r
 
 const EMBEDDING_HOST_SENDER_ID = 9401;
 const VISIBLE_UI_SENDER_ID = 9402;
+const UNTRACKED_SENDER_ID = 9403;
+const SPOOFED_VISIBLE_UI_SENDER_ID = 9404;
 
 function trackSender(senderId: number, role: 'embedding-host' | 'visible-ui'): void {
   assignWindowRole(
@@ -39,7 +42,10 @@ function trackSender(senderId: number, role: 'embedding-host' | 'visible-ui'): v
 }
 
 function senderEvent(senderId: number): IpcMainInvokeEvent {
-  return { sender: { id: senderId } } as unknown as IpcMainInvokeEvent;
+  return {
+    sender: { id: senderId },
+    senderFrame: createAllowlistedSenderFrame(),
+  } as unknown as IpcMainInvokeEvent;
 }
 
 interface FakeStore {
@@ -77,12 +83,21 @@ describe('storage preferences IPC domain', () => {
   beforeEach(() => {
     handlers.clear();
     removeHandler.mockClear();
+    trackSender(VISIBLE_UI_SENDER_ID, 'visible-ui');
+    trackSender(EMBEDDING_HOST_SENDER_ID, 'embedding-host');
+    trackSender(SPOOFED_VISIBLE_UI_SENDER_ID, 'visible-ui');
     storage = createStorage();
     store = createStore();
     registerStoragePreferencesIpcHandlers({
       getStore: () => store as never,
       storage,
     });
+  });
+
+  afterEach(() => {
+    clearWindowRoleByWebContentsId(VISIBLE_UI_SENDER_ID);
+    clearWindowRoleByWebContentsId(EMBEDDING_HOST_SENDER_ID);
+    clearWindowRoleByWebContentsId(SPOOFED_VISIBLE_UI_SENDER_ID);
   });
 
   it('registers storage handlers through the desktop IPC registry', async () => {
@@ -92,11 +107,13 @@ describe('storage preferences IPC domain', () => {
     const clear = handlers.get('storage:clear');
     const getAllKeys = handlers.get('storage:getAllKeys');
 
-    await expect(getItem?.({} as IpcMainInvokeEvent, 'alpha')).resolves.toBe('value:alpha');
-    await setItem?.({} as IpcMainInvokeEvent, 'alpha', 'beta');
-    await removeItem?.({} as IpcMainInvokeEvent, 'alpha');
-    await clear?.({} as IpcMainInvokeEvent);
-    await expect(getAllKeys?.({} as IpcMainInvokeEvent)).resolves.toEqual(['alpha']);
+    await expect(getItem?.(senderEvent(VISIBLE_UI_SENDER_ID), 'alpha')).resolves.toBe(
+      'value:alpha'
+    );
+    await setItem?.(senderEvent(VISIBLE_UI_SENDER_ID), 'alpha', 'beta');
+    await removeItem?.(senderEvent(VISIBLE_UI_SENDER_ID), 'alpha');
+    await clear?.(senderEvent(VISIBLE_UI_SENDER_ID));
+    await expect(getAllKeys?.(senderEvent(VISIBLE_UI_SENDER_ID))).resolves.toEqual(['alpha']);
 
     expect(storage.getItem).toHaveBeenCalledWith('alpha');
     expect(storage.setItem).toHaveBeenCalledWith('alpha', 'beta');
@@ -124,10 +141,10 @@ describe('storage preferences IPC domain', () => {
     const setItem = handlers.get('storage:setItem');
     const removeItem = handlers.get('storage:removeItem');
 
-    await expect(setItem?.({} as IpcMainInvokeEvent, key, 'value')).rejects.toThrow(
+    await expect(setItem?.(senderEvent(VISIBLE_UI_SENDER_ID), key, 'value')).rejects.toThrow(
       `Storage key "${key}" is main-owned`
     );
-    await expect(removeItem?.({} as IpcMainInvokeEvent, key)).rejects.toThrow(
+    await expect(removeItem?.(senderEvent(VISIBLE_UI_SENDER_ID), key)).rejects.toThrow(
       `Storage key "${key}" is main-owned`
     );
     expect(storage.setItem).not.toHaveBeenCalled();
@@ -138,15 +155,15 @@ describe('storage preferences IPC domain', () => {
     const setItem = handlers.get('storage:setItem');
 
     await expect(
-      setItem?.({} as IpcMainInvokeEvent, 'assistant-preferences.v1', { invalid: true })
-    ).rejects.toThrow('Storage value must be a string');
+      setItem?.(senderEvent(VISIBLE_UI_SENDER_ID), 'assistant-preferences.v1', { invalid: true })
+    ).rejects.toThrow('storage setItem requires two string arguments.');
     expect(storage.setItem).not.toHaveBeenCalled();
   });
 
   it('clears renderer-owned keys without deleting main-owned ledgers', async () => {
     const clear = handlers.get('storage:clear');
 
-    await clear?.({} as IpcMainInvokeEvent);
+    await clear?.(senderEvent(VISIBLE_UI_SENDER_ID));
 
     expect(storage.clear).not.toHaveBeenCalled();
     expect(storage.clearExcept).toHaveBeenCalledWith([
@@ -164,6 +181,37 @@ describe('storage preferences IPC domain', () => {
     expect(handlers.has('storage:clearAllForE2e')).toBe(false);
   });
 
+  it('enforces the full sender matrix for every visible-UI contract channel', async () => {
+    const channels = [
+      'storage:getItem',
+      'storage:setItem',
+      'storage:removeItem',
+      'storage:clear',
+      'storage:getAllKeys',
+      'layout:load',
+      'layout:save',
+      'settings:clearAll',
+    ];
+    for (const channel of channels) {
+      const handler = handlers.get(channel);
+      await expect(
+        handler?.(senderEvent(EMBEDDING_HOST_SENDER_ID), { malformed: true })
+      ).rejects.toThrow(`Desktop IPC ${channel} requires sender role visible-ui.`);
+      await expect(
+        handler?.(senderEvent(UNTRACKED_SENDER_ID), { malformed: true })
+      ).rejects.toThrow(`Desktop IPC ${channel} requires sender role visible-ui.`);
+      await expect(
+        handler?.(
+          {
+            sender: { id: SPOOFED_VISIBLE_UI_SENDER_ID },
+            senderFrame: { url: 'https://evil.example/' },
+          } as unknown as IpcMainInvokeEvent,
+          { malformed: true }
+        )
+      ).rejects.toThrow(`Desktop IPC ${channel} rejected an unrecognized sender frame URL.`);
+    }
+  });
+
   it('registers bounded storage helpers only in Electron E2E mode', async () => {
     vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
     try {
@@ -174,14 +222,18 @@ describe('storage preferences IPC domain', () => {
       const seedMainOwned = handlers.get('storage:seedMainOwnedForE2e');
       const clearAll = handlers.get('storage:clearAllForE2e');
 
-      await seedMainOwned?.({} as IpcMainInvokeEvent, 'rootsList', '[{"path":"/test"}]');
+      await seedMainOwned?.(senderEvent(VISIBLE_UI_SENDER_ID), 'rootsList', '[{"path":"/test"}]');
       expect(storage.setItem).toHaveBeenCalledWith('rootsList', '[{"path":"/test"}]');
 
       await expect(
-        seedMainOwned?.({} as IpcMainInvokeEvent, 'assistant-preferences.v1', '{}')
+        seedMainOwned?.(senderEvent(EMBEDDING_HOST_SENDER_ID), 'rootsList', '[]')
+      ).rejects.toThrow('Desktop IPC storage:seedMainOwnedForE2e requires sender role visible-ui.');
+
+      await expect(
+        seedMainOwned?.(senderEvent(VISIBLE_UI_SENDER_ID), 'assistant-preferences.v1', '{}')
       ).rejects.toThrow('E2E main-owned storage seed requires a main-owned key');
 
-      await clearAll?.({} as IpcMainInvokeEvent);
+      await clearAll?.(senderEvent(VISIBLE_UI_SENDER_ID));
       expect(storage.clear).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllEnvs();
@@ -192,7 +244,7 @@ describe('storage preferences IPC domain', () => {
     const save = handlers.get('layout:save');
 
     await expect(
-      save?.({} as IpcMainInvokeEvent, {
+      save?.(senderEvent(VISIBLE_UI_SENDER_ID), {
         showConsole: true,
         showLeftPanel: false,
         showRightPanel: true,
@@ -209,7 +261,7 @@ describe('storage preferences IPC domain', () => {
     });
 
     await expect(
-      save?.({} as IpcMainInvokeEvent, {
+      save?.(senderEvent(VISIBLE_UI_SENDER_ID), {
         showConsole: true,
         showLeftPanel: false,
         showRightPanel: true,
@@ -229,7 +281,7 @@ describe('storage preferences IPC domain', () => {
       },
     });
 
-    await expect(load?.({} as IpcMainInvokeEvent)).resolves.toEqual({
+    await expect(load?.(senderEvent(VISIBLE_UI_SENDER_ID))).resolves.toEqual({
       data: {
         showConsole: false,
         showLeftPanel: true,
@@ -240,7 +292,7 @@ describe('storage preferences IPC domain', () => {
     });
 
     store.set('panelLayout', { v1: { sizes: [50] } });
-    await expect(load?.({} as IpcMainInvokeEvent)).resolves.toEqual({
+    await expect(load?.(senderEvent(VISIBLE_UI_SENDER_ID))).resolves.toEqual({
       message: 'Invalid panel layout data',
       success: false,
     });
@@ -248,7 +300,7 @@ describe('storage preferences IPC domain', () => {
 
   it('clears settings and unregisters owned channels', async () => {
     const clearAll = handlers.get('settings:clearAll');
-    await expect(clearAll?.({} as IpcMainInvokeEvent)).resolves.toEqual({ success: true });
+    await expect(clearAll?.(senderEvent(VISIBLE_UI_SENDER_ID))).resolves.toEqual({ success: true });
     expect(store.clear).toHaveBeenCalled();
 
     const unregister = registerStoragePreferencesIpcHandlers({
@@ -278,8 +330,11 @@ describe('storage preferences IPC domain', () => {
       const write = handlers.get('vector-preferences:write');
       const clear = handlers.get('vector-preferences:clear');
 
-      // A renderer-supplied key is ignored: main pins the record.
-      await expect(read?.(senderEvent(EMBEDDING_HOST_SENDER_ID), 'other-store.v1')).resolves.toBe(
+      await expect(read?.(senderEvent(EMBEDDING_HOST_SENDER_ID), 'other-store.v1')).rejects.toThrow(
+        'vector preferences read requires exactly 0 arguments'
+      );
+
+      await expect(read?.(senderEvent(EMBEDDING_HOST_SENDER_ID))).resolves.toBe(
         'value:vector-preferences.v1'
       );
       expect(storage.getItem).toHaveBeenCalledWith('vector-preferences.v1');
@@ -300,7 +355,7 @@ describe('storage preferences IPC domain', () => {
       const write = handlers.get('vector-preferences:write');
 
       await expect(write?.(senderEvent(EMBEDDING_HOST_SENDER_ID), 42)).rejects.toThrow(
-        'Vector preferences payload must be a string.'
+        'vector preferences write requires a string argument.'
       );
       expect(storage.setItem).not.toHaveBeenCalled();
     });

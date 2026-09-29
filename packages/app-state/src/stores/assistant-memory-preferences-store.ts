@@ -29,6 +29,12 @@ const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {
   'openai/gpt-5.2-chat-latest': 'openai/gpt-5.4-mini',
   'openrouter/anthropic/claude-sonnet-4.5': 'openrouter/anthropic/claude-sonnet-4.6',
   'openrouter/google/gemini-3-flash-preview': 'openrouter/google/gemini-3.5-flash',
+  // BST-1697 delistings. Keys are provider-prefixed composite targets, so the
+  // OpenRouter route id carries its own vendor segment as well.
+  'openrouter/inclusionai/ling-3.0-flash:free': 'openrouter/inclusionai/ling-3.0-flash',
+  'openrouter/kwaipilot/kat-coder-air-v2.5': 'openrouter/kwaipilot/kat-coder-pro-v2.5',
+  'openrouter/qwen/qwen3.8-max': 'openrouter/qwen/qwen3.8-max-0902',
+  'openrouter/stealth/ox-alpha': 'openrouter/qwen/qwen3.8-flash',
 };
 
 function migrateMemoryModelTarget(target: string): string {
@@ -234,6 +240,46 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
         })),
     }),
     {
+      /**
+       * BST-1645: the normalize + `hasHydrated` mark run HERE, not in
+       * `onRehydrateStorage`.
+       *
+       * `createBrowserJsonStorage().getItem` is synchronous, so zustand's
+       * persist middleware resolves hydration DURING `create(...)` — while the
+       * module-level `useAssistantMemoryPreferencesStore` binding is still in
+       * its temporal dead zone. The old rehydrate callback called
+       * `useAssistantMemoryPreferencesStore.setState` and threw a
+       * ReferenceError that zustand swallowed (it re-invokes the callback as
+       * `(undefined, error)`, whose `if (error) return` guard then declines),
+       * so on the app's real hydration path neither the remap nor
+       * `hasHydrated` ever landed. Same bug as #2086; see
+       * `import-settings-store.ts`.
+       *
+       * `merge` needs no module binding and runs on EVERY hydration, not just
+       * version bumps: zustand only calls `migrate` when
+       * `persistedVersion !== STORE_VERSION`, so a target dropped without a
+       * version bump would otherwise linger in the persisted state and the
+       * settings UI. Mirrors the read-time normalize in
+       * `getRuntimeMemorySettings`.
+       */
+      merge: (persistedState, currentState) => {
+        // No snapshot (first run): keep whatever the user already changed while
+        // an async storage read was pending; only mark hydration complete.
+        // Spreading defaults here would silently revert those edits on desktop,
+        // where the Electron storage bridge is promise-based.
+        if (persistedState === undefined || persistedState === null) {
+          return { ...currentState, hasHydrated: true };
+        }
+        return {
+          ...currentState,
+          ...normalizeMemorySettings(
+            typeof persistedState === 'object'
+              ? (persistedState as Partial<RuntimeAssistantMemorySettings>)
+              : undefined
+          ),
+          hasHydrated: true,
+        };
+      },
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return initialMemorySettings;
@@ -241,29 +287,6 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
         return normalizeMemorySettings(persistedState as Partial<RuntimeAssistantMemorySettings>);
       },
       name: ASSISTANT_MEMORY_PREFERENCES_STORE_NAME,
-      onRehydrateStorage: () => (state, error) => {
-        if (error) {
-          return;
-        }
-        // Defensively remap a dropped observational-memory target on EVERY
-        // hydration, not just version bumps. zustand persist only calls
-        // `migrate` when persistedVersion < STORE_VERSION, so a stale target
-        // persisted at the current version (or a future dropped ID added to
-        // MEMORY_MODEL_TARGET_MIGRATIONS without a version bump) would otherwise
-        // linger in the persisted state and the settings UI. Mirrors the
-        // read-time normalize in getRuntimeMemorySettings.
-        if (state) {
-          const remapped = migrateMemoryModelTarget(state.observationalMemory.modelTarget);
-          if (remapped !== state.observationalMemory.modelTarget) {
-            useAssistantMemoryPreferencesStore.setState({
-              hasHydrated: true,
-              observationalMemory: { ...state.observationalMemory, modelTarget: remapped },
-            });
-            return;
-          }
-        }
-        useAssistantMemoryPreferencesStore.setState({ hasHydrated: true });
-      },
       partialize: (state) => ({
         observationalMemory: state.observationalMemory,
         semanticRecall: state.semanticRecall,

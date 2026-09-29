@@ -6,13 +6,15 @@ export type MigrationCallback = (db: MigrationTransactionalDb) => Promise<void>;
 
 export interface Migration {
   down?: string | MigrationCallback;
+  /** Persisted `__drizzle_migrations.hash`; must never change once shipped. */
+  readonly ledgerKey: `custom-${string}`;
   name: string;
   up: string | MigrationCallback;
   version: number;
 }
 
 export class MigrationRunner {
-  private static MIGRATION_TABLE = '_migrations';
+  private static readonly MIGRATION_TABLE = '_migrations';
   private readonly logger = createLogger('MigrationRunner');
 
   constructor(private readonly db: PGlite) {}

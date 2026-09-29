@@ -44,7 +44,7 @@ jobs:
     # both native-build projects — see the matching note in test.yml's web-e2e
     # job.
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
       # `--user 1001` (pwuser) owns the browsers under /ms-playwright; this is
       # the configuration in Playwright's official GitHub Actions example.
       options: --user 1001

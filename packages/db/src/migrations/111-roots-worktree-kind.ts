@@ -13,6 +13,7 @@ export const migration111RootsWorktreeKind: Migration = {
     ALTER TABLE roots ADD CONSTRAINT roots_kind_check
       CHECK (kind IN ('path', 'fsa', 'snapshot', 'legacy'));
   `,
+  ledgerKey: 'custom-111-roots-worktree-kind',
   name: 'roots_worktree_kind',
   up: `
     ALTER TABLE roots DROP CONSTRAINT IF EXISTS roots_kind_check;

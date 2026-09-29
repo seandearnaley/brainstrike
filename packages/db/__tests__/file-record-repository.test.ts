@@ -68,6 +68,16 @@ describe('FileRecordRepository', () => {
     }
   });
 
+  it('measures the count read inside clearAll once and returns the deleted count', async () => {
+    await repo.create(createTestRecord());
+    const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
+    expect(await repo.clearAll()).toBe(1);
+    expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+      telemetryBefore + 1
+    );
+    expect(await repo.count()).toBe(0);
+  });
+
   it('creates and finds a record by id', async () => {
     const record = createTestRecord();
     await repo.create(record);

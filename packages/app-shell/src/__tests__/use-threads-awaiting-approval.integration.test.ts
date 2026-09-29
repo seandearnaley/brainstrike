@@ -7,22 +7,20 @@
  * would make the projection permanently EMPTY. Only executing the SELECT over
  * seeded rows falsifies that.
  *
- * Rows are seeded through the production repository writers
- * (`createThread` → `createThreadRun` → `appendThreadRunEvent`), which also run
- * the renderer-lazy `ASSISTANT_THREAD_RUNS_SCHEMA_SQL` bootstrap that OWNS
- * these tables — there is no numbered migration for them (see
- * `docs/agents/assistant-persistence.md`, RUN-EVENT / THREAD-RUN SCHEMA
- * OWNERSHIP). Parents therefore exist before children by construction: the
- * Mastra threads row before the `thread_runs` row before the `run_events` row,
- * which the FKs require.
+ * The database is MIGRATED first: migrations 117/118 own these tables now, and
+ * the repository probes for them rather than creating them (BST-1651). Rows are
+ * then seeded through the production repository writers (`createThread` →
+ * `createThreadRun` → `appendThreadRunEvent`), so parents exist before children
+ * by construction: the Mastra threads row before the `thread_runs` row before
+ * the `run_events` row, which the FKs require.
  */
 import type { AssistantRunEventKind } from '@brainstrike/assistant-contract';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   type AssistantThreadRepository,
-  buildAssistantThreadRunsSchemaSql,
   createPgliteAssistantThreadRepository,
 } from '@brainstrike/assistant-data';
-import { wasmLoader } from '@brainstrike/db';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { THREADS_AWAITING_APPROVAL_SQL } from '../hooks/use-threads-awaiting-approval';
@@ -43,7 +41,7 @@ let sequence = 0;
  */
 async function seedRun(threadId: string, resourceId: string, runId: string): Promise<void> {
   await repository.createThreadRun({
-    id: runId,
+    id: runId as HostRunId,
     model: 'test-model',
     provider: 'test-provider',
     resourceId,
@@ -86,6 +84,7 @@ async function awaitingApprovalThreadIds(resourceId: string): Promise<readonly s
 beforeEach(async () => {
   sequence = 0;
   database = await wasmLoader.createPGlite('memory://');
+  await migrate(database);
   repository = createPgliteAssistantThreadRepository(database as DbHandle);
 });
 
@@ -394,41 +393,58 @@ describe('threads-awaiting-approval query on real PGlite', () => {
    * run_events notify. The suite above builds a FRESH database, which never has
    * the old index, so it would pass throughout.
    *
-   * This seeds the pre-change state explicitly and then lets the bootstrap run.
+   * This builds the pre-change state explicitly and then MIGRATES, which is
+   * what an upgrading install now does: the renderer bootstrap that used to
+   * re-run this DDL on every handle init is gone (BST-1651), so migration 118's
+   * `DROP INDEX IF EXISTS` + renamed `CREATE INDEX` is the only upgrade path
+   * left.
    */
   it('replaces a pre-existing run_id-shaped answer index instead of skipping it', async () => {
-    // The bootstrap has to have run once for the table to exist…
-    await repository.createThread(RESOURCE_ID);
-    // …then put the database back into its pre-BST-1440 shape.
-    await database.query(
-      'DROP INDEX IF EXISTS brainstrike_assistant_run_events_approval_answer_at_idx'
-    );
-    await database.query(
-      `CREATE INDEX brainstrike_assistant_run_events_approval_answer_idx
-         ON brainstrike_assistant_run_events (resource_id, thread_id, (metadata->>'toolCallId'), run_id)
-         WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported')`
-    );
+    const upgrading = await wasmLoader.createPGlite('memory://');
+    try {
+      // A pre-BST-1440 install: `run_events` and the OLD answer index already
+      // exist, and migration 118 has never run. Only the index-relevant shape
+      // matters here; 118's `CREATE TABLE IF NOT EXISTS` no-ops against it, as
+      // it does against the real table.
+      await upgrading.exec(`
+        CREATE TABLE brainstrike_assistant_run_events (
+          id text PRIMARY KEY,
+          run_id text NOT NULL,
+          resource_id text NOT NULL,
+          thread_id text NOT NULL,
+          sequence integer NOT NULL,
+          kind text NOT NULL,
+          status text NOT NULL,
+          label text NOT NULL,
+          detail text,
+          duration_ms integer,
+          metadata jsonb,
+          occurred_at timestamptz NOT NULL,
+          created_at timestamptz NOT NULL,
+          updated_at timestamptz NOT NULL
+        );
+        CREATE INDEX brainstrike_assistant_run_events_approval_answer_idx
+          ON brainstrike_assistant_run_events (resource_id, thread_id, (metadata->>'toolCallId'), run_id)
+          WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported');
+      `);
 
-    // Re-run the bootstrap DDL itself, which is what an upgrading install does
-    // on its next app start. It cannot be triggered through the repository here:
-    // both the repository and its schema-init promise are memoized BY DATABASE
-    // HANDLE, and a new handle over `memory://` would be an empty database
-    // rather than an existing one. Executing the same SQL the initializer
-    // executes is the honest simulation, and it is the SQL under test.
-    await database.exec(buildAssistantThreadRunsSchemaSql());
+      await migrate(upgrading);
 
-    const names = await database.query<{ indexname: string }>(
-      `SELECT indexname FROM pg_indexes
-       WHERE tablename = 'brainstrike_assistant_run_events'
-         AND indexname LIKE '%approval_answer%'
-       ORDER BY indexname`
-    );
+      const names = await upgrading.query<{ indexname: string }>(
+        `SELECT indexname FROM pg_indexes
+         WHERE tablename = 'brainstrike_assistant_run_events'
+           AND indexname LIKE '%approval_answer%'
+         ORDER BY indexname`
+      );
 
-    // The old shape is GONE, not merely shadowed: leaving it would keep paying
-    // its write cost on the hottest table in the schema for no read benefit.
-    expect(names.rows.map((row) => row.indexname)).toEqual([
-      'brainstrike_assistant_run_events_approval_answer_at_idx',
-    ]);
+      // The old shape is GONE, not merely shadowed: leaving it would keep paying
+      // its write cost on the hottest table in the schema for no read benefit.
+      expect(names.rows.map((row) => row.indexname)).toEqual([
+        'brainstrike_assistant_run_events_approval_answer_at_idx',
+      ]);
+    } finally {
+      await upgrading.close();
+    }
   });
 
   // The correction this query exists for: a paused leg is recorded

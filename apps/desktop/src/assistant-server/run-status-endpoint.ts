@@ -10,6 +10,7 @@ import { readDesktopAssistantThreadRunStatus } from './run-persistence';
 type RunStatusDatabaseProvider = Parameters<typeof readDesktopAssistantThreadRunStatus>[1];
 
 const KNOWN_RUN_STATUSES: readonly AssistantRunStatusProjection[] = [
+  'cancelling',
   'cancelled',
   'completed',
   'failed',

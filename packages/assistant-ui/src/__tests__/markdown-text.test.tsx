@@ -142,7 +142,9 @@ describe('MarkdownText', () => {
   });
 
   it('uses Electron clipboard when available and blocks duplicate copies while copied', async () => {
-    const electronWriteText = vi.fn().mockResolvedValue({ ok: true });
+    // The desktop bridge (BST-1648) resolves on success and REJECTS on failure:
+    // the preload has already unwrapped the IPC envelope.
+    const electronWriteText = vi.fn().mockResolvedValue(undefined);
     (window as unknown as { clipboard?: { writeText: (text: string) => unknown } }).clipboard = {
       writeText: electronWriteText,
     };
@@ -161,7 +163,9 @@ describe('MarkdownText', () => {
   });
 
   it('does not fall back to navigator when the Electron bridge write fails', async () => {
-    const electronWriteText = vi.fn().mockResolvedValue({ error: 'write failed', ok: false });
+    const electronWriteText = vi
+      .fn()
+      .mockRejectedValue(new Error('write failed (clipboard · write_failed)'));
     (window as unknown as { clipboard?: { writeText: (text: string) => unknown } }).clipboard = {
       writeText: electronWriteText,
     };
@@ -180,7 +184,9 @@ describe('MarkdownText', () => {
     expect(writeText).not.toHaveBeenCalled();
     // The failure must be VISIBLE (not the idle 'Copy code' tooltip): a broken
     // Electron bridge never silently looks like a fresh copy affordance.
-    expect(copyButton).toHaveAttribute('title', 'Copy failed');
+    await waitFor(() => {
+      expect(copyButton).toHaveAttribute('title', 'Copy failed');
+    });
   });
 
   it('uses web clipboard when Electron clipboard is unavailable', async () => {

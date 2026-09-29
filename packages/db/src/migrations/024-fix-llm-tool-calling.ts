@@ -28,6 +28,7 @@ export const migration024FixLlmToolCalling: Migration = {
       updated_at = CURRENT_TIMESTAMP
     WHERE id = 'onnx-community/Qwen3-0.6B-ONNX';
   `,
+  ledgerKey: 'custom-024-fix-llm-tool-calling',
   name: 'fix_llm_tool_calling',
   up: `
     -- Fix LFM2.5 tool calling capability

@@ -1,10 +1,8 @@
-export interface ClipboardIpcResult {
-  error?: string;
-  ok: boolean;
-}
+import type { clipboardContract } from './ipc-domains/clipboard.contract';
+import { type Handlers, ipcFailure, ipcOk } from './platform/ipc-contract';
 
-interface ClipboardLike {
-  writeText: (text: string) => void;
+export interface ClipboardLike {
+  writeText: (text: string) => Promise<void>;
 }
 
 interface ClipboardIpcDependencies {
@@ -15,17 +13,21 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function createClipboardIpcHandlers({ clipboard }: ClipboardIpcDependencies) {
+/**
+ * Main-side handlers for the clipboard contract. Input validation lives in
+ * the contract's `parseArgs` (a non-string payload never reaches here); a
+ * clipboard write rejection settles as the `IpcResult` failure taxonomy.
+ */
+export function createClipboardIpcHandlers({
+  clipboard,
+}: ClipboardIpcDependencies): Handlers<typeof clipboardContract> {
   return {
-    writeText: (rawText: unknown): ClipboardIpcResult => {
-      if (typeof rawText !== 'string') {
-        return { error: 'clipboard writeText requires a string payload', ok: false };
-      }
+    writeText: async (text) => {
       try {
-        clipboard.writeText(rawText);
-        return { ok: true };
+        await clipboard.writeText(text);
+        return ipcOk(undefined);
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return ipcFailure('clipboard', 'write_failed', toErrorMessage(error));
       }
     },
   };

@@ -19,14 +19,23 @@ describe('AssistantRunErrorRepository', () => {
     const runner = new MigrationRunner(db);
     await runner.initialize();
     await runner.up(migrations);
+    // The parent run row, seeded into the REAL relations. This used to create a
+    // three-column stand-in because no migration created `thread_runs`;
+    // migration 118 does (BST-1651), so the repository's ownership derivation
+    // is now exercised against the production shape and its FK to
+    // `mastra_threads` rather than a lookalike.
     await db.exec(`
-      CREATE TABLE brainstrike_assistant_thread_runs (
-        id TEXT PRIMARY KEY,
-        resource_id TEXT NOT NULL,
-        thread_id TEXT NOT NULL
+      INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
+      VALUES ('thread-a', 'resource-a', 'Thread A', NOW(), NOW());
+
+      INSERT INTO brainstrike_assistant_thread_runs (
+        id, resource_id, thread_id, provider, model, runtime_kind, status,
+        started_at, created_at, updated_at
+      )
+      VALUES (
+        'run-a', 'resource-a', 'thread-a', 'openai', 'gpt-5.2', 'hosted',
+        'completed', NOW(), NOW(), NOW()
       );
-      INSERT INTO brainstrike_assistant_thread_runs (id, resource_id, thread_id)
-      VALUES ('run-a', 'resource-a', 'thread-a');
     `);
     repository = new AssistantRunErrorRepository(db);
   });

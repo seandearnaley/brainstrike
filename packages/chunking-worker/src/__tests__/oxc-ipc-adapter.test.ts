@@ -22,7 +22,7 @@ interface PostedMessage {
 type MessageListener = (event: { data?: unknown }) => void;
 
 interface FakeWorkerSelf {
-  addEventListener: (type: 'message', listener: MessageListener) => void;
+  addEventListener: ReturnType<typeof vi.fn<(type: 'message', listener: MessageListener) => void>>;
   emit: (data: unknown) => void;
   postMessage: ReturnType<typeof vi.fn<(m: PostedMessage) => void>>;
 }
@@ -30,11 +30,11 @@ interface FakeWorkerSelf {
 function installFakeSelf(): FakeWorkerSelf {
   const listeners: MessageListener[] = [];
   const fake: FakeWorkerSelf = {
-    addEventListener: (type, listener) => {
+    addEventListener: vi.fn((type, listener) => {
       if (type === 'message') {
         listeners.push(listener);
       }
-    },
+    }),
     emit: (data: unknown) => {
       for (const l of listeners) {
         l({ data });
@@ -90,6 +90,190 @@ afterEach(() => {
 });
 
 describe('oxcIpcAdapter', () => {
+  it('releases its timer immediately when postMessage throws synchronously', async () => {
+    vi.useFakeTimers();
+    const sendError = new Error('worker send failed');
+    fakeSelf.postMessage.mockImplementation(() => {
+      throw sendError;
+    });
+    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
+    try {
+      await expect(oxcIpcAdapter.parse('source', baseOptions)).rejects.toBe(sendError);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      const { __resetIpcAdapterForTesting } = await import('../parsers/oxc-ipc-adapter');
+      __resetIpcAdapterForTesting();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores mismatched inner request ids and accepts a later valid response', async () => {
+    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
+    const attempt = oxcIpcAdapter.parse('source', baseOptions);
+    const sent = fakeSelf.postMessage.mock.calls[0]?.[0];
+    if (!sent) {
+      throw new Error('parse did not post');
+    }
+    const wrongRoot = { type: 'WrongProgram' };
+    const validRoot = { type: 'Program' };
+    fakeSelf.emit({
+      requestId: sent.requestId,
+      response: { ok: true, requestId: 'different-request', root: wrongRoot },
+      type: 'parser-host:reply',
+    });
+    fakeSelf.emit({
+      requestId: sent.requestId,
+      response: { ok: true, requestId: sent.requestId, root: validRoot },
+      type: 'parser-host:reply',
+    });
+    await expect(attempt).resolves.toBe(validRoot);
+  });
+
+  it('preserves array envelope, response and opaque root identity', async () => {
+    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
+    const attempt = oxcIpcAdapter.parse('source', baseOptions);
+    const requestId = fakeSelf.postMessage.mock.calls[0]?.[0].requestId;
+    const root = Object.assign([], { sentinel: 'original' });
+    const response = Object.assign([], { ok: true, requestId, root });
+    fakeSelf.emit(Object.assign([], { requestId, response, type: 'parser-host:reply' }));
+    await expect(attempt).resolves.toBe(root);
+  });
+
+  it('retains synchronous success before a subsequent postMessage throw', async () => {
+    vi.useFakeTimers();
+    const root = { type: 'Program' };
+    fakeSelf.postMessage.mockImplementation(({ requestId }) => {
+      fakeSelf.emit({
+        requestId,
+        response: { ok: true, requestId, root },
+        type: 'parser-host:reply',
+      });
+      throw new Error('after reply');
+    });
+    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
+    try {
+      const attempt = oxcIpcAdapter.parse('source', baseOptions);
+      expect(fakeSelf.postMessage).toHaveBeenCalledTimes(1);
+      await expect(attempt).resolves.toBe(root);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains synchronous host failure before a subsequent postMessage throw', async () => {
+    vi.useFakeTimers();
+    fakeSelf.postMessage.mockImplementation(({ requestId }) => {
+      fakeSelf.emit({
+        requestId,
+        response: { error: 'first failure', ok: false, requestId },
+        type: 'parser-host:reply',
+      });
+      throw new Error('after reply');
+    });
+    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
+    try {
+      await expect(oxcIpcAdapter.parse('source', baseOptions)).rejects.toThrow(
+        'oxc-ipc-adapter: parser host failure: first failure'
+      );
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('times out normally after mismatched and malformed responses', async () => {
+    vi.useFakeTimers();
+    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
+    try {
+      const attempt = oxcIpcAdapter.parse('source', baseOptions);
+      const requestId = fakeSelf.postMessage.mock.calls[0]?.[0].requestId;
+      const rejection = expect(attempt).rejects.toThrow('oxc-ipc-adapter: timeout after 30000ms');
+      for (const response of [
+        null,
+        { ok: true, requestId, root: null },
+        { ok: false, requestId },
+        { ok: 'true', requestId, root: {} },
+        { ok: true, requestId: 'mismatch', root: {} },
+      ]) {
+        fakeSelf.emit({ requestId, response, type: 'parser-host:reply' });
+      }
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await rejection;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('isolates concurrent out-of-order replies, failed sends and late replies', async () => {
+    vi.useFakeTimers();
+    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
+    const sendError = new Error('third send');
+    fakeSelf.postMessage
+      .mockImplementationOnce(() => {})
+      .mockImplementationOnce(() => {})
+      .mockImplementationOnce(() => {
+        throw sendError;
+      });
+    try {
+      const first = oxcIpcAdapter.parse('first', baseOptions);
+      const second = oxcIpcAdapter.parse('second', baseOptions);
+      const third = oxcIpcAdapter.parse('third', baseOptions);
+      await expect(third).rejects.toBe(sendError);
+      expect(vi.getTimerCount()).toBe(2);
+      const ids = fakeSelf.postMessage.mock.calls.map(([message]) => message.requestId);
+      const firstRoot = { sentinel: 'first' };
+      const secondRoot = { sentinel: 'second' };
+      const reply = (requestId: string | undefined, root: object): void => {
+        fakeSelf.emit({
+          requestId,
+          response: { ok: true, requestId, root },
+          type: 'parser-host:reply',
+        });
+      };
+      reply(ids[2], { sentinel: 'late failed send' });
+      reply(ids[1], secondRoot);
+      await expect(second).resolves.toBe(secondRoot);
+      expect(vi.getTimerCount()).toBe(1);
+      reply(ids[1], { sentinel: 'duplicate' });
+      reply(ids[0], firstRoot);
+      await expect(first).resolves.toBe(firstRoot);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the exact owned timer on success and retains one shared listener', async () => {
+    vi.useFakeTimers();
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    const clear = vi.spyOn(globalThis, 'clearTimeout');
+    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
+    try {
+      for (const content of ['first', 'second']) {
+        const attempt = oxcIpcAdapter.parse(content, baseOptions);
+        const handle = timers.mock.results.at(-1)?.value;
+        const requestId = fakeSelf.postMessage.mock.calls.at(-1)?.[0].requestId;
+        const root = { content };
+        fakeSelf.emit({
+          requestId,
+          response: { ok: true, requestId, root },
+          type: 'parser-host:reply',
+        });
+        await expect(attempt).resolves.toBe(root);
+        expect(clear).toHaveBeenCalledWith(handle);
+      }
+      expect(fakeSelf.addEventListener).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      timers.mockRestore();
+      clear.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('identifies itself as oxc-native', async () => {
     const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
 
@@ -219,25 +403,39 @@ describe('oxcIpcAdapter', () => {
   it('generates unique requestIds across calls', async () => {
     const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
 
-    void oxcIpcAdapter.parse('a', baseOptions);
-    void oxcIpcAdapter.parse('b', baseOptions);
+    const first = oxcIpcAdapter.parse('a', baseOptions);
+    const second = oxcIpcAdapter.parse('b', baseOptions);
 
     const id1 = (fakeSelf.postMessage.mock.calls[0]?.[0] as { requestId: string } | undefined)
       ?.requestId;
     const id2 = (fakeSelf.postMessage.mock.calls[1]?.[0] as { requestId: string } | undefined)
       ?.requestId;
     expect(id1).not.toBe(id2);
+    for (const requestId of [id1, id2]) {
+      fakeSelf.emit({
+        requestId,
+        response: { ok: true, requestId, root: {} },
+        type: 'parser-host:reply',
+      });
+    }
+    await Promise.all([first, second]);
   });
 
   it('uses crypto.randomUUID-backed oxc-ipc requestIds', async () => {
     const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
 
-    void oxcIpcAdapter.parse('const x = 1', baseOptions);
+    const attempt = oxcIpcAdapter.parse('const x = 1', baseOptions);
 
     const sent = fakeSelf.postMessage.mock.calls[0]?.[0] as { requestId: string };
     expect(sent.requestId).toMatch(
       /^oxc-ipc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     );
+    fakeSelf.emit({
+      requestId: sent.requestId,
+      response: { ok: true, requestId: sent.requestId, root: {} },
+      type: 'parser-host:reply',
+    });
+    await attempt;
   });
 
   it('throws when crypto.randomUUID is unavailable', async () => {

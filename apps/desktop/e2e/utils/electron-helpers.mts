@@ -22,6 +22,8 @@ export interface ElectronAppContext {
 
 interface LaunchElectronAppOptions {
   readonly disableExternalLocalRuntimeProbes?: boolean;
+  /** Extra environment for this launch, applied BEFORE the harness's own variables so it cannot override them. */
+  readonly env?: Readonly<Record<string, string>>;
   readonly launchMode?: 'built' | 'dev-server' | 'test-built';
   readonly userDataDir?: string;
 }
@@ -35,7 +37,6 @@ const intentionallyClosingApps = new WeakSet<ElectronApplication>();
 const electronOutputBuffers = new WeakMap<ElectronApplication, ElectronOutputBuffer>();
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
 const electronAppCloseTimeoutMs = 10_000;
-const electronWindowCloseTimeoutMs = 5000;
 const ignoredElectronOutputPatterns = [
   'Electron Security Warning (Insecure Content-Security-Policy)',
   'This renderer process has either no Content Security',
@@ -219,7 +220,7 @@ function logEnvironmentDiagnostics(userDataDir?: string): void {
 export async function launchElectronApp(
   _debugPort?: number,
   userDataDir?: string,
-  options: Pick<LaunchElectronAppOptions, 'disableExternalLocalRuntimeProbes'> = {}
+  options: Pick<LaunchElectronAppOptions, 'disableExternalLocalRuntimeProbes' | 'env'> = {}
 ): Promise<ElectronAppContext> {
   return await launchElectronAppWithOptions({
     ...options,
@@ -268,7 +269,8 @@ export async function launchElectronAppWithOptions(
       userDataDir,
       launchTimeoutMs,
       launchMode,
-      options.disableExternalLocalRuntimeProbes ?? false
+      options.disableExternalLocalRuntimeProbes ?? false,
+      options.env ?? {}
     );
 
     try {
@@ -347,7 +349,8 @@ function createLaunchOptions(
   userDataDir?: string,
   launchTimeoutMs?: number,
   launchMode: 'built' | 'dev-server' | 'test-built' = 'test-built',
-  disableExternalLocalRuntimeProbes = false
+  disableExternalLocalRuntimeProbes = false,
+  extraEnv: Readonly<Record<string, string>> = {}
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
@@ -409,6 +412,8 @@ function createLaunchOptions(
     args: [...baseArgs, ...ciArgs],
     env: {
       ...baseEnv,
+      // Before every harness-owned variable below: a spec's env can add, never override them.
+      ...extraEnv,
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
@@ -422,6 +427,15 @@ function createLaunchOptions(
       // Force console logging and disable file logging to avoid contention/permissions issues
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
+      // BST-1864: `windowFocus` reports the NATIVE window's focus, and this harness
+      // window is `focusable: false` and never shown, so it is never focused —
+      // while Playwright forces the renderer's `document.hasFocus()` true. Left on,
+      // every spec would run with an unfocused app (indexer polling, the unseen
+      // badge); off, each keeps the focused app it has always run with. An explicit
+      // value wins, `''` included, so a spec that tests the bridge opts in with `''`.
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES:
+        baseEnv['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'] ?? 'windowFocus',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
@@ -677,39 +691,9 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
 export async function closeElectronApp(appContext: ElectronAppContext): Promise<void> {
   verboseLog('🔒 Closing Electron app...');
   try {
-    const windows = appContext.app.windows();
-    verboseLog(`📋 Closing ${windows.length} window(s)...`);
+    // Application shutdown owns hidden hosts. Closing their windows first removes
+    // the command listeners needed to acknowledge native runtime cleanup.
     intentionallyClosingApps.add(appContext.app);
-    const windowClosePromises: Promise<void>[] = [];
-    for (const window of windows) {
-      if (window.isClosed()) {
-        console.log('ℹ️ Window already closed');
-        continue;
-      }
-
-      windowClosePromises.push(
-        (async () => {
-          const windowClosed = waitForWithTimeout(
-            window.waitForEvent('close').then(() => true),
-            electronWindowCloseTimeoutMs,
-            'Electron window close event'
-          );
-          await waitForWithTimeout(
-            window.close(),
-            electronWindowCloseTimeoutMs,
-            'Electron window close request'
-          );
-          await windowClosed;
-        })()
-      );
-    }
-
-    const windowCloseResults = await Promise.allSettled(windowClosePromises);
-    for (const result of windowCloseResults) {
-      if (result.status === 'rejected') {
-        console.warn('⚠️ Failed to close Electron window gracefully:', result.reason);
-      }
-    }
 
     let didClose: boolean | null = true;
     try {

@@ -87,7 +87,6 @@ function managedWorktreeEntry(path: string): ManagedWorktreePathEntry {
     path,
   };
 }
-
 function installWorktreesBridgeWithManagedPaths(
   listManagedPaths: WorktreesBridge['listManagedPaths']
 ): () => void {
@@ -99,6 +98,7 @@ function installWorktreesBridgeWithManagedPaths(
     createBranchHere: vi.fn(),
     createContext: vi.fn(),
     getSettings: vi.fn(),
+    inspectArchive: vi.fn(),
     list: vi.fn(),
     listManagedPaths,
     restore: vi.fn(),

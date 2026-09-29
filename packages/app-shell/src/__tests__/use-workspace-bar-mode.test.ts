@@ -32,6 +32,7 @@ import { type UseWorkspaceBarModeArgs, useWorkspaceBarMode } from '../hooks/use-
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 
 const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
+  archiveConfirmation: null,
   baseRefs: [{ label: 'Current branch', value: 'HEAD' }],
   createDisabledReason: null,
   defaultBranchPrefix: 'bs/',

@@ -30,6 +30,7 @@ const fsMocks = vi.hoisted(() => ({
   closeSync: vi.fn(),
   cpSync: vi.fn(),
   existsSync: vi.fn(() => true),
+  fsyncSync: vi.fn(),
   lstatSync: vi.fn(() => ({
     isDirectory: () => false,
     isFile: () => false,
@@ -80,8 +81,13 @@ function mockSuccessfulDatabaseModules(options?: {
     this.syncToFs = syncToFsMock;
   });
 
-  vi.doMock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
-  vi.doMock('@brainstrike/db', () => ({ migrate: vi.fn().mockResolvedValue(undefined) }));
+  vi.doMock('@electric-sql/pglite', () => ({
+    PGlite: { create: (options: unknown) => Promise.resolve(new PGliteMock(options)) },
+  }));
+  vi.doMock('@brainstrike/db', () => ({
+    migrate: vi.fn().mockResolvedValue(undefined),
+    rebuildCrashSensitiveIndexes: vi.fn().mockResolvedValue({ rebuilt: [], totalDurationMs: 0 }),
+  }));
   vi.doMock('@electric-sql/pglite-pgvector', () => options?.vectorModule ?? { vector: 'vector' });
   vi.doMock('@electric-sql/pglite/live', () => options?.liveModule ?? { live: 'live' });
   vi.doMock(
@@ -100,6 +106,7 @@ describe('db-main coverage helpers', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.doUnmock('@brainstrike/db');
+    vi.doUnmock('@brainstrike/db/pglite-factory');
     vi.doUnmock('@electric-sql/pglite');
     vi.doUnmock('@electric-sql/pglite-pgvector');
     vi.doUnmock('@electric-sql/pglite/live');
@@ -121,7 +128,8 @@ describe('db-main coverage helpers', () => {
       isFile: () => false,
     });
     process.env['NODE_ENV'] = 'test';
-    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/tmp';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
   });
 
   afterEach(() => {
@@ -130,25 +138,22 @@ describe('db-main coverage helpers', () => {
   });
 
   it('fails fast when pgvector extension cannot be loaded', async () => {
-    vi.doMock('@electric-sql/pglite-pgvector', () => {
-      throw new Error('vector module missing');
-    });
+    vi.doMock('@brainstrike/db/pglite-factory', () => ({
+      get createBrainstrikePglite() {
+        throw new Error('vector module missing');
+      },
+    }));
 
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
-    await expect(initializeMainDatabase()).rejects.toThrow(/pgvector extension is required/i);
+    await expect(initializeMainDatabase()).rejects.toThrow(/vector module missing/i);
     const diagnostics = getDatabaseDiagnostics();
     expect(diagnostics.initializationAttemptCount).toBeGreaterThan(0);
     expect(diagnostics.lastInitializationFailure?.category).toBe('missing-extension');
     expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
   });
 
-  it('loads pgvector, live, pg_trgm, and pg_textsearch extensions from default exports', async () => {
-    const { PGliteMock } = mockSuccessfulDatabaseModules({
-      liveModule: { default: 'live-default', live: undefined },
-      pgTextsearchModule: { default: 'pg_textsearch-default', pg_textsearch: undefined },
-      pgTrgmModule: { default: 'pg_trgm-default', pg_trgm: undefined },
-      vectorModule: { default: 'vector-default', vector: undefined },
-    });
+  it('loads the canonical engine and client extension sets through the factory', async () => {
+    const { PGliteMock } = mockSuccessfulDatabaseModules();
 
     const { initializeMainDatabase } = await import('../../db-main');
     await initializeMainDatabase();
@@ -156,10 +161,10 @@ describe('db-main coverage helpers', () => {
     expect(PGliteMock).toHaveBeenCalledWith({
       dataDir: expect.stringContaining('pgdata'),
       extensions: {
-        live: 'live-default',
-        pg_textsearch: 'pg_textsearch-default',
-        pg_trgm: 'pg_trgm-default',
-        vector: 'vector-default',
+        live: 'live',
+        pg_textsearch: 'pg_textsearch',
+        pg_trgm: 'pg_trgm',
+        vector: 'vector',
       },
     });
   });
@@ -168,7 +173,7 @@ describe('db-main coverage helpers', () => {
     mockSuccessfulDatabaseModules({ liveModule: {} });
 
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
-    await expect(initializeMainDatabase()).rejects.toThrow(/live query extension is required/i);
+    await expect(initializeMainDatabase()).rejects.toThrow(/No "live" export/i);
 
     const diagnostics = getDatabaseDiagnostics();
     expect(diagnostics.lastInitializationFailure?.category).toBe('missing-extension');
@@ -179,7 +184,7 @@ describe('db-main coverage helpers', () => {
     mockSuccessfulDatabaseModules({ pgTrgmModule: {} });
 
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
-    await expect(initializeMainDatabase()).rejects.toThrow(/pg_trgm extension is required/i);
+    await expect(initializeMainDatabase()).rejects.toThrow(/No "pg_trgm" export/i);
 
     const diagnostics = getDatabaseDiagnostics();
     expect(diagnostics.lastInitializationFailure?.category).toBe('missing-extension');
@@ -190,7 +195,7 @@ describe('db-main coverage helpers', () => {
     mockSuccessfulDatabaseModules({ pgTextsearchModule: {} });
 
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
-    await expect(initializeMainDatabase()).rejects.toThrow(/pg_textsearch extension is required/i);
+    await expect(initializeMainDatabase()).rejects.toThrow(/No "pg_textsearch" export/i);
 
     const diagnostics = getDatabaseDiagnostics();
     expect(diagnostics.lastInitializationFailure?.category).toBe('missing-extension');
@@ -212,16 +217,11 @@ describe('db-main coverage helpers', () => {
   it('serializes non-error extension load failures in diagnostics', async () => {
     const circularFailure: Record<string, unknown> = { code: 'E_BROKEN', reason: 'bad package' };
     circularFailure['self'] = circularFailure;
-    const vectorModule: { vector?: unknown } = {};
-    Object.defineProperty(vectorModule, 'vector', {
-      configurable: true,
-      get() {
+    vi.doMock('@brainstrike/db/pglite-factory', () => ({
+      get createBrainstrikePglite() {
         throw circularFailure;
       },
-    });
-    mockSuccessfulDatabaseModules({
-      vectorModule,
-    });
+    }));
 
     const { initializeMainDatabase } = await import('../../db-main');
 
@@ -229,17 +229,11 @@ describe('db-main coverage helpers', () => {
   });
 
   it('classifies wasm abort during extension load as wasm-runtime', async () => {
-    vi.doMock('@electric-sql/pglite', () => {
-      const moduleRecord: Record<string, unknown> = {};
-      Object.defineProperty(moduleRecord, 'PGlite', {
-        configurable: true,
-        enumerable: true,
-        get() {
-          throw new Error('Aborted(). Build with -sASSERTIONS for more info.');
-        },
-      });
-      return moduleRecord;
-    });
+    vi.doMock('@brainstrike/db/pglite-factory', () => ({
+      get createBrainstrikePglite() {
+        throw new Error('Aborted(). Build with -sASSERTIONS for more info.');
+      },
+    }));
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
     await expect(initializeMainDatabase()).rejects.toThrow(/aborted/i);
     const diagnostics = getDatabaseDiagnostics();

@@ -3,8 +3,13 @@ import { addLogListener } from '@brainstrike/logging';
 import { app, BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWindow, noteNextWindowReload } from '../create-window';
+import {
+  configureDesktopRendererTarget,
+  createDesktopRendererTarget,
+} from '../desktop-renderer-target';
 import { DESKTOP_DEV_RENDERER_URL } from '../desktop-renderer-url';
 import type { DesktopWindowState } from '../store-schema';
+import { TEST_DESKTOP_RENDERER_TARGET } from './helpers/desktop-ipc-sender-frame-test-allowlist';
 
 // Hoist mocks for Vitest 4 compatibility
 const { existsSyncMock, MockBrowserWindow, screenMock } = vi.hoisted(() => ({
@@ -36,6 +41,12 @@ vi.mock('electron', () => ({
   },
 }));
 
+const DEV_RENDERER_TARGET = createDesktopRendererTarget({
+  builtRendererPath: '/mock/app/dist/renderer/index.html',
+  devRendererUrl: DESKTOP_DEV_RENDERER_URL,
+  launchMode: 'dev-server',
+});
+
 describe('createWindow', () => {
   let mockBrowserWindow: any;
   let mockWebContents: any;
@@ -47,9 +58,11 @@ describe('createWindow', () => {
 
     mockWebContents = {
       getURL: vi.fn(() => `${DESKTOP_DEV_RENDERER_URL}/`),
+      isDestroyed: vi.fn(() => false),
       on: vi.fn(),
       openDevTools: vi.fn(),
       reload: vi.fn(),
+      send: vi.fn(),
       setWindowOpenHandler: vi.fn(),
     };
 
@@ -77,6 +90,7 @@ describe('createWindow', () => {
 
   afterEach(() => {
     process.argv = [...baseArgv];
+    configureDesktopRendererTarget(TEST_DESKTOP_RENDERER_TARGET);
     Reflect.deleteProperty(process.env, 'CI');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_AGENT_DEVTOOLS');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS');
@@ -275,7 +289,7 @@ describe('createWindow', () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       Reflect.deleteProperty(process.env, 'CI');
-      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+      configureDesktopRendererTarget(DEV_RENDERER_TARGET);
 
       let resolveLoad: (() => void) | undefined;
       mockBrowserWindow.loadURL.mockImplementation(
@@ -334,7 +348,7 @@ describe('createWindow', () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       Reflect.deleteProperty(process.env, 'CI');
-      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+      configureDesktopRendererTarget(DEV_RENDERER_TARGET);
       mockBrowserWindow.loadURL.mockRejectedValue(new Error('Dev server unavailable'));
 
       await expect(createWindow()).rejects.toThrow(
@@ -435,19 +449,23 @@ describe('createWindow', () => {
       const rpcHandler = mockWebContents.on.mock.calls.find(
         (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
       )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
-      const focusHandler = mockBrowserWindow.on.mock.calls.find(
-        (call: [string, (...args: unknown[]) => void]) => call[0] === 'focus'
-      )?.[1] as () => void;
+      // Electron runs EVERY `focus` listener; other wiring (the native-focus
+      // publisher) shares the event, so recovery is not necessarily the first.
+      const focusHandlers = mockBrowserWindow.on.mock.calls
+        .filter((call: [string, () => void]) => call[0] === 'focus')
+        .map((call: [string, () => void]) => call[1]);
 
       expect(rpcHandler).toBeDefined();
-      expect(focusHandler).toBeDefined();
+      expect(focusHandlers.length).toBeGreaterThan(0);
 
       // Crash defers recovery
       rpcHandler({}, { exitCode: 5, reason: 'crashed' });
       expect(mockWebContents.reload).not.toHaveBeenCalled();
 
       // Focus triggers reload before the 3s timer
-      focusHandler();
+      for (const focusHandler of focusHandlers) {
+        focusHandler();
+      }
       expect(mockWebContents.reload).toHaveBeenCalledTimes(1);
 
       // Timer fires later but pendingRendererRecovery is already false — no double reload
@@ -685,6 +703,42 @@ describe('createWindow', () => {
     });
   });
 
+  it('retries the production dev target 30 times at 200 ms spacing', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('VITEST', 'false');
+    vi.resetModules();
+    try {
+      const [{ createWindow: createProductionWindow }, rendererTarget] = await Promise.all([
+        import('../create-window'),
+        import('../desktop-renderer-target'),
+      ]);
+      rendererTarget.configureDesktopRendererTarget(DEV_RENDERER_TARGET);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
+      const attemptedAt: number[] = [];
+      const failure = new Error('dev server unavailable');
+      mockBrowserWindow.loadURL.mockImplementation(() => {
+        attemptedAt.push(Date.now());
+        return Promise.reject(failure);
+      });
+
+      const result = expect(createProductionWindow()).rejects.toThrow(
+        'Dev renderer unavailable in non-packaged mode; refusing production fallback'
+      );
+      await vi.runAllTimersAsync();
+      await result;
+
+      expect(attemptedAt).toHaveLength(30);
+      expect(attemptedAt.slice(1).map((time, index) => time - attemptedAt[index]!)).toEqual(
+        Array.from({ length: 29 }, () => 200)
+      );
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   describe('security configuration', () => {
     it('should configure window open handler', async () => {
       existsSyncMock.mockReturnValue(true);
@@ -735,7 +789,17 @@ describe('createWindow', () => {
   });
 
   describe('renderer loading', () => {
-    it('should load production renderer when packaged', async () => {
+    it('fails at load time, before any load call, when no renderer target is configured', async () => {
+      existsSyncMock.mockReturnValue(true);
+      configureDesktopRendererTarget(null);
+
+      await expect(createWindow()).rejects.toThrow('Desktop renderer target is not configured.');
+
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+    });
+
+    it('loads the configured built renderer target when packaged', async () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: true });
 
@@ -747,7 +811,7 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
     });
 
-    it('should load built renderer by default when unpackaged', async () => {
+    it('loads the configured built renderer target when unpackaged', async () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
 
@@ -759,11 +823,11 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
     });
 
-    it('should connect to dev server only when dev-server mode is explicit', async () => {
+    it('connects to the dev server only when the configured target is the dev renderer', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       mockBrowserWindow.loadURL.mockResolvedValue(undefined);
-      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+      configureDesktopRendererTarget(DEV_RENDERER_TARGET);
 
       await createWindow();
 
@@ -772,7 +836,7 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
-    it('should throw when built renderer is missing in default built mode', async () => {
+    it('throws when the built renderer target file is missing', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
 
@@ -784,7 +848,7 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
-    it('should load built renderer in CI test mode when not packaged', async () => {
+    it('loads the built renderer target in CI test mode when not packaged', async () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       process.env['CI'] = 'true';
@@ -815,7 +879,7 @@ describe('createWindow', () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] = '1';
-      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+      configureDesktopRendererTarget(DEV_RENDERER_TARGET);
       await createWindow();
 
       expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(DESKTOP_DEV_RENDERER_URL);
@@ -826,7 +890,7 @@ describe('createWindow', () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       mockBrowserWindow.loadURL.mockRejectedValue(new Error('Dev server unavailable'));
-      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+      configureDesktopRendererTarget(DEV_RENDERER_TARGET);
 
       await expect(createWindow()).rejects.toThrow(
         'Dev renderer unavailable in non-packaged mode; refusing production fallback'
@@ -844,7 +908,7 @@ describe('createWindow', () => {
     it('should attempt the deterministic dev server URL in test runtime', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
-      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+      configureDesktopRendererTarget(DEV_RENDERER_TARGET);
 
       mockBrowserWindow.loadURL.mockResolvedValueOnce(undefined);
 
@@ -857,7 +921,7 @@ describe('createWindow', () => {
     it('should not probe the legacy web-adjacent port in dev-server mode', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
-      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+      configureDesktopRendererTarget(DEV_RENDERER_TARGET);
 
       mockBrowserWindow.loadURL.mockResolvedValueOnce(undefined);
 
@@ -874,14 +938,17 @@ describe('createWindow', () => {
     it('should throw error if deterministic dev renderer URL fails repeatedly', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
-      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+      configureDesktopRendererTarget(DEV_RENDERER_TARGET);
 
       const error = new Error('All ports unavailable');
       mockBrowserWindow.loadURL.mockRejectedValue(error);
 
-      await expect(createWindow()).rejects.toThrow(
+      const failure = await createWindow().catch((cause: unknown) => cause);
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain(
         'Dev renderer unavailable in non-packaged mode; refusing production fallback'
       );
+      expect(((failure as Error).cause as Error).cause).toBe(error);
       expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
       const attemptedUrls = mockBrowserWindow.loadURL.mock.calls.map((call: [string]) => call[0]);
       for (const url of attemptedUrls) {

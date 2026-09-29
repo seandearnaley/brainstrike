@@ -69,7 +69,36 @@ describe('createSuspendedRunDiscovery', () => {
     });
   });
 
-  it('drops a malformed entry with a warning but keeps the valid ones', async () => {
+  it('starts the request deadline only after endpoint and auth resolution', async () => {
+    const order: string[] = [];
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => {
+      order.push('deadline');
+      return new AbortController().signal;
+    });
+    try {
+      const discover = createSuspendedRunDiscovery(
+        async () => {
+          order.push('endpoint');
+          return await resolveBaseUrl();
+        },
+        async () => {
+          order.push('fetch');
+          return makeResponse(200, { approvals: [] });
+        },
+        3000,
+        async () => {
+          order.push('auth');
+          return {};
+        }
+      );
+      expect(await discover('thread-1', 'workspace-1')).toEqual({ approvals: [], suspends: [] });
+      expect(order).toEqual(['endpoint', 'auth', 'deadline', 'fetch']);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
+  it('retains valid approvals and reports incomplete recovery for malformed entries', async () => {
     const valid = {
       runId: 'run-1',
       stale: true,
@@ -86,31 +115,35 @@ describe('createSuspendedRunDiscovery', () => {
     const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
     const result = await discover('thread-1', 'workspace-1');
 
-    expect(result).toEqual({ approvals: [valid], suspends: [] });
+    expect(result).toEqual({
+      approvals: [valid],
+      error: { reason: 'invalid-response' },
+      suspends: [],
+    });
     expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
   });
 
-  it('returns [] and logs a warning on a non-ok HTTP response (never a silent success)', async () => {
+  it('returns an explicit discovery failure on a non-ok HTTP response', async () => {
     const fetchImpl = vi.fn(() => Promise.resolve(makeResponse(500, { error: 'boom' })));
 
     const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
     const result = await discover('thread-1', 'workspace-1');
 
-    expect(result).toEqual({ approvals: [], suspends: [] });
+    expect(result).toEqual({ approvals: [], error: { reason: 'request-failed' }, suspends: [] });
     expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
   });
 
-  it('returns [] and logs a warning when fetch rejects', async () => {
+  it('reports an explicit request failure when fetch rejects', async () => {
     const fetchImpl = vi.fn(() => Promise.reject(new Error('network down')));
 
     const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
     const result = await discover('thread-1', 'workspace-1');
 
-    expect(result).toEqual({ approvals: [], suspends: [] });
+    expect(result).toEqual({ approvals: [], error: { reason: 'request-failed' }, suspends: [] });
     expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
   });
 
-  it('bounds the request with an abort signal and returns [] + warns when the server hangs', async () => {
+  it('bounds the request and reports an explicit timeout when the server hangs', async () => {
     // Wedged/mid-stream assistant server: fetch never resolves on its own and
     // only settles when the caller's timeout aborts the request. Proves thread
     // open can never hang indefinitely on discovery.
@@ -126,7 +159,7 @@ describe('createSuspendedRunDiscovery', () => {
     const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl, 20);
     const result = await discover('thread-1', 'workspace-1');
 
-    expect(result).toEqual({ approvals: [], suspends: [] });
+    expect(result).toEqual({ approvals: [], error: { reason: 'timed-out' }, suspends: [] });
     const init = (fetchImpl.mock.calls[0] as unknown[])[1] as RequestInit;
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
@@ -182,7 +215,11 @@ describe('suspend() pause parsing (BST-1084)', () => {
         Promise.resolve(makeResponse(200, { approvals: [], suspends: 'not-an-array' }))
       );
       const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
-      expect(await discover('thread-1', 'workspace-1')).toEqual({ approvals: [], suspends: [] });
+      expect(await discover('thread-1', 'workspace-1')).toEqual({
+        approvals: [],
+        error: { reason: 'invalid-response' },
+        suspends: [],
+      });
       expect(warnings.some((message) => /non-array suspends/i.test(message))).toBe(true);
     } finally {
       removeListener();
@@ -203,6 +240,7 @@ describe('suspend() pause parsing (BST-1084)', () => {
     const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
     expect(await discover('thread-1', 'workspace-1')).toEqual({
       approvals: [],
+      error: { reason: 'invalid-response' },
       suspends: [suspend, { ...suspend, resumeSupported: true }],
     });
   });

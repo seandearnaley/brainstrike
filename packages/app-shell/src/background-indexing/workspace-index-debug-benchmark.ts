@@ -1,5 +1,6 @@
 import {
   type ApplyManagedCacheBatchArgs,
+  type DatabaseWorkOptions,
   type IDatabase,
   JobQueue,
   WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS,
@@ -43,7 +44,7 @@ interface WorkspaceIndexStageBenchmarkArgs {
   chunkingHost?: WorkspaceIndexChunkingHostBridge | null | undefined;
   db?: IDatabase | null;
   electronRunTransaction?: WorkspaceIndexElectronRunTransaction | undefined;
-  electronTransactionOptions?: unknown;
+  electronTransactionOptions?: DatabaseWorkOptions;
   embeddingHost?: WorkspaceIndexEmbeddingHostBridge | null | undefined;
   request: WorkspaceIndexStageBenchmarkRequest;
   timing?: {
@@ -97,7 +98,7 @@ interface WorkspaceIndexElectronTransactionStatement {
 type WorkspaceIndexElectronRunTransaction = (
   statements: WorkspaceIndexElectronTransactionStatement[],
   resultIndex: number,
-  options?: unknown
+  options?: DatabaseWorkOptions
 ) => Promise<{ rows?: unknown[] }>;
 interface DbCompletionBenchmarkIds {
   chunkIds: string[];

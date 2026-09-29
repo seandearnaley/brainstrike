@@ -12,6 +12,10 @@ import {
   unwrapExpression,
 } from '../provider-registry-ast-helpers.mjs';
 
+// BST-1650: the registry side of this contract is a JSON data file now, so it
+// is READ, not AST-walked. `packages/indexing-contract` is still a TypeScript
+// literal, so the AST helpers stay — they were never dead.
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 // BST-1361: `packages/indexing-contract` deliberately depends only on
@@ -29,7 +33,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 //    `authType: 'none'` providers restricted to indexing-contract's hosted
 //    union (keyless-ness derives from authType — never a hand list, BST-1349).
 
-const REGISTRY_PATH = path.join(repoRoot, 'packages/assistant-contract/src/provider-registry.ts');
+const CATALOG_PATH = path.join(repoRoot, 'packages/assistant-contract/src/provider-catalog.json');
 const INDEXING_PATH = path.join(repoRoot, 'packages/indexing-contract/src/index.ts');
 
 function parseFile(filePath) {
@@ -41,12 +45,14 @@ function failOnProblem(message) {
 }
 
 function readRegistryProviders() {
-  return readProviderTable(
-    parseFile(REGISTRY_PATH),
-    'PROVIDER_DEFINITIONS',
-    ['envKeys', 'deprecatedEnvKeys'],
-    failOnProblem
-  );
+  const catalog = JSON.parse(readFileSync(CATALOG_PATH, 'utf8'));
+  assert.ok(Array.isArray(catalog), 'the provider catalog must be a JSON array');
+  const providers = new Map();
+  for (const provider of catalog) {
+    assert.equal(typeof provider?.id, 'string', 'every catalog provider must declare a string id');
+    providers.set(provider.id, provider);
+  }
+  return providers;
 }
 
 function readIndexingProviders() {

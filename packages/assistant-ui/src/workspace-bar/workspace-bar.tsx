@@ -5,6 +5,7 @@ import { FolderChip } from './folder-chip';
 import { ModeChip } from './mode-chip';
 import { PrChip, type WorkspaceBarForge } from './pr-chip';
 import { WorkspaceBarDropZone } from './workspace-bar-drop-zone';
+import type { WorktreeArchiveConfirmation } from './worktree-archive-confirmation-dialog';
 
 /** A folder mounted in this thread's workspace (primary or secondary). */
 export interface WorkspaceBarRoot {
@@ -97,6 +98,7 @@ export interface WorkspaceBarRepositorySetupConsent {
 }
 
 export interface WorkspaceBarMode {
+  readonly archiveConfirmation: WorktreeArchiveConfirmation | null;
   /** Base refs the create sheet offers, most useful first. */
   readonly baseRefs: readonly [WorkspaceBarBaseRefOption, ...WorkspaceBarBaseRefOption[]];
   readonly createDisabledReason: string | null;

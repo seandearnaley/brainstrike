@@ -13,6 +13,7 @@ import {
   writeMcpConfigText,
 } from '../../mcp-loader';
 import { readOpenAIApiKey } from '../../openai-api-key';
+import { adaptMcpHandlerForVisibleUi } from '../helpers/mcp-authorized-handler-test-adapter';
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
@@ -91,7 +92,7 @@ describe('ipc-mcp handlers', () => {
       (channel: string, handler: RegisteredHandler) => void
     >;
     mockHandle.mockImplementation((channel: string, handler: RegisteredHandler) => {
-      handlers.set(channel, handler);
+      handlers.set(channel, adaptMcpHandlerForVisibleUi(handler));
     });
     mcpIpc.registerMcpIpcHandlers({ runtime: authority.runtime });
     const unwatchHandler = handlers.get('mcp:config:unwatch');

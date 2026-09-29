@@ -1,3 +1,6 @@
+export * from './assistant-history-repository.js';
+export * from './delegated-continuation-repository.js';
+export * from './delegated-conversation-insights.js';
 // Interfaces
 
 // Re-export preset types from @brainstrike/types for convenience
@@ -18,6 +21,20 @@ export {
 } from './assistant-run-error-repository.js';
 // Base class
 export { BaseFileRecordRepository } from './base-repository.js';
+export {
+  type CreateDelegatedChild,
+  type CreateDelegatedInvocation,
+  createDelegatedConversationRepository,
+  DELEGATED_CONVERSATION_COLOR_IDS,
+  type DelegatedConversationColor,
+  type DelegatedConversationDatabase,
+  DelegatedConversationIdentityError,
+  type DelegatedConversationNode,
+  type DelegatedConversationRepository,
+  type DelegatedConversationScope,
+  type DelegatedInvocation,
+  type DelegatedInvocationKey,
+} from './delegated-conversation-repository.js';
 export {
   DIAGNOSTIC_EVENTS_PURGE_LIMIT,
   DIAGNOSTIC_RETENTION_MAX_AGE_MS,
@@ -83,6 +100,7 @@ export {
 export type {
   IDatabase,
   IEmbeddingSetsRepository,
+  IFileChunkRepository,
   IFileRecordRepository,
   IViewFilterPresetsRepository,
 } from './interfaces.js';
@@ -108,6 +126,11 @@ export {
 } from './prompt-item-repository.js';
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';
+export {
+  readThreadDebugSnapshot,
+  type ThreadDebugDatabase,
+  type ThreadDebugSnapshot,
+} from './thread-debug-snapshot.js';
 export { ThreadSearchRepository } from './thread-search-repository.js';
 export {
   type PurgeExpiredToolOutputArtifactsOptions,

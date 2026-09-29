@@ -97,8 +97,13 @@ vi.mock('../../platform-bridge', () => ({
 
 const adoptMock = vi.fn();
 const archiveMock = vi.fn();
+const inspectArchiveMock = vi.fn();
 vi.mock('../../worktrees/worktrees-bridge', () => ({
-  resolveWorktreesBridge: () => ({ adopt: adoptMock, archive: archiveMock }),
+  resolveWorktreesBridge: () => ({
+    adopt: adoptMock,
+    archive: archiveMock,
+    inspectArchive: inspectArchiveMock,
+  }),
 }));
 
 const addRootDirectoryByPathMock = vi.fn();
@@ -153,6 +158,7 @@ describe('WorktreeMapSurface', () => {
       addRootDirectoryByPathMock,
       adoptMock,
       archiveMock,
+      inspectArchiveMock,
       createPgliteAssistantThreadRepositoryMock,
       createThreadMock,
       openExternalMock,
@@ -171,6 +177,16 @@ describe('WorktreeMapSurface', () => {
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
     adoptMock.mockResolvedValue({ ok: true, value: {} });
     archiveMock.mockResolvedValue({ ok: true, value: {} });
+    inspectArchiveMock.mockResolvedValue({
+      ok: true,
+      value: {
+        confirmationToken: null,
+        ignoredEntryCount: 0,
+        ignoredTopLevelEntries: [],
+        ignoredTopLevelEntriesTruncated: false,
+        ignoredTopLevelEntryCount: 0,
+      },
+    });
     createThreadMock.mockResolvedValue({ id: 'thread-9' });
     useWorktreeMapMock.mockReset().mockReturnValue(BASE_STATE);
   });
@@ -182,6 +198,180 @@ describe('WorktreeMapSurface', () => {
     expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
     expect(screen.getByText('bs/bright-fox')).toBeInTheDocument();
     expect(screen.getByText('Managed')).toBeInTheDocument();
+  });
+
+  it('searches checkout metadata locally and clears a no-match result', async () => {
+    const user = userEvent.setup();
+    render(<WorktreeMapSurface />);
+    const search = screen.getByRole('searchbox', { name: 'Search worktrees' });
+    await user.type(search, 'BRAINSTRIKE bright');
+    expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
+    await user.type(search, ' absent');
+    expect(screen.queryByTestId('worktree-map-card')).not.toBeInTheDocument();
+    expect(screen.getByText('No matching worktrees')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(search).toHaveValue('');
+    expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
+  });
+
+  it('bounds large collections and resets the page when searching', async () => {
+    const user = userEvent.setup();
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: Array.from({ length: 61 }, (_, i) =>
+            card({
+              entry: {
+                ...card().entry,
+                name: `checkout-${String(i).padStart(2, '0')}`,
+                path: `/wt/${i}`,
+              },
+            })
+          ),
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+    expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(25);
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    const lane = screen.getAllByTestId('worktree-map-card')[0]?.parentElement;
+    if (!lane) {
+      throw new Error('Missing checkout container');
+    }
+    lane.scrollLeft = 600;
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getAllByTestId('worktree-map-card')[0]?.parentElement?.scrollLeft).toBe(0);
+    expect(screen.getByText('26–50 of 61')).toBeInTheDocument();
+    await user.type(screen.getByRole('searchbox', { name: 'Search worktrees' }), 'checkout-60');
+    expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
+    expect(screen.getByText('1–1 of 1')).toBeInTheDocument();
+  });
+
+  it('keeps the clamped page when attention results recover after a refresh', async () => {
+    const user = userEvent.setup();
+    const cards = Array.from({ length: 51 }, (_, i) =>
+      card({ entry: { ...card().entry, name: `checkout-${i}`, path: `/wt/${i}` } })
+    );
+    const state = {
+      ...BASE_STATE,
+      repositories: [{ ...BASE_STATE.repositories[0], cards }],
+      statusByPath: new Map(
+        cards.map((item) => [
+          item.entry.path,
+          {
+            kind: 'ready',
+            value: { ahead: 0, behind: 0, clean: false },
+          },
+        ])
+      ),
+    };
+    useWorktreeMapMock.mockReturnValue(state);
+    const view = render(<WorktreeMapSurface />);
+    await user.click(screen.getByRole('button', { name: 'Needs attention' }));
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByText('51–51 of 51')).toBeInTheDocument();
+    const scrollport = screen
+      .getAllByTestId('worktree-map-card')[0]
+      ?.closest('section')?.parentElement;
+    if (!scrollport) {
+      throw new Error('Missing worktree scrollport');
+    }
+    scrollport.scrollTop = 500;
+    useWorktreeMapMock.mockReturnValue({ ...state, statusByPath: new Map() });
+    view.rerender(<WorktreeMapSurface />);
+    expect(screen.getByText('No matching worktrees')).toBeInTheDocument();
+    useWorktreeMapMock.mockReturnValue(state);
+    view.rerender(<WorktreeMapSurface />);
+    expect(screen.getByText('1–25 of 51')).toBeInTheDocument();
+    expect(
+      screen.getAllByTestId('worktree-map-card')[0]?.closest('section')?.parentElement?.scrollTop
+    ).toBe(0);
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+  });
+
+  it('filters known attention states without treating primary or unknown status as broken', async () => {
+    const user = userEvent.setup();
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [
+            card(),
+            card({
+              entry: {
+                ...card().entry,
+                name: 'primary',
+                path: '/primary',
+                primary: true,
+                usable: false,
+              },
+            }),
+            card({ entry: { ...card().entry, name: 'checking', path: '/checking' } }),
+          ],
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+    await user.click(screen.getByRole('button', { name: 'Needs attention' }));
+    expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
+    expect(screen.getByText('bright-fox')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Running' }));
+    expect(screen.getByText('No matching worktrees')).toBeInTheDocument();
+  });
+
+  it('shows checkout paths and explicit clean status on named rows', () => {
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      statusByPath: new Map([
+        ['/wt', { kind: 'ready', value: { ahead: null, behind: null, clean: true } }],
+      ]),
+    });
+    render(<WorktreeMapSurface />);
+    expect(screen.getByRole('article', { name: 'bright-fox' })).toBeInTheDocument();
+    expect(screen.getByText('/wt')).toBeInTheDocument();
+    expect(screen.getByText('Clean')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Not indexed' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  it('states that ghost checkouts are missing instead of checking forever', () => {
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [card({ entry: { ...card().entry, provenance: 'agent-reported' } })],
+        },
+      ],
+      statusByPath: new Map(),
+    });
+    render(<WorktreeMapSurface />);
+    expect(screen.getByText('Not on disk')).toBeInTheDocument();
+    expect(screen.queryByText('checking…')).not.toBeInTheDocument();
+  });
+
+  it('opens the linked thread directly and identifies the current running checkout', async () => {
+    const thread = {
+      running: true,
+      threadId: 'current-thread',
+      title: 'Improve collection navigation',
+    };
+    mockSelectedThreadByResourceId = { 'brainstrike:workspace': thread.threadId };
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [{ ...BASE_STATE.repositories[0], cards: [card({ thread })] }],
+    });
+    render(<WorktreeMapSurface />);
+    expect(screen.getByText('Current thread')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Running' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Improve collection navigation/u }));
+    expect(selectThreadMock).toHaveBeenCalledWith('brainstrike:workspace', 'current-thread');
   });
 
   it('shows dirty and ahead glyphs from the per-card status, never before it resolves', () => {
@@ -503,6 +693,48 @@ describe('WorktreeMapSurface', () => {
 
     expect(archiveMock).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows ignored paths and archives only after destructive confirmation', async () => {
+    inspectArchiveMock.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        confirmationToken: 'ignored-token',
+        ignoredEntryCount: 17,
+        ignoredTopLevelEntries: [
+          '.env',
+          '.secret-01',
+          '.secret-02',
+          '.secret-03',
+          '.secret-04',
+          '.secret-05',
+          '.secret-06',
+          '.secret-07',
+          '.secret-08',
+          'data/',
+        ],
+        ignoredTopLevelEntriesTruncated: true,
+        ignoredTopLevelEntryCount: 12,
+      },
+    });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /archive/iu }));
+
+    expect(archiveMock).not.toHaveBeenCalled();
+    expect(await screen.findByText(/permanently delete 17 ignored entries/iu)).toBeInTheDocument();
+    expect(screen.getByText('.env')).toBeInTheDocument();
+    expect(screen.getByText('data/')).toBeInTheDocument();
+    expect(screen.getByText('2 additional top-level paths are hidden.')).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /delete ignored files and archive/iu })
+    );
+    expect(archiveMock).toHaveBeenCalledWith({
+      confirmIgnoredEntries: 'ignored-token',
+      worktreeId: 'wt-1',
+    });
   });
 
   it('adds the checkout as a workspace root through the by-path seam', async () => {

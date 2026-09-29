@@ -15,7 +15,7 @@ import {
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IndexingStatusItem } from '../status-items/indexing-status-item';
 
 function setManagedCollectionStats(managedCollectionStats: IndexingManagedCollectionStatsState) {
@@ -86,6 +86,16 @@ function seedReadyManagedStats(): void {
     status: 'ready',
   });
 }
+
+// Run before RTL cleanup so Radix's deferred close autofocus still owns this DOM.
+afterEach(async () => {
+  if (!screen.queryByRole('dialog', { name: 'Workspace Index' })) {
+    return;
+  }
+  const trigger = screen.getByTestId('indexing-status-trigger');
+  await userEvent.keyboard('{Escape}');
+  await waitFor(() => expect(trigger).toHaveFocus());
+});
 
 describe('IndexingStatusItem', () => {
   beforeEach(() => {
@@ -381,30 +391,40 @@ describe('IndexingStatusItem', () => {
     expect(screen.getByTestId('indexing-action-region')).toHaveClass('h-11');
   });
 
-  it('shows a neutral "No root selected" status, not Blocked/Ready, when unconfigured (BST-1335)', () => {
-    useBackgroundIndexingPreferencesStore.setState({ enabled: true, paused: false });
-    useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-      activeRootPath: null,
-      lastError: null,
-      managedCollectionId: 'collection-a',
-      state: 'unconfigured',
-    });
-    useIndexingActivityStore.getState().setBackgroundSnapshot({
-      enabled: true,
-      lastError: null,
-      managedCollectionId: 'collection-a',
-      managedCollectionName: null,
-      paused: false,
-      pauseReasons: [],
-      state: 'unconfigured',
-    });
+  it.each([
+    { activeRootPath: null, label: 'No root selected', managedCollectionId: 'set-1' },
+    {
+      activeRootPath: '/workspace/root',
+      label: 'No collection selected',
+      managedCollectionId: null,
+    },
+  ])(
+    'shows the missing setup requirement: $label',
+    ({ activeRootPath, label, managedCollectionId }) => {
+      useBackgroundIndexingPreferencesStore.setState({ enabled: true, paused: false });
+      useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+        activeRootPath,
+        lastError: null,
+        managedCollectionId,
+        state: 'unconfigured',
+      });
+      useIndexingActivityStore.getState().setBackgroundSnapshot({
+        enabled: true,
+        lastError: null,
+        managedCollectionId,
+        managedCollectionName: null,
+        paused: false,
+        pauseReasons: [],
+        state: 'unconfigured',
+      });
 
-    render(<IndexingStatusItem />);
+      render(<IndexingStatusItem />);
 
-    const status = screen.getByTestId('indexing-status-item');
-    expect(status).toHaveTextContent('Workspace IndexNo root selected');
-    expect(status).toHaveClass('text-muted-foreground');
-  });
+      const status = screen.getByTestId('indexing-status-item');
+      expect(status).toHaveTextContent(`Workspace Index${label}`);
+      expect(status).toHaveClass('text-muted-foreground');
+    }
+  );
 
   it('keeps the pause action available while a bound Workspace Index waits for restore', async () => {
     useBackgroundIndexingPreferencesStore.setState({
@@ -465,6 +485,31 @@ describe('IndexingStatusItem', () => {
 
     await waitFor(() => {
       expect(useBackgroundIndexingPreferencesStore.getState().paused).toBe(true);
+    });
+  });
+
+  describe('popover fixture lifetime', () => {
+    let restoredFocus = false;
+
+    afterAll(() => {
+      // Observe the real afterEach chain, including its order before RTL cleanup.
+      expect(restoredFocus).toBe(true);
+    });
+
+    it('finishes focus restoration when a test leaves its popover open', async () => {
+      render(<IndexingStatusItem />);
+      const trigger = screen.getByTestId('indexing-status-trigger');
+      await userEvent.click(trigger);
+      expect(await screen.findByRole('dialog', { name: 'Workspace Index' })).toBeVisible();
+      expect(trigger).not.toHaveFocus();
+      trigger.addEventListener(
+        'focus',
+        () => {
+          restoredFocus = true;
+        },
+        { once: true }
+      );
+      // Only the registered teardown may close the real Radix popover.
     });
   });
 });

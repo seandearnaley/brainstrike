@@ -14,6 +14,7 @@ describe('@brainstrike/app-shell package contract', () => {
     expect(Object.keys(manifest.exports).sort()).toEqual(
       [
         '.',
+        './app-reload',
         './browser-pane/availability',
         './browser-pane/browser-pane-content',
         './canvas/canvas-panel',

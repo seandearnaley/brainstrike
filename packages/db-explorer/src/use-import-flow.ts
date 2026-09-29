@@ -1,8 +1,4 @@
-import type {
-  ChunkingStrategy,
-  DrizzleFileChunkRepository,
-  ElectronFileChunkRepository,
-} from '@brainstrike/db';
+import type { ChunkingStrategy, IFileChunkRepository } from '@brainstrike/db';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui/shell';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type { useToast } from '@brainstrike/ui';
@@ -28,7 +24,7 @@ export interface UseImportFlowOptions {
 }
 
 export interface UseImportFlowResult {
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  chunkRepository: IFileChunkRepository | null;
   handleCancelImport: () => void;
   handleImportClick: () => void;
   isCancelling: boolean;

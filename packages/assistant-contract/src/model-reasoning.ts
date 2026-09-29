@@ -46,7 +46,13 @@ export type ReasoningControlsAvailability =
       defaultEffort?: OpenAiReasoningEffort | undefined;
       mandatory?: boolean | undefined;
     }
-  | { available: true; family: 'anthropic'; efforts: readonly AnthropicEffort[] }
+  | {
+      available: true;
+      family: 'anthropic';
+      efforts: readonly AnthropicEffort[];
+      defaultEffort?: AnthropicEffort | undefined;
+      mandatory?: boolean | undefined;
+    }
   | {
       /**
        * Its own family rather than a reuse of `anthropic` (BST-1354). The
@@ -79,26 +85,13 @@ export const OPENAI_FAMILY_DEFAULT_EFFORTS: readonly OpenAiReasoningEffort[] = [
 ];
 
 /**
- * OFFERED efforts, deliberately narrower than the `AnthropicEffort` type.
- *
- * `resolveReasoningControlsAvailability` returns this list for EVERY Anthropic
- * model — unlike the OpenAI family it has no per-model `supportedEfforts`
- * lookup. The type mirrors the SDK's wire enum (which does include
- * `xhigh`/`max`), but that is evidence about the protocol, not about what
- * every catalogued model accepts. Offering an effort the API then rejects is a
- * broken menu entry, so this stays at the verified set until the registry
- * carries per-model `reasoning.supportedEfforts` for Anthropic.
- */
-export const ANTHROPIC_REASONING_EFFORTS: readonly AnthropicEffort[] = ['low', 'medium', 'high'];
-
-/**
  * OFFERED Bedrock efforts, per reasoning dialect. Same
- * offered-vs-membership discipline as `ANTHROPIC_REASONING_EFFORTS`: the TYPE
+ * offered-vs-membership discipline as the registry's `anthropicReasoning` ladders: the TYPE
  * spans the SDK's full enum, these lists span what a route is documented to
  * accept.
  *
  * - `adaptive` — AWS's adaptive-thinking `output_config.effort`. Held at
- *   low/medium/high for the same reason the Anthropic list is: `xhigh`/`max`
+ *   low/medium/high until each Bedrock route declares its own ladder: `xhigh`/`max`
  *   are per-model (`supportsXhighEffort` in the SDK's capability table), and
  *   offering an effort a route rejects is a broken menu entry.
  * - `budget-tokens` — only the two efforts with a vendor-grounded token budget
@@ -238,7 +231,36 @@ function resolveOpenRouterControls(
     : modelId === undefined
       ? undefined
       : findDeclaredLlmModel('openrouter', modelId)?.reasoning;
+  // OpenRouter routes must declare their own ladder. Direct OpenAI defaults
+  // do not establish capabilities for an undeclared routed model.
+  if (!declared) {
+    return { available: false, reason: 'no-reasoning-controls' };
+  }
   return resolveOpenAiFamilyControls('openrouter', declared);
+}
+
+function resolveAnthropicControls(modelId: string | undefined): ReasoningControlsAvailability {
+  // Direct Anthropic uses the registry allow-list (isValidModelForProvider),
+  // with no custom-model option, so a missing or uncatalogued id is the
+  // no-selection edge, not a custom route. It still gets the Thinking toggle
+  // with an EMPTY effort ladder — the same shape as Haiku — because
+  // `buildAnthropicOptions` keeps sending a persisted legacy budget for such
+  // an id, and the toggle is AUTHORITATIVE for "is Claude thinking": hiding it
+  // would leave a request the user can neither see nor clear. Only the ladder
+  // needs a registry row to judge against, so only the ladder is withheld.
+  const model = modelId === undefined ? undefined : findDeclaredLlmModel('anthropic', modelId);
+  if (!model?.anthropicReasoning) {
+    return { available: true, efforts: [], family: 'anthropic' };
+  }
+  return {
+    available: true,
+    defaultEffort: model.anthropicReasoning.defaultEffort,
+    efforts: model.anthropicReasoning.supportedEfforts,
+    family: 'anthropic',
+    // BST-1706: always-on rows (Fable) carry `mandatory: true` so the toggle
+    // suppresses itself; toggleable rows omit it, as the OpenAI family does.
+    ...(model.anthropicReasoning.mandatory ? { mandatory: true } : {}),
+  };
 }
 
 /**
@@ -279,7 +301,7 @@ export function resolveReasoningControlsAvailability(
     case 'openrouter':
       return resolveOpenRouterControls(modelId, openRouterMetadata);
     case 'anthropic':
-      return { available: true, efforts: ANTHROPIC_REASONING_EFFORTS, family: 'anthropic' };
+      return resolveAnthropicControls(modelId);
     case 'google':
       return { available: true, family: 'google', levels: getGoogleThinkingLevels(modelId) };
     case 'local': {

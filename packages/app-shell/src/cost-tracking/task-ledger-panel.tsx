@@ -59,6 +59,7 @@ const STATUS_BADGE_VARIANTS: Record<
   'destructive' | 'outline' | 'secondary'
 > = {
   cancelled: 'outline',
+  cancelling: 'outline',
   completed: 'secondary',
   failed: 'destructive',
   running: 'outline',

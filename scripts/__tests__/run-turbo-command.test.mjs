@@ -22,6 +22,24 @@ function makeFakeHome() {
 }
 
 describe('run turbo command helper', () => {
+  it('the package.json sweep skips transient .stryker-tmp fixtures', (t) => {
+    // stryker-vitest-5-compatibility.test.mjs creates and deletes
+    // .stryker-tmp/stryker-vitest-5-*/package.json while the sweeps in this
+    // file walk the repo under default node --test concurrency. Listing the
+    // fixture and then stat/reading it after removal is ENOENT; the sweep
+    // must never descend into that scratch directory at all.
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'sweep-ignores-stryker-'));
+    t.after(() => rmSync(fixtureRoot, { force: true, recursive: true }));
+    const workspacePackage = join(fixtureRoot, 'packages', 'real');
+    const strykerFixture = join(fixtureRoot, '.stryker-tmp', 'stryker-vitest-5-abc');
+    mkdirSync(workspacePackage, { recursive: true });
+    mkdirSync(strykerFixture, { recursive: true });
+    writeFileSync(join(workspacePackage, 'package.json'), '{"name":"@brainstrike/real"}');
+    writeFileSync(join(strykerFixture, 'package.json'), '{"type":"module"}');
+
+    assert.deepEqual(findPackageJsonFiles(fixtureRoot), [join(workspacePackage, 'package.json')]);
+  });
+
   it('isolates and bounds default caches using Turbo effective cwd', (t) => {
     const fixtureRoot = mkdtempSync(join(tmpdir(), 'turbo-cache-scope-'));
     t.after(() => rmSync(fixtureRoot, { force: true, recursive: true }));
