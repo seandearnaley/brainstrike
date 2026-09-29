@@ -8,6 +8,12 @@ import ts from 'typescript';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const factoryPath = 'packages/db/src/pglite-factory.ts';
+// The one other construction site: the snapshot verifier's PGlite (BST-1877), which adds amcheck to the
+// engine set. Its own module and package subpath keep amcheck out of every browser bundle.
+const verificationFactoryPath = 'packages/db/src/pglite-verification-factory.ts';
+const factoryPaths = [factoryPath, verificationFactoryPath];
+// Runtime sources that may import it: only the desktop DB tool process (added by BST-1877 L2).
+const verificationFactoryImporters = ['apps/desktop/src/db-tool-entry.ts'];
 function isRuntimeSource(file) {
   return (
     /\.[cm]?[jt]sx?$/u.test(file) &&
@@ -52,7 +58,7 @@ function constructionViolations(file, source) {
   return violations;
 }
 
-test('PGlite construction belongs exclusively to pglite-factory.ts', () => {
+test('PGlite construction belongs exclusively to the two factory modules', () => {
   const files = execFileSync(
     'git',
     ['ls-files', '--cached', '--others', '--exclude-standard', 'apps', 'packages', 'scripts'],
@@ -64,7 +70,7 @@ test('PGlite construction belongs exclusively to pglite-factory.ts', () => {
     .trim()
     .split('\n');
   const violations = files
-    .filter((file) => isRuntimeSource(file) && file !== factoryPath)
+    .filter((file) => isRuntimeSource(file) && !factoryPaths.includes(file))
     // `--cached` lists tracked paths even when deleted in the worktree; skip those.
     .filter((file) => existsSync(path.join(repoRoot, file)))
     .flatMap((file) => {
@@ -78,7 +84,31 @@ test('PGlite construction belongs exclusively to pglite-factory.ts', () => {
   assert.deepEqual(
     violations,
     [],
-    `Construct only through ${factoryPath}:\n${violations.join('\n')}`
+    `Construct only through ${factoryPaths.join(' or ')}:\n${violations.join('\n')}`
+  );
+});
+
+test('only the desktop DB tool process may import the amcheck verification factory', () => {
+  const files = execFileSync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard', 'apps', 'packages', 'scripts'],
+    { cwd: repoRoot, encoding: 'utf8' }
+  )
+    .trim()
+    .split('\n')
+    .filter((file) => existsSync(path.join(repoRoot, file)));
+  // Control: the sweep must see the module itself, or an empty result below proves nothing.
+  assert.ok(files.includes(verificationFactoryPath));
+  const importers = files.filter(
+    (file) =>
+      isRuntimeSource(file) &&
+      !factoryPaths.includes(file) &&
+      readFileSync(path.join(repoRoot, file), 'utf8').includes('pglite-verification-factory')
+  );
+  assert.deepEqual(
+    importers.filter((file) => !verificationFactoryImporters.includes(file)),
+    [],
+    'amcheck must stay out of browser bundles: only the desktop DB tool process imports the verification factory'
   );
 });
 
