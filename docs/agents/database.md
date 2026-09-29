@@ -509,8 +509,14 @@ Rules:
 - BM25 orders but never matches: the lexical arm matches through migration 034's
   generated tsvector + GIN index and orders with the migration-066 BM25 index, so recall
   is bounded by the tsvector arm. pg_textsearch owns BM25 normalization.
-- `CRASH_SENSITIVE_INDEX_ACCESS_METHODS` (`packages/db/src/crash-sensitive-indexes.ts`) is the
-  list of index AMs WAL recovery does not restore (`bm25`: pg_textsearch #430/#426).
+- pg_textsearch's BM25 index is NOT crash-safe on PGlite (upstream #430/#426, fixed in 1.4.0,
+  which no PGlite package ships). Desktop rebuilds every crash-sensitive index
+  (`CRASH_SENSITIVE_INDEX_ACCESS_METHODS`, `packages/db/src/crash-sensitive-indexes.ts`) on the
+  first open after an unclean shutdown, before migrations, and records it as
+  `crashRecoveryIndexRebuild` in the diagnostics; a failed rebuild fails the open as
+  `corruption` and never resets. A new index access method joins that list unless the SIGKILL
+  crash gate (BST-1875) proves it recovers; a pg_textsearch >= 1.4.0 bump re-derives this rule.
+  Web is out of scope: browser PGlite has no process-kill crash mode of this kind.
 - When the exact English `plain` arm returns zero rows, all three file-chunk
   repositories may run ONE bounded `pg_trgm` fallback on the index-supported
   `$query <% content` predicate, pinning its session GUC and explicit `fuzzyThreshold`
@@ -547,8 +553,8 @@ Linux/Windows owed. Evidence: `database/pg-textsearch-qualification.md`.
 Guard: `scripts/__tests__/pglite-factory-contract.test.mjs`,
 `packages/db/__tests__/pglite-factory.test.ts`,
 `pglite-factory.integration.test.ts`, `fts-search-options-contract.test.ts`,
-`file-chunk-repository.test.ts`,
-`apps/desktop/src/__tests__/main/db-main.pglite-factory.test.ts`.
+`file-chunk-repository.test.ts`, `crash-sensitive-indexes.integration.test.ts`,
+`apps/desktop/src/__tests__/main/db-main.pglite-factory.test.ts`, `db-main.crash-recovery.test.ts`.
 
 ### A WebAssembly trap poisons the PGlite instance — it never spins (BST-1221)
 

@@ -179,3 +179,45 @@ The record below is the original contract text, extracted unchanged.
   never `'browser'` (Electron main), so they were never the code path this
   fix targets in the first place; their coverage by the passing unit suite is
   real and sufficient.
+
+## BM25 is not crash-safe on PGlite; desktop rebuilds it after an unclean shutdown (BST-1871, 2026-09-29)
+
+Supports the `database.md` rule that desktop rebuilds every crash-sensitive index on the
+first open after an unclean shutdown, before migrations.
+
+- Root cause: pg_textsearch 1.3.1, the only version `@electric-sql/pglite-pg_textsearch@0.0.10`
+  ships, does not WAL-log the index free-space map. After a crash the allocator can reuse a
+  block a live structure still owns (timescale/pg_textsearch #430/#426). PR #429 fixes it in
+  1.4.0, which no PGlite package ships; the maintainers state that a REINDEX clears the stale
+  state.
+- SIGKILL crash injection on the pinned builds (PGlite 0.5.8, pg_textsearch 1.3.1), writer killed
+  mid-transaction: the BM25 index was broken on 9/15 reopens without a REINDEX between kills and
+  clean on 30/30 with `REINDEX` after each kill. Heap, btree, GIN (pg_trgm, tsvector) and
+  pgvector HNSW were clean on every kill in every run.
+- Why the qualification above missed it: the durability gate checkpoints, closes and reopens
+  cleanly, so it never exercises crash recovery. Its 6/6 result says nothing about crash safety.
+- Rebuild cost: `REINDEX` took 1.6-10 s at 11k-71k rows in the crash runs. Synthetic in-memory
+  rows (~90 chars): 5k rows 37 ms, 100k 612 ms, 300k 1.9 s. The real 2.3 GB on-disk dev database
+  took 11.8 s for `idx_file_chunks_content_bm25`, the production incident.
+- Init deadline: the DB host init request (`DEFAULT_INITIALIZATION_TIMEOUT_MS`, 90 s in
+  `db-host-manager.ts`) now covers WAL replay, this rebuild and migrations, and a timeout
+  terminates the host. A host killed mid-rebuild leaves no clean-shutdown marker, so the next
+  open reads as unclean and rebuilds again from scratch: a rebuild slower than the deadline would
+  never finish. 11.8 s is 13% of 90 s. The timeout was left unchanged.
+
+### Rejected: replace BM25 ordering with `ts_rank_cd`
+
+`ts_rank_cd` has no IDF. Swapping it in for the BM25 ordering and running
+`packages/db/src/evaluation/retrieval-eval-cli.ts` (lexical golden v1, five queries):
+
+| Ordering | Precision@1 | MRR | Failing query |
+| --- | --- | --- | --- |
+| BM25 (current) | 1 | 1 | none |
+| `ts_rank_cd`, normalization 0 | 0.8 | 0.85 | `lex-q1-idf-rare-term` |
+| `ts_rank_cd`, normalization 1 | 0.8 | 0.9 | `lex-q1-idf-rare-term` |
+
+`lex-q1-idf-rare-term` (`quaternion OR pipeline`) expects `lex-chunk-04`, the only chunk with the
+rare term, and needs IDF to put it first: normalization 0 ranked it fourth, normalization 1
+second. Only normalizations 0 and 1 were run. The hybrid golden (v2) stayed at Precision@1 1 and
+MRR 1 in both runs, and the vector golden was unaffected, so the loss is confined to the
+lexical arm. BM25 was kept and made crash-safe by the rebuild instead.
