@@ -51,6 +51,17 @@ function createCorruptionError(): Error {
   return Object.assign(new Error('invalid page in block 9'), { code: 'XX001' });
 }
 
+/** The redacted `error` field each ERROR record carries: a re-index failure logs only its name and code. */
+function loggedErrorFields(captured: LogRecord[]): unknown[] {
+  return captured
+    .filter((record) => record.level === LogLevel.ERROR)
+    .flatMap((record) => record.args)
+    .filter(
+      (arg): arg is { error: unknown } => typeof arg === 'object' && arg !== null && 'error' in arg
+    )
+    .map((arg) => arg.error);
+}
+
 function containDatabase(): void {
   getDesktopDatabaseIntegrity().contain('db:query', {
     message: 'invalid page in block 3',
@@ -193,6 +204,10 @@ describe('assistant re-index side effects under database integrity containment',
     expect(
       captured.filter((record) => record.level === LogLevel.ERROR).map((record) => record.message)
     ).toEqual(['Failed to re-index edited file; RAG index may be stale until next sync']);
+    // The typed error is what gets logged, not the raw one it wraps.
+    expect(loggedErrorFields(captured)).toEqual([
+      { name: 'DatabaseIntegrityError', redacted: true },
+    ]);
   });
 
   it('leaves the state healthy when the re-index fails for another reason', async () => {
@@ -201,6 +216,7 @@ describe('assistant re-index side effects under database integrity containment',
     await expect(triggerEditedFileReindex(editArgs)).resolves.toBeUndefined();
 
     expect(getDesktopDatabaseIntegrity().getSnapshot().state).toEqual({ kind: 'healthy' });
+    expect(loggedErrorFields(captured)).toEqual([{ name: 'Error', redacted: true }]);
   });
 
   it('resumes re-indexing once the database has been replaced', async () => {
@@ -325,6 +341,9 @@ describe('assistant re-index side effects close the containment window', () => {
     });
     expect(levelMessages(LogLevel.ERROR)).toEqual([
       'Failed to invalidate index rows for a removed/renamed file; RAG index may be stale until next sync',
+    ]);
+    expect(loggedErrorFields(captured)).toEqual([
+      { name: 'DatabaseIntegrityError', redacted: true },
     ]);
   });
 

@@ -258,7 +258,7 @@ describe('database IPC handlers', () => {
 
     // A renderer live query that exists before the error.
     const liveHandle = createLiveHandleMock();
-    mockDb.live.query.mockResolvedValue(liveHandle);
+    mockDb.live.query.mockResolvedValueOnce(liveHandle);
     const subscription = (await startHandler(
       createAuthorizedDbEvent(createFakeLiveQueryOwner(701)),
       { query: 'select 1' }
@@ -1159,7 +1159,7 @@ describe('database IPC handlers', () => {
     }
 
     const liveHandle = createLiveHandleMock();
-    mockDb.live.query.mockResolvedValue(liveHandle);
+    mockDb.live.query.mockResolvedValueOnce(liveHandle);
     const result = (await startHandler(createAuthorizedDbEvent(createFakeLiveQueryOwner(77)), {
       query: 'select 1',
     })) as { id: number };
@@ -1367,7 +1367,7 @@ describe('database IPC handlers', () => {
 
   it('db:test contains an integrity error and reports it without replacing the database', async () => {
     const handler = handlers.get('db:test');
-    mockDb.query.mockRejectedValue(createCorruptionError());
+    mockDb.query.mockRejectedValueOnce(createCorruptionError());
 
     const result = (await handler?.(createTrustedInvokeEvent())) as {
       message: string;
@@ -1611,7 +1611,7 @@ describe('database IPC handlers', () => {
 
     it('contains an integrity error and reports the failure without replacing the database', async () => {
       const handler = handlers.get('db:clearAll');
-      mockDb.transaction.mockRejectedValue(createCorruptionError());
+      mockDb.transaction.mockRejectedValueOnce(createCorruptionError());
 
       const result = (await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE')) as {
         deletedChunks: number;

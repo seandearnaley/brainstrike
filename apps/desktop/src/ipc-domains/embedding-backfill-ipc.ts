@@ -47,9 +47,8 @@ async function withIntegrityContainment<T>(operation: () => Promise<T>): Promise
 }
 
 /** The IPC call already resolved, so a detached failure can only contain, never reject. */
-function containDetachedFailure(error: unknown): Promise<void> {
+async function containDetachedFailure(error: unknown): Promise<void> {
   containDatabaseIntegrityError(ENQUEUE_BACKFILL_INTEGRITY_CONTEXT, error);
-  return Promise.resolve();
 }
 
 export function registerEmbeddingBackfillIpcHandlers({
