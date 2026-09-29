@@ -131,6 +131,9 @@ describe('db init attempt record', () => {
     it.each([
       ['not JSON', '{"version":'],
       ['not an object', '[]'],
+      ['a JSON null', 'null'],
+      ['a JSON number', '42'],
+      ['a JSON string', '"text"'],
       ['a foreign version', JSON.stringify({ ...RECORD, version: 2 })],
       ['no version', JSON.stringify({ ...RECORD, version: undefined })],
       ['a missing phaseKey', JSON.stringify({ ...RECORD, phaseKey: undefined })],

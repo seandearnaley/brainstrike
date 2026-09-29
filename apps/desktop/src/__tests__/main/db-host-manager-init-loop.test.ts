@@ -29,8 +29,9 @@ const REBUILD_KEY = 'index-rebuild:public.idx_file_chunks_content_bm25';
 class FakeUtilityProcess extends EventEmitter {
   readonly messages: DbHostRequestEnvelope[] = [];
   readonly kill = vi.fn(() => true);
-  readonly pid: number;
-  constructor(pid: number) {
+  // Electron leaves a utility process's pid undefined until it has spawned.
+  readonly pid: number | undefined;
+  constructor(pid: number | undefined) {
     super();
     this.pid = pid;
   }
@@ -261,6 +262,15 @@ describe('the init loop breaker', () => {
       message: expect.stringContaining('starting the database process timed out twice'),
       name: 'DbHostInitStoppedError',
     });
+  });
+
+  it('records no host pid when the host reports none', async () => {
+    forkMock.mockReset().mockImplementation(() => new FakeUtilityProcess(undefined));
+    const { manager } = await loadManager();
+
+    await timedOutAttempt(manager, [], 15);
+
+    expect(readRecord()).toMatchObject({ consecutiveTimeouts: 1, hostPid: null });
   });
 
   it('a successful init removes the record', async () => {
