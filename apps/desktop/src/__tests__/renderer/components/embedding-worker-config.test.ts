@@ -20,7 +20,6 @@ const {
   // The host's view of main-owned database integrity (BST-1870); healthy unless a test says otherwise.
   integrityWatcher: {
     current: vi.fn(),
-    dispose: vi.fn(),
     subscribe: vi.fn(),
     waitUntilBackgroundAdmitted: vi.fn(),
   },
@@ -655,6 +654,9 @@ describe('createEmbeddingWorkerConfig', () => {
     });
     expect(admitted).toBe(false);
 
+    // The hold re-reads the state after the base permit, so admission is the
+    // healthy snapshot main publishes, not just the released wait.
+    integrityWatcher.current.mockResolvedValue({ revision: 2, state: { kind: 'healthy' } });
     admit();
     await permit;
     expect(admitted).toBe(true);
