@@ -69,6 +69,7 @@ describe('WebE2ETestHooks', () => {
       linkResetProbeRowsToCollection: vi.fn(),
       qualifyDatabaseExtensions: vi.fn(),
       qualifyLocalEmbedding: vi.fn(),
+      readAssistantThreadRunStatuses: vi.fn(),
       readAssistantThreads: vi.fn(),
       readFileRowCounts: vi.fn(),
       readModelEnabled: vi.fn(),
@@ -99,6 +100,7 @@ describe('WebE2ETestHooks', () => {
       linkResetProbeRowsToCollection: vi.fn(),
       qualifyDatabaseExtensions: vi.fn(),
       qualifyLocalEmbedding: vi.fn(),
+      readAssistantThreadRunStatuses: vi.fn(),
       readAssistantThreads: vi.fn(),
       readFileRowCounts: vi.fn(),
       readModelEnabled: vi.fn(),
@@ -362,6 +364,35 @@ describe('WebE2ETestHooks', () => {
         threadId: 'thread-1',
       })
     ).rejects.toThrow('Web E2E assistant run creation returned no row: run-missing');
+  });
+
+  it('reads the run statuses of one thread in creation order through parameterized SQL', async () => {
+    setWebDriver(true);
+    const query = vi.fn().mockResolvedValueOnce({
+      rows: [{ status: 'completed' }, { status: 'cancelled' }],
+    });
+    usePGliteDatabaseMock.mockReturnValue({ query } satisfies TestDbHandle);
+
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__).toBeDefined();
+    });
+    const hooks = window.__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('Expected webdriver hooks to be installed');
+    }
+
+    await expect(hooks.readAssistantThreadRunStatuses('thread-1')).resolves.toEqual([
+      'completed',
+      'cancelled',
+    ]);
+    expect(query).toHaveBeenCalledTimes(1);
+    const [sql, params] = query.mock.calls[0] ?? [];
+    expect(sql).toMatch(
+      /SELECT status FROM brainstrike_assistant_thread_runs\s+WHERE thread_id = \$1\s+ORDER BY created_at/
+    );
+    expect(params).toEqual(['thread-1']);
   });
 
   it('fails loudly when webdriver tests require sync but the DB handle cannot provide it', async () => {

@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import type { WebE2ETestHooks } from '../src/web-e2e-test-hooks';
 import {
   GATED_RUN_RESPONSE,
   mockGatedLocalLlmHost,
@@ -20,6 +21,18 @@ async function readOpenThreadTabIds(page: Page): Promise<readonly string[]> {
     .getByRole('tablist', { name: 'Open assistant threads' })
     .getByRole('tab')
     .evaluateAll((tabs) => tabs.map((tab) => tab.id.replace(/^assistant-thread-tab-/, '')));
+}
+
+/** The status of every run row the thread has, in creation order. */
+async function readThreadRunStatuses(page: Page, threadId: string): Promise<readonly string[]> {
+  return await page.evaluate(async (id) => {
+    const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+      .__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('Expected web E2E hooks to be available');
+    }
+    return await hooks.readAssistantThreadRunStatuses(id);
+  }, threadId);
 }
 
 /** Two open thread tabs, the FIRST one active and mid-run. Returns their ids in tab order. */
@@ -128,6 +141,27 @@ test.describe('Assistant thread tabs with runs in flight @stateful @web-assistan
       alphaPanel.getByTestId('assistant-ui-viewport').getByText(GATED_RUN_RESPONSE)
     ).toBeVisible();
     expect(await readGatedRuns(page)).toEqual({ cancelled: [], started: 1 });
+    expect(pageErrors).toEqual([]);
+  });
+
+  // Stop is the one gesture that aborts a run. The real desktop host answers
+  // the cancel by rejecting `generate` with an error that has crossed Electron
+  // IPC (a plain Error, message only), and the run must still end `cancelled`.
+  test('Stop cancels the held run: the host is told and the run ends cancelled', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    const { alphaId } = await startHeldRunInFirstOfTwoThreads(page);
+    const alphaPanel = page.getByTestId(`assistant-thread-panel-${alphaId}`);
+    const runningSpinners = page.getByTestId('threads-panel').getByTestId('thread-active-spinner');
+    expect(await readThreadRunStatuses(page, alphaId)).toEqual(['running']);
+
+    await alphaPanel.getByRole('button', { name: 'Stop' }).click();
+
+    await expect.poll(async () => (await readGatedRuns(page)).cancelled).toHaveLength(1);
+    await expect.poll(() => readThreadRunStatuses(page, alphaId)).toEqual(['cancelled']);
+    await expect(runningSpinners).toHaveCount(0);
     expect(pageErrors).toEqual([]);
   });
 
