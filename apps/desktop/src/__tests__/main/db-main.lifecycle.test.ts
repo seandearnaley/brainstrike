@@ -658,42 +658,69 @@ describe('db-main lifecycle', () => {
     expect(firstLockPath).toBe(secondLockPath);
   });
 
-  it('auto-recovers from database corruption during initialization', async () => {
+  it('never resets on corruption during initialization', async () => {
     const corruptionError = new Error("right sibling's left-link doesn't match") as Error & {
       code: string;
     };
     corruptionError.code = 'XX002';
 
-    // First call throws corruption error, second succeeds
     // Use function syntax for Vitest 4 constructor mocks (need this reference to prevent arrow conversion)
     PGliteMock.mockImplementationOnce(function (this: Record<string, unknown>) {
       Object.assign(this, {}); // Reference this to keep function syntax
       throw corruptionError;
     });
 
-    const { initializeMainDatabase } = await import('../../db-main');
-    const db = await initializeMainDatabase();
+    const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(
+      `The desktop database reported an integrity error while opening: right sibling's left-link doesn't match; details={"code":"XX002"}. BrainStrike did not delete or replace it.`
+    );
 
-    // Should have attempted reset (rmSync called) and succeeded on retry
-    expect(rmSyncMock).toHaveBeenCalled();
-    expect(db).toBeDefined();
+    expect(rmSyncMock).not.toHaveBeenCalled();
+    expect(cpSyncMock).not.toHaveBeenCalled();
+    expect(PGliteMock).toHaveBeenCalledTimes(1);
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.lastInitializationFailure?.category).toBe('corruption');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('open-database');
+    expect(diagnostics.databaseLockHeld).toBe(false);
   });
 
-  it('auto-recovers from database corruption during migration', async () => {
+  it('never resets on corruption during migration and never keeps the un-migrated handle', async () => {
     const corruptionError = new Error('could not locate a valid checkpoint record') as Error & {
       code: string;
     };
     corruptionError.code = 'XX002';
-
-    // First migration throws corruption, second succeeds
     migrateMock.mockRejectedValueOnce(corruptionError);
 
-    const { initializeMainDatabase } = await import('../../db-main');
-    const db = await initializeMainDatabase();
+    const { initializeMainDatabase, getDatabase, getDatabaseDiagnostics } = await import(
+      '../../db-main'
+    );
+    await expect(initializeMainDatabase()).rejects.toThrow(
+      'Database migrations failed with an integrity error: could not locate a valid checkpoint record; details={"code":"XX002"}. BrainStrike did not delete or replace the database.'
+    );
 
-    // Should have attempted reset and succeeded on retry
-    expect(rmSyncMock).toHaveBeenCalled();
-    expect(db).toBeDefined();
+    expect(rmSyncMock).not.toHaveBeenCalled();
+    expect(cpSyncMock).not.toHaveBeenCalled();
+    expect(closeMock).toHaveBeenCalledTimes(1);
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.lastInitializationFailure?.category).toBe('corruption');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('migration');
+    expect(diagnostics.hasDatabaseHandle).toBe(false);
+    expect(diagnostics.databaseLockHeld).toBe(false);
+
+    // The next caller re-opens and re-migrates instead of receiving the closed handle.
+    await getDatabase();
+    expect(PGliteMock).toHaveBeenCalledTimes(2);
+    expect(migrateMock).toHaveBeenCalledTimes(2);
+    expect(getDatabaseDiagnostics().hasDatabaseHandle).toBe(true);
+  });
+
+  it('keeps the non-corruption migration failure text', async () => {
+    migrateMock.mockRejectedValueOnce(new Error('relation already exists'));
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(
+      'Database migrations failed with pgvector: relation already exists'
+    );
   });
 
   it('does not auto-recover from wasm abort during initialization', async () => {
@@ -725,23 +752,6 @@ describe('db-main lifecycle', () => {
     const diagnostics = getDatabaseDiagnostics();
     expect(diagnostics.lastInitializationFailure?.category).toBe('wasm-runtime');
     expect(diagnostics.lastInitializationFailure?.stage).toBe('open-database');
-  });
-
-  it('throws if auto-recovery fails', async () => {
-    const corruptionError = new Error("right sibling's left-link doesn't match") as Error & {
-      code: string;
-    };
-    corruptionError.code = 'XX002';
-
-    // Both attempts fail with corruption
-    // Use function syntax for Vitest 4 constructor mocks (need this reference to prevent arrow conversion)
-    PGliteMock.mockImplementation(function (this: Record<string, unknown>) {
-      Object.assign(this, {}); // Reference this to keep function syntax
-      throw corruptionError;
-    });
-
-    const { initializeMainDatabase } = await import('../../db-main');
-    await expect(initializeMainDatabase()).rejects.toThrow(/auto-recovery failed/i);
   });
 
   it('resetLocalDatabase deletes parent app data directory', async () => {

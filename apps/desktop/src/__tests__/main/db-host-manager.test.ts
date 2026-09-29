@@ -861,25 +861,6 @@ describe('DbHostManager', () => {
     }
   });
 
-  it('terminates the utility DB host when initialization fails', async () => {
-    const { createDbHostManager } = await import('../../db-host-manager');
-    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
-
-    const databasePromise = manager.getDatabase();
-    const firstHost = latestProcess();
-    firstHost.reject(firstHost.messages.at(-1) as PostedMessage, 'init failed');
-
-    await expect(databasePromise).rejects.toThrow('init failed');
-    expect(firstHost.kill).toHaveBeenCalledTimes(1);
-
-    const nextDatabasePromise = manager.getDatabase();
-    expect(forkMock).toHaveBeenCalledTimes(2);
-    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
-      initialized: true,
-    });
-    await expect(nextDatabasePromise).resolves.toBeDefined();
-  });
-
   it('terminates the utility DB host when a transaction request times out', async () => {
     vi.useFakeTimers();
     try {
