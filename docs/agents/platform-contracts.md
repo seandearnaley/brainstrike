@@ -444,13 +444,16 @@ Guard: `apps/web/e2e/web-db-worker-startup.test.ts`.
 - State crosses IPC as `DatabaseIntegritySnapshot { revision, state }` on `db:integrity:state` (visible-ui,
   embedding-host) and the `db:integrity:changed` push; renderers read it through `createDatabaseIntegrityWatcher` in
   `@brainstrike/db`. Web omits the capability.
+- The app shell shows a persistent notice for every non-healthy integrity state, and a failed read or an unknown
+  state as unreadable, never as healthy (`database-integrity-notice.tsx`).
 
 Settled: containment, not replacement — the replace-and-reload design is reversed. Evidence:
 `platform-contracts/database-integrity-containment.md`, `platform-contracts/corruption-recovery-maintenance.md`.
 Guard: `apps/desktop/src/__tests__/database-integrity-state.test.ts`, `database-corruption-classifier.test.ts`,
 `platform/desktop-database-work.test.ts`, `main/ipc-handlers-db-integrity.test.ts`, `database-maintenance-scheduler.test.ts`,
 `main/db-main.lifecycle.test.ts`, `main/db-host-manager-init-failure.test.ts`,
-`apps/desktop/e2e/database-integrity-containment.desktop.test.ts`.
+`apps/desktop/e2e/database-integrity-containment.desktop.test.ts`,
+`packages/app-shell/src/database-integrity/__tests__/database-integrity-notice.test.tsx`.
 
 ---
 
