@@ -130,10 +130,16 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1873 raised this from 958 (+3): the factory-reset userData bullet now
   // states that the database root is inside userData only in test runs and on
   // packaged macOS, and that reset deletes the profile before any wipe.
+  // BST-1872 L1 raised it by 4 more, to 965: the awaited-close / SIGKILL-wedge / no-fork rule
+  // and "an exit code is never proof of a clean close"; L2 replaces the shutdown-ownership
+  // first bullet and re-pins. The L1 review round added 1 more, to 966: only an observed exit
+  // proves a departed DB host gone, so nothing forks or reports a close before it. Round 2
+  // added 1 more, to 967: a repeated close resolves once that exit is observed (the absent
+  // marker makes the next open unclean).
   // BST-1870 L4 replaced the runtime-recovery section with DATABASE INTEGRITY CONTAINMENT
   // (the recovery order and its history moved to evidence), a net -4 lines.
   // BST-1870 L4b: the Guard line names the containment E2E, one more line.
-  'platform-contracts.md': 958,
+  'platform-contracts.md': 964,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a

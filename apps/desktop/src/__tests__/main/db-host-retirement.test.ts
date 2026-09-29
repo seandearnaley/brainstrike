@@ -5,7 +5,11 @@ import type { DbHostRequestEnvelope } from '../../db-host-protocol';
 type PostedMessage = DbHostRequestEnvelope;
 class FakeUtilityProcess extends EventEmitter {
   readonly messages: PostedMessage[] = [];
-  readonly kill = vi.fn(() => true);
+  // Closing the host now waits for its exit: SIGTERM ends this fake, as it ends the real host.
+  readonly kill = vi.fn(() => {
+    queueMicrotask(() => this.emit('exit', 0));
+    return true;
+  });
   readonly postMessage = (message: PostedMessage): void => {
     this.messages.push(message);
   };
