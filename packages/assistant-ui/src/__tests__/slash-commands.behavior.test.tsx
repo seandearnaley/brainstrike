@@ -37,8 +37,8 @@ vi.mock('@assistant-ui/styles/index.css', () => ({}));
 // adapter, so stub the module to cut that chain while keeping the real panel +
 // real @assistant-ui/react runtime.
 vi.mock('../local-runtime-adapter', () => ({
+  acquireLocalBackend: vi.fn(() => () => {}),
   createLocalModelAdapter: vi.fn(() => ({ run: vi.fn() })),
-  disposeLocalBackend: vi.fn().mockResolvedValue(undefined),
   hasDesktopLlmHost: vi.fn(() => false),
 }));
 

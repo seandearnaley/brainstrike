@@ -2,8 +2,9 @@ import type { ChatModelRunOptions, ChatModelRunResult } from '@assistant-ui/reac
 import type { LocalLlmBackend, LocalLlmGenerationResult } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  __resetLocalBackendForTests,
+  acquireLocalBackend,
   createLocalModelAdapter,
-  disposeLocalBackend,
   getBestInferenceDevice,
   hasDesktopLlmHost,
   isLocalInferenceAvailable,
@@ -83,7 +84,7 @@ describe('createLocalModelAdapter', () => {
   });
 
   afterEach(async () => {
-    await disposeLocalBackend();
+    await __resetLocalBackendForTests();
     vi.unstubAllGlobals();
     (window as Window & { llmHost?: unknown }).llmHost = undefined;
   });
@@ -388,6 +389,7 @@ describe('createLocalModelAdapter', () => {
       loadBackend,
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
     });
+    const releaseBackend = acquireLocalBackend();
 
     await collectRun(adapter.run(createRunOptions()));
     await collectRun(adapter.run(createRunOptions()));
@@ -396,9 +398,11 @@ describe('createLocalModelAdapter', () => {
     expect(backend.initialize).toHaveBeenCalledTimes(1);
     expect(backend.generate).toHaveBeenCalledTimes(2);
 
-    await disposeLocalBackend();
+    releaseBackend();
 
-    expect(backend.dispose).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(backend.dispose).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('does not re-warm an already warmed desktop model', async () => {
@@ -783,58 +787,6 @@ describe('createLocalModelAdapter', () => {
     await expect(firstRun).resolves.toContainEqual({
       content: expect.arrayContaining([{ text: 'First response.', type: 'text' }]),
     });
-    await expect(secondRun).resolves.toContainEqual({
-      content: expect.arrayContaining([{ text: 'Second response.', type: 'text' }]),
-    });
-  });
-
-  it('waits for in-flight local generation before completing backend disposal', async () => {
-    const generationResolvers: Array<(value: LocalLlmGenerationResult) => void> = [];
-    const warmup = vi.fn().mockResolvedValue(undefined);
-    const generate = vi.fn().mockImplementation(
-      async () =>
-        await new Promise<LocalLlmGenerationResult>((resolve) => {
-          generationResolvers.push(resolve);
-        })
-    );
-
-    Object.assign(window as Window & { llmHost?: unknown }, {
-      llmHost: {
-        generate,
-        onProgress: vi.fn(() => () => {}),
-        onStatus: vi.fn(() => () => {}),
-        warmup,
-      },
-    });
-
-    const adapter = createLocalModelAdapter({
-      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-    });
-
-    const firstRun = collectRun(adapter.run(createRunOptions()));
-    await vi.waitFor(() => {
-      expect(generate).toHaveBeenCalledTimes(1);
-    });
-
-    const disposal = disposeLocalBackend();
-    let disposalResolved = false;
-    disposal.then(() => {
-      disposalResolved = true;
-    });
-    const secondRun = collectRun(adapter.run(createRunOptions()));
-    await Promise.resolve();
-
-    expect(generate).toHaveBeenCalledTimes(1);
-    expect(disposalResolved).toBe(false);
-
-    generationResolvers[0]?.(createGenerationResult({ text: 'First response.' }));
-    await firstRun;
-    await disposal;
-
-    await vi.waitFor(() => {
-      expect(generate).toHaveBeenCalledTimes(2);
-    });
-    generationResolvers[1]?.(createGenerationResult({ text: 'Second response.' }));
     await expect(secondRun).resolves.toContainEqual({
       content: expect.arrayContaining([{ text: 'Second response.', type: 'text' }]),
     });
