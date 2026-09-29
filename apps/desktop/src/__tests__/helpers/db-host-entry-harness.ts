@@ -28,7 +28,7 @@ export function restoreParentPort(): void {
  * Imports the real DB host entry with a fake parent port, captured signal handlers and a stubbed
  * `process.exit`. What the entry imports stays whatever the calling test file mocked.
  *
- * The `process.on`, `process.removeAllListeners`, `process.listenerCount` and `process.exit` spies
+ * The `process.on`, `process.removeAllListeners`, `process.listeners` and `process.exit` spies
  * are only undone by the caller's `vi.restoreAllMocks()` (call it in `afterEach`), and the
  * `parentPort` by `restoreParentPort()`.
  */

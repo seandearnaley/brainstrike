@@ -342,6 +342,24 @@ describe('desktop graceful shutdown', () => {
     expect(options.exitProcess).toHaveBeenCalledExactlyOnceWith(1);
   });
 
+  it('still exits 1 at the deadline when logging the failed database close throws', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { logger, options } = createHarness(
+      { forge: () => new Promise<void>(() => undefined) },
+      { closeDatabase: () => Promise.reject(new Error('DB host failed to close')), deadlineMs: 20 }
+    );
+    logger.error.mockImplementation(() => {
+      throw new Error('logger broke');
+    });
+
+    const running = createDesktopGracefulShutdown(options).run('signal', 'SIGINT');
+    await vi.advanceTimersByTimeAsync(20);
+    await running;
+
+    // A throwing logger must never cancel the exit, here or at the deadline log.
+    expect(options.exitProcess).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
   it('clears the backstop when every step finishes in time', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const { options } = createHarness({}, { deadlineMs: 20 });

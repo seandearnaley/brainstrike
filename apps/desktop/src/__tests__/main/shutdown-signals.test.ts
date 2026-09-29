@@ -55,10 +55,19 @@ describe('installShutdownSignalHandlers', () => {
   it('replaces a listener a dependency registered earlier, so libuv arms a fresh watcher for ours', () => {
     const emitter = new EventEmitter();
     const dependencyListener = vi.fn();
+    // A named dependency listener (`when-exit` registers a `once`) and an anonymous one.
+    function exitSignalHook(): void {
+      dependencyListener();
+    }
+    const anonymousListener = (
+      () => () =>
+        dependencyListener()
+    )();
     const order: string[] = [];
-    emitter.once('SIGINT', dependencyListener);
+    emitter.once('SIGINT', exitSignalHook);
+    emitter.on('SIGINT', anonymousListener);
     const target = {
-      listenerCount: (signal: NodeJS.Signals) => emitter.listenerCount(signal),
+      listeners: (signal: NodeJS.Signals) => emitter.listeners(signal) as (() => void)[],
       on: (signal: NodeJS.Signals, listener: () => void) => {
         order.push(`on:${signal}`);
         return emitter.on(signal, listener);
@@ -80,7 +89,7 @@ describe('installShutdownSignalHandlers', () => {
     expect(onFirstSignal).toHaveBeenCalledExactlyOnceWith('SIGINT');
     expect(logger.info).toHaveBeenCalledExactlyOnceWith(
       'Replaced existing signal listeners with the shutdown handler',
-      { replaced: 1, signal: 'SIGINT' }
+      { replaced: ['exitSignalHook', '<anonymous>'], signal: 'SIGINT' }
     );
   });
 

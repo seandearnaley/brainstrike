@@ -161,6 +161,37 @@ describe('DbHostManager close ladder', () => {
     );
   });
 
+  // The shutdown's reserved database-close slice and its backstop are sized by this constant, so it
+  // must be the END-TO-END bound of `close()`: ack, SIGTERM and SIGKILL waits taken in turn.
+  describe('DB_HOST_CLOSE_BUDGET_MS bounds close() end to end', () => {
+    it('settles a close of a host that survives every signal exactly at the budget', async () => {
+      const { manager } = await openManager();
+      const closing = observe(manager.close());
+
+      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_BUDGET_MS - 1);
+      expect(closing.settled()).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(closing.settled()).toBe(true);
+      expect(await closing.outcome).toMatchObject({
+        name: 'DbHostCloseError',
+        outcome: 'exit-timeout',
+      });
+    });
+
+    it('still settles inside the budget when the acknowledgement lands just before its timeout', async () => {
+      const { host, manager } = await openManager();
+      const closing = observe(manager.close());
+      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_ACK_TIMEOUT_MS - 1);
+      host.reply(lastMessage(host, 'close'), { closed: true });
+
+      // The host then ignores SIGTERM and SIGKILL: the remaining rungs fit in what is left.
+      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_BUDGET_MS - DB_HOST_CLOSE_ACK_TIMEOUT_MS + 1);
+
+      expect(closing.settled()).toBe(true);
+    });
+  });
+
   describe('close acknowledged', () => {
     it('stays pending until the host exits after SIGTERM, whatever the exit code', async () => {
       const { host, manager } = await openManager();

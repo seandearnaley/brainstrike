@@ -266,6 +266,16 @@ vi.mock('../../desktop-maintenance-trigger-graph', () => ({
   })),
 }));
 
+/** The logger `main.ts` made for 'DesktopMain'; fails loudly rather than reading the last one. */
+function requireMainLogger() {
+  const index = createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain');
+  const logger = index === -1 ? undefined : createLoggerMock.mock.results[index]?.value;
+  if (!logger) {
+    throw new Error("main.ts never created its 'DesktopMain' logger");
+  }
+  return logger;
+}
+
 describe('main boot order', () => {
   let uncaughtExceptionListenersBeforeMain = new Set<unknown>();
   let unhandledRejectionListenersBeforeMain = new Set<unknown>();
@@ -598,15 +608,14 @@ describe('main boot order', () => {
 
     afterEach(() => {
       capture.restore();
+      // Kept until here, not restored right after the import: `main.ts` reads the launch flag
+      // from the `whenReady` callback, which runs after the import returns.
+      process.argv = process.argv.filter((arg) => arg !== '--test-mode');
     });
 
     const importMainInE2eMode = async (): Promise<void> => {
       process.argv.push('--test-mode');
-      try {
-        await import('../../main');
-      } finally {
-        process.argv = process.argv.filter((arg) => arg !== '--test-mode');
-      }
+      await import('../../main');
     };
 
     it('installs no handlers under NODE_ENV=test, so importing main never touches the test process', async () => {
@@ -633,6 +642,20 @@ describe('main boot order', () => {
       expect(capture.handlers.get('SIGINT')).not.toContain(dependencyListener);
     });
 
+    it('reads the E2E launch flag when ready fires, not when main is imported', async () => {
+      // A real `whenReady` resolves after the import returns.
+      const ready = Promise.withResolvers<void>();
+      mockApp.whenReady.mockReturnValueOnce(ready.promise);
+
+      await importMainInE2eMode();
+      expect(capture.handlers.size).toBe(0);
+      ready.resolve();
+
+      await vi.waitFor(() =>
+        expect([...capture.handlers.keys()].sort()).toEqual(['SIGHUP', 'SIGINT', 'SIGTERM'])
+      );
+    });
+
     it("waits for app ready: a listener registered earlier is replaced by Electron's own one-shot handler", async () => {
       mockApp.whenReady.mockReturnValueOnce(new Promise(() => undefined));
 
@@ -652,10 +675,7 @@ describe('main boot order', () => {
       listeners('SIGINT')[0]?.('SIGINT');
 
       expect(shutdownPlanCapture.run).toHaveBeenCalledExactlyOnceWith('signal', 'SIGINT');
-      const mainLogger = createLoggerMock.mock.results
-        .map((result) => result.value)
-        .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
-      expect(mainLogger?.info).toHaveBeenCalledWith(
+      expect(requireMainLogger().info).toHaveBeenCalledWith(
         'Shutdown already in progress; ignoring signal',
         { signal: 'SIGTERM' }
       );
