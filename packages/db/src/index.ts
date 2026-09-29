@@ -22,6 +22,16 @@ export {
 } from './chunk-embedding-job-batch.js';
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
+export {
+  CRASH_SENSITIVE_INDEX_ACCESS_METHODS,
+  type CrashSensitiveIndex,
+  type CrashSensitiveIndexDb,
+  type CrashSensitiveIndexRebuild,
+  CrashSensitiveIndexRebuildError,
+  type CrashSensitiveIndexRebuildResult,
+  listCrashSensitiveIndexes,
+  rebuildCrashSensitiveIndexes,
+} from './crash-sensitive-indexes.js';
 export * from './database-pressure-controller.js';
 export * from './database-query-telemetry.js';
 export * from './database-work-scheduler.js';
