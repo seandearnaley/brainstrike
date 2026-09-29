@@ -5,7 +5,10 @@ import {
   resolveIndexBuildMaintenanceWorkMemMb,
 } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
-import { createDesktopDatabaseIntegrity } from '../database-integrity-state';
+import {
+  createDesktopDatabaseIntegrity,
+  DatabaseIntegrityError,
+} from '../database-integrity-state';
 import {
   createDesktopDimensionIndexMaintenanceScheduler,
   type DesktopDimensionIndexMaintenanceSchedulerOptions,
@@ -628,5 +631,135 @@ describe('DesktopDimensionIndexMaintenanceScheduler integrity containment', () =
 
     await expect(harness.scheduler.runOnce()).resolves.toMatchObject({ status: 'completed' });
     expect(harness.runDimensionMaintenance).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * BST-1870: an integrity error found by a dimension-index pass contains the
+ * database and never replaces it. The error can surface in the pass's own
+ * reads or inside the HNSW build itself: the build's failure is otherwise
+ * recorded by `runNextDimensionIndexMaintenance` as text only, which no
+ * classifier may read.
+ */
+describe('DesktopDimensionIndexMaintenanceScheduler integrity containment on failure', () => {
+  // DbHostManager.toError rebuilds a DB host failure as a plain Error carrying
+  // the SQLSTATE on `code`: the shape a maintenance pass sees in main.
+  function createDbHostError(message: string, code: string): Error {
+    return Object.assign(new Error(message), { code });
+  }
+
+  type DimensionMaintenanceRunner = NonNullable<
+    DesktopDimensionIndexMaintenanceSchedulerOptions['runDimensionMaintenance']
+  >;
+
+  function createHarness(
+    runDimensionMaintenance: DimensionMaintenanceRunner,
+    getDatabase: DesktopDimensionIndexMaintenanceSchedulerOptions['getDatabase'] = async () => ({
+      query: idleAssistantQuery(),
+    })
+  ) {
+    const integrity = createHealthyIntegrity();
+    const logger = createLogger();
+    const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
+      getDatabase,
+      getDimensionIndexStrategy: () => 'regular',
+      getPowerSnapshot: idleAcSnapshot,
+      getSchedulerSnapshot: idleSchedulerSnapshot,
+      integrity,
+      logger,
+      quietPeriodMs: 0,
+      runDimensionMaintenance,
+      runScheduledWork: (async <TResult>(
+        _options: DatabaseWorkRunOptions,
+        work: () => Promise<TResult>
+      ): Promise<TResult> =>
+        await work()) as unknown as DesktopDimensionIndexMaintenanceSchedulerOptions['runScheduledWork'],
+      subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
+    });
+    return { integrity, logger, scheduler };
+  }
+
+  it('contains the database when the pass fails with an index-corruption error', async () => {
+    const corruption = createDbHostError('invalid hnsw index page', 'XX002');
+    const harness = createHarness(
+      vi.fn(async () => {
+        throw corruption;
+      })
+    );
+
+    const rejection = await harness.scheduler.runOnce().catch((error: unknown) => error);
+
+    expect(rejection).toBeInstanceOf(DatabaseIntegrityError);
+    expect(rejection).toMatchObject({
+      cause: corruption,
+      detail: { context: 'dimension-index-maintenance', reason: 'detected' },
+    });
+    expect(harness.integrity.getSnapshot().state).toMatchObject({
+      context: 'dimension-index-maintenance',
+      kind: 'contained',
+      signal: { sqlstate: 'XX002' },
+    });
+  });
+
+  it('contains the database when the index build itself raises an integrity error', async () => {
+    const corruption = createDbHostError('invalid hnsw index page', 'XX002');
+    // The real pass catches a build failure and returns it as text; the
+    // scheduler's own createIndex seam is the last place the SQLSTATE exists.
+    const harness = createHarness(
+      vi.fn(async (_db, options) => {
+        await options.createIndex({ dimension: 384, strategy: 'regular' }).catch(() => undefined);
+        return {
+          dimension: 384,
+          error: 'recorded as text',
+          status: 'failed' as const,
+          strategy: 'regular' as const,
+        };
+      }),
+      async () => ({
+        maintenance: {
+          exec: vi.fn(async () => {
+            throw corruption;
+          }),
+        },
+        query: idleAssistantQuery(),
+      })
+    );
+
+    await harness.scheduler.runOnce();
+
+    expect(harness.integrity.getSnapshot().state).toMatchObject({
+      context: 'dimension-index-maintenance',
+      kind: 'contained',
+      signal: { sqlstate: 'XX002' },
+    });
+  });
+
+  it('keeps a non-corruption failure unclassified: same error, state healthy', async () => {
+    const failure = createDbHostError('canceling statement due to statement timeout', '57014');
+    const harness = createHarness(
+      vi.fn(async () => {
+        throw failure;
+      })
+    );
+
+    await expect(harness.scheduler.runOnce()).rejects.toBe(failure);
+
+    expect(harness.integrity.getSnapshot().state).toEqual({ kind: 'healthy' });
+  });
+
+  // Compile-time guard: type-check fails here if `integrity` ever becomes optional.
+  it('has no default for the integrity option', () => {
+    const withoutIntegrity: Omit<DesktopDimensionIndexMaintenanceSchedulerOptions, 'integrity'> = {
+      getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+      getDimensionIndexStrategy: () => 'regular',
+      getPowerSnapshot: idleAcSnapshot,
+      getSchedulerSnapshot: idleSchedulerSnapshot,
+      logger: createLogger(),
+      runScheduledWork: vi.fn() as never,
+      subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
+    };
+    // @ts-expect-error `integrity` is required: a build must never run unguarded.
+    const create = () => createDesktopDimensionIndexMaintenanceScheduler(withoutIntegrity);
+    expect(create).toBeTypeOf('function');
   });
 });
