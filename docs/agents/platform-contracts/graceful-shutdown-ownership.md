@@ -221,6 +221,8 @@ its own process) and opened a second PGlite over the first. Fixes, all in `db-ma
   next host reads no marker, so its open is unclean and WAL replay runs.
 - I. Runtime corruption recovery therefore fails closed when the close fails: it never deletes a
   directory a handle may own. Intended, not a regression.
+  Superseded by BST-1870 L4: runtime corruption recovery no longer exists; an integrity error
+  contains the database and never resets it (`platform-contracts.md` § DATABASE INTEGRITY CONTAINMENT).
 - J. `db` is assigned only after the pgvector validation; the handle being opened lives in a
   separate `openingHandle` that only the failed-open cleanup reads. Before, `getLocalDatabase()`
   and `initializeLocalMainDatabase()` returned `db` without awaiting the single-flight promise, so

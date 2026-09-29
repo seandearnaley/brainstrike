@@ -12,10 +12,11 @@ import {
   type TransactionStatement,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
+import type { DatabaseIntegrityContext } from '@brainstrike/types';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow, ipcMain } from 'electron';
-import { isCorruptionError } from '../database-corruption-classifier';
+import { containDatabaseIntegrityError } from '../database-integrity-state';
 import {
   DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
   DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
@@ -36,10 +37,6 @@ import {
 import type { IpcChannel } from '../platform/ipc-contract';
 import { databaseContract, databaseLiveContract, databasePathContract } from './database.contract';
 import { clearOptionalRelation } from './db-reset-relation';
-import {
-  type RuntimeDatabaseCorruptionHandler,
-  recoverRuntimeDatabaseCorruption,
-} from './runtime-database-corruption';
 
 interface DatabaseHostWindowMatcher {
   readonly isHostWindow: (window: BrowserWindow) => boolean;
@@ -49,7 +46,6 @@ interface RegisterDatabaseIpcHandlersOptions {
   readonly chunkingHostManager?: DatabaseHostWindowMatcher;
   readonly embeddingHostManager?: DatabaseHostWindowMatcher;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
-  readonly onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler;
 }
 
 interface LiveSubscriptionRecord {
@@ -262,19 +258,19 @@ export function isDesktopDatabaseBackgrounded(): boolean {
   return isBackgrounded;
 }
 
-async function runWithCorruptionRecovery<T>(
+/**
+ * An integrity error contains the database (background work pauses, live
+ * subscriptions and the DB host stay up) and rejects the call that hit it with
+ * the typed error. The call is never retried and nothing is replaced.
+ */
+async function runWithIntegrityContainment<T>(
   operation: () => Promise<T>,
-  context: string,
-  recover: RuntimeDatabaseCorruptionHandler
+  context: DatabaseIntegrityContext
 ): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    if (isCorruptionError(error)) {
-      logger.warn(`Corruption detected in ${context}; replacing the database without retrying.`);
-      await recover(context);
-    }
-    throw error;
+    throw containDatabaseIntegrityError(context, error) ?? error;
   }
 }
 
@@ -294,18 +290,14 @@ function buildRefreshArgs(
   return Object.keys(args).length > 0 ? args : undefined;
 }
 
-async function handleLiveQueryRefreshError(
+function handleLiveQueryRefreshError(
   error: unknown,
-  queryId: number | undefined,
-  recover: RuntimeDatabaseCorruptionHandler
-): Promise<{ success: boolean; message: string; corrupted?: boolean }> {
-  if (isCorruptionError(error)) {
-    logger.warn('Corruption detected in db:live-query:refresh, resetting database...');
-    await recover('db:live-query:refresh');
-  }
-  logger.warn('Failed to refresh live query', { error, id: queryId });
+  queryId: number | undefined
+): { success: boolean; message: string } {
+  const reported = containDatabaseIntegrityError('db:live-query:refresh', error) ?? error;
+  logger.warn('Failed to refresh live query', { error: reported, id: queryId });
   return {
-    message: error instanceof Error ? error.message : String(error),
+    message: reported instanceof Error ? reported.message : String(reported),
     success: false,
   };
 }
@@ -476,17 +468,6 @@ export function registerDatabaseIpcHandlers(
   if (e2eLiveQueryDiagnostics) {
     e2eGlobal[E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY] = e2eLiveQueryDiagnostics;
   }
-  const recover = async (context: string): Promise<void> => {
-    // Stop renderer-owned reactive handles before the DB host is torn down.
-    // This prevents their refresh timers from retaining the old database and
-    // allocating an unbounded stream of failed updates during recovery.
-    await cleanupAllLiveSubscriptions();
-    await recoverRuntimeDatabaseCorruption(context, options?.onRuntimeCorruption);
-  };
-  const withCorruptionRecovery = async <T>(
-    operation: () => Promise<T>,
-    context: string
-  ): Promise<T> => await runWithCorruptionRecovery(operation, context, recover);
 
   registerEventAwareDatabaseInvoke(
     registry,
@@ -504,7 +485,7 @@ export function registerDatabaseIpcHandlers(
       );
       assertRendererSql('db:query', sql);
       return runScheduledDatabaseWork(event, options, workOptions, 'db:query', async () =>
-        withCorruptionRecovery(async () => {
+        runWithIntegrityContainment(async () => {
           const { getDatabase } = await import('../db-main');
           const db = await getDatabase();
           return params === undefined ? await db.query(sql) : await db.query(sql, params);
@@ -529,7 +510,7 @@ export function registerDatabaseIpcHandlers(
       );
       assertRendererSql('db:exec', sql);
       return runScheduledDatabaseWork(event, options, workOptions, 'db:exec', async () =>
-        withCorruptionRecovery(async () => {
+        runWithIntegrityContainment(async () => {
           const { getDatabase } = await import('../db-main');
           const db = await getDatabase();
           return params === undefined ? await db.exec(sql) : await db.exec(sql, params);
@@ -559,7 +540,7 @@ export function registerDatabaseIpcHandlers(
         assertRendererSql('db:transaction', statement?.sql);
       }
       return runScheduledDatabaseWork(event, options, workOptions, 'db:transaction', async () =>
-        withCorruptionRecovery(async () => {
+        runWithIntegrityContainment(async () => {
           const { getDatabase } = await import('../db-main');
           const db = await getDatabase();
           return runStatementsInTransaction(db, statements, resultIndex);
@@ -595,7 +576,7 @@ export function registerDatabaseIpcHandlers(
         workOptions,
         'db:live-query:start',
         async () =>
-          withCorruptionRecovery(async () => {
+          runWithIntegrityContainment(async () => {
             const { getDatabase } = await import('../db-main');
             const db = await getDatabase();
 
@@ -611,8 +592,8 @@ export function registerDatabaseIpcHandlers(
                 // Guarded (unlike every other teardown, which goes through
                 // cleanupLiveSubscription's tolerance): a rejection here must
                 // neither replace the context-changed error below nor — via
-                // withCorruptionRecovery — let a benign reload race trigger a
-                // full database replacement. Logged, never swallowed silently.
+                // runWithIntegrityContainment — let a benign reload race
+                // contain the database. Logged, never swallowed silently.
                 logger.warn('Failed to tear down a live-query handle reaped mid-setup', { error });
               }
               throw new Error(
@@ -667,7 +648,7 @@ export function registerDatabaseIpcHandlers(
             await record.handle.refresh(refreshArgs);
             return { success: true };
           } catch (error) {
-            return await handleLiveQueryRefreshError(error, payload?.id, recover);
+            return handleLiveQueryRefreshError(error, payload?.id);
           }
         }
       );
@@ -699,7 +680,7 @@ export function registerDatabaseIpcHandlers(
         workOptions,
         DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
         async () =>
-          withCorruptionRecovery(async () => {
+          runWithIntegrityContainment(async () => {
             const { getDbHostManager } = await import('../db-host-manager');
             await getDbHostManager().applyManagedCacheBatch(parsedPayload);
           }, DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL)
@@ -718,7 +699,7 @@ export function registerDatabaseIpcHandlers(
         workOptions,
         DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
         async () =>
-          withCorruptionRecovery(async () => {
+          runWithIntegrityContainment(async () => {
             const { getDbHostManager } = await import('../db-host-manager');
             return await getDbHostManager().invalidateManagedCacheEntriesByIdentity(parsedPayload);
           }, DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL)
@@ -738,7 +719,7 @@ export function registerDatabaseIpcHandlers(
         workOptions,
         DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
         async () =>
-          withCorruptionRecovery(async () => {
+          runWithIntegrityContainment(async () => {
             const { getDbHostManager } = await import('../db-host-manager');
             await getDbHostManager().insertChunksAndEnqueueEmbeddingJobs(parsedPayload);
           }, DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL)
@@ -748,7 +729,7 @@ export function registerDatabaseIpcHandlers(
 
   registerEventAwareDatabaseInvoke(registry, databaseContract.test, async () => {
     try {
-      return await withCorruptionRecovery(async () => {
+      return await runWithIntegrityContainment(async () => {
         const { getDatabase } = await import('../db-main');
         const db = await getDatabase();
         await db.query('SELECT 1');
@@ -937,14 +918,11 @@ export function registerDatabaseIpcHandlers(
           }
         );
       } catch (error) {
-        if (isCorruptionError(error)) {
-          logger.warn('Corruption detected in db:clearAll, resetting database...');
-          await recover('db:clearAll');
-        }
+        const reported = containDatabaseIntegrityError('db:clearAll', error) ?? error;
         return {
           deletedChunks: 0,
           deletedFiles: 0,
-          message: `Database clear failed: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Database clear failed: ${reported instanceof Error ? reported.message : String(reported)}`,
           success: false,
         };
       }

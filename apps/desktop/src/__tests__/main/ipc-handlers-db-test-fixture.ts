@@ -1,5 +1,11 @@
 import type { BrowserWindow } from 'electron';
 import { vi } from 'vitest';
+import { getDesktopDatabaseIntegrity } from '../../database-integrity-state';
+import {
+  createAllowlistedSenderFrame,
+  createTrustedInvokeEvent,
+  trackTestWindowRole,
+} from '../helpers/desktop-ipc-sender-test-helpers';
 export function createWindowWithWebContents(sender: {
   id?: number;
   isDestroyed?: () => boolean;
@@ -14,20 +20,107 @@ export function createWindowWithWebContents(sender: {
   } as unknown as BrowserWindow;
 }
 
+/** What Postgres raises for a corrupt page; the classifier reads only this `code`. */
+export function createCorruptionError(message = 'invalid page in block 42'): Error {
+  return Object.assign(new Error(message), { code: 'XX001' });
+}
+
+export function currentIntegrityState() {
+  return getDesktopDatabaseIntegrity().getSnapshot().state;
+}
+
+let nextAuthorizedSenderId = 800_000;
+
+/**
+ * Runs behavior tests through the production sender-authorization boundary
+ * without replacing caller-owned WebContents stand-ins. Live-query and
+ * scheduler tests depend on that object identity for ownership and host-role
+ * classification, so missing ids are added to the same object.
+ */
+export function createAuthorizedDbEvent(sender?: object): unknown {
+  if (!sender) {
+    return createTrustedInvokeEvent();
+  }
+  const candidate = sender as { id?: number };
+  if (candidate.id === undefined) {
+    candidate.id = nextAuthorizedSenderId++;
+  }
+  trackTestWindowRole(candidate.id, 'visible-ui');
+  return {
+    sender,
+    senderFrame: createAllowlistedSenderFrame('visible-ui'),
+  };
+}
+
+export interface FakeLiveQueryOwner {
+  emit: (event: string) => void;
+  id: number;
+  isDestroyed: ReturnType<typeof vi.fn>;
+  listenerCount: (event: string) => number;
+  on: (event: string, listener: () => void) => void;
+  removeListener: (event: string, listener: () => void) => void;
+  send: ReturnType<typeof vi.fn>;
+}
+
+/**
+ * A minimal WebContents stand-in with real add/remove listener semantics so
+ * reaper attachment, sibling-listener removal, and re-attachment after a reap
+ * are observable via `listenerCount` (mirrors the fs-watch reaper tests).
+ */
+export function createFakeLiveQueryOwner(id: number): FakeLiveQueryOwner {
+  const listeners = new Map<string, Array<() => void>>();
+  return {
+    emit: (event: string): void => {
+      // Snapshot before firing — the reap listener mutates the map mid-fire.
+      for (const listener of [...(listeners.get(event) ?? [])]) {
+        listener();
+      }
+    },
+    id,
+    isDestroyed: vi.fn(() => false),
+    listenerCount: (event: string): number => listeners.get(event)?.length ?? 0,
+    on: (event: string, listener: () => void): void => {
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+    },
+    removeListener: (event: string, listener: () => void): void => {
+      const remaining = (listeners.get(event) ?? []).filter((entry) => entry !== listener);
+      if (remaining.length === 0) {
+        listeners.delete(event);
+      } else {
+        listeners.set(event, remaining);
+      }
+    },
+    send: vi.fn(),
+  };
+}
+
+export function createLiveHandleMock(): {
+  initialResults: { rows: unknown[] };
+  refresh: ReturnType<typeof vi.fn>;
+  subscribe: ReturnType<typeof vi.fn>;
+  unsubscribe: ReturnType<typeof vi.fn>;
+} {
+  return {
+    initialResults: { rows: [] },
+    refresh: vi.fn(),
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+  };
+}
+
 // Hoist Electron and db mocks safely
 const {
   handlers,
   mockDb,
   browserWindowMock,
   applyManagedCacheBatchMock,
+  insertChunksAndEnqueueEmbeddingJobsMock,
   invalidateManagedCacheEntriesByIdentityMock,
   parseManagedCacheBatchArgsMock,
   parseManagedCacheInvalidationsArgsMock,
   getDatabaseMock,
   loggerWarn,
   loggerDebug,
-  isCorruptionErrorMock,
-  handleRuntimeCorruptionMock,
   resetLocalDatabaseMock,
   closeDatabaseMock,
   resetDesktopApplicationDataMock,
@@ -56,6 +149,7 @@ const {
     getAllWindows: vi.fn(() => []),
   });
   const applyManagedCacheBatchMock = vi.fn(async () => undefined);
+  const insertChunksAndEnqueueEmbeddingJobsMock = vi.fn(async () => undefined);
   const invalidateManagedCacheEntriesByIdentityMock = vi.fn(async () => ({
     canceledEmbeddingJobCount: 0,
     deletedChunkIds: [],
@@ -106,10 +200,6 @@ const {
   const getDatabaseMock = vi.fn(() => mockDb);
   const loggerWarn = vi.fn();
   const loggerDebug = vi.fn();
-  // Matches the isCorruptionError(error) signature of database-corruption-classifier
-  // so tests can install error-discriminating implementations.
-  const isCorruptionErrorMock = vi.fn((_error: unknown) => false);
-  const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
   const storageClearMock = vi.fn(async () => undefined);
   const closeDatabaseMock = vi.fn();
@@ -162,14 +252,12 @@ const {
     lastInitializationFailure: null,
     lastInitializationStartedAt: '2026-02-15T00:00:00.000Z',
     lastInitializationSucceededAt: '2026-02-15T00:00:01.000Z',
-    lastRuntimeCorruptionAt: null,
-    lastRuntimeCorruptionContext: null,
     nodeEnv: 'test',
-    runtimeCorruptionRecoveryCount: 0,
   }));
   const getDbHostManagerMock = vi.fn(() => ({
     applyManagedCacheBatch: applyManagedCacheBatchMock,
     getDiagnostics: getDatabaseDiagnosticsMock,
+    insertChunksAndEnqueueEmbeddingJobs: insertChunksAndEnqueueEmbeddingJobsMock,
     invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityMock,
   }));
   return {
@@ -186,10 +274,9 @@ const {
     getDatabaseDiagnosticsMock,
     getDatabaseMock,
     getDbHostManagerMock,
-    handleRuntimeCorruptionMock,
     handlers,
+    insertChunksAndEnqueueEmbeddingJobsMock,
     invalidateManagedCacheEntriesByIdentityMock,
-    isCorruptionErrorMock,
     loggerDebug,
     loggerWarn,
     mockDb,
@@ -215,10 +302,9 @@ export {
   getDatabaseDiagnosticsMock,
   getDatabaseMock,
   getDbHostManagerMock,
-  handleRuntimeCorruptionMock,
   handlers,
+  insertChunksAndEnqueueEmbeddingJobsMock,
   invalidateManagedCacheEntriesByIdentityMock,
-  isCorruptionErrorMock,
   loggerDebug,
   loggerWarn,
   mockDb,
@@ -342,14 +428,7 @@ vi.mock('../../db-main', () => ({
   closeDatabase: closeDatabaseMock,
   getDatabase: getDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
-  handleRuntimeCorruption: handleRuntimeCorruptionMock,
   resetLocalDatabase: resetLocalDatabaseMock,
-}));
-
-// Forces the corruption branch per test; classification itself is covered by
-// database-corruption-classifier.test.ts.
-vi.mock('../../database-corruption-classifier', () => ({
-  isCorruptionError: isCorruptionErrorMock,
 }));
 
 vi.mock('../../db-host-manager', () => ({
@@ -439,12 +518,10 @@ import '../../main';
 
 export async function resetDatabaseIpcHandlerMocks(): Promise<void> {
   vi.clearAllMocks();
-  // clearAllMocks intentionally preserves queued mock implementations. Reset
-  // this classifier explicitly so a test that proves validation short-circuits
-  // before classification cannot leak its unused `mockReturnValueOnce(true)`
-  // into the next handler invocation.
-  isCorruptionErrorMock.mockReset();
-  isCorruptionErrorMock.mockReturnValue(false);
+  // Containment state outlives a test. main.ts holds this same singleton for its
+  // own wiring, so return it to healthy the way production does, rather than
+  // replacing the instance.
+  getDesktopDatabaseIntegrity().markDatabaseReplaced('developer-reset');
   const { resetDesktopDatabaseWorkSchedulerForTests, setBackgrounded } = await import(
     '../../ipc-handlers'
   );

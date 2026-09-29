@@ -13,9 +13,6 @@ describe('desktop platform diagnostics', () => {
       initializationInFlight: false,
       lastInitializationFailure: null,
       lastInitializationSucceededAt: '2026-05-20T18:00:00.000Z',
-      lastRuntimeCorruptionAt: '2026-05-20T18:01:00.000Z',
-      lastRuntimeCorruptionContext: 'db:query',
-      runtimeCorruptionRecoveryCount: 1,
     };
     const databaseIntegrity = {
       revision: 1,

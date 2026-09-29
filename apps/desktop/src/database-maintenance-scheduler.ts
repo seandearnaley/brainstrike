@@ -7,12 +7,10 @@ import {
   type ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
 import type { Effect, Scope } from 'effect';
-import { isCorruptionError } from './database-corruption-classifier';
-import type { DesktopDatabaseIntegrity } from './database-integrity-state';
 import {
-  type RuntimeDatabaseCorruptionHandler,
-  recoverRuntimeDatabaseCorruption,
-} from './ipc-domains/runtime-database-corruption';
+  containDatabaseIntegrityError,
+  type DesktopDatabaseIntegrity,
+} from './database-integrity-state';
 import {
   createSustainedIdleObserver,
   DEFAULT_MAINTENANCE_QUIET_PERIOD_MS,
@@ -26,9 +24,6 @@ import {
 } from './maintenance-trigger-runtime';
 
 const DEFAULT_DATABASE_MAINTENANCE_INITIAL_DELAY_MS = 30_000;
-
-/** Runtime-recovery context for corruption found by a maintenance pass. */
-const MAINTENANCE_CORRUPTION_CONTEXT = 'maintenance';
 
 /**
  * BST-1333: how long the database scheduler must have been CONTINUOUSLY idle
@@ -114,12 +109,6 @@ export interface DesktopDatabaseMaintenanceSchedulerOptions {
   readonly logger: MaintenanceLogger;
   readonly maintenanceOptions?: ScheduledDatabaseMaintenanceOptions;
   readonly now?: () => Date;
-  /**
-   * Runtime corruption recovery: backup, DB host replacement, window reload.
-   * Required, never defaulted: a pass that finds corruption must not leave the
-   * app serving the corrupt database.
-   */
-  readonly onRuntimeCorruption: RuntimeDatabaseCorruptionHandler;
   /**
    * Continuous idle required before a pass may start (BST-1333). Observed via
    * `subscribeToSchedulerSnapshots`; when that is not supplied the gate cannot
@@ -255,21 +244,10 @@ export function createDesktopDatabaseMaintenanceScheduler(
             now,
           });
         } catch (error) {
-          if (!isCorruptionError(error)) {
-            throw error;
-          }
-          // Same rule and path as db:query: recover while this operation still
-          // owns the lane, and never retry against the replacement database.
-          options.logger.warn(
-            { context: MAINTENANCE_CORRUPTION_CONTEXT, error },
-            'Corruption detected in maintenance; replacing the database without retrying.'
-          );
-          // Never resolves: rejects with DatabaseCorruptionRecoveredError once
-          // the replacement is in place.
-          return await recoverRuntimeDatabaseCorruption(
-            MAINTENANCE_CORRUPTION_CONTEXT,
-            options.onRuntimeCorruption
-          );
+          // Same rule and helper as db:query: an integrity error contains the
+          // database (background work pauses) and the pass rejects with the typed
+          // error. Nothing is replaced and the pass is not retried.
+          throw containDatabaseIntegrityError('maintenance', error, options.integrity) ?? error;
         }
       })
       .then((result) => {
