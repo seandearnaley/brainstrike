@@ -108,16 +108,25 @@ describe('migration 073 diagnostic rollback semantics', () => {
     await runner.rollback(migration);
     expect(await runner.isApplied(73)).toBe(false);
     expect(await retainedData()).toEqual(retained);
+    expect(
+      (await db.query("SELECT to_regclass('brainstrike_diagnostic_events') AS events")).rows
+    ).toEqual([{ events: null }]);
+    expect(await indexes()).toEqual([]);
   });
 
   it('does not restore later-migration indexes or reconcile their ledger during out-of-order reapply', async () => {
+    // Current-chain sentinel: a new dependent object requires updating this
+    // audit and its evidence, not bypassing PostgreSQL's DROP protection.
     await runner.up(migrations);
+    const retained = await retainedData();
     expect(await runner.isApplied(76)).toBe(true);
     expect((await indexes()).some((row) => row.indexname === 'bst_diagnostic_events_run_idx')).toBe(
       true
     );
     await runner.rollback(migration);
     await runner.runMigration(migration);
+    expect(await runner.isApplied(73)).toBe(true);
+    expect(await retainedData()).toEqual(retained);
     // 073 knows only its own indexes. The later ledger entry still says applied.
     expect(await runner.isApplied(76)).toBe(true);
     expect((await indexes()).some((row) => row.indexname === 'bst_diagnostic_events_run_idx')).toBe(

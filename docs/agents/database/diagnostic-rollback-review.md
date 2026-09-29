@@ -27,6 +27,8 @@ invented for this prefix.
   diagnostic run index exists before down, disappears with the table, and is
   not recreated by 073 up. The 076 ledger entry still says applied. Reapplying
   an older migration cannot reconcile later schema ownership or its ledger.
+  This sentinel follows the current chain intentionally; a later dependent
+  object requires revisiting the test and this evidence, not bypassing DROP.
 
 Negative control: temporarily add DELETE FROM file_records to down. Retained
 file snapshots fail; restoring the original SQL is GREEN. This is a semantic
