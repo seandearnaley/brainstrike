@@ -227,4 +227,11 @@ export {
   type ScheduledDatabaseMaintenanceSkipReason,
   type ScheduledDatabaseMaintenanceStatus,
 } from './services/scheduled-database-maintenance.js';
+export {
+  getTableDurability,
+  type RebuildOwner,
+  TABLE_DURABILITY_REGISTRY,
+  type TableDurabilityClass,
+  type TableDurabilityEntry,
+} from './table-durability-registry.js';
 export * from './wasm-loader.js';
