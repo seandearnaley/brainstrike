@@ -462,6 +462,8 @@ Evidence: `database/managed-worktree-ledger.md`.
   runs, user toggles) is never truncated by automated repair and is in every portable
   export. `derived` may be truncated and rebuilt; `operational` may be truncated without
   a rebuild; `schema-ledger` is never truncated and always exported.
+- `findTableDurability` is the non-throwing lookup for reporting an unregistered table as `unclassified`;
+  never decide what to truncate from it.
 - `derived` requires `rebuildOwner` (`path/to/file.ts#symbol`), an existing automatic rebuild
   path the union type enforces and the guard resolves; none, not derived.
 - Before truncating ANY non-precious table, repair names to the user each scope it cannot
@@ -484,9 +486,9 @@ extension control file" error on that path only:
 - `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers
   `brainstrike.grepSearch`'s trigram prefilter, migration 038)
 - `pg_textsearch` (BM25 index AM, from `@electric-sql/pglite-pg_textsearch`)
-- `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less
-  worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and
-  `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve
+- `live` (client-side reactive queries — loaded everywhere EXCEPT the live-less hosts:
+  `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and the short-lived
+  `browser-first-run-bootstrap-worker.ts` and snapshot verifier instances, which serve
   no reactive queries)
 
 Rules:
@@ -541,9 +543,13 @@ engine registry; `CLIENT_EXTENSIONS` contains `live`. The sanctioned constructio
 are `wasm-loader.ts` (cached dynamic loaders and HMR reset only for
 `createPGliteClient`; `createPGlite` caches the creation promise for persistent
 instances to prevent double-open), the two worker entries via `createEnginePglite`, the
-quantization benchmark, and `apps/desktop/src/db-main.ts`, which dynamically imports
+quantization benchmark, `apps/desktop/src/db-main.ts`, which dynamically imports
 `@brainstrike/db/pglite-factory` so bare package imports stay external in the
-main-process build. The contract guard has no runtime exceptions.
+main-process build, and the snapshot verifier's `pglite-verification-factory.ts`: the
+engine set plus `amcheck` and no `live`, in its own subpath so no browser bundle reaches
+amcheck. Only the desktop DB tool entry (`apps/desktop/src/db-tool-entry.ts`, forthcoming)
+may import it, and nothing else may import `amcheck`. The contract guard has no runtime
+exceptions.
 
 - Loading the extension binaries does not execute `CREATE EXTENSION`; callers and
   migrations own that SQL and shutdown/drain behaviour.
@@ -554,7 +560,8 @@ Settled: greenfield is the entire install population, so migration 066's guard p
 every install that will ever exist; extension qualification is macOS-arm64 only, with
 Linux/Windows owed. Evidence: `database/pg-textsearch-qualification.md`.
 Guard: `scripts/__tests__/pglite-factory-contract.test.mjs`,
-`packages/db/__tests__/pglite-factory.test.ts`, `crash-injection-gate.integration.test.ts`,
+`packages/db/__tests__/pglite-factory.test.ts`, `pglite-verification-factory.test.ts`,
+`crash-injection-gate.integration.test.ts`,
 `pglite-factory.integration.test.ts`, `fts-search-options-contract.test.ts`,
 `file-chunk-repository.test.ts`, `crash-sensitive-indexes.integration.test.ts`,
 `apps/desktop/src/__tests__/main/db-main.pglite-factory.test.ts`, `db-main.crash-recovery.test.ts`.
