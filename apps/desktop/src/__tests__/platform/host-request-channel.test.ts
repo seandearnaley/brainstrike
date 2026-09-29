@@ -253,6 +253,40 @@ describe('createHostRequestChannel', () => {
     expect(onTimeout.mock.calls[0]?.[1]).toMatchObject({ progressCount: 0, timeoutMs: 50 });
   });
 
+  it.each([
+    ['NaN', Number.NaN],
+    ['negative', -1],
+    ['zero', 0],
+    ['fractional', 1.5],
+    ['past the longest timer', 2_147_483_648],
+  ])(
+    'treats a %s window from progressTimeoutMs like a throw: logged, never armed',
+    async (_label, windowMs) => {
+      const onTimeout = vi.fn(
+        (_request: TestRequest, _context: HostRequestTimeoutContext) =>
+          ({ error: new Error('first window expired'), policy: 'abandon' }) as const
+      );
+      const { channel } = createChannel({
+        onTimeout,
+        progressTimeoutMs: () => windowMs,
+        timeoutMs: () => 50,
+      });
+
+      const pending = observe(channel.request({ id: 'req-odd-window', kind: 'slow' }));
+      await vi.advanceTimersByTimeAsync(20);
+      channel.accept({ id: 'req-odd-window', type: 'progress', value: 'x' });
+
+      expect(loggerErrorMock).toHaveBeenCalledWith(
+        'Test host progress budget failed; the deadline was not re-armed',
+        expect.objectContaining({ requestId: 'req-odd-window', role: 'Test host' })
+      );
+      // Not re-armed: the original 50 ms window still ends at t=50.
+      await vi.advanceTimersByTimeAsync(30);
+      await expect(pending).resolves.toMatchObject({ message: 'first window expired' });
+      expect(onTimeout.mock.calls[0]?.[1]).toMatchObject({ progressCount: 0, timeoutMs: 50 });
+    }
+  );
+
   it('rejects with the abort reason and releases the request when the signal fires', async () => {
     const { channel } = createChannel();
     const controller = new AbortController();

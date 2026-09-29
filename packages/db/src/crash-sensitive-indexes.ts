@@ -33,8 +33,10 @@ export interface CrashSensitiveIndexDb {
 /**
  * One crash-sensitive index with the sizes the catalog reports in O(1). A rebuild's duration
  * scales with the table's stored content, so the host manager derives its deadline for the
- * rebuild from `heapBytes + toastBytes` (`docs/agents/database.md` § "PGLITE EXTENSION
- * INVARIANT"). Mirrored by `DatabaseCrashSensitiveIndex` in `@brainstrike/types`.
+ * rebuild from `heapBytes + toastBytes`: the per-phase deadline rule lives in
+ * `docs/agents/platform-contracts.md` § "Graceful shutdown ownership" (the DB host bullet), and
+ * the size report in `docs/agents/database.md`'s crash-sensitive index rule. Mirrored by
+ * `DatabaseCrashSensitiveIndex` in `@brainstrike/types`.
  */
 export interface CrashSensitiveIndex {
   readonly accessMethod: string;
@@ -91,10 +93,28 @@ function quoteIdentifier(identifier: string): string {
  * skip an index created elsewhere. Ordered by schema then name so a rebuild
  * pass is deterministic.
  */
+type CatalogIndexRow = Omit<CrashSensitiveIndex, 'heapBytes' | 'indexBytes' | 'toastBytes'> &
+  Record<'heapBytes' | 'indexBytes' | 'toastBytes', unknown>;
+
+/** `int8` reaches JS as a number while safe and as a bigint past 2^53: make the declared type true. */
+function toByteCount(
+  row: CatalogIndexRow,
+  field: 'heapBytes' | 'indexBytes' | 'toastBytes'
+): number {
+  const value = row[field];
+  const count = typeof value === 'bigint' || typeof value === 'number' ? Number(value) : Number.NaN;
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new TypeError(
+      `Crash-sensitive index ${row.schema}.${row.index} reported ${field} ${String(value)}, not a safe non-negative byte count.`
+    );
+  }
+  return count;
+}
+
 export async function listCrashSensitiveIndexes(
   db: CrashSensitiveIndexDb
 ): Promise<readonly CrashSensitiveIndex[]> {
-  const result = await db.query<CrashSensitiveIndex>(
+  const result = await db.query<CatalogIndexRow>(
     `SELECT n.nspname::text AS "schema", c.relname::text AS "index", t.relname::text AS "table",
             am.amname::text AS "accessMethod",
             pg_relation_size(i.indexrelid)::bigint AS "indexBytes",
@@ -111,7 +131,12 @@ export async function listCrashSensitiveIndexes(
      ORDER BY n.nspname, c.relname`,
     [[...CRASH_SENSITIVE_INDEX_ACCESS_METHODS]]
   );
-  return result.rows;
+  return result.rows.map((row) => ({
+    ...row,
+    heapBytes: toByteCount(row, 'heapBytes'),
+    indexBytes: toByteCount(row, 'indexBytes'),
+    toastBytes: toByteCount(row, 'toastBytes'),
+  }));
 }
 
 /**
