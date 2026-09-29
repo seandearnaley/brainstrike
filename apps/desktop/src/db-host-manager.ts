@@ -827,7 +827,8 @@ class DefaultDbHostManager implements DbHostManager {
 
   #acceptMessage(message: unknown): void {
     if (!isDbHostToMainMessage(message)) {
-      // Shape only: DB host traffic carries query results, which must never reach the log.
+      // Bounded shape only: DB host traffic carries query results. Key names, counts and a top-level
+      // string `type` (if any) are logged, each truncated; no other value is.
       logger.warn('Ignored malformed DB host message', summarizeMalformedMessage(message));
       return;
     }

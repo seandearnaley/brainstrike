@@ -252,6 +252,15 @@ function isByteCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
+// PostgreSQL identifiers are at most NAMEDATALEN - 1 = 63 bytes. These names reach the timeout log
+// and the error message a person reads, so a longer one is not a catalog name: reject it.
+const MAX_IDENTIFIER_BYTES = 63;
+const utf8 = new TextEncoder();
+
+function isIdentifier(value: unknown): value is string {
+  return isNonEmptyString(value) && utf8.encode(value).length <= MAX_IDENTIFIER_BYTES;
+}
+
 export function isDatabaseInitPhaseReport(report: unknown): report is DatabaseInitPhaseReport {
   if (!isRecord(report)) {
     return false;
@@ -263,10 +272,10 @@ export function isDatabaseInitPhaseReport(report: unknown): report is DatabaseIn
       const { index } = report;
       return (
         isRecord(index) &&
-        isNonEmptyString(index['accessMethod']) &&
-        isNonEmptyString(index['index']) &&
-        isNonEmptyString(index['schema']) &&
-        isNonEmptyString(index['table']) &&
+        isIdentifier(index['accessMethod']) &&
+        isIdentifier(index['index']) &&
+        isIdentifier(index['schema']) &&
+        isIdentifier(index['table']) &&
         isByteCount(index['heapBytes']) &&
         isByteCount(index['indexBytes']) &&
         isByteCount(index['toastBytes'])
