@@ -88,7 +88,7 @@ candidate files with an ignore walker without consulting Git's index. This
 explains the observed 2.11.4 failure; 2.11.3 itself was not executed here.
 The inspected 2.11.4 documentation, CLI help, tagged source and boundary
 configuration expose no include-tracked or equivalent remedy. The contract
-holds >=2.11.3 until a vendor remedy passes the actual tracked-source control
+blocks upgrades to >=2.11.3 until a vendor remedy passes the tracked-source control
 while ignored generated output remains excluded. Keep the wrapper and all
 existing assertions; do not rewrite ignore rules or suppress this test.
 
