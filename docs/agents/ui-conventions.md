@@ -315,10 +315,10 @@ Guard: `thread-row.test.tsx`.
 - Production CSS minification canonicalizes colour literals INSIDE custom
   properties (`hsl(30 25% 99%)` ships as `#fdfcfc`), so tests must never
   string-compare authored token text. Web e2e resolves tokens through
-  `apps/web/e2e/utils/theme-colors.ts` (canvas `fillStyle` normalization) and
-  compares normalized values; pick a token that actually differs between the
-  cases under test (both the high-contrast and orchid light backgrounds are
-  white — the high-contrast e2e uses `--bs-primary`).
+  `apps/web/e2e/utils/theme-colors.ts` (1x1 canvas pixel readback: `fillStyle`
+  echoes `oklch()` verbatim) and compares sRGB values; pick a token that
+  differs between the cases under test (the high-contrast and orchid light
+  backgrounds are both white; the high-contrast e2e uses `--bs-primary`).
 - Biome's `useSortedClasses` splits a Tailwind arbitrary value containing
   literal spaces (`bg-[…color-mix(in oklab, …)]`); write such values with
   underscores (`in_oklab,_var(--x)_45%,_transparent`), which Tailwind v4 turns
