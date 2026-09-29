@@ -2,12 +2,14 @@ import { USER_COMMANDS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/us
 import { CONTEXT_FILES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/context-files-bridge';
 import { ASSISTANT_PERSONAS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/personas-bridge';
 import { SKILLS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/skills-bridge';
+import { WINDOW_FOCUS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/utils/window-focus-bridge';
 import { describe, expect, it } from 'vitest';
 import { clipboardContract } from '../../ipc-domains/clipboard.contract';
 import { contextFilesContract } from '../../ipc-domains/context-files.contract';
 import { skillsContract } from '../../ipc-domains/skills.contract';
 import { userCommandsContract } from '../../ipc-domains/user-commands.contract';
 import { userPersonasContract } from '../../ipc-domains/user-personas.contract';
+import { windowFocusContract } from '../../ipc-domains/window-focus.contract';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 
 /**
@@ -22,6 +24,7 @@ describe('leaf IPC contracts', () => {
     ['skills', skillsContract, SKILLS_BRIDGE_REQUIRED_METHODS],
     ['userCommands', userCommandsContract, USER_COMMANDS_BRIDGE_REQUIRED_METHODS],
     ['userPersonas', userPersonasContract, ASSISTANT_PERSONAS_BRIDGE_REQUIRED_METHODS],
+    ['windowFocus', windowFocusContract, WINDOW_FOCUS_BRIDGE_REQUIRED_METHODS],
   ])('%s keys equal the package required-method pin', (_domain, contract, required) => {
     expect(Object.keys(contract).sort()).toEqual([...required].sort());
   });
@@ -63,5 +66,19 @@ describe('leaf IPC contracts', () => {
     expect(userCommandsContract.list.parseArgs([])).toEqual([]);
     expect(userPersonasContract.list.parseArgs([])).toEqual([]);
     expect(contextFilesContract.scan.parseArgs([])).toEqual([]);
+  });
+
+  it('binds windowFocus to its manifest channels: one visible-UI invoke and one push', () => {
+    expect(windowFocusContract.isFocused).toMatchObject({
+      channel: DESKTOP_IPC_CHANNELS.windowFocus.isFocused,
+      envelope: 'ipc-result',
+      kind: 'invoke',
+      roles: ['visible-ui'],
+    });
+    expect(windowFocusContract.onChange).toEqual({
+      channel: DESKTOP_IPC_CHANNELS.windowFocus.changed,
+      kind: 'push',
+    });
+    expect(windowFocusContract.isFocused.parseArgs([])).toEqual([]);
   });
 });

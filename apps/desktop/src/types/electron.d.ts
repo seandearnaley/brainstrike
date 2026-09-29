@@ -29,6 +29,7 @@ import type { settingsContract } from '../ipc-domains/storage-preferences.contra
 import type { terminalContract } from '../ipc-domains/terminal.contract';
 import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
+import type { windowFocusContract } from '../ipc-domains/window-focus.contract';
 import type { worktreesContract } from '../ipc-domains/worktrees.contract';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
@@ -307,6 +308,12 @@ declare global {
      * equal to app-shell's `UserCommandsBridge` — nothing here can drift.
      */
     userCommands?: Bridge<typeof userCommandsContract>;
+    /**
+     * Desktop-only native window focus (BST-1864), derived from its pure IPC
+     * contract, which is itself pinned to `WindowFocusBridge` in `@brainstrike/utils`.
+     * Absent on web — `useAppActive()` capability-checks it.
+     */
+    windowFocus?: Bridge<typeof windowFocusContract>;
     /**
      * Low-friction folder connection (BST-1393). Absent on web — consumers
      * capability-check it via `resolveWorkspaceConnectBridge()`. The exposed

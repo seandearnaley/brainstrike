@@ -363,6 +363,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'terminal.contract.ts',
       'user-commands.contract.ts',
       'user-personas.contract.ts',
+      'window-focus.contract.ts',
       'worktrees.contract.ts',
     ]);
     expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(5);
@@ -406,6 +407,24 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
 
     expect(new Set(expected.map(({ channel }) => channel)).size).toBe(expected.length);
     expect(actual).toEqual(expected);
+  });
+
+  it("publishes the main window's native focus and blur to its renderer on the window-focus push channel (BST-1864)", () => {
+    const [mainWindow] = mockBrowserWindow.mock.instances as unknown as Array<{
+      on: MockOnFn;
+      webContents: { send: MockOnFn };
+    }>;
+    expect(mainWindow).toBeDefined();
+    if (!mainWindow) {
+      return;
+    }
+    const send = mainWindow.webContents.send;
+    send.mockClear();
+
+    fireHandlersRegisteredSoFar(mainWindow.on, 'blur');
+    expect(send).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.windowFocus.changed, false);
+    fireHandlersRegisteredSoFar(mainWindow.on, 'focus');
+    expect(send).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.windowFocus.changed, true);
   });
 
   it('registers only DESKTOP_IPC_CHANNELS manifest literals', () => {

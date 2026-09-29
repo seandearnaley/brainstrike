@@ -186,6 +186,7 @@ import { getSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
+import { publishWindowFocus, registerWindowFocusIpcHandlers } from './window-focus-ipc';
 import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 import {
@@ -1027,6 +1028,7 @@ ipcDisposers.add(
 );
 ipcDisposers.add('shell', registerShellIpcHandlers());
 ipcDisposers.add('clipboard', registerClipboardIpcHandlers());
+ipcDisposers.add('window-focus', registerWindowFocusIpcHandlers());
 ipcDisposers.add('file-exports', registerFileExportsIpcHandlers());
 // Lazy resolver for the same reason as `resolveSnapshotService` below: this
 // registration runs at module load, the ONE snapshot service is constructed
@@ -1801,6 +1803,12 @@ if (singleInstanceLockAcquired) {
         }
         const storedWindowState = readStoredWindowState(store);
         const win = await createWindow({ windowState: storedWindowState });
+        // The renderer's app-active signal follows THIS window's native focus,
+        // not its own `document.hasFocus()` (false while the browser pane or
+        // DevTools holds keyboard focus). Per window, so a dock-reopened
+        // replacement publishes too; the existing `mainWindow` blur/focus pair
+        // below throttles main-side IPC and only ever attached to the first.
+        publishWindowFocus(win);
         // app.on('activate') recreates this window; dispose the persistence
         // listeners + debounce timer on close so they don't accumulate per window.
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);

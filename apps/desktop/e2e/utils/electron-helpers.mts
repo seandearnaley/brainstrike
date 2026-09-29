@@ -421,6 +421,15 @@ function createLaunchOptions(
       // Force console logging and disable file logging to avoid contention/permissions issues
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
+      // BST-1864: `windowFocus` reports the NATIVE window's focus, and this harness
+      // window is `focusable: false` and never shown, so it is never focused —
+      // while Playwright forces the renderer's `document.hasFocus()` true. Left on,
+      // every spec would run with an unfocused app (indexer polling, the unseen
+      // badge); off, each keeps the focused app it has always run with. An explicit
+      // value wins, `''` included, so a spec that tests the bridge opts in with `''`.
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES:
+        baseEnv['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'] ?? 'windowFocus',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase

@@ -17,31 +17,21 @@ import type {
  */
 export type AssistantNotificationPermissionState = 'granted' | 'denied' | 'default' | 'unsupported';
 
-export interface AssistantNotificationFocusState {
-  readonly hasFocus: boolean;
-  readonly visibilityState: 'visible' | 'hidden';
-}
-
 export interface AssistantNotificationSettingsSnapshot {
   readonly events: NotificationEventToggles;
   readonly masterEnabled: boolean;
 }
 
 export interface ShouldNotifyInput {
-  readonly focusState: AssistantNotificationFocusState;
+  /**
+   * The shared `isAppActive()` reading (`@brainstrike/hooks`) taken at event
+   * time: visible AND focused, where focus is the native window's on desktop.
+   * The unseen-badge rule reads the same signal.
+   */
+  readonly appActive: boolean;
   readonly kind: NotificationEventKind;
   readonly permissionState: AssistantNotificationPermissionState;
   readonly settings: AssistantNotificationSettingsSnapshot;
-}
-
-/**
- * True only when the renderer is NOT the user's active focus: the tab is
- * hidden, or it is visible but the OS window lacks focus (e.g. another app is
- * frontmost). A focused, visible user is NEVER notified — per requirement,
- * this check runs at event time (the caller passes a fresh snapshot).
- */
-function isUnfocused(focusState: AssistantNotificationFocusState): boolean {
-  return focusState.visibilityState === 'hidden' || !focusState.hasFocus;
 }
 
 /**
@@ -60,5 +50,6 @@ export function shouldNotify(input: ShouldNotifyInput): boolean {
   if (input.permissionState !== 'granted') {
     return false;
   }
-  return isUnfocused(input.focusState);
+  // A visible, focused user is NEVER notified; the caller passes a fresh reading.
+  return !input.appActive;
 }

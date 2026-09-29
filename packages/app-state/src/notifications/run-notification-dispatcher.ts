@@ -11,7 +11,6 @@
 
 import type { NotificationEventKind } from '../stores/notification-preferences-store';
 import type {
-  AssistantNotificationFocusState,
   AssistantNotificationPermissionState,
   AssistantNotificationSettingsSnapshot,
 } from './should-notify';
@@ -67,9 +66,10 @@ export type NotificationFactory = (
 export interface RunNotificationDispatcherDeps {
   /** Called when the user clicks the notification. Defaults to `window.focus`. */
   readonly focusWindow?: () => void;
-  readonly getFocusState: () => AssistantNotificationFocusState;
   readonly getPermissionState: () => AssistantNotificationPermissionState;
   readonly getSettings: () => AssistantNotificationSettingsSnapshot;
+  /** The shared app-active signal, read at dispatch time (event time). */
+  readonly isAppActive: () => boolean;
   /** Defaults to the global `Notification` constructor. Injectable for tests. */
   readonly notificationFactory?: NotificationFactory;
 }
@@ -164,7 +164,7 @@ export function createRunNotificationDispatcher(
       dispatchedKeys.add(key);
 
       const permitted = shouldNotify({
-        focusState: deps.getFocusState(),
+        appActive: deps.isAppActive(),
         kind: event.kind,
         permissionState: deps.getPermissionState(),
         settings: deps.getSettings(),

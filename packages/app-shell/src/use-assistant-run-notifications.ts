@@ -1,11 +1,12 @@
 /**
  * Composes the assistant run-lifecycle OS notification pipeline (see
  * docs/agents/assistant-persistence.md "ASSISTANT RUN NOTIFICATIONS"). This is the ONLY layer that
- * reads live browser state (`document.hasFocus`/`visibilityState`,
- * `Notification.permission`) and the notification preferences store — the
- * UI package (`@brainstrike/assistant-ui`) only reports raw run
- * events/approval requests up via callback props, mirroring the existing
- * `onUsage` seam.
+ * reads live browser state (`Notification.permission`) and the notification
+ * preferences store — the UI package (`@brainstrike/assistant-ui`) only reports
+ * raw run events/approval requests up via callback props, mirroring the existing
+ * `onUsage` seam. Whether the user is looking at the app comes from the shared
+ * `isAppActive()` (`@brainstrike/hooks`), the same signal the unseen-badge rule
+ * reads (BST-1864), so a completion is either seen or alerted, never both.
  *
  * Mounted ONLY from `AssistantUiPanelWrapper` (the visible assistant
  * surface). Desktop's hidden embedding/llm hosts never render that wrapper —
@@ -19,13 +20,13 @@ import {
   createRunNotificationDispatcher,
   type ForgeNotificationEvent,
 } from '@brainstrike/app-state/notifications/run-notification-dispatcher';
-import type { AssistantNotificationFocusState } from '@brainstrike/app-state/notifications/should-notify';
 import { useNotificationPreferencesStore } from '@brainstrike/app-state/stores/notification-preferences-store';
 import {
   type AssistantRunEvent,
   type AssistantToolApprovalRequest,
   getToolActionIdentityKey,
 } from '@brainstrike/assistant-contract';
+import { isAppActive } from '@brainstrike/hooks';
 import { useMemo, useRef } from 'react';
 
 export interface AssistantRunNotificationCallbacks {
@@ -33,13 +34,6 @@ export interface AssistantRunNotificationCallbacks {
   readonly onRunFailed: (event: AssistantRunEvent) => void;
   readonly onRunFinished: (event: AssistantRunEvent) => void;
   readonly onToolApprovalRequired: (request: AssistantToolApprovalRequest) => void;
-}
-
-function readFocusState(): AssistantNotificationFocusState {
-  return {
-    hasFocus: document.hasFocus(),
-    visibilityState: document.visibilityState === 'hidden' ? 'hidden' : 'visible',
-  };
 }
 
 function readNotificationSettings() {
@@ -53,9 +47,9 @@ export function useAssistantRunNotifications(): AssistantRunNotificationCallback
   // instance, so it must not be recreated on every render.
   const dispatcherRef = useRef(
     createRunNotificationDispatcher({
-      getFocusState: readFocusState,
       getPermissionState: getNotificationPermissionState,
       getSettings: readNotificationSettings,
+      isAppActive,
     })
   );
 
