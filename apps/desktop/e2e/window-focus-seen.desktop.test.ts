@@ -140,6 +140,8 @@ test('the seen rule follows the native window focus: a run finishing in an unfoc
     await expect(unseen).toHaveCount(0);
 
     // The bridge is the real one: its initial read is the host window's own.
+    // `{ false, false }` is expected: the synthesized `focus` deliberately leaves the
+    // native window unfocused (`isFocused()` is unchanged), so it does not contradict `seen`.
     expect(await readFocusReports(app, window)).toEqual({ bridge: false, native: false });
   } finally {
     try {

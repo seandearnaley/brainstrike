@@ -50,10 +50,15 @@ function installWindowFocus(initiallyFocused: boolean): FakeWindowFocus {
   };
 }
 
+/**
+ * `hasFocus` is a spy, restored by `vi.restoreAllMocks()` (assigning
+ * `document.hasFocus` would leave an own property behind); the `hidden` and
+ * `visibilityState` overrides are deleted in `afterEach`.
+ */
 function setDocument({ focused }: { readonly focused: boolean }): void {
   Object.defineProperty(document, 'hidden', { configurable: true, value: false });
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
-  document.hasFocus = () => focused;
+  vi.spyOn(document, 'hasFocus').mockReturnValue(focused);
 }
 
 function stubNotification(): ReturnType<typeof vi.fn> {

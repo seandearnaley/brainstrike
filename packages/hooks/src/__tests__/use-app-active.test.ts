@@ -1,5 +1,26 @@
 import type { LogRecord } from '@brainstrike/logging';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
+
+let hasFocus: MockInstance<() => boolean>;
+
+/**
+ * Both stubs are undone after every test: `hasFocus` is a spy that
+ * `vi.restoreAllMocks()` restores (assigning `document.hasFocus` would leave an
+ * own property behind), and the `hidden` own-property override is deleted so the
+ * next test sees jsdom's prototype getter again.
+ */
+function setDocument({ focused, visible }: { focused: boolean; visible: boolean }): void {
+  Object.defineProperty(document, 'hidden', { configurable: true, value: !visible });
+  hasFocus.mockReturnValue(focused);
+}
+
+beforeEach(() => {
+  hasFocus = vi.spyOn(document, 'hasFocus');
+});
+
+afterEach(() => {
+  Reflect.deleteProperty(document, 'hidden');
+});
 
 describe('useAppActive', () => {
   beforeEach(() => {
@@ -11,53 +32,46 @@ describe('useAppActive', () => {
   });
 
   it('returns true when document is focused and visible', async () => {
-    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
-    document.hasFocus = () => true;
+    setDocument({ focused: true, visible: true });
     const { isAppActive } = await import('../use-app-active.js');
     expect(isAppActive()).toBe(true);
   });
 
   it('returns false when document is hidden', async () => {
-    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
-    document.hasFocus = () => false;
+    setDocument({ focused: false, visible: false });
     const { isAppActive } = await import('../use-app-active.js');
     expect(isAppActive()).toBe(false);
   });
 
   it('returns false when document is visible but not focused', async () => {
-    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
-    document.hasFocus = () => false;
+    setDocument({ focused: false, visible: true });
     const { isAppActive } = await import('../use-app-active.js');
     expect(isAppActive()).toBe(false);
   });
 
   it('updates when visibilitychange fires', async () => {
-    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
-    document.hasFocus = () => true;
+    setDocument({ focused: true, visible: true });
     const { isAppActive } = await import('../use-app-active.js');
     expect(isAppActive()).toBe(true);
 
     // Simulate going hidden
-    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
-    document.hasFocus = () => false;
+    setDocument({ focused: false, visible: false });
     document.dispatchEvent(new Event('visibilitychange'));
     expect(isAppActive()).toBe(false);
   });
 
   it('updates when window blur/focus fires', async () => {
-    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
-    document.hasFocus = () => true;
+    setDocument({ focused: true, visible: true });
     const { isAppActive } = await import('../use-app-active.js');
     expect(isAppActive()).toBe(true);
 
     // Simulate blur
-    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
-    document.hasFocus = () => false;
+    setDocument({ focused: false, visible: true });
     window.dispatchEvent(new Event('blur'));
     expect(isAppActive()).toBe(false);
 
     // Simulate focus
-    document.hasFocus = () => true;
+    setDocument({ focused: true, visible: true });
     window.dispatchEvent(new Event('focus'));
     expect(isAppActive()).toBe(true);
   });
@@ -105,11 +119,6 @@ describe('useAppActive with the native window-focus capability', () => {
       onChange,
       unsubscribe,
     };
-  }
-
-  function setDocument({ focused, visible }: { focused: boolean; visible: boolean }): void {
-    Object.defineProperty(document, 'hidden', { configurable: true, value: !visible });
-    document.hasFocus = () => focused;
   }
 
   /** Lets the resolved `isFocused()` promise settle inside the module. */
