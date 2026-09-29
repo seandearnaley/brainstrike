@@ -155,3 +155,33 @@ export function pruneStaleEngineUpgradeBackups(
 
   return pruned;
 }
+
+// Postgres names a WAL segment with 24 upper-case hex digits (timeline, log, segment).
+const PG_WAL_SEGMENT_RE = /^[0-9A-F]{24}$/u;
+
+/**
+ * Bytes of WAL segment files in `<dataDir>/pg_wal`: an O(1) upper bound of what crash recovery
+ * must replay when the database opens. Recycled segments count too, which can only make a
+ * budget derived from this larger. A missing directory is a database that was never created:
+ * 0. Any other failure to read it throws; it is never reported as 0, which would hand the open
+ * the smallest possible deadline.
+ */
+export function readPgWalBytes(dataDir: string): number {
+  const walDir = path.join(dataDir, 'pg_wal');
+  let names: string[];
+  try {
+    names = readdirSync(walDir);
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 'ENOENT') {
+      return 0;
+    }
+    throw error;
+  }
+  let bytes = 0;
+  for (const name of names) {
+    if (PG_WAL_SEGMENT_RE.test(name)) {
+      bytes += statSync(path.join(walDir, name)).size;
+    }
+  }
+  return bytes;
+}
