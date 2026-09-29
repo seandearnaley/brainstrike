@@ -1,6 +1,56 @@
 export const ASSISTANT_RUN_EVENT_DATA_NAME = 'brainstrike.run-event';
 
 export const ASSISTANT_RUN_EVENT_KINDS = [
+  // The pre-request conversation-compaction pass THREW, so this turn reached
+  // the provider uncompacted and over budget (BST-1737). The turn still
+  // answers — keeping it alive is correct — but before this kind the only
+  // evidence was a `warn` log, and the user's next visible symptom was a
+  // provider context-overflow error naming an unrelated cause. That silence is
+  // what let BST-1707's live defect (a recommended coding model whose budget
+  // derivation threw on EVERY turn) survive from `2966627ff` until someone read
+  // the arithmetic.
+  //
+  // Modelled on `mcp.tools.unavailable` below, and filed for the same class of
+  // problem: a configured capability that silently did not run while the turn
+  // still answered. Standalone breadcrumb — no `.started` counterpart and no
+  // terminal, so it can never leave a row spinning — status `'failed'` rather
+  // than the `worktree.*` `'info'`, which records operations that SUCCEEDED.
+  //
+  // Deliberately NOT `run.failed`: the run is healthy and completes, and
+  // `data-stream-mapper` derives `thread_runs.error` from `run.failed`, so that
+  // spelling would persist a degraded turn as a failed one. Deliberately ONE
+  // kind rather than a `compaction.budget.failed` / `compaction.schema.failed`
+  // taxonomy: the discriminating fact is already written at each throw site and
+  // travels in `detail` / `metadata.reason`, whereas a hand-maintained
+  // classifier would bucket the NEXT unanticipated throw into "other" and
+  // re-create this ticket. It is in `isAlwaysVisibleRunEvent` for the
+  // load-bearing reason spelled out on `mcp.tools.unavailable`, and carries no
+  // `toolCallId`, so it needs no exemption from the card-suppression rule.
+  'compaction.failed',
+  // A delegated child's durable budget (steps / child output / tree output)
+  // forced its reserved synthesis step (BST-1749 follow-up, GLM pack
+  // 2026-09-15). Standalone breadcrumb, status 'info', emitted by the stream
+  // projection on the CHILD conversation from the budget processor's transient
+  // part; metadata carries `cap`, `limit`, `used`, `synthesisForced` and
+  // `truncated` (whether the model then cut the summary). Deliberately NOT
+  // `.started`: nothing runs and nothing pairs. In `isAlwaysVisibleRunEvent`
+  // for the load-bearing reason on `mcp.tools.unavailable`: without it the
+  // child tab would show silence where the user needs "ran out of steps".
+  'delegation.budget.exhausted',
+  // The ledger of a run's background (delegated) invocations, settled
+  // 2026-09-15: "3 of 4 specialists returned · 1 running". Emitted by the
+  // host idle loop and the resume stream on every task lifecycle change, with
+  // a FRESH id each time and the same `metadata.ledgerId` (the parent run
+  // that dispatched the work); the renderer shows the LATEST row of a ledger
+  // and hides the earlier ones, and the desktop persists every row like any
+  // run event, so reload shows the final state. `status` is `'running'`
+  // while anything runs and `'completed'` otherwise — a failed specialist is
+  // a count in the label, not a failed turn (deliberately NOT `run.failed`).
+  // Content-free: persona labels and states only; prompts and failure
+  // reasons stay in the model-facing wakeup. It is in
+  // `isAlwaysVisibleRunEvent`: it IS the user-facing status the approach plan
+  // asked for and must show at default detail.
+  'delegation.ledger',
   'hook.blocked',
   'hook.notice',
   'memory.configured',
@@ -45,6 +95,15 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // no exemption from the card-suppression rule (unlike that allowlist's two
   // `tool.*` entries).
   'mcp.tools.unavailable',
+  // The permission gate this leg's Agent was built with (debug pack,
+  // 2026-09-15): policies, granted categories, yolo, ask tools with their risk,
+  // denied tools, and ask tools omitted without approval storage. Emitted ONCE
+  // per fresh leg on the stream prelude beside `mcp.tools.unavailable`
+  // (`makePermissionGateResolvedChunks`), and only when a policy snapshot gated
+  // the run. Status 'completed', never 'running': the gate has already decided,
+  // so nothing pairs. Deliberately NOT in `isAlwaysVisibleRunEvent`: it explains
+  // why an approval card appeared, and that card is the user-facing surface.
+  'permission.gate.resolved',
   // Forge (pull request) observations (BST-1391, W4). These are the ONLY run
   // events not produced by the agent stream: the main-process ForgeService
   // observes them out of band and the renderer appends them to the thread's
@@ -62,6 +121,27 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'pr.checks',
   'pr.merged',
   'pr.opened',
+  // The provider reported that it did NOT carry this request out as written
+  // (BST-1701). Every AI SDK adapter answers a rejected setting by DROPPING it
+  // and listing it on the call's `warnings` array rather than returning 400 -
+  // a user-set `temperature` on a model that refuses one is simply ignored.
+  // The whole array is consumed, not the sampling keys: the spec's warning
+  // union also carries `compatibility`, `deprecated` and `other`.
+  //
+  // Deliberately NOT `run.failed`: the turn is healthy and answers normally.
+  // Deliberately NOT `hook.notice`: that is the workspace-hook channel, and
+  // this is the provider's own report about the request it just served.
+  //
+  // Standalone breadcrumb like `mcp.tools.unavailable`: no `.started`
+  // counterpart and no terminal, so it never leaves a row spinning. Status is
+  // `'failed'` rather than the `worktree.*` `'info'` - those record operations
+  // that SUCCEEDED, this records a setting that did not apply. It is in
+  // `isAlwaysVisibleRunEvent` for the same load-bearing reason: run-event rows
+  // are hidden at default detail, so without the allowlist entry this kind
+  // would reproduce the silent degradation it exists to report. It carries no
+  // `toolCallId` and is not `tool.*`, so it needs no card-suppression
+  // exemption.
+  'provider.request.warned',
   'run.cancelled',
   'run.database.retried',
   'run.failed',
@@ -182,6 +262,75 @@ export interface AssistantRunEvent {
 
 export type AssistantRunEventSink = (event: AssistantRunEvent) => Promise<void> | void;
 
+/** Total length of a bounded reason, INCLUDING the ellipsis it may end with. */
+export const MAX_RUN_EVENT_REASON_CHARS = 200;
+
+const REDACTED = '[redacted]';
+/**
+ * ANY URI scheme, not just http(s). The scheme class was defensible while the
+ * only caller was MCP discovery, whose transports are HTTP; BST-1737 routes
+ * compaction failures through here, and those reach `memoryStore` reads/writes,
+ * `runRecencyPruneScan`, and `recordCompactionRange` — a driver error quoting
+ * `postgres://user:pass@host/db` would otherwise pass BOTH patterns untouched
+ * into durable metadata and an always-visible row.
+ */
+const SCHEME = '[a-z][a-z0-9+.-]*:\\/\\/';
+/** `postgres://user:pass@host` — credentials in the URI's userinfo section. */
+const URL_USERINFO = new RegExp(`(${SCHEME})[^/\\s@]+@`, 'gi');
+/** `https://host/mcp?api_key=…` — credentials in a URI query string. */
+const URL_QUERY = new RegExp(`(${SCHEME}[^\\s?]+)\\?\\S*`, 'gi');
+
+/**
+ * Prepare a failure message for DURABLE run-event metadata and for an
+ * always-visible timeline `detail`.
+ *
+ * Introduced for BST-1602's MCP discovery skips (as `boundMcpDiscoveryReason`)
+ * and promoted here by BST-1737, which needs the identical treatment for
+ * compaction failures: this is a SECURITY control, and a second copy of these
+ * regexes is a second thing to forget to fix.
+ *
+ * Two separate jobs, and the ordering matters:
+ *
+ * 1. REDACT. `sanitizeAssistantRunEventMetadata` redacts by KEY, not by value,
+ *    so nothing downstream inspects this string. These reasons used to reach at
+ *    most a `debug`/`warn` log line; they are now persisted and rendered, so a
+ *    transport error like `fetch failed: 401 for https://host/mcp?api_key=…`
+ *    would be a real disclosure. Truncation does NOT prevent that — such a
+ *    message is comfortably under the bound (PR #2938 review) — so URL userinfo
+ *    and query strings are stripped first.
+ * 2. BOUND. Only then cap the length, to keep the row small.
+ *
+ * Sliced by CODE POINT, not UTF-16 code unit: `slice` can split a surrogate
+ * pair and put a lone surrogate into durable JSON.
+ */
+/**
+ * Job 1 on its own: extract the message text and strip credentials from it,
+ * WITHOUT bounding the length.
+ *
+ * Split out by BST-1744 for the compaction-failure latch key, which has to be
+ * built from the UNTRUNCATED text — truncation collapses two failures that
+ * agree on their first 199 characters — while still getting the identical
+ * redaction and, just as importantly, the identical EXTRACTION. Reusing this
+ * rather than re-deriving it keeps ONE copy of the credential patterns (the
+ * whole reason they were promoted here) and keeps the key describing the same
+ * text the row renders: a second `value instanceof Error ? …` would be free to
+ * drift from this one the moment either grows a case, and the latch would then
+ * merge or split rows the user sees differently.
+ */
+export function redactRunEventReason(value: unknown): string {
+  const raw = value instanceof Error ? value.message : String(value);
+  return raw.replace(URL_USERINFO, `$1${REDACTED}@`).replace(URL_QUERY, `$1?${REDACTED}`);
+}
+
+export function boundRunEventReason(value: unknown): string {
+  const redacted = redactRunEventReason(value);
+  const points = Array.from(redacted);
+  if (points.length <= MAX_RUN_EVENT_REASON_CHARS) {
+    return redacted;
+  }
+  return `${points.slice(0, MAX_RUN_EVENT_REASON_CHARS - 1).join('')}…`;
+}
+
 export function emitAssistantRunEventSafely(input: {
   readonly event: {
     readonly detail?: string;
@@ -275,6 +424,7 @@ export function createAssistantRunEvent(input: {
 export function sanitizeAssistantRunEventMetadata(
   metadata: AssistantRunEventMetadata | Record<string, unknown> | undefined
 ): AssistantRunEventMetadata | undefined {
+  // Must be idempotent: publication and durable storage each enforce this boundary.
   if (!metadata) {
     return;
   }

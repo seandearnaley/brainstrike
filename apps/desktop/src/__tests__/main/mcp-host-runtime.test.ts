@@ -289,7 +289,7 @@ describe('DesktopMcpHostRuntime', () => {
         }),
         expect.objectContaining({
           configuredServerId: readonly.name,
-          state: 'authentication-required',
+          state: 'disconnected',
         }),
       ])
     );
@@ -347,7 +347,7 @@ describe('DesktopMcpHostRuntime', () => {
         resourceUrl: server.url,
         type: 'oauth-user',
       },
-      state: 'authentication-required',
+      state: 'disconnected',
     });
     expect(JSON.stringify(initial)).not.toMatch(/never-project-access|never-project-refresh/u);
 

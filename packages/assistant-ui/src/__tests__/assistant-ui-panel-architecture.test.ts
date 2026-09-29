@@ -1,12 +1,95 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { render } from '@testing-library/react';
+import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
+import { ActivityTrace } from '../activity-trace';
+import type { ActivitySummary } from '../activity-trace-model';
 
 const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const readSource = (relativePath: string): string =>
   readFileSync(join(sourceRoot, relativePath), 'utf8');
+
+/** Every `.tsx` file under `src/`, excluding tests — component source only. */
+function listComponentSourceFiles(): string[] {
+  return readdirSync(sourceRoot, { recursive: true })
+    .map((entry) => entry.toString())
+    .filter((entry) => entry.endsWith('.tsx') && !entry.includes('__tests__/'));
+}
+
+/**
+ * Finds the `@media (prefers-reduced-motion: reduce) { ... }` block that
+ * contains `marker`, matching braces per-block so a nested rule block
+ * doesn't end any one scan early (BST-1685 review round 2, Claude Minor 2).
+ * A naive `[^}]*` regex can't cross a `}`, so it only ever sees a block's
+ * FIRST rule — moving a selector into its own later rule inside the same
+ * media block (order- and reformat-preserving) would silently pass.
+ *
+ * `overrides.css` declares this media query four times; walks every
+ * occurrence in turn (brace-matched, so each candidate's own close is found
+ * correctly) rather than doing one file-wide `indexOf(marker)` and matching
+ * that occurrence's NEAREST preceding `@media` — `marker` (e.g.
+ * `.bs-thinking-pulse`) can itself appear earlier in the file outside any
+ * reduced-motion block, which would resolve to the wrong block entirely.
+ */
+function reducedMotionBlockContaining(cssSource: string, marker: string): string {
+  const mediaOpen = '@media (prefers-reduced-motion: reduce) {';
+  let searchFrom = 0;
+  for (;;) {
+    const mediaStart = cssSource.indexOf(mediaOpen, searchFrom);
+    if (mediaStart === -1) {
+      throw new Error(`no reduced-motion media block contains marker: ${marker}`);
+    }
+    let depth = 0;
+    let blockEnd = -1;
+    for (let index = mediaStart; index < cssSource.length; index += 1) {
+      const char = cssSource[index];
+      if (char === '{') {
+        depth += 1;
+      } else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          blockEnd = index;
+          break;
+        }
+      }
+    }
+    if (blockEnd === -1) {
+      throw new Error(`unterminated reduced-motion media block scanning for marker: ${marker}`);
+    }
+    const block = cssSource.slice(mediaStart, blockEnd + 1);
+    if (block.includes(marker)) {
+      return block;
+    }
+    searchFrom = blockEnd + 1;
+  }
+}
+
+/**
+ * Within `block` (already scoped to one `@media` rule), asserts that
+ * `selector` — matched at its FIRST occurrence immediately followed by a
+ * selector-list separator (`,`) or its own rule's opening brace (`{`), so a
+ * match can't be satisfied by a longer compound selector that merely shares
+ * `selector` as a trailing substring — resolves to `animation: none` before
+ * THAT SPECIFIC rule's own closing `}`. Scoping to one rule (not "somewhere
+ * later in the block") matters here: `overrides.css`'s reduced-motion block
+ * resets `.assistant-ui-panel .bs-thinking-shimmer` a second time, in an
+ * unrelated rule further down that only touches `background`/`color` — a
+ * bare presence check would pass on THAT rule even if the real,
+ * animation-resetting entry were deleted from the comma list (BST-1685
+ * review round 2, Claude Minor 2).
+ */
+function assertSelectorResetsAnimationNone(block: string, selector: string): void {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`${escaped}\\s*[,{]`).exec(block);
+  expect(match).not.toBeNull();
+  const matchIndex = match?.index ?? -1;
+  const ruleEnd = block.indexOf('}', matchIndex);
+  expect(ruleEnd).toBeGreaterThan(matchIndex);
+  expect(block.slice(matchIndex, ruleEnd)).toMatch(/animation:\s*none/);
+}
 
 describe('assistant UI panel architecture', () => {
   it('keeps the assistant panel root under the source-file budget', () => {
@@ -102,7 +185,19 @@ describe('assistant UI panel architecture', () => {
     // <AssistantMessageError />. The runId detection, phase machine, and
     // clipboard/error handling all live in that module; this file only
     // imports + renders it.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1880);
+    // Dropped 1880 → 1509 (BST-1677): AssistantMessage now renders
+    // <AssistantActivityParts /> (assistant-activity-parts.tsx) instead of
+    // <MessagePrimitive.Parts components={{ ChainOfThought, Text }} />. The
+    // panel's own copies of isRunningReasoningPart, HiddenReasoningPart,
+    // isReasoningPart, reasoningToggleLabel, ChainReasoningFold,
+    // isActivityPart, ActivityPartLayout, ActivityToolPart, and
+    // LocalChainOfThought are deleted — that grouped-parts renderer is the
+    // one implementation now, and its invariants live in its own module.
+    // Bumped 1509 → 1524 for the thread-tab run-state seam (BST-1844):
+    // onRunningChange threads the SAME 5 layers as onRunFinished/onUsage
+    // (AssistantUiPanel → Local/DataStream chat → ChatThreadUI); the bridge
+    // itself lives in running-state-bridge.tsx.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1524);
   });
 
   it('keeps the composer workspace bar an app-shell-rendered SLOT above the context meter', () => {
@@ -283,28 +378,31 @@ describe('assistant UI panel architecture', () => {
     expect(userActionBarSource).toContain("isFailed ? 'Copy failed' : null");
   });
 
-  it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {
+  it('renders assistant parts through the grouped activity renderer, never the legacy ChainOfThought slot', () => {
     const source = readSource('assistant-ui-panel.tsx');
     const assistantMessageStart = source.indexOf('const AssistantMessage =');
     const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
     const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
-    const localChainOfThoughtStart = source.indexOf('const LocalChainOfThought =');
-    const dataRendererStart = source.indexOf('const AssistantDataRendererRegistration =');
-    const localChainOfThoughtSource = source.slice(localChainOfThoughtStart, dataRendererStart);
 
-    expect(assistantMessageSource).toContain('ChainOfThought: LocalChainOfThought');
-    // The tool-components map (by_name + Fallback) is extracted to
-    // CHAIN_OF_THOUGHT_TOOL_COMPONENTS in todo-progress.tsx to stay under the
-    // source-file budget above; assert the wiring there instead of inline.
-    expect(localChainOfThoughtSource).toContain('tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS');
+    expect(assistantMessageSource).toContain('<AssistantActivityParts />');
+    expect(source).not.toContain('ChainOfThought: ');
+    expect(source).not.toContain('ChainOfThoughtPrimitive');
+    expect(source).not.toContain('LocalChainOfThought');
+
+    const partsSource = readSource('assistant-activity-parts.tsx');
+    expect(partsSource).toContain('MessagePrimitive.GroupedParts');
+    expect(partsSource).toContain('groupBy={groupAssistantActivityPart}');
+    expect(partsSource).toContain('CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName]');
     expect(readSource('todo-progress.tsx')).toContain('Fallback: ToolFallback');
   });
 
   it('uses the shared thinking indicator instead of a bare streaming caret', () => {
-    const panelSource = readSource('assistant-ui-panel.tsx');
+    // The panel no longer imports assistant-thinking-indicator directly — the
+    // reasoning fold that uses it moved to assistant-activity-parts.tsx.
+    const partsSource = readSource('assistant-activity-parts.tsx');
     const cssSource = readSource('overrides.css');
 
-    expect(panelSource).toContain("from './assistant-thinking-indicator'");
+    expect(partsSource).toContain("from './assistant-thinking-indicator'");
     expect(cssSource).toContain('.bs-streaming-thinking');
     expect(cssSource).toContain('@media (forced-colors: active)');
     expect(cssSource).toContain('-webkit-text-fill-color: CanvasText');
@@ -444,13 +542,165 @@ describe('assistant UI panel architecture', () => {
     expect(cssSource).toContain('[data-thread-render-tier="virtual"]');
   });
 
-  it('only animates the chain-of-thought pill while reasoning is running', () => {
-    const panelSource = readSource('assistant-ui-panel.tsx');
+  it('only animates the chain-of-thought row while its own part is running', () => {
+    // This logic moved to assistant-activity-parts.tsx alongside the rest of
+    // the reasoning disclosure (BST-1677 wave 1); wave 2 then moved it from
+    // per-GROUP to per-PART (each reasoning leaf owns its own row/disclosure
+    // now, so the group no longer computes a single running flag for all of
+    // them) — the panel still never owns it.
+    const partsSource = readSource('assistant-activity-parts.tsx');
     const cssSource = readSource('overrides.css');
 
-    expect(panelSource).toContain('isRunningReasoningPart');
-    expect(panelSource).toContain('isReasoningRunning ? (');
-    expect(panelSource).toContain('assistant-reasoning-static-mark');
+    expect(partsSource).toContain("part.status.type === 'running'");
+    // BST-1681 moved the branch out of the JSX ternary into `ReasoningGlyph`'s
+    // early return (the row's glyph slot), but it is still the PART's own
+    // status that decides between the live and the static mark.
+    expect(partsSource).toContain('<ReasoningGlyph isStreaming={isStreaming} />');
+    expect(partsSource).toContain('if (isStreaming) {');
+    expect(partsSource).toContain('assistant-reasoning-static-mark');
     expect(cssSource).toContain('.bs-thinking-mark-static');
+  });
+
+  it('honours reduced motion for the running step row shimmer', () => {
+    // Task 5 review, Minor 4. The shimmer on a running row's verb is
+    // STYLESHEET-owned (`.bs-thinking-shimmer` in overrides.css), not a
+    // `motion-reduce:` utility on the element — the browser lane has no
+    // Tailwind, and the subagent card's old `motion-reduce:animate-none`
+    // spinner went away when the row took over the liveness. So this block is
+    // the only thing that honours a reduced-motion preference for a running
+    // step, and nothing else asserts it exists.
+    //
+    // The two COMPOUND selectors are checked independently of the plain
+    // class and of each other (BST-1685, PR #3066 "Tests / docs nits"): the
+    // trace's live status label carries an entrance class and
+    // `.bs-thinking-shimmer` at once, and the compound rules that compose
+    // those two animations outrank the one-class reset — so each selector
+    // below must land its own `animation: none` inside this media block,
+    // however the comma list orders or wraps them (the previous single regex
+    // pinned one exact order, which broke on an innocuous reformat).
+    const cssSource = readSource('overrides.css');
+    // Slice the SPECIFIC reduced-motion block first (BST-1685 review round
+    // 2, Claude Minor 2): matching against the whole file let the standalone
+    // `.bs-thinking-shimmer` assertion pass on nothing but a SUBSTRING of
+    // either compound selector below (both end in `.bs-thinking-shimmer`),
+    // so deleting the standalone selector from the reset list left all three
+    // assertions green — the mutation this test exists to catch. Slicing
+    // first, then requiring each selector's own right boundary (`,` or `{`,
+    // not a continuation into a longer compound), closes that.
+    const reducedMotionBlock = reducedMotionBlockContaining(cssSource, '.bs-thinking-pulse');
+
+    // Each of the three selectors must resolve to `animation: none` inside
+    // ITS OWN rule within this block, not merely appear somewhere in it: this
+    // same media block also resets `.assistant-ui-panel .bs-thinking-shimmer`
+    // a second time, in an UNRELATED rule further down that only touches
+    // `background`/`color` — a presence-only check (even boundary-checked)
+    // would pass on that rule too if the reset-list entry were deleted, so
+    // `assertSelectorResetsAnimationNone` scopes each check to the specific
+    // rule the matched selector opens (up to that rule's own `}`).
+    // Order- and reformat-resilient: `indexOf`/`exec` don't care how the
+    // comma list orders or wraps its entries.
+    assertSelectorResetsAnimationNone(
+      reducedMotionBlock,
+      '.assistant-ui-panel .bs-thinking-shimmer'
+    );
+    assertSelectorResetsAnimationNone(
+      reducedMotionBlock,
+      '.assistant-ui-panel .bs-trace-label.bs-thinking-shimmer'
+    );
+    assertSelectorResetsAnimationNone(
+      reducedMotionBlock,
+      '.assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer'
+    );
+    // Not vacuous: the row really does put that class on a running verb.
+    expect(readSource('activity-step-row.tsx')).toContain("'bs-thinking-shimmer'");
+
+    // Not vacuous, BEHAVIOURALLY: the trace really does put both classes on
+    // the live label element at once while a step is running. Replaces a
+    // source-string pin on the template literal that composes them
+    // (`'bs-activity-live-label bs-thinking-shimmer '`, including its
+    // trailing space) — that pin broke on innocuous formatting rather than
+    // on a behaviour change (PR #3066 review nit).
+    const runningSummary: ActivitySummary = {
+      counts: { failed: 0, steps: 1 },
+      live: 'Reading app.ts',
+      resting: 'Read',
+      verbs: 'Read',
+      waiting: false,
+    };
+    const { getByTestId, unmount } = render(
+      createElement(ActivityTrace, {
+        detail: null,
+        fallbackMs: undefined,
+        incompleteReason: undefined,
+        isActive: true,
+        restingOverride: null,
+        summary: runningSummary,
+      })
+    );
+    try {
+      const liveLabel = getByTestId('assistant-activity-working').querySelector(
+        '.bs-activity-live-label'
+      );
+      expect(liveLabel).not.toBeNull();
+      expect(liveLabel).toHaveClass('bs-activity-live-label', 'bs-thinking-shimmer');
+    } finally {
+      // Explicit, on top of the package's global `afterEach(cleanup)`
+      // (packages/test-utils/src/vitest.setup.ts) — this file's other tests
+      // are fs-only, so leaving the mount around between them is harmless
+      // today, but a `screen.*` query added later here shouldn't have to
+      // rediscover that this is the one test in the file that renders
+      // (BST-1685 review round 2, Claude Minor 1).
+      unmount();
+    }
+  });
+
+  it('honours reduced motion for the step row REVEAL animation', () => {
+    // Bot round 1, Claude Minor 8. Every step row mounts with
+    // `.bs-trace-reveal` (`RowShell`, both forms) and the phase-2 staggered
+    // entrance rides on it, so this is the second animation a reduced-motion
+    // preference has to stop — and, like the shimmer, it is STYLESHEET-owned
+    // (the browser lane has no Tailwind, so `motion-reduce:` utilities would
+    // be inert there). CDT measured `animation-name: none` on all rows under
+    // the preference; nothing else pins the rule that produces it.
+    const cssSource = readSource('overrides.css');
+    expect(cssSource).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\.assistant-ui-panel \.bs-trace-label,\s*\.assistant-ui-panel \.bs-trace-reveal \{\s*animation: none;/
+    );
+    // Not vacuous: every row form really does carry the class.
+    expect(readSource('activity-step-row.tsx')).toContain('bs-step-row bs-trace-reveal');
+  });
+
+  it('keeps the "static thinking mark" CSS hook confined to assistant-thinking-indicator.tsx', () => {
+    // `bs-thinking-mark-static` is BrainstrikeThinkingMark's own `live={false}`
+    // class (assistant-thinking-indicator.tsx); every other caller must go
+    // through the component's `live` prop rather than re-spelling the class
+    // name, or a rename there would silently desync from callers that never
+    // ran through this test.
+    const literal = 'bs-thinking-mark-static';
+    const offenders = listComponentSourceFiles().filter(
+      (file) => file !== 'assistant-thinking-indicator.tsx' && readSource(file).includes(literal)
+    );
+    expect(offenders).toEqual([]);
+    // Sanity: the assertion above is not vacuously true because the literal
+    // doesn't exist anywhere — confirm it's still in the one file it belongs.
+    expect(readSource('assistant-thinking-indicator.tsx')).toContain(literal);
+  });
+
+  it('registers data renderers only via useAssistantDataUI, never a `Data:` key in a components map', () => {
+    const panelSource = readSource('assistant-ui-panel.tsx');
+    expect(panelSource).toContain("from './assistant-data-renderer-registration'");
+    expect(panelSource).toContain('<AssistantDataRendererRegistration />');
+    expect(readSource('assistant-data-renderer-registration.tsx')).toContain(
+      'useAssistantDataUI(assistantRunTimelineDataUI)'
+    );
+    // Unquoted, not quoted, is the real regression shape — `components={{
+    // Data: X }}`, exactly like the existing `Text: AssistantMessageText`
+    // entry — so the guard must match a bare `Data:` object key, not just a
+    // quoted string key (the previous `/['"`]Data:['"`]/` could never fail).
+    expect(panelSource).not.toMatch(/(^|[{,\s])Data:/m);
+
+    const partsSource = readSource('assistant-activity-parts.tsx');
+    expect(partsSource).toContain("case 'data':");
+    expect(partsSource).toContain('part.dataRendererUI');
   });
 });

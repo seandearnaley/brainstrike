@@ -7,6 +7,7 @@ export const migration009VectorIndexTuning: Migration = {
     DROP INDEX IF EXISTS idx_file_chunks_embedding_hnsw;
     DROP INDEX IF EXISTS idx_file_chunks_embedding;
   `,
+  ledgerKey: 'custom-009-vector-index-tuning',
   name: 'vector_index_tuning',
   up: async (db) => {
     await createVectorIndexes(db);

@@ -1,6 +1,7 @@
 import type { IDatabase } from '@brainstrike/db';
 import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
 import { buildEmbeddingInputHash } from '@brainstrike/indexing-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatProviderModelKey, startEmbeddingWorker } from '../index.js';
@@ -286,6 +287,7 @@ describe('Embedding Worker Batch Optimization', () => {
 
   afterEach(async () => {
     await db?.close();
+    vi.restoreAllMocks();
   });
 
   it('uses completeBatch for already-completed jobs to avoid N+1 queries', async () => {
@@ -761,6 +763,147 @@ describe('Embedding Worker Batch Optimization', () => {
       throw assertionError;
     }
     expect(batchStarts).toEqual([0, 1]);
+  });
+
+  it('keeps a claimed permit until an accepted completion write settles after stream failure', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'stream-tail-a' });
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'stream-tail-b' });
+
+    const completionRelease = createDeferred();
+    const streamFailed = createDeferred();
+    const originalComplete = JobQueue.prototype.completeEmbeddingChunkBatch;
+    const completeSpy = vi
+      .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
+      .mockImplementation(async function (this: JobQueue, ...args) {
+        if (completeSpy.mock.calls.length === 1) {
+          await completionRelease.promise;
+        }
+        return originalComplete.apply(this, args);
+      });
+    const originalClaim = JobQueue.prototype.claimMany;
+    const claimSpy = vi.spyOn(JobQueue.prototype, 'claimMany').mockImplementation(async function (
+      this: JobQueue,
+      ...args
+    ) {
+      return originalClaim.apply(this, args);
+    });
+    const sentinel = new Error('stream failed after accepting completion');
+    class FailingAfterEnqueueService extends FakeEmbeddingService {
+      override async generateEmbeddingsStream(
+        texts: string[],
+        onBatch: (batch: {
+          startIndex: number;
+          endIndex: number;
+          results: EmbeddingResult[];
+        }) => Promise<void> | void
+      ): Promise<void> {
+        const results = await this.generateEmbeddings(texts);
+        await onBatch({ endIndex: results.length, results, startIndex: 0 });
+        streamFailed.resolve();
+        throw sentinel;
+      }
+    }
+
+    const controller = await startEmbeddingWorker({
+      claimBatchSize: 1,
+      concurrency: 2,
+      db: db as unknown as IDatabase,
+      interBatchDelayMs: 1,
+      leaseMs: 5000,
+      log: () => {},
+      maxInFlightJobs: 1,
+      modelKey,
+      service: new FailingAfterEnqueueService(),
+    });
+    try {
+      await streamFailed.promise;
+      await waitFor(async () => completeSpy.mock.calls.length === 1, 10_000);
+      // Give the stream failure path one task to unwind. A missing writer
+      // drain would free this permit and admit the next claim immediately.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(claimSpy).toHaveBeenCalledTimes(1);
+      const running = await db.query<{ count: number }>(
+        `SELECT count(*) as count FROM job_queue WHERE state = 'running'`
+      );
+      expect(Number(running.rows[0]?.count)).toBe(1);
+      completionRelease.resolve();
+      await waitFor(async () => claimSpy.mock.calls.length >= 2, 10_000);
+    } finally {
+      completionRelease.resolve();
+      await controller.stop();
+      completeSpy.mockRestore();
+      claimSpy.mockRestore();
+    }
+  });
+
+  it('keeps a terminal stream failure when its accepted completion write also fails', async (): Promise<void> => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'stream-dual-failure' });
+
+    const completionRelease = createDeferred();
+    const streamFailed = createDeferred();
+    const completionError = new Error('secondary completion write failed');
+    const completeSpy = vi
+      .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
+      .mockImplementation(async () => {
+        await completionRelease.promise;
+        throw completionError;
+      });
+    const failBatchSpy = vi.spyOn(JobQueue.prototype, 'failBatch');
+    const errorSpy = vi.spyOn(createLogger('EmbeddingWorker'), 'error');
+    const terminalError = new Error('Invalid input: streamed inference rejected content');
+    class TerminalStreamService extends FakeEmbeddingService {
+      override async generateEmbeddingsStream(
+        texts: string[],
+        onBatch: (batch: {
+          startIndex: number;
+          endIndex: number;
+          results: EmbeddingResult[];
+        }) => Promise<void> | void
+      ): Promise<void> {
+        const results = await this.generateEmbeddings(texts);
+        await onBatch({ endIndex: results.length, results, startIndex: 0 });
+        streamFailed.resolve();
+        throw terminalError;
+      }
+    }
+
+    const controller = await startEmbeddingWorker({
+      claimBatchSize: 1,
+      concurrency: 1,
+      db: db as unknown as IDatabase,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      maxInFlightJobs: 1,
+      modelKey,
+      service: new TerminalStreamService(),
+    });
+    try {
+      await streamFailed.promise;
+      await waitFor(async () => completeSpy.mock.calls.length === 1, 10_000);
+      completionRelease.resolve();
+      await waitFor(async () => failBatchSpy.mock.calls.length === 1, 10_000);
+      expect(failBatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: terminalError.message,
+          terminal: true,
+        })
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Accepted embedding completion failed after stream error',
+        expect.objectContaining({ message: completionError.message })
+      );
+    } finally {
+      completionRelease.resolve();
+      await controller.stop();
+      completeSpy.mockRestore();
+      failBatchSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 
   it('bounds streamed inference overlap while DB completion capacity is full', async () => {

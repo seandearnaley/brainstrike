@@ -51,7 +51,6 @@ describe('frontier models migrations', () => {
       'gemini-2.5-pro',
       'gemini-2.5-flash',
       'gemini-embedding-2',
-      'stealth/ox-alpha',
       'openai/gpt-5.6-sol',
       'openai/gpt-5.6-terra',
       'openai/gpt-5.6-luna',
@@ -69,7 +68,6 @@ describe('frontier models migrations', () => {
       'meta/muse-spark-1.2',
       'meta/muse-spark-1.1',
       'moonshotai/kimi-k3',
-      'inclusionai/ling-3.0-flash:free',
       'poolside/laguna-s-2.1',
       'poolside/laguna-xs-2.1',
       'qwen/qwen3.8-2.4t-a95b',
@@ -79,7 +77,6 @@ describe('frontier models migrations', () => {
       'google/gemini-3.5-flash-lite',
       'meituan/longcat-2.0',
       'thinkingmachines/inkling',
-      'kwaipilot/kat-coder-air-v2.5',
       'kwaipilot/kat-coder-pro-v2.5',
       'x-ai/grok-4.6',
       'x-ai/grok-4.5',
@@ -107,9 +104,17 @@ describe('frontier models migrations', () => {
       'gemini-3-pro-preview',
       'anthropic/claude-sonnet-4.5',
       'google/gemini-3-flash-preview',
+      // BST-1697 (migration 121): delisted upstream and deleted from the
+      // catalog. 'qwen/qwen3.8-max' is superseded by the dated
+      // 'qwen/qwen3.8-max-0902' snapshot, which must still be here.
+      'stealth/ox-alpha',
+      'qwen/qwen3.8-max',
+      'inclusionai/ling-3.0-flash:free',
+      'kwaipilot/kat-coder-air-v2.5',
     ]) {
       expect(ids).not.toContain(id);
     }
+    expect(ids).toContain('qwen/qwen3.8-max-0902');
 
     await expect(
       db.query('SELECT billed_cost_usd FROM brainstrike_assistant_run_usage LIMIT 0')

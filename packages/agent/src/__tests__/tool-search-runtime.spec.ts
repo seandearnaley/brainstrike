@@ -99,7 +99,12 @@ function createStepArgs(
   };
 }
 
-function createPersistedSearchResultMessage(
+/**
+ * A `search_tools` result persisted by a pre-BST-1667 auto-load run. Mastra's
+ * context store still derives the loaded set from `results[].name`, so threads
+ * that loaded tools before the manual-loading switch rehydrate unchanged.
+ */
+function createLegacyPersistedSearchResultMessage(
   toolId = DEFERRED_TOOL_ID,
   messageId = 'assistant-search-1'
 ): MastraDBMessage {
@@ -134,7 +139,332 @@ function createPersistedSearchResultMessage(
   };
 }
 
+/**
+ * The RUNTIME shape of a persisted `load_tool` success (the single-name form),
+ * exactly as Mastra's `load_tool` executor returns it and the context store
+ * parses it (`toolName` + `success: true`).
+ */
+function createPersistedLoadResultMessage(
+  toolId = DEFERRED_TOOL_ID,
+  messageId = 'assistant-load-1'
+): MastraDBMessage {
+  return {
+    content: {
+      format: 2,
+      parts: [
+        {
+          toolInvocation: {
+            args: { toolName: toolId },
+            result: {
+              message: `Tool "${toolId}" loaded successfully.`,
+              success: true,
+              toolName: toolId,
+            },
+            state: 'result',
+            toolCallId: 'load-1',
+            toolName: 'load_tool',
+          },
+          type: 'tool-invocation',
+        },
+      ],
+    },
+    createdAt: new Date(),
+    id: messageId,
+    role: 'assistant',
+  };
+}
+
+function createLinearProcessor(): BrainstrikeToolSearchProcessor {
+  const descriptions = {
+    linear_create_issue_label: 'Create a new Linear issue label.',
+    linear_get_issue: 'Retrieve detailed information about an issue by ID.',
+    linear_list_issue_labels: 'List available issue labels in a Linear workspace or team.',
+    linear_list_issue_statuses: 'List available issue statuses in a Linear team.',
+    linear_list_issues:
+      'List issues in the workspace. Use query to search titles and descriptions.',
+    linear_save_comment: 'Create or update a comment on an issue.',
+    linear_save_issue: 'Create or update an issue. When creating, title and team are required.',
+  };
+  return new BrainstrikeToolSearchProcessor({
+    deferredTools: Object.fromEntries(
+      Object.entries(descriptions).map(([id, description]) => [
+        id,
+        createTool({ description, execute: async () => ({}), id, inputSchema: z.object({}) }),
+      ])
+    ),
+    model: 'openai/gpt-5.6-terra',
+    toolNameMap: new Map(Object.keys(descriptions).map((id) => [id, id.replace('_', '.')])),
+  });
+}
+
 describe('BrainstrikeToolSearchProcessor', () => {
+  it('rejects an eligible catalog entry without its original name mapping', () => {
+    expect(
+      () =>
+        new BrainstrikeToolSearchProcessor({
+          deferredTools: { [DEFERRED_TOOL_ID]: createDeferredTool() },
+          model: 'openai/gpt-5.6-terra',
+          toolNameMap: new Map(),
+        })
+    ).toThrow('missing its original-name mapping');
+  });
+
+  it('exposes load_tool and loads only the exact name despite higher-ranking search matches', async () => {
+    // BST-1667: exact selection is Mastra's `load_tool`, not a fuzzy search
+    // that happens to rank the name first. The distractors out-rank the target
+    // on BM25 (their descriptions repeat its tokens), so a search-based load
+    // would activate three tools; load_tool activates exactly one.
+    const tools = Object.fromEntries(
+      ['foo_target', ...Array.from({ length: 10 }, (_, index) => `distractor_${index}`)].map(
+        (id) => [
+          id,
+          createTool({
+            description:
+              id === 'foo_target' ? 'Perform the requested operation.' : 'foo target '.repeat(30),
+            execute: async () => ({ completed: id }),
+            id,
+            inputSchema: z.object({}),
+          }),
+        ]
+      )
+    );
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: tools,
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map(Object.keys(tools).map((id) => [id, id])),
+    });
+    const args = createStepArgs({ threadId: 'exact-catalog' });
+    const first = await processor.processInputStep(args);
+    expect(Object.keys(first.tools)).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+    await expect(
+      first.tools.load_tool.execute?.({ toolName: 'foo_target' })
+    ).resolves.toMatchObject({
+      success: true,
+      toolName: 'foo_target',
+    });
+    const next = await processor.processInputStep({ ...args, stepNumber: 1 });
+    expect(Object.keys(next.tools)).toEqual([
+      'search_tools',
+      'load_tool',
+      'foo_target',
+      'list_available_tools',
+    ]);
+    expect(
+      await processor.getLoadedToolsForRequestContext({ requestContext: args.requestContext })
+    ).toHaveProperty('foo_target');
+  });
+
+  it('rewrites load_tool success copy to the same-response wording and keeps Mastra failure copy', async () => {
+    const processor = createProcessor();
+    const args = createStepArgs({ threadId: 'load-copy' });
+    const { tools } = await processor.processInputStep(args);
+    const loaded = await tools.load_tool.execute?.({ toolName: DEFERRED_TOOL_ID });
+    expect(loaded).toMatchObject({ success: true, toolName: DEFERRED_TOOL_ID });
+    expect(loaded?.message).toContain('next step in this same response');
+    expect(loaded?.message).not.toContain('next turn');
+    const missing = await tools.load_tool.execute?.({ toolName: 'brainstrike_nope' });
+    expect(missing).toMatchObject({ success: false, toolName: 'brainstrike_nope' });
+    expect(missing?.message).toContain('not found');
+    const batch = await tools.load_tool.execute?.({
+      toolNames: [DEFERRED_TOOL_ID, 'brainstrike_nope'],
+    });
+    expect(batch).toMatchObject({
+      alreadyLoaded: [DEFERRED_TOOL_ID],
+      notFound: ['brainstrike_nope'],
+    });
+    // Mastra's batch result shape the wrapper reads (review of #3049).
+    expect(typeof batch?.message).toBe('string');
+    expect(typeof batch?.success).toBe('boolean');
+  });
+
+  it('rewrites the copy of a mixed batch that loaded something even though Mastra reports success:false', async () => {
+    const secondTool = createTool({
+      description: 'Read a file from the active workspace.',
+      execute: async () => ({ content: 'hello' }),
+      id: SECOND_DEFERRED_TOOL_ID,
+      inputSchema: z.object({}),
+    });
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: {
+        [DEFERRED_TOOL_ID]: createDeferredTool(),
+        [SECOND_DEFERRED_TOOL_ID]: secondTool,
+      },
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map([
+        [DEFERRED_TOOL_ID, 'brainstrike.listWorkspaceContext'],
+        [SECOND_DEFERRED_TOOL_ID, 'brainstrike.readWorkspaceFile'],
+      ]),
+    });
+    const args = createStepArgs({ threadId: 'mixed-batch' });
+    const { tools } = await processor.processInputStep(args);
+    const batch = await tools.load_tool.execute?.({
+      toolNames: [SECOND_DEFERRED_TOOL_ID, 'brainstrike_nope'],
+    });
+    expect(batch).toMatchObject({
+      loaded: [SECOND_DEFERRED_TOOL_ID],
+      notFound: ['brainstrike_nope'],
+      success: false,
+    });
+    expect(batch?.message).toContain('next step in this same response');
+    expect(batch?.message).not.toContain('next turn');
+    const next = await processor.processInputStep({ ...args, stepNumber: 1 });
+    expect(Object.keys(next.tools)).toContain(SECOND_DEFERRED_TOOL_ID);
+  });
+
+  it('refuses an exact name that is eligible but not in the deferred catalog', async () => {
+    // load_tool can only select from the post-gate catalog the processor was
+    // built with; a core (eager) tool or a gated-out tool is simply absent,
+    // so exact-name loading widens nothing the fuzzy path did not already
+    // reach (review of #3049).
+    const processor = createProcessor();
+    const args = createStepArgs({ threadId: 'ineligible' });
+    const { tools } = await processor.processInputStep(args);
+    await expect(
+      tools.load_tool.execute?.({ toolName: 'brainstrike_executeCommand' })
+    ).resolves.toMatchObject({ success: false, toolName: 'brainstrike_executeCommand' });
+    const next = await processor.processInputStep({ ...args, stepNumber: 1 });
+    expect(Object.keys(next.tools)).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+  });
+
+  it('pages a 61-tool catalog and loads an exact name from the last page', async () => {
+    const tools = Object.fromEntries(
+      Array.from({ length: 61 }, (_, index) => {
+        const id = `linear_action_${String(index).padStart(2, '0')}`;
+        return [
+          id,
+          createTool({
+            description: 'A Linear workspace operation.',
+            execute: async () => ({ completed: id }),
+            id,
+            inputSchema: z.object({}),
+          }),
+        ];
+      })
+    );
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: tools,
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map(Object.keys(tools).map((id) => [id, id.replace('_', '.')])),
+    });
+    const args = createStepArgs({ threadId: 'paged-catalog' });
+    const first = await processor.processInputStep(args);
+    const firstPage = await first.tools.list_available_tools.execute?.({ prefix: 'linear.' });
+    expect(firstPage).toMatchObject({ catalogTotal: 61, nextOffset: 50, total: 61 });
+    expect(firstPage?.tools).toHaveLength(50);
+    const lastPage = await first.tools.list_available_tools.execute?.({
+      offset: 50,
+      prefix: 'linear.',
+    });
+    expect(lastPage).toMatchObject({ nextOffset: null, total: 61 });
+    expect(lastPage?.tools).toHaveLength(11);
+    expect(lastPage?.tools.at(-1)?.name).toBe('linear_action_60');
+    expect(
+      new Set([...(firstPage?.tools ?? []), ...(lastPage?.tools ?? [])].map(({ name }) => name))
+        .size
+    ).toBe(61);
+
+    await expect(
+      first.tools.load_tool.execute?.({ toolName: 'linear_action_60' })
+    ).resolves.toMatchObject({ success: true, toolName: 'linear_action_60' });
+    const next = await processor.processInputStep({ ...args, stepNumber: 1 });
+    expect(Object.keys(next.tools)).toEqual([
+      'search_tools',
+      'load_tool',
+      'linear_action_60',
+      'list_available_tools',
+    ]);
+    expect(JSON.stringify(lastPage)).not.toContain('inputSchema');
+    await expect(first.tools.list_available_tools.execute?.({ offset: 62 })).rejects.toThrow(
+      'offset exceeds'
+    );
+  });
+
+  it('bounds inventory descriptions without splitting Unicode code points and reports invalid offsets', async () => {
+    const tool = createTool({
+      description: `${'a'.repeat(159)}🧭end`,
+      id: 'unicode_tool',
+      inputSchema: z.object({}),
+    });
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: { unicode_tool: tool },
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map([['unicode_tool', 'unicode_tool']]),
+    });
+    const { tools } = await processor.processInputStep(createStepArgs());
+    await expect(tools.list_available_tools.execute?.({})).resolves.toMatchObject({
+      tools: [
+        { description: `${'a'.repeat(159)}🧭`, descriptionTruncated: true, name: 'unicode_tool' },
+      ],
+    });
+    await expect(tools.list_available_tools.execute?.({ offset: 2 })).rejects.toMatchObject({
+      code: 'mastra_agent_tool_discovery_failure',
+      context: { matchingTotal: 1, offset: 2, phase: 'catalog-pagination' },
+    });
+  });
+
+  it('orders names independently of locale and treats the exact end as an empty page', async () => {
+    const tools = Object.fromEntries(
+      ['linear_a', 'linear_B'].map((id) => [id, createDeferredTool()])
+    );
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: tools,
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map(Object.keys(tools).map((id) => [id, id])),
+    });
+    const { tools: controls } = await processor.processInputStep(createStepArgs());
+    const page = await controls.list_available_tools.execute?.({ prefix: 'linear' });
+    expect(page?.tools.map((t) => t.name)).toEqual(['linear_B', 'linear_a']);
+    await expect(
+      controls.list_available_tools.execute?.({ offset: 2, prefix: 'linear' })
+    ).resolves.toMatchObject({ nextOffset: null, tools: [], total: 2 });
+  });
+
+  it('keeps catalog membership scoped to each runtime', async () => {
+    const first = await createLinearProcessor().processInputStep(createStepArgs());
+    const other = await createProcessor().processInputStep(createStepArgs());
+    await expect(
+      other.tools.list_available_tools.execute?.({ prefix: 'linear' })
+    ).resolves.toMatchObject({ nextOffset: null, tools: [], total: 0 });
+    await expect(
+      first.tools.list_available_tools.execute?.({ prefix: 'LINEAR_SAVE' })
+    ).resolves.toMatchObject({ total: 2 });
+    expect(other.tools.list_available_tools).not.toBe(first.tools.list_available_tools);
+  });
+
+  it('enumerates all eligible Linear tools without loading their schemas', async () => {
+    const processor = createLinearProcessor();
+    const first = await processor.processInputStep(createStepArgs({ threadId: 'inventory' }));
+    const catalog = first.tools.list_available_tools;
+    expect(catalog).toBeDefined();
+    const result = await catalog?.execute?.({ prefix: 'linear' });
+    expect(result).toMatchObject({
+      nextOffset: null,
+      tools: expect.arrayContaining([
+        expect.objectContaining({ name: 'linear_list_issues' }),
+        expect.objectContaining({ name: 'linear_save_issue' }),
+        expect.objectContaining({ name: 'linear_save_comment' }),
+      ]),
+      total: 7,
+    });
+    const next = await processor.processInputStep(
+      createStepArgs({ stepNumber: 1, threadId: 'inventory' })
+    );
+    expect(Object.keys(next.tools)).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+  });
+
+  it('does not present three Linear search matches as the complete available catalog', async () => {
+    const processor = createLinearProcessor();
+    const step = await processor.processInputStep(createStepArgs());
+    const result = (await step.tools.search_tools.execute?.({
+      query: 'Linear issue tracker tools',
+    })) as { message: string; results: { name: string }[] };
+
+    expect(result.results).toHaveLength(3);
+    expect(result.message).toContain('not the complete catalog');
+    expect(result.message).toContain('7 eligible deferred tools');
+    expect(result.message).toContain('list_available_tools');
+  });
+
   it.each(RANKING_FIXTURES)(
     'ranks $expectedToolId first for "$query"',
     async ({ expectedToolId, query }) => {
@@ -163,7 +493,8 @@ describe('BrainstrikeToolSearchProcessor', () => {
     expect(description).toContain('workspace context and tapestry');
     expect(description).toContain('directory listings');
     expect(description).not.toContain('canvas documents');
-    expect(description).toContain('same response');
+    expect(description).toContain('load_tool');
+    expect(description).toContain('does not load them');
     expect(description).not.toContain('next turn');
   });
 
@@ -255,8 +586,16 @@ describe('BrainstrikeToolSearchProcessor', () => {
       writable: false,
     });
     const originalExecute = mastraSearchTool.execute;
+    const mastraLoadTool = createTool({
+      description: 'Mastra load tool',
+      execute: async () => ({ message: 'unused', success: false }),
+      id: 'load_tool',
+      inputSchema: z.object({ toolName: z.string().optional() }),
+    });
     Reflect.set(processor, 'delegate', {
-      processInputStep: async () => ({ tools: { search_tools: mastraSearchTool } }),
+      processInputStep: async () => ({
+        tools: { load_tool: mastraLoadTool, search_tools: mastraSearchTool },
+      }),
     });
 
     const result = await processor.processInputStep(createStepArgs());
@@ -311,21 +650,39 @@ describe('BrainstrikeToolSearchProcessor', () => {
     });
   });
 
-  it('starts with search only, auto-loads top matches, then appends the deferred tool', async () => {
+  it('starts with the meta-tools, search only discovers, and load_tool appends the deferred tool', async () => {
     const processor = createProcessor();
     const first = await processor.processInputStep(createStepArgs({ threadId: 'thread-1' }));
 
-    expect(Object.keys(first.tools)).toEqual(['search_tools']);
+    expect(Object.keys(first.tools)).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
     await expect(
       first.tools.search_tools.execute?.({ query: 'workspace context' })
     ).resolves.toMatchObject({
       results: [{ name: DEFERRED_TOOL_ID }],
     });
 
+    // Manual loading (BST-1667): a search result is discovery, not activation.
     const second = await processor.processInputStep(
       createStepArgs({ stepNumber: 1, threadId: 'thread-1' })
     );
-    expect(Object.keys(second.tools)).toEqual(['search_tools', DEFERRED_TOOL_ID]);
+    expect(Object.keys(second.tools)).toEqual([
+      'search_tools',
+      'load_tool',
+      'list_available_tools',
+    ]);
+
+    await expect(
+      second.tools.load_tool.execute?.({ toolName: DEFERRED_TOOL_ID })
+    ).resolves.toMatchObject({ success: true, toolName: DEFERRED_TOOL_ID });
+    const third = await processor.processInputStep(
+      createStepArgs({ stepNumber: 2, threadId: 'thread-1' })
+    );
+    expect(Object.keys(third.tools)).toEqual([
+      'search_tools',
+      'load_tool',
+      DEFERRED_TOOL_ID,
+      'list_available_tools',
+    ]);
   });
 
   it('reports each newly loaded deferred definition once per thread', async () => {
@@ -338,7 +695,7 @@ describe('BrainstrikeToolSearchProcessor', () => {
     });
     const first = await processor.processInputStep(createStepArgs({ threadId: 'thread-1' }));
     expect(onToolsLoaded).not.toHaveBeenCalled();
-    await first.tools.search_tools.execute?.({ query: 'workspace context' });
+    await first.tools.load_tool.execute?.({ toolName: DEFERRED_TOOL_ID });
 
     await processor.processInputStep(createStepArgs({ stepNumber: 1, threadId: 'thread-1' }));
     await processor.processInputStep(createStepArgs({ stepNumber: 2, threadId: 'thread-1' }));
@@ -347,22 +704,33 @@ describe('BrainstrikeToolSearchProcessor', () => {
     expect(Object.keys(onToolsLoaded.mock.calls[0]?.[0] ?? {})).toEqual([DEFERRED_TOOL_ID]);
   });
 
-  it('reconstructs loaded tools from persisted search results after processor restart', async () => {
-    const persistedMessages = new MessageList();
-    persistedMessages.add(createPersistedSearchResultMessage(), 'memory');
+  it.each([
+    { fixture: createPersistedLoadResultMessage, label: 'load_tool' },
+    { fixture: createLegacyPersistedSearchResultMessage, label: 'legacy auto-load search_tools' },
+  ])(
+    'reconstructs loaded tools from persisted $label results after processor restart',
+    async ({ fixture }) => {
+      const persistedMessages = new MessageList();
+      persistedMessages.add(fixture(), 'memory');
 
-    const restartedProcessor = createProcessor();
-    const result = await restartedProcessor.processInputStep(
-      createStepArgs({ messageList: persistedMessages, threadId: 'thread-1' })
-    );
+      const restartedProcessor = createProcessor();
+      const result = await restartedProcessor.processInputStep(
+        createStepArgs({ messageList: persistedMessages, threadId: 'thread-1' })
+      );
 
-    expect(Object.keys(result.tools)).toEqual(['search_tools', DEFERRED_TOOL_ID]);
-  });
+      expect(Object.keys(result.tools)).toEqual([
+        'search_tools',
+        'load_tool',
+        DEFERRED_TOOL_ID,
+        'list_available_tools',
+      ]);
+    }
+  );
 
   it('rehydrates loaded tools directly for a fresh approval runtime', async () => {
     const processor = new BrainstrikeToolSearchProcessor({
       deferredTools: { [DEFERRED_TOOL_ID]: createDeferredTool() },
-      loadPersistedMessages: async () => [createPersistedSearchResultMessage()],
+      loadPersistedMessages: async () => [createPersistedLoadResultMessage()],
       model: 'openai/gpt-5.6-terra',
       toolNameMap: new Map([[DEFERRED_TOOL_ID, 'brainstrike.listWorkspaceContext']]),
     });
@@ -370,6 +738,8 @@ describe('BrainstrikeToolSearchProcessor', () => {
     await expect(processor.getLoadedToolsForRequestContext()).resolves.toHaveProperty(
       DEFERRED_TOOL_ID
     );
+    const step = await processor.processInputStep(createStepArgs());
+    expect(step.tools).toHaveProperty('list_available_tools');
   });
 
   it('pins Mastra context storage as empty-or-complete for loaded approval tools', async () => {
@@ -401,11 +771,11 @@ describe('BrainstrikeToolSearchProcessor', () => {
     });
     const firstArgs = createStepArgs({ threadId: 'complete-loaded-set' });
     const first = await processor.processInputStep(firstArgs);
-    await first.tools.search_tools.execute?.({ query: 'unique alpha operation' });
+    await first.tools.load_tool.execute?.({ toolName: alphaToolId });
     const second = await processor.processInputStep(
       createStepArgs({ stepNumber: 1, threadId: 'complete-loaded-set' })
     );
-    await second.tools.search_tools.execute?.({ query: 'unique beta operation' });
+    await second.tools.load_tool.execute?.({ toolName: betaToolId });
 
     const loadedTools = await processor.getLoadedToolsForRequestContext({
       requestContext: firstArgs.requestContext,
@@ -429,7 +799,7 @@ describe('BrainstrikeToolSearchProcessor', () => {
     });
   });
 
-  it('unions sequential disjoint persisted search results within one thread', async () => {
+  it('unions sequential disjoint persisted load results within one thread', async () => {
     const secondTool = createTool({
       description: 'Read a file from the active workspace.',
       execute: async () => ({ content: 'hello' }),
@@ -448,12 +818,12 @@ describe('BrainstrikeToolSearchProcessor', () => {
       ]),
     });
     const persistedMessages = new MessageList();
-    persistedMessages.add(createPersistedSearchResultMessage(), 'memory');
+    persistedMessages.add(createPersistedLoadResultMessage(), 'memory');
     await processor.processInputStep(
       createStepArgs({ messageList: persistedMessages, threadId: 'thread-1' })
     );
     persistedMessages.add(
-      createPersistedSearchResultMessage(SECOND_DEFERRED_TOOL_ID, 'assistant-search-2'),
+      createPersistedLoadResultMessage(SECOND_DEFERRED_TOOL_ID, 'assistant-load-2'),
       'memory'
     );
 
@@ -463,18 +833,24 @@ describe('BrainstrikeToolSearchProcessor', () => {
 
     expect(Object.keys(result.tools)).toEqual([
       'search_tools',
+      'load_tool',
       DEFERRED_TOOL_ID,
       SECOND_DEFERRED_TOOL_ID,
+      'list_available_tools',
     ]);
   });
 
   it('does not share anonymous loaded state through a default thread', async () => {
     const processor = createProcessor();
     const first = await processor.processInputStep(createStepArgs());
-    await first.tools.search_tools.execute?.({ query: 'workspace context' });
+    await first.tools.load_tool.execute?.({ toolName: DEFERRED_TOOL_ID });
 
     const unrelatedAnonymousStep = await processor.processInputStep(createStepArgs());
-    expect(Object.keys(unrelatedAnonymousStep.tools)).toEqual(['search_tools']);
+    expect(Object.keys(unrelatedAnonymousStep.tools)).toEqual([
+      'search_tools',
+      'load_tool',
+      'list_available_tools',
+    ]);
   });
 
   it('fails visibly when request context contains an invalid thread id', async () => {
@@ -491,7 +867,7 @@ describe('BrainstrikeToolSearchProcessor', () => {
   it('fails visibly when context trimming removes a loaded-tool result mid-runtime', async () => {
     const processor = createProcessor();
     const persistedMessages = new MessageList();
-    persistedMessages.add(createPersistedSearchResultMessage(), 'memory');
+    persistedMessages.add(createPersistedLoadResultMessage(), 'memory');
     await processor.processInputStep(
       createStepArgs({ messageList: persistedMessages, threadId: 'thread-1' })
     );

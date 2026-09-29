@@ -162,6 +162,9 @@ describe('parseMcpEvidenceSchema', () => {
   });
   it('binds exact package versions, git identity, and ticket shape', () => {
     expectInvalid({ ...evidenceFixture(), ticket: 'GH-1484' }, /\$\.ticket.*exact BST ticket/i);
+    const staleSdk = evidenceFixture();
+    staleSdk.versions.sdk.version = '2.0.0';
+    expectInvalid(staleSdk, /evidence claims do not match scenario/i);
     expectInvalid(
       {
         ...evidenceFixture(),

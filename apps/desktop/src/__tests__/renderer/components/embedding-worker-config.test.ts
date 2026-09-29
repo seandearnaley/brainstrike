@@ -10,12 +10,19 @@ import type {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+  integrityWatcher,
   loggerDebugMock,
   loggerInfoMock,
   loggerWarnMock,
   registryStoreState,
   resolveWorkspaceIndexingQosPolicyMock,
 } = vi.hoisted(() => ({
+  // The host's view of main-owned database integrity (BST-1870); healthy unless a test says otherwise.
+  integrityWatcher: {
+    current: vi.fn(),
+    subscribe: vi.fn(),
+    waitUntilBackgroundAdmitted: vi.fn(),
+  },
   loggerDebugMock: vi.fn(),
   loggerInfoMock: vi.fn(),
   loggerWarnMock: vi.fn(),
@@ -24,6 +31,10 @@ const {
     setDownloadProgress: vi.fn(),
   },
   resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
+}));
+
+vi.mock('../../../renderer/components/embedding-host-database-integrity', () => ({
+  getEmbeddingHostIntegrityWatcher: () => integrityWatcher,
 }));
 
 vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
@@ -176,6 +187,8 @@ function createScheduledTestDb(
 describe('createEmbeddingWorkerConfig', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    integrityWatcher.current.mockResolvedValue({ revision: 0, state: { kind: 'healthy' } });
+    integrityWatcher.waitUntilBackgroundAdmitted.mockResolvedValue(undefined);
     import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '';
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '';
     import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '';
@@ -437,6 +450,37 @@ describe('createEmbeddingWorkerConfig', () => {
     expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
   });
 
+  it('reads the Electron scheduler snapshot with zero IPC arguments', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const snapshot = getDatabaseWorkScheduler(scheduledDb)?.getSnapshot();
+    if (!snapshot) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    // Mirrors the preload bridge + `db:scheduler:snapshot` contract: every
+    // argument is forwarded over IPC, and the contract rejects any arity but 0.
+    const schedulerSnapshot = vi.fn(async (...args: unknown[]) => {
+      if (args.length !== 0) {
+        throw new Error('database schedulerSnapshot requires exactly 0 arguments');
+      }
+      return snapshot;
+    });
+    (window.electronAPI as unknown as { db: { schedulerSnapshot: typeof schedulerSnapshot } }).db =
+      {
+        schedulerSnapshot,
+      };
+
+    const config = createEmbeddingWorkerConfig({
+      query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
+    } as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+
+    // Asserted directly so the contract holds even if read failures are ever
+    // swallowed rather than propagated.
+    expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
+    expect(schedulerSnapshot.mock.calls[0]).toHaveLength(0);
+  });
+
   it('does not reuse an expired Electron scheduler snapshot after a read failure', async () => {
     vi.useFakeTimers();
     try {
@@ -575,6 +619,74 @@ describe('createEmbeddingWorkerConfig', () => {
       expect.stringContaining('foreground-db-pressure starvation bound'),
       expect.objectContaining({ starvationMs: expect.any(Number) })
     );
+
+    releaseForegroundWork();
+    await foregroundWork;
+  });
+
+  // The starvation bound only relaxes foreground-pressure yielding; it must not
+  // be able to admit a claim while database integrity containment is active.
+  it('holds the claim permit under containment even while the starvation bypass is active', async () => {
+    import.meta.env['VITE_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS'] = '20';
+    const { scheduledDb } = createScheduledTestDb();
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    let releaseForegroundWork!: () => void;
+    const foregroundWork = scheduler.run(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseForegroundWork = resolve;
+        }),
+      { label: 'test foreground query', priority: 'foreground' }
+    );
+    await vi.waitFor(() => {
+      expect(scheduler.getSnapshot().runningPriority).toBe('foreground');
+    });
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    // Healthy: the bounded permit starts the starvation clock, and the bypass engages.
+    await config.waitForBackgroundPermit?.({ label: 'embedding claim' });
+    await vi.waitFor(
+      async () => {
+        await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+      },
+      { interval: 10, timeout: 5000 }
+    );
+
+    // Containment begins while the bypass would admit a claim at once.
+    integrityWatcher.current.mockResolvedValue({
+      revision: 1,
+      state: {
+        context: 'db:query',
+        kind: 'contained',
+        signal: { message: 'zero page', sqlstate: 'XX002' },
+        since: '2026-09-29T12:00:00.000Z',
+      },
+    });
+    let admit!: () => void;
+    integrityWatcher.waitUntilBackgroundAdmitted.mockReturnValue(
+      new Promise<void>((resolve) => {
+        admit = resolve;
+      })
+    );
+    let admitted = false;
+    const permit = config.waitForBackgroundPermit?.({ label: 'embedding claim' })?.then(() => {
+      admitted = true;
+    });
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
+    expect(admitted).toBe(false);
+    expect(integrityWatcher.waitUntilBackgroundAdmitted).toHaveBeenCalled();
+
+    // The hold re-reads the state after the base permit, so admission is the
+    // healthy snapshot main publishes, not just the released wait.
+    integrityWatcher.current.mockResolvedValue({ revision: 2, state: { kind: 'healthy' } });
+    admit();
+    await permit;
+    expect(admitted).toBe(true);
 
     releaseForegroundWork();
     await foregroundWork;

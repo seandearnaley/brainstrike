@@ -1,6 +1,6 @@
 import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createPanelLayoutStore, selectVisibleSurface } from '../stores/panel-layout-store';
+import { createPanelLayoutStore } from '../stores/panel-layout-store';
 
 const STORE_NAME = 'panel-layout-store.v1';
 
@@ -30,7 +30,6 @@ describe('panel-layout-store', () => {
     expect(s.showRightPanel).toBe(true);
     expect(s.showConsole).toBe(false);
     expect(s.activeTab).toBe('explorer');
-    expect(s.settingsOpen).toBe(false);
   });
 
   it('toggles panel visibility flags', () => {
@@ -53,32 +52,23 @@ describe('panel-layout-store', () => {
     expect(store.getState().activeTab).toBe('explorer');
     store.getState().setActiveTab('settings');
     expect(store.getState().activeTab).toBe('settings');
-    expect(store.getState().settingsOpen).toBe(true);
 
-    store.getState().setActiveTab('terminal');
-    expect(store.getState().settingsOpen).toBe(false);
+    store.getState().setActiveTab('git');
+    expect(store.getState().activeTab).toBe('git');
   });
 
-  it('opens settings over the current tab without replacing the underlay', () => {
+  it('routes openSettings to the settings tab like any other shell route (BST-1668)', () => {
+    // Settings is a full shell tab again, not an overlay: the ONLY state it
+    // needs is `activeTab`, so opening it replaces the current surface and
+    // navigating elsewhere leaves it the same way every other tab does.
+    store.getState().setActiveTab('git');
     store.getState().openSettings();
 
-    expect(store.getState().activeTab).toBe('explorer');
-    expect(store.getState().settingsOpen).toBe(true);
+    expect(store.getState().activeTab).toBe('settings');
+    expect('settingsOpen' in store.getState()).toBe(false);
 
-    store.getState().setSettingsOpen(false);
-    expect(store.getState().settingsOpen).toBe(false);
-  });
-
-  it('resolves the visible surface from both settings entry points', () => {
-    expect(selectVisibleSurface({ activeTab: 'explorer', settingsOpen: false })).toBe('explorer');
-    expect(selectVisibleSurface({ activeTab: 'git', settingsOpen: false })).toBe('git');
-    // Dialog raised over another tab.
-    expect(selectVisibleSurface({ activeTab: 'git', settingsOpen: true })).toBe('settings');
-    // Nav-rail route, whose flag `setActiveTab` normally raises alongside it —
-    // but a direct `setState` can leave the two apart, and the shell shows
-    // settings for this state, so the selector must too.
-    expect(selectVisibleSurface({ activeTab: 'settings', settingsOpen: false })).toBe('settings');
-    expect(selectVisibleSurface({ activeTab: 'settings', settingsOpen: true })).toBe('settings');
+    store.getState().setActiveTab('git');
+    expect(store.getState().activeTab).toBe('git');
   });
 
   it('normalizes sizes and preserves tuple shape', () => {

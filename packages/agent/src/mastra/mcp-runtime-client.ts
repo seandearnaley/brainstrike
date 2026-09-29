@@ -17,7 +17,7 @@ import type {
 } from '../mcp/explicit-http-client';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
-import { readToolGuardDeadlineSignal } from '../tools/tool-guard-deadline';
+import { resolveGuardedToolSignal } from '../tools/tool-guard-deadline';
 import type { StreamChunk } from '../types';
 import {
   createMcpAppToolResult,
@@ -314,7 +314,11 @@ function createMcpTool(
       ? { outputSchema: createDocumentationOnlyMcpOutputSchema(tool.outputSchema) }
       : {}),
     ...(mcp ? { mcp } : {}),
-    ...(strict === undefined ? {} : { strict }),
+    // Preserve the server's optional-input semantics. OpenAI Responses may
+    // normalize an omitted strict flag by requiring every property, forcing
+    // the model to invent filters such as Linear priority=0. Runtime JSON
+    // Schema validation still runs; a server's explicit strict opt-in wins.
+    strict: strict ?? false,
     // Tasks and Apps share one projector: Tasks get their bounded status view,
     // while Apps project the inner ordinary result. Definitions carrying
     // neither contract keep the generic pipeline path without a custom seam.
@@ -435,10 +439,7 @@ async function executeMcpTool(
   // to stop when the guard gives up. Without it the SDK's
   // `resetTimeoutOnProgress` lets a progress-emitting server hold the request
   // for the full `maxTotalTimeout` after the run walked away (BST-1594).
-  const callSignal = mergeCallToolSignals(
-    context?.abortSignal,
-    readToolGuardDeadlineSignal(context)
-  );
+  const callSignal = resolveGuardedToolSignal(context);
   try {
     result = await client.callTool(
       {
@@ -499,16 +500,6 @@ async function executeMcpTool(
     ordinaryResult = result.structuredContent;
   }
   return createMcpAppToolResult(appOrigin, ordinaryResult);
-}
-
-function mergeCallToolSignals(
-  executionSignal: AbortSignal | undefined,
-  guardDeadline: AbortSignal | undefined
-): AbortSignal | undefined {
-  if (!guardDeadline) {
-    return executionSignal;
-  }
-  return executionSignal ? AbortSignal.any([executionSignal, guardDeadline]) : guardDeadline;
 }
 
 function readToolCallMeta(context: McpExecuteContext): Record<string, unknown> | undefined {

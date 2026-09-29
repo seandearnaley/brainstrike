@@ -10,7 +10,7 @@ import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electro
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { RootDescriptor } from '@brainstrike/types';
+import type { IFileNode, RootDescriptor } from '@brainstrike/types';
 import { ipcMain } from 'electron';
 import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/command-session-manager';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
@@ -21,8 +21,8 @@ import {
   type FileReadErrorPayload,
   isFileNotFoundError,
 } from '../file-read-errors';
-import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import { createDesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
+import { fileSystemContract } from './file-system.contract';
 import type { ManagedWorktreeAuthorizer } from './workspace-recent-roots';
 import { type SecureWorkspaceRoot, WorkspaceRootRegistry } from './workspace-root-registry';
 
@@ -470,16 +470,29 @@ export function registerFileSystemIpcHandlers({
   const addSelectedRoot = async (): Promise<RootDescriptor> =>
     roots.addRoot(await resolveRequestedDirectoryHandle(fileSystem));
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess,
-    async () => (await addSelectedRoot()).handle
-  );
+  registerDomain(registry, 'files', fileSystemContract, {
+    addRoot: async () => addSelectedRoot(),
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.readDirectory,
-    async (_event, handle: DirectoryHandle) => {
+    // Picker-less: main's recent-roots ledger is the only authorization, so an
+    // unrecorded path is rejected there rather than granted from a renderer
+    // string. The shape check stays here so a malformed payload never reaches it.
+    // The grant-notification callback (recents pushed to OS recent-documents +
+    // File-menu rebuild) fires structurally from inside WorkspaceRootRegistry.addRoot,
+    // gated on the SAME recordInRecentRoots flag that decides ledger recording —
+    // see onRootGranted on the `roots` construction above — so this handler
+    // does not need to call it itself.
+    addRootByPath: async (requestedPath: string) => {
+      if (requestedPath.length === 0) {
+        throw new Error('fs:addRootByPath requires a non-empty path.');
+      }
+      return roots.addRootByPath(requestedPath);
+    },
+
+    exists: async (requestedPath: string) => ipcPathExists(fileSystem, requestedPath),
+
+    listRecentRoots: async () => roots.listRecentRoots(),
+
+    readDirectory: async (handle: DirectoryHandle) => {
       const fixture = getElectronE2eFileSystemFixture();
       if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readDirectoryCalls.push(handle.path);
@@ -492,20 +505,16 @@ export function registerFileSystemIpcHandlers({
             'read'
           );
         }
-        return entries;
+        return entries as unknown as IFileNode[];
       }
 
       if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
-        return getTestDirectoryStructure(MOCK_ROOT_PATH);
+        return getTestDirectoryStructure(MOCK_ROOT_PATH) as unknown as IFileNode[];
       }
       return roots.readDirectory(await resolveDirectoryHandle(handle));
-    }
-  );
+    },
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.readFile,
-    async (_event, handle: FileHandle) => {
+    readFile: async (handle: FileHandle) => {
       const fixture = getElectronE2eFileSystemFixture();
       if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readFileCalls.push(handle.path);
@@ -533,14 +542,13 @@ export function registerFileSystemIpcHandlers({
         }
         throw error;
       }
-    }
-  );
+    },
 
-  registry.registerAuthorizedInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.readFileByAbsolutePath,
-    { roles: ['visible-ui'] },
-    async (_event, absolutePath: unknown, claimedRootPath: unknown, claimedRootId: unknown) => {
+    readFileByAbsolutePath: async (
+      absolutePath: unknown,
+      claimedRootPath: unknown,
+      claimedRootId: unknown
+    ) => {
       const diagnosticPath = typeof absolutePath === 'string' ? absolutePath : '';
       try {
         return await roots.readFileByAbsolutePath(absolutePath, claimedRootPath, claimedRootId);
@@ -551,13 +559,9 @@ export function registerFileSystemIpcHandlers({
         }
         throw error;
       }
-    }
-  );
+    },
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.readFileByPath,
-    async (_event, absolutePath: string) => {
+    readFileByPath: async (absolutePath: string) => {
       const fixture = getElectronE2eFileSystemFixture();
       if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readFileByPathCalls.push(absolutePath);
@@ -585,61 +589,17 @@ export function registerFileSystemIpcHandlers({
         }
         throw error;
       }
-    }
-  );
+    },
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.exists,
-    async (_event, requestedPath: string) => ipcPathExists(fileSystem, requestedPath)
-  );
+    removeRoot: async (rootId: string) => roots.removeRoot(rootId),
+    requestDirectoryAccess: async () => (await addSelectedRoot()).handle,
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreLastFolder, async () =>
-    roots.restoreLastFolder()
-  );
+    restoreLastFolder: async () => roots.restoreLastFolder(),
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.saveLastFolder,
-    async (_event, folderPath: string) => roots.setLastFolder(folderPath)
-  );
+    restoreRoots: async () => roots.restoreRoots(),
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () =>
-    roots.restoreRoots()
-  );
-
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () =>
-    addSelectedRoot()
-  );
-
-  // Picker-less: main's recent-roots ledger is the only authorization, so an
-  // unrecorded path is rejected there rather than granted from a renderer
-  // string. The shape check stays here so a malformed payload never reaches it.
-  // The grant-notification callback (recents pushed to OS recent-documents +
-  // File-menu rebuild) fires structurally from inside WorkspaceRootRegistry.addRoot,
-  // gated on the SAME recordInRecentRoots flag that decides ledger recording —
-  // see onRootGranted on the `roots` construction above — so this handler
-  // does not need to call it itself.
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.addRootByPath,
-    async (_event, requestedPath: unknown) => {
-      if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
-        throw new Error('fs:addRootByPath requires a non-empty path.');
-      }
-      return roots.addRootByPath(requestedPath);
-    }
-  );
-
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.listRecentRoots, async () =>
-    roots.listRecentRoots()
-  );
-
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.removeRoot,
-    async (_event, rootId: string) => roots.removeRoot(rootId)
-  );
+    saveLastFolder: async (folderPath: string) => roots.setLastFolder(folderPath),
+  });
   return () => {
     registry.unregisterAll();
     roots.dispose();

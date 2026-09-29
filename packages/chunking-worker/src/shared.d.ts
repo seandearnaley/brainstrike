@@ -24,19 +24,19 @@ export type ChunkType = 'text' | 'sentence' | 'recursive';
  */
 export interface ChunkingRequestOptions {
   /** When true, allows chunking beyond maxChunkableSize */
-  allowLargeFiles?: boolean;
+  allowLargeFiles?: boolean | undefined;
   /** When true, honor the provided strategy without applying file-type heuristics */
-  forceStrategy?: boolean;
+  forceStrategy?: boolean | undefined;
   /** Skip file-type recommendations and only enforce global safety caps when true */
-  ignoreFileTypeRecommendations?: boolean;
-  maxTokens?: number;
+  ignoreFileTypeRecommendations?: boolean | undefined;
+  maxTokens?: number | undefined;
   /** Optional override for the global max token budget per chunk */
-  maxTokensCap?: number;
-  overlap?: number;
-  separators?: string[];
+  maxTokensCap?: number | undefined;
+  overlap?: number | undefined;
+  separators?: string[] | undefined;
   strategy: ChunkingStrategy;
   /** If true, derive character limits from measured chars/token for this content */
-  tokenTrueSizing?: boolean;
+  tokenTrueSizing?: boolean | undefined;
 }
 
 /**

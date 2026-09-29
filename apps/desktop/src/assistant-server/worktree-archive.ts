@@ -10,11 +10,11 @@
  * removal; `git restore --source=<ref>` replays it; and `git ls-tree` makes it
  * inspectable with ordinary git.
  *
- * `git add -A` inside the worktree honors `.gitignore`, so `node_modules` and
- * other ignored trees are NOT captured — the snapshot is the user's work, not
- * their dependency cache.
+ * `git add -A` inside the worktree honors `.gitignore`, so every entry Git
+ * reports as ignored — including `node_modules` — is excluded from the snapshot.
+ * The snapshot is the user's work, not their dependency cache.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { promises as fsPromises } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -47,14 +47,43 @@ export function archiveSnapshotRef(worktreeId: string): string {
 export interface WorktreeSafetyReport {
   readonly blockers: readonly string[];
   readonly dirty: boolean;
+  readonly ignoredEntriesConfirmationToken: string | null;
   readonly ignoredEntryCount: number;
+  readonly ignoredTopLevelEntries: readonly string[];
+  readonly ignoredTopLevelEntriesTruncated: boolean;
+  readonly ignoredTopLevelEntryCount: number;
   readonly threadIsRunning: boolean;
   readonly unpushedCommits: number;
 }
 
+const MAX_IGNORED_TOP_LEVEL_ENTRIES = 10;
+
 interface UnpushedSafety {
   readonly blocker: string | null;
   readonly count: number;
+}
+
+function parsePorcelainV1ZStatusEntries(stdout: string): readonly string[] {
+  const fields = stdout.split('\0');
+  const entries: string[] = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const entry = fields[index];
+    if (!entry) {
+      continue;
+    }
+    entries.push(entry);
+    const indexStatus = entry.at(0);
+    const worktreeStatus = entry.at(1);
+    if (
+      indexStatus === 'R' ||
+      indexStatus === 'C' ||
+      worktreeStatus === 'R' ||
+      worktreeStatus === 'C'
+    ) {
+      index += 1;
+    }
+  }
+  return entries;
 }
 
 async function inspectUnpushedSafety(input: {
@@ -114,6 +143,7 @@ export async function inspectWorktreeSafety(input: {
   readonly invoke: GitInvoke;
   readonly lockedReason: string | null;
   readonly threadIsRunning: boolean;
+  readonly worktree: { readonly id: string; readonly path: string };
 }): Promise<GitResult<WorktreeSafetyReport>> {
   const blockers: string[] = [];
   if (input.threadIsRunning) {
@@ -122,26 +152,55 @@ export async function inspectWorktreeSafety(input: {
   if (input.lockedReason !== null) {
     blockers.push(`This worktree is locked: ${input.lockedReason}`);
   }
+  // Run the branch/remote checks first so the ignored-path status read is the final Git
+  // operation before the caller evaluates the confirmation token and removes the worktree.
+  const unpushed = await inspectUnpushedSafety(input);
+  if (!unpushed.ok) {
+    return unpushed;
+  }
   const statusRun = await invokeGitHookFree(input.invoke, [
     'status',
-    '--porcelain',
+    '--porcelain=v1',
+    '-z',
     '--untracked-files=all',
     '--ignored=matching',
   ]);
   if (statusRun.exitCode !== 0) {
     return { error: describeFailure(statusRun), ok: false };
   }
-  const statusEntries = statusRun.stdout.split('\n').filter((entry) => entry.length > 0);
-  const ignoredEntryCount = statusEntries.filter((entry) => entry.startsWith('!! ')).length;
+  const statusEntries = parsePorcelainV1ZStatusEntries(statusRun.stdout);
+  const ignoredEntries: string[] = [];
+  for (const entry of statusEntries) {
+    if (entry.startsWith('!! ')) {
+      ignoredEntries.push(entry.slice(3));
+    }
+  }
+  const ignoredEntryCount = ignoredEntries.length;
+  const ignoredTopLevelEntrySet = new Set(
+    ignoredEntries.map((entry) => {
+      const separatorIndex = entry.indexOf('/');
+      return separatorIndex === -1 ? entry : `${entry.slice(0, separatorIndex)}/`;
+    })
+  );
+  const allIgnoredTopLevelEntries = [...ignoredTopLevelEntrySet].sort();
+  const ignoredEntriesConfirmationToken =
+    ignoredEntryCount === 0
+      ? null
+      : createHash('sha256')
+          .update(
+            JSON.stringify({
+              ignoredTopLevelEntries: allIgnoredTopLevelEntries,
+              worktreeId: input.worktree.id,
+              worktreePath: input.worktree.path,
+            })
+          )
+          .digest('hex');
+  const ignoredTopLevelEntries = allIgnoredTopLevelEntries.slice(0, MAX_IGNORED_TOP_LEVEL_ENTRIES);
   const dirty = statusEntries.some((entry) => !entry.startsWith('!! '));
   if (dirty) {
     blockers.push(
       'This worktree has uncommitted changes. Archive anyway to keep a restorable snapshot, or commit them first.'
     );
-  }
-  const unpushed = await inspectUnpushedSafety(input);
-  if (!unpushed.ok) {
-    return unpushed;
   }
   if (unpushed.value.blocker !== null) {
     blockers.push(unpushed.value.blocker);
@@ -151,7 +210,12 @@ export async function inspectWorktreeSafety(input: {
     value: {
       blockers,
       dirty,
+      ignoredEntriesConfirmationToken,
       ignoredEntryCount,
+      ignoredTopLevelEntries,
+      ignoredTopLevelEntriesTruncated:
+        ignoredTopLevelEntries.length < allIgnoredTopLevelEntries.length,
+      ignoredTopLevelEntryCount: allIgnoredTopLevelEntries.length,
       threadIsRunning: input.threadIsRunning,
       unpushedCommits: unpushed.value.count,
     },

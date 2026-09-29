@@ -201,7 +201,7 @@ describe('tool schemas', () => {
     const display = getToolSchemaDisplay('brainstrike.webSearch');
     expect(display).toBeDefined();
     expect(display?.parameters.find((param) => param.name === 'query')?.required).toBe(true);
-    expect(display?.description).toContain('EXTERNAL SERVICE');
+    expect(display?.description).toContain('EXTERNAL WEB-SEARCH SERVICE');
   });
 
   it('documents context curation tools in schema display metadata', () => {

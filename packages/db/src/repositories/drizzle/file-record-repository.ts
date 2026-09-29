@@ -674,10 +674,11 @@ export class DrizzleFileRecordRepository {
       return new Map();
     }
 
-    const rows = await this.db
-      .select()
-      .from(fileRecords)
-      .where(inArray(fileRecords.contentHash, hashes));
+    const rows = await measureDatabaseQuery(
+      'file-tree',
+      async () =>
+        await this.db.select().from(fileRecords).where(inArray(fileRecords.contentHash, hashes))
+    );
 
     const map = new Map<string, FileRecord>();
 
@@ -715,7 +716,10 @@ export class DrizzleFileRecordRepository {
   }
 
   async clearAll(): Promise<number> {
-    const [countResult] = await this.db.select({ count: count() }).from(fileRecords);
+    const [countResult] = await measureDatabaseQuery(
+      'file-tree',
+      async () => await this.db.select({ count: count() }).from(fileRecords)
+    );
     const totalCount = countResult?.count ?? 0;
 
     await this.db.delete(fileRecords);

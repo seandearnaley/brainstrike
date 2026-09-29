@@ -218,11 +218,13 @@ export function buildFileHandleMap(
       const handle = node.handle;
       const compositeKey = encodeFileSelection(node.rootFolderId, node.path);
 
-      if (isWebFileHandle(handle)) {
+      const webHandle =
+        'platform' in handle && handle.platform === 'web' ? handle._internal : handle;
+      if (isWebFileHandle(webHandle)) {
         map.set(compositeKey, {
           fileName: node.name,
           fileSize: node.size,
-          webHandle: handle,
+          webHandle,
         });
       } else if (isElectronHandle(handle)) {
         map.set(compositeKey, {

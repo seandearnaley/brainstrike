@@ -16,7 +16,7 @@ import type { Migration } from './migration-runner';
  *   would silently orphan a directory full of the user's work on disk.
  * - NOT in `THREAD_DELETE_SIDECAR_TABLES` for that same reason. Thread delete
  *   offers "also archive its worktree" as an explicit action instead.
- * - NOT mirrored in `buildAssistantThreadRunsSchemaSql`: that mirror exists
+ * - Was never mirrored in the retired renderer bootstrap: that mirror existed
  *   only because the thread-delete CTE references every registered sidecar
  *   unconditionally, and this table is not one.
  *
@@ -25,6 +25,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration109Worktrees: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_worktrees;',
+  ledgerKey: 'custom-109-worktrees',
   name: 'worktrees',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_worktrees (

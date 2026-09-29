@@ -16,11 +16,14 @@
 import {
   type AssistantPersonaDefinition,
   SUBAGENT_NO_ANSWER_OUTCOME,
+  SUBAGENT_REJECTED_OUTCOME,
+  SUBAGENT_TRUNCATED_OUTCOME,
 } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import type { AssistantRunEventMetadata } from '../run-events';
 import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 import type { RuntimeData, StreamChunk, StreamChunkTool } from '../types';
+import type { DelegatedSynthesisOutcomes } from './delegated-synthesis-outcomes';
 import {
   asMastraStreamPart,
   getToolCallIdFromToolEvent,
@@ -54,6 +57,8 @@ interface OutputOnlyToolEvent {
 }
 
 export interface ToolLifecycleState {
+  /** Only calls still needing a terminal; retain their already-resolved display identity. */
+  activeToolEvents?: Map<string, StreamChunkTool>;
   /**
    * Token totals from EARLIER attempts of the same turn (BST-1409), zero on a
    * turn that never stalled.
@@ -154,6 +159,13 @@ export interface ToolLifecycleState {
   steppedCompletionTokens: number;
   steppedPromptTokens: number;
   streamStartedAtMs: number;
+  /**
+   * Per-runtime registry of reserved-synthesis outcomes
+   * (`delegated-synthesis-outcomes.ts`). Set on CHILD lifecycle states by the
+   * delegated projection so a `length` finish on the synthesis step maps to a
+   * truncated completion; absent on the root, where `length` always fails.
+   */
+  synthesisOutcomes?: DelegatedSynthesisOutcomes;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
   /**
    * Real per-call execution time from the guard wrapper, stamped onto terminal
@@ -163,6 +175,7 @@ export interface ToolLifecycleState {
    * fabricated number.
    */
   toolExecutionDurations?: ToolExecutionDurations;
+  toolExecutionThreadId?: string;
   warnedUnknownChunkTypes: Set<string>;
 }
 
@@ -300,6 +313,27 @@ export function makeLifecycleStepMetadata(
   return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
+/**
+ * `run.step.finished` metadata: the lifecycle step metadata plus the step's own
+ * `finishReason` (debug pack, 2026-09-15), so a `length`-cut step is visible
+ * without waiting for the terminal event. Deliberately NOT in
+ * `makeStepMetadata`: that also feeds `run.started`, `run.step.started`,
+ * `run.steered`, the steered `run.finished` and the stream-termination rows,
+ * where a step's reason would contradict the run's terminal (a steered finish
+ * reports `stop`). `'absent'` is the reader's no-value sentinel, never written.
+ */
+export function makeStepFinishedMetadata(
+  part: unknown,
+  lifecycleState: ToolLifecycleState
+): AssistantRunEventMetadata | undefined {
+  const metadata = makeLifecycleStepMetadata(part, lifecycleState);
+  const finishReason = readFinishReason(part);
+  if (finishReason === 'absent') {
+    return metadata;
+  }
+  return { ...metadata, finishReason };
+}
+
 export function recordFirstTextLatency(delta: string, lifecycleState: ToolLifecycleState): void {
   if (delta.length === 0 || lifecycleState.firstTextLatencyMs !== undefined) {
     return;
@@ -336,6 +370,25 @@ export function makeTerminalRunEvent(
       'completed',
       'Assistant run completed',
       terminalMetadata
+    );
+  }
+  const synthesis =
+    finishReason === 'length' && lifecycleState.toolExecutionThreadId
+      ? lifecycleState.synthesisOutcomes?.read(lifecycleState.toolExecutionThreadId)
+      : undefined;
+  if (synthesis?.truncated) {
+    // The reserved summary was cut by the provider's output limit: the child
+    // COMPLETED with partial findings (GLM pack 2026-09-15). A mid-run
+    // `length` has no recorded synthesis and stays the failure below.
+    return makeRunEventChunk(
+      'run.finished',
+      'completed',
+      'Subagent summary truncated at its synthesis budget',
+      {
+        ...terminalMetadata,
+        outcome: SUBAGENT_TRUNCATED_OUTCOME,
+        reservedOutputTokens: synthesis.reservedOutputTokens,
+      }
     );
   }
   const label =
@@ -377,7 +430,10 @@ function withToolExecutionDuration(
   lifecycleState: ToolLifecycleState,
   toolCallId: string
 ): StreamChunk {
-  const durationMs = lifecycleState.toolExecutionDurations?.read(toolCallId);
+  const durationMs = lifecycleState.toolExecutionDurations?.read(
+    toolCallId,
+    lifecycleState.toolExecutionThreadId
+  );
   if (durationMs === undefined) {
     return chunk;
   }
@@ -443,7 +499,8 @@ function withRunEventDuration(chunk: StreamChunk, rawDurationMs: number): Stream
 function makeToolStartedRunEventChunk(
   toolCallId: string | undefined,
   metadata: AssistantRunEventMetadata,
-  lifecycleState: ToolLifecycleState
+  lifecycleState: ToolLifecycleState,
+  toolEvent: StreamChunkTool
 ): StreamChunk | undefined {
   if (!toolCallId) {
     return;
@@ -452,6 +509,8 @@ function makeToolStartedRunEventChunk(
     return;
   }
   lifecycleState.startedToolCallIds.add(toolCallId);
+  lifecycleState.activeToolEvents ??= new Map();
+  lifecycleState.activeToolEvents.set(toolCallId, toolEvent);
   return makeRunEventChunk('tool.started', 'running', 'Tool started', metadata);
 }
 
@@ -465,7 +524,7 @@ export function makeToolLifecycleRunEventChunk(
 
   switch (toolEvent.status) {
     case 'start':
-      return makeToolStartedRunEventChunk(toolCallId, metadata, lifecycleState);
+      return makeToolStartedRunEventChunk(toolCallId, metadata, lifecycleState, toolEvent);
     case 'success': {
       if (!toolCallId) {
         // Mastra terminal tool parts must carry the same stable call id as their
@@ -486,6 +545,7 @@ export function makeToolLifecycleRunEventChunk(
         return;
       }
       lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
+      lifecycleState.activeToolEvents?.delete(toolCallId);
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
       return withToolExecutionDuration(
         makeRunEventChunk('tool.completed', 'completed', 'Tool completed', metadata),
@@ -501,6 +561,7 @@ export function makeToolLifecycleRunEventChunk(
         return;
       }
       lifecycleState.terminalToolCallStates.set(toolCallId, 'failed');
+      lifecycleState.activeToolEvents?.delete(toolCallId);
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
       return withToolExecutionDuration(
         makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata),
@@ -516,6 +577,7 @@ export function makeToolLifecycleRunEventChunk(
         return;
       }
       lifecycleState.terminalToolCallStates.set(toolCallId, 'failed');
+      lifecycleState.activeToolEvents?.delete(toolCallId);
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
       // A declined `requireApproval` call (@mastra/core 1.59 `tool-output-denied`)
       // keeps the `tool.failed` KIND deliberately, and only relabels. The kind is
@@ -549,6 +611,7 @@ export function makePendingToolOutputRunEventChunks(
       continue;
     }
     lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
+    lifecycleState.activeToolEvents?.delete(toolCallId);
     // Sequence remains the ordering source of truth; this timestamp preserves
     // when the output-only terminal observation happened for duration metrics.
     chunks.push(
@@ -678,40 +741,123 @@ export function mapGenericToolEvent(
 /**
  * Per-leg bridge from `onDelegationComplete` (a Mastra callback OUTSIDE the
  * chunk loop) to the stream: completed child usage queues here and the
- * generator drains it into `child-run-usage` chunks on the next loop
- * iteration (the delegation tool-result part always follows the completion
- * callback) with a post-loop drain as the backstop. Model attribution is the
+ * generator drains bound reports at their matching parent terminal, after
+ * native child publication. A completion may race ahead of a slow consumer;
+ * an unrelated earlier part must not publish unbound usage. Unbound reports
+ * retain next-part delivery, with a post-loop drain for both paths. Model attribution is the
  * persona's model pin when present, else the parent run's model — the same
  * resolution the child actually executed with (never a guess).
  */
 export interface DelegationUsageCapture {
-  drain: () => StreamChunk[];
+  drain: (part?: unknown) => StreamChunk[];
   onChildUsage: (report: SubagentChildUsageReport) => void;
+  onPublishedChildUsage: (report: SubagentChildUsageReport) => void;
 }
 
 export function createDelegationUsageCapture(
   personasById: ReadonlyMap<string, AssistantPersonaDefinition>,
   runtimeData: RuntimeData | undefined
 ): DelegationUsageCapture {
-  const pending: StreamChunk[] = [];
+  const pending: Extract<StreamChunk, { type: 'child-run-usage' }>[] = [];
+  const published = new Set<string>();
+  const reported = new Map<string, { inputTokens: number; outputTokens: number }>();
+  const usageKey = (identity: SubagentChildUsageReport['delegation']) =>
+    JSON.stringify(
+      identity && [
+        identity.parentRuntimeRunId,
+        identity.parentToolCallId,
+        identity.resourceId,
+        identity.threadId,
+      ]
+    );
+  const enqueue = (incoming: SubagentChildUsageReport) => {
+    let report = incoming;
+    if (report.delegation) {
+      const key = JSON.stringify([usageKey(report.delegation), report.personaId]);
+      const previous = reported.get(key);
+      if (
+        previous &&
+        report.inputTokens <= previous.inputTokens &&
+        report.outputTokens <= previous.outputTokens
+      ) {
+        return;
+      }
+      report = {
+        ...report,
+        inputTokens: Math.max(previous?.inputTokens ?? 0, report.inputTokens),
+        outputTokens: Math.max(previous?.outputTokens ?? 0, report.outputTokens),
+      };
+      reported.set(key, report);
+    }
+    const pin = personasById.get(report.personaId)?.model;
+    const model = pin?.modelId ?? runtimeData?.model;
+    const provider = pin?.provider ?? runtimeData?.provider;
+    const existing = pending.find(
+      (chunk) =>
+        report.delegation && usageKey(chunk.value.delegation) === usageKey(report.delegation)
+    );
+    if (existing) {
+      existing.value = {
+        ...existing.value,
+        inputTokens: Math.max(existing.value.inputTokens, report.inputTokens),
+        outputTokens: Math.max(existing.value.outputTokens, report.outputTokens),
+      };
+      return;
+    }
+    pending.push({
+      type: 'child-run-usage',
+      value: {
+        ...(report.delegation ? { delegation: report.delegation } : {}),
+        estimated: false,
+        inputTokens: report.inputTokens,
+        ...(model ? { model } : {}),
+        outputTokens: report.outputTokens,
+        personaId: report.personaId,
+        ...(provider ? { provider } : {}),
+        source: 'subagent',
+      },
+    });
+  };
   return {
-    drain: () => pending.splice(0, pending.length),
-    onChildUsage: (report) => {
-      const pin = personasById.get(report.personaId)?.model;
-      const model = pin?.modelId ?? runtimeData?.model;
-      const provider = pin?.provider ?? runtimeData?.provider;
-      pending.push({
-        type: 'child-run-usage',
-        value: {
-          estimated: false,
-          inputTokens: report.inputTokens,
-          ...(model ? { model } : {}),
-          outputTokens: report.outputTokens,
-          personaId: report.personaId,
-          ...(provider ? { provider } : {}),
-          source: 'subagent',
-        },
-      });
+    drain: (part) => {
+      if (pending.length === 0) {
+        return [];
+      }
+      if (part === undefined) {
+        return pending.splice(0);
+      }
+      const event = asMastraStreamPart(part);
+      const ready: StreamChunk[] = [];
+      for (let index = 0; index < pending.length; ) {
+        const chunk = pending[index];
+        if (!chunk) {
+          break;
+        }
+        const identity = chunk.value.delegation;
+        const terminal =
+          event.type === 'finish' ||
+          ((event.type === 'tool-result' || event.type === 'tool-error') &&
+            readMastraStreamPartString(event.payload, 'toolCallId') === identity?.parentToolCallId);
+        if (
+          !identity ||
+          published.has(usageKey(identity)) ||
+          (terminal && event.runId === identity.parentRuntimeRunId)
+        ) {
+          ready.push(chunk);
+          pending.splice(index, 1);
+        } else {
+          index += 1;
+        }
+      }
+      return ready;
+    },
+    onChildUsage: enqueue,
+    onPublishedChildUsage(report) {
+      if (!report.delegation) {
+        throw new Error('Published usage has no bound delegation.');
+      }
+      published.add(usageKey(report.delegation));
+      enqueue(report);
     },
   };
 }
@@ -723,11 +869,39 @@ export type DelegationLifecyclePartType =
   | 'tool-output-denied'
   | 'tool-result';
 
+/** What the delegation hook recorded about a tool-result that LOOKS successful. */
+type RecordedDelegationOutcome =
+  | typeof SUBAGENT_NO_ANSWER_OUTCOME
+  | typeof SUBAGENT_REJECTED_OUTCOME
+  | typeof SUBAGENT_TRUNCATED_OUTCOME
+  | undefined;
+
+function resolveRecordedDelegationOutcome(
+  partType: DelegationLifecyclePartType,
+  parentToolCallId: string | undefined,
+  parentRuntimeRunId: string | undefined,
+  outcomes: DelegationOutcomeCapture | undefined
+): RecordedDelegationOutcome {
+  if (partType !== 'tool-result' || !(parentToolCallId && outcomes)) {
+    return;
+  }
+  if (outcomes.rejected(parentToolCallId, parentRuntimeRunId)) {
+    return SUBAGENT_REJECTED_OUTCOME;
+  }
+  if (outcomes.returnedNoAnswer(parentToolCallId, parentRuntimeRunId)) {
+    return SUBAGENT_NO_ANSWER_OUTCOME;
+  }
+  if (outcomes.truncated(parentToolCallId, parentRuntimeRunId)) {
+    return SUBAGENT_TRUNCATED_OUTCOME;
+  }
+  return;
+}
+
 /** The subagent.* run event that mirrors a delegation tool-call/result/error/decline. */
 function makeSubagentLifecycleChunk(
   partType: DelegationLifecyclePartType,
   metadata: AssistantRunEventMetadata,
-  returnedNoAnswer: boolean
+  outcome: RecordedDelegationOutcome
 ): StreamChunk {
   if (partType === 'tool-call') {
     return makeRunEventChunk('subagent.started', 'running', 'Subagent started', metadata);
@@ -749,7 +923,17 @@ function makeSubagentLifecycleChunk(
       metadata
     );
   }
-  if (returnedNoAnswer) {
+  if (outcome === SUBAGENT_REJECTED_OUTCOME) {
+    // BST-1751. The delegation was refused at start — by a backstop or by the
+    // host's durable tree budget — so no child ran. Mastra still returns a
+    // successful tool call carrying `[Delegation Rejected] …`, which would
+    // read as a completion without this discriminator.
+    return makeRunEventChunk('subagent.failed', 'failed', 'Subagent delegation rejected', {
+      ...metadata,
+      outcome: SUBAGENT_REJECTED_OUTCOME,
+    });
+  }
+  if (outcome === SUBAGENT_NO_ANSWER_OUTCOME) {
     // BST-1410. The tool call returned, but the delegation did not do its job:
     // the child wrote no summary, so the parent got tool results nobody
     // analysed. Reporting that as `completed` is the silent success that made
@@ -765,6 +949,17 @@ function makeSubagentLifecycleChunk(
       ...metadata,
       outcome: SUBAGENT_NO_ANSWER_OUTCOME,
     });
+  }
+  if (outcome === SUBAGENT_TRUNCATED_OUTCOME) {
+    // The child hit its durable budget and the model cut its reserved summary.
+    // A COMPLETION with partial findings, so `finished`; the discriminator lets
+    // the card say "truncated" without sniffing the label.
+    return makeRunEventChunk(
+      'subagent.finished',
+      'completed',
+      'Subagent completed with a truncated summary',
+      { ...metadata, outcome: SUBAGENT_TRUNCATED_OUTCOME }
+    );
   }
   return makeRunEventChunk('subagent.finished', 'completed', 'Subagent completed', metadata);
 }
@@ -783,11 +978,39 @@ export function mapToolLifecyclePart(
   delegationToolPersonas: ReadonlyMap<string, string>
 ): ProcessStreamPartResult {
   const delegation = resolveDelegationPersona(part, toolNames, delegationToolPersonas);
-  const generic = mapGenericToolEvent(part, toolNames, lifecycleState, partType, sanitizedNameMap);
+  const failedResult = Boolean(
+    partType === 'tool-result' &&
+      delegation?.parentToolCallId &&
+      lifecycleState.delegationOutcomes?.failed(
+        delegation.parentToolCallId,
+        readMastraStreamPartString(part, 'runId')
+      )
+  );
+  const parentToolCallId = delegation?.parentToolCallId;
+  const alreadySettled =
+    partType !== 'tool-call' &&
+    parentToolCallId !== undefined &&
+    lifecycleState.terminalToolCallStates.has(parentToolCallId);
+  const lifecycleType = failedResult ? 'tool-error' : partType;
+  const generic = mapGenericToolEvent(
+    failedResult ? { ...asMastraStreamPart(part), type: 'tool-error' } : part,
+    toolNames,
+    lifecycleState,
+    lifecycleType,
+    sanitizedNameMap
+  );
   if (!delegation) {
     return generic;
   }
+  // Mastra may publish a tool-result after a failed delegation's tool-error.
+  // The generic timeline already keeps the first terminal; mirror that rule
+  // for the paired subagent timeline rather than reporting a second outcome.
+  if (alreadySettled) {
+    return generic;
+  }
+  const parentRuntimeRunId = readMastraStreamPartString(part, 'runId');
   const metadata: AssistantRunEventMetadata = {
+    ...(parentRuntimeRunId ? { parentRuntimeRunId } : {}),
     personaId: delegation.personaId,
     toolName: delegation.toolName,
     ...(delegation.parentToolCallId ? { parentToolCallId: delegation.parentToolCallId } : {}),
@@ -799,13 +1022,14 @@ export function mapToolLifecyclePart(
       lifecycleState.delegationLifecycle.settled(delegation.parentToolCallId);
     }
   }
-  const returnedNoAnswer = Boolean(
-    partType === 'tool-result' &&
-      delegation.parentToolCallId &&
-      lifecycleState.delegationOutcomes?.returnedNoAnswer(delegation.parentToolCallId)
+  const outcome = resolveRecordedDelegationOutcome(
+    partType,
+    delegation.parentToolCallId,
+    parentRuntimeRunId,
+    lifecycleState.delegationOutcomes
   );
   return {
-    chunks: [...generic.chunks, makeSubagentLifecycleChunk(partType, metadata, returnedNoAnswer)],
+    chunks: [...generic.chunks, makeSubagentLifecycleChunk(lifecycleType, metadata, outcome)],
     finished: false,
   };
 }

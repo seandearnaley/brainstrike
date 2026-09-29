@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  getDesktopDatabaseIntegrity,
+  resetDesktopDatabaseIntegrityForTests,
+} from '../../database-integrity-state';
+import {
+  markDesktopShuttingDown,
+  resetDesktopShutdownStateForTests,
+} from '../../desktop-shutdown-state';
 import {
   type EnqueueEmbeddingBackfillOptions,
   enqueueEmbeddingBackfill,
@@ -109,6 +118,11 @@ function enqueueTestEmbeddingBackfill(
 
 describe('embedding-backfill', () => {
   beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    resetDesktopShutdownStateForTests();
     vi.useRealTimers();
   });
 
@@ -917,6 +931,66 @@ describe('embedding-backfill', () => {
       expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
       undefined
     );
+  });
+
+  it('stops deferred HNSW polling before the database host retires on shutdown', async () => {
+    vi.useFakeTimers();
+    let retired = false;
+    let postRetireQueries = 0;
+    let suspensionExists = false;
+    let pendingChecks = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (retired) {
+          postRetireQueries += 1;
+          throw new Error('DB host manager is retired.');
+        }
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }] };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
+          suspensionExists = true;
+          return { rows: [] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          pendingChecks += 1;
+          return { rows: [{ count: 2 }] };
+        }
+        if (sql.includes('DELETE FROM embedding_dimension_index_suspensions')) {
+          suspensionExists = false;
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+        throw new Error('Unexpected query.');
+      }),
+    };
+    const jobQueue = withQueueRepair({
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(),
+    });
+
+    await expect(
+      enqueueEmbeddingBackfill(withMaintenanceExec(db), jobQueue, 'set-123', () => undefined, {
+        assertCanContinue: () => {
+          throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+        },
+        backlogPollMs: 10,
+        drainTimeoutMs: 100,
+      })
+    ).rejects.toThrow(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+    expect(pendingChecks).toBeGreaterThanOrEqual(3);
+    expect(suspensionExists).toBe(true);
+
+    const checksBeforeShutdown = pendingChecks;
+    markDesktopShuttingDown();
+    retired = true;
+    await vi.advanceTimersByTimeAsync(11);
+
+    expect(pendingChecks).toBe(checksBeforeShutdown);
+    expect(postRetireQueries).toBe(0);
+    expect(suspensionExists).toBe(true);
   });
 
   it('leaves deferred canceled background indexing HNSW rebuild suspended after scoped jobs drain', async () => {
@@ -2892,4 +2966,199 @@ describe('embedding-backfill', () => {
     expect(enqueueBatchCount).toBe(Math.ceil(candidateCount / 32));
     expect(vacuumFileChunksCount).toBe(0);
   }, 60_000);
+});
+
+/**
+ * BST-1870: containment cancels in-flight backfills, and their HNSW recovery
+ * must treat "background database work is paused" exactly like shutdown — keep
+ * the durable suspension for the next eligible maintenance run, make no
+ * database call, and never log the recovery as an error.
+ */
+describe('embedding-backfill database integrity containment', () => {
+  const SIGNAL = { message: 'invalid page in block 3', sqlstate: 'XX001' } as const;
+  const RETAINED_MESSAGE = 'Dimension HNSW recovery retained for the next eligible maintenance run';
+  const DEFERRED_RETAINED_MESSAGE =
+    'Deferred dimension HNSW recovery retained for next eligible maintenance run';
+  const RESTORE_PENDING_COUNT = 3;
+  let captured: LogRecord[];
+  let removeListener: () => void;
+
+  beforeEach(() => {
+    resetDesktopDatabaseIntegrityForTests();
+    setLogLevel(LogLevel.INFO);
+    captured = [];
+    removeListener = addLogListener((record) => {
+      if (record.scope === 'DesktopEmbeddingBackfill') {
+        captured.push(record);
+      }
+    });
+  });
+
+  afterEach(() => {
+    removeListener();
+    resetDesktopDatabaseIntegrityForTests();
+    vi.useRealTimers();
+  });
+
+  function messages(level: LogLevel): (string | undefined)[] {
+    return captured.filter((record) => record.level === level).map((record) => record.message);
+  }
+
+  it('retains the HNSW restore, makes no database call and logs no error when containment canceled the backfill', async () => {
+    const integrity = getDesktopDatabaseIntegrity();
+    const queryOrder: string[] = [];
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          queryOrder.push('metadata');
+          return { rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }] };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
+          queryOrder.push('suspend-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('drop-index');
+          return { rows: [] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          queryOrder.push('pending');
+          return { rows: [{ count: 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          queryOrder.push('candidate-count');
+          return { rows: [{ count: 1 }] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = { enqueueBatch: vi.fn(), getQueueStats: vi.fn() };
+    let callsWhenContained = -1;
+
+    await expect(
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+        // What the containment subscriber does: the run is canceled the moment
+        // the integrity error is contained.
+        assertCanContinue: () => {
+          integrity.contain('db:query', SIGNAL);
+          callsWhenContained = db.query.mock.calls.length;
+          throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+        },
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+      })
+    ).rejects.toThrow(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+
+    expect(callsWhenContained).toBeGreaterThan(0);
+    expect(db.query).toHaveBeenCalledTimes(callsWhenContained);
+    expect(queryOrder).toEqual([
+      'metadata',
+      'suspend-index',
+      'drop-index',
+      'pending',
+      'candidate-count',
+    ]);
+    expect(messages(LogLevel.INFO)).toContain(RETAINED_MESSAGE);
+    expect(messages(LogLevel.ERROR)).toEqual([]);
+    expect(captured.map((record) => record.message).join('\n')).not.toContain('recovery threw');
+  });
+
+  it('stops deferred HNSW polling when containment starts and leaves the suspension in place', async () => {
+    vi.useFakeTimers();
+    const integrity = getDesktopDatabaseIntegrity();
+    let contained = false;
+    let postContainmentQueries = 0;
+    let suspensionExists = false;
+    let pendingChecks = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (contained) {
+          postContainmentQueries += 1;
+          throw new Error('background database work must not run while contained');
+        }
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }] };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
+          suspensionExists = true;
+          return { rows: [] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          pendingChecks += 1;
+          return { rows: [{ count: 2 }] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = withQueueRepair({ enqueueBatch: vi.fn(), getQueueStats: vi.fn() });
+
+    await expect(
+      enqueueTestEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        assertCanContinue: () => {
+          throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+        },
+        backlogPollMs: 10,
+        drainTimeoutMs: 100,
+      })
+    ).rejects.toThrow(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+    expect(pendingChecks).toBeGreaterThanOrEqual(3);
+    expect(suspensionExists).toBe(true);
+
+    const checksBeforeContainment = pendingChecks;
+    integrity.contain('db:query', SIGNAL);
+    contained = true;
+    await vi.advanceTimersByTimeAsync(11);
+
+    expect(pendingChecks).toBe(checksBeforeContainment);
+    expect(postContainmentQueries).toBe(0);
+    expect(suspensionExists).toBe(true);
+    expect(messages(LogLevel.INFO)).toContain(DEFERRED_RETAINED_MESSAGE);
+    expect(messages(LogLevel.ERROR)).toEqual([]);
+  });
+
+  it('does not schedule a deferred rebuild when containment lands while the restore counts pending jobs', async () => {
+    const integrity = getDesktopDatabaseIntegrity();
+    let pendingChecks = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          pendingChecks += 1;
+          // Counts 1 and 2 belong to the run itself (existing-pending check and
+          // the first drain poll, which then sees the cancellation). Count 3 is
+          // the HNSW restore, the last database call before it would schedule
+          // deferred polling: containment lands right there.
+          if (pendingChecks === RESTORE_PENDING_COUNT) {
+            integrity.contain('db:query', SIGNAL);
+          }
+          return { rows: [{ count: 2 }] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = withQueueRepair({ enqueueBatch: vi.fn(), getQueueStats: vi.fn() });
+
+    await expect(
+      enqueueTestEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        assertCanContinue: () => {
+          throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+        },
+        backlogPollMs: 1,
+        drainTimeoutMs: 100,
+      })
+    ).rejects.toThrow(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+    await Promise.resolve();
+
+    expect(pendingChecks).toBe(RESTORE_PENDING_COUNT);
+    expect(messages(LogLevel.INFO)).toContain(DEFERRED_RETAINED_MESSAGE);
+    expect(messages(LogLevel.ERROR)).toEqual([]);
+  });
 });

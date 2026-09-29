@@ -133,6 +133,32 @@ describe('selectTerminalRunEvents', () => {
 });
 
 describe('selectToolApprovalRequests', () => {
+  it('deduplicates forwarded child notices without losing a later leaf pause on the same parent call', () => {
+    const path = [
+      {
+        childRuntimeRunId: 'child-run',
+        parentRuntimeRunId: 'root-run',
+        parentToolCallId: 'delegate-1',
+        personaId: 'worker',
+      },
+    ];
+    const first = {
+      delegation: { path, toolCallId: 'edit-1' },
+      runId: 'root-run',
+      toolCallId: 'delegate-1',
+      toolName: 'editFile',
+    };
+    const forwarded = { ...first, runId: 'child-run', toolCallId: 'edit-1' };
+    const next = { ...first, delegation: { path, toolCallId: 'edit-2' } };
+    const select = createToolApprovalRequestsSelector();
+    const messages = [approvalMessage(first), approvalMessage(forwarded)];
+    expect(selectToolApprovalRequests(messages)).toEqual([first]);
+    expect(JSON.parse(select(messages))).toEqual([first]);
+    messages.push(approvalMessage(next));
+    expect(selectToolApprovalRequests(messages)).toEqual([first, next]);
+    expect(JSON.parse(select(messages))).toEqual([first, next]);
+  });
+
   it('returns every well-formed tool-approval-required request', () => {
     const messages = [
       approvalMessage({ runId: 'run-1', toolCallId: 'call-1', toolName: 'brainstrike.editFile' }),

@@ -24,6 +24,7 @@ export const migration076AssistantRunErrors: Migration = {
     --> statement-breakpoint
     DROP TABLE IF EXISTS brainstrike_assistant_run_errors;
   `,
+  ledgerKey: 'custom-076-assistant-run-errors',
   name: 'assistant_run_errors',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_errors (

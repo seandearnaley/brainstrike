@@ -32,12 +32,13 @@
  */
 import type { StreamChunk } from '@brainstrike/agent';
 import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 // Real repository (the production schema bootstrap + the sole runId-minting
 // site). Imported via the assistant-data package
 // subpath, same convention as hook-run-outcome.integration.test.ts; placement
 // is interim per R04 (BST-984).
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
-import { wasmLoader } from '@brainstrike/db';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import { observeDesktopAssistantRunEvents } from '../../assistant-server/run-persistence';
@@ -79,13 +80,13 @@ async function* singleRunEventStream(): AsyncGenerator<StreamChunk> {
 }
 
 describe('main-process run-event schema provenance', () => {
-  it('createThreadRun creates the run-event relations before it can return an id', async () => {
+  it('createThreadRun cannot return an id unless the run-event relations exist', async () => {
     const db = await wasmLoader.createPGlite(`memory://run-event-provenance-mint-${Date.now()}`);
     try {
       // Seed ONLY the Mastra parent tables, so the FK target exists while the
-      // assistant bootstrap has not run. `createThreadRun` must therefore be
-      // isolated here: routing through `repository.createThread` first would
-      // bootstrap the schema itself and make this assertion unfalsifiable.
+      // assistant relations do not. Since BST-1651 the repository PROBES for
+      // its schema instead of creating it, so this is the un-migrated case and
+      // it must fail by name rather than quietly bootstrapping.
       await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
       await db.query(
         `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
@@ -104,17 +105,27 @@ describe('main-process run-event schema provenance', () => {
       expect(await tableExists(db, 'brainstrike_assistant_run_events')).toBe(false);
 
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
-      const run = await repository.createThreadRun({
-        id: 'run-1',
+      const runInput = {
+        id: 'run-1' as HostRunId,
         model: 'gpt-5.2',
         provider: 'openai',
         resourceId: 'workspace-a',
-        runtimeKind: 'hosted',
+        runtimeKind: 'hosted' as const,
         threadId: 'thread-1',
-      });
+      };
+      await expect(repository.createThreadRun(runInput)).rejects.toThrow(
+        /brainstrike_assistant_thread_runs/
+      );
+      // And it created nothing on the way out.
+      expect(await tableExists(db, 'brainstrike_assistant_thread_runs')).toBe(false);
+
+      await migrate(db);
+      const run = await repository.createThreadRun(runInput);
 
       // Holding a runId therefore IMPLIES both relations exist — which is the
-      // whole safety argument for the un-guarded main-process inserts.
+      // whole safety argument for the un-guarded main-process inserts. The
+      // implication used to hold because `createThreadRun` created them; it now
+      // holds because `createThreadRun` refuses to proceed without them.
       expect(run.id).toBe('run-1');
       expect(await tableExists(db, 'brainstrike_assistant_thread_runs')).toBe(true);
       expect(await tableExists(db, 'brainstrike_assistant_run_events')).toBe(true);
@@ -161,7 +172,7 @@ describe('duration_ms column contract', () => {
   it('persists an integer durationMs and the column rejects a fractional one', async () => {
     const db = await wasmLoader.createPGlite(`memory://run-event-duration-${Date.now()}`);
     try {
-      await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
+      await migrate(db);
       await db.query(
         `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
           (id, "resourceId", title, metadata, "createdAt", "updatedAt")
@@ -177,7 +188,7 @@ describe('duration_ms column contract', () => {
       );
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThreadRun({
-        id: 'run-dur',
+        id: 'run-dur' as HostRunId,
         model: 'gpt-5.2',
         provider: 'openai',
         resourceId: 'workspace-a',

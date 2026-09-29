@@ -52,11 +52,16 @@
  *
  * FAILURE POSTURE: never blocks startup (caller runs it fire-and-forget),
  * never throws for a single thread/root — each failure is collected into the
- * report's `failures` and the caller logs them VISIBLY. A missing
- * `mastra_threads` table while snapshot rows exist is a broken invariant:
- * the sweep refuses to classify (it would otherwise treat EVERY thread as
- * dead and mass-delete), reports `threadsTableMissing`, and does nothing —
- * refusing loudly beats guessing on a destructive seam.
+ * report's `failures` and the caller logs them VISIBLY.
+ *
+ * The "mass-delete" guard is intact but no longer needs a probe (BST-1651).
+ * It used to `to_regclass` `mastra_threads` first, because that table was
+ * created lazily at runtime; migration 117 creates it, and `getDatabase()`
+ * resolves only after `migrate()`. The safety property is preserved by
+ * ORDER, not by the probe: `listLiveThreadIds` — the only reader of
+ * `mastra_threads` — runs BEFORE anything is deleted and is skipped entirely
+ * when the ledger is empty, so an unmigrated database raises 42P01 out of
+ * this sweep with nothing touched, exactly what the old refusal achieved.
  */
 import { access } from 'node:fs/promises';
 import {
@@ -121,9 +126,6 @@ export interface SnapshotStartupGcReport {
     readonly path: string;
     readonly rootId: string;
   }[];
-  /** True = `mastra_threads` is absent while snapshot rows exist; nothing was
-   * touched (see the module doc comment). */
-  readonly threadsTableMissing: boolean;
 }
 
 interface GcAccumulator {
@@ -138,13 +140,6 @@ interface GcAccumulator {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-async function threadsTableExists(db: EditCheckpointDatabase): Promise<boolean> {
-  const probe = await db.query<{ present: boolean }>(
-    `SELECT to_regclass('${THREADS_TABLE}') IS NOT NULL AS present`
-  );
-  return probe.rows[0]?.present === true;
 }
 
 async function listSnapshotThreadIdsInLedger(db: EditCheckpointDatabase): Promise<string[]> {
@@ -441,33 +436,17 @@ export async function runSnapshotStartupGc(
   const historyPrunedRoots: string[] = [];
 
   const ledgerThreadIds = await listSnapshotThreadIdsInLedger(deps.db);
-  const threadsPresent = await threadsTableExists(deps.db);
-  if (!threadsPresent) {
-    if (ledgerThreadIds.length === 0) {
-      // Fresh profile: nothing to classify, nothing to do.
-      return {
-        deadThreadsPruned: [],
-        failures: [],
-        historyPrunedRoots: [],
-        refOnlyPruned: [],
-        ringTrimmed: [],
-        skippedInaccessibleRoots: [],
-        threadsTableMissing: false,
-      };
-    }
-    return {
-      deadThreadsPruned: [],
-      failures: [
-        `"${THREADS_TABLE}" does not exist but ${ledgerThreadIds.length} thread(s) have snapshot rows — refusing to classify them as dead (nothing was deleted).`,
-      ],
-      historyPrunedRoots: [],
-      refOnlyPruned: [],
-      ringTrimmed: [],
-      skippedInaccessibleRoots: [],
-      threadsTableMissing: true,
-    };
-  }
-
+  // ORDERING INVARIANT — DO NOT ADD A `mastra_threads` READ BELOW THIS POINT.
+  // Everything after `liveThreadIds` classifies and DELETES, and this is the
+  // only read of that relation. Its position is what makes an unmigrated
+  // database abort with nothing touched (BST-1651 retired the explicit
+  // `to_regclass` refusal in favour of this order) — but ONLY together with
+  // the short-circuit below: an empty ledger skips the read entirely, and on a
+  // genuinely unmigrated database `listSnapshotThreadIdsInLedger` has already
+  // raised on `brainstrike_workspace_snapshots` one line up. Order alone is
+  // not the whole argument; an empty ledger also has nothing to delete.
+  // `snapshot-startup-gc.test.ts` pins the read-before-any-delete ordering
+  // directly, so a second reader added after the delete phase fails there.
   const liveThreadIds =
     ledgerThreadIds.length === 0
       ? new Set<string>()
@@ -518,6 +497,5 @@ export async function runSnapshotStartupGc(
     refOnlyPruned: accumulator.refOnlyPruned,
     ringTrimmed: accumulator.ringTrimmed,
     skippedInaccessibleRoots: accumulator.skippedInaccessibleRoots,
-    threadsTableMissing: false,
   };
 }

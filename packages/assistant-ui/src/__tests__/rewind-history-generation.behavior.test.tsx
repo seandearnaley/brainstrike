@@ -1,3 +1,5 @@
+import type { PropsWithChildren } from 'react';
+import { RewindProvider } from '../rewind-context';
 /**
  * `historyGeneration` — the re-hydration seam Conversation Rewind needs
  * (BST-1115).
@@ -47,8 +49,8 @@ vi.mock('../assistant-message-text', () => ({
 }));
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('../local-runtime-adapter', () => ({
+  acquireLocalBackend: vi.fn(() => () => {}),
   createLocalModelAdapter: vi.fn(() => ({ run: vi.fn() })),
-  disposeLocalBackend: vi.fn().mockResolvedValue(undefined),
   hasDesktopLlmHost: vi.fn(() => false),
 }));
 
@@ -124,7 +126,7 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
         pickerProviders={[]}
         threadKey={THREAD_KEY}
       />,
-      { wrapper: TooltipProvider }
+      { wrapper: RewindOwner }
     );
 
     await waitForMessageCount(FULL.length);
@@ -183,7 +185,7 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
         pickerProviders={[]}
         threadKey={THREAD_KEY}
       />,
-      { wrapper: TooltipProvider }
+      { wrapper: RewindOwner }
     );
     await waitForMessageCount(FULL.length);
 
@@ -223,7 +225,7 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
         pickerProviders={[]}
         threadKey={THREAD_KEY}
       />,
-      { wrapper: TooltipProvider }
+      { wrapper: RewindOwner }
     );
     await waitForMessageCount(FULL.length);
 
@@ -247,3 +249,11 @@ describe('AssistantUiPanel — historyGeneration re-hydration', () => {
     expect(useRewindComposerStore.getState().pendingText).toBeNull();
   });
 });
+
+function RewindOwner({ children }: PropsWithChildren) {
+  return (
+    <TooltipProvider>
+      <RewindProvider value={{ requestRewind: () => undefined }}>{children}</RewindProvider>
+    </TooltipProvider>
+  );
+}

@@ -8,7 +8,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { NATIVE_TOOL_ID } from '../native-tool-catalog.js';
-import { type AssistantPersonaDefinition, BUILT_IN_PERSONAS } from '../personas.js';
+import {
+  type AssistantPersonaDefinition,
+  BUILT_IN_PERSONAS,
+  effectiveChildStepBudget,
+} from '../personas.js';
+import { SUBAGENT_SETTINGS_LIMITS } from '../subagent-settings.js';
 import {
   buildUserPersona,
   DEFAULT_USER_PERSONA_MAX_STEPS,
@@ -176,6 +181,7 @@ describe('buildUserPersona', () => {
     expect(persona.instructions).toBe(VALID_BODY);
     expect(persona.maxSteps).toBe(DEFAULT_USER_PERSONA_MAX_STEPS);
     expect(persona.allowedToolIds).toEqual(DEFAULT_USER_PERSONA_TOOL_IDS);
+    expect(persona.allowedToolIds).toContain(NATIVE_TOOL_ID.readToolOutputArtifact);
     expect(persona.model).toBeUndefined();
     expect(persona.source).toBe('user');
   });
@@ -225,21 +231,38 @@ describe('buildUserPersona', () => {
     }
   });
 
-  it('rejects suspending/interactive tools even though their risk is read', () => {
-    // askUser/submitPlan suspend the run (child maps bypass the parent's
-    // suspend-storage fail-safe) and manageTaskList is parent-scoped; a user
-    // persona must not be able to allowlist them.
-    for (const tool of ['askUser', 'submitPlan', 'manageTaskList', 'brainstrike.askUser']) {
+  it.each(['askUser', 'submitPlan', 'brainstrike.askUser', 'brainstrike.submitPlan'])(
+    'accepts explicitly declared child interaction tool %s',
+    (tool) => {
+      const result = buildUserPersona({
+        content: validFile(`description: d\ntools: readWorkspaceFile, ${tool}`),
+        fileName: 'p.md',
+      });
+      expect(result).toMatchObject({
+        ok: true,
+        persona: {
+          allowedToolIds: [
+            'brainstrike.readWorkspaceFile',
+            tool.startsWith('brainstrike.') ? tool : `brainstrike.${tool}`,
+          ],
+        },
+      });
+    }
+  );
+
+  it.each(['manageTaskList', 'brainstrike.manageTaskList'])(
+    'still rejects parent-scoped %s',
+    (tool) => {
       const result = buildUserPersona({
         content: validFile(`description: d\ntools: readWorkspaceFile, ${tool}`),
         fileName: 'p.md',
       });
       expect(result).toMatchObject({ ok: false });
       if (!result.ok) {
-        expect(result.error).toMatch(/not available to subagent personas/i);
+        expect(result.error).toMatch(/task-list state belongs to the parent/i);
       }
     }
-  });
+  );
 
   it('rejects a persona naming an unknown tool (unknown is not read)', () => {
     const result = buildUserPersona({
@@ -331,5 +354,77 @@ describe('buildUserPersona', () => {
   it('exposes sane scan caps', () => {
     expect(MAX_USER_PERSONAS).toBeGreaterThan(0);
     expect(MAX_USER_PERSONA_MAX_STEPS).toBeGreaterThanOrEqual(DEFAULT_USER_PERSONA_MAX_STEPS);
+  });
+
+  it("lets the user's step setting govern a persona that declares no maxSteps", () => {
+    // Omitting maxSteps used to mean 8 steps regardless of the setting. It now
+    // declares the host ceiling, so effective = the setting; an author opts
+    // into a LOWER cap only by declaring one.
+    expect(MAX_USER_PERSONA_MAX_STEPS).toBe(SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max);
+    expect(DEFAULT_USER_PERSONA_MAX_STEPS).toBe(MAX_USER_PERSONA_MAX_STEPS);
+    const omitted = buildUserPersona({ content: validFile('description: d'), fileName: 'p.md' });
+    const declared = buildUserPersona({
+      content: validFile('description: d\nmaxSteps: 12'),
+      fileName: 'q.md',
+    });
+    if (!(omitted.ok && declared.ok)) {
+      throw new Error('expected both personas to parse');
+    }
+    expect(effectiveChildStepBudget(omitted.persona, { maxChildSteps: 250 })).toBe(250);
+    expect(effectiveChildStepBudget(declared.persona, { maxChildSteps: 250 })).toBe(12);
+  });
+});
+
+describe('explicit worker personas', () => {
+  it('inherits eligible tools only after explicit worker opt-in', () => {
+    const result = buildUserPersona({
+      content: validFile('description: Implements deliverables\nmode: worker'),
+      fileName: 'implementer.md',
+    });
+    expect(result).toMatchObject({ ok: true, persona: { allowedToolIds: ['*'], mode: 'worker' } });
+  });
+  it('narrows a worker to declared native and exact MCP tool names', () => {
+    const result = buildUserPersona({
+      content: validFile(
+        'description: Implements deliverables\nmode: worker\ntools: writeWorkspaceFile, github_create_issue'
+      ),
+      fileName: 'implementer.md',
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      persona: {
+        allowedToolIds: ['brainstrike.writeWorkspaceFile', 'github_create_issue'],
+        mode: 'worker',
+      },
+    });
+  });
+  it.each(['administrator', 'WORKER', ''])(
+    'rejects invalid mode %s without widening legacy defaults',
+    (mode) => {
+      expect(
+        buildUserPersona({
+          content: validFile(`description: d\nmode: ${mode}`),
+          fileName: 'implementer.md',
+        })
+      ).toMatchObject({ ok: false });
+    }
+  );
+  it('does not allow a legacy persona to inherit mutable tools', () => {
+    expect(
+      buildUserPersona({
+        content: validFile('description: d\ntools: *'),
+        fileName: 'implementer.md',
+      })
+    ).toMatchObject({ ok: false });
+  });
+  it('rejects mixed wildcard narrowing and parent task-list tools', () => {
+    for (const tools of ['*, readWorkspaceFile', 'manageTaskList']) {
+      expect(
+        buildUserPersona({
+          content: validFile(`description: d\nmode: worker\ntools: ${tools}`),
+          fileName: 'implementer.md',
+        })
+      ).toMatchObject({ ok: false });
+    }
   });
 });

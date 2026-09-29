@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildTokenUsageCounts, computeCost, formatUsdCost } from '../cost-estimate.js';
+import {
+  buildTokenUsageCounts,
+  computeCost,
+  formatUsdCost,
+  type ModelTokenPricing,
+} from '../cost-estimate.js';
 
 describe('buildTokenUsageCounts', () => {
   it('omits empty cache classes and preserves positive cache usage', () => {
@@ -148,6 +153,103 @@ describe('computeCost', () => {
   it('throws on malformed (negative) pricing rather than coercing', () => {
     expect(() =>
       computeCost({ inputTokens: 1, outputTokens: 1 }, { inputPerMTok: -1, outputPerMTok: 15 })
+    ).toThrow();
+  });
+});
+
+describe('computeCost with long-context tiers (BST-1708)', () => {
+  // Gateway long-context surcharges (OpenRouter `min_prompt_tokens`
+  // overrides) are request-size conditional: at or above the threshold the
+  // tier rates apply, below it the base rates do.
+  const tieredPricing: ModelTokenPricing = {
+    inputPerMTok: 2,
+    longContextTiers: [{ inputPerMTok: 4, minPromptTokens: 272_000, outputPerMTok: 15 }],
+    outputPerMTok: 10,
+  };
+
+  it('uses base rates below the tier threshold', () => {
+    expect(computeCost({ inputTokens: 250_000, outputTokens: 100_000 }, tieredPricing)).toEqual({
+      available: true,
+      provenance: 'exact-pricing',
+      // 0.25M*2 + 0.1M*10 = 0.5 + 1.0
+      usdAmount: 1.5,
+    });
+  });
+
+  it('uses tier rates at and above the threshold', () => {
+    expect(computeCost({ inputTokens: 272_000, outputTokens: 0 }, tieredPricing)).toEqual({
+      available: true,
+      provenance: 'exact-pricing',
+      usdAmount: (272_000 * 4) / 1_000_000,
+    });
+    expect(computeCost({ inputTokens: 500_000, outputTokens: 100_000 }, tieredPricing)).toEqual({
+      available: true,
+      provenance: 'exact-pricing',
+      // 0.5M*4 + 0.1M*15 = 2.0 + 1.5
+      usdAmount: 3.5,
+    });
+  });
+
+  it('selects the highest applicable tier', () => {
+    const multi: ModelTokenPricing = {
+      inputPerMTok: 2,
+      longContextTiers: [
+        { inputPerMTok: 3, minPromptTokens: 100_000, outputPerMTok: 12 },
+        { inputPerMTok: 5, minPromptTokens: 500_000, outputPerMTok: 20 },
+      ],
+      outputPerMTok: 10,
+    };
+    expect(computeCost({ inputTokens: 50_000, outputTokens: 0 }, multi)).toEqual({
+      available: true,
+      provenance: 'exact-pricing',
+      usdAmount: 0.1,
+    });
+    expect(computeCost({ inputTokens: 200_000, outputTokens: 0 }, multi)).toEqual({
+      available: true,
+      provenance: 'exact-pricing',
+      usdAmount: 0.6,
+    });
+    expect(computeCost({ inputTokens: 600_000, outputTokens: 0 }, multi)).toEqual({
+      available: true,
+      provenance: 'exact-pricing',
+      usdAmount: 3,
+    });
+  });
+
+  it('falls back to base cache rates the tier does not declare', () => {
+    const result = computeCost(
+      { cacheReadInputTokens: 60_000, inputTokens: 300_000, outputTokens: 0 },
+      {
+        cacheReadPerMTok: 0.3,
+        inputPerMTok: 2,
+        longContextTiers: [{ inputPerMTok: 4, minPromptTokens: 272_000, outputPerMTok: 15 }],
+        outputPerMTok: 10,
+      }
+    );
+    // Uncached 240k @ tier 4 + read 60k @ base-cache 0.3.
+    expect(result).toEqual({ available: true, provenance: 'exact-pricing', usdAmount: 0.978 });
+  });
+
+  it('throws on malformed tier data rather than mispricing', () => {
+    expect(() =>
+      computeCost(
+        { inputTokens: 300_000, outputTokens: 0 },
+        {
+          inputPerMTok: 2,
+          longContextTiers: [{ inputPerMTok: 4, minPromptTokens: 0, outputPerMTok: 15 }],
+          outputPerMTok: 10,
+        }
+      )
+    ).toThrow(/minPromptTokens/u);
+    expect(() =>
+      computeCost(
+        { inputTokens: 300_000, outputTokens: 0 },
+        {
+          inputPerMTok: 2,
+          longContextTiers: [{ inputPerMTok: -4, minPromptTokens: 272_000, outputPerMTok: 15 }],
+          outputPerMTok: 10,
+        }
+      )
     ).toThrow();
   });
 });

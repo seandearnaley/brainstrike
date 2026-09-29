@@ -70,6 +70,14 @@ function makeFixture(options: FixtureOptions) {
   );
   const deletedByIds: string[][] = [];
   const deletedThreads: string[] = [];
+  /**
+   * Ordered log of the two things whose RELATIVE ORDER is the mass-delete
+   * guard (BST-1651). The sweep no longer probes for `mastra_threads`; it
+   * relies on the only read of that relation happening before anything is
+   * deleted. That is an ordering invariant with no type to enforce it, so it
+   * is asserted directly below rather than left to a comment.
+   */
+  const events: string[] = [];
   const prunedThreads: { rootId: string; threadId: string }[] = [];
   const prunedHistories: { boundaries: readonly string[]; rootId: string }[] = [];
 
@@ -77,20 +85,19 @@ function makeFixture(options: FixtureOptions) {
 
   const db: EditCheckpointDatabase = {
     query: async <T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }> => {
-      if (sql.includes('to_regclass')) {
-        return { rows: [{ present: options.threadsTablePresent !== false } as T] };
-      }
-      // BST-1163: `resolveRewindRunRange` probes the runs table for
-      // `turn_message_id` before choosing its query shape. This fixture has
-      // no linked rows, so answer "absent" and keep the GC's retention floor
-      // on the pre-link `completed_at` query the cases below fake.
-      if (sql.includes('information_schema.columns')) {
-        return { rows: [{ present: false } as T] };
-      }
       if (sql.includes('SELECT DISTINCT thread_id')) {
         return { rows: [...rowsByThread.keys()].map((threadId) => ({ threadId }) as T) };
       }
       if (sql.includes('FROM mastra_threads')) {
+        events.push('read:mastra_threads');
+        // An unmigrated database, faked at the only statement that reads the
+        // relation. Real PGlite raises 42P01 here; the sweep has no probe to
+        // soften it (BST-1651).
+        if (options.threadsTablePresent === false) {
+          throw Object.assign(new Error('relation "mastra_threads" does not exist'), {
+            code: '42P01',
+          });
+        }
         const candidates = (params?.[0] as readonly string[]) ?? [];
         const live = new Set(options.liveThreads ?? []);
         return { rows: candidates.filter((id) => live.has(id)).map((id) => ({ id }) as T) };
@@ -127,10 +134,12 @@ function makeFixture(options: FixtureOptions) {
 
   const repository = {
     deleteByIds: vi.fn(async (ids: readonly string[]) => {
+      events.push('delete:byIds');
       deletedByIds.push([...ids]);
       return ids.length;
     }),
     deleteForThread: vi.fn(async (threadId: string) => {
+      events.push('delete:forThread');
       deletedThreads.push(threadId);
       const rows = rowsByThread.get(threadId) ?? [];
       rowsByThread.delete(threadId);
@@ -186,6 +195,7 @@ function makeFixture(options: FixtureOptions) {
     deletedByIds,
     deletedThreads,
     deps,
+    events,
     finalizeBatch: () => {
       outstanding.current = null;
     },
@@ -221,23 +231,64 @@ function turnRows(threadId: string, turns: number): WorkspaceSnapshotRow[] {
 }
 
 describe('runSnapshotStartupGc', () => {
-  it('refuses to classify when mastra_threads is missing but rows exist — nothing deleted, visibly reported', async () => {
+  /**
+   * The mass-delete guard, after BST-1651 retired its `to_regclass` probe.
+   *
+   * Migration 117 owns `mastra_threads` and `getDatabase()` resolves only
+   * after `migrate()`, so this state is unreachable in the product — but the
+   * guard it protected is a DESTRUCTIVE seam (classifying every thread as
+   * dead), so pin that removing the probe did not weaken it. The safety now
+   * comes from ORDER: the only reader of `mastra_threads` runs before any
+   * delete, so the raise aborts the sweep with nothing touched.
+   */
+  it('deletes NOTHING when mastra_threads is missing but rows exist — it raises instead of classifying', async () => {
     const fixture = makeFixture({
       rowsByThread: { 'thread-1': turnRows('thread-1', 1) },
       threadsTablePresent: false,
     });
-    const report = await runSnapshotStartupGc(fixture.deps);
-    expect(report.threadsTableMissing).toBe(true);
-    expect(report.failures).toHaveLength(1);
+
+    // The code, never the prose: 42P01 is `undefined_table`.
+    await expect(runSnapshotStartupGc(fixture.deps)).rejects.toMatchObject({ code: '42P01' });
     expect(fixture.deletedThreads).toEqual([]);
     expect(fixture.deletedByIds).toEqual([]);
     expect(fixture.prunedThreads).toEqual([]);
   });
 
-  it('is a quiet no-op on a fresh profile (no rows, no threads table)', async () => {
+  /**
+   * The mass-delete guard is an ORDERING invariant, and this is what enforces
+   * it (BST-1651 review, #3022 finding 4).
+   *
+   * With the `to_regclass` refusal retired, "an unmigrated database deletes
+   * nothing" holds only because the single `mastra_threads` read happens
+   * before the classify/delete phase. Nothing in the type system says so — the
+   * delete phase legitimately still holds the `db` handle (`purgeDeadThread`,
+   * `survivingChainBoundaries`), so it cannot be made unexpressible without a
+   * much larger refactor. Asserting the order directly is what makes a second
+   * reader added below the delete phase fail here instead of silently
+   * reintroducing mass-delete-on-absence.
+   */
+  it('reads mastra_threads BEFORE any delete — the ordering the mass-delete guard now rests on', async () => {
+    const fixture = makeFixture({
+      liveThreads: [],
+      rowsByThread: { 'thread-dead': turnRows('thread-dead', 1) },
+    });
+
+    await runSnapshotStartupGc(fixture.deps);
+
+    const firstRead = fixture.events.indexOf('read:mastra_threads');
+    const firstDelete = fixture.events.findIndex((event) => event.startsWith('delete:'));
+    // Both must actually have happened, or the ordering claim is vacuous.
+    expect(firstRead).toBeGreaterThanOrEqual(0);
+    expect(firstDelete).toBeGreaterThanOrEqual(0);
+    expect(firstRead).toBeLessThan(firstDelete);
+  });
+
+  it('is a quiet no-op on a fresh profile — an empty ledger never reads mastra_threads at all', async () => {
+    // `threadsTablePresent: false` makes that read raise, so this passing IS
+    // the assertion that the empty-ledger short circuit skips it.
     const fixture = makeFixture({ threadsTablePresent: false });
     const report = await runSnapshotStartupGc(fixture.deps);
-    expect(report).toMatchObject({ failures: [], threadsTableMissing: false });
+    expect(report).toMatchObject({ deadThreadsPruned: [], failures: [] });
   });
 
   it('purges a dead thread: rows deleted, per-live-root ref pruned, repo history reclaimed', async () => {

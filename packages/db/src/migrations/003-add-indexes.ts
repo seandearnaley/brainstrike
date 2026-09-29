@@ -21,6 +21,7 @@ export const migration003AddIndexes: Migration = {
 		DROP INDEX IF EXISTS idx_file_records_size_updated;
 		DROP INDEX IF EXISTS idx_file_records_path_name;
 	`,
+  ledgerKey: 'custom-003-add-indexes',
   name: 'add_performance_indexes',
   up: `
 		-- Add composite indexes for common query patterns

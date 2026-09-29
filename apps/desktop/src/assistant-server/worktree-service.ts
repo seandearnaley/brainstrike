@@ -24,6 +24,7 @@ import type {
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeAdoptParams,
+  WorktreeArchivePreview,
   WorktreeArchiveResult,
   WorktreeCheckoutStatus,
   WorktreeCreateContext,
@@ -55,8 +56,13 @@ import {
   captureArchiveSnapshot,
   captureMissingArchiveSnapshot,
   inspectWorktreeSafety,
-  type WorktreeSafetyReport,
+  type WorktreeSafetyReport as SafetyReport,
 } from './worktree-archive';
+import {
+  ignoredEntriesArchiveBlocker,
+  inspectWorktreeArchivePreviewForPath,
+  worktreePathExists,
+} from './worktree-archive-preview';
 import { createWorktreeLedger, type WorktreeLedgerDatabase } from './worktree-ledger';
 import {
   assertWorktreeTargetOutsideRoots,
@@ -130,6 +136,7 @@ interface RepositoryContext {
 }
 
 interface WorktreeArchiveParams {
+  readonly confirmIgnoredEntries?: string;
   readonly force?: boolean;
   readonly runId?: string;
   readonly worktreeId: string;
@@ -455,9 +462,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return { ok: true, value: entries };
   }
 
-  async function inspectArchiveRow(
-    row: ManagedWorktreeRow
-  ): Promise<GitResult<WorktreeSafetyReport>> {
+  async function inspectArchiveRow(row: ManagedWorktreeRow): Promise<GitResult<SafetyReport>> {
     const inventory = await deps.resolveInventory();
     const descriptor = inventory.repositories
       .flatMap((repository) => repository.worktrees)
@@ -467,6 +472,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       invoke: invokeIn(row.path),
       lockedReason: descriptor?.lockedReason ?? null,
       threadIsRunning: await ledger.hasRunningThread(row.id),
+      worktree: { id: row.id, path: row.path },
     });
   }
 
@@ -487,7 +493,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return { ok: true, value: null };
   }
 
-  function resolveArchiveBlocker(safety: WorktreeSafetyReport, force: boolean): string | null {
+  function resolveArchiveBlocker(safety: SafetyReport, force: boolean): string | null {
     if (safety.threadIsRunning) {
       // The ONE blocker `force` never overrides.
       const runningBlocker = safety.blockers.find((blocker) => blocker.length > 0);
@@ -554,25 +560,27 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     if (!row || row.archivedAt !== null) {
       return { error: `Managed worktree "${params.worktreeId}" is not active.`, ok: false };
     }
-    try {
-      await fsPromises.stat(row.path);
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
-        throw error;
-      }
+    if (!(await worktreePathExists(row.path))) {
       return await archiveMissingWorktree(row, params.runId);
-    }
-    const safety = await inspectArchiveRow(row);
-    if (!safety.ok) {
-      return safety;
     }
     const snapshot = await captureArchiveSnapshot({ cwd: row.path, run: deps.run, worktree: row });
     if (!snapshot.ok) {
       return snapshot;
     }
-    const blocker = resolveArchiveBlocker(safety.value, params.force === true);
+    // Private GIT_INDEX_FILE capture never mutates the worktree or index; this report is authoritative.
+    const currentSafety = await inspectArchiveRow(row);
+    if (!currentSafety.ok) {
+      return currentSafety;
+    }
+    const blocker = resolveArchiveBlocker(currentSafety.value, params.force === true);
     if (blocker !== null) {
       return { error: blocker, ok: false };
+    }
+    if (
+      currentSafety.value.ignoredEntryCount > 0 &&
+      params.confirmIgnoredEntries !== currentSafety.value.ignoredEntriesConfirmationToken
+    ) {
+      return { error: ignoredEntriesArchiveBlocker(currentSafety.value), ok: false };
     }
     const removed = await removeArchivedWorktree(row, params.force === true);
     if (!removed.ok) {
@@ -939,6 +947,26 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         };
       } catch (error) {
         logger.error('worktree create context failed', { error, rootId: params.rootId });
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+    async inspectArchive(params: {
+      readonly worktreeId: string;
+    }): Promise<GitResult<WorktreeArchivePreview>> {
+      try {
+        const row = await ledger.get(params.worktreeId);
+        if (!row || row.archivedAt !== null) {
+          return { error: `Managed worktree "${params.worktreeId}" is not active.`, ok: false };
+        }
+        return await inspectWorktreeArchivePreviewForPath({
+          inspectSafety: async () => await inspectArchiveRow(row),
+          path: row.path,
+        });
+      } catch (error) {
+        logger.error('worktree archive inspection failed', {
+          error,
+          worktreeId: params.worktreeId,
+        });
         return { error: toErrorMessage(error), ok: false };
       }
     },

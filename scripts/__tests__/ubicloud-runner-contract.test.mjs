@@ -16,12 +16,14 @@ const UBICLOUD_JOBS = [
   'native-electron',
   'browser-tests',
   'web-e2e',
-  'desktop-e2e',
+  'desktop-e2e-smoke',
+  'desktop-e2e-delegated',
 ];
 const GITHUB_JOBS = new Map([
   ['admission', 'ubuntu-slim'],
   ['static', 'ubuntu-24.04-arm'],
   ['unit', 'ubuntu-slim'],
+  ['desktop-e2e', 'ubuntu-slim'],
   ['native-windows', 'windows-latest'],
 ]);
 
@@ -45,8 +47,9 @@ test('the measured Linux x64 jobs run on Ubicloud standard-4', () => {
   }
 });
 
-test('PR coverage uses the cost-optimized 2-vCPU Ubicloud runner', () => {
-  assert.match(coverageWorkflow, /^ {4}runs-on: ubicloud-standard-2$/m);
+test('PR coverage uses the 4-vCPU Ubicloud runner that every full install-and-build lane uses', () => {
+  // BST-1882: the full pnpm install + turbo build ran out of disk on ubicloud-standard-2.
+  assert.match(coverageWorkflow, /^ {4}runs-on: ubicloud-standard-4$/m);
 });
 
 test('short x64 automation uses the cost-optimized 2-vCPU Ubicloud runner', () => {
@@ -55,7 +58,7 @@ test('short x64 automation uses the cost-optimized 2-vCPU Ubicloud runner', () =
   }
 });
 
-test('admission, Unit fan-in, ARM Static, and Windows use their cheapest compatible GitHub runners', () => {
+test('admission, the Unit and Desktop E2E fan-ins, ARM Static, and Windows use their cheapest compatible GitHub runners', () => {
   for (const [jobId, runner] of GITHUB_JOBS) {
     assert.match(jobBlock(jobId), new RegExp(`^ {4}runs-on: ${runner}$`, 'm'), jobId);
   }
@@ -71,7 +74,7 @@ test('Native Windows stays always-on without custom diff-routing machinery', () 
   assert.doesNotMatch(windows, /^ {4}if: always\(\)/m);
 });
 
-test('the Test workflow uses Ubicloud only for the six measured jobs', () => {
+test('the Test workflow uses Ubicloud only for the seven measured jobs', () => {
   const ubicloudAssignments = [...workflow.matchAll(/^ {4}runs-on: (ubicloud-[a-z0-9-]+)$/gm)].map(
     (match) => match[1]
   );

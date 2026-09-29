@@ -21,13 +21,17 @@ import type {
 } from '@brainstrike/agent';
 import type { LocalLlmHostClient } from '@brainstrike/agent/local-llm';
 import type { ProviderCredential } from '@brainstrike/assistant-contract';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { AgentStreamResult } from './types.js';
 
 type LocalLlmGenerateArgs = Parameters<LocalLlmHostClient['generate']>;
 type LocalLlmWarmupArgs = Parameters<LocalLlmHostClient['warmup']>;
 
+/** Process-local options independent of serialized RuntimeData, including host capabilities. */
 type SerializableIndependentStreamRuntimeOptions = Pick<
   MastraAgentRuntimeOptions,
+  | 'backgroundTaskScope'
+  | 'conversationBinding'
   | 'memory'
   | 'storage'
   | 'toolOutputArtifactInlineMaxSerializedCharsByToolName'
@@ -132,6 +136,7 @@ export type ProviderCredentialReader = (
  * and memory factory closed over) until B4 moves that engine too.
  */
 export type StreamInitializer = (params: {
+  readonly childFollowupAction?: AssistantChildFollowupAction | undefined;
   readonly apiKey: string | undefined;
   /**
    * Provider auth input (BST-1352), threaded as a DIRECT parameter end to end

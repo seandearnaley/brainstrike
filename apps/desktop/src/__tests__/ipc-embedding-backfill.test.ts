@@ -16,6 +16,15 @@ vi.mock('../embedding-backfill', () => ({
   enqueueEmbeddingBackfill: enqueueEmbeddingBackfillMock,
 }));
 
+import {
+  DatabaseIntegrityError,
+  getDesktopDatabaseIntegrity,
+  resetDesktopDatabaseIntegrityForTests,
+} from '../database-integrity-state';
+import {
+  markDesktopShuttingDown,
+  resetDesktopShutdownStateForTests,
+} from '../desktop-shutdown-state';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   EMBEDDING_BACKFILL_CANCELED_MESSAGE,
@@ -23,6 +32,7 @@ import {
 } from '../embedding-host-shared';
 import {
   cancelDesktopEmbeddingBackfill,
+  getDesktopEmbeddingBackfillsInFlight,
   runDesktopEmbeddingBackfill,
 } from '../ipc-embedding-backfill';
 
@@ -439,7 +449,7 @@ describe('desktop embedding backfill termination logging', () => {
     });
   });
 
-  it('routes detached background-indexing failures to the owning recovery boundary', async () => {
+  it('routes detached background-indexing failures to the owning containment boundary', async () => {
     const corruption = Object.assign(new Error('invalid page in block 42'), { code: 'XX001' });
     const onDetachedFailure = vi.fn(async () => undefined);
     enqueueEmbeddingBackfillMock.mockRejectedValueOnce(corruption);
@@ -559,5 +569,74 @@ describe('desktop embedding backfill termination logging', () => {
         })
       );
     });
+  });
+});
+
+describe('desktop embedding backfill admission during shutdown', () => {
+  afterEach(() => {
+    resetDesktopShutdownStateForTests();
+    vi.clearAllMocks();
+  });
+
+  it('refuses a new backfill once graceful shutdown has begun without starting the host', async () => {
+    markDesktopShuttingDown();
+    const params = createRunParams('set-shutdown', 'background-indexing');
+
+    await runDesktopEmbeddingBackfill(params);
+    await vi.waitFor(() => {
+      expect(params.onDetachedFailure).toHaveBeenCalledOnce();
+    });
+
+    // Starting the host here recreates a hidden renderer that the shutdown
+    // sequence is about to dispose; the job rows stay durable for next launch.
+    expect(params.hostManager.ensureStarted).not.toHaveBeenCalled();
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+    expect(params.onDetachedFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('shutting down') })
+    );
+  });
+});
+
+describe('desktop embedding backfill admission during database integrity containment', () => {
+  beforeEach(() => {
+    resetDesktopDatabaseIntegrityForTests();
+  });
+
+  afterEach(() => {
+    resetDesktopDatabaseIntegrityForTests();
+    vi.clearAllMocks();
+  });
+
+  it.for(['background-indexing', 'manual'] as const)(
+    'refuses a new %s backfill with background-paused before starting the host',
+    async (source) => {
+      getDesktopDatabaseIntegrity().contain('db:query', {
+        message: 'invalid page in block 3',
+        sqlstate: 'XX001',
+      });
+      const params = createRunParams('set-contained', source);
+
+      const rejection = await runDesktopEmbeddingBackfill(params).catch((error: unknown) => error);
+
+      expect(rejection).toBeInstanceOf(DatabaseIntegrityError);
+      expect((rejection as DatabaseIntegrityError).detail.reason).toBe('background-paused');
+      expect(params.hostManager.ensureStarted).not.toHaveBeenCalled();
+      expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+      expect(getDesktopEmbeddingBackfillsInFlight()).toEqual([]);
+      expect(params.onDetachedFailure).not.toHaveBeenCalled();
+    }
+  );
+
+  it('admits a backfill again after the database is replaced', async () => {
+    const integrity = getDesktopDatabaseIntegrity();
+    integrity.contain('db:query', { message: 'invalid page in block 3', sqlstate: 'XX001' });
+    integrity.markDatabaseReplaced('factory-reset');
+    enqueueEmbeddingBackfillMock.mockResolvedValue(undefined);
+    const params = createRunParams('set-replaced');
+
+    await runDesktopEmbeddingBackfill(params);
+
+    expect(params.hostManager.ensureStarted).toHaveBeenCalledOnce();
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledOnce();
   });
 });

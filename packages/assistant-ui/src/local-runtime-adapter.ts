@@ -67,6 +67,9 @@ const disposalState: {
   inProgress: boolean;
   promise: Promise<void> | null;
 } = { inProgress: false, promise: null, requested: false };
+// Mounted local-chat panels sharing the backend. Its lifetime belongs to the LAST
+// one: a single panel closing must never tear down what the others still use.
+const localBackendConsumers = new Set<symbol>();
 
 /**
  * Get or create the LocalLlmBackend singleton.
@@ -75,7 +78,8 @@ const disposalState: {
  * agent runtime package directly because this package is shared foundation.
  *
  * Handles edge cases:
- * - disposeLocalBackend() called during initialization: checks flag and disposes new instance
+ * - disposal requested during initialization: checks flag and disposes new instance
+ *   (disposal only starts once the generation queue has drained, so this is a backstop)
  * - getBackend() called during disposal: waits for disposal to complete first
  */
 async function getBackend(
@@ -792,15 +796,17 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
 
-        // Check for abort
-        if (error instanceof DOMException && error.name === 'AbortError') {
+        // Our own signal decides a cancel: Electron IPC keeps only an error's
+        // message, so a hidden-host abort reaches us as a plain Error whose
+        // `name` is no longer 'AbortError'.
+        if (abortSignal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
           appendRunEvent('run.cancelled', 'cancelled', 'Local assistant run cancelled');
           onLoadingProgress?.({
             message: 'Generation stopped.',
             progress: 100,
             stage: 'ready',
           });
-          await completeRuntimeData?.(preparedRuntimeData, 'cancelled', errorMessage);
+          await completeRuntimeData?.(preparedRuntimeData, 'cancelled');
           yield {
             content: buildAssistantContentParts(
               undefined,
@@ -833,14 +839,53 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
 }
 
 /**
- * Dispose the backend and free resources.
- * Call this when the local provider is no longer needed.
+ * Register a mounted local-chat panel as a consumer of the shared backend and
+ * return its release (idempotent: each lease is its own identity). The backend
+ * is disposed only when the LAST consumer has released and the generation queue
+ * has drained; a consumer acquired before that point keeps it alive, so a
+ * StrictMode remount or a thread switch (one commit releases, the next
+ * acquires) never reloads the model.
+ */
+export function acquireLocalBackend(): () => void {
+  const consumer = Symbol('local-backend-consumer');
+  localBackendConsumers.add(consumer);
+  return () => {
+    localBackendConsumers.delete(consumer);
+    void disposeLocalBackendWhenUnused();
+  };
+}
+
+/**
+ * Dispose once nobody consumes the backend. The disposal flags make getBackend()
+ * and the generation queue wait for the disposal, so they must be raised only
+ * AFTER the queue has drained: raised earlier, the run holding a slot would
+ * await a disposal that is awaiting that very slot. Waiting also yields at
+ * least one microtask when the queue is empty, which lets a synchronous
+ * release-then-acquire (StrictMode) land before the consumer set is read.
+ */
+async function disposeLocalBackendWhenUnused(): Promise<void> {
+  const drainedTail = localGenerationQueue;
+  await drainedTail;
+  // Everything below runs in one synchronous segment: nothing can enqueue or
+  // acquire between the checks and the flags being raised.
+  if (localGenerationQueue !== drainedTail) {
+    return disposeLocalBackendWhenUnused();
+  }
+  if (localBackendConsumers.size > 0) {
+    return;
+  }
+  await disposeLocalBackend();
+}
+
+/**
+ * Dispose the backend and free resources. Only for the idle path above: the
+ * queue is drained and no consumer remains.
  *
  * Handles race conditions:
  * - If initialization is in progress, waits and disposes the new instance
  * - If getBackend() is called during disposal, it waits for disposal to complete
  */
-export async function disposeLocalBackend(): Promise<void> {
+async function disposeLocalBackend(): Promise<void> {
   // Prevent re-entry if disposal is already in progress
   if (disposalState.inProgress) {
     // Wait for existing disposal to complete
@@ -853,17 +898,10 @@ export async function disposeLocalBackend(): Promise<void> {
   // Signal disposal is starting
   disposalState.requested = true;
   disposalState.inProgress = true;
-  const pendingGenerationQueue = localGenerationQueue;
 
   // Create a promise that callers can wait on
   disposalState.promise = (async () => {
     try {
-      if (pendingGenerationQueue) {
-        await pendingGenerationQueue;
-        if (localGenerationQueue === pendingGenerationQueue) {
-          localGenerationQueue = null;
-        }
-      }
       // Wait for any pending initialization to complete before disposing
       if (backendInstancePromise) {
         try {
@@ -896,6 +934,12 @@ export async function disposeLocalBackend(): Promise<void> {
   })();
 
   return disposalState.promise;
+}
+
+/** Test isolation only: tear the shared backend down regardless of consumers. */
+export async function __resetLocalBackendForTests(): Promise<void> {
+  localBackendConsumers.clear();
+  await disposeLocalBackendWhenUnused();
 }
 
 /**

@@ -4,7 +4,7 @@ import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui/tree';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
-import type { FileSystemChange, IFileNode } from '@brainstrike/types';
+import type { DirectoryHandle, FileSystemChange, IFileNode } from '@brainstrike/types';
 import {
   type BackgroundIndexingPolicyPreset,
   createBackgroundIndexingEntryPolicy,
@@ -31,15 +31,6 @@ import {
   toTruncatedRelativePrefixes,
 } from './workspace-collection-sync-scan-paths';
 
-interface RootDirectoryHandle {
-  _internal?: unknown;
-  kind: 'directory';
-  name: string;
-  path: string;
-  platform: 'electron' | 'web';
-  rootId?: string;
-}
-
 type WorkspaceCollectionSyncScanScope =
   | {
       mode: 'full';
@@ -51,7 +42,7 @@ type WorkspaceCollectionSyncScanScope =
 
 interface WorkspaceCollectionSyncScanRequest {
   indexingPolicyPreset: BackgroundIndexingPolicyPreset;
-  rootDirectoryHandle: RootDirectoryHandle | null;
+  rootDirectoryHandle: DirectoryHandle | null;
   scope?: WorkspaceCollectionSyncScanScope;
 }
 
@@ -169,25 +160,25 @@ function collectFullScanMissingFileInvalidations(args: {
   });
 }
 
-function toDirectoryHandle(node: IFileNode, rootHandle: RootDirectoryHandle): RootDirectoryHandle {
-  const nodeHandle = node.handle as Partial<RootDirectoryHandle>;
-  const rootId = nodeHandle.rootId ?? rootHandle.rootId;
+function toDirectoryHandle(node: IFileNode, rootHandle: DirectoryHandle): DirectoryHandle {
+  const nodeHandle = 'platform' in node.handle ? node.handle : null;
+  const rootId = nodeHandle?.rootId ?? rootHandle.rootId;
   return {
     // On web, the child node's handle IS the raw FileSystemDirectoryHandle
     // (no _internal on it) and must become the rebuilt handle's _internal —
     // the web adapter can only read directories through it.
-    _internal: nodeHandle._internal ?? node.handle,
+    _internal: nodeHandle?._internal ?? node.handle,
     kind: 'directory',
     name: node.name,
     path: node.path,
-    platform: nodeHandle.platform ?? rootHandle.platform,
+    platform: nodeHandle?.platform ?? rootHandle.platform,
     ...(rootId === undefined ? {} : { rootId }),
   };
 }
 
 function toSyntheticFileNode(args: {
   relativePath: string;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   rootPath: string;
 }): IFileNode {
   // Anchor rather than join: the web watcher's paths are already root-anchored,
@@ -204,7 +195,7 @@ function toSyntheticFileNode(args: {
       name: fileName,
       path: absolutePath,
       platform: args.rootHandle.platform,
-    } as unknown as IFileNode['handle'],
+    },
     name: fileName,
     path: absolutePath,
     rootFolderId: args.rootPath,
@@ -228,7 +219,7 @@ async function resolveSyntheticFileNodeHandle(args: {
   deps: WorkspaceCollectionSyncScanDeps;
   node: IFileNode;
   onResolutionFailure: (path: string) => void;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
 }): Promise<IFileNode> {
   const { fileSystemAdapter } = args.deps;
   if (!fileSystemAdapter.resolveFileHandleByPath) {
@@ -289,7 +280,7 @@ function warnOnFileHandleResolutionFailures(failedPaths: ReadonlySet<string>): v
 async function readDirectoryWithProgress(args: {
   abortSignal: AbortSignal;
   deps: WorkspaceCollectionSyncScanDeps;
-  handle: RootDirectoryHandle;
+  handle: DirectoryHandle;
   onDirectoryTruncated: (path: string) => void;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode[]> {
@@ -322,10 +313,10 @@ async function resolveDirectoryHandleForRelativePath(args: {
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
   relativePath: string;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
-}): Promise<RootDirectoryHandle | null> {
+}): Promise<DirectoryHandle | null> {
   let currentHandle = args.rootHandle;
   let currentRelativePath = '';
   // Walking descends from the ROOT HANDLE, so it is expressed in root-relative
@@ -379,7 +370,7 @@ async function resolveChangedFileNode(args: {
   onExcludedEntry: () => void;
   onFileHandleResolutionFailure: (path: string) => void;
   relativePath: string;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode | null> {
@@ -456,11 +447,11 @@ async function resolveChangedFileNode(args: {
 async function readScopedDirectoryTree(args: {
   abortSignal: AbortSignal;
   deps: WorkspaceCollectionSyncScanDeps;
-  directoryHandle: RootDirectoryHandle;
+  directoryHandle: DirectoryHandle;
   entryPolicy: WorkspaceIndexingEntryPolicy;
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode[]> {
@@ -630,7 +621,7 @@ async function collectChangedDirectoryFileNodes(args: {
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
   relativePath: string;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode[]> {
@@ -684,7 +675,7 @@ async function collectScopedChange(args: {
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
   onFileHandleResolutionFailure: (path: string) => void;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<void> {
   if (args.change.type === 'removed') {

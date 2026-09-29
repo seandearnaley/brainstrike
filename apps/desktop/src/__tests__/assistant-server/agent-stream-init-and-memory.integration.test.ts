@@ -1183,6 +1183,7 @@ describe('agent-stream-init runtime composition and memory', () => {
         authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         memory: mockPgliteMastraMemory,
         requireToolApproval: true,
+        resolvePersonaApiKey: expect.any(Function),
         runtime: expect.objectContaining({
           memory: expect.objectContaining({
             resourceId: 'workspace-a',
@@ -1299,6 +1300,7 @@ describe('agent-stream-init runtime composition and memory', () => {
         // OPTIONS; the runtime carries no credential fields.
         authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         memory: mockPgliteMastraMemory,
+        resolvePersonaApiKey: expect.any(Function),
         runtime: expect.objectContaining({ provider: 'openai' }),
         storage: mockPgliteMastraStorage,
       })
@@ -1536,6 +1538,72 @@ describe('agent-stream-init runtime composition and memory', () => {
     expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
     expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
   });
+
+  it.each(['legacy-catalog', 'missing-configuration'])(
+    'returns actionable admitted-child remediation through the shared HTTP initializer (%s)',
+    async (kind) => {
+      const { streamMastraToolApprovalAction } = await import('@brainstrike/agent');
+      // Exercise the public package boundary, bypassing only this suite's agent mock.
+      const actualAgent =
+        await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
+      const identity = {
+        childRuntimeRunId: 'child-run',
+        parentRuntimeRunId: 'parent-run',
+        parentToolCallId: 'parent-call',
+        personaId: 'worker',
+      };
+      const action = {
+        action: 'approve' as const,
+        delegation: { path: [identity], toolCallId: 'leaf-call' },
+        runId: 'parent-run',
+        toolCallId: 'parent-call',
+      };
+      const configuration =
+        kind === 'legacy-catalog'
+          ? {
+              maxSteps: 3,
+              persona: {
+                allowedToolIds: ['*'],
+                description: 'Work',
+                id: 'worker',
+                instructions: 'Original workspace-private instructions',
+                label: 'Worker',
+                maxSteps: 3,
+                mode: 'worker',
+              },
+            }
+          : undefined;
+      const error = await actualAgent
+        .streamMastraToolApprovalAction(action, {
+          conversationBinding: {
+            ...actualAgent.createDelegatedConversationBinding(async () => {}),
+            resolveToolAction: async () => [
+              { configuration, identity, resourceId: 'child-owner', threadId: 'child' },
+            ],
+          },
+          storage: mockPgliteMastraStorage as never,
+        })
+        .catch((failure: unknown) => failure);
+      expect(error).toMatchObject({ code: 'admitted_child_configuration_unavailable' });
+      vi.mocked(streamMastraToolApprovalAction).mockRejectedValueOnce(error);
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: { memory: { resourceId: 'workspace-a', threadId: 'thread-1' }, provider: 'openai' },
+          messages: [],
+          runConfig: { custom: { brainstrikeToolApproval: action } },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+      expect(response.status).toBe(409);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'admitted_child_configuration_unavailable',
+        message: expect.stringContaining('Start a new delegation'),
+      });
+      expect(response.body).not.toContain('workspace-private');
+    }
+  );
 
   it('should handle stream initialization failure', async () => {
     const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');

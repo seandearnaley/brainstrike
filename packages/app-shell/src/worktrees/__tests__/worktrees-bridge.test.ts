@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe('resolveWorktreesBridge', () => {
-  it('declares exactly the eleven ops the preload exposes', () => {
+  it('declares exactly the twelve ops the preload exposes', () => {
     expect([...WORKTREES_BRIDGE_REQUIRED_METHODS].sort()).toEqual([
       'adopt',
       'archive',
@@ -24,6 +24,7 @@ describe('resolveWorktreesBridge', () => {
       'createBranchHere',
       'createContext',
       'getSettings',
+      'inspectArchive',
       'list',
       'listManagedPaths',
       'restore',

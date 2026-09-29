@@ -33,6 +33,7 @@ export const migration025UpdateProviderModels2026: Migration = {
       ('openrouter/gpt-4o', 'openrouter', 'GPT-4o (OpenRouter)', 'Most advanced multimodal model', '["Complex reasoning"]', '{"type":"llm","streaming":true}', 2, false),
       ('openrouter/claude-3-5-sonnet', 'openrouter', 'Claude 3.5 Sonnet (OpenRouter)', 'Balanced intelligence', '["Coding", "Analysis"]', '{"type":"llm","streaming":true}', 3, false);
   `,
+  ledgerKey: 'custom-025-update-provider-models-2026',
   name: 'update_provider_models_2026',
   up: `
     -- Replace hosted provider model catalogs (OpenAI, Anthropic, Google, OpenRouter)

@@ -3,10 +3,12 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
@@ -16,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./validation": {
+      "types": "./dist/validation.d.ts",
+      "default": "./dist/validation.js"
     }
   },
   "files": [
@@ -30,7 +36,7 @@
     "dev": "tsc --build --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && effect-tsgo diagnostics --project tsconfig.json --strict",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "sideEffects": false,

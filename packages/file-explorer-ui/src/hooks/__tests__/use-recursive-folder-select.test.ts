@@ -61,14 +61,16 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 function createDirectory(overrides: Partial<IFileNode> = {}): IFileNode {
+  const name = overrides.name ?? 'dir';
+  const path = overrides.path ?? '/root/dir';
   return {
     children: [],
     depth: 0,
-    handle: {} as FileSystemDirectoryHandle,
+    handle: { kind: 'directory', name, path, platform: 'electron' },
     isVisible: true,
     loadState: 'unloaded',
-    name: 'dir',
-    path: '/root/dir',
+    name,
+    path,
     rootFolderId: 'root',
     selectionState: 'unchecked',
     type: 'directory',
@@ -77,12 +79,14 @@ function createDirectory(overrides: Partial<IFileNode> = {}): IFileNode {
 }
 
 function createFile(overrides: Partial<IFileNode> = {}): IFileNode {
+  const name = overrides.name ?? 'file.txt';
+  const path = overrides.path ?? '/root/file.txt';
   return {
     depth: 0,
-    handle: {} as FileSystemFileHandle,
+    handle: { kind: 'file', name, path, platform: 'electron' },
     isVisible: true,
-    name: 'file.txt',
-    path: '/root/file.txt',
+    name,
+    path,
     rootFolderId: 'root',
     selectionState: 'unchecked',
     type: 'file',

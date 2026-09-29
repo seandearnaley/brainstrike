@@ -1,5 +1,5 @@
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -37,13 +37,12 @@ describe('ExplorerSearchTabs', () => {
     // Converged on the same shared segmented Tabs primitive the Library uses.
     expect(explorerTab).toHaveAttribute('data-slot', 'tabs-trigger');
     expect(searchTab).toHaveAttribute('data-slot', 'tabs-trigger');
-    // Triggers fill the list's padded slot so they never overhang its bottom.
-    expect(explorerTab).toHaveClass('h-full');
-    expect(searchTab).toHaveClass('h-full');
-    expect(screen.getByRole('tablist', { name: 'Explorer and search' })).toHaveAttribute(
-      'data-slot',
-      'tabs-list'
-    );
+    // Geometry comes from the shared panel-header (sm) variant.
+    expect(explorerTab).toHaveAttribute('data-size', 'sm');
+    expect(searchTab).toHaveAttribute('data-size', 'sm');
+    const tablist = screen.getByRole('tablist', { name: 'Explorer and search' });
+    expect(tablist).toHaveAttribute('data-slot', 'tabs-list');
+    expect(tablist).toHaveAttribute('data-size', 'sm');
     expect(explorerTab).toHaveAttribute('aria-selected', 'true');
     expect(searchTab).toHaveAttribute('aria-selected', 'false');
 
@@ -77,7 +76,7 @@ describe('ExplorerSearchTabs', () => {
     const user = userEvent.setup();
     render(<ExplorerSearchTabs />);
 
-    screen.getByRole('tab', { name: 'Explorer' }).focus();
+    act(() => screen.getByRole('tab', { name: 'Explorer' }).focus());
     await user.keyboard('{ArrowRight}');
 
     // Manual activation: focus roves without selecting, so the expensive
@@ -86,6 +85,15 @@ describe('ExplorerSearchTabs', () => {
     expect(screen.getByRole('tab', { name: 'Search' })).toHaveAttribute('aria-selected', 'false');
     expect(screen.queryByTestId('workspace-search-panel-mock')).not.toBeInTheDocument();
     expect(useContextExplorerLayoutStore.getState().explorerActiveTab).toBe('explorer');
+  });
+
+  it('restores a persisted Search tab with Search mounted and Explorer mounted but hidden', async () => {
+    useContextExplorerLayoutStore.getState().setExplorerActiveTab('search');
+    render(<ExplorerSearchTabs />);
+
+    expect(await screen.findByTestId('workspace-search-panel-mock')).toBeVisible();
+    expect(screen.getByTestId('file-explorer-panel-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('explorer-search-panel-explorer')).not.toBeVisible();
   });
 
   it('keeps the Search panel mounted after switching back to Explorer', async () => {

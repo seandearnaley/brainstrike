@@ -56,10 +56,16 @@ export interface BrowserPaneView {
 }
 
 export interface BrowserHostWindow {
+  /**
+   * Reading this THROWS `Object has been destroyed` once the window is
+   * destroyed (Electron) — gate on {@link isDestroyed} first.
+   */
   readonly contentView: {
     addChildView(view: BrowserPaneView): void;
     removeChildView(view: BrowserPaneView): void;
   };
+  /** Safe on a destroyed window; true once the window's native object is gone. */
+  isDestroyed(): boolean;
 }
 
 export type BrowserPaneViewFactory = (partition: string) => BrowserPaneView;
@@ -279,8 +285,19 @@ export class BrowserViewManager {
   }
 
   dispose(): void {
+    // `dispose()` runs on TWO paths: a LIVE window (renderer reload / factory
+    // reset — the same manager then serves the fresh renderer) and, from the
+    // window's `closed` event, an already-DESTROYED one. On a destroyed window
+    // `hostWindow.contentView` throws `Object has been destroyed`, and
+    // detaching a child from a view tree that died with the window is
+    // meaningless — so ONLY the detach is skipped. Every page is still closed:
+    // Electron does not destroy a `WebContentsView`'s `webContents` with its
+    // window, so skipping `close()` would leak the page process.
+    const detachViews = !this.deps.hostWindow.isDestroyed();
     for (const tab of this.tabs.values()) {
-      this.deps.hostWindow.contentView.removeChildView(tab.view);
+      if (detachViews) {
+        this.deps.hostWindow.contentView.removeChildView(tab.view);
+      }
       tab.view.webContents.close();
     }
     this.tabs.clear();

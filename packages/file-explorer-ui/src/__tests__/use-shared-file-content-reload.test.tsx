@@ -2,8 +2,8 @@ import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { AdaptersProvider, buildInaccessibleContent } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { createFileNode } from '@brainstrike/test-utils';
 import type {
   FileContentReadResult,
   FileReadRequest,

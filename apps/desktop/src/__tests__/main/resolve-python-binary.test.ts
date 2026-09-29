@@ -19,6 +19,7 @@ const ARCHIVE_SHA256 = 'a'.repeat(64);
 const RELEASE_TAG = '20260728';
 const PYTHON_VERSION = '3.13.14';
 const TRIPLE = 'aarch64-apple-darwin';
+const OTHER_TRIPLE = 'x86_64-apple-darwin';
 
 const cleanupPaths: string[] = [];
 
@@ -37,17 +38,29 @@ function writeManifest(manifestDir: string, overrides: ManifestOverrides = {}): 
       'https://github.com/astral-sh/python-build-standalone/releases/download/{releaseTag}/cpython-{pythonVersion}+{releaseTag}-{target}-{variant}.tar.gz',
     pythonVersion: PYTHON_VERSION,
     releaseTag: RELEASE_TAG,
-    supportedTargets: overrides.supportedTargets ?? [TRIPLE, 'x86_64-apple-darwin'],
+    supportedTargets: overrides.supportedTargets ?? [TRIPLE, OTHER_TRIPLE],
     targets:
       'targets' in overrides
         ? overrides.targets
         : {
             [TRIPLE]: { bytes: 25_272_160, sha256: overrides.sha256 ?? ARCHIVE_SHA256 },
-            'x86_64-apple-darwin': { bytes: 1, sha256: 'f'.repeat(64) },
+            [OTHER_TRIPLE]: { bytes: 1, sha256: 'f'.repeat(64) },
           },
     variant: 'install_only',
   };
   writeFileSync(path.join(manifestDir, 'manifest.json'), JSON.stringify(manifest));
+}
+
+/**
+ * Overwrites top-level fields of a manifest already written by `writeManifest`.
+ * `JSON.stringify` omits `undefined`-valued keys, so patching a field to
+ * `undefined` drops it from the JSON exactly like `delete` would.
+ */
+function patchManifest(manifestDir: string, patch: Record<string, unknown>): string {
+  const manifestPath = path.join(manifestDir, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest, ...patch }));
+  return manifestPath;
 }
 
 /** Materializes the layout the build-time unpack produces. */
@@ -72,14 +85,29 @@ describe('resolvePythonBinary', () => {
     const { installDir, manifestDir } = await createFixtureDirs();
     // No manifest on disk: an unsupported platform must classify BEFORE any
     // manifest I/O, so a missing manifest cannot mask the real reason.
-    await expect(
-      resolvePythonBinary({ arch: 'x64', installDir, manifestDir, platform: 'linux' })
-    ).rejects.toMatchObject({ code: 'python_unsupported_platform' });
+    const attempt = resolvePythonBinary({
+      arch: 'x64',
+      installDir,
+      manifestDir,
+      platform: 'linux',
+    });
+    await expect(attempt).rejects.toMatchObject({ code: 'python_unsupported_platform' });
+    await expect(attempt).rejects.toSatisfy((error: unknown) => isPythonRuntimeError(error));
   });
 
   it('throws unsupported-platform when the manifest omits the target triple', async () => {
     const { installDir, manifestDir } = await createFixtureDirs();
-    writeManifest(manifestDir, { supportedTargets: ['x86_64-apple-darwin'] });
+    writeManifest(manifestDir, { supportedTargets: [OTHER_TRIPLE] });
+    await expect(
+      resolvePythonBinary({ arch: 'arm64', installDir, manifestDir, platform: 'darwin' })
+    ).rejects.toMatchObject({ code: 'python_unsupported_platform' });
+  });
+
+  it('throws unsupported-platform when a valid manifest omits the target entry', async () => {
+    const { installDir, manifestDir } = await createFixtureDirs();
+    writeManifest(manifestDir, {
+      targets: { [OTHER_TRIPLE]: { bytes: 1, sha256: 'f'.repeat(64) } },
+    });
     await expect(
       resolvePythonBinary({ arch: 'arm64', installDir, manifestDir, platform: 'darwin' })
     ).rejects.toMatchObject({ code: 'python_unsupported_platform' });
@@ -182,39 +210,106 @@ describe('resolvePythonBinary', () => {
   });
 
   describe('manifest shape validation (python_manifest_invalid)', () => {
-    const cases: readonly [string, (manifestDir: string) => void][] = [
+    // The public messages are the contract (BST-1831): exact text, and the
+    // first invalid field wins in the legacy priority order.
+    const resolveFrom = (installDir: string, manifestDir: string): Promise<string> =>
+      resolvePythonBinary({ arch: 'arm64', installDir, manifestDir, platform: 'darwin' });
+    const validEntry = { bytes: 25_272_160, sha256: ARCHIVE_SHA256 };
+    const otherEntry = { bytes: 1, sha256: 'f'.repeat(64) };
+
+    it.each(['[]', 'null', '"just-a-string"'])(
+      'rejects top-level %s as a non-object',
+      async (raw) => {
+        const { installDir, manifestDir } = await createFixtureDirs();
+        const manifestPath = path.join(manifestDir, 'manifest.json');
+        writeFileSync(manifestPath, raw);
+        await expect(resolveFrom(installDir, manifestDir)).rejects.toMatchObject({
+          code: 'python_manifest_invalid',
+          message: `Bundled Python runtime manifest at ${manifestPath} is not an object.`,
+        });
+      }
+    );
+
+    const cases: readonly [name: string, patch: Record<string, unknown>, tail: string][] = [
       [
-        'rejects a manifest whose top-level value is not an object',
-        (dir) => writeFileSync(path.join(dir, 'manifest.json'), '[]'),
+        'rejects an array in place of the targets map',
+        { targets: [] },
+        'has an invalid "targets" map.',
+      ],
+      [
+        'reports the first invalid field in the legacy priority order',
+        { assetUrlTemplate: '', supportedTargets: [123], targets: [], variant: '' },
+        'is missing string field "assetUrlTemplate".',
+      ],
+      [
+        'reports an invalid supported-target list before an invalid targets map',
+        { supportedTargets: [123], targets: [] },
+        'has an invalid "supportedTargets" list.',
+      ],
+      [
+        'rejects a target size above the safe-integer limit',
+        {
+          targets: {
+            [TRIPLE]: { ...validEntry, bytes: Number.MAX_SAFE_INTEGER + 1 },
+            [OTHER_TRIPLE]: otherEntry,
+          },
+        },
+        `has an invalid entry for target "${TRIPLE}".`,
+      ],
+      [
+        'validates entries beyond the selected target',
+        {
+          targets: {
+            [TRIPLE]: validEntry,
+            [OTHER_TRIPLE]: { ...otherEntry, sha256: 'A'.repeat(64) },
+          },
+        },
+        `has an invalid entry for target "${OTHER_TRIPLE}".`,
       ],
       [
         'rejects a manifest missing a required string field',
-        (dir) => {
-          writeManifest(dir);
-          const manifestPath = path.join(dir, 'manifest.json');
-          const { releaseTag: _dropped, ...withoutReleaseTag } = JSON.parse(
-            readFileSync(manifestPath, 'utf8')
-          ) as Record<string, unknown>;
-          writeFileSync(manifestPath, JSON.stringify(withoutReleaseTag));
-        },
+        { variant: undefined },
+        'is missing string field "variant".',
+      ],
+      [
+        'rejects a manifest missing releaseTag',
+        { releaseTag: undefined },
+        'is missing string field "releaseTag".',
       ],
       [
         'rejects a manifest whose supportedTargets is not a string array',
-        (dir) => writeManifest(dir, { supportedTargets: [1 as unknown as string] }),
+        { supportedTargets: [123] },
+        'has an invalid "supportedTargets" list.',
       ],
       [
         'rejects a manifest whose target entry is malformed',
-        (dir) => writeManifest(dir, { targets: { [TRIPLE]: { bytes: 0, sha256: 'nope' } } }),
+        {
+          targets: {
+            [TRIPLE]: { bytes: -1, sha256: 'not-a-valid-hash' },
+            [OTHER_TRIPLE]: otherEntry,
+          },
+        },
+        `has an invalid entry for target "${TRIPLE}".`,
       ],
     ];
-    for (const [name, mutate] of cases) {
+    for (const [name, patch, tail] of cases) {
       it(name, async () => {
         const { installDir, manifestDir } = await createFixtureDirs();
-        mutate(manifestDir);
-        await expect(
-          resolvePythonBinary({ arch: 'arm64', installDir, manifestDir, platform: 'darwin' })
-        ).rejects.toMatchObject({ code: 'python_manifest_invalid' });
+        writeManifest(manifestDir);
+        const manifestPath = patchManifest(manifestDir, patch);
+        await expect(resolveFrom(installDir, manifestDir)).rejects.toMatchObject({
+          code: 'python_manifest_invalid',
+          message: `Bundled Python runtime manifest at ${manifestPath} ${tail}`,
+        });
       });
     }
+
+    it('rejects manifest.json that is not valid JSON', async () => {
+      const { installDir, manifestDir } = await createFixtureDirs();
+      writeFileSync(path.join(manifestDir, 'manifest.json'), '{ not: valid json');
+      await expect(resolveFrom(installDir, manifestDir)).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+      });
+    });
   });
 });

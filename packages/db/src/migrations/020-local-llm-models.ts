@@ -22,6 +22,7 @@ export const migration020LocalLlmModels: Migration = {
       'onnx-community/Qwen3-0.6B-ONNX'
     );
   `,
+  ledgerKey: 'custom-020-local-llm-models',
   name: 'local_llm_models',
   up: `
     -- Remove Qwen3-1.7B if it exists (crashes due to WebGPU buffer limits)

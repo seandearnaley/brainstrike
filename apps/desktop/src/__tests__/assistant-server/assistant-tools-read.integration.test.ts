@@ -1993,6 +1993,7 @@ describe('assistant-tools read tools', () => {
       remove: vi.fn(async () => undefined),
       start: vi.fn(async () => session),
       stop: vi.fn(async () => undefined),
+      stopDelegatedThreads: vi.fn(async () => undefined),
       write: vi.fn(),
     } satisfies CommandSessionManager;
     const runtime = {
@@ -2083,6 +2084,7 @@ describe('assistant-tools read tools', () => {
       remove: vi.fn(async () => undefined),
       start: vi.fn(async () => session),
       stop: vi.fn(async () => undefined),
+      stopDelegatedThreads: vi.fn(async () => undefined),
       write: vi.fn(),
     } satisfies CommandSessionManager;
     const runtime = {
@@ -2240,6 +2242,7 @@ describe('assistant-tools read tools', () => {
       remove: vi.fn(async () => undefined),
       start: vi.fn(async () => sessions[0]!),
       stop: vi.fn(async () => undefined),
+      stopDelegatedThreads: vi.fn(async () => undefined),
       write: vi.fn(),
     } satisfies CommandSessionManager;
     const runtime = {

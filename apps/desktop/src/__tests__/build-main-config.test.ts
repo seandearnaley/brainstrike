@@ -163,15 +163,21 @@ describe('main-process bundle config', () => {
     expect(MAIN_PROCESS_BUILD_OPTIONS.tsconfigRaw).toBe('{}');
   });
 
-  it('inlines the two audited ESM-only main-process subpaths from source', () => {
+  it('inlines the audited ESM-only main-process subpaths from source', () => {
     const aliases = MAIN_PROCESS_BUILD_OPTIONS.alias as Record<string, string>;
     expect(Object.keys(aliases)).toEqual([
+      '@brainstrike/assistant-data/assistant-memory-repository',
       '@brainstrike/assistant-data/assistant-thread-run-reaper',
       '@brainstrike/notes-vault/core',
     ]);
     expect(
       aliases['@brainstrike/assistant-data/assistant-thread-run-reaper']?.endsWith(
         path.join('packages', 'assistant-data', 'src', 'assistant-thread-run-reaper.ts')
+      )
+    ).toBe(true);
+    expect(
+      aliases['@brainstrike/assistant-data/assistant-memory-repository']?.endsWith(
+        path.join('packages', 'assistant-data', 'src', 'assistant-memory-repository.ts')
       )
     ).toBe(true);
     expect(

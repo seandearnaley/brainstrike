@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import type { ForgeIpcHandlers } from './forge-ipc-handlers';
-import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { forgeContract } from './ipc-domains/forge.contract';
+import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
 
 /**
  * Register the desktop `forge` IPC domain (BST-1391).
@@ -11,18 +11,7 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
  */
 export function registerForgeIpcHandlers(handlers: ForgeIpcHandlers): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
-
-  registry.registerInvoke('forge', DESKTOP_IPC_CHANNELS.forge.identity, (_event, rootId: unknown) =>
-    handlers.identity(rootId)
-  );
-  registry.registerInvoke('forge', DESKTOP_IPC_CHANNELS.forge.prStatus, (_event, rootId: unknown) =>
-    handlers.prStatus(rootId)
-  );
-  registry.registerInvoke(
-    'forge',
-    DESKTOP_IPC_CHANNELS.forge.refresh,
-    (_event, rootId: unknown, params: unknown) => handlers.refresh(rootId, params)
-  );
+  registerDomain(registry, 'forge', forgeContract, handlers);
 
   return () => {
     registry.unregisterAll();

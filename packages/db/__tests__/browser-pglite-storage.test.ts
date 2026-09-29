@@ -92,11 +92,10 @@ describe('reclaimLegacyBrowserPGliteStorage', () => {
     navigator?: { storage?: { getDirectory?: () => Promise<unknown> } };
   };
   const originalIndexedDB = g.indexedDB;
-  const originalNavigator = g.navigator;
 
   afterEach(() => {
     g.indexedDB = originalIndexedDB;
-    g.navigator = originalNavigator;
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -111,9 +110,9 @@ describe('reclaimLegacyBrowserPGliteStorage', () => {
       yield 'app-pg18';
       yield 'other';
     }
-    g.navigator = {
+    vi.stubGlobal('navigator', {
       storage: { getDirectory: () => Promise.resolve({ keys, removeEntry } as unknown) },
-    };
+    });
 
     await reclaimLegacyBrowserPGliteStorage('idb://app-pg18');
 

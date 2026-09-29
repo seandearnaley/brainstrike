@@ -3,8 +3,8 @@
  *
  * Routes parse calls from the chunking worker, through Electron IPC, to the
  * native `oxc-parser` running in the parser-host utility process. Used only
- * in the Electron desktop chunking-host renderer; never loaded in apps/web
- * (the select-adapter facade gates it on environment — see Phase 5).
+ * when selected by the Electron desktop chunking-host renderer. The shared
+ * facade statically imports this adapter; browser execution selects Babel.
  *
  * Why this isn't combined with babel-adapter behind a uniform fetch:
  *  - Babel runs IN the worker (in-process, sync logic).
@@ -37,6 +37,9 @@
  *
  * See: docs/prd-chunking-wasm-parser-2026-05.md §4
  */
+
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
+import { Data, Effect, Predicate, Schema } from 'effect';
 
 import type { AstNode, ParseOptions, ParserAdapter } from './types';
 
@@ -74,59 +77,172 @@ interface WorkerSelfLike {
   readonly postMessage: (message: InvokeEnvelope) => void;
 }
 
+const opaqueRootSchema = Schema.declare<AstNode>((value): value is AstNode =>
+  Predicate.isObjectOrArray(value)
+);
+const successSchema = Schema.Struct({
+  ok: Schema.Literal(true),
+  requestId: Schema.String,
+  root: opaqueRootSchema,
+});
+const failureSchema = Schema.Struct({
+  error: Schema.String,
+  ok: Schema.Literal(false),
+  requestId: Schema.String,
+});
+const replySchema = Schema.Struct({
+  requestId: Schema.String,
+  response: Schema.Union([successSchema, failureSchema]),
+  type: Schema.Literal(PARSER_HOST_REPLY),
+});
+type IsExact<L, R> = [L] extends [R] ? ([R] extends [L] ? true : false) : false;
+type MatchesFields<L, R> = IsExact<keyof L, keyof R> extends true ? IsExact<L, R> : false;
+const _successMatches = true satisfies MatchesFields<
+  typeof successSchema.Type,
+  Extract<IpcParseResponse, { ok: true }>
+>;
+const _failureMatches = true satisfies MatchesFields<
+  typeof failureSchema.Type,
+  Extract<IpcParseResponse, { ok: false }>
+>;
+const _replyMatches = true satisfies MatchesFields<typeof replySchema.Type, ReplyEnvelope>;
+void _successMatches;
+void _failureMatches;
+void _replyMatches;
+const isReplyType = Schema.is(replySchema.fields.type);
+const isRequestId = Schema.is(replySchema.fields.requestId);
+const isSuccess = Schema.is(successSchema.fields.ok);
+const isFailure = Schema.is(failureSchema.fields.ok);
+const isRoot = Schema.is(successSchema.fields.root);
+const isError = Schema.is(failureSchema.fields.error);
+
+class OxcIpcRequestFailure extends Data.TaggedError('OxcIpcRequestFailure')<{
+  readonly error: unknown;
+}> {}
+
 interface PendingRequest {
+  readonly release: () => void;
   readonly resolve: (response: IpcParseResponse) => void;
-  readonly timer: ReturnType<typeof setTimeout>;
 }
-
 const pending = new Map<string, PendingRequest>();
-
 let listenerInstalled = false;
 function ensureReplyListener(workerSelf: WorkerSelfLike): void {
   if (listenerInstalled) {
     return;
   }
   workerSelf.addEventListener('message', (event) => {
-    const data = event.data;
-    if (!isReplyEnvelope(data)) {
-      return; // not for us — leave other handlers alone
-    }
-    const entry = pending.get(data.requestId);
-    if (!entry) {
+    if (!isReplyEnvelope(event.data)) {
       return;
     }
-    clearTimeout(entry.timer);
-    pending.delete(data.requestId);
-    entry.resolve(data.response);
+    pending.get(event.data.requestId)?.resolve(event.data.response);
   });
   listenerInstalled = true;
 }
 
+/** Field predicates preserve legacy array containers and opaque AST identity. */
 function isReplyEnvelope(value: unknown): value is ReplyEnvelope {
-  if (value === null || typeof value !== 'object') {
+  if (!Predicate.isObjectOrArray(value)) {
     return false;
   }
-  const v = value as Record<string, unknown>;
+  const envelope = value as Record<string, unknown>;
   if (
-    v['type'] !== PARSER_HOST_REPLY ||
-    typeof v['requestId'] !== 'string' ||
-    v['response'] === null ||
-    typeof v['response'] !== 'object'
+    !(
+      isReplyType(envelope['type']) &&
+      isRequestId(envelope['requestId']) &&
+      Predicate.isObjectOrArray(envelope['response'])
+    )
   ) {
     return false;
   }
-  // P2 #990: validate the inner response payload too. Without this, a
-  // success-shaped envelope like `{ ok: true, requestId, root: null }` or
-  // a failure envelope without an error string would slip through and
-  // either crash the consumer (`root.type`) or surface as an empty error.
-  const response = v['response'] as Record<string, unknown>;
-  if (typeof response['requestId'] !== 'string' || typeof response['ok'] !== 'boolean') {
+  const response = envelope['response'] as Record<string, unknown>;
+  if (!isRequestId(response['requestId']) || envelope['requestId'] !== response['requestId']) {
     return false;
   }
-  if (response['ok']) {
-    return response['root'] !== null && typeof response['root'] === 'object';
+  if (isSuccess(response['ok'])) {
+    return isRoot(response['root']);
   }
-  return typeof response['error'] === 'string';
+  return isFailure(response['ok']) && isError(response['error']);
+}
+
+function requestParse(
+  workerSelf: WorkerSelfLike,
+  requestId: string,
+  content: string,
+  options: ParseOptions
+): Effect.Effect<AstNode, OxcIpcRequestFailure> {
+  return Effect.acquireRelease(
+    Effect.sync(() => {
+      let complete: ((outcome: Effect.Effect<AstNode, OxcIpcRequestFailure>) => void) | undefined;
+      let outcome: Effect.Effect<AstNode, OxcIpcRequestFailure> | undefined;
+      let released = false;
+      const release = (): void => {
+        if (released) {
+          return;
+        }
+        released = true;
+        clearTimeout(timer);
+        if (pending.get(requestId) === entry) {
+          pending.delete(requestId);
+        }
+      };
+      const settle = (result: Effect.Effect<AstNode, OxcIpcRequestFailure>): void => {
+        if (outcome) {
+          return;
+        }
+        outcome = result;
+        release();
+        complete?.(result);
+      };
+      const timer = setTimeout(
+        () =>
+          settle(
+            Effect.fail(
+              new OxcIpcRequestFailure({
+                error: new Error(`oxc-ipc-adapter: timeout after ${REQUEST_TIMEOUT_MS}ms`),
+              })
+            )
+          ),
+        REQUEST_TIMEOUT_MS
+      );
+      const entry: PendingRequest = {
+        release,
+        resolve: (response) =>
+          settle(
+            response.ok
+              ? Effect.succeed(response.root)
+              : Effect.fail(
+                  new OxcIpcRequestFailure({
+                    error: new Error(`oxc-ipc-adapter: parser host failure: ${response.error}`),
+                  })
+                )
+          ),
+      };
+      pending.set(requestId, entry);
+      return {
+        awaitReply: Effect.callback<AstNode, OxcIpcRequestFailure>((resume) => {
+          complete = resume;
+          if (outcome) {
+            resume(outcome);
+            return;
+          }
+          try {
+            workerSelf.postMessage({
+              payload: { content, options, requestId },
+              requestId,
+              type: PARSER_HOST_INVOKE,
+            });
+          } catch (error) {
+            settle(Effect.fail(new OxcIpcRequestFailure({ error })));
+          }
+        }),
+        release,
+      };
+    }),
+    (request) => Effect.sync(request.release)
+  ).pipe(
+    Effect.flatMap((request) => request.awaitReply),
+    Effect.scoped
+  );
 }
 
 function getWorkerSelf(): WorkerSelfLike | null {
@@ -174,30 +290,14 @@ export const oxcIpcAdapter: ParserAdapter = {
     ensureReplyListener(workerSelf);
 
     const requestId = generateRequestId();
-    return new Promise<AstNode>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending.delete(requestId);
-        reject(new Error(`oxc-ipc-adapter: timeout after ${REQUEST_TIMEOUT_MS}ms`));
-      }, REQUEST_TIMEOUT_MS);
-
-      pending.set(requestId, {
-        resolve: (response) => {
-          if (response.ok) {
-            resolve(response.root);
-          } else {
-            reject(new Error(`oxc-ipc-adapter: parser host failure: ${response.error}`));
-          }
-        },
-        timer,
-      });
-
-      const envelope: InvokeEnvelope = {
-        payload: { content, options, requestId },
-        requestId,
-        type: PARSER_HOST_INVOKE,
-      };
-      workerSelf.postMessage(envelope);
-    });
+    return runAtPromiseBoundary(requestParse(workerSelf, requestId, content, options)).catch(
+      (error: unknown) => {
+        if (error instanceof OxcIpcRequestFailure) {
+          throw error.error;
+        }
+        throw error;
+      }
+    );
   },
 };
 
@@ -206,8 +306,8 @@ export const oxcIpcAdapter: ParserAdapter = {
  * mocked-context test runs. Not for production callers.
  */
 export function __resetIpcAdapterForTesting(): void {
-  for (const { timer } of pending.values()) {
-    clearTimeout(timer);
+  for (const { release } of pending.values()) {
+    release();
   }
   pending.clear();
   listenerInstalled = false;

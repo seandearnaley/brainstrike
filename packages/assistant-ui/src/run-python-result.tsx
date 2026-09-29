@@ -317,8 +317,8 @@ function resolveSurfaceModel(result: RunPythonDisplayResult): RunPythonSurfaceMo
 
 /**
  * The structured result region for a settled `run_python` call. Mounted by
- * `tool-fallback.tsx` between the header row and the raw-JSON details pane;
- * the raw pane still holds the untouched result object.
+ * `tool-fallback-body.tsx` between the header row and the raw-JSON details
+ * pane; the raw pane still holds the untouched result object.
  */
 export function RunPythonResultSurface({
   result,

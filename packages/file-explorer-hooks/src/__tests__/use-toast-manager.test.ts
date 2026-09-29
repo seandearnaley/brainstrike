@@ -279,8 +279,9 @@ describe('useToastManager', () => {
     });
   });
 
-  it('creates a logger with the ToastManager scope', () => {
-    setup();
+  it('creates a logger with the ToastManager scope', async () => {
+    vi.resetModules();
+    await import('../use-toast-manager.js');
     expect(createLoggerMock).toHaveBeenCalledWith('ToastManager');
   });
 });

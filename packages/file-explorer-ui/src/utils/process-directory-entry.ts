@@ -1,4 +1,5 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { fileNodeToDirectoryHandle } from '@brainstrike/file-system/file-node-handles';
 import type { IFileNode } from '@brainstrike/types';
 import { calculatePathDepth } from '@brainstrike/utils';
 import { getFinalPath } from './get-final-path';
@@ -25,16 +26,10 @@ export async function processDirectoryEntry(
 ): Promise<IFileNode> {
   const finalPath = getFinalPath(directoryHandle, entry, relativePath);
 
-  const entryHandle = entry.handle as Partial<DirectoryHandle> | undefined;
-  const rootId = entryHandle?.rootId ?? directoryHandle.rootId;
-  const dirHandle: DirectoryHandle = {
-    _internal: entry.handle,
-    kind: 'directory',
-    name: entry.name,
-    path: finalPath,
-    platform: directoryHandle.platform,
-    ...(rootId === undefined ? {} : { rootId }),
-  };
+  const dirHandle = fileNodeToDirectoryHandle(
+    { ...entry, path: finalPath },
+    directoryHandle.rootId
+  );
 
   const children = await readTree(dirHandle, rootHandle, relativePath, false, abortSignal);
 

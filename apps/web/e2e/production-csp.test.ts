@@ -14,7 +14,9 @@ const PRODUCTION_CSP = getContentSecurityPolicy('production', 'web');
 interface SecurityPolicyViolationSnapshot {
   readonly blockedUri: string;
   readonly effectiveDirective: string;
+  readonly lineNumber?: number;
   readonly source: 'page' | 'worker';
+  readonly sourceFile?: string;
 }
 
 interface CspDiagnostics {
@@ -90,7 +92,9 @@ test.describe('Production CSP qualification', () => {
         browserWindow.__brainstrikeCspViolations__?.push({
           blockedUri: event.blockedURI,
           effectiveDirective: event.effectiveDirective,
+          lineNumber: event.lineNumber,
           source: 'page',
+          sourceFile: event.sourceFile,
         });
       });
     });
@@ -109,11 +113,37 @@ test.describe('Production CSP qualification', () => {
       if (!hooks) {
         throw new Error('Web E2E hooks are not installed');
       }
-      return {
-        database: await hooks.qualifyDatabaseExtensions(),
-        embedding: await hooks.qualifyLocalEmbedding(),
-        webgpuEmbedding: 'gpu' in navigator ? await hooks.qualifyLocalEmbedding('webgpu') : null,
-      };
+      const database = await hooks.qualifyDatabaseExtensions();
+      const embedding = await hooks.qualifyLocalEmbedding();
+      const adapter = 'gpu' in navigator ? await navigator.gpu.requestAdapter() : null;
+      if (!adapter) {
+        return { database, embedding, webgpu: { kind: 'unavailable' as const } };
+      }
+      if (adapter.features.has('shader-f16')) {
+        return {
+          database,
+          embedding,
+          webgpu: {
+            kind: 'supported' as const,
+            result: await hooks.qualifyLocalEmbedding('webgpu'),
+          },
+        };
+      }
+      // An exposed WebGPU API does not imply fp16 support. Exercise strict
+      // rejection instead of accepting a WASM or dtype fallback.
+      try {
+        await hooks.qualifyLocalEmbedding('webgpu');
+      } catch (error) {
+        return {
+          database,
+          embedding,
+          webgpu: {
+            error: error instanceof Error ? error.message : String(error),
+            kind: 'refused' as const,
+          },
+        };
+      }
+      throw new Error('An fp16 request unexpectedly succeeded without shader-f16 support');
     });
 
     expect(qualification.database).toMatchObject({
@@ -129,8 +159,11 @@ test.describe('Production CSP qualification', () => {
       fallbackApplied: false,
       finite: true,
     });
-    if (qualification.webgpuEmbedding !== null) {
-      expect(qualification.webgpuEmbedding).toEqual({
+    if (qualification.webgpu.kind === 'refused') {
+      expect(qualification.webgpu.error).toContain('The device (webgpu) does not support fp16.');
+    }
+    if (qualification.webgpu.kind === 'supported') {
+      expect(qualification.webgpu.result).toEqual({
         device: 'webgpu',
         dimensions: 384,
         dtype: 'fp16',

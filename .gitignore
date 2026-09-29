@@ -162,8 +162,8 @@ apps/desktop/resources/python-runtime/*
 
 # Vitest browser-mode (real Chromium) run artifacts
 **/.vitest-attachments/
-packages/db/.vitest-reports/
-packages/**/__screenshots__/
+# Vitest 5 generated reports and attachments; visual baselines remain trackable.
+.vitest/
 packages/mcp-test-lab/artifacts/
 
 .claude

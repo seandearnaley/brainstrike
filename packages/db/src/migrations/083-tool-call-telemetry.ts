@@ -33,6 +33,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration083ToolCallTelemetry: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_tool_call_telemetry;',
+  ledgerKey: 'custom-083-tool-call-telemetry',
   name: 'tool_call_telemetry',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_tool_call_telemetry (

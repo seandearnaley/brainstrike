@@ -50,7 +50,6 @@
     "src/__tests__/mcp-tasks-lifecycle.integration.spec.ts",
     "src/__tests__/mcp-tool-guard-cancellation.integration.spec.ts",
     "src/__tests__/mcp-tool-loader.spec.ts",
-    "src/__tests__/native-tool-display-schema-parity.spec.ts",
     "src/__tests__/native-tool-input-schema-catalog.spec.ts",
     "src/__tests__/native-web-search.spec.ts",
     "src/__tests__/openai-reasoning-item-replay.integration.spec.ts",

@@ -8,6 +8,7 @@ const service = {
   create: vi.fn(),
   createBranchHere: vi.fn(),
   createContext: vi.fn(),
+  inspectArchive: vi.fn(),
   isManagedWorktreePath: vi.fn(),
   list: vi.fn(),
   listManagedPaths: vi.fn(),
@@ -259,9 +260,44 @@ describe('worktrees IPC handlers', () => {
 
   it('forwards a validated archive to the service', async () => {
     service.archive.mockResolvedValue({ ok: true, value: { snapshotRef: 'ref', worktree: null } });
-    const params = { force: true, runId: 'run-1', worktreeId: 'wt-1' };
+    const params = {
+      confirmIgnoredEntries: 'confirmation-token',
+      force: true,
+      runId: 'run-1',
+      worktreeId: 'wt-1',
+    };
     await handlers().archive(params);
     expect(service.archive).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects malformed archive confirmation and inspection payloads', async () => {
+    await expect(
+      handlers().archive({ confirmIgnoredEntries: true, worktreeId: 'wt-1' })
+    ).resolves.toEqual({
+      error: 'worktrees:archive confirmIgnoredEntries must be a non-empty string when present.',
+      ok: false,
+    });
+    await expect(handlers().inspectArchive({ worktreeId: 42 })).resolves.toEqual({
+      error: 'worktrees:inspectArchive requires { worktreeId }.',
+      ok: false,
+    });
+    expect(service.archive).not.toHaveBeenCalled();
+    expect(service.inspectArchive).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated archive inspection to the service', async () => {
+    service.inspectArchive.mockResolvedValue({
+      ok: true,
+      value: {
+        confirmationToken: 'confirmation-token',
+        ignoredEntryCount: 1,
+        ignoredTopLevelEntries: ['.env'],
+        ignoredTopLevelEntriesTruncated: false,
+        ignoredTopLevelEntryCount: 1,
+      },
+    });
+    await handlers().inspectArchive({ worktreeId: 'wt-1' });
+    expect(service.inspectArchive).toHaveBeenCalledWith({ worktreeId: 'wt-1' });
   });
 
   it('rejects a malformed checkout-status payload at the boundary', async () => {

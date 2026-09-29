@@ -316,7 +316,8 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       .getByRole('tab')
       .first();
     await expect(threadTab).toBeVisible();
-    await expect(threadTab.getByTestId('assistant-thread-tab-glyph-message')).toBeVisible();
+    // The tab renders the Threads-panel identity mark itself (BST-1838).
+    await expect(threadTab.getByTestId('thread-icon-message')).toBeVisible();
 
     // Customization moved into the row's "Thread actions" popover (#1661). The
     // popover renders in a portal, so its controls are scoped to the open
@@ -331,7 +332,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     const iconCustomizationStartedAt = Date.now();
     await threadActions.getByRole('button', { name: 'Use Bug icon' }).click();
     await expect(threadRow.getByTestId('thread-icon-bug')).toBeVisible();
-    await expect(threadTab.getByTestId('assistant-thread-tab-glyph-bug')).toBeVisible();
+    await expect(threadTab.getByTestId('thread-icon-bug')).toBeVisible();
     expect(
       Date.now() - iconCustomizationStartedAt,
       'Thread icon customization exceeded the click-to-paint performance budget.'
@@ -340,7 +341,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     const colorCustomizationStartedAt = Date.now();
     await threadActions.getByRole('button', { name: 'Use Rose color' }).click();
     await expect(threadRow.getByTestId('thread-color-rose')).toBeVisible();
-    await expect(threadTab.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible();
+    await expect(threadTab.getByTestId('thread-color-rose')).toBeVisible();
     expect(
       Date.now() - colorCustomizationStartedAt,
       'Thread color customization exceeded the click-to-paint performance budget.'
@@ -396,8 +397,8 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       .getByRole('tablist', { name: 'Open assistant threads' })
       .getByRole('tab')
       .first();
-    await expect(reloadedThreadTab.getByTestId('assistant-thread-tab-glyph-bug')).toBeVisible();
-    await expect(reloadedThreadTab.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible();
+    await expect(reloadedThreadTab.getByTestId('thread-icon-bug')).toBeVisible();
+    await expect(reloadedThreadTab.getByTestId('thread-color-rose')).toBeVisible();
   });
 
   test('tracks concurrent thread activity from durable runs and clears every terminal spinner', async ({
@@ -412,6 +413,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
     await page.getByTestId('new-agent-button').click();
     await expect(page.getByTestId('thread-row')).toHaveCount(2);
+    // Rows and thread tabs render the same identity mark (BST-1838), so each
+    // surface's running badges are counted on their own.
+    const rowSpinners = page.getByTestId('threads-panel').getByTestId('thread-active-spinner');
+    const tabSpinners = page
+      .getByRole('tablist', { name: 'Open assistant threads' })
+      .getByTestId('thread-active-spinner');
 
     const threads = await page.evaluate(async (resourceId) => {
       const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
@@ -452,14 +459,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       }
     );
 
-    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(2);
+    await expect(rowSpinners).toHaveCount(2);
+    await expect(tabSpinners).toHaveCount(2);
     await expect(
       page.getByTestId('thread-row').locator('[data-testid^="thread-icon-"]')
     ).toHaveCount(2);
-    await expect(page.getByTestId('thread-active-spinner').first()).toHaveCSS(
-      'animation-name',
-      'none'
-    );
+    await expect(rowSpinners.first()).toHaveCSS('animation-name', 'none');
 
     await page.evaluate(async (runId) => {
       const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
@@ -469,7 +474,8 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       }
       await hooks.completeAssistantThreadRun(runId, 'completed');
     }, firstRunId);
-    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(1);
+    await expect(rowSpinners).toHaveCount(1);
+    await expect(tabSpinners).toHaveCount(1);
 
     await page.evaluate(async (runId) => {
       const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
@@ -479,7 +485,8 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       }
       await hooks.completeAssistantThreadRun(runId, 'failed');
     }, secondRunId);
-    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(0);
+    await expect(rowSpinners).toHaveCount(0);
+    await expect(tabSpinners).toHaveCount(0);
     await expect(
       page.getByTestId('thread-row').locator('[data-testid^="thread-icon-"]')
     ).toHaveCount(2);
@@ -500,7 +507,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
         threadId: firstThread.id,
       }
     );
-    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(1);
+    await expect(rowSpinners).toHaveCount(1);
     await page.evaluate(async (runId) => {
       const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
         .__brainstrikeWebE2ETestHooks__;
@@ -509,7 +516,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       }
       await hooks.completeAssistantThreadRun(runId, 'cancelled');
     }, cancellationRunId);
-    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(0);
+    await expect(rowSpinners).toHaveCount(0);
 
     const orphanedRunId = `e2e-orphaned-run-${crypto.randomUUID()}`;
     await page.evaluate(
@@ -529,7 +536,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
         threadId: firstThread.id,
       }
     );
-    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(1);
+    await expect(rowSpinners).toHaveCount(1);
 
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: true });
@@ -537,7 +544,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(0);
+    await expect(rowSpinners).toHaveCount(0);
   });
 
   test('keeps thread identity aligned when switching into rename mode', async ({ page }) => {
@@ -578,7 +585,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     const viewport = page.getByTestId('assistant-ui-viewport');
     await expect(viewport).toBeVisible();
 
-    await page.locator('#assistant-input').fill('tell me a joke');
+    await page.getByRole('textbox', { name: 'Message input' }).fill('tell me a joke');
     const sendBtn = page.getByRole('button', { exact: true, name: 'Send' });
     await sendBtn.click();
 
@@ -610,17 +617,24 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     const viewport = page.getByTestId('assistant-ui-viewport');
     await expect(viewport).toBeVisible();
 
-    await page.locator('#assistant-input').fill('echo hidden tool details');
+    await page.getByRole('textbox', { name: 'Message input' }).fill('echo hidden tool details');
     await page.getByRole('button', { exact: true, name: 'Send' }).click();
 
     // Since #1237/#1240 a turn's tool cards live inside a per-turn Activity
-    // group that auto-collapses when the turn finishes (the card stays in the
-    // DOM but hidden). Deterministically wait out the auto-collapse, then
-    // expand the group — the per-card details below must STILL be collapsed
-    // until explicitly expanded (the behavior this test exists to pin).
+    // group (the card stays in the DOM but hidden). Sync on the turn
+    // FINISHING via `data-state` — since BST-1679 the group is collapsed at
+    // all times, so `aria-expanded` is no longer that signal — then assert
+    // the collapsed default still holds and expand it. The per-card details
+    // below must STILL be collapsed until explicitly expanded (the behavior
+    // this test exists to pin).
     const activitySummary = viewport.getByTestId('assistant-activity-summary');
     await expect(activitySummary).toBeVisible({ timeout: 10_000 });
-    await expect(activitySummary).toHaveAttribute('aria-expanded', 'false', { timeout: 10_000 });
+    await expect(viewport.getByTestId('assistant-activity-group')).toHaveAttribute(
+      'data-state',
+      'done',
+      { timeout: 10_000 }
+    );
+    await expect(activitySummary).toHaveAttribute('aria-expanded', 'false');
     await activitySummary.click();
 
     const toolCard = viewport.getByTestId('tool-fallback');
@@ -632,7 +646,17 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(toolCard.getByText('Arguments:')).toBeHidden();
     await expect(toolCard.getByText('Result:')).toBeHidden();
 
-    await toolCard.getByRole('button', { name: 'Expand details' }).click();
+    // BST-1682 (WCAG 2.5.3 Label in Name): the row's accessible name leads
+    // with its visible content ("Called web.echo hello from mock, expand
+    // details" — `extractPrimaryArg` falls back to the first string-valued
+    // arg, and this call's arg is `{ text: 'hello from mock' }`), so the
+    // affordance is matched as a substring rather than the whole name.
+    // `.first()` keeps the locator single-match the way `exact: true` used
+    // to, in case the card ever grows a nested expandable row.
+    await toolCard
+      .getByRole('button', { name: /expand details/i })
+      .first()
+      .click();
     await expect(toolCard.getByText('Arguments:')).toBeVisible();
     await expect(toolCard.getByText('Result:')).toBeVisible();
   });
@@ -696,7 +720,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       ),
     ].join('\n\n');
 
-    const input = page.locator('#assistant-input');
+    const input = page.getByRole('textbox', { name: 'Message input' });
     await input.fill(longPrompt);
     await composerShell.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(viewport.getByText(/Mock response from tests/i)).toHaveCount(1, {
@@ -875,15 +899,15 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     const tabStrip = page.getByTestId('assistant-thread-tab-strip');
     const tabScroll = page.getByTestId('assistant-thread-tab-scroll');
     const tabList = page.getByRole('tablist', { name: 'Open assistant threads' });
-    const scrollLeftButton = page.getByTestId('assistant-tabs-scroll-left');
-    const scrollRightButton = page.getByTestId('assistant-tabs-scroll-right');
     const newThreadButton = page.getByTestId('assistant-new-thread-button');
+    const allTabsButton = tabStrip.getByRole('button', { name: 'All tabs' });
 
     await expect(tabStrip).toBeVisible();
     await expect(tabScroll).toBeVisible();
-    await expect(scrollLeftButton).toBeVisible();
-    await expect(scrollRightButton).toBeVisible();
     await expect(newThreadButton).toBeVisible();
+    await expect(allTabsButton).toBeVisible();
+    // BST-1836 D2: no scroll chevrons; fades, wheel and the All-tabs menu own overflow.
+    await expect(tabStrip.getByRole('button', { name: /Scroll assistant tabs/ })).toHaveCount(0);
 
     const initialTabCount = await tabList.getByRole('tab').count();
     const initialButtonBox = await newThreadButton.boundingBox();
@@ -906,14 +930,15 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       scrollWidth: element.scrollWidth,
     }));
     expect(scrollMetrics.scrollWidth).toBeGreaterThan(scrollMetrics.clientWidth);
-    await expect(scrollLeftButton).toBeEnabled();
-    await expect(scrollRightButton).toBeDisabled();
+    // The newest tab is revealed at the end, so only the start edge fades.
+    await expect(tabScroll).toHaveAttribute('data-overflow-start', 'true');
+    await expect(tabScroll).not.toHaveAttribute('data-overflow-end', 'true');
 
     await tabScroll.evaluate((element) => {
       element.scrollTo({ behavior: 'instant', left: 0 });
     });
-    await expect(scrollLeftButton).toBeDisabled();
-    await expect(scrollRightButton).toBeEnabled();
+    await expect(tabScroll).not.toHaveAttribute('data-overflow-start', 'true');
+    await expect(tabScroll).toHaveAttribute('data-overflow-end', 'true');
 
     const overflowButtonBox = await newThreadButton.boundingBox();
     const overflowFirstTabBox = await tabList.getByRole('tab').first().boundingBox();
@@ -932,23 +957,21 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     expect(Math.abs(overflowFirstTabBox.height - initialFirstTabBox.height)).toBeLessThan(2);
     expect(overflowButtonBox.x).toBeGreaterThanOrEqual(tabListBox.x + tabListBox.width);
 
-    const beforeButtonScrollLeft = await tabScroll.evaluate((element) => element.scrollLeft);
-    await scrollRightButton.click();
-    await expect
-      .poll(() => tabScroll.evaluate((element) => element.scrollLeft))
-      .toBeGreaterThan(beforeButtonScrollLeft);
-    await expect(scrollLeftButton).toBeEnabled();
-
-    await tabScroll.evaluate((element) => {
-      element.scrollLeft = 0;
-    });
     await tabScroll.hover();
     await page.mouse.wheel(0, 240);
     await expect.poll(() => tabScroll.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
 
+    // The All-tabs menu reaches a tab scrolled out of view and reveals it.
     await tabScroll.evaluate((element) => {
       element.scrollLeft = element.scrollWidth;
     });
+    await allTabsButton.click();
+    const allTabs = page.getByRole('menuitemradio');
+    await expect(allTabs).toHaveCount(initialTabCount + 8);
+    await allTabs.first().click();
+    const firstTab = tabList.getByRole('tab').first();
+    await expect(firstTab).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(() => tabScroll.evaluate((element) => element.scrollLeft)).toBe(0);
 
     const scrolledButtonBox = await newThreadButton.boundingBox();
     expect(scrolledButtonBox).not.toBeNull();

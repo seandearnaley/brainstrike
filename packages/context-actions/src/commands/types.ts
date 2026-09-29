@@ -33,7 +33,7 @@ export interface CommandContext {
   readonly target?: ContextTarget;
 }
 
-export interface Command {
+interface CommandBase {
   readonly group?: CommandGroup;
   readonly icon?: CommandIcon;
   /** Namespaced, stable id: 'thread.new', 'nav.settings', 'fs.reveal'. */
@@ -50,8 +50,32 @@ export interface Command {
   readonly label: string;
   /** All MUST be present in `ctx.capabilities` or the command is HIDDEN. */
   readonly requiredCapabilities?: readonly CommandCapability[];
+}
+
+/** A command that does its work when chosen. */
+export interface RunCommand extends CommandBase {
+  readonly page?: never;
   readonly run: (ctx: CommandContext) => Promise<ActionOutcome>;
 }
+
+/** A follow-up list the palette shows in place of the root list. */
+export interface CommandPage {
+  readonly commands: readonly RunCommand[];
+  /** Section heading over the page's commands. */
+  readonly heading: string;
+  readonly placeholder: string;
+}
+
+/**
+ * A command that opens a page of further commands when chosen (Go to Tab…),
+ * built from the context at that moment. Only the ⌘K palette can show one.
+ */
+export interface PageCommand extends CommandBase {
+  readonly page: (ctx: CommandContext) => CommandPage;
+  readonly run?: never;
+}
+
+export type Command = RunCommand | PageCommand;
 
 export interface CommandRegistry {
   /** Commands runnable in this context: capability ⊆ ctx AND isAvailable. */

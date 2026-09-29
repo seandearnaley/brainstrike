@@ -14,6 +14,13 @@ import { SETTINGS_SEARCH_INPUT_STYLE } from './settings/settings-search-layout';
 const SETTINGS_HASH_PREFIX = 'settings/';
 
 /**
+ * `document` (default): a centred `max-w-3xl` column; the page scrolls.
+ * `workspace`: full width and height; the category owns its own scrolling
+ * (BST-1805 — the Model Catalog's single scroll owner).
+ */
+export type SettingsCategoryLayout = 'document' | 'workspace';
+
+/**
  * Represents a settings category that can be rendered in the settings page.
  *
  * Categories appear in the left navigation panel and their content is displayed
@@ -43,6 +50,8 @@ export interface SettingsCategory {
    * Use this to clarify the purpose or scope of the category.
    */
   description?: string;
+  /** Optional controls rendered at the right of the category title (e.g. Refresh). */
+  headerActions?: ReactNode;
 
   /**
    * Optional Lucide icon component displayed in the navigation panel.
@@ -63,6 +72,8 @@ export interface SettingsCategory {
    * Searches are case-insensitive and use substring matching.
    */
   keywords?: string[];
+  /** How the category's content is laid out; defaults to `document`. */
+  layout?: SettingsCategoryLayout;
 
   /**
    * Display name shown in the navigation panel and content header.
@@ -240,7 +251,7 @@ export function SettingsPageContent({
         <div className="border-border/60 border-b px-4 pt-4 pb-3">
           <div className="flex items-center gap-2 px-1">
             <Settings aria-hidden="true" className="size-4 text-muted-foreground" />
-            <span className="font-medium text-sm">Settings</span>
+            <h1 className="font-medium text-sm">Settings</h1>
           </div>
           <div className="relative mt-3">
             <SettingsSearchIcon />
@@ -305,25 +316,54 @@ export function SettingsPageContent({
         </div>
       </nav>
 
-      <section className="min-h-0 overflow-y-auto px-8 lg:px-10" style={{ paddingBlock: '2rem' }}>
+      <section
+        className={cn(
+          'min-h-0 px-8 lg:px-10',
+          activeCategory?.layout === 'workspace'
+            ? 'flex flex-col overflow-hidden'
+            : 'overflow-y-auto'
+        )}
+        style={{ paddingBlock: '2rem' }}
+      >
         {filteredCategories.length === 0 ? (
           <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
             Try adjusting your search to find settings.
           </div>
         ) : activeCategory ? (
           <div
-            className="mx-auto max-w-3xl space-y-7"
+            className={
+              activeCategory.layout === 'workspace'
+                ? 'flex min-h-0 w-full flex-1 flex-col gap-5'
+                : 'mx-auto max-w-3xl space-y-7'
+            }
+            data-layout={activeCategory.layout ?? 'document'}
             data-testid={`settings-category-${activeCategory.id}`}
           >
-            <div className="border-border/60 border-b pr-10 pb-5">
-              <h2 className="font-semibold text-xl tracking-tight">{activeCategory.title}</h2>
-              {activeCategory.description ? (
-                <p className="mt-1.5 max-w-2xl text-muted-foreground text-sm leading-relaxed">
-                  {activeCategory.description}
-                </p>
+            <div
+              className="flex shrink-0 items-start justify-between gap-4 border-border/60 border-b pb-5"
+              data-testid={`settings-category-header-${activeCategory.id}`}
+            >
+              <div className="min-w-0">
+                <h2 className="font-semibold text-xl tracking-tight">{activeCategory.title}</h2>
+                {activeCategory.description ? (
+                  <p className="mt-1.5 max-w-2xl text-muted-foreground text-sm leading-relaxed">
+                    {activeCategory.description}
+                  </p>
+                ) : null}
+              </div>
+              {activeCategory.headerActions ? (
+                <div className="flex shrink-0 items-center gap-2">
+                  {activeCategory.headerActions}
+                </div>
               ) : null}
             </div>
-            <div className="space-y-6">{activeCategory.content}</div>
+            <div
+              className={
+                activeCategory.layout === 'workspace' ? 'flex min-h-0 flex-1 flex-col' : 'space-y-6'
+              }
+            >
+              {activeCategory.content}
+            </div>
           </div>
         ) : (
           <div className="flex h-full items-center justify-center text-muted-foreground text-sm">

@@ -11,9 +11,9 @@ import { CodeBlockBody, CodeBlockHeader } from '@brainstrike/ui/code-block';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
-import { AssistantActivityGroup } from '../assistant-activity-group';
+import { ActivityTrace } from '../activity-trace';
+import type { ActivitySummary } from '../activity-trace-model';
 import { UserMessage } from '../assistant-ui-panel';
-import type { ToolActivitySummary } from '../tool-activity';
 // Theme variables (colors, shimmer, tints) so screenshots render faithfully.
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
@@ -46,20 +46,20 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const activeSummary: ToolActivitySummary = {
-  activeArg: 'packages/db/src/registry.ts',
-  activeLabel: 'brainstrike.grepSearch',
-  failedCount: 0,
-  runningCount: 1,
-  stepCount: 3,
+const activeSummary: ActivitySummary = {
+  counts: { failed: 0, steps: 3 },
+  live: 'Searching packages/db/src/registry.ts',
+  resting: 'Searched',
+  verbs: 'Searched',
+  waiting: false,
 };
 
-const doneSummary: ToolActivitySummary = {
-  activeArg: null,
-  activeLabel: null,
-  failedCount: 0,
-  runningCount: 0,
-  stepCount: 5,
+const doneSummary: ActivitySummary = {
+  counts: { failed: 0, steps: 5 },
+  live: 'Working',
+  resting: 'Read 2 files, searched',
+  verbs: 'Read 2 files, searched',
+  waiting: false,
 };
 
 describe('markdown typography (real browser, with preflight reset)', () => {
@@ -349,39 +349,71 @@ describe('shared code-block chrome (real browser)', () => {
   }, 20_000);
 });
 
-describe('AssistantActivityGroup (real browser)', () => {
-  test('active turn: live "Working" heartbeat, current tool, expanded body', () => {
+describe('ActivityTrace (real browser)', () => {
+  test('active turn: live current-step label + detail line in the header, body collapsed until expanded', async () => {
+    const user = userEvent.setup();
     render(
       <div className="assistant-ui-panel">
-        <AssistantActivityGroup isActive summary={activeSummary}>
+        <ActivityTrace
+          detail="packages/db/src/registry.ts"
+          fallbackMs={undefined}
+          incompleteReason={undefined}
+          isActive
+          restingOverride={null}
+          summary={activeSummary}
+        >
           <div data-testid="tool-rows">tool rows</div>
-        </AssistantActivityGroup>
+        </ActivityTrace>
       </div>
     );
 
-    expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent('Working');
-    expect(screen.getByText(/brainstrike\.grepSearch/)).toBeVisible();
-    expect(screen.getByText(/registry\.ts/)).toBeVisible();
-    expect(screen.getByTestId('assistant-activity-body')).toBeVisible();
+    expect(screen.getByTestId('assistant-activity-working')).toHaveTextContent(
+      'Searching packages/db/src/registry.ts'
+    );
+    expect(screen.getByText('packages/db/src/registry.ts')).toHaveClass('bs-trace-detail');
+    // Collapsed by default even while active (BST-1677 wave 3, Sean's
+    // request): the header is the live cycler, so the body starts hidden.
+    const body = screen.getByTestId('assistant-activity-body');
+    expect(body).not.toBeVisible();
 
     // The panel chrome actually rendered (CSS applied in a real browser).
     const group = screen.getByTestId('assistant-activity-group');
     expect(group).toHaveAttribute('data-active', 'true');
     expect(Number.parseFloat(getComputedStyle(group).borderRadius)).toBeGreaterThan(0);
+
+    // The user can still expand it while active.
+    await user.click(screen.getByTestId('assistant-activity-summary'));
+    expect(body).toBeVisible();
   });
 
   test('done turn: auto-collapsed summary that expands on click', async () => {
     const user = userEvent.setup();
     render(
       <div className="assistant-ui-panel">
-        <AssistantActivityGroup fallbackMs={12_000} isActive={false} summary={doneSummary}>
+        <ActivityTrace
+          detail={null}
+          fallbackMs={12_000}
+          incompleteReason={undefined}
+          isActive={false}
+          restingOverride={null}
+          summary={doneSummary}
+        >
           <div data-testid="tool-rows">tool rows</div>
-        </AssistantActivityGroup>
+        </ActivityTrace>
       </div>
     );
 
-    expect(screen.getByText('Worked')).toBeVisible();
-    expect(screen.getByText(/for 12\.0s/)).toBeVisible();
+    // Asserted synchronously since BST-1681 task 6. This used to poll: the
+    // headline carried `bs-trace-label` with `animation-fill-mode: both` on
+    // its very first paint, so it began the frame at opacity 0 and real
+    // Chromium read it as hidden until the 250ms crossfade landed. The
+    // entrance is now gated to an actual change of wording
+    // (`useLabelEnterClass`), and a first paint takes `bs-trace-label-static`
+    // — `animation: none`, opaque immediately. Nothing else on this row
+    // animates its opacity, so there is nothing left to wait for and a wait
+    // here would only hide a regression behind a 2s timeout.
+    expect(screen.getByText('Read 2 files, searched')).toBeVisible();
+    expect(screen.getByText(/Worked for 12\.0s/)).toBeVisible();
     expect(screen.getByText(/5 steps/)).toBeVisible();
 
     // Auto-collapsed when done: the body is hidden (display:none via [hidden]).
@@ -393,15 +425,34 @@ describe('AssistantActivityGroup (real browser)', () => {
     expect(body).toBeVisible();
   });
 
-  test('failed turn renders the failed treatment', () => {
+  test('a failed step is counted in the summary without failing the whole group', () => {
     render(
       <div className="assistant-ui-panel">
-        <AssistantActivityGroup isActive={false} summary={{ ...doneSummary, failedCount: 2 }} />
+        {/* Hand-translates the one Tailwind utility this assertion needs
+            (this package's own tests never compile Tailwind, see the
+            USER_MESSAGE_LAYOUT_SHIM comment above), so the comparison below
+            measures the real destructive design token in real Chromium
+            rather than hardcoding an expected color string. */}
+        <style>{'.text-destructive { color: hsl(var(--destructive)); }'}</style>
+        <span className="text-destructive" data-testid="destructive-token-probe" />
+        <ActivityTrace
+          detail={null}
+          fallbackMs={undefined}
+          incompleteReason={undefined}
+          isActive={false}
+          restingOverride={null}
+          summary={{ ...doneSummary, counts: { failed: 2, steps: 5 } }}
+        />
       </div>
     );
     const group = screen.getByTestId('assistant-activity-group');
-    expect(group).toHaveAttribute('data-failed', 'true');
-    expect(screen.getByText('Activity failed')).toBeVisible();
+    expect(group).toHaveAttribute('data-failed', 'false');
+    const failedCount = screen.getByTestId('assistant-activity-failed-count');
+    expect(failedCount).toBeVisible();
+    expect(failedCount).toHaveTextContent('2 failed');
+    const destructiveColor = getComputedStyle(screen.getByTestId('destructive-token-probe')).color;
+    expect(getComputedStyle(failedCount).color).toBe(destructiveColor);
+    expect(screen.queryByText('Activity failed')).not.toBeInTheDocument();
   });
 });
 
@@ -470,25 +521,75 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     run: () => Promise.resolve({ content: [], status: { reason: 'stop', type: 'complete' } }),
   };
 
+  /**
+   * BOTH messages carry this SAME string on purpose (BST-1687).
+   *
+   * The assertion below compares a rect taken in one message root against a
+   * rect taken in the OTHER, which is only meaningful while the two roots
+   * resolve the same columns. `grid-template-columns` is declared identically,
+   * but its second track is `auto` -- sized by each root's OWN bubble content.
+   * With two different strings the two roots resolved column 1 to 342.859px
+   * and 328.438px, so the comparison was measuring two genuinely different
+   * columns and only passed while an unrelated accident (see the settle step
+   * in the test) kept both bubbles showing the same placeholder text.
+   */
+  const USER_MESSAGE_TEXT = 'A user message';
+
+  /**
+   * Keeps every message root clear of the browser's RESTING POINTER (BST-1687).
+   *
+   * Headless Chromium parks its pointer on the viewport origin even though this
+   * suite never dispatches a real mouse event. Measured in the CI container
+   * image (mcr.microsoft.com/playwright:v1.63.0-noble), not assumed: the live
+   * hover chain there reads
+   *
+   *   HTML > BODY > DIV > .assistant-ui-panel > .bs-thread >
+   *   .aui-thread-viewport > .aui-user-message-root
+   *
+   * and a 40x40 `:hover` probe grid over the 414x896 viewport lights exactly
+   * one cell -- (0,0), i.e. x < 10.35px, y < 22.4px.
+   *
+   * MessagePrimitive.Root reads that state directly. Its ref callback attaches
+   * the mouseenter/mouseleave listeners AND, whenever the element it is given
+   * ALREADY matches `:hover`, queues `message.setIsHovering(true)`. A message
+   * root laid out flush against the origin is therefore genuinely hovered
+   * before this test touches it, and `autohide="not-last"` +
+   * `autohideFloat="always"` mounts its bar FLOATING. That is correct component
+   * behaviour and a broken test precondition: the subject here is a NON-hovered
+   * non-last message, and the row-height and rect assertions below are only
+   * about the hover the test itself performs.
+   *
+   * The offset only has to be greater than zero; the pointer assertions in the
+   * test prove it did its job rather than trusting that it did. macOS headless
+   * Chromium parks no pointer at all, which is why this was green on every
+   * local run and red on the first CI run at 397c71a.
+   */
+  const POINTER_PARK_OFFSET_PX = 64;
+
   function TwoUserMessagesHarness() {
     const initialMessages: readonly ThreadMessageLike[] = [
-      { content: [{ text: 'First message', type: 'text' }], role: 'user' },
-      { content: [{ text: 'Second message', type: 'text' }], role: 'user' },
+      { content: [{ text: USER_MESSAGE_TEXT, type: 'text' }], role: 'user' },
+      { content: [{ text: USER_MESSAGE_TEXT, type: 'text' }], role: 'user' },
     ];
     const runtime = useLocalRuntime(twoUserMessageModel, { initialMessages });
 
     return (
       <TooltipProvider>
         <AssistantRuntimeProvider runtime={runtime}>
-          <div className="assistant-ui-panel">
-            <div className="bs-thread">
-              <div className="aui-thread-viewport">
-                <ThreadPrimitive.Messages
-                  components={{
-                    AssistantMessage: () => null,
-                    UserMessage,
-                  }}
-                />
+          {/* Inline style, not a Tailwind utility: a class that the v4 content
+              scan did not happen to pick up in this lane would silently leave
+              the roots back under the pointer. */}
+          <div style={{ paddingTop: `${POINTER_PARK_OFFSET_PX}px` }}>
+            <div className="assistant-ui-panel">
+              <div className="bs-thread">
+                <div className="aui-thread-viewport">
+                  <ThreadPrimitive.Messages
+                    components={{
+                      AssistantMessage: () => null,
+                      UserMessage,
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -505,12 +606,55 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     // hides it), so waiting for its Edit button confirms hydration settled.
     await screen.findByRole('button', { name: 'Edit message' });
 
+    // ...and then settle the bubble TEXT before anything is measured
+    // (BST-1687). UserMessageText resolves `./markdown-text` through a DYNAMIC
+    // import and renders a "Loading message…" placeholder until it lands; that
+    // placeholder is wider than the real text, and column 2 is `auto`, so the
+    // swap widens column 1 -- and with it the bar's right edge -- by exactly
+    // the text-width difference. The reference rect is read before the hover
+    // and the floating rect after it, so a swap landing between the two turns
+    // a pure measurement artifact into a rect mismatch. Whether it lands there
+    // depends only on how warm the module graph already is, i.e. on which
+    // other browser files ran first in the same Chromium page: cold, both
+    // rects were read against the placeholder and agreed; warm, the floating
+    // rect alone was read against the real text and came back a constant
+    // 32.484375px wider.
+    await waitFor(() => {
+      const bubbles = screen.getAllByTestId('assistant-user-message-content');
+      expect(bubbles).toHaveLength(2);
+      for (const bubble of bubbles) {
+        expect(bubble).toHaveTextContent(USER_MESSAGE_TEXT);
+      }
+    });
+
     const roots = document.querySelectorAll<HTMLElement>('.aui-user-message-root');
     expect(roots).toHaveLength(2);
     const [nonLastRoot, lastRoot] = roots;
     if (!(nonLastRoot && lastRoot)) {
       throw new Error('expected both user message roots');
     }
+
+    // The three preconditions this test rests on, asserted rather than assumed
+    // (all three were only assumed before BST-1687). They are deliberately
+    // independent of the settle step and the harness offset that establish
+    // them: removing either has to fail here, loudly, instead of re-arming a
+    // flake that depends on the environment.
+    for (const root of [nonLastRoot, lastRoot]) {
+      // 1. Past the lazy-markdown placeholder, so no content-sized track can
+      //    resize between the reference read and the floating read.
+      expect(root).toHaveTextContent(USER_MESSAGE_TEXT);
+      // 3. The REAL pointer rests clear of BOTH roots, so the only hover in
+      //    this test is the one it performs itself. Established by the
+      //    harness's POINTER_PARK_OFFSET_PX: drop that offset and the non-last
+      //    root sits on the viewport origin, where headless Chromium parks its
+      //    pointer, and this is true before a single event is dispatched.
+      expect(root.matches(':hover')).toBe(false);
+    }
+    // 2. Both roots resolve the SAME columns -- not merely the same declared
+    //    template -- so "the same spot" is a statement about one column.
+    expect(getComputedStyle(nonLastRoot).gridTemplateColumns).toBe(
+      getComputedStyle(lastRoot).gridTemplateColumns
+    );
 
     // Reference geometry: the LAST message's bar is always mounted IN FLOW
     // (Normal status -- autohide="not-last" never hides it, so it never
@@ -544,9 +688,9 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
     const heightAfterHover = nonLastRoot.getBoundingClientRect().height;
     expect(heightAfterHover).toBe(heightBeforeHover);
 
-    // Both message roots share identical column geometry (same grid
-    // template, same-width thread), so the floating bar's rect must match
-    // the in-flow reference bar's rect -- same visual spot, it just no
+    // Both message roots share identical column geometry (asserted above:
+    // same RESOLVED columns, same-width thread), so the floating bar's rect
+    // must match the in-flow reference bar's rect -- same visual spot, it just no
     // longer contributes to row 2's height. Pins BOTH axes: an abspos grid
     // item with only its START lines definite resolves its END lines (and
     // therefore its containing block) to the grid container's padding

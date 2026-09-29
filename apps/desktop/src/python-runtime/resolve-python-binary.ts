@@ -1,6 +1,7 @@
 import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import { Result, Schema, SchemaIssue } from 'effect';
 
 /**
  * BST-1061 / BST-1627: resolve the bundled python-build-standalone CPython for
@@ -64,20 +65,6 @@ export function isPythonRuntimeError(error: unknown): error is PythonRuntimeErro
   return error instanceof PythonRuntimeError;
 }
 
-export interface PythonRuntimeManifestTarget {
-  readonly bytes: number;
-  readonly sha256: string;
-}
-
-export interface PythonRuntimeManifest {
-  readonly assetUrlTemplate: string;
-  readonly pythonVersion: string;
-  readonly releaseTag: string;
-  readonly supportedTargets: readonly string[];
-  readonly targets: Readonly<Record<string, PythonRuntimeManifestTarget>>;
-  readonly variant: string;
-}
-
 export interface ResolvePythonBinaryOptions {
   /** Defaults to `process.arch`; injectable for tests. */
   readonly arch?: string;
@@ -107,6 +94,25 @@ export interface ResolvePythonBinaryOptions {
 export const PYTHON_RUNTIME_SENTINEL_FILE_NAME = '.brainstrike-python-runtime-ok';
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const BINARY_RELATIVE_PATH = path.join('python', 'bin', 'python3');
+const manifestTargetSchema = Schema.Struct({
+  bytes: Schema.Int.check(Schema.isGreaterThan(0)),
+  sha256: Schema.String.check(Schema.isPattern(SHA256_HEX)),
+});
+// Keep the old error priority: required strings precede both collection fields.
+const manifestStringFields = {
+  assetUrlTemplate: Schema.NonEmptyString,
+  pythonVersion: Schema.NonEmptyString,
+  releaseTag: Schema.NonEmptyString,
+  variant: Schema.NonEmptyString,
+};
+const manifestSchema = Schema.Struct({
+  ...manifestStringFields,
+  supportedTargets: Schema.Array(Schema.String),
+  targets: Schema.Record(Schema.String, manifestTargetSchema),
+});
+
+export type PythonRuntimeManifestTarget = typeof manifestTargetSchema.Type;
+export type PythonRuntimeManifest = typeof manifestSchema.Type;
 
 function resolveTargetTriple(platform: string, arch: string): string | undefined {
   if (platform === 'darwin' && arch === 'arm64') {
@@ -118,52 +124,35 @@ function resolveTargetTriple(platform: string, arch: string): string | undefined
   return;
 }
 
-function assertManifestShape(value: unknown, manifestPath: string): PythonRuntimeManifest {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new PythonManifestInvalidError(
-      `Bundled Python runtime manifest at ${manifestPath} is not an object.`
-    );
+function decodeManifest(value: unknown, manifestPath: string): PythonRuntimeManifest {
+  const result = Schema.decodeUnknownResult(manifestSchema)(value);
+  if (Result.isSuccess(result)) {
+    return result.success;
   }
-  const record = value as Record<string, unknown>;
-  for (const field of ['assetUrlTemplate', 'pythonVersion', 'releaseTag', 'variant'] as const) {
-    if (typeof record[field] !== 'string' || record[field].length === 0) {
-      throw new PythonManifestInvalidError(
-        `Bundled Python runtime manifest at ${manifestPath} is missing string field "${field}".`
-      );
+  const issue = SchemaIssue.makeFormatterStandardSchemaV1()(result.failure.issue).issues[0];
+  if (!issue) {
+    throw new Error('BUG: Python manifest Schema failed without an issue');
+  }
+  const [field, target] = issue.path ?? [];
+  const prefix = `Bundled Python runtime manifest at ${manifestPath}`;
+  if (field === undefined) {
+    throw new PythonManifestInvalidError(`${prefix} is not an object.`);
+  }
+  if (typeof field === 'string' && field in manifestStringFields) {
+    throw new PythonManifestInvalidError(`${prefix} is missing string field "${field}".`);
+  }
+  if (field === 'supportedTargets') {
+    throw new PythonManifestInvalidError(`${prefix} has an invalid "supportedTargets" list.`);
+  }
+  if (field === 'targets') {
+    if (target === undefined) {
+      throw new PythonManifestInvalidError(`${prefix} has an invalid "targets" map.`);
     }
-  }
-  const supportedTargets = record['supportedTargets'];
-  if (
-    !Array.isArray(supportedTargets) ||
-    supportedTargets.some((target) => typeof target !== 'string')
-  ) {
     throw new PythonManifestInvalidError(
-      `Bundled Python runtime manifest at ${manifestPath} has an invalid "supportedTargets" list.`
+      `${prefix} has an invalid entry for target "${String(target)}".`
     );
   }
-  const targets = record['targets'];
-  if (typeof targets !== 'object' || targets === null) {
-    throw new PythonManifestInvalidError(
-      `Bundled Python runtime manifest at ${manifestPath} has an invalid "targets" map.`
-    );
-  }
-  for (const [target, entry] of Object.entries(targets)) {
-    const targetRecord = entry as Record<string, unknown> | null;
-    if (
-      typeof targetRecord !== 'object' ||
-      targetRecord === null ||
-      typeof targetRecord['sha256'] !== 'string' ||
-      !SHA256_HEX.test(targetRecord['sha256']) ||
-      typeof targetRecord['bytes'] !== 'number' ||
-      !Number.isSafeInteger(targetRecord['bytes']) ||
-      targetRecord['bytes'] <= 0
-    ) {
-      throw new PythonManifestInvalidError(
-        `Bundled Python runtime manifest at ${manifestPath} has an invalid entry for target "${target}".`
-      );
-    }
-  }
-  return value as PythonRuntimeManifest;
+  throw new Error(`BUG: Unexpected Python manifest Schema field ${String(field)}`);
 }
 
 async function loadManifest(manifestDir: string): Promise<PythonRuntimeManifest> {
@@ -188,7 +177,7 @@ async function loadManifest(manifestDir: string): Promise<PythonRuntimeManifest>
       }`
     );
   }
-  return assertManifestShape(parsed, manifestPath);
+  return decodeManifest(parsed, manifestPath);
 }
 
 function missingRuntime(installDir: string, detail: string): PythonRuntimeMissingError {

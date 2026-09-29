@@ -11,8 +11,20 @@ import { WorkspaceAddTabMenu } from '../workspace-add-tab-menu';
 import { CONTEXT_EXPLORER_APP_ID, TERMINAL_APP_ID, type WorkspaceApp } from '../workspace-app';
 
 const APPS: WorkspaceApp[] = [
-  { icon: FileText, id: CONTEXT_EXPLORER_APP_ID, label: 'Files', render: () => null },
-  { icon: TerminalSquare, id: TERMINAL_APP_ID, label: 'Terminal', render: () => null },
+  {
+    icon: FileText,
+    id: CONTEXT_EXPLORER_APP_ID,
+    label: 'Files',
+    placement: 'pinned',
+    render: () => null,
+  },
+  {
+    icon: TerminalSquare,
+    id: TERMINAL_APP_ID,
+    label: 'Terminal',
+    placement: 'pinned',
+    render: () => null,
+  },
 ];
 
 describe('WorkspaceAddTabMenu', () => {

@@ -1,7 +1,8 @@
-import type { ChatModelRunOptions } from '@assistant-ui/react';
+import type { ChatModelRunOptions, ChatModelRunResult } from '@assistant-ui/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AssistantRequestPreparationTimeoutError,
+  AssistantRunAdmissionRejectedError,
   BrainstrikeDataStreamRuntimeAdapter,
   type BrainstrikeDataStreamRuntimeOptions,
 } from '../data-stream-runtime';
@@ -97,6 +98,73 @@ describe('BrainstrikeDataStreamRuntimeAdapter — transport error path', () => {
     const calledWithError = onError.mock.calls[0]?.[0] as unknown;
     expect(calledWithError).toBeInstanceOf(Error);
     expect((calledWithError as Error).message).toMatch(/Status 500/);
+  });
+
+  it('classifies only a definitive hosted admission rejection', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: 'assistant_admission_rejected',
+            message: 'Assistant stream failed.',
+          }),
+          { status: 500 }
+        )
+      )
+    );
+    const onError = vi.fn();
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://localhost/api/assistant',
+      onError,
+    });
+    const updates: ChatModelRunResult[] = [];
+    for await (const update of adapter.run(makeRunOptions())) {
+      updates.push(update);
+    }
+    expect(onError).toHaveBeenCalledWith(expect.any(AssistantRunAdmissionRejectedError));
+    expect(updates).toEqual([
+      {
+        status: {
+          error: {
+            code: 'assistant_admission_rejected',
+            message:
+              'Status 500: {"error":"assistant_admission_rejected","message":"Assistant stream failed."}',
+          },
+          reason: 'error',
+          type: 'incomplete',
+        },
+      },
+    ]);
+  });
+
+  it('preserves the actionable background-generation refusal for the message error UI', async () => {
+    const recovery =
+      'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 'background-generation-unmapped',
+            error: 'decision_refused',
+            message: recovery,
+            stage: 'stream_construction',
+          }),
+          { status: 409 }
+        )
+      )
+    );
+    const onError = vi.fn();
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://localhost/api/assistant',
+      onError,
+    });
+
+    await expect(consumeRun(adapter)).rejects.toThrow(recovery);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining(recovery) })
+    );
   });
 
   it('throws when fetch itself rejects (network-level failure)', async () => {

@@ -48,7 +48,7 @@ describe('DiagnosticsStatusItem', () => {
     usePGliteDatabaseMock.mockReturnValue({});
     mockLiveQueryResult([{ errorCount: 0, warningCount: 0 }]);
     resetDiagnosticsSeenStore();
-    usePanelLayoutStore.setState({ activeTab: 'explorer', settingsOpen: false });
+    usePanelLayoutStore.setState({ activeTab: 'explorer' });
     window.location.hash = '';
   });
 
@@ -133,7 +133,7 @@ describe('DiagnosticsStatusItem', () => {
     await user.click(screen.getByTestId('diagnostics-status-trigger'));
 
     expect(useDiagnosticsSeenStore.getState().lastSeenAtMs).toBeGreaterThan(beforeClick);
-    expect(usePanelLayoutStore.getState().settingsOpen).toBe(true);
+    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
     expect(window.location.hash).toBe('#settings/logging');
   });
 

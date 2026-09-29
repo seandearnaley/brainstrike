@@ -12,6 +12,7 @@ import {
   type StoredOAuthTokens,
   validateClientMetadataUrl,
 } from '@modelcontextprotocol/client';
+import { McpLifecycleFailure } from './lifecycle-errors';
 import {
   persistedClientSupportsRedirect,
   reportLoopbackListenerBound,
@@ -455,6 +456,8 @@ async function loadOAuthStartupState(
 }
 
 export interface McpOAuthClientProviderOptions {
+  /** False for stored-credential reconnects; never launch interactive consent from startup. */
+  readonly allowInteractiveAuthorization?: boolean;
   readonly clientMetadataUrl?: string;
   readonly clientName?: string;
   readonly fetchFn?: FetchLike;
@@ -475,10 +478,9 @@ export interface McpOAuthClientProvider extends OAuthClientProvider {
   recordSuccessfulConnection(): Promise<void>;
   readonly redirectUrl: string;
   /**
-   * True once this provider discarded a stored dynamic client registration that
-   * could not redirect to the current loopback listener. The stored grant is
-   * then unusable and the server needs an explicit reconnect, so a connection
-   * failure after this point is an authentication state, not a transport fault.
+   * True when a stored registration cannot redirect to this listener, or a
+   * non-interactive reconnect reaches browser authorization. A wrapped SDK
+   * connection failure then requires explicit authorization, not transport repair.
    */
   requiresReauthorization(): boolean;
   takePendingAuthorizationCallback(signal: AbortSignal): Promise<URLSearchParams> | undefined;
@@ -510,6 +512,8 @@ export async function createMcpOAuthClientProvider(
     server: options.serverId,
   });
   let staleRegistrationDiscarded = false;
+  // Providers belong to one connection attempt; this latch never crosses retries.
+  let interactiveAuthorizationRequired = false;
   let currentIssuer: string | undefined;
   let currentState: string | undefined;
   const staleDiscoveryByIssuer = new Map<string, OAuthDiscoveryState | undefined>();
@@ -652,6 +656,7 @@ export async function createMcpOAuthClientProvider(
     records.clear();
     staleDiscoveryByIssuer.clear();
     staleRegistrationDiscarded = false;
+    interactiveAuthorizationRequired = false;
     currentIssuer = undefined;
     currentState = undefined;
     authorizationCallback = undefined;
@@ -782,6 +787,10 @@ export async function createMcpOAuthClientProvider(
     },
     async redirectToAuthorization(authorizationUrl) {
       assertOpen();
+      if (options.allowInteractiveAuthorization !== true) {
+        interactiveAuthorizationRequired = true;
+        throw new McpLifecycleFailure('authentication', 'mcp-authentication-required');
+      }
       assertSecureOAuthUrl(authorizationUrl);
       const state = authorizationUrl.searchParams.get('state');
       if (!state || state !== currentState) {
@@ -794,7 +803,7 @@ export async function createMcpOAuthClientProvider(
     },
     redirectUrl: callback.redirectUrl,
     requiresReauthorization() {
-      return staleRegistrationDiscarded;
+      return staleRegistrationDiscarded || interactiveAuthorizationRequired;
     },
     async resourceUrl() {
       return currentIssuer === undefined

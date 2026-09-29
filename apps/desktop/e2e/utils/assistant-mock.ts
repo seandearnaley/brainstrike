@@ -2,8 +2,12 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract/assistant-stream-session';
+import type { SecretsWriteResult } from '@brainstrike/assistant-contract/secrets-bridge';
 import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-suspend';
 import type { Page } from '@playwright/test';
+
+/** Replaced at serve time with the requesting leg's durable host run id. */
+const HOST_RUN_ID_PLACEHOLDER = '__BRAINSTRIKE_HOST_RUN_ID__';
 
 const DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',
@@ -37,6 +41,8 @@ export interface AssistantProviderOptions {
 
 interface AssistantMockInstallPayload {
   readonly assistantMessageId: string;
+  /** Page-injected code carries no module scope: the placeholder travels here. */
+  readonly hostRunIdPlaceholder: string;
   readonly models: Record<string, string>;
   readonly provider: string;
   readonly resumeStreamChunks?: Array<{ delayMs: number; payload: string }>;
@@ -66,16 +72,30 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
 
   function createMockResponse(
     signal: AbortSignal | undefined,
-    configuredChunks?: Array<{ delayMs: number; payload: string }>
+    configuredChunks?: Array<{ delayMs: number; payload: string }>,
+    hostRunId?: string
   ): Response {
     const activeConfig = globals.__assistantMockConfig;
     if (!activeConfig) {
       throw new Error('Assistant mock config is unavailable.');
     }
 
-    const streamChunks = (configuredChunks ?? activeConfig.streamChunks).map((chunk) => ({
-      ...chunk,
-    }));
+    const streamChunks = (configuredChunks ?? activeConfig.streamChunks).map((chunk) => {
+      if (!chunk.payload.includes(payload.hostRunIdPlaceholder)) {
+        return { ...chunk };
+      }
+      if (!hostRunId) {
+        throw new Error('Assistant mock cannot stamp a pause: the request named no host run.');
+      }
+      // The placeholder sits inside a JSON string, so the id is escaped the way
+      // JSON would have written it (a `"` or `\` in an id would corrupt the
+      // frame otherwise).
+      const encodedHostRunId = JSON.stringify(hostRunId).slice(1, -1);
+      return {
+        ...chunk,
+        payload: chunk.payload.split(payload.hostRunIdPlaceholder).join(encodedHostRunId),
+      };
+    });
     const chunkQueue = streamChunks.map((chunk) => ({ ...chunk }));
     let chunkIndex = 0;
     let aborted = false;
@@ -148,17 +168,44 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
   async function recordAssistantRequestBody(
     input: Parameters<typeof fetch>[0],
     init: Parameters<typeof fetch>[1]
-  ): Promise<void> {
+  ): Promise<unknown> {
     const rawBody =
       typeof init?.body === 'string'
         ? init.body
         : input instanceof Request
           ? await input.clone().text()
           : undefined;
-    if (rawBody) {
-      globals.__assistantMockRequests = globals.__assistantMockRequests ?? [];
-      globals.__assistantMockRequests.push(JSON.parse(rawBody));
+    if (!rawBody) {
+      return;
     }
+    const body: unknown = JSON.parse(rawBody);
+    globals.__assistantMockRequests = globals.__assistantMockRequests ?? [];
+    globals.__assistantMockRequests.push(body);
+    return body;
+  }
+
+  /**
+   * The DURABLE host leg of THIS request (`data.memory.runId`, minted by
+   * `prepareRequestData` -> `createThreadRun` before the POST). The real host
+   * stamps it on every pause it streams; a mock that served a fixed id would
+   * hand the history topology adapter a leg that never existed.
+   */
+  function readRequestHostRunId(body: unknown): string | undefined {
+    const isRecord = (value: unknown): value is Record<string, unknown> =>
+      typeof value === 'object' && value !== null && !Array.isArray(value);
+    if (!isRecord(body)) {
+      return;
+    }
+    const data = body['data'];
+    if (!isRecord(data)) {
+      return;
+    }
+    const memory = data['memory'];
+    if (!isRecord(memory)) {
+      return;
+    }
+    const runId = memory['runId'];
+    return typeof runId === 'string' && runId.length > 0 ? runId : undefined;
   }
 
   function selectConfiguredStreamChunks(): Array<{ delayMs: number; payload: string }> | undefined {
@@ -185,8 +232,12 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
       (url.includes('/assistant') || url.includes('/api/assistant')) &&
       (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase() === 'POST'
     ) {
-      await recordAssistantRequestBody(input, init);
-      return createMockResponse(init?.signal ?? undefined, selectConfiguredStreamChunks());
+      const body = await recordAssistantRequestBody(input, init);
+      return createMockResponse(
+        init?.signal ?? undefined,
+        selectConfiguredStreamChunks(),
+        readRequestHostRunId(body)
+      );
     }
 
     return originalFetch(input, init);
@@ -211,9 +262,7 @@ interface AssistantProviderInstallPayload {
   readonly provider: string;
 }
 
-async function configureAssistantProviderInPage(
-  payload: AssistantProviderInstallPayload
-): Promise<void> {
+function configureAssistantProviderInPage(payload: AssistantProviderInstallPayload): void {
   const assistantAvailabilityOverrideEvent = 'brainstrike:assistant-availability-override-changed';
   const globals = globalThis as unknown as Window & {
     __assistantAvailabilityOverride?: { state: 'enabled' };
@@ -232,12 +281,10 @@ async function configureAssistantProviderInPage(
   const secretsGlobals = globalThis as unknown as {
     secrets?: {
       list?: () => Promise<string[]>;
-      saveKey?: (provider: string, key: string) => Promise<unknown>;
       [key: string]: unknown;
     };
   };
 
-  await secretsGlobals.secrets?.saveKey?.(payload.provider, payload.apiKey);
   try {
     globals.localStorage?.setItem(
       'assistant-preferences.v1',
@@ -277,6 +324,44 @@ async function configureAssistantProviderWithModels(
   page: Page,
   payload: AssistantProviderInstallPayload
 ): Promise<void> {
+  // Electron 43's V8 inspector weakly owns awaited evaluation results. Keep
+  // the actual write reachable through a remote object until it settles;
+  // retaining only an async wrapper does not retain its awaited promise.
+  const pendingWrite = await page.evaluateHandle(
+    ({ apiKey, provider }) => {
+      const secrets = (
+        globalThis as unknown as {
+          secrets?: { saveKey?: (provider: string, key: string) => Promise<SecretsWriteResult> };
+        }
+      ).secrets;
+      if (typeof secrets?.saveKey !== 'function') {
+        throw new Error('Desktop secrets.saveKey is unavailable.');
+      }
+      const write = secrets.saveKey(provider, apiKey);
+      // Observe rejection in the same turn as invocation. Waiting until the
+      // next CDP command would briefly leave an immediate rejection unhandled.
+      const completion = write.then(
+        (value) => ({ ok: true, value }) as const,
+        (error: unknown) => ({ error, ok: false }) as const
+      );
+      // A derived completion promise alone does not keep its source alive.
+      return { completion, write };
+    },
+    { apiKey: payload.apiKey, provider: payload.provider }
+  );
+  try {
+    await pendingWrite.evaluate(async ({ completion }) => {
+      const result = await completion;
+      if (!result.ok) {
+        throw result.error;
+      }
+      if (result.value !== true) {
+        throw new Error(`Assistant provider key save failed: ${result.value.error}`);
+      }
+    });
+  } finally {
+    await pendingWrite.dispose();
+  }
   await page.evaluate(configureAssistantProviderInPage, payload);
 }
 
@@ -365,6 +450,9 @@ function buildAssistantStreamChunks(
     case 'network-suspend':
       enqueueChunk('aui-data', {
         data: {
+          // Substituted per request with that leg's durable host run id, the
+          // way the desktop host stamps a live pause.
+          hostRunId: HOST_RUN_ID_PLACEHOLDER,
           runId: 'run-network-e2e',
           suspendPayload: {
             allowedDomains: ['pypi.org', '*.githubusercontent.com'],
@@ -458,6 +546,7 @@ export async function setupAssistantMock(
 
   const installPayload: AssistantMockInstallPayload = {
     assistantMessageId,
+    hostRunIdPlaceholder: HOST_RUN_ID_PLACEHOLDER,
     models: merged.models,
     provider: merged.provider,
     ...(merged.variant === 'network-suspend'

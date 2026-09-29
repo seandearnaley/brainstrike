@@ -518,7 +518,7 @@ async function runLoadScenario(params: {
   }
 }
 
-describe.sequential('embedding queue load matrix', () => {
+describe('embedding queue load matrix', { concurrent: false }, () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });

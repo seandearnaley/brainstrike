@@ -23,6 +23,7 @@ export const migration035Uuidv7PrimaryKeys: Migration = {
     ALTER TABLE IF EXISTS embedding_cache ALTER COLUMN id SET DEFAULT gen_random_uuid();
     ALTER TABLE IF EXISTS view_filter_presets ALTER COLUMN id SET DEFAULT gen_random_uuid();
   `,
+  ledgerKey: 'custom-035-uuidv7-primary-keys',
   name: 'uuidv7_primary_keys',
   up: `
     ALTER TABLE IF EXISTS selection_snapshots ALTER COLUMN id SET DEFAULT uuidv7();

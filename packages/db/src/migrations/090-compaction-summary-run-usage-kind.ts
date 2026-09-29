@@ -18,6 +18,7 @@ export const migration090CompactionSummaryRunUsageKind: Migration = {
       ADD CONSTRAINT brainstrike_assistant_run_usage_run_kind_check
       CHECK (run_kind IN ('chat', 'subagent', 'om-observation', 'om-reflection'));
   `,
+  ledgerKey: 'custom-090-compaction-summary-run-usage-kind',
   name: 'compaction_summary_run_usage_kind',
   up: `
     ALTER TABLE brainstrike_assistant_run_usage

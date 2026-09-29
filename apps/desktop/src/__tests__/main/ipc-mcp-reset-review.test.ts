@@ -9,6 +9,7 @@ import {
   watchMcpConfig,
 } from '../../mcp-loader';
 import { createRecordingWindow } from '../helpers/electron-main-test-harness';
+import { adaptMcpHandlerForVisibleUi } from '../helpers/mcp-authorized-handler-test-adapter';
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
@@ -58,7 +59,7 @@ describe('MCP reset review closure', () => {
       (channel: string, handler: RegisteredHandler) => void
     >;
     mockHandle.mockImplementation((channel, handler) => {
-      handlers.set(channel, handler);
+      handlers.set(channel, adaptMcpHandlerForVisibleUi(handler));
     });
     mcpIpc.registerMcpIpcHandlers({ runtime: authority.runtime });
     await handlers.get('mcp:config:unwatch')?.();

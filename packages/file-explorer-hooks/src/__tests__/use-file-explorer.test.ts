@@ -1,7 +1,7 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { createFileNode } from '@brainstrike/test-utils';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

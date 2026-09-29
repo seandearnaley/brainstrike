@@ -194,6 +194,30 @@ describe('resetDesktopApplicationData', () => {
     });
   });
 
+  it('does not delete app data when the database profile cannot be reset', async () => {
+    const stopBackgroundRuntimes = vi.fn(async () => undefined);
+    const resetDatabaseProfile = vi.fn(async () => {
+      throw new Error('DB host failed to close the database');
+    });
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+    const { getDesktopResetDiagnosticsSnapshot } = await import('../../desktop-reset-diagnostics');
+
+    await expect(
+      resetDesktopApplicationData({
+        resetDatabaseProfile,
+        stopBackgroundRuntimes,
+        userDataPath: '/mock/userData',
+      })
+    ).rejects.toThrow('DB host failed to close the database');
+
+    expect(fsMocks.rename).not.toHaveBeenCalled();
+    expect(fsMocks.rm).not.toHaveBeenCalled();
+    expect(getDesktopResetDiagnosticsSnapshot('/mock/userData')).toMatchObject({
+      lastError: 'DB host failed to close the database',
+      status: 'failed',
+    });
+  });
+
   it('attempts every user data entry before failing when one entry cannot be staged', async () => {
     const stopBackgroundRuntimes = vi.fn(async () => undefined);
     const resetDatabaseProfile = vi.fn(async () => undefined);

@@ -14,6 +14,11 @@ import {
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 /**
  * Load the mounted DB `roots` (id + path) so a reviewed/attested path can be
  * resolved to its canonical DB root id and containment-checked. The DB is the
@@ -30,9 +35,10 @@ export function registerHooksIpcHandlers(
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'hooks',
     DESKTOP_IPC_CHANNELS.hooks.getProjectHooksForReview,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, rootId: unknown, absPath: unknown) => {
       const dbRoots = await loadDbRoots(getDb);
       return getProjectHooksForReview(rootId, absPath, {
@@ -41,9 +47,10 @@ export function registerHooksIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'hooks',
     DESKTOP_IPC_CHANNELS.hooks.resolveTrustedRootIds,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, absPaths: unknown) => {
       const dbRoots = await loadDbRoots(getDb);
       return resolveTrustedRootIds(absPaths, (path) =>

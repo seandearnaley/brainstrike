@@ -1,12 +1,9 @@
 /**
  * Run persistence for the desktop assistant server (BST-975 slice 2).
  *
- * Provenance contract (docs/agents/assistant-persistence.md, settled
- * 2026-07-24 — do not relitigate): brainstrike_assistant_thread_runs and
- * brainstrike_assistant_run_events are created ONLY by the renderer's
- * bootstrap. The writers here never CREATE TABLE, and the `if (runId)` gates
- * live at the CALL sites — repository.createThreadRun is the sole runId
- * producer and awaits the bootstrap before returning an id.
+ * Production migrations own schema creation. These writers only use the
+ * server-owned run id created by the repository and never execute DDL.
+ * The if(runId) gates remain at call sites, after createThreadRun completes.
  */
 import {
   type AssistantRunEvent,
@@ -15,7 +12,12 @@ import {
   sanitizeAssistantRunEventMetadata,
   type ToolCallTelemetrySample,
 } from '@brainstrike/agent';
+import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { AssistantRunErrorRepository } from '@brainstrike/db';
+import { continuationProjectionId } from './delegated-continuation-identity';
+import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
+import { delegatedHostRunId } from './delegated-host-run-id';
+import { completeFailedRootRun, settleFailedDelegationChildRuns } from './delegated-stream-failure';
 import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { runCriticalDatabaseOperation } from './run-critical-database';
@@ -52,6 +54,63 @@ const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const TOKEN_ESTIMATE_CALIBRATION_TABLE = 'brainstrike_token_estimate_calibration';
 const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
 
+/**
+ * Stamp the DURABLE host leg on a pause this leg streams, exactly where the
+ * observer already stamps `runId` on every run event: the host is the one place
+ * that knows which `brainstrike_assistant_thread_runs` row is streaming. The
+ * notice carries it into its action echo, and the history topology adapter
+ * anchors the suspended message on that leg's `turn_message_id` (BST-1163) —
+ * the pause's own `runId` is Mastra's native run id and never matches a
+ * thread-run row.
+ *
+ * A pause of THIS turn qualifies: the root's own, and a delegated child's card
+ * (whose decision is appended by the root runtime, so the root turn's anchor is
+ * the right one). A CHILD-CONTINUATION pause does not: a continuation leg's
+ * `turn_message_id` is the continuation id, not a root message, so anchoring a
+ * root edge on it would persist a dangling parent.
+ */
+function withHostLeg(chunk: StreamChunk, hostRunId: string): StreamChunk {
+  if (chunk.type === 'tool-approval-required' || chunk.type === 'tool-suspend-required') {
+    return {
+      ...chunk,
+      hostRunId,
+      ...(chunk.type === 'tool-approval-required' ? { timelineRunId: hostRunId } : {}),
+    };
+  }
+  if (
+    chunk.type === 'delegated-conversation-chunk' &&
+    (chunk.chunk.type === 'tool-approval-required' || chunk.chunk.type === 'tool-suspend-required')
+  ) {
+    return {
+      ...chunk,
+      chunk: {
+        ...chunk.chunk,
+        hostRunId,
+        ...(chunk.chunk.type === 'tool-approval-required'
+          ? { timelineRunId: delegatedHostRunId(hostRunId, chunk.identity) }
+          : {}),
+      },
+    };
+  }
+  // Continuations have a child timeline but no root-message decision anchor.
+  // Their events are already persisted by the continuation host; align only
+  // the live display with that writer's canonical projection identity.
+  if (
+    chunk.type === 'child-continuation-chunk' &&
+    (chunk.chunk.type === 'tool-approval-required' || chunk.chunk.type === 'run-event')
+  ) {
+    const timelineRunId = continuationProjectionId(hostRunId, chunk.continuationId);
+    if (chunk.chunk.type === 'tool-approval-required') {
+      return { ...chunk, chunk: { ...chunk.chunk, timelineRunId } };
+    }
+    return {
+      ...chunk,
+      chunk: { ...chunk.chunk, event: { ...chunk.chunk.event, runId: timelineRunId } },
+    };
+  }
+  return chunk;
+}
+
 export async function* observeDesktopAssistantRunEvents(
   stream: AsyncIterable<StreamChunk>,
   runId: string,
@@ -59,6 +118,7 @@ export async function* observeDesktopAssistantRunEvents(
   getDatabase: RunPersistenceDatabaseProvider
 ): AsyncIterable<StreamChunk> {
   let sequence = 0;
+  const childSequences = new Map<string, number>();
   let persistenceErrorCount = 0;
   let persistenceError: unknown;
   let persistenceQueue: Promise<void> = Promise.resolve();
@@ -102,6 +162,9 @@ export async function* observeDesktopAssistantRunEvents(
       };
       sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
       persistEvent(event);
+      if (event.kind === 'subagent.failed') {
+        await flushPersistedEvents();
+      }
       yield { event, type: 'run-event' };
     }
   };
@@ -111,8 +174,20 @@ export async function* observeDesktopAssistantRunEvents(
     yield* drainQueuedEvents();
     for await (const chunk of stream) {
       yield* drainQueuedEvents();
+      if (chunk.type === 'delegated-conversation-chunk' && chunk.chunk.type === 'run-event') {
+        const key = JSON.stringify([
+          chunk.identity.parentRuntimeRunId,
+          chunk.identity.parentToolCallId,
+          chunk.identity.childRuntimeRunId,
+        ]);
+        const childSequence = childSequences.get(key) ?? 0;
+        const event = await persistDelegatedRunEvent(chunk, runId, childSequence, getDatabase);
+        childSequences.set(key, childSequence + 1);
+        yield { ...chunk, chunk: { event, type: 'run-event' } };
+        continue;
+      }
       if (chunk.type !== 'run-event') {
-        yield chunk;
+        yield withHostLeg(chunk, runId);
         continue;
       }
       const event: AssistantRunEvent = {
@@ -122,6 +197,11 @@ export async function* observeDesktopAssistantRunEvents(
       };
       sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
       persistEvent(event);
+      // The receiver closes a still-open child when this parent terminal is
+      // published. Its exact native task/child rows must settle first.
+      if (event.kind === 'subagent.failed') {
+        await flushPersistedEvents();
+      }
       yield { event, type: 'run-event' };
     }
     yield* drainQueuedEvents();
@@ -147,6 +227,74 @@ export async function* observeDesktopAssistantRunEvents(
   }
   if (sourceError) {
     throw sourceError;
+  }
+}
+
+async function persistDelegatedRunEvent(
+  chunk: Extract<StreamChunk, { type: 'delegated-conversation-chunk' }>,
+  runId: string,
+  sequence: number,
+  getDatabase: RunPersistenceDatabaseProvider
+): Promise<AssistantRunEvent> {
+  if (chunk.chunk.type !== 'run-event' || !chunk.messageId) {
+    throw new Error('Delegated run event requires native message identity.');
+  }
+  const { event } = chunk.chunk;
+  const messageId = chunk.messageId;
+  const persisted = await runCriticalDatabaseOperation({
+    label: 'assistant-delegated-run-event-write',
+    operation: async () =>
+      createDesktopDelegatedConversationHost(await getDatabase(), runId).persistEvent(
+        chunk.identity,
+        messageId,
+        event,
+        sequence
+      ),
+    retry: 'idempotent',
+    runId,
+  });
+  if (persisted.kind === 'subagent.failed') {
+    if (!persisted.runId) {
+      throw new Error('Delegated failure has no host run identity.');
+    }
+    await settleFailedDelegationChildRuns(
+      await getDatabase(),
+      runId,
+      persisted.id,
+      persisted.runId
+    );
+  }
+  return persisted;
+}
+
+/** Use the existing foreground scheduler and diagnosed saturated-host recovery.
+ * Accounting remains fail-closed after exhausted recovery, with a coded diagnostic. */
+async function persistBoundDelegatedUsage(
+  value: AssistantChildRunUsage,
+  runId: string,
+  getDatabase: RunPersistenceDatabaseProvider
+): Promise<void> {
+  try {
+    await runCriticalDatabaseOperation({
+      label: 'assistant-delegated-usage-write',
+      operation: async () => {
+        const database = await getDatabase();
+        await createDesktopDelegatedConversationHost(database, runId).persistUsage(value);
+      },
+      retry: 'idempotent',
+      runId,
+    });
+  } catch (error: unknown) {
+    logger.error('Failed to persist bound delegated usage', {
+      code: 'assistant_delegated_usage_write_failed',
+      delegation: value.delegation,
+      error,
+      model: value.model,
+      personaId: value.personaId,
+      provider: value.provider,
+      runId,
+    });
+    throw error;
   }
 }
 
@@ -177,15 +325,10 @@ export async function* persistDesktopChildRunUsage(
   stream: AsyncIterable<StreamChunk>,
   runId: string,
   observerTarget: { readonly model: string; readonly provider: string } | undefined,
-  getDatabase: RunPersistenceDatabaseProvider
+  getDatabase: RunPersistenceDatabaseProvider,
+  requiresDelegationIdentity = false
 ): AsyncIterable<StreamChunk> {
-  const persist = async (value: {
-    readonly inputTokens: number;
-    readonly model?: string;
-    readonly outputTokens: number;
-    readonly provider?: string;
-    readonly source: string;
-  }): Promise<void> => {
+  const persist = async (value: AssistantChildRunUsage): Promise<void> => {
     const isOmRow = value.source === 'om-observation' || value.source === 'om-reflection';
     const model = value.model ?? (isOmRow ? observerTarget?.model : undefined);
     const provider = value.provider ?? (isOmRow ? observerTarget?.provider : undefined);
@@ -247,7 +390,16 @@ export async function* persistDesktopChildRunUsage(
       // aggregate the moment the transient part arrives, so a chunk that
       // outran its INSERT would make that refresh reliably read the pre-write
       // state (review fix). The forwarding delay is one local PGlite insert.
-      await persist(chunk.value);
+      const value = chunk.value;
+      if (value.source === 'subagent' && (requiresDelegationIdentity || value.delegation)) {
+        if (value.provider !== 'local') {
+          // Reconcile within the existing writer; authorization/write failure
+          // must not publish a successful refresh or use a legacy insertion.
+          await persistBoundDelegatedUsage(value, runId, getDatabase);
+        }
+      } else {
+        await persist(value);
+      }
     }
     yield chunk;
   }
@@ -511,10 +663,14 @@ async function completeDesktopAssistantThreadRun(
 ): Promise<void> {
   const now = new Date();
   const database = await getDatabase();
+  if (status === 'failed') {
+    await completeFailedRootRun(database, runId, error);
+    return;
+  }
   await database.query(
     `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
      SET status = $2, error = $3, completed_at = $4, updated_at = $5
-     WHERE id = $1`,
+     WHERE id = $1 AND status NOT IN ('cancelling', 'cancelled')`,
     [runId, status, error, now, now]
   );
 }
@@ -581,8 +737,10 @@ export async function recordDesktopAssistantHookRunOutcome(
  * through this same writer and therefore inherits the documented `if (runId)`
  * gate and the "missing parent row ⇒ 0 rows, silent no-op" behavior (the INSERT
  * is an `INSERT ... SELECT ... FROM brainstrike_assistant_thread_runs WHERE id
- * = $runId`, so an unknown/absent runId writes nothing). Do not add a second
- * INSERT for run events.
+ * = $runId`, so an unknown/absent runId writes nothing). Scoped child events
+ * instead use the delegated repository's atomic authorization/header/event
+ * mutation from this same stream observer; never publish them through an
+ * unauthenticated native child resource id.
  */
 export async function recordDesktopAssistantRunEvent(
   runId: string,
@@ -670,6 +828,9 @@ export async function recordDesktopAssistantRunEvent(
     retry: 'idempotent',
     runId,
   });
+  if (event.kind === 'subagent.failed') {
+    await settleFailedDelegationChildRuns(database, runId, event.id);
+  }
   if (event.kind !== 'run.failed') {
     return;
   }

@@ -1,14 +1,14 @@
 // Guard for the `unit-shard` matrix partition in .github/workflows/test.yml.
 //
-// The Unit job has four physical runners over three logical package
-// partitions (db / heavy / rest). DB is split again with Vitest's native
-// `--shard=1/2` + `2/2`; both physical rows own the same logical package.
+// The Unit job partitions packages into db / agent / desktop / heavy / rest.
+// DB, Agent, and desktop each use complete native Vitest shard sets; repeated physical
+// rows own the same logical package, never slices of different packages.
 // The shard id is a task environment input, not a Turbo passthrough argument:
 // passthrough arguments also reach dependency and topo tasks.
 // The turbo `--filter`s must form an exact partition of the affected set:
-//   - db + heavy list packages POSITIVELY (`--filter=@brainstrike/x`)
-//   - rest runs the affected-all base MINUS every package the other shards own
-//     (`--filter="...[ref]"` then one `--filter="!@brainstrike/x"` per package)
+//   - db + desktop + heavy list packages POSITIVELY (`--filter=@brainstrike/x`)
+//   - rest negates every package the other shards own
+// PR invocations intersect these package filters with native `--affected`.
 //
 // The dangerous drift is silent: if a package is negated out of `rest` but
 // never given a positive shard (or a positive package is dropped without

@@ -6,6 +6,7 @@ import { WorktreeCreateDialog } from '../workspace-bar/worktree-create-dialog';
 
 function mode(overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode {
   return {
+    archiveConfirmation: null,
     baseRefs: [{ label: 'Current branch', value: 'HEAD' }],
     createDisabledReason: null,
     defaultBranchPrefix: 'bs/',

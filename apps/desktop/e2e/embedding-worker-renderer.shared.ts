@@ -63,6 +63,7 @@ export interface BufferedLogRecord {
 
 export interface EmbeddingHostStatus {
   active: boolean;
+  commandId?: string;
   lastError: string | null;
   runtimeId: string;
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';

@@ -171,7 +171,7 @@ export function classifyMcpConnectFailure(
   if (!(options.requiresReauthorization && classified.code === 'mcp-connection-failed')) {
     return classified;
   }
-  logger.warn('MCP OAuth connection failed after its client registration was discarded', {
+  logger.warn('MCP OAuth connection requires explicit authorization', {
     remedy: 'reconnect-required',
     server: options.server,
   });

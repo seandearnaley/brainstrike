@@ -23,7 +23,7 @@ async function waitForAssistantChat(window: Page): Promise<void> {
       timeout: E2E_TIMEOUTS.loadingIndicator,
     });
   }
-  await expect(window.getByTestId('chat-panel')).toBeVisible({
+  await expect(window.getByTestId('chat-panel').filter({ visible: true })).toBeVisible({
     timeout: E2E_TIMEOUTS.chatPanel,
   });
 }
@@ -47,19 +47,21 @@ test.describe('assistant compaction summary (desktop)', () => {
     await window.reload();
     const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(window);
-    await setupAssistantMock(window, { message: FOLLOW_UP_REPLY, variant: 'simple' });
     await ensureMockWorkspaceOpen(window);
     await waitForAssistantChat(window);
 
     await window.getByRole('button', { exact: true, name: seeded.title }).click();
 
-    const card = window.getByTestId('compaction-summary-card');
+    const activeChat = window.getByTestId('chat-panel').filter({ visible: true });
+    const card = activeChat.getByTestId('compaction-summary-card');
     await expect(card).toBeVisible({ timeout: E2E_TIMEOUTS.messageVisibility });
     await expect(card).toContainText('Conversation compacted');
     await expect(card).toContainText('AI-generated summary');
     await expect(card).toContainText('Keep the compaction divider visible.');
+    // Select the provider on the hydrated target thread, not the previous tab.
+    await setupAssistantMock(window, { message: FOLLOW_UP_REPLY, variant: 'simple' });
 
-    const input = window.locator('#assistant-input');
+    const input = window.getByRole('textbox', { name: 'Message input' });
     await input.fill(FOLLOW_UP_PROMPT);
     await window.getByRole('button', { exact: true, name: 'Send' }).click();
 
@@ -79,7 +81,37 @@ test.describe('assistant compaction summary (desktop)', () => {
 
     const requests = await readAssistantMockRequests(window);
     expect(requests).toHaveLength(1);
-    expect(JSON.stringify(requests[0])).toContain(seeded.summaryText);
-    expect(JSON.stringify(requests[0])).toContain(FOLLOW_UP_PROMPT);
+    // Memory-backed transport sends only the new turn. Mastra recalls the
+    // durable summary by thread ID; replaying it in this POST duplicates history.
+    expect(requests[0]).toMatchObject({
+      data: {
+        memory: { threadId: seeded.threadId },
+        transportCompaction: {
+          originalMessageCount: 2,
+          sentMessageCount: 1,
+          strategy: 'mastra-memory-current-turn',
+        },
+      },
+      messages: [{ content: [{ text: FOLLOW_UP_PROMPT }], role: 'user' }],
+    });
+    expect(JSON.stringify(requests[0])).not.toContain(seeded.summaryText);
+    // The page-local mock disappears on reload. Observe real requests through
+    // hydration so an accidental replay cannot escape the mock's old counter.
+    const reloadedAssistantPosts: string[] = [];
+    window.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname.includes('/assistant')) {
+        reloadedAssistantPosts.push(request.url());
+      }
+    });
+    // Verify the complete durable summary remains available after the new turn.
+    await window.reload();
+    await mockFileSystemOperations(window);
+    await ensureMockWorkspaceOpen(window);
+    await waitForAssistantChat(window);
+    await window.getByRole('button', { exact: true, name: seeded.title }).click();
+    await expect(activeChat.getByTestId('compaction-summary-card')).toContainText(
+      seeded.summaryText
+    );
+    expect(reloadedAssistantPosts).toEqual([]);
   });
 });

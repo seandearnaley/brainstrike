@@ -3,6 +3,7 @@ import {
   CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS,
   CONTEXT_BUDGET_SAFETY_MARGIN_MIN,
   CONTEXT_BUDGET_SAFETY_MARGIN_RATIO,
+  deriveAgentLoopInputTokenLimit,
   deriveEffectiveInputBudget,
 } from '../context-budget.js';
 
@@ -42,5 +43,53 @@ describe('deriveEffectiveInputBudget', () => {
     expect(CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS).toBe(4096);
     expect(CONTEXT_BUDGET_SAFETY_MARGIN_MIN).toBe(1024);
     expect(CONTEXT_BUDGET_SAFETY_MARGIN_RATIO).toBe(0.05);
+  });
+});
+
+describe('deriveAgentLoopInputTokenLimit', () => {
+  const model = { contextWindow: 400_000, maxOutputTokens: 128_000 };
+
+  it('reserves a direct provider model its catalog maximum output', () => {
+    expect(deriveAgentLoopInputTokenLimit(model, 'anthropic', undefined)).toBe(
+      deriveEffectiveInputBudget(400_000, 128_000)
+    );
+  });
+
+  it('ignores a configured output limit for a direct provider (reserves the maximum)', () => {
+    expect(deriveAgentLoopInputTokenLimit(model, 'openai', 8192)).toBe(
+      deriveEffectiveInputBudget(400_000, 128_000)
+    );
+  });
+
+  it('reserves the configured output limit for OpenRouter', () => {
+    expect(deriveAgentLoopInputTokenLimit(model, 'openrouter', 8192)).toBe(371_808);
+  });
+
+  // BST-1804 review: a default here would be a SECOND derivation of the
+  // OpenRouter output window — the request path sizes it for the run's
+  // reasoning state (kimi-k3: 131,072), a default could not. The caller must
+  // pass the output limit the request actually sends.
+  it('has no OpenRouter default: throws when the request output limit is not supplied', () => {
+    expect(() => deriveAgentLoopInputTokenLimit(model, 'openrouter', undefined)).toThrow(
+      /output limit the request sends/
+    );
+  });
+
+  it('rejects a malformed OpenRouter request output limit loudly (never a plausible budget)', () => {
+    for (const invalid of [0, -1, 1.5, Number.NaN, null as unknown as number]) {
+      expect(() => deriveAgentLoopInputTokenLimit(model, 'openrouter', invalid)).toThrow(
+        /output limit the request sends/
+      );
+    }
+  });
+
+  it('throws rather than clamping when the window cannot fit the reservation', () => {
+    expect(() =>
+      deriveAgentLoopInputTokenLimit(
+        { contextWindow: 524_288, maxOutputTokens: 512_000 },
+        'anthropic',
+        undefined
+      )
+    ).toThrow(/cannot fit/);
   });
 });

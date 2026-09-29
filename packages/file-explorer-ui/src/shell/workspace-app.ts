@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from 'react';
+import type { ComponentType, CSSProperties, ReactNode } from 'react';
 
 /**
  * A WorkspaceApp is a closable SINGLETON surface that lives in the workspace tab
@@ -15,16 +15,32 @@ export interface WorkspaceApp {
   /** Short label rendered next to the icon in the tab strip. */
   readonly label: string;
   /**
+   * Where the tab sits in the workspace strip. `pinned`: the non-scrolling,
+   * never-reordered group of singleton surfaces (Files, Changes, Canvas, …),
+   * in registry order. `dynamic`: scrolls ahead of the file tabs (child
+   * conversations). Required so a new app cannot forget to choose.
+   */
+  readonly placement: 'dynamic' | 'pinned';
+  /**
    * Renders the app's body in the workspace area.
    *
-   * Contract: this function is invoked inline on every host re-render (not behind a
-   * memoization boundary), so it should be cheap and idempotent — typically just
-   * `() => <SomeComponent />`. React reconciles the same element type across calls,
-   * so a stable component identity inside `render()` avoids remounts; if your app
-   * needs expensive setup, do it inside that component (with `useEffect`/`useMemo`)
-   * rather than in `render()` itself.
+   * Contract: this function is invoked on every host re-render, inside the panel's
+   * error boundary (not behind a memoization boundary), so it should be cheap and
+   * idempotent — typically just `() => <SomeComponent />`. React reconciles the
+   * same element type across calls, so a stable component identity inside
+   * `render()` avoids remounts; if your app needs expensive setup, do it inside
+   * that component (with `useEffect`/`useMemo`) rather than in `render()` itself.
    */
   readonly render: () => ReactNode;
+  /** Optional identity tint for an app that represents a colored conversation. */
+  readonly tabAppearance?: {
+    readonly accentClassName: string;
+    readonly colorId: string;
+    readonly idleClassName: string;
+    readonly markClassName?: string;
+    readonly selectedClassName: string;
+    readonly style?: CSSProperties;
+  };
 }
 
 export const CONTEXT_EXPLORER_APP_ID = 'context-explorer';

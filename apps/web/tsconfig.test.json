@@ -5,7 +5,7 @@
       "node",
       "vite/client",
       "vitest",
-      "@testing-library/jest-dom"
+      "@brainstrike/test-utils/vitest-matchers"
     ],
     "rootDir": "..",
     "skipLibCheck": true,

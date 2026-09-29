@@ -1,5 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { resetAssistantBudgetPreferencesStoreToDefaults } from './stores/assistant-budget-preferences-store';
+import { resetAssistantSubagentPreferencesStoreToDefaults } from './stores/assistant-subagent-preferences-store';
 import { resetBackgroundIndexingPreferencesStoreToDefaults } from './stores/background-indexing-preferences-store';
 import { resetDiagnosticsRetentionStoreToDefaults } from './stores/diagnostics-retention-store';
 import { resetExperimentAssignmentPreferencesStoreToDefaults } from './stores/experiment-assignment-preferences-store';
@@ -479,6 +480,13 @@ function clearBrowserStorage(): void {
   resetLiveStoreSafely(
     'assistant budget preferences store',
     resetAssistantBudgetPreferencesStoreToDefaults
+  );
+
+  // Subagent budgets are persisted preferences; reset the live store too so
+  // an in-memory budget never survives a reset without a reload (web path).
+  resetLiveStoreSafely(
+    'assistant subagent preferences store',
+    resetAssistantSubagentPreferencesStoreToDefaults
   );
 
   // Agent Skills preferences: the master toggle + per-skill disable map are

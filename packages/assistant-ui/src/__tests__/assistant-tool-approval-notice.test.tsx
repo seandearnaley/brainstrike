@@ -1,11 +1,12 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({
-    thread: () => ({ append: vi.fn().mockResolvedValue(undefined) }),
+    thread: () => ({ append: vi.fn() }),
   }),
   useAuiState: (selector: (state: { thread: { messages: readonly unknown[] } }) => unknown) =>
     selector({ thread: { messages: [] } }),
@@ -56,10 +57,9 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ),
 }));
 
-import {
-  APPROVAL_PREVIEW_CHAR_CAP,
-  AssistantToolApprovalNotice,
-} from '../assistant-tool-approval-notice';
+import { APPROVAL_PREVIEW_CHAR_CAP } from '../approval-preview';
+import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
+import { expandApprovalRow } from './approval-row-helpers';
 
 beforeAll(() => {
   global.ResizeObserver = class {
@@ -406,4 +406,45 @@ describe('AssistantToolApprovalNotice skill script preview', () => {
     expect(screen.queryByTestId('approval-skill-script-summary')).toBeNull();
     expect(screen.getByTestId('approval-preview-parse-error')).toBeInTheDocument();
   });
+});
+
+describe('durable delegated approval recovery', () => {
+  it.each(['claimed', 'consumed', 'interrupted', 'cancelled', 'unknown', undefined])(
+    'keeps the original tool preview but blocks a %s decision',
+    async (decisionState) => {
+      renderNotice({
+        ...baseRequest,
+        args: { command: 'pnpm build' },
+        decisionState,
+        delegation: {
+          path: [
+            {
+              childRuntimeRunId: 'child',
+              parentRuntimeRunId: baseRequest.runId,
+              parentToolCallId: baseRequest.toolCallId,
+              personaId: 'worker',
+            },
+          ],
+          toolCallId: 'leaf',
+        },
+        stale: true,
+        suspendedAt: '2026-09-10T00:00:00Z',
+        toolName: 'brainstrike.executeCommand',
+      });
+      // Every case carries a `decisionState` own key (the `undefined` one reads
+      // as 'invalid'), so the notice is locked and collapses into a row; the
+      // preview and buttons live in its expanded body.
+      await expandApprovalRow(userEvent.setup());
+      expect(screen.getByTestId('approval-command-code')).toHaveTextContent('pnpm build');
+      expect(
+        screen.queryByRole('button', { name: 'Approve brainstrike.executeCommand' })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Decline brainstrike.executeCommand' })
+      ).not.toBeInTheDocument();
+      expect(screen.getByText('Tool decision')).toBeInTheDocument();
+      expect(screen.getByTestId('delegated-decision-recovery-status')).toBeInTheDocument();
+      expect(screen.queryByText(/re-running it may be safer/i)).not.toBeInTheDocument();
+    }
+  );
 });

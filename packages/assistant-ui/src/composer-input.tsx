@@ -1,6 +1,7 @@
-import { ComposerPrimitive, ThreadPrimitive, useAui } from '@assistant-ui/react';
+import { ComposerPrimitive, ThreadPrimitive, useAui, useAuiState } from '@assistant-ui/react';
 import { ArrowUpIcon, ClipboardListIcon, ImageIcon, SquareIcon } from 'lucide-react';
-import type { ClipboardEvent, ReactNode } from 'react';
+import { type ClipboardEvent, type KeyboardEvent, type ReactNode, useId } from 'react';
+import { useActiveConversationInput } from './active-conversation-input-context';
 import { collectImageFilesFromClipboard } from './attachment-adapter';
 import { useBudgetSendGate } from './budget-guardrail-control';
 
@@ -48,6 +49,7 @@ export type ComposerAttachmentsAvailability =
 const ComposerInputRow = ({
   attachmentsAvailability,
   isComposerDisabled,
+  hideDefaultCancel,
   mentionPopover,
   planMode,
   queueControl,
@@ -55,6 +57,7 @@ const ComposerInputRow = ({
 }: {
   attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
+  hideDefaultCancel?: boolean | undefined;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
   /** Rendered in the RUNNING branch (where Send is unmounted) so a draft can
@@ -70,20 +73,24 @@ const ComposerInputRow = ({
   // with its explicit "Send anyway" override renders in the composer shell
   // whenever this gate is closed. The Cancel (Stop) button deliberately
   // ignores the gate — stopping an in-flight run must always be possible.
+  const activeInput = useActiveConversationInput();
+  const hasDraft = useAuiState(
+    (state) => state.composer.text.trim().length > 0 || state.composer.attachments.length > 0
+  );
   const budgetSendBlocked = useBudgetSendGate();
-  const sendDisabled = isComposerDisabled || budgetSendBlocked;
+  const inputId = useId();
+  const sendDisabled = isComposerDisabled || budgetSendBlocked || activeInput?.canSend === false;
   const InputFrame =
-    attachmentsAvailability?.state === 'enabled' && !sendDisabled
-      ? AttachmentPasteFrame
-      : PlainInputFrame;
+    attachmentsAvailability?.state === 'enabled' ? AttachmentPasteFrame : PlainInputFrame;
 
   return (
-    <InputFrame>
+    <InputFrame disabled={sendDisabled}>
       <ComposerPrimitive.Input
         aria-label="Message input"
         className="aui-composer-input"
-        disabled={sendDisabled}
-        id="assistant-input"
+        disabled={isComposerDisabled || budgetSendBlocked}
+        id={inputId}
+        onKeyDown={(event) => sendActiveDraftOnEnter(event, activeInput, sendDisabled, hasDraft)}
         placeholder="Ask BrainStrike anything..."
         rows={1}
       />
@@ -134,33 +141,106 @@ const ComposerInputRow = ({
           </button>
         ) : null}
         <ThreadPrimitive.If running={false}>
-          <ComposerPrimitive.Send
-            aria-label="Send"
-            className="aui-button aui-button-primary aui-composer-send"
-            data-testid="assistant-composer-send"
-            disabled={sendDisabled}
-            title="Send"
-          >
-            <ArrowUpIcon className="size-4" />
-          </ComposerPrimitive.Send>
+          {activeInput ? (
+            <button
+              aria-label="Send"
+              className="aui-button aui-button-primary aui-composer-send"
+              data-testid="assistant-composer-send"
+              disabled={sendDisabled || !hasDraft}
+              onClick={() => {
+                void activeInput.send();
+              }}
+              title="Send"
+              type="button"
+            >
+              <ArrowUpIcon className="size-4" />
+            </button>
+          ) : (
+            <ComposerPrimitive.Send
+              aria-label="Send"
+              className="aui-button aui-button-primary aui-composer-send"
+              data-testid="assistant-composer-send"
+              disabled={sendDisabled}
+              title="Send"
+            >
+              <ArrowUpIcon className="size-4" />
+            </ComposerPrimitive.Send>
+          )}
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
-          {queueControl}
-          <ComposerPrimitive.Cancel
-            aria-label="Stop"
-            className="aui-button aui-button-primary aui-composer-cancel"
-            disabled={isComposerDisabled}
-            title="Stop"
-          >
-            <SquareIcon className="size-3.5 fill-current" />
-          </ComposerPrimitive.Cancel>
+          {activeInput ? (
+            <button
+              aria-label="Send to child"
+              className="aui-button aui-button-primary aui-composer-send"
+              disabled={sendDisabled || !hasDraft}
+              onClick={() => {
+                void activeInput.send();
+              }}
+              title="Send to child"
+              type="button"
+            >
+              <ArrowUpIcon className="size-4" />
+            </button>
+          ) : (
+            queueControl
+          )}
+          {!hideDefaultCancel && (
+            <ComposerPrimitive.Cancel
+              aria-label="Stop"
+              className="aui-button aui-button-primary aui-composer-cancel"
+              disabled={isComposerDisabled}
+              title="Stop"
+            >
+              <SquareIcon className="size-3.5 fill-current" />
+            </ComposerPrimitive.Cancel>
+          )}
         </ThreadPrimitive.If>
       </div>
+      {activeInput?.busy && (
+        <div>
+          <span role="status">Sending to child…</span>
+          <button className="text-sm underline" onClick={activeInput.stopWaiting} type="button">
+            Stop waiting
+          </button>
+        </div>
+      )}
+      {activeInput?.error !== undefined && (
+        <div>
+          <p data-testid="child-input-delivery" role="alert">
+            {activeInput.error}
+          </p>
+          <button
+            className="text-sm underline"
+            disabled={activeInput.busy}
+            onClick={activeInput.discard}
+            type="button"
+          >
+            Discard draft
+          </button>
+        </div>
+      )}
     </InputFrame>
   );
 };
 
-const PlainInputFrame = ({ children }: { children: ReactNode }) => (
+/** The child receipt path owns Enter instead of the ordinary root append action. */
+function sendActiveDraftOnEnter(
+  event: KeyboardEvent<HTMLTextAreaElement>,
+  input: ReturnType<typeof useActiveConversationInput>,
+  disabled: boolean,
+  hasDraft: boolean
+): void {
+  if (!input || event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
+    return;
+  }
+  event.preventDefault();
+  if (disabled || !hasDraft) {
+    return;
+  }
+  void input.send();
+}
+
+const PlainInputFrame = ({ children }: { children: ReactNode; disabled: boolean }) => (
   <div className="bs-composer-input-frame">{children}</div>
 );
 
@@ -174,10 +254,19 @@ const PlainInputFrame = ({ children }: { children: ReactNode }) => (
  * ComposerAttachmentsBar); the catch only prevents an unhandled-rejection
  * duplicate report.
  */
-const AttachmentPasteFrame = ({ children }: { children: ReactNode }) => {
+const AttachmentPasteFrame = ({
+  children,
+  disabled,
+}: {
+  children: ReactNode;
+  disabled: boolean;
+}) => {
   const aui = useAui();
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    if (disabled) {
+      return;
+    }
     const files = collectImageFilesFromClipboard(Array.from(event.clipboardData?.files ?? []));
     if (files.length === 0) {
       return;
@@ -218,6 +307,7 @@ const AttachmentPasteFrame = ({ children }: { children: ReactNode }) => {
 export const ComposerInputWithTriggers = ({
   attachmentsAvailability,
   isComposerDisabled,
+  hideDefaultCancel,
   slashPopover,
   mentionPopover,
   planMode,
@@ -225,6 +315,7 @@ export const ComposerInputWithTriggers = ({
 }: {
   attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
+  hideDefaultCancel?: boolean | undefined;
   slashPopover?: ReactNode;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
@@ -232,6 +323,7 @@ export const ComposerInputWithTriggers = ({
 }) => {
   const row = (
     <ComposerInputRow
+      hideDefaultCancel={hideDefaultCancel}
       isComposerDisabled={isComposerDisabled}
       {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
       {...(slashPopover ? { slashPopover } : {})}

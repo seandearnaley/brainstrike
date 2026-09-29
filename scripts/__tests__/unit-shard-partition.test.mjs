@@ -10,10 +10,31 @@ const workflow = readFileSync(path.join(repoRoot, '.github/workflows/test.yml'),
 
 test('the real unit-shard matrix is a valid partition', () => {
   const matrix = parseUnitShardMatrix(workflow);
-  // Anti-vacuity: all four physical rows and all three logical partitions are
-  // visible to the parser. DB must be the complete native 1/2 + 2/2 set.
-  assert.deepEqual(matrix.map((s) => s.shard).sort(), ['db-1', 'db-2', 'heavy', 'rest']);
-  assert.deepEqual([...new Set(matrix.map((s) => s.partition))].sort(), ['db', 'heavy', 'rest']);
+  assert.deepEqual(matrix.map((s) => s.shard).sort(), [
+    'agent-1',
+    'agent-2',
+    'db-1',
+    'db-2',
+    'desktop-1',
+    'desktop-2',
+    'desktop-3',
+    'heavy',
+    'rest',
+  ]);
+  assert.deepEqual([...new Set(matrix.map((s) => s.partition))].sort(), [
+    'agent',
+    'db',
+    'desktop',
+    'heavy',
+    'rest',
+  ]);
+  assert.deepEqual(
+    matrix.filter((s) => s.partition === 'agent').map((s) => s.vitestShard),
+    [
+      { count: 2, index: 1 },
+      { count: 2, index: 2 },
+    ]
+  );
   assert.deepEqual(
     matrix.filter((s) => s.partition === 'db').map((s) => s.vitestShard),
     [
@@ -21,9 +42,48 @@ test('the real unit-shard matrix is a valid partition', () => {
       { count: 2, index: 2 },
     ]
   );
-  assert.match(workflow, /DB_TEST_SHARD: \$\{\{ matrix\.vitest_shard \}\}/u);
+  assert.deepEqual(
+    matrix.filter((s) => s.partition === 'desktop').map((s) => s.vitestShard),
+    [
+      { count: 3, index: 1 },
+      { count: 3, index: 2 },
+      { count: 3, index: 3 },
+    ]
+  );
+  assert.match(workflow, /DB_TEST_SHARD:.*matrix\.partition == 'db'/u);
+  assert.equal(
+    [...workflow.matchAll(/AGENT_TEST_SHARD:.*matrix\.partition == 'agent'/gu)].length,
+    4
+  );
+  assert.equal(
+    [...workflow.matchAll(/AGENT_TEST_SHARD_REQUIRED:.*matrix\.partition == 'agent'/gu)].length,
+    4
+  );
+  assert.equal(
+    [...workflow.matchAll(/DESKTOP_TEST_SHARD:.*matrix\.partition == 'desktop'/gu)].length,
+    4
+  );
+  assert.equal(
+    [...workflow.matchAll(/DESKTOP_TEST_SHARD_REQUIRED:.*matrix\.partition == 'desktop'/gu)].length,
+    4
+  );
   assert.match(workflow, /pnpm turbo run test \$\{\{ matrix\.pr_filters \}\}/u);
+  assert.equal(
+    [...workflow.matchAll(/TURBO_SCM_BASE: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/gu)]
+      .length,
+    2
+  );
+  assert.equal([...workflow.matchAll(/TURBO_SCM_HEAD: \$\{\{ github\.sha \}\}/gu)].length, 2);
+  assert.equal(
+    [...workflow.matchAll(/matrix\.pr_filters \}\} --affected --concurrency=/gu)].length,
+    2
+  );
   assert.doesNotMatch(workflow, /matrix\.test_args|-- --shard=/u);
+  assert.match(workflow, /unit:\n\s+name: Unit[\s\S]*?needs: \[admission, unit-shard\]/u);
+  assert.match(
+    workflow,
+    /SHARD_RESULT: \$\{\{ needs\.unit-shard\.result \}\}[\s\S]*?if \[ "\$SHARD_RESULT" != "success" \]/u
+  );
   const failures = validateUnitShardPartition(matrix);
   assert.deepEqual(
     failures,
@@ -32,7 +92,7 @@ test('the real unit-shard matrix is a valid partition', () => {
   );
 });
 
-test('rest negations equal the union of db+heavy positives (real workflow)', () => {
+test('rest negations equal the union of all dedicated partitions (real workflow)', () => {
   const matrix = parseUnitShardMatrix(workflow);
   const rest = matrix.find((s) => s.shard === 'rest');
   const union = [...new Map(matrix.map((s) => [s.partition, s])).values()]

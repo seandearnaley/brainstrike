@@ -11,6 +11,15 @@ import {
 } from './platform/logging-api-contract';
 import { getWindowRoleByWebContentsId, resolveSourceWindowRole } from './window-role';
 
+const ALL_HOSTS_SENDER_POLICY = {
+  reason:
+    'Invoked by the visible UI and the chunking, embedding, and llm hidden hosts (dist/hidden-preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+const VISIBLE_ONLY_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 const logger = createLogger('LoggingIPC');
 
 /** Levels that qualify a record for the durable-record push to the visible
@@ -89,15 +98,19 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
     handlers.recordDurableLog?.(validated);
   });
 
-  registry.registerInvoke('logging', LOGGING_API_CHANNELS.getPreferences, () =>
-    handlers.getState()
+  registry.registerUnauthenticatedInvoke(
+    'logging',
+    LOGGING_API_CHANNELS.getPreferences,
+    ALL_HOSTS_SENDER_POLICY,
+    () => handlers.getState()
   );
 
   let preferencesUpdateQueue: Promise<void> = Promise.resolve();
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'logging',
     LOGGING_API_CHANNELS.setPreferences,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (_event, preferences: unknown): Promise<LoggingSettingsPayload> => {
       const parsedPreferences = assertLoggingPreferences(preferences);
       const runUpdate = async (): Promise<LoggingSettingsPayload> => {
@@ -116,19 +129,26 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
     }
   );
 
-  registry.registerInvoke('logging', LOGGING_API_CHANNELS.selectDestination, async () =>
-    handlers.selectDestination()
+  registry.registerUnauthenticatedInvoke(
+    'logging',
+    LOGGING_API_CHANNELS.selectDestination,
+    VISIBLE_ONLY_SENDER_POLICY,
+    async () => handlers.selectDestination()
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'logging',
     LOGGING_API_CHANNELS.openDestination,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (_event, target: unknown): Promise<boolean> =>
       handlers.openDestination(assertLoggingOpenDestinationTarget(target))
   );
 
-  registry.registerInvoke('logging', LOGGING_API_CHANNELS.getBufferedLogs, async () =>
-    handlers.getBufferedLogs()
+  registry.registerUnauthenticatedInvoke(
+    'logging',
+    LOGGING_API_CHANNELS.getBufferedLogs,
+    VISIBLE_ONLY_SENDER_POLICY,
+    async () => handlers.getBufferedLogs()
   );
   registry.registerEvent('logging', LOGGING_API_CHANNELS.ingestBufferedRecord, (event, payload) => {
     const record = assertBufferedLogRecord(payload);

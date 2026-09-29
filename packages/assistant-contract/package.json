@@ -6,11 +6,13 @@
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@modelcontextprotocol/core": "catalog:",
+    "effect": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
@@ -34,6 +36,11 @@
       "types": "./dist/assistant-request-body-limit.d.ts",
       "import": "./dist/assistant-request-body-limit.js",
       "require": "./dist/assistant-request-body-limit.js"
+    },
+    "./host-run-id": {
+      "types": "./dist/host-run-id.d.ts",
+      "import": "./dist/host-run-id.js",
+      "require": "./dist/host-run-id.js"
     },
     "./hook-trust-request": {
       "types": "./dist/hook-trust-request.d.ts",
@@ -80,6 +87,11 @@
       "types": "./dist/mcp-task-presentation.d.ts",
       "import": "./dist/mcp-task-presentation.js",
       "require": "./dist/mcp-task-presentation.js"
+    },
+    "./native-tool-schemas": {
+      "types": "./dist/native-tools/schemas/index.d.ts",
+      "import": "./dist/native-tools/schemas/index.js",
+      "require": "./dist/native-tools/schemas/index.js"
     },
     "./citation-markers": {
       "types": "./dist/citation-markers.d.ts",
@@ -171,10 +183,25 @@
       "import": "./dist/secrets-bridge.js",
       "require": "./dist/secrets-bridge.js"
     },
+    "./subagent-settings": {
+      "types": "./dist/subagent-settings.d.ts",
+      "import": "./dist/subagent-settings.js",
+      "require": "./dist/subagent-settings.js"
+    },
     "./skills-bridge": {
       "types": "./dist/skills-bridge.d.ts",
       "import": "./dist/skills-bridge.js",
       "require": "./dist/skills-bridge.js"
+    },
+    "./personas-bridge": {
+      "types": "./dist/personas-bridge.d.ts",
+      "import": "./dist/personas-bridge.js",
+      "require": "./dist/personas-bridge.js"
+    },
+    "./context-files-bridge": {
+      "types": "./dist/context-files-bridge.d.ts",
+      "import": "./dist/context-files-bridge.js",
+      "require": "./dist/context-files-bridge.js"
     },
     "./runtime-data": {
       "types": "./dist/runtime-data.d.ts",
@@ -220,6 +247,16 @@
       "types": "./dist/model-reasoning.d.ts",
       "import": "./dist/model-reasoning.js",
       "require": "./dist/model-reasoning.js"
+    },
+    "./delegated-conversation-stream": {
+      "types": "./dist/delegated-conversation-stream.d.ts",
+      "import": "./dist/delegated-conversation-stream.js",
+      "require": "./dist/delegated-conversation-stream.js"
+    },
+    "./child-followup": {
+      "types": "./dist/child-followup.d.ts",
+      "import": "./dist/child-followup.js",
+      "require": "./dist/child-followup.js"
     }
   },
   "files": [
@@ -237,7 +274,7 @@
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "sideEffects": false,
   "type": "module",

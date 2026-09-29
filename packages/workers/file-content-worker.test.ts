@@ -4,7 +4,8 @@ import {
   resetFileSizeConfig,
   setFileSizeConfig,
 } from '@brainstrike/file-system';
-import { createFileNode } from '@brainstrike/test-utils';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
+import type { FileHandle } from '@brainstrike/types';
 import * as utils from '@brainstrike/utils';
 import { fileContent } from '@brainstrike/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,14 +27,7 @@ vi.spyOn(console, 'error').mockImplementation(() => {});
 
 function createRequest(path: string) {
   const node = createFileNode({ path });
-  const handle: {
-    path: string;
-    name: string;
-    kind: 'file';
-    size?: number;
-    platform: 'web';
-    _internal: FileSystemFileHandle | FileSystemDirectoryHandle;
-  } = {
+  const handle: FileHandle = {
     _internal: node.handle,
     kind: 'file',
     name: node.name,

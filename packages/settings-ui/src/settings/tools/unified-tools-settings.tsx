@@ -717,13 +717,9 @@ export function UnifiedToolsSettings({
           }
           value={activeTab}
         >
-          <TabsList className="h-9">
-            <TabsTrigger className="px-4 text-sm" value="tools">
-              Tools
-            </TabsTrigger>
-            <TabsTrigger className="px-4 text-sm" value="mcp-config">
-              MCP Config
-            </TabsTrigger>
+          <TabsList size="md">
+            <TabsTrigger value="tools">Tools</TabsTrigger>
+            <TabsTrigger value="mcp-config">MCP Config</TabsTrigger>
           </TabsList>
 
           <TabsContent className="mt-4" value="tools">

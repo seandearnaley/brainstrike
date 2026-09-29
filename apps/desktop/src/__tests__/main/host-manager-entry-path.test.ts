@@ -6,9 +6,13 @@ vi.mock('electron', () => ({
   utilityProcess: { fork: vi.fn() },
 }));
 
-vi.mock('@brainstrike/logging', () => ({
-  createLogger: () => ({}),
-}));
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({}),
+  };
+});
 
 import { resolveDbHostEntryPath } from '../../db-host-manager';
 import { resolveParserHostEntryPath } from '../../parser-host-manager';

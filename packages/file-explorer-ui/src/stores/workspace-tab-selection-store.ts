@@ -33,6 +33,14 @@ interface WorkspaceTabSelectionState {
    */
   closeApp: (appId: string) => string | null;
   /**
+   * Close several app tabs in ONE transition (tab-menu Close Others / Close
+   * All). Selection follows {@link closeApp}'s rules: a surviving selection
+   * stays; a closed one moves to the next surviving app after it, else the
+   * last surviving app, else `{kind:'empty'}`. Returns that successor, or
+   * `null` when the selection did not move to an app.
+   */
+  closeApps: (appIds: readonly string[]) => string | null;
+  /**
    * Thread-workspace hydration entry point (BST-1268): replace the open list
    * and selection atomically from a snapshot. Mounted apps re-seed from the
    * hydrated selection only — surfaces from the previous thread stay mounted
@@ -43,11 +51,16 @@ interface WorkspaceTabSelectionState {
    */
   hydrate: (openAppIds: readonly string[], selection: WorkspaceTabSelection) => void;
   /**
+   * A fresh identity per {@link hydrate} (never persisted): the open set was
+   * REPLACED by another thread's workspace, not closed.
+   */
+  hydration: object;
+  /**
    * Apps that have been ACTIVATED at least once this session — the keep-alive
    * set the workspace body renders hidden-but-mounted (Canvas's sandboxed
    * iframe and the explorer layout must never remount). Session-only (not
    * persisted; a rehydrated app selection re-seeds it); grows on activation,
-   * never shrinks on close.
+   * including a close that selects a successor, and never shrinks on close.
    */
   mountedAppIds: readonly string[];
   /** Open (add if missing) AND activate an app tab. Singleton: re-open activates. */
@@ -148,11 +161,21 @@ function coercePersisted(value: unknown): PersistedWorkspaceTabState {
   return { openAppIds, selection };
 }
 
+/**
+ * Invariant: a selected app is always mounted. `openApp`, `closeApp` and
+ * `closeApps` add their selected app through here (hydrate and rehydration
+ * re-seed from the selection), so a close that selects a restored but never
+ * activated successor still renders it instead of leaving the panel blank.
+ */
+function withMounted(mountedAppIds: readonly string[], appId: string): readonly string[] {
+  return mountedAppIds.includes(appId) ? mountedAppIds : [...mountedAppIds, appId];
+}
+
 export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>()(
   persist(
     (set, get) => ({
       closeApp: (appId) => {
-        const { openAppIds, selection } = get();
+        const { mountedAppIds, openAppIds, selection } = get();
         const index = openAppIds.indexOf(appId);
         if (index === -1) {
           return null;
@@ -165,6 +188,31 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
         }
         const successor = nextOpen[index] ?? nextOpen.at(-1) ?? null;
         set({
+          mountedAppIds: successor === null ? mountedAppIds : withMounted(mountedAppIds, successor),
+          openAppIds: nextOpen,
+          selection: successor === null ? { kind: 'empty' } : { appId: successor, kind: 'app' },
+        });
+        return successor;
+      },
+      closeApps: (appIds) => {
+        const { mountedAppIds, openAppIds, selection } = get();
+        const closing = new Set(appIds);
+        const nextOpen = openAppIds.filter((id) => !closing.has(id));
+        if (nextOpen.length === openAppIds.length) {
+          return null;
+        }
+        const closingActive = selection.kind === 'app' && closing.has(selection.appId);
+        if (!closingActive) {
+          set({ openAppIds: nextOpen });
+          return null;
+        }
+        const selectedIndex = openAppIds.indexOf(selection.appId);
+        const successor =
+          openAppIds.slice(selectedIndex + 1).find((id) => !closing.has(id)) ??
+          nextOpen.at(-1) ??
+          null;
+        set({
+          mountedAppIds: successor === null ? mountedAppIds : withMounted(mountedAppIds, successor),
           openAppIds: nextOpen,
           selection: successor === null ? { kind: 'empty' } : { appId: successor, kind: 'app' },
         });
@@ -173,17 +221,17 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
       hydrate: (openAppIds, selection) => {
         const coerced = coercePersisted({ openAppIds, selection });
         set({
+          hydration: {},
           mountedAppIds: coerced.selection.kind === 'app' ? [coerced.selection.appId] : [],
           openAppIds: coerced.openAppIds,
           selection: coerced.selection,
         });
       },
+      hydration: {},
       mountedAppIds: DEFAULT_OPEN_APP_IDS,
       openApp: (appId) =>
         set((state) => ({
-          mountedAppIds: state.mountedAppIds.includes(appId)
-            ? state.mountedAppIds
-            : [...state.mountedAppIds, appId],
+          mountedAppIds: withMounted(state.mountedAppIds, appId),
           openAppIds: state.openAppIds.includes(appId)
             ? state.openAppIds
             : [...state.openAppIds, appId],

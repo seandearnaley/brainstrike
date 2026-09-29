@@ -265,6 +265,70 @@ describe('resolveValidatedPath', () => {
     }
   });
 
+  // BST-1386. `isSensitiveUserPath` deliberately fails open when neither HOME
+  // nor USERPROFILE is set: a containerised or CI environment legitimately has
+  // no home directory, and blocking every path would be worse than skipping
+  // the user-directory check. Every other sensitive-user-directory test here is
+  // `skipIf(!home)` and reads the real machine's HOME, so all of them cover the
+  // home-PRESENT path; nothing exercised the absent branch, and mutating its
+  // guard to `false` survived.
+  //
+  // Both halves are asserted, because only the pair pins the fail-open RULING.
+  // The check anchors on `path.join(home, dir)`, so proving a tmpdir path is
+  // allowed while HOME is unset would prove nothing on its own — that path is
+  // allowed with HOME set too. Pointing HOME at tempDir first makes the same
+  // candidate genuinely sensitive, so the second half is the branch and not
+  // the input. It also proves the validator reads the env lazily at call time:
+  // a module-scope capture would make the first half fail.
+  //
+  // Unguarded on win32, unlike its `skipIf(isWin32)` neighbours, because the
+  // mixed combination is safe rather than untested: `platform: 'linux'` only
+  // selects the case-sensitive comparison branch, and both the candidate and
+  // the sensitive root are built from the same `tempDir` by `path.join`, so
+  // they agree on separator and case on either OS. The unix system-directory
+  // prefixes cannot match a drive-letter path.
+  it('fails open on an otherwise-sensitive user path when HOME and USERPROFILE are absent', async () => {
+    try {
+      const candidate = path.join(tempDir, '.ssh', 'id_rsa');
+      const options = {
+        allowMissing: true,
+        blockSensitiveDirectories: true,
+        platform: 'linux' as NodeJS.Platform,
+        requestedPath: candidate,
+      };
+
+      // HOME present, pointing at tempDir: this exact path IS rejected.
+      vi.stubEnv('HOME', tempDir);
+      vi.stubEnv('USERPROFILE', tempDir);
+      const withHome = await resolveValidatedPath(options);
+      expect(withHome.ok).toBe(false);
+      if (!withHome.ok) {
+        expect(withHome.error.code).toBe('sensitive-path');
+      }
+
+      // HOME absent: the same path is allowed, because the check is skipped.
+      vi.stubEnv('HOME', undefined);
+      vi.stubEnv('USERPROFILE', undefined);
+      // Self-guarding: `vi.stubEnv(name, undefined)` DELETES the key. If that
+      // ever regressed to assigning the string "undefined", the guard would
+      // take its home-present branch, `path.join('undefined', '.ssh')` would
+      // not throw, and the mutant this test kills would survive a green run.
+      expect(process.env['HOME']).toBeUndefined();
+      expect(process.env['USERPROFILE']).toBeUndefined();
+
+      // `path.resolve`, not realpath: with no rootDir and allowMissing, the
+      // validator returns the candidate before `fs.realpath` is reached, so
+      // realpathing here would compare the wrong thing (macOS puts os.tmpdir()
+      // under the /var -> /private/var symlink).
+      expect(await resolveValidatedPath(options)).toEqual({
+        ok: true,
+        path: path.resolve(candidate),
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it.skipIf(!home || isWin32)('rejects symlinks pointing to sensitive directories', async () => {
     const symlinkPath = path.join(tempDir, 'sneaky-link');
     const sshDir = path.join(home!, '.ssh');

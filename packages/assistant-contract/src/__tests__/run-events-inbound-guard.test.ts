@@ -82,12 +82,16 @@ describe('isAssistantRunEvent', () => {
 
   it('round-trip: whatever the outbound sanitizer emits passes the inbound guard', () => {
     const pathological: Record<string, unknown> = {
+      absent: undefined,
       deep: { a: { b: { c: { d: { e: { f: { g: { h: { i: 'way past the cap' } } } } } } } } },
       fn: () => 'stripped',
       nan: Number.NaN,
       ok: ['fine', { nested: true }],
     };
     const sanitized = sanitizeAssistantRunEventMetadata(pathological);
+    // Both the publication host and storage boundary sanitize independently.
+    expect(sanitizeAssistantRunEventMetadata(sanitized)).toStrictEqual(sanitized);
+    expect(JSON.parse(JSON.stringify(sanitized))).toStrictEqual(sanitized);
     expect(isAssistantRunEvent({ ...validEvent, metadata: sanitized })).toBe(true);
   });
 });

@@ -56,6 +56,54 @@ describe('agent-runtime edge cases', () => {
       await runtime.dispose();
     });
 
+    it.each([false, true])(
+      'releases cancellation ownership on construction failure even if cleanup fails (%s)',
+      async (cleanupFails) => {
+        const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+        setMcpToolsets({
+          ...AGENT_RUNTIME_MCP_TOOLSETS,
+          apps: {
+            show_board: {
+              _meta: { ui: { resourceUri: 'ui://apps/board' } },
+              description: 'app',
+              id: 'show_board',
+            },
+          },
+        });
+        const cleanupFailure = new Error('Cancellation cleanup failed');
+        const unregister = vi.fn(() => {
+          if (cleanupFails) {
+            throw cleanupFailure;
+          }
+        });
+        const registerCancellation = vi.fn(() => unregister);
+        const finishToolActions = vi.fn(async () => undefined);
+        const failure = new Error('Apps admission already registered');
+        await expect(
+          createMastraAgentRuntime({
+            conversationBinding: {
+              finishToolActions,
+              inputProcessor: { id: 'test-binding', processInput: ({ messages }) => messages },
+              prepare: () => undefined,
+              registerCancellation,
+            },
+            mcpAppAdmission: {
+              register: () => {
+                throw failure;
+              },
+            },
+            mcpHost,
+            runtime: { apiKey: 'test-key', provider: 'openai' },
+          })
+        ).rejects.toMatchObject(
+          cleanupFails ? { errors: [failure, cleanupFailure] } : { message: failure.message }
+        );
+        expect(registerCancellation).toHaveBeenCalledOnce();
+        expect(unregister).toHaveBeenCalledOnce();
+        expect(finishToolActions).toHaveBeenCalledOnce();
+      }
+    );
+
     it('publishes Apps admission for the exact runtime lifetime when an app tool exists', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
       setMcpToolsets({
@@ -546,7 +594,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       const iterator = await streamMastraAgent(
@@ -593,7 +645,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       const iterator = await streamMastraAgent(
@@ -638,7 +694,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       try {
@@ -712,7 +772,11 @@ describe('agent-runtime edge cases', () => {
               controller.close();
             },
           });
-          return { fullStream: stream };
+          return {
+            consumeStream: async () => {},
+            fullStream: stream,
+            getFullOutput: async () => ({}),
+          };
         };
 
         try {
@@ -785,7 +849,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       try {
@@ -847,7 +915,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       try {
@@ -928,7 +1000,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       try {
@@ -990,7 +1066,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       try {
@@ -1046,7 +1126,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       try {
@@ -1132,7 +1216,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       try {
@@ -1179,7 +1267,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       try {
@@ -1235,7 +1327,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       const iterator = await streamMastraAgent(
@@ -1272,7 +1368,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       const iterator = await streamMastraAgent(
@@ -1310,7 +1410,11 @@ describe('agent-runtime edge cases', () => {
             controller.close();
           },
         });
-        return { fullStream: stream };
+        return {
+          consumeStream: async () => {},
+          fullStream: stream,
+          getFullOutput: async () => ({}),
+        };
       };
 
       const iterator = await streamMastraAgent(

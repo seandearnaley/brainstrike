@@ -1,4 +1,4 @@
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
+import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import type { HookTrustRequest, RuntimeData } from '@brainstrike/assistant-contract';
 import type {
   RuntimeAssistantMemorySettings,
@@ -39,12 +39,6 @@ interface UseAssistantThreadRequestDataArgs {
   readonly memoryResourceId: string | undefined;
   readonly modelSettings: RuntimeData['modelSettings'] | undefined;
   readonly observationalMemorySettings: RuntimeAssistantObservationalMemorySettings;
-  /**
-   * Opt-in permission snapshot; only set (non-undefined) when the user enabled
-   * enforcement AND this is the desktop data-stream transport. Passthrough
-   * otherwise.
-   */
-  readonly permissionPolicyRequest: PermissionToolGateSnapshotInput | undefined;
   /** Plan mode (opt-in); forwarded to the request only when `true`. */
   readonly planMode?: boolean;
   readonly providerOptions: Record<string, unknown> | undefined;
@@ -101,7 +95,6 @@ export function useAssistantThreadRequestData({
   memoryResourceId,
   modelSettings,
   observationalMemorySettings,
-  permissionPolicyRequest,
   planMode,
   providerOptions,
   requestedReasoningEffort,
@@ -116,6 +109,9 @@ export function useAssistantThreadRequestData({
   workspaceIndex,
   workspaceRootPath,
 }: UseAssistantThreadRequestDataArgs): UseAssistantThreadRequestDataResult {
+  // Per-child subagent budgets ride every request (`runtimeData.subagentSettings`).
+  // Read here, not in the panel wrapper, which holds a shrink-only line budget.
+  const subagentSettings = useAssistantSubagentPreferencesStore((state) => state.settings);
   const runtimeMemorySettings = useMemo(
     () => ({
       observationalMemory: observationalMemorySettings,
@@ -139,7 +135,6 @@ export function useAssistantThreadRequestData({
         memoryResourceId,
         memorySettings: runtimeMemorySettings,
         modelSettings,
-        permissionPolicyRequest,
         ...(planMode ? { planMode: true } : {}),
         providerOptions,
         requestedReasoningEffort,
@@ -149,6 +144,7 @@ export function useAssistantThreadRequestData({
         workspaceContext: runtimeWorkspaceContext,
         ...(skillsPreference ? { skillsPreference } : {}),
         ...(subagentPersonasRequest ? { subagentPersonasRequest } : {}),
+        subagentSettings,
         ...(workspaceInstructionsPreference ? { workspaceInstructionsPreference } : {}),
         workspaceIndex,
         workspaceRootPath,
@@ -165,7 +161,6 @@ export function useAssistantThreadRequestData({
       memoryOptions,
       memoryResourceId,
       modelSettings,
-      permissionPolicyRequest,
       planMode,
       providerOptions,
       requestedReasoningEffort,
@@ -176,6 +171,7 @@ export function useAssistantThreadRequestData({
       selfImprovementSignalPreference,
       skillsPreference,
       subagentPersonasRequest,
+      subagentSettings,
       workspaceInstructionsPreference,
       workspaceIndex,
       workspaceRootPath,

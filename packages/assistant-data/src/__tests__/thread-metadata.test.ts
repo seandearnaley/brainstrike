@@ -1,20 +1,13 @@
-import { wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   assertPersistableThreadMetadataForTest,
   createPgliteAssistantThreadRepository,
   sanitizeThreadMetadataForTest,
 } from '../assistant-memory-repository';
+import { createMigratedTestPGlite } from './helpers/test-pglite';
 
 let pgliteDataDir: string | undefined;
-
-afterEach(async () => {
-  if (pgliteDataDir) {
-    await wasmLoader.closeCached(pgliteDataDir);
-    pgliteDataDir = undefined;
-  }
-});
 
 describe('forge metadata', () => {
   it('keeps a forge PR URL and a watch flag', () => {
@@ -46,7 +39,7 @@ describe('forge metadata', () => {
 describe('checkout metadata', () => {
   it('removes persisted worktree keys when handing a thread back to local', async () => {
     pgliteDataDir = `memory://thread-metadata-local-handoff-${crypto.randomUUID()}`;
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -69,7 +62,7 @@ describe('checkout metadata', () => {
 
   it('rejects checkout keys from bulk repository updates before writing', async () => {
     pgliteDataDir = `memory://thread-metadata-bulk-checkout-${crypto.randomUUID()}`;
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -144,7 +137,7 @@ describe('checkout metadata', () => {
 
   it('removes a stale branch on a detached worktree-to-worktree transition', async () => {
     pgliteDataDir = `memory://thread-metadata-worktree-transition-${crypto.randomUUID()}`;
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 

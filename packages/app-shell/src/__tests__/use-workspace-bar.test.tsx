@@ -256,6 +256,16 @@ function installWorktreesBridge(): void {
         setupCommand: null,
       },
     })),
+    inspectArchive: vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        confirmationToken: null,
+        ignoredEntryCount: 0,
+        ignoredTopLevelEntries: [],
+        ignoredTopLevelEntriesTruncated: false,
+        ignoredTopLevelEntryCount: 0,
+      },
+    })),
     list: worktreeListSpy,
     listManagedPaths: vi.fn(),
     restore: vi.fn(),

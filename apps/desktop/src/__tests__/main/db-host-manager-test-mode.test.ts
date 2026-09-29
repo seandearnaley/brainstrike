@@ -10,16 +10,22 @@ vi.mock('electron', () => ({
   utilityProcess: { fork: forkMock },
 }));
 
-vi.mock('@brainstrike/logging', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    fatal: vi.fn(),
-    info: vi.fn(),
-    trace: vi.fn(),
-    warn: vi.fn(),
-  }),
-}));
+// Partial: the manager's transitive imports (worker-runtime -> utils) read
+// `LogLevel` at module scope, so the real module has to come through.
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: vi.fn(),
+    }),
+  };
+});
 
 describe('DbHostManager test-only diagnostics', () => {
   const originalArgv = process.argv;
