@@ -32,10 +32,36 @@ const TABLE_CLASSES_IN_MANIFEST = [...TABLE_DURABILITY_CLASSES, 'unclassified'] 
 const nonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const nonNegativeNumber = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
 
-/** Ids and profile names become directory names, so they must be one safe path segment. */
+/**
+ * Twin of `WINDOWS_RESERVED_DEVICE_NAME` in `apps/desktop/src/database-location.ts`, which
+ * `packages/db` cannot import; `scripts/__tests__/windows-reserved-device-name-twin.test.mjs`
+ * keeps the two alternations equal. Windows maps these names, with any extension, to
+ * devices, so `nul.db` would swallow every write. Case-insensitive: Windows is.
+ */
+const WINDOWS_RESERVED_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu;
+
+/** The desktop profile resolver's `PROFILE_SEGMENT_MAX_LENGTH`; an id is about 40, far below it. */
+const PATH_SEGMENT_MAX_LENGTH = 64;
+
+/**
+ * Ids and profile names become directory names, so they must be one safe path
+ * segment on every platform: no separator, no leading dot, no trailing dot (Windows
+ * drops it), no reserved device name, and a bounded length. Two names that differ
+ * only in case collide on a case-insensitive filesystem; ids end in a random suffix,
+ * so that is out of scope here.
+ */
 const pathSegment = Schema.String.check(
   Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u, {
     message: 'must be one path segment of letters, digits, dot, underscore or dash',
+  }),
+  Schema.isMaxLength(PATH_SEGMENT_MAX_LENGTH, {
+    message: `must be at most ${PATH_SEGMENT_MAX_LENGTH} characters`,
+  }),
+  Schema.makeFilter((value: string) => !value.endsWith('.'), {
+    message: 'must not end in a dot, which Windows drops',
+  }),
+  Schema.makeFilter((value: string) => !WINDOWS_RESERVED_DEVICE_NAME.test(value), {
+    message: 'must not be a reserved Windows device name',
   }),
   Schema.makeFilter((value: string) => !value.endsWith('.partial'), {
     message: 'must not end in .partial, which marks a snapshot still being written',
@@ -106,17 +132,80 @@ export type DatabaseSnapshotManifest = (typeof manifestSchema)['Type'];
 
 const decodeManifest = makeThrowingDecoder(manifestSchema, { onExcessProperty: 'error' });
 
+/** One consistency rule: a manifest that breaks it names `fields` in its error. */
+type Contradiction = readonly [broken: boolean, fields: string, why: string];
+
+function contradictionsOf(manifest: DatabaseSnapshotManifest): readonly Contradiction[] {
+  const { findings, findingsTruncated, status, unverifiableReason } = manifest.integrity;
+  const contradictions: Contradiction[] = [
+    [
+      status === 'clean' && findings.length > 0,
+      'integrity.status, integrity.findings',
+      'a clean status holds no findings',
+    ],
+    [
+      status === 'clean' && findingsTruncated,
+      'integrity.status, integrity.findingsTruncated',
+      'a clean status has nothing to truncate',
+    ],
+    [
+      status === 'damaged' && findings.length === 0 && !findingsTruncated,
+      'integrity.status, integrity.findings',
+      'a damaged status names at least one finding',
+    ],
+    [
+      status === 'unverifiable' && unverifiableReason === null,
+      'integrity.status, integrity.unverifiableReason',
+      'an unverifiable status gives its reason',
+    ],
+    [
+      status !== 'unverifiable' && unverifiableReason !== null,
+      'integrity.status, integrity.unverifiableReason',
+      'only an unverifiable status carries a reason',
+    ],
+  ];
+  for (const durability of TABLE_CLASSES_IN_MANIFEST) {
+    const total = manifest.tables
+      .filter((table) => table.durability === durability)
+      .reduce((sum, table) => sum + (table.rows ?? 0), 0);
+    contradictions.push([
+      manifest.rowCountsByDurability[durability] !== total,
+      `rowCountsByDurability.${durability}`,
+      `the ${durability} tables sum to ${total}`,
+    ]);
+  }
+  return contradictions;
+}
+
 /**
  * Strictly decodes a parsed `manifest.json`. Throws a `TypeError` naming the
- * failing field. `verified` is checked against the evidence it summarises
- * (a clean integrity status and a row count for every table), because a
- * manifest that claims it without it would let retention protect a copy that
- * was never proven.
+ * failing field. Beyond the schema it rejects a manifest that contradicts
+ * itself, so a reader never has to guess which half to believe:
+ * - `clean` carries no findings, no truncation and no reason; `damaged` names a
+ *   finding (or was truncated); `unverifiable` gives a reason, and no other
+ *   status carries one;
+ * - each `rowCountsByDurability` class equals the sum of `tables[].rows` of that
+ *   class, where a table whose count is `null` (counting it failed) adds
+ *   nothing, so the total is over the tables that WERE counted;
+ * - `verified` is true exactly when the status is clean, unmarked, findings-free
+ *   and untruncated, and every table has a row count. Retention pins the newest
+ *   verified snapshot, so a manifest claiming it without that evidence would
+ *   protect a copy that was never proven.
  */
 export function parseDatabaseSnapshotManifest(json: unknown): DatabaseSnapshotManifest {
   const manifest = decodeManifest(json);
+  for (const [broken, fields, why] of contradictionsOf(manifest)) {
+    if (broken) {
+      throw new TypeError(`Snapshot manifest fields ${fields} contradict each other: ${why}.`);
+    }
+  }
+  const { findings, findingsTruncated, status, unverifiableReason } = manifest.integrity;
   const earned =
-    manifest.integrity.status === 'clean' && manifest.tables.every(({ rows }) => rows !== null);
+    status === 'clean' &&
+    findings.length === 0 &&
+    !findingsTruncated &&
+    unverifiableReason === null &&
+    manifest.tables.every(({ rows }) => rows !== null);
   if (manifest.verified !== earned) {
     throw new TypeError(
       `Snapshot manifest field "verified" is ${manifest.verified}, but its integrity status and row counts say ${earned}.`
