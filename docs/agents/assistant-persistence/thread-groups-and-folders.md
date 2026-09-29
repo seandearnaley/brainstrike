@@ -332,12 +332,55 @@ unseen until its transcript has been on screen in an active window at or after i
   never on leaving: the old cleanup stamp marked a run seen that finished off screen.
   Never continuous either — Codex issue #13115 (per the ticket) is a continuous stamp
   defeating a manual mark-unread; there is no mark-unread here yet.
-- Unverified: whether a focused MCP Apps iframe keeps `document.hasFocus()` true.
-  The HTML spec counts an ancestor of the focused document, so it should, but jsdom
-  does not model iframe focus and this was not checked in a live browser.
-- Known limitation, reported in review and not reproduced here: while keyboard focus
-  is in a separate WebContents (the desktop browser pane's `WebContentsView`, or
-  DevTools) `document.hasFocus()` is false in the renderer, so the transcript reads as
-  off screen while the user is looking at the window. `useAppActive()` is the
-  OS-notification gate's signal too, so the two stay consistent (a completion is
-  unseen and alerts). A window-level focus capability is tracked as a follow-up.
+- Resolved 2026-09-28 (BST-1864): "active" is the NATIVE window's focus on desktop, not the
+  renderer's `document.hasFocus()`. The reviewed limitation was real: while keyboard focus sat in a
+  separate WebContents (the browser pane's `WebContentsView`, docked DevTools) the renderer read
+  `document.hasFocus() === false`, so the on-screen transcript read as off screen and the OS-notification
+  gate alerted about a thread the user was looking at. The premise, probed in bare Electron 44.4.5 (no
+  Playwright, focused window, 6-8 s holds):
+  - child `WebContentsView` focused with `view.webContents.focus()`: no `blur` on the host window,
+    `win.isFocused()` true, host `document.hasFocus()` FALSE (the bug), child document true;
+  - docked DevTools (`mode: 'right'`): no `blur`, `win.isFocused()` true, `isDevToolsFocused()` true, host
+    `document.hasFocus()` false, in two 8 s runs (opened at 0.6 s and 4 s). Two earlier docked runs showed a
+    `blur` about 3.6-3.8 s after launch with nothing of ours happening then; it did not recur and is treated as an OS focus change in
+    that environment, not evidence against the premise;
+  - detached DevTools (`mode: 'detach'`): a separate OS window takes key status, so the host DOES `blur`
+    and `isFocused()` is false (`BrowserWindow.getFocusedWindow()` still returns the host, because Electron
+    counts DevTools focus there). Focus in a detached DevTools window therefore reads inactive, like any other
+    window; the `focus`/`blur` events are the deliberate source, not `getFocusedWindow()`.
+- The design, and why it is this shape. Main publishes the host window's `focus`/`blur` on
+  `window-focus:changed` and serves `window-focus:is-focused` for the ASKING window (`window-focus-ipc.ts`,
+  contract `window-focus.contract.ts`, exposed as `window.windowFocus`, typed by `WindowFocusBridge` in
+  `@brainstrike/utils`, pinned at compile time). `useAppActive()`/`isAppActive()` capability-check it:
+  visible AND native focus with it, `document.hasFocus()` without it (web is unchanged). The native value
+  arrives asynchronously, so until the first one lands the renderer's own reading stands in (a window that
+  starts focused never flashes inactive), and a push that lands first beats the older initial read. A failed
+  initial read is logged and leaves the renderer reading in place until a push arrives; a present-but-malformed
+  bridge is logged and treated as absent. The notification gate now reads `isAppActive()` at event time, so
+  "seen" and "alerted" cannot disagree (`shouldNotify` takes the one boolean). The `mainWindow` blur/focus pair
+  in `main.ts` (`setBackgrounded`) is a separate concern and stays; it only ever attached to the FIRST window,
+  which is why the publisher is wired in `createMainWindow` (every window, dock-reopen included).
+- Desktop E2E cannot reproduce the pane-focus symptom, and the harness had to be told about the bridge.
+  Measured in the real harness: the main window is `focusable: false` and never shown (`isTestMode`), so it
+  never takes OS focus (`isFocused()` false; in a probe `setFocusable(true)` plus `focus()` did not change
+  that on macOS),
+  while Playwright forces `document.hasFocus()` true on every page (disabled with CDP
+  `Emulation.setFocusEmulationEnabled`, the symptom appears, but the window still cannot be focused). With the
+  bridge on, every spec would run unfocused, so `electron-helpers.mts` defaults
+  `BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES` to `windowFocus` (an explicit value, `''` included, wins).
+  `window-focus-seen.desktop.test.ts` opts in and proves the chain the harness allows: an unfocused native
+  window leaves a finished run unseen, and a `focus` event (synthesized with `BrowserWindow.emit`, since the
+  window cannot take it) marks the on-screen thread seen. RED is the bridge-off run (the completion reads
+  seen through Playwright's forced focus); mutation-checked by removing `publishWindowFocus` from main (the
+  glyph never clears). The pane-focus symptom itself is pinned by the hooks and gate unit tests plus the probe
+  above, not by an E2E.
+- MCP Apps iframe: does a focused iframe keep the app renderer's `document.hasFocus()` true? By the HTML
+  spec (and Blink's `FocusController::IsDocumentFocused`: the focused frame is a descendant of the document)
+  an ancestor of the focused document has focus, and the top document is an ancestor of every frame in its
+  page. Checked in Electron 44.4.5 with real clicks routed into a same-process `srcdoc` iframe, an
+  out-of-process sandboxed `srcdoc` iframe and an out-of-process cross-origin `http://` iframe: the clicked
+  frame read `hasFocus()` true, its siblings false, and the top document true in every case. Caveat: the
+  page-level focus in that probe was CDP-emulated (OS focus could not be acquired when it ran), so it proves
+  the frame-chain rule, not the OS-window layer, which is what `windowFocus` now supplies. No permanent test
+  was added: Playwright's forced page focus makes the top document read true whatever the frames do, so a web
+  or desktop E2E could not fail on it.

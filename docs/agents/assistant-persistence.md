@@ -309,9 +309,9 @@ Electron module, no new IPC.
 - Preferences persist a master toggle (default OFF) plus per-event toggles
   (default ON) and reset directly from `clearBrowserStorage`, so the live
   in-memory toggle cannot survive a reset that does not reload the page.
-- `shouldNotify` is a PURE gate: master on, event on, permission granted, window
-  unfocused — all evaluated AT EVENT TIME. Request permission ONLY from the
-  Settings toggle-on click, and never persist `masterEnabled: true` without it.
+- `shouldNotify` is a PURE gate: master on, event on, permission granted, app not
+  active (`isAppActive()`) — all evaluated AT EVENT TIME. Request permission ONLY from
+  the Settings toggle-on click, and never persist `masterEnabled: true` without it.
 - Coalescing keys are `runId:kind`; approval alerts use `getToolActionIdentityKey`
   so root/child copies coalesce and each later leaf alerts independently. Dispatcher
   inputs contain identifiers and an optional title, never message content or args.
@@ -320,10 +320,10 @@ Electron module, no new IPC.
   once and DEFER seeding the "seen" baseline until `state.thread.isLoading` is
   false, so replayed history does not fire stale notifications.
   `packages/assistant-ui` never touches `window.Notification` or the store.
-- `packages/app-shell/src/use-assistant-run-notifications.ts` is the only layer
-  reading live focus and owning the dispatcher. Hosted turns coalesce on the wire
-  `runId`; web local-runtime events fall back to `event.id` — never a fabricated
-  runId that could collide.
+- `packages/app-shell/src/use-assistant-run-notifications.ts` owns the dispatcher
+  and reads `isAppActive()` at event time, never `document.hasFocus()`. Hosted
+  turns coalesce on the wire `runId`; web local-runtime events fall back to
+  `event.id` — never a fabricated runId that could collide.
 - Forge observations come from `forge:prUpdated` pushes, not a stream scan, and
   are gated per thread by `metadata.forgePrWatch !== false`. Buffer pushes that
   arrive before the branch lookup resolves and drain them once it reports
@@ -337,8 +337,8 @@ stay fresh through their own live sources.
 Evidence: `assistant-persistence/run-notification-layers.md`.
 Guard: `packages/app-state/src/__tests__/notification-*.test.ts(x)`,
 `packages/assistant-ui/src/__tests__/run-lifecycle-notifications*.test.ts(x)`,
-`packages/app-shell/src/__tests__/use-assistant-run-notifications.test.ts`,
-`use-forge-run-events.test.ts`.
+`packages/app-shell/src/__tests__/use-assistant-run-notifications*.test.ts`,
+`use-forge-run-events.test.ts`, `packages/hooks/src/__tests__/use-app-active.test.ts`.
 
 ---
 
@@ -1388,12 +1388,12 @@ Where state lives (do not relitigate):
   an empty resolved map — an empty map with `loading: false` files every thread
   under "No folder". Its rows carry the RAW `roots.path` while the branch map is
   keyed by NORMALIZED path; a consumer joining them must normalize first.
-- Seen = `threadOnScreen`: explorer route AND the strip renders the thread AND
-  `useAppActive()` (the OS-notification gate). Only the strip publishes `onScreenThreadId`
-  and stamps, from the value it computed this render, not a store read-back; the Threads
-  panel reads the store. `deriveUnseenThreadIds` (latest terminal run after the watermark;
-  no `completedAt` ⇒ excluded; `failedUnseen ⊂ unseen`) skips the ON-SCREEN thread, not the
-  active one. Stamp = `completedAt`, on arrival or a new on-screen finish; never on leaving.
+- Seen = `threadOnScreen`: explorer route AND the strip renders the thread AND `useAppActive()` (native
+  window focus on desktop, `document.hasFocus()` on web; the OS-notification gate reads the same
+  `isAppActive()`). Only the strip publishes `onScreenThreadId` and stamps, from the value it computed this
+  render, not a store read-back; the Threads panel reads the store. `deriveUnseenThreadIds` (latest terminal
+  run after the watermark; no `completedAt` ⇒ excluded; `failedUnseen ⊂ unseen`) skips the ON-SCREEN thread,
+  not the active one. Stamp = `completedAt`, on arrival or a new on-screen finish; never on leaving.
 - Folder branch chips come from ONE `useGitInventory()` GATED on `enabled`, because
   one load is a full repo/worktree scan across every root and the chips exist only
   in folder grouping — entering it is the gesture, so this is a deferral, not a
@@ -1465,7 +1465,7 @@ Guard: `packages/db/__tests__/migration-054-assistant-thread-groups.test.ts`,
 double routes rows BY `cacheKey`; the two projections share a row shape),
 `thread-panel-visible-rows.test.ts`, `threads-panel-dnd.test.ts`, `thread-panel-content-state.test.ts`,
 `use-unseen-thread-ids.test.ts`, `use-on-screen-thread.test.tsx`, `assistant-thread-tabs-workspace-seen.test.tsx`,
-`apps/desktop/e2e/threads-panel-folders.desktop.test.ts`,
+`apps/desktop/e2e/threads-panel-folders.desktop.test.ts`, `window-focus-seen.desktop.test.ts`,
 `apps/web/e2e/threads-panel-folders.test.ts`.
 
 ## TOOL OUTPUT ARTIFACT PERSISTENCE
