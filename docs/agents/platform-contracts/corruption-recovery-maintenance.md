@@ -1,7 +1,9 @@
 # Runtime corruption recovery, including the maintenance entry point — evidence
 
-Supports `docs/agents/platform-contracts.md` § "RUNTIME DATABASE CORRUPTION RECOVERY".
-Read before changing corruption classification, the recovery order, or the maintenance scheduler. The contract holds the rules; this file is the record behind them.
+Supports `docs/agents/platform-contracts.md` § "DATABASE INTEGRITY CONTAINMENT".
+Read before changing corruption classification or the maintenance scheduler. The contract holds the rules; this file is the record behind them.
+
+**Superseded (2026-09-29, BST-1870).** Everything below about replacing the database, the recovery order, `DatabaseCorruptionRecoveredError` and the required `onRuntimeCorruption` option describes the design that was removed. An integrity error now contains the database and never replaces it: see § DATABASE INTEGRITY CONTAINMENT and `platform-contracts/database-integrity-containment.md`. Only the classification section at the end is still current.
 
 Everything below is extracted verbatim from the contract as it stood before
 distillation (2026-09-21). Corrections verified against the code today are

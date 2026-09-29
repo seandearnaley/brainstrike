@@ -1,24 +1,23 @@
 import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { getResetTables } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import {
-  createAllowlistedSenderFrame,
-  createTrustedInvokeEvent,
-  trackTestWindowRole,
-} from '../helpers/desktop-ipc-sender-test-helpers';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 import {
   applyManagedCacheBatchMock,
   browserWindowMock,
   closeDatabaseMock,
+  createAuthorizedDbEvent,
+  createCorruptionError,
+  createFakeLiveQueryOwner,
+  createLiveHandleMock,
   createWindowWithWebContents,
+  currentIntegrityState,
   embeddingHostIsHostWindowMock,
   getDatabaseDiagnosticsMock,
   getDatabaseMock,
   getDbHostManagerMock,
-  handleRuntimeCorruptionMock,
   handlers,
   invalidateManagedCacheEntriesByIdentityMock,
-  isCorruptionErrorMock,
   loggerDebug,
   loggerWarn,
   mockDb,
@@ -39,87 +38,8 @@ function setBrowserWindows(...senders: unknown[]): void {
   );
 }
 
-let nextAuthorizedSenderId = 800_000;
-
-/**
- * Runs behavior tests through the production sender-authorization boundary
- * without replacing caller-owned WebContents stand-ins. Live-query and
- * scheduler tests depend on that object identity for ownership and host-role
- * classification, so missing ids are added to the same object.
- */
-function createAuthorizedDbEvent(sender?: object): unknown {
-  if (!sender) {
-    return createTrustedInvokeEvent();
-  }
-  const candidate = sender as { id?: number };
-  if (candidate.id === undefined) {
-    candidate.id = nextAuthorizedSenderId++;
-  }
-  trackTestWindowRole(candidate.id, 'visible-ui');
-  return {
-    sender,
-    senderFrame: createAllowlistedSenderFrame('visible-ui'),
-  };
-}
-
 /** The three owner-teardown shapes the live-query reaper must cover. */
 const LIVE_QUERY_TEARDOWN_EVENTS = ['destroyed', 'render-process-gone', 'did-navigate'] as const;
-
-interface FakeLiveQueryOwner {
-  emit: (event: string) => void;
-  id: number;
-  isDestroyed: ReturnType<typeof vi.fn>;
-  listenerCount: (event: string) => number;
-  on: (event: string, listener: () => void) => void;
-  removeListener: (event: string, listener: () => void) => void;
-  send: ReturnType<typeof vi.fn>;
-}
-
-/**
- * A minimal WebContents stand-in with real add/remove listener semantics so
- * reaper attachment, sibling-listener removal, and re-attachment after a reap
- * are observable via `listenerCount` (mirrors the fs-watch reaper tests).
- */
-function createFakeLiveQueryOwner(id: number): FakeLiveQueryOwner {
-  const listeners = new Map<string, Array<() => void>>();
-  return {
-    emit: (event: string): void => {
-      // Snapshot before firing — the reap listener mutates the map mid-fire.
-      for (const listener of [...(listeners.get(event) ?? [])]) {
-        listener();
-      }
-    },
-    id,
-    isDestroyed: vi.fn(() => false),
-    listenerCount: (event: string): number => listeners.get(event)?.length ?? 0,
-    on: (event: string, listener: () => void): void => {
-      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
-    },
-    removeListener: (event: string, listener: () => void): void => {
-      const remaining = (listeners.get(event) ?? []).filter((entry) => entry !== listener);
-      if (remaining.length === 0) {
-        listeners.delete(event);
-      } else {
-        listeners.set(event, remaining);
-      }
-    },
-    send: vi.fn(),
-  };
-}
-
-function createLiveHandleMock(): {
-  initialResults: { rows: unknown[] };
-  refresh: ReturnType<typeof vi.fn>;
-  subscribe: ReturnType<typeof vi.fn>;
-  unsubscribe: ReturnType<typeof vi.fn>;
-} {
-  return {
-    initialResults: { rows: [] },
-    refresh: vi.fn(),
-    subscribe: vi.fn(),
-    unsubscribe: vi.fn(),
-  };
-}
 
 async function flushAsyncOwnerCleanup(): Promise<void> {
   // The reap schedules owner cleanup (Promise.allSettled over unsubscribes);
@@ -233,63 +153,6 @@ describe('database IPC handlers', () => {
     expect(getDatabaseMock).toHaveBeenCalled();
     expect(mockDb.query).toHaveBeenCalledWith('SELECT 1', [1]);
     expect(result).toBe(rows);
-  });
-
-  it('resets on corruption without running queued stale work against the replacement database', async () => {
-    const handler = handlers.get('db:query');
-    const corruption = Object.assign(new Error('invalid page in block 42'), { code: 'XX001' });
-    const reloadIgnoringCache = vi.fn();
-    let rejectCorruptingQuery: ((error: Error) => void) | null = null;
-    let markCorruptingQueryStarted: (() => void) | null = null;
-    const corruptingQueryStarted = new Promise<void>((resolve) => {
-      markCorruptingQueryStarted = resolve;
-    });
-    browserWindowMock.getAllWindows.mockReturnValue([
-      {
-        id: 42,
-        isDestroyed: () => false,
-        webContents: { reloadIgnoringCache, send: vi.fn() },
-      },
-    ] as never);
-    mockDb.query.mockImplementationOnce(
-      () =>
-        new Promise<never>((_resolve, reject) => {
-          rejectCorruptingQuery = reject;
-          markCorruptingQueryStarted?.();
-        })
-    );
-    isCorruptionErrorMock.mockReturnValueOnce(true);
-
-    const corruptingQuery = handler?.(createAuthorizedDbEvent(), 'SELECT * FROM file_chunks');
-    await corruptingQueryStarted;
-    const staleQueuedQuery = handler?.(
-      createAuthorizedDbEvent(),
-      'SELECT * FROM stale_renderer_state'
-    );
-    const staleQueuedQueryAssertion = expect(staleQueuedQuery).rejects.toThrow(
-      'Database work was canceled because runtime corruption recovery is replacing the active local database.'
-    );
-    if (!rejectCorruptingQuery) {
-      throw new Error('Corrupting query did not expose its rejection callback.');
-    }
-    const rejectQuery: unknown = rejectCorruptingQuery;
-    if (typeof rejectQuery !== 'function') {
-      throw new Error('Expected corrupting query rejection callback.');
-    }
-    rejectQuery(corruption);
-
-    await expect(corruptingQuery).rejects.toThrow(
-      'Database corruption was recovered by resetting local index data. Brainstrike is reloading.'
-    );
-    await staleQueuedQueryAssertion;
-
-    expect(mockDb.query).toHaveBeenCalledTimes(1);
-    expect(handleRuntimeCorruptionMock).toHaveBeenCalledWith('db:query');
-    expect(browserWindowMock.getAllWindows).toHaveBeenCalled();
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 0);
-    });
-    expect(reloadIgnoringCache).toHaveBeenCalledTimes(1);
   });
 
   it('db:query accepts database work options as the second argument when params are omitted', async () => {
@@ -567,7 +430,6 @@ describe('database IPC handlers', () => {
 
   it('db:managed-cache:apply-batch rejects invalid payloads before touching the database', async () => {
     const handler = handlers.get('db:managed-cache:apply-batch');
-    isCorruptionErrorMock.mockReturnValueOnce(true);
 
     await expect(
       handler?.(createTrustedInvokeEvent(), {
@@ -579,8 +441,7 @@ describe('database IPC handlers', () => {
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).not.toHaveBeenCalled();
     expect(applyManagedCacheBatchMock).not.toHaveBeenCalled();
-    expect(isCorruptionErrorMock).not.toHaveBeenCalled();
-    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
+    expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
   });
 
   it('db:managed-cache:apply-batch accepts empty change arrays as a no-op payload', async () => {
@@ -683,8 +544,7 @@ describe('database IPC handlers', () => {
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).not.toHaveBeenCalled();
     expect(invalidateManagedCacheEntriesByIdentityMock).not.toHaveBeenCalled();
-    expect(isCorruptionErrorMock).not.toHaveBeenCalled();
-    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
+    expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
   });
 
   it('db:live-query:start subscribes and forwards updates', async () => {
@@ -914,8 +774,8 @@ describe('database IPC handlers', () => {
   // The raced-handle teardown is the one unsubscribe in this file that does
   // not go through cleanupLiveSubscription's error tolerance. A rejection
   // there must neither replace the context-changed error nor — via
-  // withCorruptionRecovery — let a benign reload race trigger a full database
-  // replacement. It must still be VISIBLE (logged), never swallowed silently.
+  // runWithIntegrityContainment — let a benign reload race contain the database.
+  // It must still be VISIBLE (logged), never swallowed silently.
   it('db:live-query:start surfaces the context-changed error even when the raced handle teardown rejects', async () => {
     const startHandler = handlers.get('db:live-query:start');
     if (!startHandler) {
@@ -942,16 +802,15 @@ describe('database IPC handlers', () => {
 
     owner.emit('did-navigate');
     const racedHandle = createLiveHandleMock();
-    const teardownFailure = new Error('invalid page in block 7');
+    // Even a corruption-shaped teardown failure must not contain the database.
+    const teardownFailure = createCorruptionError('invalid page in block 7');
     racedHandle.unsubscribe.mockRejectedValueOnce(teardownFailure);
-    // Even a corruption-shaped teardown failure must not reach recover().
-    isCorruptionErrorMock.mockImplementation((error: unknown) => error === teardownFailure);
     releaseHandle(racedHandle);
 
     await expect(pendingStart).rejects.toThrow(
       'db:live-query:start: the requesting renderer context changed during setup.'
     );
-    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
+    expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
     expect(loggerWarn).toHaveBeenCalledWith(
       'Failed to tear down a live-query handle reaped mid-setup',
       {
@@ -1045,45 +904,6 @@ describe('database IPC handlers', () => {
     expect(result).toEqual({ message: 'Subscription not found', success: false });
   });
 
-  it('db:live-query:refresh handles corruption errors', async () => {
-    const startHandler = handlers.get('db:live-query:start');
-    const refreshHandler = handlers.get('db:live-query:refresh');
-    if (!(startHandler && refreshHandler)) {
-      throw new Error('handler not registered');
-    }
-
-    const liveHandle = {
-      initialResults: { rows: [] },
-      refresh: vi.fn(),
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-    };
-    mockDb.live.query.mockResolvedValue(liveHandle);
-
-    const sender = {
-      id: 77,
-      isDestroyed: vi.fn(() => false),
-      on: vi.fn(),
-      removeListener: vi.fn(),
-      send: vi.fn(),
-    };
-
-    const result = (await startHandler(createAuthorizedDbEvent(sender), { query: 'select 1' })) as {
-      id: number;
-    };
-
-    const error = new Error('corrupted');
-    liveHandle.refresh.mockRejectedValue(error);
-    isCorruptionErrorMock.mockReturnValueOnce(true);
-
-    await expect(refreshHandler(createAuthorizedDbEvent(), { id: result.id })).rejects.toThrow(
-      'Database corruption was recovered by resetting local index data. Brainstrike is reloading.'
-    );
-
-    expect(handleRuntimeCorruptionMock).toHaveBeenCalledWith('db:live-query:refresh');
-    expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
-  });
-
   it('db:live-query:refresh returns error message for non-corruption errors', async () => {
     const startHandler = handlers.get('db:live-query:start');
     const refreshHandler = handlers.get('db:live-query:refresh');
@@ -1112,7 +932,6 @@ describe('database IPC handlers', () => {
     };
 
     liveHandle.refresh.mockRejectedValue(new Error('refresh failed'));
-    isCorruptionErrorMock.mockReturnValueOnce(false);
 
     const refreshResult = await refreshHandler(createAuthorizedDbEvent(), {
       id: result.id,
@@ -1123,6 +942,7 @@ describe('database IPC handlers', () => {
       message: 'refresh failed',
       success: false,
     });
+    expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
   });
 
   it('db:resetLocal delegates desktop application data reset and returns errors', async () => {
@@ -1230,10 +1050,7 @@ describe('database IPC handlers', () => {
       lastInitializationFailure: null,
       lastInitializationStartedAt: '2026-02-15T00:00:00.000Z',
       lastInitializationSucceededAt: '2026-02-15T00:00:01.000Z',
-      lastRuntimeCorruptionAt: null,
-      lastRuntimeCorruptionContext: null,
       nodeEnv: 'test',
-      runtimeCorruptionRecoveryCount: 0,
     });
   });
 
@@ -1263,6 +1080,7 @@ describe('database IPC handlers', () => {
       message: 'Database connection failed: oops',
       success: false,
     });
+    expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
   });
 
   describe('db:clearAll handler', () => {
@@ -1489,6 +1307,7 @@ describe('database IPC handlers', () => {
         message: 'Database clear failed: Database connection failed',
         success: false,
       });
+      expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
     });
 
     it('handles transaction callback errors', async () => {

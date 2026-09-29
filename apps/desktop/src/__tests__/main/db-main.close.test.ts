@@ -389,28 +389,6 @@ describe('db-main close and open', () => {
       }
     );
 
-    it('never deletes the data directory during runtime corruption recovery', async () => {
-      const { getDatabaseDiagnostics, handleRuntimeCorruption, initializeMainDatabase } =
-        await import('../../db-main');
-      await initializeMainDatabase();
-      seedDatabaseDirectory({ marker: false });
-      fsProbe.events.length = 0;
-      engine.close.mockRejectedValueOnce(new Error('close failed'));
-
-      await expect(handleRuntimeCorruption('db:query')).rejects.toMatchObject({
-        name: 'DatabaseCloseError',
-        stage: 'close',
-      });
-
-      expect(destructiveFsEvents()).toEqual([]);
-      expect(existsSync(pgVersionPath())).toBe(true);
-      expect(existsSync(lockPath())).toBe(true);
-      expect(getDatabaseDiagnostics().closeFailure).toEqual({
-        message: expect.stringContaining('close failed'),
-        stage: 'close',
-      });
-    });
-
     it('is reported in diagnostics only once a close has failed', async () => {
       const { getDatabaseDiagnostics, initializeMainDatabase } = await import('../../db-main');
       expect(getDatabaseDiagnostics().closeFailure).toBeNull();
