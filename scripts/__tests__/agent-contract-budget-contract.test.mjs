@@ -153,7 +153,10 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1872 L2a added 6, to 977: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a failed
   // close exits 1 with no marker and no retry); main forks no replacement for a host whose close
   // was announced or proven by the marker, and a lost announcement is named as the known gap.
-  'platform-contracts.md': 977,
+  // BST-1872 L2b added 8 more, to 985: the shutdown-ownership first bullet names the reserved
+  // database-close slice (+1) and main's persistent signal listeners installed after ready (+7,
+  // with why a listener added earlier never runs).
+  'platform-contracts.md': 985,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a

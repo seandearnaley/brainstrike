@@ -352,11 +352,12 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
 
 ### Graceful shutdown ownership (hidden hosts and background indexing)
 
-- `main/desktop-graceful-shutdown.ts` owns the step ORDER and its ONE forced-exit
-  budget (`SIGNAL_SHUTDOWN_TIMEOUT_MS`, 5s) for signals and `before-quit`;
-  `main.ts` supplies the step bodies. Fix the slow owner; do not raise the budget.
-  At the deadline the running step's signal aborts and the forced-exit log names it
-  and its elapsed time: a product log, and a CI runner's only actionable clue.
+- `main/desktop-graceful-shutdown.ts` owns the step ORDER (`main.ts` supplies the bodies),
+  ONE forced-exit budget for the owner steps (`SIGNAL_SHUTDOWN_TIMEOUT_MS`, 5s) and ONE
+  reserved database-close slice (`DB_HOST_CLOSE_BUDGET_MS`) that runs after them even when
+  the deadline fires. Fix the slow owner; do not raise either budget. At the deadline the
+  running step's signal aborts, the forced-exit log names it and its elapsed time (a CI
+  runner's only actionable clue), and the database still closes before `exit(1)`.
 - Shutdown retires embedding-backfill admission FIRST. A request arriving after
   `markDesktopShuttingDown()` cannot restart the host being stopped. Deferred
   HNSW polling stops before database retirement; job rows and index suspension
@@ -391,6 +392,13 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   is sticky until it exits: the lock stays and every later close, reopen and reset (factory,
   developer) rejects before deleting or opening anything. A clean close writes
   the marker atomically; opening removes it, so its absence means unclean.
+- Main handles SIGINT, SIGTERM and SIGHUP with persistent listeners (`main/shutdown-signals.ts`)
+  installed from `app.whenReady()`: the first starts the graceful run, later ones are logged and
+  ignored. Why: Electron converts only the FIRST signal into `app.quit()`; a second takes the
+  default action and kills main mid-shutdown, and a dev tree delivers the same signal repeatedly.
+  A listener added before ready, or behind one a dependency armed earlier (`when-exit`), never
+  runs, so the installer drops existing listeners first. Unit tests that import `main.ts` install
+  none; the E2E launch runs under `NODE_ENV=test` and does.
 - The DB host closes its own database on SIGINT, SIGTERM and SIGHUP (a tree teardown signals
   every process in it): it rejects queued envelopes, lets the in-flight one finish, unsubscribes
   live queries, closes PGlite and exits 0 only after a clean close. A failed close exits 1 without
@@ -402,7 +410,7 @@ Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:
 `platform-contracts/graceful-shutdown-ownership.md`, `effect-boundary/parser-generation-scope.md`.
 Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`, `ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
-`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`, `db-main.close.test.ts`, `apps/desktop/src/__tests__/db-clean-shutdown-marker.test.ts`, `apps/desktop/src/__tests__/main/db-host-entry.signals.test.ts`, `db-host-entry.db-main.test.ts`.
+`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`, `db-main.close.test.ts`, `apps/desktop/src/__tests__/db-clean-shutdown-marker.test.ts`, `apps/desktop/src/__tests__/main/db-host-entry.signals.test.ts`, `db-host-entry.db-main.test.ts`, `apps/desktop/src/__tests__/main/shutdown-signals.test.ts`, `boot-order.test.ts`.
 
 ### Browser preference hydration
 
@@ -800,13 +808,13 @@ Guard: `packages/utils/src/__tests__/diagnostic-events.test.ts`,
   secret-redacted including URL userinfo. Routine lines stay at `debug`; a
   connection failure or unexpected child exit takes one memoized failure report
   per server generation. Never log the raw stderr chunk alongside it.
-- **Shutdown ordering**: the `error-log-sink` step is the LAST shutdown step and
-  runs AFTER the aggregate failure warn, not merely after `'database'`.
+- **Shutdown ordering**: the sink close (the plan's `closeErrorLogSink`) runs LAST: after the
+  ordered steps, the reserved database-close slice AND the aggregate failure warn.
   Reordering it breaks the guarantee that the NDJSON file, the last writer
-  standing, captures a shutdown-step failure. Its `close()` failure is logged
+  standing, captures a shutdown failure. Its `close()` failure is logged
   directly rather than pushed into the already-consumed `failures` array, and the
   handle is nulled from a `finally`.
-- The graceful-shutdown caller nulls its handle in the same step, so
+- The graceful-shutdown caller nulls its handle in the same close, so
   `recordDurableLog` becomes a permanent no-op afterwards; the factory-reset
   runtime disposer deliberately does NOT, so the next warn+ record after the
   purge recreates the file. Why: it must close the fd before the purge — on POSIX

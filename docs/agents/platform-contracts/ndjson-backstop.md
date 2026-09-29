@@ -198,3 +198,8 @@ factory reset. They are the full operational log, not a plaintext mirror of
 the reset diagnostic table. Shutdown still owns no new main-thread sink handle:
 Pino's worker lifecycle is unchanged, while the warn+ NDJSON sink remains the
 explicit last graceful-shutdown writer described above.
+
+**Update (2026-09-29, BST-1872 L2b):** the `error-log-sink` step left the shutdown sequence: the
+plan's `closeErrorLogSink` runs after the ordered steps, the reserved database-close slice and
+the aggregate failure warn, so it is still last. After a forced-exit deadline the process exits
+with the sink open, as before. See `graceful-shutdown-ownership.md`.

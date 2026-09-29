@@ -345,3 +345,62 @@ those runs too; their database was open, so the marker proved the clean close. A
 and `close-failed` as well (`db-host-manager-close.test.ts`) helps only against an isolated loss:
 they are posted later, closer to the exit, so a loss at exit takes them before it takes `closing`.
 Not closed, because nothing else tells this exit apart from a crash; the exit code is never proof.
+
+### Update (2026-09-29, BST-1872 L2b): main's signal handlers and the reserved database-close slice
+
+**Why the database close has its own slice.** One 5 s budget covered eleven steps, the database
+tenth. At the deadline the running step aborts and later steps do not run, so a slow earlier step
+skipped the only step whose skip damages durable state; every other skipped step loses only
+in-memory work. A clean run measured `database` 441 ms and all steps 767 ms (main log, 2026-09-29
+04:58:48). The close is now `DesktopShutdownRunPlan.closeDatabase`, run after the ordered steps
+whether they finished or the deadline aborted one, bounded by `DB_HOST_CLOSE_BUDGET_MS` (3.5 s).
+The forced exit waits for it (`exit(1)` after it), the backstop covers both budgets, and the
+durable error log closes last. `database` became `database-drain` (it stops what issues database
+work) and `error-log-sink` left the sequence. A failed close after a deadline is logged at error,
+through a guard, so a throwing logger cannot cancel the `exit(1)`. "Fix the slow owner, never
+raise a budget" stands.
+
+**After a deadline the database closes without its drain.** The aborted or skipped
+`database-drain` (trigger graph, sampler, live-query cleanup, scheduler idle join) has not run,
+so admitted work may still be in flight. That is accepted and needs no extra code: the DB host
+rejects every queued envelope with `DB host is closing`, lets the in-flight one finish, then
+closes, and the callers of the rejected work get a typed error instead of a hang.
+
+**The close budget is the end-to-end bound.** `DB_HOST_CLOSE_BUDGET_MS` = 3500 ms = ack 2000 +
+exit after SIGTERM 1000 + exit after SIGKILL 500: `closeDatabase()` awaits
+`DbHostManager.close()`, whose waits are exactly those three rungs (the departing-host wait is a
+single 500 ms rung, and a host with nothing to close returns at once). `db-host-manager-close.test.ts`
+pins it both ways: a host that survives every signal settles at exactly the budget, not a
+millisecond earlier, and an acknowledgement landing just before its timeout still fits. Worst-case
+signal-shutdown exit time: the 5000 ms step deadline plus 3500 ms = 8500 ms, and the backstop
+fires at 8750 ms (plus `DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS`, 250 ms) if the orchestration itself
+failed.
+
+**Measured, Electron 44.4.5, macOS (2026-09-29): main's JS signal handlers.** A probe main with
+`process.on('SIGINT'|'SIGTERM'|'SIGHUP')`:
+
+| handler registered | first signal | later signal |
+| --- | --- | --- |
+| at module scope | handler never runs; Electron's own handler calls `app.quit()` (`before-quit`, exit 0) | with quit prevented, the default action killed main (`code=null signal=SIGINT`) |
+| inside `app.whenReady()` | handler runs (window creation and a forked utility process change nothing) | handler runs every time |
+
+So the original `process.once` in `main.ts` never ran, which is why "Received shutdown signal"
+never appeared, and Electron's one-shot conversion is what a second signal defeats. In the real
+app the `whenReady` registration alone still did not run: `when-exit` 2.1.5 (electron-store 11 ->
+conf 15 -> atomically 2.1) calls `process.once` for SIGHUP/SIGINT/SIGTERM at import and re-raises
+the signal against the process; Node arms libuv's watcher only for a signal's FIRST listener, and
+Electron's handler displaced that early watcher. `main/shutdown-signals.ts` therefore installs
+from `app.whenReady()` and drops the existing listeners first, so ours arms a fresh watcher; they
+are not restored (each is logged by name), because they exist to die by the signal and this
+shutdown ends through `app.quit()`, where their `exit` hooks still run. Real app, three SIGINTs 40 ms apart: before,
+main died from SIGINT mid-shutdown (only "MCP runtime shutdown cleanup completed" logged); after,
+`Received shutdown signal`, two `Shutdown already in progress; ignoring signal`, `Graceful
+shutdown completed` (`trigger: signal`), exit 0. A signal before ready still reaches Electron's own
+handler (quit through `before-quit`); a second one before ready cannot be caught. Linux and Windows
+are unmeasured: if the re-arm fails there, the first signal still quits through `before-quit`.
+A failure while installing the handlers is logged at error (through a guard, so a throwing logger
+cannot escape) and never stops boot. A signal whose listeners the install had not yet removed still
+quits through Electron's own handler (`before-quit`, the graceful run); one whose listeners it had
+removed takes its default action and skips the graceful run. The logged `ShutdownSignalInstallError`
+names the failing signal, the signals already installed and whether the failing one's listeners were
+removed, and every listener the install displaced is still logged (`shutdown-signals.test.ts`).
