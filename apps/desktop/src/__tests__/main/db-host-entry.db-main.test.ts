@@ -42,6 +42,7 @@ vi.mock('@brainstrike/logging', async () => {
 
 const originalDbRootPath = process.env['BRAINSTRIKE_DB_ROOT_PATH'];
 const originalDbProfile = process.env['BRAINSTRIKE_DB_PROFILE'];
+const originalNodeEnv = process.env['NODE_ENV'];
 
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
@@ -97,6 +98,7 @@ describe('db-host-entry signal close over the real db-main', () => {
     restoreParentPort();
     restoreEnv('BRAINSTRIKE_DB_ROOT_PATH', originalDbRootPath);
     restoreEnv('BRAINSTRIKE_DB_PROFILE', originalDbProfile);
+    restoreEnv('NODE_ENV', originalNodeEnv);
     rmSync(rootPath, { force: true, recursive: true });
   });
 

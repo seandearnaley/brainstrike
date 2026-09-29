@@ -5,18 +5,23 @@ import type {
   DatabaseWorkOptions,
   DatabaseWorkSchedulerSnapshot,
   DesktopDatabaseBridge,
+  DesktopDatabaseIntegrityBridge,
   ManagedCacheInvalidationResult,
 } from '@brainstrike/db';
 import type {
   DatabaseChunkInsert,
   DatabaseDiagnosticsSnapshot,
+  DatabaseIntegritySnapshot,
   InsertChunksAndEnqueueEmbeddingJobsOptions,
 } from '@brainstrike/types';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import {
   type AssertTrue,
   type Bridge,
+  type BridgeMatches,
   type Contract,
+  channel,
+  parseNoArgs,
   pushEvent,
   rawChannel,
 } from '../platform/ipc-contract';
@@ -298,6 +303,23 @@ export const databaseLiveContract = {
   }),
 } as const satisfies Contract;
 
+/**
+ * The main-owned database integrity state (BST-1870), read by the visible UI and
+ * the embedding host (whose claim permit parks while background work is not
+ * admitted). Enveloped, unlike the raw `db` invokes: it has no legacy consumer
+ * and must never throw across IPC. Chunking and LLM hosts do not hold it.
+ */
+export const databaseIntegrityContract = {
+  getState: channel<[], DatabaseIntegritySnapshot>({
+    channel: DESKTOP_IPC_CHANNELS.db.integrityState,
+    parseArgs: parseNoArgs,
+    roles: ['embedding-host', 'visible-ui'],
+  }),
+  onChanged: pushEvent<DatabaseIntegritySnapshot>({
+    channel: DESKTOP_IPC_CHANNELS.db.integrityChanged,
+  }),
+} as const satisfies Contract;
+
 export const databasePathContract = {
   getUserDataPath: rawChannel<[], string>({
     channel: DESKTOP_IPC_CHANNELS.db.getUserDataPath,
@@ -342,6 +364,9 @@ type ExactBridge<Generated extends object, Expected extends object> = ExactType<
   Expected
 >;
 
+export type DatabaseIntegrityBridgeDerivationProof = AssertTrue<
+  BridgeMatches<typeof databaseIntegrityContract, DesktopDatabaseIntegrityBridge>
+>;
 export type DatabaseAdapterMethodDerivationProof = AssertTrue<
   ExactType<Pick<DatabaseBridge, AdaptedMethod>, ExpectedGeneratedAdapterMethods>
 >;

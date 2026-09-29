@@ -7,6 +7,7 @@ import {
   parseManagedCacheBatchArgs,
 } from '@brainstrike/db';
 import {
+  DB_HOST_CLOSE_SIGNALS,
   DB_HOST_ERROR_IDENTIFIER_FIELDS,
   type DbHostCloseReason,
   type DbHostLiveStartResult,
@@ -93,13 +94,6 @@ if (!parentPort) {
  */
 type HostLifecycle = 'serving' | 'closing' | 'closed' | 'close-failed';
 type ClosePhase = Exclude<HostLifecycle, 'serving'>;
-
-/**
- * A tree teardown (tty group, concurrently's tree-kill, turbo, OS shutdown) signals every
- * process in the tree, this host included, and main reaches its own database step last.
- * Closing here at once turns that common unclean path into a clean one.
- */
-const CLOSE_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const satisfies readonly DbHostSignal[];
 
 let activeTransactionId: string | null = null;
 let closePromise: Promise<void> | null = null;
@@ -724,9 +718,12 @@ async function closeWhenIdle(settled: Promise<void> | null): Promise<void> {
     throw error;
   } finally {
     // Exit 0 only after a clean close. The code is informational: main proves a clean close by the
-    // acknowledgement or the marker naming this pid, never by the exit code.
+    // acknowledgement or the marker naming this pid, never by the exit code. The exit waits one
+    // macrotask: the replies to the in-flight and joined `close` envelopes are posted from promise
+    // callbacks that run right after this settles, and an exit first would drop them.
     if (exitAfterClose) {
-      process.exit(lifecycle === 'closed' ? 0 : 1);
+      const code = lifecycle === 'closed' ? 0 : 1;
+      setImmediate(() => process.exit(code));
     }
   }
 }
@@ -776,9 +773,11 @@ parentPort.on('message', (message: unknown) => {
   drainQueue();
 });
 
-// Persistent (`on`, never `once`): a dev tree delivers the same signal repeatedly, and a
-// once-listener would restore the default action after the first.
-for (const signal of CLOSE_SIGNALS) {
+// A tree teardown (tty group, concurrently's tree-kill, turbo, OS shutdown) signals every process
+// in the tree, this host included, and main reaches its own database step last. Closing here at
+// once turns that common unclean path into a clean one. Persistent (`on`, never `once`): the same
+// signal arrives repeatedly, and a once-listener would restore the default action after the first.
+for (const signal of DB_HOST_CLOSE_SIGNALS) {
   process.on(signal, () => {
     onSignal(signal);
   });

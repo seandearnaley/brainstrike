@@ -1,6 +1,6 @@
 /** What the handlers register on: `process`, or a fake in a test. */
 export interface ShutdownSignalTarget {
-  listenerCount(signal: NodeJS.Signals): number;
+  listeners(signal: NodeJS.Signals): readonly { readonly name: string }[];
   on(signal: NodeJS.Signals, listener: () => void): unknown;
   removeAllListeners(signal: NodeJS.Signals): unknown;
 }
@@ -37,7 +37,8 @@ export function installShutdownSignalHandlers(options: ShutdownSignalOptions): v
   const { logger, onFirstSignal, signals, target } = options;
   let shutdownStarted = false;
   for (const signal of signals) {
-    const replaced = target.listenerCount(signal);
+    // Named, so the log says WHO was displaced (`when-exit`'s hook, say), not just how many.
+    const replaced = target.listeners(signal).map((listener) => listener.name || '<anonymous>');
     target.removeAllListeners(signal);
     target.on(signal, () => {
       if (shutdownStarted) {
@@ -47,7 +48,7 @@ export function installShutdownSignalHandlers(options: ShutdownSignalOptions): v
       shutdownStarted = true;
       onFirstSignal(signal);
     });
-    if (replaced > 0) {
+    if (replaced.length > 0) {
       logger.info('Replaced existing signal listeners with the shutdown handler', {
         replaced,
         signal,

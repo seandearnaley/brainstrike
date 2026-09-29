@@ -625,7 +625,7 @@ class DefaultDbHostManager implements DbHostManager {
       if (this.#host !== host) {
         return; // detached: its requests and live queries are already failed
       }
-      this.#unavailable ??= host.unavailableAfterSignal;
+      this.#unavailable ??= host.unavailableAfterOwnExit();
       this.#detachHost(new Error(`DB host exited with code ${code}.`));
     });
     host.handle.on('error', (type, location) => {

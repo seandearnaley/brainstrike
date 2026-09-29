@@ -161,6 +161,37 @@ describe('DbHostManager close ladder', () => {
     );
   });
 
+  // The shutdown's reserved database-close slice and its backstop are sized by this constant, so it
+  // must be the END-TO-END bound of `close()`: ack, SIGTERM and SIGKILL waits taken in turn.
+  describe('DB_HOST_CLOSE_BUDGET_MS bounds close() end to end', () => {
+    it('settles a close of a host that survives every signal exactly at the budget', async () => {
+      const { manager } = await openManager();
+      const closing = observe(manager.close());
+
+      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_BUDGET_MS - 1);
+      expect(closing.settled()).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(closing.settled()).toBe(true);
+      expect(await closing.outcome).toMatchObject({
+        name: 'DbHostCloseError',
+        outcome: 'exit-timeout',
+      });
+    });
+
+    it('still settles inside the budget when the acknowledgement lands just before its timeout', async () => {
+      const { host, manager } = await openManager();
+      const closing = observe(manager.close());
+      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_ACK_TIMEOUT_MS - 1);
+      host.reply(lastMessage(host, 'close'), { closed: true });
+
+      // The host then ignores SIGTERM and SIGKILL: the remaining rungs fit in what is left.
+      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_BUDGET_MS - DB_HOST_CLOSE_ACK_TIMEOUT_MS + 1);
+
+      expect(closing.settled()).toBe(true);
+    });
+  });
+
   describe('close acknowledged', () => {
     it('stays pending until the host exits after SIGTERM, whatever the exit code', async () => {
       const { host, manager } = await openManager();
@@ -739,6 +770,7 @@ describe('DbHostManager close ladder', () => {
       expect(forkMock).toHaveBeenCalledTimes(1);
     });
   });
+
   describe('a host that closed itself on a signal', () => {
     const announce = (
       host: FakeUtilityProcess,
@@ -770,6 +802,99 @@ describe('DbHostManager close ladder', () => {
       // The exited host is simply departed-and-exited: nothing waits on it, and a close is a no-op.
       await expect(manager.close()).resolves.toBeUndefined();
     });
+
+    describe('when the closing announcement is lost (posting is best effort)', () => {
+      const requestAfterExit = async (manager: {
+        readonly getDiagnostics: () => Promise<unknown>;
+      }): Promise<unknown> =>
+        await manager.getDiagnostics().then(
+          () => null,
+          (rejection: unknown) => rejection
+        );
+
+      it('reads the marker naming the exited pid as the proof, and forks no replacement', async () => {
+        const { DbHostUnavailableError } = await import('../../db-host-lifecycle-errors');
+        const { host, manager } = await openManager();
+        await seedMarker({ pid: 42 });
+        exitHost(host, 0);
+
+        const error = await requestAfterExit(manager);
+
+        expect(error).toBeInstanceOf(DbHostUnavailableError);
+        expect((error as Error).message).toBe(
+          'DB host is unavailable: it closed itself after a signal; restart BrainStrike.'
+        );
+        await expect(manager.getDatabase()).rejects.toBeInstanceOf(DbHostUnavailableError);
+        expect(forkMock).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        { name: 'there is no marker', seed: async () => undefined },
+        { name: 'the marker names another pid', seed: async () => await seedMarker({ pid: 4242 }) },
+      ])('is no proof when $name: the next request forks a host', async ({ seed }) => {
+        const { host, manager } = await openManager();
+        await seed();
+        exitHost(host, 0);
+
+        const diagnostics = observe(manager.getDiagnostics());
+        expect(forkMock).toHaveBeenCalledTimes(2);
+        latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
+        expect(await diagnostics.outcome).toBe('resolved');
+      });
+
+      it('counts an unreadable marker as no proof, and says so', async () => {
+        const { host, manager } = await openManager();
+        writeFileSync(path.join(appDataDir, '.db-clean-shutdown'), '{');
+        exitHost(host, 0);
+
+        const diagnostics = observe(manager.getDiagnostics());
+
+        expect(forkMock).toHaveBeenCalledTimes(2);
+        expect(loggerErrorMock).toHaveBeenCalledWith(
+          expect.objectContaining({ err: expect.any(Error) }),
+          'Could not read the clean-shutdown marker; treating the exit as unproven'
+        );
+        latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
+        await diagnostics.outcome;
+      });
+
+      it('never counts the marker of a host main itself closed (it was detached first)', async () => {
+        const { host, manager } = await openManager();
+        const closing = observe(manager.close());
+        host.reply(lastMessage(host, 'close'), { closed: true });
+        await vi.advanceTimersByTimeAsync(0);
+        await seedMarker({ pid: 42 });
+        exitHost(host, 0);
+        expect(await closing.outcome).toBe('resolved');
+
+        const diagnostics = observe(manager.getDiagnostics());
+        expect(forkMock).toHaveBeenCalledTimes(2);
+        latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
+        await diagnostics.outcome;
+      });
+    });
+
+    it.each([
+      ['an unknown state', { kind: 'lifecycle', reason: 'SIGINT', state: 'opening' }],
+      ['an unknown reason', { kind: 'lifecycle', reason: 'SIGUSR1', state: 'closing' }],
+      ['no reason', { kind: 'lifecycle', state: 'closing' }],
+    ])(
+      'ignores a lifecycle message with %s, so it never blocks a replacement',
+      async (_name, message) => {
+        const { host, manager } = await openManager();
+        host.emit('message', message);
+        exitHost(host, 0);
+
+        const diagnostics = observe(manager.getDiagnostics());
+
+        expect(loggerWarnMock).toHaveBeenCalledWith('Ignored malformed DB host message', {
+          message,
+        });
+        expect(forkMock).toHaveBeenCalledTimes(2);
+        latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
+        await diagnostics.outcome;
+      }
+    );
 
     it("answers a data request that reaches the closing host with the host's own typed rejection", async () => {
       const { host, manager } = await openManager();

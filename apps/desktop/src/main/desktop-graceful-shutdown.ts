@@ -163,12 +163,15 @@ export function createDesktopGracefulShutdown(
 
   // A throwing logger must never cancel the exit, and rethrowing its error
   // from a timer would only add an uncaught exception to a dying process.
-  const logForcedExit = (data: Record<string, unknown>): void => {
+  const logErrorBeforeExit = (message: string, data: Record<string, unknown>): void => {
     try {
-      logger.error('Timed out waiting for graceful shutdown; forcing exit', data);
+      logger.error(message, data);
     } catch {
       // The exit that follows is what matters; there is nowhere left to report this.
     }
+  };
+  const logForcedExit = (data: Record<string, unknown>): void => {
+    logErrorBeforeExit('Timed out waiting for graceful shutdown; forcing exit', data);
   };
 
   // Armed before anything that can throw, so a broken orchestration still
@@ -224,11 +227,12 @@ export function createDesktopGracefulShutdown(
 
     // The one step whose skip damages durable state (every other skipped step
     // loses only in-memory work): it runs after the steps finished AND after
-    // the deadline aborted one.
+    // the deadline aborted one. Ordered after the sequence, not independent of it: the drain
+    // must finish (or the deadline abort it) before the close, so these awaits are not parallel.
     const databaseClose = await runDatabaseClose(plan, now);
     if (report.timedOut) {
       if (databaseClose.failure) {
-        logger.error('Database close failed during a forced shutdown', {
+        logErrorBeforeExit('Database close failed during a forced shutdown', {
           failure: databaseClose.failure,
           trigger,
         });

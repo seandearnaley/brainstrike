@@ -273,11 +273,24 @@ envelope always used, which writes the marker. It posts `lifecycle` messages (`c
 `close-failed`), answers diagnostics while closing, joins a `close` envelope to the close in flight,
 and rejects every later data envelope (before, one queued behind `close` lazily re-opened PGlite).
 It exits 0 only after a successful close, but the code is informational: main proves a clean close
-by the acknowledgement or the marker naming the host's pid, never by the exit code. A later signal after `closed` exits 0 at once; after `close-failed` it exits 1 at once. Its
-log line and `lifecycle` messages are best effort: a host that exits promptly can lose what it
-posted just before exiting (one E2E run in four lacked the log line), so the marker naming the
-host's pid, not a message, is the proof of a clean close, and the manager's no-replacement guard
-only holds when the `closing` announcement arrived.
+by the acknowledgement or the marker naming the host's pid, never by the exit code. The exit waits
+one macrotask after the close settles, so the replies to the in-flight and joined `close`
+envelopes (posted from promise callbacks) are queued first: main sends `close` and the tree-kill
+signal reaches the host at almost the same moment, and an exit first would drop the acknowledgement.
+A later signal after `closed` exits 0 at once (its replies are long posted); after `close-failed`
+it exits 1 at once. The host's log line and `lifecycle` messages are best effort: a host that
+exits promptly can lose what it posted just before exiting (one E2E run in four lacked the log
+line), so the marker naming the host's pid, not a message, is the proof of a clean close.
+`isDbHostToMainMessage` checks a `lifecycle` message field by field (`state` in `closing | closed |
+close-failed`, `reason` in `request | SIGINT | SIGTERM | SIGHUP`); a malformed one is logged as
+malformed and never trusted, because main refuses to fork on it.
+
+**A signal during a transaction.** The in-flight envelope finishes, queued transaction envelopes
+(a commit among them) are rejected with `DB host is closing`, and the close still completes; the
+open transaction is never committed. Measured with the repo's PGlite on a real data directory:
+`BEGIN; INSERT` (2 rows visible inside), `close()`, reopen: 1 row, so the uncommitted work is
+discarded when the database closes. `db-host-entry.signals.test.ts` pins the host's side (the
+queued commit is refused and never reaches `exec`, and the close completes).
 
 **A failed close.** `closeDatabase()` rejecting makes the host exit 1 without a marker (only a
 fully clean `closeLocalDatabase` writes one), keep `.db-process.lock`, log
@@ -298,12 +311,16 @@ its handle is what gets closed (marker written, exit 0), and an open that then f
 by its own failure path, so the signal close finds nothing to close and exits 0 with no marker.
 
 **Main's side composes with the departing-host barrier.** A host that closes on a signal aimed at
-it and exits is simply an attached host that exited: the manager's `exit` handler now detaches it
-through `#detachHost` (already exited, so no departing host is left behind) and records
-`unavailableAfterSignal`. That reason lives in the same `#unavailable` slot as retirement, which
+it and exits is simply an attached host that exited: the manager's `exit` handler detaches it
+through `#detachHost` (already exited, so no departing host is left behind) and records why no
+replacement may fork, `unavailableAfterOwnExit()`. Main closes a host only by detaching it first,
+so an attached host that closed itself received a signal: it announced that, or, when the
+announcement was lost, the clean-shutdown marker names its pid (read through the same profile
+directory as the close ladder, with the pid remembered before the exit). An unreadable marker is
+no proof and is logged. That reason lives in the same `#unavailable` slot as retirement, which
 `#assertActive()` checks first in `#admit()` and `getDatabase()`, so no request forks a replacement
 and none waits on an exited host. A host main closed itself (the ladder's SIGTERM included) is
-detached before it exits and never counts.
+detached before it exits and never counts, marker or not.
 
 ### Update (2026-09-29, BST-1872 L2b): main's signal handlers and the reserved database-close slice
 
@@ -315,8 +332,25 @@ in-memory work. A clean run measured `database` 441 ms and all steps 767 ms (mai
 whether they finished or the deadline aborted one, bounded by `DB_HOST_CLOSE_BUDGET_MS` (3.5 s).
 The forced exit waits for it (`exit(1)` after it), the backstop covers both budgets, and the
 durable error log closes last. `database` became `database-drain` (it stops what issues database
-work) and `error-log-sink` left the sequence. A failed close after a deadline is logged at error.
-"Fix the slow owner, never raise a budget" stands.
+work) and `error-log-sink` left the sequence. A failed close after a deadline is logged at error,
+through a guard, so a throwing logger cannot cancel the `exit(1)`. "Fix the slow owner, never
+raise a budget" stands.
+
+**After a deadline the database closes without its drain.** The aborted or skipped
+`database-drain` (trigger graph, sampler, live-query cleanup, scheduler idle join) has not run,
+so admitted work may still be in flight. That is accepted and needs no extra code: the DB host
+rejects every queued envelope with `DB host is closing`, lets the in-flight one finish, then
+closes, and the callers of the rejected work get a typed error instead of a hang.
+
+**The close budget is the end-to-end bound.** `DB_HOST_CLOSE_BUDGET_MS` = 3500 ms = ack 2000 +
+exit after SIGTERM 1000 + exit after SIGKILL 500: `closeDatabase()` awaits
+`DbHostManager.close()`, whose waits are exactly those three rungs (the departing-host wait is a
+single 500 ms rung, and a host with nothing to close returns at once). `db-host-manager-close.test.ts`
+pins it both ways: a host that survives every signal settles at exactly the budget, not a
+millisecond earlier, and an acknowledgement landing just before its timeout still fits. Worst-case
+signal-shutdown exit time: the 5000 ms step deadline plus 3500 ms = 8500 ms, and the backstop
+fires at 8750 ms (plus `DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS`, 250 ms) if the orchestration itself
+failed.
 
 **Measured, Electron 44.4.5, macOS (2026-09-29): main's JS signal handlers.** A probe main with
 `process.on('SIGINT'|'SIGTERM'|'SIGHUP')`:
@@ -333,8 +367,8 @@ conf 15 -> atomically 2.1) calls `process.once` for SIGHUP/SIGINT/SIGTERM at imp
 the signal against the process; Node arms libuv's watcher only for a signal's FIRST listener, and
 Electron's handler displaced that early watcher. `main/shutdown-signals.ts` therefore installs
 from `app.whenReady()` and drops the existing listeners first, so ours arms a fresh watcher; they
-are not restored, because they exist to die by the signal and this shutdown ends through
-`app.quit()`, where their `exit` hooks still run. Real app, three SIGINTs 40 ms apart: before,
+are not restored (each is logged by name), because they exist to die by the signal and this
+shutdown ends through `app.quit()`, where their `exit` hooks still run. Real app, three SIGINTs 40 ms apart: before,
 main died from SIGINT mid-shutdown (only "MCP runtime shutdown cleanup completed" logged); after,
 `Received shutdown signal`, two `Shutdown already in progress; ignoring signal`, `Graceful
 shutdown completed` (`trigger: signal`), exit 0. A signal before ready still reaches Electron's own
