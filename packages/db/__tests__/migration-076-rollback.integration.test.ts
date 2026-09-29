@@ -44,22 +44,28 @@ describe('migration 076 rollback semantics', () => {
     return result.rows;
   }
 
-  async function readDiagnosticIndexes(): Promise<{ indexdef: string; indexname: string }[]> {
+  async function readIndexes(
+    table: 'brainstrike_assistant_run_errors' | 'brainstrike_diagnostic_events'
+  ): Promise<{ indexdef: string; indexname: string }[]> {
     const result = await db.query<{
       indexdef: string;
       indexname: string;
-    }>(`SELECT indexname, indexdef FROM pg_indexes
-      WHERE tablename = 'brainstrike_diagnostic_events' ORDER BY indexname`);
+    }>(
+      `SELECT indexname, indexdef FROM pg_indexes
+      WHERE tablename = $1 ORDER BY indexname`,
+      [table]
+    );
     return result.rows;
   }
 
   it('deletes only forensic rows and the added index; reapplication cannot restore lost evidence', async () => {
     const retained = await readRetainedData();
-    const indexes = await readDiagnosticIndexes();
+    const indexes = await readIndexes('brainstrike_diagnostic_events');
+    const errorIndexes = await readIndexes('brainstrike_assistant_run_errors');
     await runner.rollback(migration076AssistantRunErrors);
     expect(await runner.isApplied(76)).toBe(false);
     expect(await readRetainedData()).toEqual(retained);
-    expect(await readDiagnosticIndexes()).toEqual(
+    expect(await readIndexes('brainstrike_diagnostic_events')).toEqual(
       indexes.filter((row) => row.indexname !== 'bst_diagnostic_events_run_idx')
     );
     const absent = await db.query(`SELECT to_regclass('brainstrike_assistant_run_errors') AS errors,
@@ -73,15 +79,9 @@ describe('migration 076 rollback semantics', () => {
     await runner.runMigration(migration076AssistantRunErrors);
     expect(await runner.isApplied(76)).toBe(true);
     expect(await readRetainedData()).toEqual(retained);
-    expect(await readDiagnosticIndexes()).toEqual(indexes);
+    expect(await readIndexes('brainstrike_diagnostic_events')).toEqual(indexes);
     expect((await db.query('SELECT * FROM brainstrike_assistant_run_errors')).rows).toEqual([]);
-    const errorIndexes = await db.query(`SELECT indexname FROM pg_indexes
-      WHERE tablename = 'brainstrike_assistant_run_errors' ORDER BY indexname`);
-    expect(errorIndexes.rows).toEqual([
-      { indexname: 'brainstrike_assistant_run_errors_pkey' },
-      { indexname: 'bst_assistant_run_errors_resource_idx' },
-      { indexname: 'bst_assistant_run_errors_thread_idx' },
-    ]);
+    expect(await readIndexes('brainstrike_assistant_run_errors')).toEqual(errorIndexes);
     await expect(
       db.exec(`INSERT INTO brainstrike_assistant_run_errors
       (run_id, thread_id, resource_id, code, http_status, occurred_at)
@@ -97,13 +97,9 @@ describe('migration 076 rollback semantics', () => {
 
   it('retains forensics, all indexes and the ledger when a dependency prevents DROP', async () => {
     const retained = await readRetainedData();
-    const indexes = await readDiagnosticIndexes();
+    const indexes = await readIndexes('brainstrike_diagnostic_events');
     const errors = await db.query('SELECT * FROM brainstrike_assistant_run_errors ORDER BY run_id');
-    const errorIndexes = await db.query<{
-      indexdef: string;
-      indexname: string;
-    }>(`SELECT indexname, indexdef FROM pg_indexes
-      WHERE tablename = 'brainstrike_assistant_run_errors' ORDER BY indexname`);
+    const errorIndexes = await readIndexes('brainstrike_assistant_run_errors');
     await db.exec(
       'CREATE VIEW rollback_error_reader AS SELECT run_id FROM brainstrike_assistant_run_errors'
     );
@@ -112,19 +108,11 @@ describe('migration 076 rollback semantics', () => {
     );
     expect(await runner.isApplied(76)).toBe(true);
     expect(await readRetainedData()).toEqual(retained);
-    expect(await readDiagnosticIndexes()).toEqual(indexes);
+    expect(await readIndexes('brainstrike_diagnostic_events')).toEqual(indexes);
     expect(
       (await db.query('SELECT * FROM brainstrike_assistant_run_errors ORDER BY run_id')).rows
     ).toEqual(errors.rows);
-    expect(
-      (
-        await db.query<{
-          indexdef: string;
-          indexname: string;
-        }>(`SELECT indexname, indexdef FROM pg_indexes
-      WHERE tablename = 'brainstrike_assistant_run_errors' ORDER BY indexname`)
-      ).rows
-    ).toEqual(errorIndexes.rows);
+    expect(await readIndexes('brainstrike_assistant_run_errors')).toEqual(errorIndexes);
     expect((await db.query('SELECT * FROM rollback_error_reader')).rows).toEqual([
       { run_id: 'rollback-run' },
     ]);

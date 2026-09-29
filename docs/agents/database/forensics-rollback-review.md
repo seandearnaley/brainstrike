@@ -27,7 +27,7 @@ restoring the original migration is GREEN. This is an audit mutation control,
 not a production bug correction.
 
 Disposition: destructive scope is correctly limited, but the forensic table is
-operational data with no rebuild owner (`table-durability-registry.ts`). A down/up
+operational data with no rebuild owner (`packages/db/src/table-durability-registry.ts`). A down/up
 round trip is not data recovery. Do not run down SQL on a live profile or
 change the production ledger. Use the contract's verified clone and reviewed
 forward-migration procedure; preserve forensic evidence in the clone before
