@@ -432,6 +432,27 @@ Guard: `packages/db/__tests__/reset-table-registry.test.tsx`,
 
 Evidence: `database/managed-worktree-ledger.md`.
 
+## TABLE DURABILITY CLASSES
+
+- `table-durability-registry.ts` classifies every table as `precious`, `derived`,
+  `operational` or `schema-ledger`; `getTableDurability` throws for an unregistered table
+  and never guesses. Class is per TABLE, decided by what a row means, not who wrote it.
+- `precious` (user or user-intent state, LLM output that costs a model call, suspended
+  runs, user toggles) is never truncated by automated repair and is in every portable
+  export. `derived` may be truncated and rebuilt; `operational` may be truncated without
+  a rebuild; `schema-ledger` is never truncated and always exported.
+- `derived` requires `rebuildOwner` (`path/to/file.ts#symbol`), an existing automatic rebuild
+  path the union type enforces and the guard resolves; none, not derived.
+- Before truncating ANY non-precious table, repair names to the user each scope it cannot
+  rebuild and any user-visible pending work it would drop, never silently; `reason` records it.
+- A new table is classified in the same change; the integration guard fails otherwise.
+- No foreign key runs from a precious table to a non-precious one. Why: `TRUNCATE ... CASCADE`
+  empties every referencing table whatever its rule, and `SET NULL` rewrites precious rows.
+
+Evidence: `database/table-durability-classes.md`.
+Guard: `packages/db/__tests__/table-durability-registry.integration.test.ts`,
+`table-durability-registry.test.ts`.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the
@@ -467,6 +488,8 @@ Rules:
 - BM25 orders but never matches: the lexical arm matches through migration 034's
   generated tsvector + GIN index and orders with the migration-066 BM25 index, so recall
   is bounded by the tsvector arm. pg_textsearch owns BM25 normalization.
+- `CRASH_SENSITIVE_INDEX_ACCESS_METHODS` (`packages/db/src/crash-sensitive-indexes.ts`) is the
+  list of index AMs WAL recovery does not restore (`bm25`: pg_textsearch #430/#426).
 - When the exact English `plain` arm returns zero rows, all three file-chunk
   repositories may run ONE bounded `pg_trgm` fallback on the index-supported
   `$query <% content` predicate, pinning its session GUC and explicit `fuzzyThreshold`

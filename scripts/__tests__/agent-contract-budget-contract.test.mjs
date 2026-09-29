@@ -98,7 +98,14 @@ const CONTRACT_LINE_BUDGETS = {
   // and when it is dropped) went to `database/pglite-fatal-trap.md`, 59 lines;
   // what stayed is 18 lines of rule plus a one-line correction to the close
   // bullet, whose "SIGKILL is the only exit" is no longer true of a trap.
-  'database.md': 874,
+  //
+  // BST-1876 raised it from 874 (+21): the TABLE DURABILITY CLASSES section is
+  // a new area, not growth of an existing one. Automated repair, snapshot
+  // verification and portable export all obey these class rules, and an agent
+  // adding a table must classify it in the same change. The per-table reasoning
+  // went to `database/table-durability-classes.md`.
+  // BST-1871 raised it from 895 (+2): one bullet names the crash-sensitive index AM list.
+  'database.md': 897,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.

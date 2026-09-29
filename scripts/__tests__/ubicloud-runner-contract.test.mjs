@@ -47,8 +47,9 @@ test('the measured Linux x64 jobs run on Ubicloud standard-4', () => {
   }
 });
 
-test('PR coverage uses the cost-optimized 2-vCPU Ubicloud runner', () => {
-  assert.match(coverageWorkflow, /^ {4}runs-on: ubicloud-standard-2$/m);
+test('PR coverage uses the 4-vCPU Ubicloud runner that every full install-and-build lane uses', () => {
+  // BST-1882: the full pnpm install + turbo build ran out of disk on ubicloud-standard-2.
+  assert.match(coverageWorkflow, /^ {4}runs-on: ubicloud-standard-4$/m);
 });
 
 test('short x64 automation uses the cost-optimized 2-vCPU Ubicloud runner', () => {
