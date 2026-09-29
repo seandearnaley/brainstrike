@@ -22,6 +22,16 @@ export {
 } from './chunk-embedding-job-batch.js';
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
+export {
+  CRASH_SENSITIVE_INDEX_ACCESS_METHODS,
+  type CrashSensitiveIndex,
+  type CrashSensitiveIndexDb,
+  type CrashSensitiveIndexRebuild,
+  CrashSensitiveIndexRebuildError,
+  type CrashSensitiveIndexRebuildResult,
+  listCrashSensitiveIndexes,
+  rebuildCrashSensitiveIndexes,
+} from './crash-sensitive-indexes.js';
 export * from './database-pressure-controller.js';
 export * from './database-query-telemetry.js';
 export * from './database-work-scheduler.js';
@@ -227,4 +237,11 @@ export {
   type ScheduledDatabaseMaintenanceSkipReason,
   type ScheduledDatabaseMaintenanceStatus,
 } from './services/scheduled-database-maintenance.js';
+export {
+  getTableDurability,
+  type RebuildOwner,
+  TABLE_DURABILITY_REGISTRY,
+  type TableDurabilityClass,
+  type TableDurabilityEntry,
+} from './table-durability-registry.js';
 export * from './wasm-loader.js';

@@ -449,7 +449,7 @@ Guard: `apps/web/e2e/web-db-worker-startup.test.ts`.
 Settled: `apps/desktop/src/database-corruption-classifier.ts` is SQLSTATE-only (`XX001`,
 `XX002`; `XX000` excluded; no free-text matching), and maintenance recovers rather than
 merely logging. Evidence: `platform-contracts/corruption-recovery-maintenance.md`.
-Guard: `apps/desktop/src/__tests__/database-corruption-classifier.test.ts`, `database-maintenance-scheduler.test.ts`, `main/db-main.lifecycle.test.ts`, `main/db-host-manager.test.ts`.
+Guard: `apps/desktop/src/__tests__/database-corruption-classifier.test.ts`, `database-maintenance-scheduler.test.ts`, `main/db-main.lifecycle.test.ts`, `main/db-host-manager-init-failure.test.ts`.
 
 ---
 
