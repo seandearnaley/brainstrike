@@ -8,6 +8,7 @@ import {
   DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS as SHARED_DATABASE_WORK_IDLE_TIMEOUT_MS,
   waitForDatabaseWorkSchedulerIdle,
 } from '@brainstrike/db';
+import { assertBackgroundDatabaseWorkAdmitted } from '../database-integrity-state';
 
 // Re-exported from @brainstrike/db so both surfaces share one timeout (BST-1329).
 const DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS = SHARED_DATABASE_WORK_IDLE_TIMEOUT_MS;
@@ -32,6 +33,19 @@ function assertDesktopDatabaseWorkIsCurrent(submissionEpoch: number): void {
   }
 }
 
+/**
+ * Database integrity containment (BST-1870): while background work is not
+ * admitted, `background` tasks reject and `foreground`/`normal` keep running.
+ * This is the one enforcement point for every scheduled path — maintenance,
+ * backfills, and IPC — checked at submission and again when a queued task
+ * would start.
+ */
+function assertDesktopDatabaseWorkIsAdmitted(options: DatabaseWorkRunOptions): void {
+  if (options.priority === 'background') {
+    assertBackgroundDatabaseWorkAdmitted();
+  }
+}
+
 function runCurrentDesktopDatabaseWork<T>(
   operation: () => Promise<T>,
   options: DatabaseWorkRunOptions
@@ -39,6 +53,7 @@ function runCurrentDesktopDatabaseWork<T>(
   const submissionEpoch = desktopDatabaseWorkEpoch;
   try {
     assertDesktopDatabaseWorkIsCurrent(submissionEpoch);
+    assertDesktopDatabaseWorkIsAdmitted(options);
   } catch (error) {
     return Promise.reject(error);
   }
@@ -47,6 +62,7 @@ function runCurrentDesktopDatabaseWork<T>(
     assertDesktopDatabaseWorkIsCurrent(submissionEpoch);
     return desktopDatabaseWorkScheduler.run(async () => {
       assertDesktopDatabaseWorkIsCurrent(submissionEpoch);
+      assertDesktopDatabaseWorkIsAdmitted(options);
       return await operation();
     }, options);
   });
