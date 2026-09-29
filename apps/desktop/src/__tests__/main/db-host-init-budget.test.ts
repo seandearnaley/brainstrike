@@ -4,6 +4,7 @@ import {
   DB_HOST_INIT_FIRST_REPORT_TIMEOUT_MS,
   DB_HOST_INIT_MAX_BUDGET_MS,
   DB_HOST_INIT_MIGRATION_BUDGET_MS,
+  DB_HOST_INIT_MIN_PHASE_BUDGET_MS,
   DB_HOST_INIT_PHASE_FLOOR_MS,
   DB_HOST_REINDEX_BUDGET_BYTES_PER_MS,
   DB_HOST_WAL_REDO_BUDGET_BYTES_PER_MS,
@@ -38,6 +39,8 @@ describe('resolveInitPhaseBudgetMs', () => {
     expect(DB_HOST_INIT_FIRST_REPORT_TIMEOUT_MS).toBe(90_000);
     expect(DB_HOST_INIT_PHASE_FLOOR_MS).toBe(30_000);
     expect(DB_HOST_INIT_MIGRATION_BUDGET_MS).toBe(90_000);
+    // No phase gets less than the single 90 s deadline this replaced (unmeasured platforms).
+    expect(DB_HOST_INIT_MIN_PHASE_BUDGET_MS).toBe(90_000);
     // 4 MiB/s of pg_wal and 1 MiB/s of heap+toast, expressed per millisecond.
     expect(DB_HOST_WAL_REDO_BUDGET_BYTES_PER_MS).toBeCloseTo((4 * MIB) / 1000, 9);
     expect(DB_HOST_REINDEX_BUDGET_BYTES_PER_MS).toBeCloseTo(MIB / 1000, 9);
@@ -55,21 +58,25 @@ describe('resolveInitPhaseBudgetMs', () => {
     expect(resolveInitPhaseBudgetMs(rebuild(157 * MIB, 0))).toBe(187_000);
     // The incident backup's 912 MiB of pg_wal (clean open 0.24 s) -> 30 s + 228 s.
     expect(resolveInitPhaseBudgetMs(open(912 * MIB))).toBe(258_000);
-    // A new database, or one with no WAL on disk, gets the floor only.
-    expect(resolveInitPhaseBudgetMs(open(0))).toBe(30_000);
+    // A new database, or one with no WAL on disk, gets the minimum: today's 90 s, never less.
+    expect(resolveInitPhaseBudgetMs(open(0))).toBe(90_000);
     // 136 migrations measured at 0.84 s; the budget is today's whole-init value.
     expect(resolveInitPhaseBudgetMs({ phase: 'migration' })).toBe(90_000);
   });
 
-  it('gives an index-rebuild of zero bytes exactly the floor, and counts heap and toast, not index bytes', () => {
-    expect(resolveInitPhaseBudgetMs(rebuild(0, 0))).toBe(DB_HOST_INIT_PHASE_FLOOR_MS);
-    // indexBytes is 32 MiB in the fixture: it must not add to the budget.
-    expect(resolveInitPhaseBudgetMs(rebuild(MIB, 2 * MIB))).toBe(33_000);
+  it('never gives a phase less than the 90 s deadline it replaced, and counts heap and toast, not index bytes', () => {
+    expect(resolveInitPhaseBudgetMs(rebuild(0, 0))).toBe(DB_HOST_INIT_MIN_PHASE_BUDGET_MS);
+    expect(resolveInitPhaseBudgetMs(rebuild(MIB, 2 * MIB))).toBe(DB_HOST_INIT_MIN_PHASE_BUDGET_MS);
+    // Above the minimum the size counts: 60 + 10 MiB -> 30 s floor + 70 s. indexBytes (32 MiB in
+    // the fixture) must not add to the budget.
+    expect(resolveInitPhaseBudgetMs(rebuild(60 * MIB, 10 * MIB))).toBe(100_000);
   });
 
   it('rounds a fractional budget up to a whole millisecond', () => {
-    // 1 byte at 1 MiB/s is 0.00095 ms: still one whole millisecond above the floor.
-    expect(resolveInitPhaseBudgetMs(rebuild(1, 0))).toBe(DB_HOST_INIT_PHASE_FLOOR_MS + 1);
+    // 60 MiB is exactly 60 s at 1 MiB/s; one more byte is 0.00095 ms, still a whole millisecond.
+    expect(resolveInitPhaseBudgetMs(rebuild(60 * MIB + 1, 0))).toBe(
+      DB_HOST_INIT_PHASE_FLOOR_MS + 60_001
+    );
   });
 
   it.each([

@@ -22,6 +22,14 @@ export const DB_HOST_INIT_FIRST_REPORT_TIMEOUT_MS = 90_000;
 export const DB_HOST_INIT_PHASE_FLOOR_MS = 30_000;
 
 /**
+ * No phase gets less than the single 90 s `init` deadline this replaces. Every measurement here is
+ * one M1 Pro; a cold first open (WASM compile, extension load, antivirus scanning, a spinning disk)
+ * on Windows or Linux is unmeasured, so a phase budget may grow for a large database but never
+ * tighten below what worked before. Lowering this needs measurements on those platforms.
+ */
+export const DB_HOST_INIT_MIN_PHASE_BUDGET_MS = 90_000;
+
+/**
  * `pg_wal` bytes per millisecond the open budget assumes: 4 MiB/s, 8.75x under the slowest
  * measured WAL redo rate (35 MB/s, in system Node, slower than Electron). `pg_wal` bytes on disk
  * bound the redo length from above, so the budget can only err large.
@@ -56,7 +64,10 @@ function assertByteCount(bytes: number, what: string): void {
 }
 
 function budgetFromBytes(bytes: number, bytesPerMs: number, what: string): number {
-  const budgetMs = DB_HOST_INIT_PHASE_FLOOR_MS + Math.ceil(bytes / bytesPerMs);
+  const budgetMs = Math.max(
+    DB_HOST_INIT_MIN_PHASE_BUDGET_MS,
+    DB_HOST_INIT_PHASE_FLOOR_MS + Math.ceil(bytes / bytesPerMs)
+  );
   if (budgetMs > DB_HOST_INIT_MAX_BUDGET_MS) {
     throw new RangeError(
       `${what} of ${bytes} bytes needs a ${budgetMs} ms budget, past the longest timer (${DB_HOST_INIT_MAX_BUDGET_MS} ms).`

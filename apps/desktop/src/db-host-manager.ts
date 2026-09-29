@@ -68,6 +68,7 @@ import {
   type HostRequestTimeoutContext,
   type HostRequestTimeoutDecision,
 } from './platform/host-request-channel';
+import { summarizeMalformedMessage } from './platform/summarize-malformed-message';
 
 export type {
   RemoteDbClient,
@@ -826,7 +827,8 @@ class DefaultDbHostManager implements DbHostManager {
 
   #acceptMessage(message: unknown): void {
     if (!isDbHostToMainMessage(message)) {
-      logger.warn('Ignored malformed DB host message', { message });
+      // Shape only: DB host traffic carries query results, which must never reach the log.
+      logger.warn('Ignored malformed DB host message', summarizeMalformedMessage(message));
       return;
     }
     if (message.kind === 'log') {
@@ -852,11 +854,22 @@ class DefaultDbHostManager implements DbHostManager {
    */
   #acceptProgress(message: unknown): void {
     if (!isDbHostProgressEnvelope(message)) {
-      logger.error('Dropped malformed DB host progress envelope', { message });
+      logger.error(
+        'Dropped malformed DB host progress envelope',
+        summarizeMalformedMessage(message)
+      );
       return;
     }
     const pending = this.#requests.inFlight().find((envelope) => envelope.id === message.id);
-    if (pending && pending.request.kind !== 'init') {
+    if (!pending) {
+      // A report for a request that already settled or timed out re-arms nothing; drop it here so
+      // only terminal responses ever reach the channel's late-response path.
+      logger.debug('Dropped DB host progress for a request no longer in flight', {
+        requestId: message.id,
+      });
+      return;
+    }
+    if (pending.request.kind !== 'init') {
       logger.error('Dropped DB host progress for a request that is not init', {
         requestId: message.id,
         requestKind: pending.request.kind,
@@ -879,7 +892,8 @@ class DefaultDbHostManager implements DbHostManager {
     message: DbHostResponseEnvelope | DbHostProgressEnvelope
   ): void {
     if (message.kind === 'progress') {
-      return; // the channel routes only terminal responses here
+      // Unreachable: #acceptProgress drops progress with no request in flight. This narrows the type.
+      return;
     }
     const abandoned = this.#abandoned.take(requestId);
     if (!abandoned) {

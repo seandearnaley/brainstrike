@@ -446,6 +446,7 @@ every launch (restarts included) ahead of its own variables, never by mutating `
 **Not done: Step 0.** It needs a person at the terminal (turbo/concurrently pgids, which process got
 which signal, ms from Ctrl-C to turbo's force kill). The E2E delivers the signal pattern instead. If
 turbo force-kills before the marker is written, file a follow-up; do not work around turbo here.
+
 ### Update (2026-09-29, BST-1883): the DB host init deadline is per phase
 
 Before: one 90 s wall-clock deadline (`DEFAULT_INITIALIZATION_TIMEOUT_MS`, `db-host-manager.ts`) covered the
@@ -495,14 +496,17 @@ channel; and `db-host-init-budget.ts`. The budgets are policy, not measurement n
 | phase | budget | measured basis |
 | --- | --- | --- |
 | before the first report | 90 s | today's whole-init value, not re-measured |
-| `open-database` | 30 s + `pg_wal` bytes at 4 MiB/s | redo >= 35 MB/s (8.75x margin) |
-| `index-rebuild` | 30 s + (heap + TOAST) bytes at 1 MiB/s | slowest heap+TOAST rate 7.1 MB/s (7x margin) |
+| `open-database` | max(90 s, 30 s + `pg_wal` bytes at 4 MiB/s) | redo >= 35 MB/s (8.75x margin) |
+| `index-rebuild` | max(90 s, 30 s + (heap + TOAST) bytes at 1 MiB/s) | slowest heap+TOAST rate 7.1 MB/s (7x margin) |
 | `migration` | 90 s | 136 migrations = 0.84 s; none rewrites a large table |
 
 Worked examples the test pins (byte counts are the measured MiB figures rounded up): incident database
 rebuild 131 + 211 MiB -> 372 s for a 12 s job; 1M x 123-char rows 206 MiB -> 236 s for 20 s; 100k x 1420-char
 rows 157 MiB -> 187 s for 22 s; open with the incident backup's 912 MiB of `pg_wal` -> 258 s (a clean open
-takes 0.24 s, a crash open with 1.07 GB of real redo took 4.7 s); an empty `pg_wal` -> 30 s. The margins are a
+takes 0.24 s, a crash open with 1.07 GB of real redo took 4.7 s); an empty `pg_wal` -> 90 s. No phase gets
+less than the single 90 s deadline this replaced (`DB_HOST_INIT_MIN_PHASE_BUDGET_MS`, added after review): every
+measurement is one M1 Pro, and a cold first open on Windows or Linux (WASM compile, extension load, antivirus,
+a spinning disk) is unmeasured, so a budget may grow for a large database but never tightens. The margins are a
 policy choice: 7x and 8.75x under the slowest measured rate covers a machine that much slower than an M1
 Pro, or that much TOAST compression of the content, not both. A wedge on the incident database is now
 detected in 6.2 min instead of 90 s. The message a person reads names the phase and budget: `DB host init
