@@ -227,8 +227,8 @@ export function createDesktopGracefulShutdown(
 
     // The one step whose skip damages durable state (every other skipped step
     // loses only in-memory work): it runs after the steps finished AND after
-    // the deadline aborted one. Ordered after the sequence, not independent of it: the drain
-    // must finish (or the deadline abort it) before the close, so these awaits are not parallel.
+    // the deadline aborted one.
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- ordered after the sequence, not independent of it: `database-drain` stops everything that still issues database work, so it must finish (or the deadline abort it) before the close; running them together would close PGlite under admitted work.
     const databaseClose = await runDatabaseClose(plan, now);
     if (report.timedOut) {
       if (databaseClose.failure) {
