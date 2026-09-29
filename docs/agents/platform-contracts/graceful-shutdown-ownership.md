@@ -332,8 +332,25 @@ in-memory work. A clean run measured `database` 441 ms and all steps 767 ms (mai
 whether they finished or the deadline aborted one, bounded by `DB_HOST_CLOSE_BUDGET_MS` (3.5 s).
 The forced exit waits for it (`exit(1)` after it), the backstop covers both budgets, and the
 durable error log closes last. `database` became `database-drain` (it stops what issues database
-work) and `error-log-sink` left the sequence. A failed close after a deadline is logged at error.
-"Fix the slow owner, never raise a budget" stands.
+work) and `error-log-sink` left the sequence. A failed close after a deadline is logged at error,
+through a guard, so a throwing logger cannot cancel the `exit(1)`. "Fix the slow owner, never
+raise a budget" stands.
+
+**After a deadline the database closes without its drain.** The aborted or skipped
+`database-drain` (trigger graph, sampler, live-query cleanup, scheduler idle join) has not run,
+so admitted work may still be in flight. That is accepted and needs no extra code: the DB host
+rejects every queued envelope with `DB host is closing`, lets the in-flight one finish, then
+closes, and the callers of the rejected work get a typed error instead of a hang.
+
+**The close budget is the end-to-end bound.** `DB_HOST_CLOSE_BUDGET_MS` = 3500 ms = ack 2000 +
+exit after SIGTERM 1000 + exit after SIGKILL 500: `closeDatabase()` awaits
+`DbHostManager.close()`, whose waits are exactly those three rungs (the departing-host wait is a
+single 500 ms rung, and a host with nothing to close returns at once). `db-host-manager-close.test.ts`
+pins it both ways: a host that survives every signal settles at exactly the budget, not a
+millisecond earlier, and an acknowledgement landing just before its timeout still fits. Worst-case
+signal-shutdown exit time: the 5000 ms step deadline plus 3500 ms = 8500 ms, and the backstop
+fires at 8750 ms (plus `DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS`, 250 ms) if the orchestration itself
+failed.
 
 **Measured, Electron 44.4.5, macOS (2026-09-29): main's JS signal handlers.** A probe main with
 `process.on('SIGINT'|'SIGTERM'|'SIGHUP')`:
@@ -350,8 +367,8 @@ conf 15 -> atomically 2.1) calls `process.once` for SIGHUP/SIGINT/SIGTERM at imp
 the signal against the process; Node arms libuv's watcher only for a signal's FIRST listener, and
 Electron's handler displaced that early watcher. `main/shutdown-signals.ts` therefore installs
 from `app.whenReady()` and drops the existing listeners first, so ours arms a fresh watcher; they
-are not restored, because they exist to die by the signal and this shutdown ends through
-`app.quit()`, where their `exit` hooks still run. Real app, three SIGINTs 40 ms apart: before,
+are not restored (each is logged by name), because they exist to die by the signal and this
+shutdown ends through `app.quit()`, where their `exit` hooks still run. Real app, three SIGINTs 40 ms apart: before,
 main died from SIGINT mid-shutdown (only "MCP runtime shutdown cleanup completed" logged); after,
 `Received shutdown signal`, two `Shutdown already in progress; ignoring signal`, `Graceful
 shutdown completed` (`trigger: signal`), exit 0. A signal before ready still reaches Electron's own
