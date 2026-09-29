@@ -133,3 +133,34 @@ replacement forks until the exit is observed. Nothing forks once
 `markDesktopShuttingDown()` has run (`DbHostUnavailableError`); a host that already
 exists still serves shutdown-time work. Not done here: signal handling in the host and
 main, and the reserved database-close slice of the shutdown sequence (L2).
+
+### Update (2026-09-29, BST-1872 L1 review round): the exit is the only barrier
+
+Review of the awaited close found that its "wait for the exit" barrier was a promise for the
+kill, not the exit, so a failed or unanswered SIGKILL released the next fork while the old host
+could still own the data directory. The invariant now: no DB host forks, and no close reports
+success, while a previous host may be alive; the only proof it is gone is its observed `exit`.
+Admission that meets a departing host waits at most `DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS`, then
+rejects with `DbHostUnavailableError`; it never forks and never waits unbounded. Fixes:
+
+- A. `#departingHost` holds the detached `DbHostProcess` itself; only its own `host.exited`
+  continuation clears it (identity-checked). `killWedgedHost`'s result gates nothing.
+- B. One `#admit()` gate, re-run after every wait, guards every request that can fork
+  (`send()` for every non-close kind, which is also how `getDatabase()` initializes). It stays
+  synchronous when nothing departs so a request issued before `close()` is posted before the
+  close envelope. `#ensureHost()` also refuses to fork while a host departs.
+- C. Requests issued while `close()` runs reject with `DbHostUnavailableError` instead of
+  queueing behind the close and forking a host after it.
+- D. A repeated `close()` with no live host waits for the departing host's exit and rejects
+  `exit-timeout` while it is still alive; it is never a silent success.
+- E. A SIGKILL the OS refuses (EPERM) is caught inside the shared kill path, logged at error,
+  and counts as "not exited", so every close rung reports `exit-timeout` and no caller sees a raw errno.
+- F. `DbHostProcess.forceKill()` sends nothing once the exit was observed: the pid may belong
+  to an unrelated process by then.
+- G. The kill log follows the logger's `(message, context)` order. While a close is in flight
+  `#terminateHost` returns early on purpose: the request-timeout `rejectAll` also fails the
+  close request, which drives the close ladder's SIGKILL.
+
+Known gap, not fixed here: `closeDbHostManager()` drops the default manager after a failed
+close, so `getDbHostManager()` builds a fresh manager with no barrier. Nothing forks once
+shutdown has begun, which covers the quit path; a runtime caller after a failed close is not covered.

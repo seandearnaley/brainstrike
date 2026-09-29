@@ -380,8 +380,9 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   for every in-flight response.
 - The DB host is closed, not killed: close envelope → SIGTERM → awaited `exit` → SIGKILL on
   timeout (logged as a crash). A close is clean only when the host acknowledged it; an exit
-  code, even 0, is never proof. Wedge termination is SIGKILL, awaited before another host
-  forks; nothing forks once shutdown begins.
+  code, even 0, is never proof. No host forks, and no close reports success, while a previous
+  host may be alive: only its observed `exit` proves it gone. Admission waits ≤0.5 s for it,
+  then rejects `DbHostUnavailableError` (as it does while closing or once shutdown begins).
 
 Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:
