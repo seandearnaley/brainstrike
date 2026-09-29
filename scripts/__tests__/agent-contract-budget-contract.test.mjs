@@ -105,7 +105,9 @@ const CONTRACT_LINE_BUDGETS = {
   // adding a table must classify it in the same change. The per-table reasoning
   // went to `database/table-durability-classes.md`.
   // BST-1871 raised it from 895 (+2): one bullet names the crash-sensitive index AM list.
-  'database.md': 897,
+  // BST-1870 L2b raised it from 897 (+10): the integrity-containment
+  // background pause is a new scheduler rule with its guards; L4 re-pins.
+  'database.md': 907,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
