@@ -5,6 +5,7 @@ import type { DbHostRequestEnvelope } from '../../db-host-protocol';
 class FakeUtilityProcess extends EventEmitter {
   readonly messages: DbHostRequestEnvelope[] = [];
   readonly kill = vi.fn(() => true);
+  readonly pid = 4242;
   readonly postMessage = (message: DbHostRequestEnvelope): void => {
     this.messages.push(message);
   };
@@ -96,13 +97,17 @@ it('terminates a host whose initialization timed out and forks a fresh one next'
     (error: unknown) => error
   );
   const wedgedHost = latestProcess();
+  const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
   await vi.advanceTimersByTimeAsync(15);
 
   expect(await failure).toBeInstanceOf(DbHostRequestTimeoutError);
-  expect(wedgedHost.kill).toHaveBeenCalledTimes(1);
+  expect(killSpy).toHaveBeenCalledWith(wedgedHost.pid, 'SIGKILL');
+  killSpy.mockRestore();
 
-  // A possibly wedged host must not serve the retry: the next call forks anew.
+  // A possibly wedged host must not serve the retry: the next call forks anew, once it is gone.
   const retryPromise = manager.getDatabase();
+  wedgedHost.emit('exit', 137);
+  await vi.advanceTimersByTimeAsync(0);
   expect(forkMock).toHaveBeenCalledTimes(2);
   const freshHost = latestProcess();
   freshHost.reply(freshHost.messages.at(-1) as DbHostRequestEnvelope, { initialized: true });
