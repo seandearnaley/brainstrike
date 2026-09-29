@@ -58,16 +58,17 @@ export function writeCleanShutdownMarker(
 ): void {
   const markerPath = getMarkerPath(appDataDir);
   const temporaryPath = `${markerPath}.tmp`;
-  const descriptor = openSync(temporaryPath, 'w');
   try {
-    writeSync(descriptor, JSON.stringify(details));
-    fsyncSync(descriptor);
-  } finally {
-    closeSync(descriptor);
-  }
-  try {
+    const descriptor = openSync(temporaryPath, 'w');
+    try {
+      writeSync(descriptor, JSON.stringify(details));
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
     renameSync(temporaryPath, markerPath);
   } catch (error) {
+    // Whichever step failed (open, write, flush or rename), no temp file is left behind.
     removeTemporaryMarker(temporaryPath);
     throw error;
   }

@@ -11,13 +11,20 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const fsFault = vi.hoisted(() => ({ failTemporaryUnlink: false }));
+const fsFault = vi.hoisted(() => ({ failFsyncOnce: false, failTemporaryUnlink: false }));
 const loggerWarnMock = vi.hoisted(() => vi.fn());
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   const faulty = {
     ...actual,
+    fsyncSync: (descriptor: number) => {
+      if (fsFault.failFsyncOnce) {
+        fsFault.failFsyncOnce = false;
+        throw Object.assign(new Error('fsync failed'), { code: 'EIO' });
+      }
+      actual.fsyncSync(descriptor);
+    },
     unlinkSync: (target: string) => {
       if (fsFault.failTemporaryUnlink && String(target).endsWith('.tmp')) {
         throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
@@ -56,6 +63,7 @@ describe('clean-shutdown marker', () => {
 
   beforeEach(() => {
     appDataDir = mkdtempSync(path.join(tmpdir(), 'brainstrike-marker-'));
+    fsFault.failFsyncOnce = false;
     fsFault.failTemporaryUnlink = false;
     loggerWarnMock.mockReset();
   });
@@ -100,6 +108,17 @@ describe('clean-shutdown marker', () => {
   it('does not take a directory at the marker path for a marker', () => {
     mkdirSync(markerPath());
 
+    expect(hasCleanShutdownMarker(appDataDir)).toBe(false);
+  });
+
+  it('removes its temp file, and surfaces the failure, when flushing the temp file fails', () => {
+    fsFault.failFsyncOnce = true;
+
+    expect(() => writeCleanShutdownMarker(appDataDir, { closedAt: 'now', pid: 1 })).toThrow(
+      'fsync failed'
+    );
+
+    expect(existsSync(`${markerPath()}.tmp`)).toBe(false);
     expect(hasCleanShutdownMarker(appDataDir)).toBe(false);
   });
 
