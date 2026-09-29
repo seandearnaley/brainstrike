@@ -58,6 +58,8 @@ const cpSyncMock = vi.fn();
 const openSyncMock = vi.fn(() => 123);
 const writeFileSyncMock = vi.fn();
 const closeSyncMock = vi.fn();
+const writeSyncMock = vi.fn();
+const fsyncSyncMock = vi.fn();
 const unlinkSyncMock = vi.fn();
 const utimesSyncMock = vi.fn();
 const statSyncMock = vi.fn(() => ({ mtimeMs: Date.now() }));
@@ -76,6 +78,7 @@ vi.mock('node:fs', () => ({
     closeSync: closeSyncMock,
     cpSync: cpSyncMock,
     existsSync: existsSyncMock,
+    fsyncSync: fsyncSyncMock,
     lstatSync: lstatSyncMock,
     mkdirSync: mkdirSyncMock,
     openSync: openSyncMock,
@@ -87,8 +90,10 @@ vi.mock('node:fs', () => ({
     unlinkSync: unlinkSyncMock,
     utimesSync: utimesSyncMock,
     writeFileSync: writeFileSyncMock,
+    writeSync: writeSyncMock,
   },
   existsSync: existsSyncMock,
+  fsyncSync: fsyncSyncMock,
   lstatSync: lstatSyncMock,
   mkdirSync: mkdirSyncMock,
   openSync: openSyncMock,
@@ -100,6 +105,7 @@ vi.mock('node:fs', () => ({
   unlinkSync: unlinkSyncMock,
   utimesSync: utimesSyncMock,
   writeFileSync: writeFileSyncMock,
+  writeSync: writeSyncMock,
 }));
 
 const appGetPathMock = vi.fn(() => '/mock/documents');
@@ -339,15 +345,6 @@ describe('db-main lifecycle', () => {
     expect(wipedDataDir).toBe(false);
   });
 
-  it('closeDatabase still closes handle when syncToFs fails', async () => {
-    const { initializeMainDatabase, closeDatabase } = await import('../../db-main');
-    await initializeMainDatabase();
-    syncToFsMock.mockRejectedValueOnce(new Error('sync failed'));
-    await expect(closeDatabase()).resolves.toBeUndefined();
-    expect(syncToFsMock).toHaveBeenCalled();
-    expect(closeMock).toHaveBeenCalled();
-  });
-
   it('reinitializeDatabase closes and recreates', async () => {
     const { initializeMainDatabase, reinitializeDatabase } = await import('../../db-main');
     const first = await initializeMainDatabase();
@@ -534,8 +531,12 @@ describe('db-main lifecycle', () => {
     expect(writeFileSyncMock.mock.invocationCallOrder[0]).toBeLessThan(
       PGliteMock.mock.invocationCallOrder[0] ?? 0
     );
+    // The first unlink is now the clean-shutdown marker's; the startup lock's must follow migration.
+    const startupLockUnlink = unlinkSyncMock.mock.calls.findIndex(([target]) =>
+      String(target).includes('brainstrike-pglite-initialization-')
+    );
     expect(migrateMock.mock.invocationCallOrder[0]).toBeLessThan(
-      unlinkSyncMock.mock.invocationCallOrder[0] ?? 0
+      unlinkSyncMock.mock.invocationCallOrder[startupLockUnlink] ?? 0
     );
   });
 

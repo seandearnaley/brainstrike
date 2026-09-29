@@ -109,5 +109,6 @@ non-throwing catch boundary; reset uses the same close helper.
 The 2s ack-race kill above is superseded: closing the host is now close ack, SIGTERM,
 awaited `exit`, then SIGKILL on timeout, and a transaction or init timeout SIGKILLs and
 awaits the exit before another host forks. A host stuck in synchronous WASM can run no
-signal handler, so SIGKILL is the only signal that ends it. Record:
+signal handler, so SIGKILL is the only signal that ends it. A failed `syncToFs` or `close`
+in the host now rejects and keeps the process lock instead of being swallowed. Record:
 `docs/agents/platform-contracts/graceful-shutdown-ownership.md`.
