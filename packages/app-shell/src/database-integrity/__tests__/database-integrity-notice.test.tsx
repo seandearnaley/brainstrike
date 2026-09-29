@@ -120,8 +120,35 @@ describe('DatabaseIntegrityNotice', () => {
     expect(alert).toHaveTextContent("BrainStrike couldn't read the database status");
     expect(loggerMock.error).toHaveBeenCalledWith(
       'Unknown database integrity state; showing the status as unreadable',
-      { kind: 'repairing' }
+      { kind: 'repairing', revision: 2 }
     );
+  });
+
+  it('logs an unknown state once per snapshot, never once per render', async () => {
+    const unknown = {
+      revision: 2,
+      state: { kind: 'repairing' },
+    } as unknown as DatabaseIntegritySnapshot;
+    exposeBridge(createFakeBridge(() => Promise.resolve(unknown)).bridge);
+
+    const view = render(
+      <StrictMode>
+        <DatabaseIntegrityNotice />
+      </StrictMode>
+    );
+    await screen.findByRole('alert');
+    view.rerender(
+      <StrictMode>
+        <DatabaseIntegrityNotice />
+      </StrictMode>
+    );
+    view.rerender(
+      <StrictMode>
+        <DatabaseIntegrityNotice />
+      </StrictMode>
+    );
+
+    expect(loggerMock.error).toHaveBeenCalledTimes(1);
   });
 
   it('shows the raw first-seen value when it is not a valid date', async () => {

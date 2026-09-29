@@ -451,8 +451,8 @@ Settled: containment, not replacement — the replace-and-reload design is rever
 `platform-contracts/database-integrity-containment.md`, `platform-contracts/corruption-recovery-maintenance.md`.
 Guard: `apps/desktop/src/__tests__/database-integrity-state.test.ts`, `database-corruption-classifier.test.ts`,
 `platform/desktop-database-work.test.ts`, `main/ipc-handlers-db-integrity.test.ts`, `database-maintenance-scheduler.test.ts`,
-`main/db-main.lifecycle.test.ts`, `main/db-host-manager-init-failure.test.ts`, app-shell
-`database-integrity/__tests__/database-integrity-notice.test.tsx`.
+`main/db-main.lifecycle.test.ts`, `main/db-host-manager-init-failure.test.ts`,
+`packages/app-shell/src/database-integrity/__tests__/database-integrity-notice.test.tsx`.
 
 ---
 

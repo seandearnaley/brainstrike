@@ -4,7 +4,7 @@ import {
   getDesktopDatabaseIntegrityBridge,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
-import type { DatabaseIntegritySnapshot } from '@brainstrike/types';
+import type { DatabaseIntegritySnapshot, DatabaseIntegrityState } from '@brainstrike/types';
 import { useSyncExternalStore } from 'react';
 
 const logger = createLogger('DatabaseIntegrity');
@@ -23,6 +23,15 @@ interface DatabaseIntegrityStore {
   getSnapshot: () => DatabaseIntegrityView | null;
   subscribe: (listener: () => void) => () => void;
 }
+
+/**
+ * The states this renderer can show. Typed over the union, so a new state fails to compile until
+ * it is listed; at runtime anything else (a newer main, a malformed payload) is shown as unreadable.
+ */
+const KNOWN_STATE_KINDS: Readonly<Record<DatabaseIntegrityState['kind'], true>> = {
+  contained: true,
+  healthy: true,
+};
 
 const LOADING: DatabaseIntegrityView = { status: 'loading' };
 const UNREADABLE: DatabaseIntegrityView = { status: 'unreadable' };
@@ -55,7 +64,16 @@ function createDatabaseIntegrityStore(
   const start = (): void => {
     started = true;
     const watcher = createDatabaseIntegrityWatcher(bridge);
-    watcher.subscribe((snapshot) => publish({ snapshot, status: 'ready' }));
+    watcher.subscribe((snapshot) => {
+      // Logged here, once per snapshot main sent, never during render.
+      if (!Object.hasOwn(KNOWN_STATE_KINDS, snapshot.state.kind)) {
+        logger.error('Unknown database integrity state; showing the status as unreadable', {
+          kind: snapshot.state.kind,
+          revision: snapshot.revision,
+        });
+      }
+      publish({ snapshot, status: 'ready' });
+    });
     watcher.current().catch((error: unknown) => {
       logger.error('Could not read the database integrity state', { error });
       // A push that already arrived is a known state; only an unknown one is unreadable.

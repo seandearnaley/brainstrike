@@ -1,10 +1,7 @@
-import { createLogger } from '@brainstrike/logging';
 import type { DatabaseIntegrityContext, DatabaseIntegrityState } from '@brainstrike/types';
 import { AlertTriangle } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import { useDatabaseIntegrity } from './use-database-integrity';
-
-const logger = createLogger('DatabaseIntegrityNotice');
 
 interface DatabaseIntegrityNoticeCopy {
   readonly containedMessage: string;
@@ -72,6 +69,15 @@ function DatabaseIntegrityStrip({ children }: { readonly children: ReactNode }):
   );
 }
 
+/**
+ * `never` keeps the state switch exhaustive at compile time. At runtime a state this renderer does
+ * not know (a newer main, a malformed payload) fails visible, never healthy and never by unmounting
+ * the shell. The store logs it once per snapshot, so rendering stays free of side effects.
+ */
+function UnknownStateStrip(_props: { readonly state: never }): ReactElement {
+  return <UnreadableStrip />;
+}
+
 function DatabaseIntegrityNoticeBody({
   state,
 }: {
@@ -104,15 +110,8 @@ function DatabaseIntegrityNoticeBody({
           </details>
         </DatabaseIntegrityStrip>
       );
-    default: {
-      // Compile-time exhaustiveness; at runtime a state this renderer does not know (a newer
-      // main, a malformed payload) fails visible, never healthy and never by unmounting the shell.
-      const unknown: never = state;
-      logger.error('Unknown database integrity state; showing the status as unreadable', {
-        kind: (unknown as { readonly kind?: unknown }).kind,
-      });
-      return <UnreadableStrip />;
-    }
+    default:
+      return <UnknownStateStrip state={state} />;
   }
 }
 
