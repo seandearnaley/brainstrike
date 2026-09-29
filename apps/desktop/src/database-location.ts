@@ -101,7 +101,9 @@ export function sanitizeProfileSegment(raw: string): string {
 }
 
 // Windows maps these names (with any extension) to devices: `profiles\nul` would
-// swallow every write. Derived profiles never start with one of them.
+// swallow every write. Derived profiles never start with one of them. Twin:
+// packages/db/src/database-snapshot-manifest.ts (kept equal by
+// scripts/__tests__/windows-reserved-device-name-twin.test.mjs).
 const WINDOWS_RESERVED_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/u;
 
 // An explicit override is the user's stated intent: reduce it to a safe segment,

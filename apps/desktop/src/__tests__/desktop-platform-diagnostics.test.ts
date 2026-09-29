@@ -11,6 +11,15 @@ describe('desktop platform diagnostics', () => {
       hasDatabaseHandle: true,
       initializationAttemptCount: 2,
       initializationInFlight: false,
+      initStop: {
+        budgetMs: 372_000,
+        consecutiveTimeouts: 2,
+        hostPid: 4242,
+        lastTimeoutAt: '2026-05-20T17:59:00.000Z',
+        phaseKey: 'index-rebuild:public.idx_file_chunks_content_bm25',
+        report: null,
+        version: 1 as const,
+      },
       lastInitializationFailure: null,
       lastInitializationSucceededAt: '2026-05-20T18:00:00.000Z',
     };
@@ -231,6 +240,7 @@ describe('desktop platform diagnostics', () => {
       migration: {
         attemptCount: 2,
         inFlight: false,
+        initStop: databaseDiagnostics.initStop,
         lastFailure: null,
         lastSucceededAt: '2026-05-20T18:00:00.000Z',
       },
@@ -332,5 +342,7 @@ describe('desktop platform diagnostics', () => {
       suspensions: [],
     });
     expect(snapshot.reset.userDataPath).toBe('<redacted>');
+    // No stop is reported as none, never as absent.
+    expect(snapshot.migration.initStop).toBeNull();
   });
 });
