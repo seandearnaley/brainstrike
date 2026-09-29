@@ -209,6 +209,25 @@ describe('planSnapshotRetention buckets', () => {
   });
 });
 
+describe('planSnapshotRetention policy validation', () => {
+  it.each([
+    ['daily', -1],
+    ['preUpdate', 1.5],
+    ['repair', Number.NaN],
+    ['weekly', Number.POSITIVE_INFINITY],
+  ] as const)('rejects a %s count of %s, naming it', (key, value) => {
+    expect(() =>
+      plan([], { policy: { ...DEFAULT_SNAPSHOT_RETENTION_POLICY, [key]: value } })
+    ).toThrow(new RegExp(`${key}.*non-negative integer`, 'u'));
+  });
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('rejects a capBytes of %s', (capBytes) => {
+    expect(() => plan([], { policy: { ...DEFAULT_SNAPSHOT_RETENTION_POLICY, capBytes } })).toThrow(
+      /capBytes.*non-negative finite/u
+    );
+  });
+});
+
 describe('planSnapshotRetention input validation', () => {
   it.each([
     ['a date without a time', '2026-09-29'],
