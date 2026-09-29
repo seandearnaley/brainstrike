@@ -58,9 +58,11 @@ describe('createWindow', () => {
 
     mockWebContents = {
       getURL: vi.fn(() => `${DESKTOP_DEV_RENDERER_URL}/`),
+      isDestroyed: vi.fn(() => false),
       on: vi.fn(),
       openDevTools: vi.fn(),
       reload: vi.fn(),
+      send: vi.fn(),
       setWindowOpenHandler: vi.fn(),
     };
 
@@ -447,19 +449,23 @@ describe('createWindow', () => {
       const rpcHandler = mockWebContents.on.mock.calls.find(
         (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
       )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
-      const focusHandler = mockBrowserWindow.on.mock.calls.find(
-        (call: [string, (...args: unknown[]) => void]) => call[0] === 'focus'
-      )?.[1] as () => void;
+      // Electron runs EVERY `focus` listener; other wiring (the native-focus
+      // publisher) shares the event, so recovery is not necessarily the first.
+      const focusHandlers = mockBrowserWindow.on.mock.calls
+        .filter((call: [string, () => void]) => call[0] === 'focus')
+        .map((call: [string, () => void]) => call[1]);
 
       expect(rpcHandler).toBeDefined();
-      expect(focusHandler).toBeDefined();
+      expect(focusHandlers.length).toBeGreaterThan(0);
 
       // Crash defers recovery
       rpcHandler({}, { exitCode: 5, reason: 'crashed' });
       expect(mockWebContents.reload).not.toHaveBeenCalled();
 
       // Focus triggers reload before the 3s timer
-      focusHandler();
+      for (const focusHandler of focusHandlers) {
+        focusHandler();
+      }
       expect(mockWebContents.reload).toHaveBeenCalledTimes(1);
 
       // Timer fires later but pendingRendererRecovery is already false — no double reload

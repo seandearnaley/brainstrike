@@ -28,6 +28,7 @@ import {
 import { terminalContract } from '../ipc-domains/terminal.contract';
 import { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
+import { windowFocusContract } from '../ipc-domains/window-focus.contract';
 import { worktreesContract } from '../ipc-domains/worktrees.contract';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 
@@ -64,6 +65,7 @@ const CONTRACT_BRIDGES = {
   skills: skillsContract,
   terminal: terminalContract,
   userCommands: userCommandsContract,
+  windowFocus: windowFocusContract,
   worktrees: worktreesContract,
 } as const;
 
@@ -203,6 +205,47 @@ describe('preload contract-derived bridges', () => {
     });
     await expect(exposedApi('clipboard')['writeText']?.('copied')).rejects.toThrow(
       'clipboard locked (clipboard · write_failed)'
+    );
+  });
+
+  it('routes windowFocus.isFocused to the manifest channel and unwraps the result envelope', async () => {
+    mockInvoke.mockResolvedValueOnce({ ok: true, value: true });
+    await expect(exposedApi('windowFocus')['isFocused']?.()).resolves.toBe(true);
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.windowFocus.isFocused);
+
+    mockInvoke.mockResolvedValueOnce({
+      error: {
+        category: 'window-focus',
+        code: 'window_unavailable',
+        message: 'The requesting renderer has no live BrowserWindow.',
+      },
+      ok: false,
+    });
+    await expect(exposedApi('windowFocus')['isFocused']?.()).rejects.toThrow(
+      'The requesting renderer has no live BrowserWindow. (window-focus · window_unavailable)'
+    );
+  });
+
+  it('subscribes windowFocus.onChange to the push channel and returns its unsubscribe', () => {
+    const callback = vi.fn();
+    const unsubscribe = exposedApi('windowFocus')['onChange']?.(callback) as () => void;
+    expect(mockElectron.ipcRenderer.on).toHaveBeenCalledWith(
+      DESKTOP_IPC_CHANNELS.windowFocus.changed,
+      expect.any(Function)
+    );
+
+    const listener = vi
+      .mocked(mockElectron.ipcRenderer.on)
+      .mock.calls.find(
+        ([channel]) => channel === DESKTOP_IPC_CHANNELS.windowFocus.changed
+      )?.[1] as (event: unknown, focused: boolean) => void;
+    listener({}, false);
+    expect(callback).toHaveBeenCalledWith(false);
+
+    unsubscribe();
+    expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(
+      DESKTOP_IPC_CHANNELS.windowFocus.changed,
+      listener
     );
   });
 

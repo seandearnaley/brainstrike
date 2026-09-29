@@ -38,6 +38,7 @@ import {
 import { terminalContract } from './ipc-domains/terminal.contract';
 import { userCommandsContract } from './ipc-domains/user-commands.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
+import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import { worktreesContract } from './ipc-domains/worktrees.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
@@ -923,6 +924,16 @@ contextBridge.exposeInMainWorld('llmHost', {
 // IPC: sandboxed preloads cannot require Electron's clipboard module, so a
 // direct module call here silently fails on real (non-test-mode) builds.
 exposeBridge('clipboard', clipboardContract);
+
+// Native window focus (BST-1864, desktop-only): `isFocused()` reads THIS window's
+// OS focus and `onChange` receives every focus/blur push. `useAppActive()` in
+// `@brainstrike/hooks` capability-checks `window.windowFocus`: keyboard focus in
+// the browser pane's WebContentsView (or docked DevTools) makes the renderer's own
+// `document.hasFocus()` false while the window is still the focused OS window.
+// Web has no preload, so it keeps `document.hasFocus()`.
+if (shouldExposeBridge('windowFocus')) {
+  exposeBridge('windowFocus', windowFocusContract);
+}
 
 // File-export save bridge (desktop-only): writes export bytes into the OS
 // Downloads folder from MAIN, bypassing Chromium's blob-download pipeline

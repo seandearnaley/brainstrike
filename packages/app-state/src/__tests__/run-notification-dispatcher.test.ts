@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRunNotificationDispatcher } from '../notifications/run-notification-dispatcher';
-import type { AssistantNotificationFocusState } from '../notifications/should-notify';
 import type { NotificationEventToggles } from '../stores/notification-preferences-store';
 
 const baseSettings = {
@@ -8,19 +7,10 @@ const baseSettings = {
   masterEnabled: true,
 };
 
-const hiddenFocusState: AssistantNotificationFocusState = {
-  hasFocus: false,
-  visibilityState: 'hidden',
-};
-const focusedState: AssistantNotificationFocusState = {
-  hasFocus: true,
-  visibilityState: 'visible',
-};
-
 function createHarness(overrides?: {
   settings?: typeof baseSettings;
   permissionState?: 'granted' | 'denied' | 'default' | 'unsupported';
-  focusState?: AssistantNotificationFocusState;
+  appActive?: boolean;
 }) {
   const closeSpy = vi.fn();
   const constructed: Array<{ title: string; options: NotificationOptions | undefined }> = [];
@@ -37,9 +27,9 @@ function createHarness(overrides?: {
 
   const dispatcher = createRunNotificationDispatcher({
     focusWindow,
-    getFocusState: () => overrides?.focusState ?? hiddenFocusState,
     getPermissionState: () => overrides?.permissionState ?? 'granted',
     getSettings: () => overrides?.settings ?? baseSettings,
+    isAppActive: () => overrides?.appActive ?? false,
     notificationFactory,
   });
 
@@ -84,9 +74,27 @@ describe('createRunNotificationDispatcher', () => {
   });
 
   it('never constructs a Notification for a focused window', () => {
-    const harness = createHarness({ focusState: focusedState });
+    const harness = createHarness({ appActive: true });
     harness.dispatcher.dispatch({ kind: 'runFinished', runId: 'run-1' });
     expect(harness.notificationFactory).not.toHaveBeenCalled();
+  });
+
+  it('reads the app-active signal at dispatch time, not at construction', () => {
+    let appActive = true;
+    const notificationFactory = vi.fn(() => ({ close: vi.fn(), onclick: null }));
+    const dispatcher = createRunNotificationDispatcher({
+      getPermissionState: () => 'granted',
+      getSettings: () => baseSettings,
+      isAppActive: () => appActive,
+      notificationFactory,
+    });
+
+    dispatcher.dispatch({ kind: 'runFinished', runId: 'run-1' });
+    expect(notificationFactory).not.toHaveBeenCalled();
+
+    appActive = false;
+    dispatcher.dispatch({ kind: 'runFinished', runId: 'run-2' });
+    expect(notificationFactory).toHaveBeenCalledTimes(1);
   });
 
   it('never constructs a Notification when permission is denied', () => {

@@ -44,6 +44,19 @@ describe('desktop E2E harness contract', () => {
     expect(source).not.toContain("launchMode === 'test-built' ? ['--test-mode'] : []");
   });
 
+  it('keeps the native window-focus bridge off by default and lets a spec opt in (BST-1864)', () => {
+    // The harness window is `focusable: false` and never shown, so it can never
+    // take native focus, while Playwright forces the renderer's
+    // `document.hasFocus()` true. With the bridge present every spec would read
+    // an unfocused app; absent, each keeps the focused app it has always run with.
+    // An explicit value (even '') wins, so a spec opts in with ''.
+    const source = readElectronHelpersSource();
+
+    expect(source).toMatch(
+      /BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES:\s*baseEnv\['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'\]\s*\?\?\s*'windowFocus'/
+    );
+  });
+
   it('exposes renderer GC and fails loudly when the memory harness cannot collect', () => {
     const launcherSource = readElectronHelpersSource();
     const memoryHelpersSource = readEmbeddingMemoryHelpersSource();

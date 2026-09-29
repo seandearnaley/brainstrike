@@ -26,9 +26,11 @@ Layers:
    reset that does not reload the page (web path).
 2. **Decision + dispatch** (`packages/app-state/src/notifications/`) —
    `should-notify.ts` is a PURE gate (`shouldNotify`): master on, event on,
-   `Notification.permission === 'granted'`, and the window is unfocused
-   (`document.visibilityState === 'hidden' || !document.hasFocus()`,
-   evaluated AT EVENT TIME). `notification-permission.ts` wraps
+   `Notification.permission === 'granted'`, and the app is not active (the
+   `appActive` boolean, the shared `isAppActive()` reading from
+   `@brainstrike/hooks`: visible AND focused, where focus is the native window's
+   on desktop and `document.hasFocus()` on web; BST-1864), evaluated AT EVENT
+   TIME. `notification-permission.ts` wraps
    `Notification.permission`/`requestPermission()` — permission is requested
    ONLY from the Settings toggle-on click (never on load), and the store
    never persists `masterEnabled: true` when the browser denies or has not
@@ -69,8 +71,11 @@ Layers:
    events, mirroring the `onUsage` seam.
 5. **Composition** (`packages/app-shell/src/use-assistant-run-notifications.ts`,
    wired into `assistant-ui-panel-wrapper.tsx`) — the ONLY layer that reads
-   live `document.hasFocus()`/`visibilityState` and owns a
-   `createRunNotificationDispatcher` instance (stable for the panel's
+   live `Notification.permission` and owns a
+   `createRunNotificationDispatcher` instance, and it feeds the gate
+   `isAppActive()` (never `document.hasFocus()`, which reads false while the
+   browser pane or DevTools holds keyboard focus: BST-1864) so the unseen-badge
+   rule and the alert cannot disagree (stable for the panel's
    lifetime, so per-run coalescing is meaningful). Hosted turns coalesce on
    the wire `runId`; web local-runtime events carry no `runId`
    (`createLocalRunEvent` assigns only a per-event `id`), so the hook falls

@@ -186,6 +186,7 @@ import { getSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
+import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
 import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 import {
@@ -1027,6 +1028,7 @@ ipcDisposers.add(
 );
 ipcDisposers.add('shell', registerShellIpcHandlers());
 ipcDisposers.add('clipboard', registerClipboardIpcHandlers());
+ipcDisposers.add('window-focus', registerWindowFocusIpcHandlers());
 ipcDisposers.add('file-exports', registerFileExportsIpcHandlers());
 // Lazy resolver for the same reason as `resolveSnapshotService` below: this
 // registration runs at module load, the ONE snapshot service is constructed
