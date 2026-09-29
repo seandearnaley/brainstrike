@@ -24,6 +24,7 @@ import {
   RESOURCE_ID,
   SEQ_SPAN,
   THREAD_ID,
+  WRITER_FAILURE_PREFIX,
 } from './crash-injection-protocol';
 
 const CHUNKS = 40;
@@ -195,8 +196,7 @@ async function main(): Promise<void> {
 try {
   await main();
 } catch (error) {
-  process.stderr.write(
-    `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`
-  );
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  process.stderr.write(`${WRITER_FAILURE_PREFIX}${detail}\n`);
   process.exit(1);
 }

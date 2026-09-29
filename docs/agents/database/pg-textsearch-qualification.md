@@ -254,9 +254,9 @@ crash-sensitive list unless the gate proves it recovers.
 - Control: the same workload and probes, recovery still removed, but a clean close instead of a
   SIGKILL, passed 25 of 25 iterations for each of two seeds. The damage is crash-induced, not a
   workload artefact.
-- Green: 10 iterations took 34 s of gate time (42 s for the vitest process), 30 took 85 s and 50
-  took 138 s on macOS arm64, about 2.8 s per iteration, so 200 is about 9 min. Row counts are capped
-  (4,000 chunks, 1,500 thread-index rows), so per-iteration cost stays flat.
+- Green, on macOS arm64: 10 iterations took 24-34 s of gate time, 30 took 85 s, 50 took 138 s and 200
+  took 585 s (2.8-2.9 s per iteration). Row counts are capped (4,000 chunks, 1,500 thread-index
+  rows), so per-iteration cost stays flat.
 - Limits: NODEFS `fsync` is a no-op, so this proves process crashes (SIGKILL keeps every completed
   write), not power loss. The kill instant is random, so the seed reproduces the workload and the
   kill schedule but not the exact kill; a clean run at 10 iterations is evidence, not proof, which

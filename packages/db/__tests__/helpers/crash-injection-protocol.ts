@@ -6,6 +6,8 @@
 
 /** Marks a committed-transaction line on the child's stdout. */
 export const ACK_PREFIX = 'acked ';
+/** Leads the child's stderr when it dies of its own error, as opposed to our SIGKILL. */
+export const WRITER_FAILURE_PREFIX = 'crash-writer-failed: ';
 export const THREAD_ID = 'crash-thread';
 export const RESOURCE_ID = 'crash-resource';
 /** Rows kept per table, so a 200-iteration run churns instead of growing without bound. */

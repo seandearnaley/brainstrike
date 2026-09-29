@@ -36,6 +36,7 @@ import {
   iterationSeed,
   MAX_RUN,
   parseAcks,
+  WRITER_FAILURE_PREFIX,
 } from './helpers/crash-injection-protocol';
 import {
   CrashGateCheckError,
@@ -125,7 +126,10 @@ function runWriterUntilKilled(
     child.on('close', (code, signal) => {
       clearTimeout(ackTimer);
       clearTimeout(killTimer);
-      if (killed && signal === 'SIGKILL') {
+      // Windows reports a terminated child as exit code 1 with no signal, so there the
+      // kill we sent is the evidence; the writer's failure marker overrides it everywhere.
+      const wasKilled = killed && (signal === 'SIGKILL' || process.platform === 'win32');
+      if (wasKilled && !stderr.includes(WRITER_FAILURE_PREFIX)) {
         resolve(parseAcks(stdout));
         return;
       }

@@ -59,8 +59,8 @@ jobs:
   # production recovery and verifies every index access method. A PR run of the
   # same file (10 iterations) gates every db change inside required `Unit`;
   # this is the 200-iteration qualification a PGlite/pg_textsearch bump needs.
-  # 50 iterations took 138 s on a laptop (macOS arm64), so 200 is about 9 min;
-  # the ceilings leave room for slower runners, Windows especially.
+  # 200 iterations took 585 s on a laptop (macOS arm64); the ceilings leave
+  # room for slower runners, Windows especially.
   sigkill-crash-gate:
     name: SIGKILL crash gate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
