@@ -203,35 +203,31 @@ describe('DbHostManager close ladder', () => {
   });
 
   describe('close acknowledgement times out', () => {
-    it('asks the host to close with SIGTERM and accepts exit code 0 as a clean close', async () => {
-      const { host, manager } = await openManager();
-      const closing = observe(manager.close());
-      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_ACK_TIMEOUT_MS);
+    // Measured with Electron 44.4.5 on macOS: `child.kill()` ends a utility process that has no
+    // signal handler with exit code 0 (SIGHUP also 0; SIGTERM 15, SIGINT 2, SIGKILL 9). An exit
+    // code, 0 included, is therefore never proof that the database closed.
+    it.each([0, 15])(
+      'asks the host to close with SIGTERM and rejects exited-unclean when it exits with code %i',
+      async (code) => {
+        const { host, manager } = await openManager();
+        const closing = observe(manager.close());
+        await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_ACK_TIMEOUT_MS);
 
-      expect(loggerWarnMock).toHaveBeenCalledWith(
-        'DB host close acknowledgement timed out; asking the host to close now',
-        { timeoutMs: DB_HOST_CLOSE_ACK_TIMEOUT_MS }
-      );
-      expect(host.kill).toHaveBeenCalledTimes(1);
-      host.emit('exit', 0);
+        expect(loggerWarnMock).toHaveBeenCalledWith(
+          'DB host close acknowledgement timed out; asking the host to close now',
+          { timeoutMs: DB_HOST_CLOSE_ACK_TIMEOUT_MS }
+        );
+        expect(host.kill).toHaveBeenCalledTimes(1);
+        host.emit('exit', code);
 
-      expect(await closing.outcome).toBe('resolved');
-      expect(killSpy).not.toHaveBeenCalled();
-    });
-
-    it('rejects exited-unclean when SIGTERM ends the host with a non-zero code', async () => {
-      const { host, manager } = await openManager();
-      const closing = observe(manager.close());
-      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_ACK_TIMEOUT_MS);
-      host.emit('exit', 15);
-
-      expect(await closing.outcome).toMatchObject({
-        exitCode: 15,
-        name: 'DbHostCloseError',
-        outcome: 'exited-unclean',
-      });
-      expect(killSpy).not.toHaveBeenCalled();
-    });
+        expect(await closing.outcome).toMatchObject({
+          exitCode: code,
+          name: 'DbHostCloseError',
+          outcome: 'exited-unclean',
+        });
+        expect(killSpy).not.toHaveBeenCalled();
+      }
+    );
 
     it('SIGKILLs a host that ignores SIGTERM and rejects killed once it is gone', async () => {
       const { host, manager } = await openManager();
@@ -264,22 +260,19 @@ describe('DbHostManager close ladder', () => {
       });
     });
 
-    it.each([
-      { code: 0, expected: 'resolved' },
-      { code: 1, expected: { exitCode: 1, name: 'DbHostCloseError', outcome: 'exited-unclean' } },
-    ] as const)(
-      'settles an exit with code $code before the acknowledgement without any signal',
-      async ({ code, expected }) => {
+    // Same measured Electron behaviour: an exit with code 0 that did not acknowledge is NOT clean.
+    it.each([0, 1])(
+      'rejects exited-unclean for an exit with code %i before the acknowledgement, without any signal',
+      async (code) => {
         const { host, manager } = await openManager();
         const closing = observe(manager.close());
         host.emit('exit', code);
 
-        const outcome = await closing.outcome;
-        if (expected === 'resolved') {
-          expect(outcome).toBe('resolved');
-        } else {
-          expect(outcome).toMatchObject(expected);
-        }
+        expect(await closing.outcome).toMatchObject({
+          exitCode: code,
+          name: 'DbHostCloseError',
+          outcome: 'exited-unclean',
+        });
         expect(killSpy).not.toHaveBeenCalled();
         expect(host.kill).not.toHaveBeenCalled();
       }

@@ -148,21 +148,25 @@ async function stopAfterAcknowledgedClose(host: DbHostProcess): Promise<void> {
   );
 }
 
+/**
+ * The host exited without acknowledging the close. The exit code is NEVER proof the database
+ * closed: Electron reports 0 when `kill()` (SIGTERM) ends a host that has no signal handler.
+ */
+function unconfirmedExit(code: number | undefined, when: string): DbHostCloseError {
+  return new DbHostCloseError(
+    'exited-unclean',
+    `DB host exited with code ${code} ${when}; the database was not confirmed closed.`,
+    { exitCode: code }
+  );
+}
+
 async function stopAfterAckTimeout(host: DbHostProcess, ackTimeoutMs: number): Promise<void> {
   logger.warn('DB host close acknowledgement timed out; asking the host to close now', {
     timeoutMs: ackTimeoutMs,
   });
   host.handle.kill();
   if (await host.waitForExit(DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS)) {
-    // Exit code 0 is emitted only after a successful close, so it is proof.
-    if (host.exitCode === 0) {
-      return;
-    }
-    throw new DbHostCloseError(
-      'exited-unclean',
-      `DB host exited with code ${host.exitCode} after its close acknowledgement timed out; the database was not confirmed closed.`,
-      { exitCode: host.exitCode }
-    );
+    throw unconfirmedExit(host.exitCode, 'after its close acknowledgement timed out');
   }
   const exited = await forceKillAndAwaitExit(host, { reason: 'close-ack-timeout' });
   throw new DbHostCloseError(
@@ -179,8 +183,8 @@ async function stopAfterAckTimeout(host: DbHostProcess, ackTimeoutMs: number): P
  * else throws `DbHostCloseError`.
  *
  * - acknowledged: SIGTERM; any exit code is clean (the database is closed).
- * - exit before acknowledgement: clean only with code 0.
- * - acknowledgement timeout: SIGTERM; only a 0 exit is clean, otherwise SIGKILL.
+ * - exit before acknowledgement: unclean, whatever the exit code.
+ * - acknowledgement timeout: SIGTERM, then unclean whatever the exit code; SIGKILL if it lingers.
  * - acknowledgement error (the close failed): SIGKILL.
  */
 export async function closeDbHostProcess(
@@ -202,14 +206,7 @@ export async function closeDbHostProcess(
     return;
   }
   if (attempt.kind === 'exited') {
-    if (attempt.code === 0) {
-      return;
-    }
-    throw new DbHostCloseError(
-      'exited-unclean',
-      `DB host exited with code ${attempt.code} before it acknowledged the close.`,
-      { exitCode: attempt.code }
-    );
+    throw unconfirmedExit(attempt.code, 'before it acknowledged the close');
   }
   const exited = await forceKillAndAwaitExit(host, { reason: 'close-failed' });
   throw new DbHostCloseError(
