@@ -30,11 +30,11 @@ export const DB_HOST_INIT_PHASE_FLOOR_MS = 30_000;
 export const DB_HOST_INIT_MIN_PHASE_BUDGET_MS = 90_000;
 
 /**
- * `pg_wal` bytes per millisecond the open budget assumes: 4 MiB/s, 8.75x under the slowest
+ * `pg_wal` bytes per second the open budget assumes: 4 MiB/s, 8.75x under the slowest
  * measured WAL redo rate (35 MB/s, in system Node, slower than Electron). `pg_wal` bytes on disk
  * bound the redo length from above, so the budget can only err large.
  */
-export const DB_HOST_WAL_REDO_BUDGET_BYTES_PER_MS = (4 * 1024 * 1024) / 1000;
+export const DB_HOST_WAL_REDO_BUDGET_BYTES_PER_SECOND = 4 * 1024 * 1024;
 
 /**
  * 136 migrations took 0.84 s measured, and none rewrites a large table. This is today's whole-init
@@ -44,12 +44,12 @@ export const DB_HOST_WAL_REDO_BUDGET_BYTES_PER_MS = (4 * 1024 * 1024) / 1000;
 export const DB_HOST_INIT_MIGRATION_BUDGET_MS = 90_000;
 
 /**
- * `heap + toast` bytes per millisecond the rebuild budget assumes: 1 MiB/s, 7x under the slowest
+ * `heap + toast` bytes per second the rebuild budget assumes: 1 MiB/s, 7x under the slowest
  * measured rate (7.1 MB/s). Heap plus TOAST is the best O(1) predictor of a BM25 REINDEX (the rate
  * of `content` bytes spans only 1.3x, but measuring those is an O(n) scan); index bytes and row
  * counts vary 4x and 13x and are not used.
  */
-export const DB_HOST_REINDEX_BUDGET_BYTES_PER_MS = (1024 * 1024) / 1000;
+export const DB_HOST_REINDEX_BUDGET_BYTES_PER_SECOND = 1024 * 1024;
 
 /**
  * The longest delay Node's `setTimeout` honours (2^31 - 1 ms, 24.8 days). A longer one is clamped
@@ -63,10 +63,13 @@ function assertByteCount(bytes: number, what: string): void {
   }
 }
 
-function budgetFromBytes(bytes: number, bytesPerMs: number, what: string): number {
+function budgetFromBytes(bytes: number, bytesPerSecond: number, what: string): number {
+  // Integer arithmetic: whole bytes times 1000 over a whole rate, so the budget never depends on
+  // how a fractional per-millisecond rate rounds in binary. Exact until bytes * 1000 passes 2^53,
+  // far beyond any budget the timer can arm (the check below refuses those).
   const budgetMs = Math.max(
     DB_HOST_INIT_MIN_PHASE_BUDGET_MS,
-    DB_HOST_INIT_PHASE_FLOOR_MS + Math.ceil(bytes / bytesPerMs)
+    DB_HOST_INIT_PHASE_FLOOR_MS + Math.ceil((bytes * 1000) / bytesPerSecond)
   );
   if (budgetMs > DB_HOST_INIT_MAX_BUDGET_MS) {
     throw new RangeError(
@@ -84,14 +87,18 @@ export function resolveInitPhaseBudgetMs(report: DatabaseInitPhaseReport): numbe
   switch (report.phase) {
     case 'open-database':
       assertByteCount(report.pgWalBytes, 'pgWalBytes');
-      return budgetFromBytes(report.pgWalBytes, DB_HOST_WAL_REDO_BUDGET_BYTES_PER_MS, 'pgWalBytes');
+      return budgetFromBytes(
+        report.pgWalBytes,
+        DB_HOST_WAL_REDO_BUDGET_BYTES_PER_SECOND,
+        'pgWalBytes'
+      );
     case 'index-rebuild': {
       const { heapBytes, toastBytes } = report.index;
       assertByteCount(heapBytes, 'heapBytes');
       assertByteCount(toastBytes, 'toastBytes');
       return budgetFromBytes(
         heapBytes + toastBytes,
-        DB_HOST_REINDEX_BUDGET_BYTES_PER_MS,
+        DB_HOST_REINDEX_BUDGET_BYTES_PER_SECOND,
         'heapBytes + toastBytes'
       );
     }
