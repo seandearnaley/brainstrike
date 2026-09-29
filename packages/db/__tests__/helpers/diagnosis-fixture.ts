@@ -39,6 +39,14 @@ export const CLASSIFY: IntegrityDiagnosisOptions['classify'] = findTableDurabili
 
 /** Files key for file_chunks' TOAST relation, whose generated name is not stable. */
 export const TOAST_KEY = 'file_chunks toast';
+/**
+ * A table with a btree index on a column whose values live in its TOAST table (three ~2 KB
+ * incompressible columns push a row over the toast threshold, and the first is moved out of line
+ * while still fitting a btree entry) and one on an expression over that column.
+ */
+export const TOAST_OWNER = 'zz_toast_owner';
+export const TOAST_OWNER_KEY = `${TOAST_OWNER} toast`;
+export const TOAST_OWNER_INDEXES = ['zz_toast_owner_body_idx', 'zz_toast_owner_md5_idx'] as const;
 
 /** Relation name -> file path relative to the data directory (`pg_relation_filepath`). */
 export type RelationFiles = Readonly<Record<string, string>>;
@@ -103,6 +111,14 @@ export async function buildBase(): Promise<Base> {
         USING hnsw ((embedding::halfvec(8)) halfvec_cosine_ops) WHERE vector_dims(embedding) = 8;
       CREATE TABLE ${UNCLASSIFIED_TABLE} (id int, note text);
       INSERT INTO ${UNCLASSIFIED_TABLE} SELECT g, md5(g::text) FROM generate_series(1, ${PROBE_ROWS}) g;
+      CREATE TABLE ${TOAST_OWNER} (id int, body text, pad1 text, pad2 text);
+      INSERT INTO ${TOAST_OWNER}
+        SELECT g, (SELECT string_agg(md5(g::text || k::text), '') FROM generate_series(1, 62) k WHERE g > 0),
+                  (SELECT string_agg(md5(g::text || k::text || 'p'), '') FROM generate_series(1, 62) k WHERE g > 0),
+                  (SELECT string_agg(md5(g::text || k::text || 'q'), '') FROM generate_series(1, 62) k WHERE g > 0)
+        FROM generate_series(1, 20) g;
+      CREATE INDEX ${TOAST_OWNER_INDEXES[0]} ON ${TOAST_OWNER} (body);
+      CREATE INDEX ${TOAST_OWNER_INDEXES[1]} ON ${TOAST_OWNER} (md5(body));
     `);
     const second = await db.query<{ name: string }>(
       `SELECT c.relname::text AS name FROM pg_index i
@@ -125,13 +141,17 @@ export async function buildBase(): Promise<Base> {
       'file_chunks',
       SEQUENCE,
       TOAST_KEY,
+      TOAST_OWNER,
+      TOAST_OWNER_KEY,
     ]) {
+      // A key ending in " toast" names the TOAST relation of the table before it.
+      const toastOf = relation.endsWith(' toast') ? relation.slice(0, -' toast'.length) : null;
       const { rows } = await db.query<{ file: string }>(
         `SELECT pg_relation_filepath(
-                  CASE WHEN $1 = '${TOAST_KEY}'
-                       THEN (SELECT reltoastrelid FROM pg_class WHERE oid = 'file_chunks'::regclass)
-                       ELSE $1::regclass END) AS file`,
-        [relation]
+                  CASE WHEN $2::text IS NOT NULL
+                       THEN (SELECT reltoastrelid FROM pg_class WHERE oid = $2::text::regclass)
+                       ELSE $1::text::regclass END) AS file`,
+        [relation, toastOf]
       );
       const file = rows[0]?.file;
       if (!file) {

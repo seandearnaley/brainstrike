@@ -350,7 +350,7 @@ class DiagnosisRun {
   readonly #classify: IntegrityDiagnosisOptions['classify'];
   readonly #relations: readonly RelationRow[];
   readonly #tablesWithFindings = new Set<string>();
-  /** Heaps (a table, a TOAST table) with a heap finding: what `heapallindexed` reads, by heap oid. */
+  /** Heaps (a table, a TOAST table) with a heap finding, by heap oid; a TOAST heap also names its owner. */
   readonly #damagedHeaps = new Set<string>();
   /**
    * Indexes that ran to a verdict; the bm25 write is only safe when every other written index did.
@@ -782,8 +782,10 @@ class DiagnosisRun {
       this.#tablesWithFindings.add(relation.tableOid);
     }
     if (check === 'heap' && relation.kind !== 'S') {
-      // heapallindexed reads a table or a TOAST table, never a sequence.
+      // heapallindexed reads a table or a TOAST table, never a sequence. It also detoasts, so a TOAST
+      // heap gates its owner's indexes too (tableOid is the owner; for a plain table it is the oid).
       this.#damagedHeaps.add(relation.oid);
+      this.#damagedHeaps.add(relation.tableOid);
     }
     this.findings.push({
       accessMethod: relation.accessMethod,

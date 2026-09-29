@@ -26,6 +26,9 @@ import {
   registerDiagnosisFixture,
   statementWalksIndex,
   TOAST_KEY,
+  TOAST_OWNER,
+  TOAST_OWNER_INDEXES,
+  TOAST_OWNER_KEY,
   untouched,
   withDatabase,
 } from './helpers/diagnosis-fixture.js';
@@ -69,6 +72,110 @@ describe('damage that reaches past the relation being checked', () => {
         expect(diagnosis.checkedRelations + diagnosis.unchecked.length).toBeGreaterThan(500);
       }
     );
+  });
+
+  describe('a table whose values live in its TOAST table', () => {
+    const toastIndexOf = async (db: PGlite): Promise<{ oid: string; relation: string }> => {
+      const { rows } = await db.query<{ oid: string; relation: string }>(
+        `SELECT i.indexrelid::text AS oid, c.relname::text AS relation FROM pg_index i
+           JOIN pg_class c ON c.oid = i.indexrelid
+          WHERE i.indrelid = (SELECT reltoastrelid FROM pg_class WHERE oid = '${TOAST_OWNER}'::regclass)`
+      );
+      const [toastIndex] = rows;
+      if (!toastIndex) {
+        throw new Error(`${TOAST_OWNER} has no TOAST index`);
+      }
+      return toastIndex;
+    };
+
+    // bt_index_check(heapallindexed) re-forms every index entry from the heap, and index_form_tuple
+    // detoasts: a damaged TOAST heap is read through the owner's indexes, even the one on md5(body).
+    const expectOwnerIndexesGated = (diagnosis: Awaited<ReturnType<typeof diagnose>>): void => {
+      for (const index of TOAST_OWNER_INDEXES) {
+        expect(diagnosis.unchecked, index).toContainEqual(
+          expect.objectContaining({ reason: 'table-has-findings', relation: index })
+        );
+        expect(diagnosis.findings.map(({ relation }) => relation)).not.toContain(index);
+      }
+    };
+
+    it('blames no index of the owner for damage in the TOAST bytes', async () => {
+      await withDatabase(
+        (dir, files) => overwriteBytes(dir, files[TOAST_OWNER_KEY], 0, PAGE),
+        async (db) => {
+          const diagnosis = await diagnose(db);
+          expectOwnerIndexesGated(diagnosis);
+          // The owner's own check_toast reads the damaged page too: one finding on the TOAST table, one on the owner.
+          expect(
+            diagnosis.findings
+              .filter(({ check, table }) => check === 'heap' && table === TOAST_OWNER)
+              .map(({ relation }) => relation.startsWith('pg_toast_'))
+              .sort()
+          ).toEqual([false, true]);
+        }
+      );
+    });
+
+    it('gates the owner’s indexes when only the TOAST relation reports a heap problem', async () => {
+      await withDatabase(untouched, async (db) => {
+        const { rows } = await db.query<{ oid: string }>(
+          `SELECT reltoastrelid::text AS oid FROM pg_class WHERE oid = '${TOAST_OWNER}'::regclass`
+        );
+        const toastOid = rows[0]?.oid;
+        const { handle, statements } = recording(db);
+        // The engine answers for the TOAST relation only: the owner's own check passes.
+        const answered: CrashSensitiveIndexDb = {
+          exec: handle.exec,
+          query: async (sql, params) =>
+            sql.includes('verify_heapam') && String(params?.[0]) === toastOid
+              ? { rows: [{ blkno: '0', msg: 'damaged', offnum: 1 }] as never[] }
+              : handle.query(sql, params),
+        };
+        const diagnosis = await diagnose(answered);
+        expect(diagnosis.findings.filter(({ check }) => check === 'heap')).toEqual([
+          expect.objectContaining({
+            relation: expect.stringMatching(/^pg_toast_/u),
+            table: TOAST_OWNER,
+          }),
+        ]);
+        expectOwnerIndexesGated(diagnosis);
+        // Neither owner index ran the heap-reading check.
+        const checked = statements
+          .filter(({ sql }) => sql.includes('bt_index_check'))
+          .map(({ params }) => String(params?.[0]));
+        const owned = await db.query<{ oid: string }>(
+          `SELECT indexrelid::text AS oid FROM pg_index WHERE indrelid = '${TOAST_OWNER}'::regclass`
+        );
+        for (const { oid } of owned.rows) {
+          expect(checked).not.toContain(oid);
+        }
+      });
+    });
+
+    it('still checks the TOAST table’s own index when the main heap is damaged', async () => {
+      await withDatabase(
+        (dir, files) => overwriteBytes(dir, files[TOAST_OWNER], 0, PAGE),
+        async (db) => {
+          const toastIndex = await toastIndexOf(db);
+          const { handle, statements } = recording(db);
+          const diagnosis = await diagnose(handle);
+          expectOwnerIndexesGated(diagnosis);
+          // heapallindexed on the TOAST index reads the TOAST heap, which is fine: it is checked and clean.
+          expect(diagnosis.unchecked.map(({ relation }) => relation)).not.toContain(
+            toastIndex.relation
+          );
+          expect(diagnosis.findings.map(({ relation }) => relation)).not.toContain(
+            toastIndex.relation
+          );
+          expect(
+            statements.some(
+              ({ params, sql }) =>
+                sql.includes('bt_index_check') && String(params?.[0]) === toastIndex.oid
+            )
+          ).toBe(true);
+        }
+      );
+    });
   });
 
   it('still names a damaged index on a table whose heap is fine', async () => {
