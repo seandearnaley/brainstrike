@@ -532,12 +532,8 @@ class DiagnosisRun {
     }
     // The definition is a catalog read: its own step, outside the attempt, so a failure stops the
     // run instead of becoming a finding on this user index.
-    const [definition] = indexDefinitionRows(
-      (
-        await orStop('catalog', 'Reading an index definition failed', () =>
-          this.#db.query(INDEX_DEFINITION_SQL, [index.oid])
-        )
-      ).rows
+    const [definition] = await orStop('catalog', 'Reading an index definition failed', async () =>
+      indexDefinitionRows((await this.#db.query(INDEX_DEFINITION_SQL, [index.oid])).rows)
     );
     if (definition?.keyColumns !== 1) {
       this.#skip(index, 'unsupported-index-definition');
@@ -560,19 +556,23 @@ class DiagnosisRun {
 
   /** Whether `search`, planned inside the open probe transaction, walks `index` itself. */
   async #walksIndex(index: RelationRow, search: string, params?: unknown[]): Promise<boolean> {
+    let rows: readonly unknown[];
     try {
-      const [row] = planRows(
-        (await this.#db.query(`EXPLAIN (FORMAT JSON) ${search}`, params)).rows
-      );
-      return planWalksIndex(row?.['QUERY PLAN'][0]?.Plan, index.relation);
+      rows = (await this.#db.query(`EXPLAIN (FORMAT JSON) ${search}`, params)).rows;
     } catch (error) {
       // pg_textsearch refuses a plan that reads another index than the query names (42809), which
       // is what an identical second bm25 index causes: the named index was not walked.
       if (sqlstateOf(error) === '42809') {
         return false;
       }
+      // Any other failure of the planning query is the index's (its cost estimate can read it).
       throw error;
     }
+    // A plan in a shape the decoder does not read is the engine speaking, not damage to this index.
+    const [row] = await orStop('catalog', 'Decoding a probe plan failed', async () =>
+      planRows(rows)
+    );
+    return planWalksIndex(row?.['QUERY PLAN'][0]?.Plan, index.relation);
   }
 
   /** Every other index on the table that a write reaches and no check verified. */
@@ -840,8 +840,8 @@ export async function diagnoseDatabaseIntegrity(
   const run = new DiagnosisRun(
     db,
     options.classify,
-    relationRows(
-      (await orStop('catalog', 'Listing the relations failed', () => db.query(RELATIONS_SQL))).rows
+    await orStop('catalog', 'Listing the relations failed', async () =>
+      relationRows((await db.query(RELATIONS_SQL)).rows)
     )
   );
   // Heaps first: every later check is gated on its table having no finding yet.
@@ -865,14 +865,14 @@ export async function diagnoseDatabaseIntegrity(
 }
 
 async function assertAmcheckInstalled(db: CrashSensitiveIndexDb): Promise<void> {
-  const [installed] = flagRows(
-    (
-      await orStop('catalog', 'Reading the installed extensions failed', () =>
-        db.query(
+  const [installed] = await orStop('catalog', 'Reading the installed extensions failed', async () =>
+    flagRows(
+      (
+        await db.query(
           `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'amcheck') AS "present"`
         )
-      )
-    ).rows
+      ).rows
+    )
   );
   if (!installed?.present) {
     throw new Error(
