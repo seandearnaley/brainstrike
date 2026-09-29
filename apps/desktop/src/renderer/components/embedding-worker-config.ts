@@ -542,23 +542,35 @@ export function composeClaimPermit(
  */
 export function composeIntegrityHold(
   base: BackgroundPermit,
-  watcher: DatabaseIntegrityWatcher,
+  watcher: Pick<DatabaseIntegrityWatcher, 'current' | 'waitUntilBackgroundAdmitted'>,
   log: (message: string, meta?: unknown) => void
 ): BackgroundPermit {
   let warnedRevision: number | null = null;
-  return async (permitOptions) => {
+  const parkWhileContained = async (): Promise<void> => {
     const snapshot = await watcher.current();
-    if (!isBackgroundDatabaseWorkAdmitted(snapshot.state)) {
-      if (warnedRevision !== snapshot.revision) {
-        warnedRevision = snapshot.revision;
-        log('Embedding claims paused: database integrity containment is active', {
-          revision: snapshot.revision,
-          state: snapshot.state,
-        });
-      }
-      await watcher.waitUntilBackgroundAdmitted();
+    if (isBackgroundDatabaseWorkAdmitted(snapshot.state)) {
+      return;
     }
-    await base(permitOptions);
+    if (warnedRevision !== snapshot.revision) {
+      warnedRevision = snapshot.revision;
+      log('Embedding claims paused: database integrity containment is active', {
+        revision: snapshot.revision,
+        state: snapshot.state,
+      });
+    }
+    await watcher.waitUntilBackgroundAdmitted();
+  };
+  return async (permitOptions) => {
+    // `base` can wait a long time on pressure or the foreground gate, and
+    // containment may begin meanwhile: re-check after it, and run every gate
+    // again once admitted, so a claim is released only while admitted.
+    for (;;) {
+      await parkWhileContained();
+      await base(permitOptions);
+      if (isBackgroundDatabaseWorkAdmitted((await watcher.current()).state)) {
+        return;
+      }
+    }
   };
 }
 
