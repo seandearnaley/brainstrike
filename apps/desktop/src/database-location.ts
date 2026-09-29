@@ -70,6 +70,12 @@ const WORKTREE_PROFILE_HASH_LENGTH = 8;
 const WORKTREE_PROFILE_BRANCH_MAX = 40;
 
 const PROFILE_SEGMENT_MAX_LENGTH = 64;
+const PROFILES_DIRECTORY_NAME = 'profiles';
+
+/** `<root>/profiles/<profile>`: the one layout main and the DB host both derive from a location. */
+export function joinProfileDirectory(rootPath: string, profile: string): string {
+  return path.join(rootPath, PROFILES_DIRECTORY_NAME, profile);
+}
 const FALLBACK_PROFILE_SEGMENT = 'default';
 
 /**

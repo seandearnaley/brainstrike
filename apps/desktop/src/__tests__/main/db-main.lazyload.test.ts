@@ -45,6 +45,7 @@ vi.mock('node:fs', () => ({
   default: {
     closeSync: closeSyncMock,
     existsSync: existsSyncMock,
+    fsyncSync: vi.fn(),
     lstatSync: lstatSyncMock,
     mkdirSync: mkdirSyncMock,
     openSync: openSyncMock,
@@ -54,6 +55,7 @@ vi.mock('node:fs', () => ({
     writeFileSync: writeFileSyncMock,
   },
   existsSync: existsSyncMock,
+  fsyncSync: vi.fn(),
   lstatSync: lstatSyncMock,
   mkdirSync: mkdirSyncMock,
   openSync: openSyncMock,

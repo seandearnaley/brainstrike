@@ -17,10 +17,15 @@ export class DbHostProcess {
   readonly exited: Promise<number>;
   readonly handle: UtilityProcess;
   #exitCode: number | undefined;
+  #pid: number | undefined;
 
   constructor(handle: UtilityProcess) {
     this.handle = handle;
     let resolveExit: (code: number) => void = () => undefined;
+    this.#pid = handle.pid;
+    handle.once('spawn', () => {
+      this.#pid = handle.pid;
+    });
     this.exited = new Promise<number>((resolve) => {
       resolveExit = resolve;
     });
@@ -35,6 +40,12 @@ export class DbHostProcess {
   /** `undefined` until the process has exited. */
   get exitCode(): number | undefined {
     return this.#exitCode;
+  }
+
+  /** The pid, remembered while the process is alive: Electron clears `handle.pid` at exit. */
+  get pid(): number | undefined {
+    this.#pid = this.handle.pid ?? this.#pid;
+    return this.#pid;
   }
 
   /**
@@ -161,8 +172,9 @@ async function stopAfterAcknowledgedClose(host: DbHostProcess): Promise<void> {
 }
 
 /**
- * The host exited without acknowledging the close. The exit code is NEVER proof the database
- * closed: Electron reports 0 when `kill()` (SIGTERM) ends a host that has no signal handler.
+ * The host exited without acknowledging the close and no clean-shutdown marker proved it.
+ * The exit code is NEVER proof the database closed: Electron reports 0 when `kill()`
+ * (SIGTERM) ends a host that has no signal handler.
  */
 function unconfirmedExit(code: number | undefined, when: string): DbHostCloseError {
   return new DbHostCloseError(
@@ -172,15 +184,25 @@ function unconfirmedExit(code: number | undefined, when: string): DbHostCloseErr
   );
 }
 
-async function stopAfterAckTimeout(host: DbHostProcess, ackTimeoutMs: number): Promise<void> {
+async function stopAfterAckTimeout(
+  host: DbHostProcess,
+  ackTimeoutMs: number,
+  provedClean: () => boolean
+): Promise<void> {
   logger.warn('DB host close acknowledgement timed out; asking the host to close now', {
     timeoutMs: ackTimeoutMs,
   });
   host.handle.kill();
   if (await host.waitForExit(DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS)) {
+    if (provedClean()) {
+      return;
+    }
     throw unconfirmedExit(host.exitCode, 'after its close acknowledgement timed out');
   }
   const exited = await forceKillAndAwaitExit(host, { reason: 'close-ack-timeout' });
+  if (exited && provedClean()) {
+    return;
+  }
   throw new DbHostCloseError(
     exited ? 'killed' : 'exit-timeout',
     `DB host did not close within ${ackTimeoutMs}ms and ${exited ? 'was killed with SIGKILL' : 'did not exit after SIGTERM and SIGKILL'}; the database was not confirmed closed.`,
@@ -195,8 +217,9 @@ async function stopAfterAckTimeout(host: DbHostProcess, ackTimeoutMs: number): P
  * else throws `DbHostCloseError`.
  *
  * - acknowledged: SIGTERM; any exit code is clean (the database is closed).
- * - exit before acknowledgement: unclean, whatever the exit code.
- * - acknowledgement timeout: SIGTERM, then unclean whatever the exit code; SIGKILL if it lingers.
+ * - exit before acknowledgement, or after the acknowledgement timed out (SIGTERM, then SIGKILL
+ *   if it lingers): clean only when `confirmCleanExit(pid)` proves it, i.e. the clean-shutdown
+ *   marker names this host's pid. The exit code is never proof.
  * - acknowledgement error (the close failed): SIGKILL.
  */
 export async function closeDbHostProcess(
@@ -204,9 +227,23 @@ export async function closeDbHostProcess(
   options: {
     readonly ackTimeoutMs: number;
     readonly acknowledge: () => Promise<unknown>;
+    /** After the host has exited: did it leave proof (its pid in the marker) that it closed cleanly? */
+    readonly confirmCleanExit: (pid: number | undefined) => boolean;
     readonly detach: () => void;
   }
 ): Promise<void> {
+  const hostPid = host.pid;
+  const provedClean = (): boolean => {
+    try {
+      return options.confirmCleanExit(hostPid);
+    } catch (error) {
+      logger.error(
+        { err: error, pid: hostPid },
+        'Could not read the clean-shutdown marker; treating the close as unproven'
+      );
+      return false;
+    }
+  };
   const attempt = await awaitCloseAttempt(host, options.acknowledge, options.ackTimeoutMs);
   options.detach();
   if (attempt.kind === 'acked') {
@@ -214,10 +251,13 @@ export async function closeDbHostProcess(
     return;
   }
   if (attempt.kind === 'ack-timeout') {
-    await stopAfterAckTimeout(host, options.ackTimeoutMs);
+    await stopAfterAckTimeout(host, options.ackTimeoutMs, provedClean);
     return;
   }
   if (attempt.kind === 'exited') {
+    if (provedClean()) {
+      return;
+    }
     throw unconfirmedExit(attempt.code, 'before it acknowledged the close');
   }
   const exited = await forceKillAndAwaitExit(host, { reason: 'close-failed' });
