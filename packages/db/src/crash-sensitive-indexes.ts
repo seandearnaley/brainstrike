@@ -18,8 +18,6 @@
 /** Index access methods whose on-disk state is NOT restored by WAL crash recovery. */
 export const CRASH_SENSITIVE_INDEX_ACCESS_METHODS = ['bm25'] as const;
 
-const APPLICATION_SCHEMA = 'public';
-
 /**
  * The narrowest handle the rebuild needs. A raw `PGlite` satisfies it as-is
  * (PGlite's `exec` accepts an optional options bag we never pass).
@@ -35,6 +33,7 @@ export interface CrashSensitiveIndexDb {
 export interface CrashSensitiveIndex {
   readonly accessMethod: string;
   readonly index: string;
+  readonly schema: string;
   readonly table: string;
 }
 
@@ -66,21 +65,26 @@ function quoteIdentifier(identifier: string): string {
 /**
  * Derived from the catalog, never a hardcoded index-name list, so a new index
  * on a crash-sensitive access method is covered the moment a migration creates
- * it. Ordered by name so a rebuild pass is deterministic.
+ * it. Every user schema is included: filtering to one schema would silently
+ * skip an index created elsewhere. Ordered by schema then name so a rebuild
+ * pass is deterministic.
  */
 export async function listCrashSensitiveIndexes(
   db: CrashSensitiveIndexDb
 ): Promise<readonly CrashSensitiveIndex[]> {
   const result = await db.query<CrashSensitiveIndex>(
-    `SELECT c.relname::text AS "index", t.relname::text AS "table", am.amname::text AS "accessMethod"
+    `SELECT n.nspname::text AS "schema", c.relname::text AS "index", t.relname::text AS "table",
+            am.amname::text AS "accessMethod"
      FROM pg_index i
      JOIN pg_class c ON c.oid = i.indexrelid
      JOIN pg_class t ON t.oid = i.indrelid
      JOIN pg_am am ON am.oid = c.relam
      JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE am.amname = ANY($1::text[]) AND n.nspname = $2
-     ORDER BY c.relname`,
-    [[...CRASH_SENSITIVE_INDEX_ACCESS_METHODS], APPLICATION_SCHEMA]
+     WHERE am.amname = ANY($1::text[])
+       AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+       AND n.nspname NOT LIKE 'pg\\_toast%'
+     ORDER BY n.nspname, c.relname`,
+    [[...CRASH_SENSITIVE_INDEX_ACCESS_METHODS]]
   );
   return result.rows;
 }
@@ -100,7 +104,7 @@ export async function rebuildCrashSensitiveIndexes(
     const started = clock();
     try {
       await db.exec(
-        `REINDEX INDEX ${quoteIdentifier(APPLICATION_SCHEMA)}.${quoteIdentifier(entry.index)}`
+        `REINDEX INDEX ${quoteIdentifier(entry.schema)}.${quoteIdentifier(entry.index)}`
       );
     } catch (error) {
       throw new CrashSensitiveIndexRebuildError(entry.index, error);

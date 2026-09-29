@@ -108,7 +108,12 @@ describe('crash-sensitive index rebuild (real migrated database)', () => {
     expect(indexCount.rows[0]?.count).toBeGreaterThan(20);
 
     await expect(listCrashSensitiveIndexes(db)).resolves.toEqual([
-      { accessMethod: 'bm25', index: PRODUCTION_BM25_INDEX, table: 'file_chunks' },
+      {
+        accessMethod: 'bm25',
+        index: PRODUCTION_BM25_INDEX,
+        schema: 'public',
+        table: 'file_chunks',
+      },
     ]);
   });
 
@@ -128,15 +133,13 @@ describe('crash-sensitive index rebuild (real migrated database)', () => {
       expect(result.rebuilt[0]).toMatchObject({
         accessMethod: 'bm25',
         index: PRODUCTION_BM25_INDEX,
+        schema: 'public',
         table: 'file_chunks',
       });
       expect(result.rebuilt[0]?.durationMs).toBeGreaterThanOrEqual(0);
       expect(result.totalDurationMs).toBeGreaterThanOrEqual(result.rebuilt[0]?.durationMs ?? 0);
       // The rebuilt index still serves ranked queries over the full table.
       expect(await topBm25Hit(db, PRODUCTION_BM25_INDEX)).toBe('chunk-42');
-      console.info(
-        `[BST-1871] REINDEX ${PRODUCTION_BM25_INDEX} on ${FIXTURE_ROWS} rows: ${result.rebuilt[0]?.durationMs.toFixed(1)} ms`
-      );
     },
     FIXTURE_TIMEOUT_MS
   );
@@ -168,6 +171,33 @@ describe('crash-sensitive index rebuild (real migrated database)', () => {
     // reads bracket each REINDEX, and the total spans the whole pass.
     expect(result.rebuilt.map((entry) => entry.durationMs)).toEqual([10, 10]);
     expect(result.totalDurationMs).toBe(50);
+  });
+
+  it('includes crash-sensitive indexes outside the public schema and reindexes them schema-qualified', async () => {
+    await db.exec(`
+      CREATE SCHEMA extra;
+      CREATE TABLE extra.notes (id text PRIMARY KEY, content text NOT NULL);
+      INSERT INTO extra.notes VALUES ('n1', 'quaternion rotation'), ('n2', 'pipeline stage');
+      CREATE INDEX notes_bm25 ON extra.notes USING bm25 (content) WITH (text_config='english');
+    `);
+    const relfilenode = async (): Promise<number> => {
+      const result = await db.query<{ relfilenode: number }>(
+        `SELECT 'extra.notes_bm25'::regclass::oid AS oid, c.relfilenode::int AS relfilenode
+         FROM pg_class c WHERE c.oid = 'extra.notes_bm25'::regclass`
+      );
+      return result.rows[0]?.relfilenode ?? -1;
+    };
+    const before = await relfilenode();
+
+    const listed = await listCrashSensitiveIndexes(db);
+    expect(listed.map((entry) => `${entry.schema}.${entry.index}`)).toEqual([
+      'extra.notes_bm25',
+      `public.${PRODUCTION_BM25_INDEX}`,
+    ]);
+
+    const result = await rebuildCrashSensitiveIndexes(db);
+    expect(result.rebuilt.map((entry) => entry.schema)).toEqual(['extra', 'public']);
+    expect(await relfilenode()).not.toBe(before);
   });
 
   it('returns an empty result and issues no REINDEX when nothing is crash-sensitive', async () => {
