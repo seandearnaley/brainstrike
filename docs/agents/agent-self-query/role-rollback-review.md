@@ -19,8 +19,9 @@ the full PGlite extension set. Its populated fixture verifies:
 - An unexpected grant in another schema blocks DROP ROLE. The transaction
   restores the preceding revokes and retains the numbered ledger entry. After
   removing only that fixture dependency, rollback succeeds.
-- Executing the original SQL twice exercises its role-existence guard rather
-  than merely testing the runner's already-unapplied skip.
+- Executing down SQL a second time exercises its IF EXISTS guard rather than
+  merely testing the runner's already-unapplied skip. Existing tests cover up's
+  already-present role guard separately.
 
 Negative control: temporarily omit the down SQL's default-privilege cleanup.
 The successful-rollback case fails because PostgreSQL refuses to drop a role
@@ -29,3 +30,7 @@ This is mutation evidence for a semantic audit, not a production bug fix.
 
 Disposition: the guarded DROP ROLE is correctly scoped for isolated schema
 tests. No forward correction or historical migration edit is warranted.
+
+Reapplication restores migration 074's grants only. It is not a claim that
+rolling back out of order preserves grants changed by later migrations; the
+current numbered chain has no later role-specific grant changes.

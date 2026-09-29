@@ -118,7 +118,7 @@ Guard: `packages/db/__tests__/agent-sql-service.test.ts`.
   may evaluate `has_table_privilege()` before the schema filter.
 
 Evidence: `agent-self-query/role-grant-coverage.md`, `agent-self-query/role-rollback-review.md`.
-Guard: `packages/db/__tests__/migration-074-agent-readonly-role.test.ts`, `migration-074-rollback.integration.test.ts`.
+Guard: `packages/db/__tests__/migration-074-agent-readonly-role.test.ts`, `packages/db/__tests__/migration-074-rollback.integration.test.ts`.
 
 ## Error posture (deliberately unlike the sibling tools)
 

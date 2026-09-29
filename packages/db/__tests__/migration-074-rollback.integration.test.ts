@@ -32,16 +32,21 @@ describe('migration 074 rollback semantics', () => {
     expect(result.rows).toEqual([{ content: 'retain this user content', id: 1 }]);
   }
 
-  async function expectFunctionRevocations(): Promise<void> {
-    const result = await db.query<{ allowed: boolean; function: string }>(`
+  async function expectFunctionRevocations(
+    role: 'brainstrike_agent_readonly' | 'rollback_plain_role' = 'rollback_plain_role'
+  ): Promise<void> {
+    const result = await db.query<{ allowed: boolean; function: string }>(
+      `
       SELECT signature AS function,
-             has_function_privilege('rollback_plain_role', signature, 'EXECUTE') AS allowed
+             has_function_privilege($1, signature, 'EXECUTE') AS allowed
         FROM unnest(ARRAY[
           'pg_sleep(double precision)', 'pg_sleep_for(interval)',
           'pg_sleep_until(timestamp with time zone)', 'set_config(text,text,boolean)'
         ]) AS signature
        ORDER BY signature
-    `);
+    `,
+      [role]
+    );
     expect(result.rows).toHaveLength(4);
     expect(result.rows.every((row) => !row.allowed)).toBe(true);
   }
@@ -84,6 +89,7 @@ describe('migration 074 rollback semantics', () => {
     ]);
     await expectUserData();
     await expectFunctionRevocations();
+    await expectFunctionRevocations('brainstrike_agent_readonly');
     await db.exec("INSERT INTO rollback_user_data VALUES (2, 'postgres still writes')");
   });
 
