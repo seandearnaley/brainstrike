@@ -105,10 +105,12 @@ async function openManager(options: { readonly requestTimeoutMs?: number } = {})
 
 describe('DbHostManager close ladder', () => {
   const originalDbRootPath = process.env['BRAINSTRIKE_DB_ROOT_PATH'];
+  const originalDbProfile = process.env['BRAINSTRIKE_DB_PROFILE'];
   let appDataDir: string;
   let killSpy: MockInstance<typeof process.kill>;
 
-  // The profile directory the manager reads the clean-shutdown marker from (db-main's app data path).
+  // The profile directory the manager reads the clean-shutdown marker from
+  // (resolveDesktopDatabaseProfileDirectory(), from the location main hands the host).
   const seedMarker = async (contents: { readonly pid: number }): Promise<void> => {
     const { writeCleanShutdownMarker } = await import('../../db-clean-shutdown-marker');
     writeCleanShutdownMarker(appDataDir, { closedAt: '2026-09-29T00:00:00.000Z', ...contents });
@@ -125,6 +127,8 @@ describe('DbHostManager close ladder', () => {
     appDataDir = path.join(rootPath, 'profiles', 'test');
     mkdirSync(appDataDir, { recursive: true });
     process.env['BRAINSTRIKE_DB_ROOT_PATH'] = rootPath;
+    // Explicit, so an exported developer profile cannot point the marker lookup elsewhere.
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
     vi.resetModules();
     vi.useFakeTimers();
     forkMock.mockReset().mockImplementation(() => new FakeUtilityProcess());
@@ -141,6 +145,11 @@ describe('DbHostManager close ladder', () => {
       Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
     } else {
       process.env['BRAINSTRIKE_DB_ROOT_PATH'] = originalDbRootPath;
+    }
+    if (originalDbProfile === undefined) {
+      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_PROFILE');
+    } else {
+      process.env['BRAINSTRIKE_DB_PROFILE'] = originalDbProfile;
     }
   });
 

@@ -114,7 +114,7 @@ exit after SIGKILL 0.5 s):
 The rule: a close is clean iff the host acknowledged it, or, after exit, the clean-shutdown
 marker `<profile>/.db-clean-shutdown` exists and its `pid` equals the exited host's pid
 (remembered while the process was alive: Electron clears `pid` at exit; the path is
-db-main's `getAppDataPath()`, the one main already uses). The exit code is never proof. An
+`joinProfileDirectory()`, which main reaches through `resolveDesktopDatabaseProfileDirectory()` and the host through its `getAppDataPath()`). The exit code is never proof. An
 unreadable marker is logged at error and counts as no proof. Measured with the repo's Electron 44.4.5 on macOS (`utilityProcess.fork` of a
 trivial child; 2026-09-29):
 
