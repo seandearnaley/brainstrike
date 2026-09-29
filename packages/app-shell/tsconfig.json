@@ -212,6 +212,9 @@
     },
     {
       "path": "../tokenization"
+    },
+    {
+      "path": "../hooks"
     }
   ]
 }

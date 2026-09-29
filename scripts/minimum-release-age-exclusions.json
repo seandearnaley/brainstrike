@@ -1,1 +1,22 @@
-{}
+{
+  "app-builder-lib@26.17.0": {
+    "publishedAt": "2026-09-26T09:53:40.572Z",
+    "reason": "PR 3337 packaged Mastra 1.71 startup failed because electron-builder 26.15.3 omits deduped pnpm transitive dependencies. Official stable v26 release 26.17.0 includes upstream #10207; npm repository and provenance match electron-userland/electron-builder. Remove after 2026-09-27 09:54 UTC when the unchanged 1440-minute floor admits this release."
+  },
+  "dmg-builder@26.17.0": {
+    "publishedAt": "2026-09-26T09:53:43.993Z",
+    "reason": "PR 3337 packaged Mastra 1.71 startup failed because electron-builder 26.15.3 omits deduped pnpm transitive dependencies. Official stable v26 release 26.17.0 includes upstream #10207; npm repository and provenance match electron-userland/electron-builder. Remove after 2026-09-27 09:54 UTC when the unchanged 1440-minute floor admits this release."
+  },
+  "electron-builder@26.17.0": {
+    "publishedAt": "2026-09-26T09:53:06.506Z",
+    "reason": "PR 3337 packaged Mastra 1.71 startup failed because electron-builder 26.15.3 omits deduped pnpm transitive dependencies. Official stable v26 release 26.17.0 includes upstream #10207; npm repository and provenance match electron-userland/electron-builder. Remove after 2026-09-27 09:54 UTC when the unchanged 1440-minute floor admits this release."
+  },
+  "electron-builder-squirrel-windows@26.17.0": {
+    "publishedAt": "2026-09-26T09:53:50.944Z",
+    "reason": "PR 3337 packaged Mastra 1.71 startup failed because electron-builder 26.15.3 omits deduped pnpm transitive dependencies. Official stable v26 release 26.17.0 includes upstream #10207; npm repository and provenance match electron-userland/electron-builder. Remove after 2026-09-27 09:54 UTC when the unchanged 1440-minute floor admits this release."
+  },
+  "effect@4.0.0-rc.118": {
+    "publishedAt": "2026-09-28T02:08:42.505Z",
+    "reason": "BST-1851 qualifies the exact Effect 4 rc118 release for adopted resource ownership: rc117 regression tests prove interrupted Scope.close abandons owned cleanup and synchronous onExit callback throws replace primary failures. Upstream #8512 and #8418/#8427 fix these failures. Remove once the unchanged 1440-minute floor admits this release after 2026-09-29 02:09 UTC."
+  }
+}

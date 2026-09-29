@@ -22,12 +22,13 @@ const logger = createLogger('MastraAgent');
 
 /** Yield the queued child-usage chunks for this leg's delegation capture, if any. */
 export function* drainDelegationUsageChunks(
-  capture: DelegationUsageCapture | undefined
+  capture: DelegationUsageCapture | undefined,
+  part?: unknown
 ): Generator<StreamChunk> {
   if (!capture) {
     return;
   }
-  yield* capture.drain();
+  yield* capture.drain(part);
 }
 
 /** Post-loop chunks when a stream ends WITHOUT a finish event (not aborted). */

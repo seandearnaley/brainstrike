@@ -1,7 +1,14 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const sweepIgnoredDirectories = new Set(['.claude', '.git', '.turbo', 'dist', 'node_modules']);
+const sweepIgnoredDirectories = new Set([
+  '.claude',
+  '.git',
+  '.stryker-tmp',
+  '.turbo',
+  'dist',
+  'node_modules',
+]);
 
 export function packageScriptEntries() {
   return findPackageJsonFiles(process.cwd()).flatMap((packageJsonPath) => {

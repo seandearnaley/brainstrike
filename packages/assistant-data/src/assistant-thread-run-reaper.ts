@@ -46,8 +46,8 @@ export async function reapOrphanedAssistantThreadRuns(
   const reapBefore = new Date(bootedAt.getTime() - REAP_CLOCK_SKEW_MARGIN_MS);
   const result = await db.query<{ id: string; threadId: string }>(
     `UPDATE ${RUNS_TABLE}
-     SET status = 'failed', error = $2, completed_at = $3, updated_at = $3
-     WHERE status = 'running' AND started_at < $1::timestamptz
+     SET status = CASE WHEN status = 'cancelling' THEN 'cancelled' ELSE 'failed' END, error = $2, completed_at = $3, updated_at = $3
+     WHERE status IN ('running', 'cancelling') AND started_at < $1::timestamptz
      RETURNING id, thread_id AS "threadId"`,
     [reapBefore, ORPHANED_THREAD_RUN_ERROR, completedAt]
   );

@@ -1,5 +1,5 @@
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
-import { bench, describe } from 'vitest';
+import { describe, test } from 'vitest';
 import {
   createLogSearchHaystackCache,
   getCachedLogSearchHaystack,
@@ -58,28 +58,32 @@ function assertExpectedHits(hits: number): void {
 }
 
 describe('incremental Log Viewer search over 2,000 retained records', () => {
-  bench('rebuilds the lowercase haystack for every term', () => {
-    let hits = 0;
-    for (const term of SEARCH_TERMS) {
-      for (const row of rows) {
-        if (buildLogSearchHaystack(row).includes(term)) {
-          hits += 1;
+  test('rebuilds the lowercase haystack for every term', async ({ bench }) => {
+    await bench('rebuilds the lowercase haystack for every term', () => {
+      let hits = 0;
+      for (const term of SEARCH_TERMS) {
+        for (const row of rows) {
+          if (buildLogSearchHaystack(row).includes(term)) {
+            hits += 1;
+          }
         }
       }
-    }
-    assertExpectedHits(hits);
+      assertExpectedHits(hits);
+    }).run();
   });
 
-  bench('caches lowercase haystacks within the viewer budget', () => {
-    const cache = createLogSearchHaystackCache();
-    let hits = 0;
-    for (const term of SEARCH_TERMS) {
-      for (const row of rows) {
-        if (getCachedLogSearchHaystack(row, cache).includes(term)) {
-          hits += 1;
+  test('caches lowercase haystacks within the viewer budget', async ({ bench }) => {
+    await bench('caches lowercase haystacks within the viewer budget', () => {
+      const cache = createLogSearchHaystackCache();
+      let hits = 0;
+      for (const term of SEARCH_TERMS) {
+        for (const row of rows) {
+          if (getCachedLogSearchHaystack(row, cache).includes(term)) {
+            hits += 1;
+          }
         }
       }
-    }
-    assertExpectedHits(hits);
+      assertExpectedHits(hits);
+    }).run();
   });
 });

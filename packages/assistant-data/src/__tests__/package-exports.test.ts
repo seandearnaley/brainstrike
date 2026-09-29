@@ -12,13 +12,19 @@ describe('@brainstrike/assistant-data package contract', () => {
     };
 
     expect(Object.keys(manifest.exports).sort()).toEqual(
-      ['.', './assistant-thread-run-reaper', './cost-tracking'].sort()
+      [
+        '.',
+        './assistant-memory-repository',
+        './assistant-thread-run-reaper',
+        './cost-tracking',
+      ].sort()
     );
   });
 
   it('has source entry points for every code export', () => {
     expect(existsSync(join(packageRoot, 'src/index.ts'))).toBe(true);
     expect(existsSync(join(packageRoot, 'src/assistant-thread-run-reaper.ts'))).toBe(true);
+    expect(existsSync(join(packageRoot, 'src/assistant-memory-repository.ts'))).toBe(true);
     expect(existsSync(join(packageRoot, 'src/cost-tracking/index.ts'))).toBe(true);
   });
 });

@@ -30,8 +30,9 @@ const MAX_LINES = 1000;
 // by splitting workspace-tab-host.tsx into the workspace tabs modules; BST-1650
 // took it 120 -> 119 by moving the provider catalog rows out of
 // provider-registry.ts into provider-catalog.json; BST-1653 took it 119 -> 118
-// by extracting the database runtime and its transports out of db-provider.tsx.)
-const MAX_BASELINE_ENTRIES = 118;
+// by extracting the database runtime and its transports out of db-provider.tsx;
+// BST-1774 took it 118 -> 117 by consolidating duplicate Drizzle search tests.)
+const MAX_BASELINE_ENTRIES = 117;
 
 function isRuleOff(configured) {
   return configured === 'off' || configured?.level === 'off';

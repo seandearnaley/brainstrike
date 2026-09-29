@@ -20,6 +20,10 @@ interface AssistantThreadRunRow {
   readonly id: string;
 }
 
+interface AssistantThreadRunStatusRow {
+  readonly status: string;
+}
+
 interface ExtensionRow {
   readonly extname: string;
 }
@@ -108,6 +112,7 @@ export interface WebE2ETestHooks {
   readonly qualifyLocalEmbedding: (
     deviceHint?: 'wasm' | 'webgpu'
   ) => Promise<WebE2EEmbeddingQualification>;
+  readonly readAssistantThreadRunStatuses: (threadId: string) => Promise<readonly string[]>;
   readonly readAssistantThreads: () => Promise<readonly WebE2EAssistantThreadSnapshot[]>;
   readonly readFileRowCounts: () => Promise<WebE2EFileRowCounts>;
   readonly readModelEnabled: (modelId: string) => Promise<boolean | null>;
@@ -296,6 +301,15 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
         };
       },
       qualifyLocalEmbedding,
+      readAssistantThreadRunStatuses: async (threadId: string): Promise<readonly string[]> => {
+        const result = await db.query<AssistantThreadRunStatusRow>(
+          `SELECT status FROM brainstrike_assistant_thread_runs
+           WHERE thread_id = $1
+           ORDER BY created_at, id`,
+          [threadId]
+        );
+        return result.rows.map((row) => row.status);
+      },
       readAssistantThreads: async (): Promise<readonly WebE2EAssistantThreadSnapshot[]> => {
         const result = await db.query<AssistantThreadRow>(
           'SELECT id, "resourceId", title, metadata FROM mastra_threads ORDER BY "updatedAt" DESC, id DESC'

@@ -10,11 +10,10 @@ import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-r
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type {
   ChunkSearchResult,
-  DrizzleFileChunkRepository,
   DrizzleFileRecordRepository,
-  ElectronFileChunkRepository,
   ElectronFileRecordRepository,
   HybridSearchResult,
+  IFileChunkRepository,
 } from '@brainstrike/db';
 import {
   createHybridSearchService,
@@ -62,7 +61,7 @@ const DEFAULT_FTS_WEIGHT = 1.0;
 const HYBRID_MIN_SOURCE_POOL = DEFAULT_HYBRID_SOURCE_LIMIT;
 
 interface UseSemanticSearchExecutorOptions {
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  chunkRepository: IFileChunkRepository | null;
   fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
 }
 
@@ -273,7 +272,7 @@ async function executeHybridSearch(
   config: SearchConfig,
   embeddingSetId: string,
   filterOptions: RetrievalFilterOptions,
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository,
+  chunkRepository: IFileChunkRepository,
   fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
 ): Promise<SemanticSearchResult[]> {
   logger.info('Using hybrid search (vector + FTS with RRF fusion)', {
@@ -341,7 +340,7 @@ async function executeVectorSearch(
   config: SearchConfig,
   embeddingSetId: string,
   filterOptions: RetrievalFilterOptions,
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository,
+  chunkRepository: IFileChunkRepository,
   fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
 ): Promise<SemanticSearchResult[]> {
   const searchResults = await chunkRepository.searchSimilar(embedding, {

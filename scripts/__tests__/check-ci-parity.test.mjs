@@ -85,9 +85,15 @@ const PROVISIONING_STEPS = new Set([
   'browser-tests › Install dependencies',
   'web-e2e › Require successful admission',
   'web-e2e › Install dependencies',
+  'desktop-e2e-smoke › Require successful admission',
+  'desktop-e2e-smoke › Install Chromium system dependencies',
+  'desktop-e2e-smoke › Provision Electron binary',
+  'desktop-e2e-delegated › Require successful admission',
+  'desktop-e2e-delegated › Install Chromium system dependencies',
+  'desktop-e2e-delegated › Provision Electron binary',
+  // The required Desktop E2E fan-in only reports its smoke lanes' verdicts.
   'desktop-e2e › Require successful admission',
-  'desktop-e2e › Install Chromium system dependencies',
-  'desktop-e2e › Provision Electron binary',
+  'desktop-e2e › Check lane results',
   // Runner plumbing for the packaged OAuth proof: installs the freedesktop
   // Secret Service and URL-opening utilities required by the packaged app on
   // headless Linux. The packaged-lane contract pins the daemon wiring.
@@ -420,6 +426,23 @@ function assertDbTestShardEnvIsScoped(rootConfig, dbConfig) {
   );
 }
 
+function assertAgentTestShardEnvIsScoped(rootConfig, agentConfig) {
+  const shardVariables = ['AGENT_TEST_SHARD', 'AGENT_TEST_SHARD_REQUIRED'];
+  for (const taskName of ['test', 'test:integration']) {
+    for (const variable of shardVariables) {
+      assert.ok(
+        !rootConfig.tasks[taskName].env?.includes(variable),
+        `root turbo ${taskName} must not hash ${variable} for every package in the filter closure`
+      );
+    }
+    assert.deepEqual(
+      agentConfig.tasks[taskName].env,
+      ['$TURBO_EXTENDS$', ...shardVariables],
+      `packages/agent ${taskName} must append the Agent shard identity to the inherited hashed environment`
+    );
+  }
+}
+
 function assertRootTestPhaseParity(rootPackage) {
   const commands = splitShellCommands(rootPackage.scripts.test);
   assert.equal(commands.length, 2, 'root pnpm test must run unit and integration as two phases');
@@ -678,9 +701,14 @@ test('gateInvocations reads the shapes both sides are actually written in', () =
     )
   );
   assert.ok(
-    gateInvocations(ciRunStep('desktop-e2e › Run desktop smoke')).has(
+    gateInvocations(ciRunStep('desktop-e2e-smoke › Run desktop smoke')).has(
       'pnpm-script:test:e2e:lane:smoke'
     )
+  );
+  // `smoke` is a prefix of `smoke-delegated`; the extractor must keep them distinct.
+  assert.deepEqual(
+    [...gateInvocations(ciRunStep('desktop-e2e-delegated › Run desktop delegated smoke'))],
+    ['pnpm-script:test:e2e:lane:smoke-delegated']
   );
   assert.ok(
     gateInvocations(
@@ -701,9 +729,20 @@ test('the install step is frozen, exactly as the CI composite installs', () => {
   assert.equal(typeof compositeInstall?.run, 'string');
   assert.match(
     compositeInstall.run,
-    /(^|\n)\s*pnpm install --frozen-lockfile(\n|$)/,
+    /(^|\n)\s*pnpm install --frozen-lockfile(\s|$)/,
     'the CI composite this mirrors must still install frozen'
   );
+  // BST-1712 wrapped that command in a bounded retry loop, so it is no longer
+  // alone on its line — hence `\s` above rather than `\n`. That loosening would
+  // let an UNFROZEN second invocation hide behind the frozen one, so pin the
+  // flag per invocation instead: a plain `pnpm install` anywhere in this script
+  // would update pnpm-lock.yaml on manifest drift, which is the exact drift
+  // this whole test exists to reject.
+  const unfrozen = compositeInstall.run
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#'))
+    .filter((line) => /\bpnpm install\b/.test(line) && !line.includes('--frozen-lockfile'));
+  assert.deepEqual(unfrozen, [], 'every `pnpm install` in the CI composite must be frozen');
 
   const install = buildPlan(parseFlags([])).find((step) => step.id === 'install');
   assert.ok(install, 'the default plan must install');
@@ -718,6 +757,7 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
     'web-e2e-smoke',
     'product-site-e2e',
     'desktop-e2e-smoke',
+    'desktop-e2e-delegated-smoke',
     'web-e2e-full-regression',
     'desktop-e2e-full-regression',
   ]);
@@ -793,9 +833,13 @@ test('CI workflows, root Vitest scripts, and pnpm check share one hashed timeout
   const dbTurboConfig = parseJsonc(
     readFileSync(path.join(repoRoot, 'packages/db/turbo.json'), 'utf8')
   );
+  const agentTurboConfig = parseJsonc(
+    readFileSync(path.join(repoRoot, 'packages/agent/turbo.json'), 'utf8')
+  );
   assertTimeoutMultiplierIsHashed(turboConfig);
   assertCacheableTestWorkerModeIsHashed(turboConfig);
   assertDbTestShardEnvIsScoped(turboConfig, dbTurboConfig);
+  assertAgentTestShardEnvIsScoped(turboConfig, agentTurboConfig);
 
   for (const taskName of ['test', 'test:browser', 'test:coverage', 'test:coverage:db:shard']) {
     const mutatedTurboConfig = structuredClone(turboConfig);
@@ -837,6 +881,22 @@ test('CI workflows, root Vitest scripts, and pnpm check share one hashed timeout
     () => assertDbTestShardEnvIsScoped(turboConfig, unscopedDbShard),
     /must append DB_TEST_SHARD/,
     'CONTROL: removing the package-local shard hash must turn the guard red'
+  );
+
+  const globallyHashedAgentShard = structuredClone(turboConfig);
+  globallyHashedAgentShard.tasks.test.env.push('AGENT_TEST_SHARD');
+  assert.throws(
+    () => assertAgentTestShardEnvIsScoped(globallyHashedAgentShard, agentTurboConfig),
+    /must not hash AGENT_TEST_SHARD for every package/,
+    'CONTROL: leaking the Agent shard environment into every unit task must turn the guard red'
+  );
+
+  const unscopedAgentShard = structuredClone(agentTurboConfig);
+  unscopedAgentShard.tasks['test:integration'].env = ['$TURBO_EXTENDS$'];
+  assert.throws(
+    () => assertAgentTestShardEnvIsScoped(turboConfig, unscopedAgentShard),
+    /must append the Agent shard identity/,
+    'CONTROL: removing the Agent integration shard hash must turn the guard red'
   );
 
   const mismatchedRootPhases = structuredClone(rootPackage);
@@ -944,8 +1004,8 @@ test('packages/db is tested by a green pnpm check', () => {
     );
   }
 
-  // Unfiltered turbo selection is the union of CI's three logical Unit
-  // partitions (four physical rows because DB uses two native Vitest shards).
+  // Unfiltered turbo selection is the union of CI's five logical Unit
+  // partitions (DB and Agent each use two native Vitest shards).
   assert.match(unit.command, /run-turbo-command\.mjs .*run test\b/);
   assert.doesNotMatch(unit.command, /--filter/);
 });
@@ -1056,7 +1116,12 @@ test('the documented flags stay coherent', () => {
   assert.ok(ids([]).includes('install'));
   assert.ok(!ids(['--no-install']).includes('install'));
 
-  for (const id of ['web-e2e-smoke', 'product-site-e2e', 'desktop-e2e-smoke']) {
+  for (const id of [
+    'web-e2e-smoke',
+    'product-site-e2e',
+    'desktop-e2e-smoke',
+    'desktop-e2e-delegated-smoke',
+  ]) {
     assert.ok(ids([]).includes(id));
     assert.ok(!ids(['--no-e2e']).includes(id));
   }
@@ -1076,7 +1141,13 @@ test('the documented flags stay coherent', () => {
   ]) {
     assert.ok(fast.includes(id), `--fast must keep ${id}`);
   }
-  for (const id of ['browser-tests', 'web-e2e-smoke', 'desktop-e2e-smoke']) {
+  for (const id of [
+    'browser-tests',
+    'web-e2e-smoke',
+    'product-site-e2e',
+    'desktop-e2e-smoke',
+    'desktop-e2e-delegated-smoke',
+  ]) {
     assert.ok(!fast.includes(id), `--fast must drop ${id}`);
   }
 
@@ -1107,7 +1178,8 @@ test('mode flags report every required gate they omit', () => {
     'browser-tests › Run browser tests',
     'web-e2e › Run web smoke',
     'web-e2e › Run product site browser suite',
-    'desktop-e2e › Run desktop smoke',
+    'desktop-e2e-smoke › Run desktop smoke',
+    'desktop-e2e-delegated › Run desktop delegated smoke',
   ]) {
     assert.ok(omittedByFast.has(step), `--fast must disclose that it omits ${step}`);
   }
@@ -1118,7 +1190,8 @@ test('mode flags report every required gate they omit', () => {
   for (const step of [
     'web-e2e › Run web smoke',
     'web-e2e › Run product site browser suite',
-    'desktop-e2e › Run desktop smoke',
+    'desktop-e2e-smoke › Run desktop smoke',
+    'desktop-e2e-delegated › Run desktop delegated smoke',
   ]) {
     assert.ok(omittedByNoE2E.has(step), `--no-e2e must disclose that it omits ${step}`);
   }

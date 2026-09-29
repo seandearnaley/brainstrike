@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
 
 interface ParentPortMock {
   readonly on: (event: 'message', listener: (message: unknown) => void) => ParentPortMock;
@@ -81,8 +82,12 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe('db-host-entry', () => {
+  let restoreProcessOn: () => void;
+
   beforeEach(() => {
     vi.resetModules();
+    // The host entry installs signal handlers on import; they must not pile up on the test runner.
+    restoreProcessOn = captureProcessSignalHandlers().restore;
     dbMainMocks.closeDatabase.mockReset();
     dbMainMocks.getDatabase.mockReset();
     dbMainMocks.getDatabaseDiagnostics.mockReset();
@@ -94,6 +99,7 @@ describe('db-host-entry', () => {
   });
 
   afterEach(() => {
+    restoreProcessOn();
     vi.resetModules();
     restoreParentPort();
   });
@@ -212,6 +218,73 @@ describe('db-host-entry', () => {
         ok: false,
       })
     );
+  });
+
+  it('carries identifier-only Postgres diagnostics across the boundary and never row data or SQL', async () => {
+    const corruption = Object.assign(
+      new Error('index "idx_chunks" contains unexpected zero page'),
+      {
+        code: 'XX002',
+        detail: 'Key (secret)=(user row data) is broken.',
+        file: 'nbtpage.c',
+        hint: 'REINDEX the index',
+        internalQuery: 'SELECT secret FROM brainstrike_chunks',
+        position: '42',
+        routine: '_bt_checkpage',
+        schema: 'public',
+        table: 'brainstrike_chunks',
+        where: 'SQL statement "SELECT secret FROM brainstrike_chunks"',
+      }
+    );
+    dbMainMocks.getDatabase.mockResolvedValue({
+      query: vi.fn(async () => Promise.reject(corruption)),
+    });
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: {
+        id: 'corrupt-query-request',
+        kind: 'request',
+        request: { kind: 'query', params: [], sql: 'SELECT 1' },
+      },
+    });
+    await vi.waitFor(() => {
+      expect(parentPort.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'corrupt-query-request', ok: false })
+      );
+    });
+
+    const posted = parentPort.postMessage.mock.calls.map(
+      ([message]) => message as Record<string, unknown>
+    );
+    const response = posted.find((message) => message['id'] === 'corrupt-query-request');
+    const wireError = response?.['error'] as Record<string, unknown>;
+    expect(wireError).toMatchObject({
+      code: 'XX002',
+      file: 'nbtpage.c',
+      message: 'index "idx_chunks" contains unexpected zero page',
+      routine: '_bt_checkpage',
+      schema: 'public',
+      table: 'brainstrike_chunks',
+    });
+    for (const forbidden of ['detail', 'where', 'hint', 'internalQuery', 'position']) {
+      expect(wireError).not.toHaveProperty(forbidden);
+    }
+
+    const failureLog = posted.find(
+      (message) => message['kind'] === 'log' && message['message'] === 'DB host request failed'
+    );
+    expect(failureLog).toBeDefined();
+    expect((failureLog?.['context'] as { error?: unknown } | undefined)?.error).toEqual({
+      code: 'XX002',
+      file: 'nbtpage.c',
+      message: 'index "idx_chunks" contains unexpected zero page',
+      name: 'Error',
+      routine: '_bt_checkpage',
+      schema: 'public',
+      table: 'brainstrike_chunks',
+    });
   });
 
   it('escapes literal percents for live query params before calling PGlite', async () => {
@@ -555,6 +628,30 @@ describe('db-host-entry', () => {
       );
     }
   );
+
+  it('answers a close that fails with the error, never as closed, so main SIGKILLs the host', async () => {
+    dbMainMocks.closeDatabase.mockRejectedValueOnce(new Error('Database close failed: boom'));
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: { id: 'close-request', kind: 'request', request: { kind: 'close' } },
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(parentPort.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({ message: 'Database close failed: boom' }),
+        id: 'close-request',
+        kind: 'response',
+        ok: false,
+      })
+    );
+    expect(parentPort.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'close-request', ok: true })
+    );
+  });
 
   it('BST-1330: close with no live queries still responds ok (the common drained-shutdown path)', async () => {
     dbMainMocks.getDatabase.mockResolvedValue({

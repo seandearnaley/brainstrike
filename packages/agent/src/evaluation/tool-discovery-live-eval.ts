@@ -119,7 +119,9 @@ async function runLiveEvalCase(
             selectedToolIds.push(toolName);
           }
         }
-        finalToolChoice = toolNames.find((toolName) => toolName !== 'search_tools');
+        finalToolChoice = toolNames.find(
+          (toolName) => toolName !== 'search_tools' && toolName !== 'load_tool'
+        );
         finalResponse = targetResult.text;
       },
       scorers: [

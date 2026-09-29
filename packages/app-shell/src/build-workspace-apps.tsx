@@ -34,6 +34,7 @@ export function buildWorkspaceApps(args: {
       icon: Files,
       id: CONTEXT_EXPLORER_APP_ID,
       label: 'Files',
+      placement: 'pinned',
       render: () => filesContent,
     },
   ];
@@ -42,6 +43,7 @@ export function buildWorkspaceApps(args: {
       icon: GitCompare,
       id: CHANGES_APP_ID,
       label: 'Changes',
+      placement: 'pinned',
       render: () => changesPageContent,
     });
   }
@@ -50,6 +52,7 @@ export function buildWorkspaceApps(args: {
       icon: Trees,
       id: WORKTREE_MAP_APP_ID,
       label: 'Worktrees',
+      placement: 'pinned',
       render: () => worktreeMapPageContent,
     });
   }
@@ -58,6 +61,7 @@ export function buildWorkspaceApps(args: {
       icon: PanelsTopLeft,
       id: CANVAS_APP_ID,
       label: 'Canvas',
+      placement: 'pinned',
       render: () => canvasPanelContent,
     });
   }
@@ -66,6 +70,7 @@ export function buildWorkspaceApps(args: {
       icon: SquareTerminal,
       id: TERMINAL_APP_ID,
       label: 'Terminal',
+      placement: 'pinned',
       render: () => terminalPageContent,
     });
   }

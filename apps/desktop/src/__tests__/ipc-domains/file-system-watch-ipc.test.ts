@@ -53,6 +53,11 @@ import {
   WATCH_RETRY_BACKOFF_MS,
 } from '../../ipc-domains/file-system-watch-ipc';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
+import { clearWindowRoleByWebContentsId } from '../../window-role';
+import {
+  createAllowlistedSenderFrame,
+  trackTestWindowRole,
+} from '../helpers/desktop-ipc-sender-test-helpers';
 
 const createdDirs: string[] = [];
 
@@ -173,7 +178,11 @@ function totalTeardownListeners(owner: FakeWebContents): number {
 }
 
 function invokeEventFor(owner: FakeWebContents): IpcMainInvokeEvent {
-  return { sender: owner as unknown as WebContents } as IpcMainInvokeEvent;
+  trackTestWindowRole(owner.id, 'visible-ui');
+  return {
+    sender: owner as unknown as WebContents,
+    senderFrame: createAllowlistedSenderFrame('visible-ui'),
+  } as IpcMainInvokeEvent;
 }
 
 interface WatchHarness {
@@ -307,12 +316,53 @@ describe('file-system watch IPC domain', () => {
   });
 
   afterEach(async () => {
+    for (let id = 0; id <= MAX_FS_WATCHERS_PER_OWNER + 10; id += 1) {
+      clearWindowRoleByWebContentsId(id);
+    }
     disposeAllFileSystemWatchers();
     unregister();
     await Promise.all(
       createdDirs.splice(0).map((dir) => fsPromises.rm(dir, { force: true, recursive: true }))
     );
   });
+
+  describe.each([
+    DESKTOP_IPC_CHANNELS.files.watch,
+    DESKTOP_IPC_CHANNELS.files.watchRetry,
+    DESKTOP_IPC_CHANNELS.files.watchTelemetry,
+    DESKTOP_IPC_CHANNELS.files.unwatch,
+  ])('%s authorization', (channel) => {
+    it.each([
+      ['hidden renderer', 2, 'embedding-host', createAllowlistedSenderFrame('embedding-host')],
+      ['untracked renderer', 3, null, createAllowlistedSenderFrame('visible-ui')],
+      ['off-allowlist visible renderer', 4, 'visible-ui', { url: 'https://attacker.invalid/' }],
+    ] as const)('rejects a %s before parsing input', async (_label, id, role, senderFrame) => {
+      const handler = registeredHandlers.get(channel);
+      const owner = new FakeWebContents(id);
+      if (role) {
+        trackTestWindowRole(owner.id, role);
+      }
+      const event = { sender: owner as unknown as WebContents, senderFrame } as IpcMainInvokeEvent;
+
+      await expect(handler?.(event, { malformed: true })).rejects.toThrow(
+        role === 'visible-ui'
+          ? `Desktop IPC ${channel} rejected an unrecognized sender frame URL.`
+          : `Desktop IPC ${channel} requires sender role visible-ui.`
+      );
+    });
+  });
+
+  it.each([DESKTOP_IPC_CHANNELS.files.watchRetry, DESKTOP_IPC_CHANNELS.files.unwatch])(
+    'rejects malformed %s payloads from an authorized renderer',
+    async (channel) => {
+      const handler = registeredHandlers.get(channel);
+      const owner = new FakeWebContents(1);
+
+      await expect(handler?.(invokeEventFor(owner), { malformed: true })).rejects.toThrow(
+        /requires a string/
+      );
+    }
+  );
 
   it('shares one native watcher across logical registrations for the same root', async () => {
     const owner = new FakeWebContents(1);

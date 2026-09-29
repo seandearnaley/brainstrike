@@ -4,7 +4,10 @@ import { createLogger } from '@brainstrike/logging';
 import { onQueueDrained } from '@brainstrike/utils/browser-events';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
-import type { EmbeddingRuntimeController } from './embedding-runtime-controller';
+import {
+  type EmbeddingRuntimeController,
+  hasEmbeddingBackfillCapability,
+} from './embedding-runtime-controller';
 import { dispatchQueueDrainedEvent } from './queue-events';
 import {
   type ApiKeyValidation,
@@ -158,9 +161,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     !isEmbeddingActive &&
     !isBackfillActive &&
     !isJobQueueActive;
-  const isDesktopRenderer =
-    typeof window !== 'undefined' &&
-    (window as Window & { electronAPI?: unknown }).electronAPI !== undefined;
+  const canRecoverDesktopBackfills = hasEmbeddingBackfillCapability();
 
   // Clear timeout on unmount.
   useEffect(
@@ -174,7 +175,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   // If the main process has a backfill in flight for the active embedding set,
   // re-attach to the progress stream so the UI shows the progress indicator.
   useEffect(() => {
-    if (!(activeEmbeddingSetId && isDesktopRenderer)) {
+    if (!(activeEmbeddingSetId && canRecoverDesktopBackfills)) {
       return;
     }
     let cancelled = false;
@@ -207,7 +208,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     activeEmbeddingSetId,
     clearTransientBackfillState,
     controller,
-    isDesktopRenderer,
+    canRecoverDesktopBackfills,
     setActiveBackfill,
     setIsJobQueueActive,
   ]);

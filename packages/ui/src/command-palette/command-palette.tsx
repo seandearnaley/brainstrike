@@ -1,4 +1,9 @@
-import type { Command, CommandContext, CommandGroup } from '@brainstrike/context-actions/commands';
+import type {
+  Command,
+  CommandContext,
+  CommandGroup,
+  CommandPage,
+} from '@brainstrike/context-actions/commands';
 import { createLogger } from '@brainstrike/logging';
 import { Description as DialogDescription, Title as DialogTitle } from '@radix-ui/react-dialog';
 import { Command as Cmdk } from 'cmdk';
@@ -36,9 +41,9 @@ export interface CommandPaletteProps {
   readonly open: boolean;
 }
 
-interface GroupedCommands {
+interface CommandSection {
   readonly commands: readonly Command[];
-  readonly group: CommandGroup;
+  readonly heading: string;
 }
 
 /**
@@ -47,7 +52,7 @@ interface GroupedCommands {
  * Single pass over the commands: bucket each into its group, then emit the
  * non-empty buckets in the stable GROUP_ORDER (preserving per-group order).
  */
-function groupCommands(commands: readonly Command[]): readonly GroupedCommands[] {
+function groupCommands(commands: readonly Command[]): readonly CommandSection[] {
   const buckets = new Map<CommandGroup, Command[]>();
   for (const command of commands) {
     const group = command.group ?? DEFAULT_GROUP;
@@ -58,11 +63,11 @@ function groupCommands(commands: readonly Command[]): readonly GroupedCommands[]
       buckets.set(group, [command]);
     }
   }
-  const sections: GroupedCommands[] = [];
+  const sections: CommandSection[] = [];
   for (const group of GROUP_ORDER) {
     const grouped = buckets.get(group);
     if (grouped && grouped.length > 0) {
-      sections.push({ commands: grouped, group });
+      sections.push({ commands: grouped, heading: GROUP_HEADINGS[group] });
     }
   }
   return sections;
@@ -75,6 +80,9 @@ function groupCommands(commands: readonly Command[]): readonly GroupedCommands[]
  * open time, per the bridge's snapshot semantics). Filtering is a local,
  * case-insensitive substring match; selection invokes `command.run(context)`.
  *
+ * A page command (Go to Tab…) swaps the list for its page instead of running;
+ * Backspace in an empty query goes back, and closing always resets to the root.
+ *
  * No-silent-fallbacks: a failing `ActionOutcome` ({ ok: false }) — or a thrown
  * run — surfaces a toast and a log; success closes the palette. The palette
  * never swallows a command failure.
@@ -86,28 +94,48 @@ export function CommandPalette({
   context,
 }: CommandPaletteProps): React.ReactElement {
   const [query, setQuery] = React.useState('');
+  const [page, setPage] = React.useState<CommandPage | null>(null);
   const { toast } = useToast();
 
   // Derive the filtered + grouped sections during render — no setState in an
-  // effect. `query` is the only local state; the command list is owned by the app.
-  const sections = React.useMemo(
-    () => groupCommands(filterCommands(commands, query)),
-    [commands, query]
-  );
+  // effect. The command list is owned by the app; a page's list by its command.
+  const sections = React.useMemo<readonly CommandSection[]>(() => {
+    if (!page) {
+      return groupCommands(filterCommands(commands, query));
+    }
+    const matches = filterCommands(page.commands, query);
+    return matches.length > 0 ? [{ commands: matches, heading: page.heading }] : [];
+  }, [commands, page, query]);
 
   const handleOpenChange = React.useCallback(
     (next: boolean) => {
       if (!next) {
-        // Reset the query whenever the palette closes so the next open starts clean.
+        // Reset whenever the palette closes so the next open starts at the root.
         setQuery('');
+        setPage(null);
       }
       onOpenChange(next);
     },
     [onOpenChange]
   );
 
+  const handleInputKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Backspace' && query === '' && page) {
+        event.preventDefault();
+        setPage(null);
+      }
+    },
+    [page, query]
+  );
+
   const handleSelect = React.useCallback(
     async (command: Command) => {
+      if (command.page) {
+        setPage(command.page(context));
+        setQuery('');
+        return;
+      }
       let outcome: { ok: boolean; error?: string };
       try {
         outcome = await command.run(context);
@@ -160,20 +188,21 @@ export function CommandPalette({
             'flex h-12 w-full rounded-md bg-transparent py-3 text-sm outline-none',
             'placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50'
           )}
+          onKeyDown={handleInputKeyDown}
           onValueChange={setQuery}
-          placeholder="Type a command…"
+          placeholder={page?.placeholder ?? 'Type a command…'}
           value={query}
         />
       </div>
       <Cmdk.List className="max-h-[320px] overflow-y-auto overflow-x-hidden p-1">
         <Cmdk.Empty className="py-6 text-center text-muted-foreground text-sm">
-          No commands found.
+          {page ? 'No matches.' : 'No commands found.'}
         </Cmdk.Empty>
         {sections.map((section) => (
           <Cmdk.Group
             className="px-1 py-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:text-xs"
-            heading={GROUP_HEADINGS[section.group]}
-            key={section.group}
+            heading={section.heading}
+            key={section.heading}
           >
             {section.commands.map((command) => (
               <CommandPaletteItem command={command} key={command.id} onSelect={handleSelect} />

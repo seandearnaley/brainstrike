@@ -177,13 +177,25 @@ export {
 } from './mastra/agent-runtime';
 export {
   streamMastraAgent,
+  streamMastraChildFollowup,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from './mastra/agent-streaming';
 export {
+  cancelStoredBackgroundInvocations,
+  cancelStoredBackgroundTasks,
+} from './mastra/background-cancellation';
+export {
   buildPersonaSubAgents,
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
+export type {
+  ChildContinuationBaseline,
+  ChildContinuationDecision,
+  ChildContinuationHostPort,
+  ChildContinuationScope,
+  ChildContinuationStatus,
+} from './mastra/child-continuation-host-port';
 export {
   buildCompactionOverlayInputProcessor,
   CompactionOverlayProcessor,
@@ -202,6 +214,28 @@ export {
   projectCompactionMessagesForSummarizer,
 } from './mastra/conversation-compaction';
 export {
+  type BackgroundGeneration,
+  createDelegatedConversationBinding,
+  type DelegatedCancellationControl,
+  type DelegatedCancellationTarget,
+  type DelegatedConversationBinding,
+  type DelegatedConversationIdentity,
+  type DelegatedDecisionControl,
+  type DelegatedDecisionRequest,
+  type DelegatedFollowupControl,
+  type DelegatedFollowupInput,
+  type DelegatedFollowupTarget,
+  type DelegatedLiveDecisionRecord,
+  type DelegatedPromptManifestKind,
+  type DelegatedPromptManifestRecord,
+  type DelegatedToolActionScope,
+  type DelegatedWakeupInvocation,
+  type DelegatedWakeupRecord,
+} from './mastra/delegated-conversation-binding';
+export type { DelegatedRunIdentity } from './mastra/delegated-run-publication';
+export type { DelegatedSuspensionResolver } from './mastra/delegated-suspension-discovery';
+export { captureDelegatedSystemContext } from './mastra/delegated-system-context';
+export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
   formatGrepContentRow,
@@ -209,6 +243,10 @@ export {
   GREP_MATCH_LINE_MAX_CHARS,
   normalizeGrepProjectionLine,
 } from './mastra/grep-model-format';
+export {
+  isLiveDecisionUnavailableError,
+  LiveDecisionUnavailableError,
+} from './mastra/live-decision-channel';
 export {
   createMastraAgentError,
   isMastraAgentError,
@@ -232,6 +270,7 @@ export {
 } from './mastra/permission-policy-request';
 export { resolveSelfApprovalDecision } from './mastra/permission-tool-gate';
 export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
+export { buildModelSettingsOption } from './mastra/runtime-assembly/stream-options';
 export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,
@@ -240,14 +279,13 @@ export {
 } from './mastra/shell-output-stream';
 export {
   createDelegationConfig,
-  MAX_CONCURRENT_DELEGATIONS,
-  MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
 export {
   type DiscoveredSuspendedApproval,
   type DiscoveredSuspendedPause,
   type ListSuspendedRunsResult,
+  listSuspendedChildContinuation,
   listSuspendedMastraRuns,
 } from './mastra/suspended-run-discovery';
 export type { ToolCallTelemetryMetadata } from './mastra/tool-call-telemetry';
@@ -612,6 +650,7 @@ export {
   SAFE_FILE_TREE_ERRORS,
 } from './tools/file-tree-tool';
 export { withFileLock } from './tools/file-write-lock';
+export { guardToolExecution } from './tools/guard-tool-execution';
 export {
   type AgentHookRunner,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
@@ -633,6 +672,7 @@ export {
   SAFE_QUEUE_STATUS_ERRORS,
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
+export { readToolExecutionThreadId } from './tools/read-tool-call-id';
 export {
   computeExecutionContextFingerprint,
   resolveRunPythonExecutionContext,
@@ -739,6 +779,18 @@ export {
   type StringReplaceResult,
 } from './tools/string-replace';
 export { createSubmitPlanTool, SUBMIT_PLAN_TOOL_ID } from './tools/submit-plan-tool';
+export {
+  /**
+   * The guard's REGISTRATION primitive — a mutation on a module-global
+   * registry, exported only so cross-package tests (desktop's native tool
+   * executors) can publish a deadline without reconstructing the guard.
+   * Production callers never register: `guardToolExecution` owns registration
+   * and its paired release. Tools READ the deadline via
+   * {@link resolveGuardedToolSignal}.
+   */
+  registerToolGuardDeadlineSignal,
+  resolveGuardedToolSignal,
+} from './tools/tool-guard-deadline';
 export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,

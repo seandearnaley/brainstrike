@@ -19,6 +19,8 @@ const ASSISTANT_REQUEST_ENVELOPE_KEY_SET = new Set<string>(ASSISTANT_REQUEST_ENV
 export interface ParsedAssistantRequestEnvelope {
   assistantMessageId?: string;
   data: RuntimeData | undefined;
+  inputParentMessageId?: string | null;
+  pausedMessageId?: string;
   rawMessages: AssistantUiMessageStrict[];
   runConfig: unknown;
 }
@@ -34,6 +36,8 @@ export class AssistantInvalidJsonError extends Error {
 
 export type AssistantRequestEnvelopeValidationReason =
   | 'invalid-data'
+  | 'invalid-input-parent-message-id'
+  | 'invalid-paused-message-id'
   | 'invalid-root'
   | 'invalid-run-config'
   | 'missing-messages'
@@ -44,6 +48,9 @@ const REQUEST_ENVELOPE_VALIDATION_MESSAGES: Record<
   string
 > = {
   'invalid-data': 'Assistant request data must be a JSON object.',
+  'invalid-input-parent-message-id':
+    'Assistant input parent message ID must be a valid ID or null.',
+  'invalid-paused-message-id': 'Assistant paused message ID must be a valid ID.',
   'invalid-root': 'Assistant request payload must be a JSON object.',
   'invalid-run-config': 'Assistant request runConfig must be a JSON object.',
   'missing-messages': 'Assistant request payload must include its own messages array.',
@@ -118,6 +125,40 @@ export async function readRequestBodyText(
   return new TextDecoder().decode(bodyBytes);
 }
 
+function readInputParentMessageId(value: unknown): string | null | undefined {
+  if (value === undefined || value === null) {
+    return value;
+  }
+  if (
+    typeof value !== 'string' ||
+    value.trim().length === 0 ||
+    value.length > MAX_ASSISTANT_MESSAGE_ID_CHARS
+  ) {
+    throw new AssistantRequestEnvelopeValidationError('invalid-input-parent-message-id');
+  }
+  return value;
+}
+
+function optionalInputParentMessageId(value: string | null | undefined): {
+  inputParentMessageId?: string | null;
+} {
+  return value === undefined ? {} : { inputParentMessageId: value };
+}
+
+function readPausedMessageId(value: unknown): string | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (
+    typeof value !== 'string' ||
+    value.trim().length === 0 ||
+    value.length > MAX_ASSISTANT_MESSAGE_ID_CHARS
+  ) {
+    throw new AssistantRequestEnvelopeValidationError('invalid-paused-message-id');
+  }
+  return value;
+}
+
 export function parseAssistantRequestPayloadText(body: string): ParsedAssistantRequestEnvelope {
   let parsed: unknown;
   try {
@@ -141,6 +182,8 @@ export function parseAssistantRequestPayloadText(body: string): ParsedAssistantR
 
   const maybePayload = parsed as Partial<{
     data: RuntimeData;
+    inputParentMessageId: unknown;
+    pausedMessageId: unknown;
     messages: AssistantUiMessageStrict[];
     runConfig: unknown;
     // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
@@ -167,6 +210,8 @@ export function parseAssistantRequestPayloadText(body: string): ParsedAssistantR
     throw new AssistantRequestEnvelopeValidationError('invalid-run-config');
   }
   const assistantMessageId = maybePayload.unstable_assistantMessageId;
+  const inputParentMessageId = readInputParentMessageId(maybePayload.inputParentMessageId);
+  const pausedMessageId = readPausedMessageId(maybePayload.pausedMessageId);
   if (
     assistantMessageId !== undefined &&
     (typeof assistantMessageId !== 'string' ||
@@ -185,6 +230,8 @@ export function parseAssistantRequestPayloadText(body: string): ParsedAssistantR
     rawMessages,
     runConfig: maybePayload.runConfig,
     ...(typeof assistantMessageId === 'string' ? { assistantMessageId } : {}),
+    ...(typeof pausedMessageId === 'string' ? { pausedMessageId } : {}),
+    ...optionalInputParentMessageId(inputParentMessageId),
   };
 }
 

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LocalRuntimeDiscoveryService } from '../local-runtime-discovery';
 import { LocalRuntimeModelCatalogService } from '../local-runtime-model-catalog';
 
 type FetchMockInput = string | URL | Request;
@@ -28,6 +29,26 @@ describe('local-runtime-model-catalog', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
+
+  it.each(['web', 'desktop'] as const)(
+    'honors disabled host access for real catalogs even with surface %s',
+    async (surface) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      const discoveryService = new LocalRuntimeDiscoveryService({
+        browserUnavailableReason: 'This host does not permit direct runtime connections.',
+        fetchImpl: fetchMock,
+      });
+      const catalog = new LocalRuntimeModelCatalogService({
+        discoveryService,
+        fetchImpl: fetchMock,
+      });
+      for (const runtime of ['ollama', 'lmstudio'] as const) {
+        const result = await catalog.listRuntimeModels(runtime, { force: true, surface });
+        expect(result).toMatchObject({ availability: { state: 'blocked_web' } });
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
 
   it('lists and normalizes Ollama models from /api/tags with family hints', async () => {
     const fetchMock = vi.fn<FetchMock>(async (input, init) => {

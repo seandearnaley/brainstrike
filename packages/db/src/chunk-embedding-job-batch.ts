@@ -103,9 +103,12 @@ export async function insertChunksAndEnqueueEmbeddingJobs(
     return;
   }
 
+  const chunkRepository = new FileChunkRepository({
+    query: db.query.bind(db),
+    transaction: db.transaction.bind(db),
+  });
   await db.transaction(async (tx) => {
-    const chunkRepository = new FileChunkRepository(tx as never);
-    await chunkRepository.insertManyWithTx(tx as never, [...args.chunks]);
+    await chunkRepository.insertManyWithTx(tx, [...args.chunks]);
     const queue = new JobQueue(tx);
     await queue.enqueueBatch(await buildEmbeddingJobParams(args));
   });

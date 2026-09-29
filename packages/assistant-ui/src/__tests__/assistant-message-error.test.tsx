@@ -44,4 +44,19 @@ describe('AssistantMessageError', () => {
     expect(getByText('Status 502: agent_stream_init_failed')).toBeInTheDocument();
     expect(container.querySelector('[class*="destructive"]')).not.toBeNull();
   });
+
+  it('renders the pre-upgrade recovery action on the failed approval message', () => {
+    const recovery =
+      'This approval predates the background ledger upgrade and cannot resume safely. Stop or cancel the pending work, then start a new request.';
+    errorHolder.current = `Status 409: ${JSON.stringify({
+      code: 'background-generation-unmapped',
+      error: 'decision_refused',
+      message: recovery,
+      stage: 'stream_construction',
+    })}`;
+
+    const { getByText } = render(<AssistantMessageError />);
+
+    expect(getByText((text) => text.includes(recovery))).toBeInTheDocument();
+  });
 });

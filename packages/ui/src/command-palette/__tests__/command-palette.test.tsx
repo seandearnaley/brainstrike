@@ -1,5 +1,10 @@
 import type { ActionOutcome } from '@brainstrike/context-actions';
-import type { Command, CommandContext } from '@brainstrike/context-actions/commands';
+import type {
+  Command,
+  CommandContext,
+  PageCommand,
+  RunCommand,
+} from '@brainstrike/context-actions/commands';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommandPalette } from '../command-palette';
@@ -25,7 +30,9 @@ const EMPTY_CONTEXT: CommandContext = {
   services: {},
 };
 
-function makeCommand(overrides: Partial<Command> & Pick<Command, 'id' | 'label'>): Command {
+function makeCommand(
+  overrides: Partial<RunCommand> & Pick<RunCommand, 'id' | 'label'>
+): RunCommand {
   return {
     run: () => Promise.resolve<ActionOutcome>({ ok: true }),
     ...overrides,
@@ -208,6 +215,152 @@ describe('CommandPalette', () => {
     fireEvent.keyDown(input, { key: 'Escape' });
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  describe('pages', () => {
+    const alphaRun = vi.fn(() => Promise.resolve<ActionOutcome>({ ok: true }));
+    const betaRun = vi.fn(() => Promise.resolve<ActionOutcome>({ ok: true }));
+    const page = vi.fn(() => ({
+      commands: [
+        makeCommand({ id: 'tab.go-to:a', label: 'Alpha', run: alphaRun }),
+        makeCommand({ id: 'tab.go-to:b', label: 'Beta', run: betaRun }),
+      ],
+      heading: 'Tabs',
+      placeholder: 'Go to tab…',
+    }));
+    const goToTab: PageCommand = { id: 'tab.go-to', label: 'Go to Tab…', page };
+    const rootCommands: Command[] = [
+      goToTab,
+      makeCommand({ id: 'thread.new', label: 'New Thread' }),
+    ];
+
+    async function openPage(onOpenChange = vi.fn()): Promise<HTMLElement> {
+      render(
+        <CommandPalette
+          commands={rootCommands}
+          context={EMPTY_CONTEXT}
+          onOpenChange={onOpenChange}
+          open
+        />
+      );
+      const root = await screen.findByPlaceholderText('Type a command…');
+      // The root query does not leak into the page.
+      fireEvent.change(root, { target: { value: 'go to' } });
+      await waitFor(() => expect(screen.queryByText('New Thread')).toBeNull());
+      fireEvent.keyDown(root, { key: 'Enter' });
+      return screen.findByPlaceholderText('Go to tab…');
+    }
+
+    it('opens a page command as a page instead of closing the palette', async () => {
+      const onOpenChange = vi.fn();
+      await openPage(onOpenChange);
+
+      expect(page).toHaveBeenCalledWith(EMPTY_CONTEXT);
+      expect(screen.getByText('Tabs')).toBeTruthy();
+      expect(screen.getByText('Alpha')).toBeTruthy();
+      expect(screen.getByText('Beta')).toBeTruthy();
+      expect(screen.queryByText('New Thread')).toBeNull();
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    it('runs the chosen page command and closes on success', async () => {
+      const onOpenChange = vi.fn();
+      const input = await openPage(onOpenChange);
+
+      fireEvent.change(input, { target: { value: 'bet' } });
+      await waitFor(() => expect(screen.queryByText('Alpha')).toBeNull());
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      await waitFor(() => expect(betaRun).toHaveBeenCalledExactlyOnceWith(EMPTY_CONTEXT));
+      expect(alphaRun).not.toHaveBeenCalled();
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    });
+
+    it('runs the right one of two same-label entries', async () => {
+      const first = vi.fn(() => Promise.resolve<ActionOutcome>({ ok: true }));
+      const second = vi.fn(() => Promise.resolve<ActionOutcome>({ ok: true }));
+      const twins: PageCommand = {
+        id: 'tab.go-to',
+        label: 'Go to Tab…',
+        page: () => ({
+          commands: [
+            makeCommand({ id: 'tab.go-to:a', keywords: ['src/a'], label: 'index.ts', run: first }),
+            makeCommand({ id: 'tab.go-to:b', keywords: ['src/b'], label: 'index.ts', run: second }),
+          ],
+          heading: 'Tabs',
+          placeholder: 'Go to tab…',
+        }),
+      };
+      render(
+        <CommandPalette commands={[twins]} context={EMPTY_CONTEXT} onOpenChange={vi.fn()} open />
+      );
+      fireEvent.keyDown(await screen.findByPlaceholderText('Type a command…'), { key: 'Enter' });
+      const input = await screen.findByPlaceholderText('Go to tab…');
+      expect(screen.getByText('src/a')).toBeTruthy();
+      expect(screen.getByText('src/b')).toBeTruthy();
+
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      await waitFor(() => expect(second).toHaveBeenCalledOnce());
+      expect(first).not.toHaveBeenCalled();
+    });
+
+    it('says so when nothing on the page matches', async () => {
+      const input = await openPage();
+
+      fireEvent.change(input, { target: { value: 'zzz' } });
+
+      expect(await screen.findByText('No matches.')).toBeTruthy();
+      expect(screen.queryByText('Tabs')).toBeNull();
+    });
+
+    it('returns to the root list on Backspace in an empty query', async () => {
+      const input = await openPage();
+
+      fireEvent.change(input, { target: { value: 'a' } });
+      fireEvent.keyDown(input, { key: 'Backspace' });
+      expect(screen.getByPlaceholderText('Go to tab…')).toBeTruthy();
+      fireEvent.change(input, { target: { value: '' } });
+      fireEvent.keyDown(input, { key: 'Backspace' });
+
+      expect(await screen.findByPlaceholderText('Type a command…')).toBeTruthy();
+      expect(screen.getByText('New Thread')).toBeTruthy();
+    });
+
+    it('starts from the root list the next time it opens', async () => {
+      const onOpenChange = vi.fn();
+      const view = render(
+        <CommandPalette
+          commands={rootCommands}
+          context={EMPTY_CONTEXT}
+          onOpenChange={onOpenChange}
+          open
+        />
+      );
+      fireEvent.keyDown(await screen.findByPlaceholderText('Type a command…'), { key: 'Enter' });
+      fireEvent.keyDown(await screen.findByPlaceholderText('Go to tab…'), { key: 'Escape' });
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+
+      view.rerender(
+        <CommandPalette
+          commands={rootCommands}
+          context={EMPTY_CONTEXT}
+          onOpenChange={onOpenChange}
+          open={false}
+        />
+      );
+      view.rerender(
+        <CommandPalette
+          commands={rootCommands}
+          context={EMPTY_CONTEXT}
+          onOpenChange={onOpenChange}
+          open
+        />
+      );
+
+      expect(await screen.findByPlaceholderText('Type a command…')).toBeTruthy();
     });
   });
 });

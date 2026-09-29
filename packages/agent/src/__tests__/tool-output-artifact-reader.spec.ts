@@ -224,6 +224,22 @@ describe('tool output artifact reader', () => {
     ).rejects.toMatchObject({ reason: 'invalid_input' });
   });
 
+  it('enforces the exact expiry boundary even when storage still reports found', async () => {
+    const content = 'Complete recoverable evidence';
+    const artifactRef = referenceFor(content);
+    const input = { artifactRef, mode: 'artifact' } as const;
+    const reader = readerFor(content, artifactRef);
+    const expiresAt = Date.parse(artifactRef.expiresAt);
+    expect(Number.isFinite(expiresAt)).toBe(true);
+
+    await expect(
+      readToolOutputArtifactPage(input, { now: () => new Date(expiresAt - 1), reader })
+    ).resolves.toMatchObject({ content });
+    await expect(
+      readToolOutputArtifactPage(input, { now: () => new Date(expiresAt), reader })
+    ).rejects.toMatchObject({ reason: 'artifact_expired' });
+  });
+
   it('fails expired, wrong-scope, incoherent, non-progress, and storage reads visibly', async () => {
     const artifactRef = referenceFor('content');
     const input = { artifactRef, mode: 'artifact' } as const;

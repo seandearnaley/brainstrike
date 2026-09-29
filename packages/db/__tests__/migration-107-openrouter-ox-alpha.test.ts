@@ -150,24 +150,20 @@ describe('migration 107 in the production drizzle runner', () => {
     await db.close();
   });
 
-  it('is registered in the custom migration ledger', {
+  it('is registered in the custom migration ledger and later retired by 121', {
     timeout: 60_000,
   }, async () => {
     const result = await runMigrations(db);
 
     expect(result.success).toBe(true);
+    // 107 still applies and is still in the ledger — the ledger is append-only,
+    // so retiring the row it added never un-applies the migration.
     expect(result.appliedMigrations).toContain('openrouter_ox_alpha');
-    expect(await readOxAlpha(db)).toEqual({
-      best_for: [],
-      capabilities: { streaming: true, type: 'llm', vision: true },
-      id: 'stealth/ox-alpha',
-      is_enabled: false,
-      name: 'Ox Alpha (OpenRouter)',
-      provider_id: 'openrouter',
-      // Migration 108 prepends GLM 5.3 in the current full production sequence.
-      sort_order: 2,
-      tagline: null,
-    });
+    expect(result.appliedMigrations).toContain('retire_delisted_openrouter_models');
+    // BST-1697: OpenRouter delisted stealth/ox-alpha, so migration 121 deletes
+    // the row this migration added. The full production sequence must end with
+    // no Ox Alpha row at all.
+    expect(await readOxAlpha(db)).toBeUndefined();
 
     const ledger = await db.query<{ hash: string }>(`
       SELECT hash

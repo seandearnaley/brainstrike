@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { handleParseRequest } from '../../parser-host-entry';
+import { isParserHostParseResponse } from '../../parser-host-schema';
 import type { ParserHostParseRequest } from '../../parser-host-shared';
 
 const baseRequest: ParserHostParseRequest = {
@@ -93,6 +94,7 @@ describe('handleParseRequest', () => {
     const response = await handleParseRequest(baseRequest);
 
     const ok = expectOk(response);
+    expect(isParserHostParseResponse(response)).toBe(true);
     expect(typeof ok.root.type).toBe('string');
   });
 

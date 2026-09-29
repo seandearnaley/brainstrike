@@ -39,6 +39,24 @@ describe('readNestedToolOutputChunk', () => {
     expect(readNestedToolOutputChunk(part)).toMatchObject({ isError: true, type: 'tool-result' });
   });
 
+  it('classifies a guarded child result exactly like the normal tool mapper', () => {
+    const nested = {
+      payload: {
+        result: { error: { code: 'tool_timeout', message: 'Timed out' }, ok: false },
+        toolCallId: 'child-call',
+        toolName: 'child_search',
+      },
+      type: 'tool-result',
+    };
+    expect(mapMastraToolEvent(nested, new Map())).toMatchObject({ status: 'error' });
+    expect(
+      readNestedToolOutputChunk({
+        payload: { output: nested, toolCallId: 'parent-call', toolName: 'agent-explore' },
+        type: 'tool-output',
+      })
+    ).toMatchObject({ isError: true, type: 'tool-result' });
+  });
+
   it('returns undefined when there is no nested chunk object', () => {
     expect(
       readNestedToolOutputChunk({ payload: { toolCallId: 'd1' }, type: 'tool-output' })
@@ -233,7 +251,7 @@ describe('mapMastraToolEvent', () => {
       error: {
         code: 'tool_timeout',
         message:
-          'The tool timed out before returning a result. Try a smaller request or another approach.',
+          'The tool did not finish within its 60s execution budget and was cancelled. Try a smaller request or another approach.',
         toolName: 'filesystem.search',
       },
       ok: false,

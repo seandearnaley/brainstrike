@@ -25,7 +25,7 @@ async function openAssistantChat(window: Page): Promise<void> {
 }
 
 async function sendPrompt(window: Page): Promise<void> {
-  const input = window.locator('#assistant-input');
+  const input = window.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
   await input.fill(PROMPT_TEXT);
   await window.getByRole('button', { exact: true, name: 'Send' }).click();

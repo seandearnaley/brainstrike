@@ -182,6 +182,19 @@ vi.mock('../../db-main', () => ({
 // 10246 measurement at the band's MIDPOINT.
 const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_396;
 const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 10_096;
+// BST-1667 TRIM (ceiling UNCHANGED at 5000 — the number is a live contract in
+// docs/agents/assistant-providers.md, assistant-runtime.md, and
+// workspace-context.md). Tool discovery moved to Mastra's manual loading, so
+// the composed discovery line now teaches TWO controls — `load_tool` for an
+// exact name and `search_tools` for a capability query — and first measured
+// 5024. Trim-first was applied to that line only: articles and hedges
+// dropped, "call search_tools with a concise query, then load_tool for the
+// match" tightened, the miss exit shortened to "check the catalog for an
+// exact name first" (its 'If the search finds nothing' pin kept), and the
+// same-response parenthetical kept its pinned 'not a later user message'.
+// Measured 4997 (see #3049 review): 3 tokens of headroom. The next addition
+// to the discovery line must trim before it lands; a raise here needs the
+// three contracts moved in the same change.
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
@@ -640,7 +653,28 @@ describe('desktop native tool provider prompt budget', () => {
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns
       // summaries, never content. Both are deliberate hardening spends.
-      manageCanvasDefinitionTokens: 234,
+      //
+      // 234 → 254: the five canvas html descriptions now say "(max 8 MB of
+      // UTF-8)". The emitted `maxLength: 8000000` is a CHARACTER count and the
+      // enforced ceiling is bytes, so without this the model was told a limit
+      // roughly four times looser than the one it will actually hit — a 2.1M
+      // emoji document sits inside `maxLength` and is refused. Twenty tokens to
+      // stop the model discovering the real unit from a failed call.
+      //
+      // 254 → 290 (canvas contract, 2026-09-15): the description now says
+      // `create` needs content and the write IS the deliverable — never an
+      // empty or placeholder canvas, call create once when the content is
+      // ready. Live-app verifier runs 6 and 7 pre-created an empty shell
+      // behind one approval and wrote the report behind a second; the
+      // `empty_document` refusal closes the literal shell and these 36 tokens
+      // close the stub. Trim-first was applied: the unpinned "to fill in
+      // later" clause was dropped (-4). Measured full authored surface
+      // 10353 → 10389 (7 tokens of headroom left under the UNCHANGED 10,396
+      // ceiling — the 107 between the recorded 10246 and 10353 is earlier
+      // drift, not this change). The band is deliberately NOT raised:
+      // `docs/agents/assistant-providers.md` (2026-09-04) keeps the ceilings
+      // pending BST-1633 and raises only when the ceiling fires, after a trim.
+      manageCanvasDefinitionTokens: 290,
       manageWorktreeDefinitionTokens: 278,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {

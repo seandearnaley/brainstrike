@@ -92,6 +92,10 @@ const MCP_AUDIO_DATA = 'YXVkaW8tYnl0ZXM=';
 const MCP_IMAGE_DATA = 'aW1hZ2UtYnl0ZXM=';
 const MCP_TEXT_RAW_ONLY_TAIL = 'mcp-multimodal-raw-only-tail';
 const MCP_STDIO_TEXT_RAW_ONLY_TAIL = 'mcp-stdio-multimodal-raw-only-tail';
+const ARTIFACT_FIXTURE_NOW = new Date('2026-09-05T12:00:00.000Z');
+const ARTIFACT_FIXTURE_EXPIRES_AT = new Date(
+  ARTIFACT_FIXTURE_NOW.getTime() + 7 * 24 * 60 * 60 * 1000
+).toISOString();
 function createStoredArtifactReaderTool(stored: readonly StoreSettledToolOutputInput[]) {
   return createTool({
     description: 'Read the saved tool output by its cursor.',
@@ -99,6 +103,8 @@ function createStoredArtifactReaderTool(stored: readonly StoreSettledToolOutputI
       readToolOutputArtifact(
         { cursor, mode: 'cursor' },
         {
+          // The stored fixture has a fixed lifetime; real transport timers stay live.
+          now: () => new Date(ARTIFACT_FIXTURE_NOW),
           reader: {
             readRange: async ({ artifactId, offsetByte, limitBytes }) => {
               const entry = stored[0];
@@ -113,7 +119,7 @@ function createStoredArtifactReaderTool(stored: readonly StoreSettledToolOutputI
                 offsetByte,
                 reference: {
                   byteLength: complete.length,
-                  expiresAt: '2026-09-12T12:00:00.000Z',
+                  expiresAt: ARTIFACT_FIXTURE_EXPIRES_AT,
                   format: entry.format,
                   id: artifactId,
                 },
@@ -257,7 +263,9 @@ async function closeHttpMcpFixture(
 /**
  * A scripted LanguageModelV2: first turn emits a single tool call; once the
  * prompt contains the tool result (role "tool"), it emits a final text answer.
- * This is the minimal real-model contract the Mastra loop drives.
+ * This is the minimal real-model contract the Mastra loop drives. With
+ * `discover`, an extra leading turn loads the deferred tool by exact name via
+ * Mastra's `load_tool` meta-tool so it is callable on the next step.
  */
 function createScriptedToolCallModel(args: {
   continueWithTool?: (
@@ -290,9 +298,9 @@ function createScriptedToolCallModel(args: {
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
             {
-              input: JSON.stringify({ query: args.toolName }),
-              toolCallId: `${args.toolCallId}-search`,
-              toolName: 'search_tools',
+              input: JSON.stringify({ toolName: args.toolName }),
+              toolCallId: `${args.toolCallId}-load`,
+              toolName: 'load_tool',
               type: 'tool-call',
             },
             { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
@@ -1129,7 +1137,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
                 stored.push(input);
                 return {
                   byteLength: new TextEncoder().encode(input.content).byteLength,
-                  expiresAt: '2026-09-12T12:00:00.000Z',
+                  expiresAt: ARTIFACT_FIXTURE_EXPIRES_AT,
                   format: input.format,
                   id: '019f7d67-7165-7c23-8e99-d70c2a2f168d',
                 };
@@ -1474,7 +1482,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
   });
 
-  it('enumerates, discovers, auto-loads, and executes a deferred native tool through the real loop', async () => {
+  it('enumerates, discovers, loads via load_tool, and executes a deferred native tool through the real loop', async () => {
     const executions: string[] = [];
     const offeredToolNames: string[][] = [];
     let turn = 0;
@@ -1532,9 +1540,9 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
               {
-                input: JSON.stringify({ query: 'brainstrike_listWorkspaceContext' }),
-                toolCallId: 'call-search-1',
-                toolName: 'search_tools',
+                input: JSON.stringify({ toolName: 'brainstrike_listWorkspaceContext' }),
+                toolCallId: 'call-load-1',
+                toolName: 'load_tool',
                 type: 'tool-call',
               },
               { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
@@ -1593,12 +1601,13 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       chunks.push(chunk);
     }
 
-    expect(offeredToolNames[0]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[1]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[2]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[3]).toEqual(['search_tools', 'list_available_tools']);
+    expect(offeredToolNames[0]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+    expect(offeredToolNames[1]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+    expect(offeredToolNames[2]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+    expect(offeredToolNames[3]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
     expect(offeredToolNames[4]).toEqual([
       'search_tools',
+      'load_tool',
       'brainstrike_listWorkspaceContext',
       'list_available_tools',
     ]);

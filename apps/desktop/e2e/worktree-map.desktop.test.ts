@@ -210,7 +210,7 @@ function requireModelProviderShim(): ModelProviderShim {
 }
 
 async function sendPrompt(page: Page, prompt: string): Promise<void> {
-  const input = page.locator('#assistant-input');
+  const input = page.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: 30_000 });
   await input.fill(prompt);
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
@@ -513,9 +513,9 @@ test.describe('Worktree Map (desktop)', () => {
       const shim = requireModelProviderShim();
       shim.setScript({
         // brainstrike.manageWorktree is Mastra-deferred (mastra_tool_discovery_surface
-        // logs it under deferredToolIds, not coreToolIds) — discoveryQuery makes
-        // the shim call search_tools first so Mastra loads it before this call.
-        discoveryQuery: 'worktree',
+        // logs it under deferredToolIds, not coreToolIds) — deferredTool makes
+        // the shim call load_tool first so Mastra loads it before this call.
+        deferredTool: true,
         finalText: 'Created the worktree.',
         toolCall: {
           arguments: { action: 'create', branch: 'bs/agent-created', name: 'agent-created' },

@@ -177,6 +177,16 @@ and runs ONLY in the Electron main process.
 
 ### Loopback callback hygiene
 
+- The callback wait has one owner: a duplicate wait fails visibly without
+  replacing its pending result or timeout. A callback before the first wait is
+  terminal, and a later wait retains the existing already-settled error.
+- Every `close()` caller joins the same owned listener shutdown, connection
+  cleanup and callback timer release. Acquisition rollback removes temporary
+  listeners; if acquisition and rollback both fail, both errors remain visible.
+- Automatic cleanup failure logging contains a fixed message only, never an
+  authorization code, state, token or raw exception. Explicit close callers
+  still receive the original cleanup error (or both cleanup failures together).
+
 - Sign-in always uses the user's own system browser via the validated
   `shell.openExternal` path (http/https/mailto allow-list). Embedded webviews
   are never used for provider auth.
@@ -203,8 +213,10 @@ and runs ONLY in the Electron main process.
 - The RFC 8628 device flow polls with the server interval + safety margin,
   honors `slow_down`, and treats `expired_token`/`access_denied` as terminal.
 - Every engine network call (token exchange, device start/poll, refresh) runs
-  under the flow's AbortSignal plus a 30-second per-request timeout — a hung
-  endpoint cannot wedge a flow, and cancel rejects a stalled call promptly.
+  under the flow's AbortSignal plus a 30-second per-request timeout covering
+  response headers and body text. Timeout or cancel aborts the actual fetch
+  signal and rejects promptly even if a transport ignores that signal; late
+  responses cannot complete a cancelled flow.
 
 ### OpenAI Codex — ChatGPT subscription provider (BST-1356)
 

@@ -315,6 +315,18 @@ Example GitHub Actions integration:
     path: apps/desktop/test-results/
 ```
 
+### Window focus in the harness (BST-1864)
+The harness window is `focusable: false` and never shown (test mode), so it never
+takes OS focus, and Playwright forces `document.hasFocus()` true on every page.
+The `windowFocus` preload bridge reports the NATIVE window (always unfocused
+here), so `createLaunchOptions` disables it by default through
+`BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES=windowFocus` and every spec keeps the
+focused app it has always run with. A spec that tests the bridge sets that
+variable to `''` before launch (an explicit value wins), as
+`window-focus-seen.desktop.test.ts` does; it synthesizes the OS `focus` event
+with `BrowserWindow.emit`. Keyboard focus in a child `WebContentsView` cannot be
+reproduced under Playwright's forced focus; that is covered by unit tests.
+
 ### Real Backgrounding Regression Coverage
 `pnpm test:e2e:backgrounding` is the explicit production-path regression run for
 the crash-repro tests that require Chromium to throttle a backgrounded renderer.

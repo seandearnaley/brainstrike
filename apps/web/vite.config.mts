@@ -34,11 +34,13 @@ const reactTransformExclude = [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/];
 
 // Keep config concise; avoid noisy debug printing in dev
 
-// The Tailwind CSS content paths are now managed by `tailwind.config.js`.
-// The @tailwindcss/vite plugin will automatically pick it up.
+// Tailwind CSS v4 is configured CSS-first in the stylesheets; there is no
+// tailwind.config.js (removed in BST-1734).
 
 const {
+  buildIdPlugin,
   createCspQualifiedEvalWarningFilter,
+  envBuildIdSource,
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
@@ -48,10 +50,12 @@ const {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
+  gitHeadBuildIdSource,
   isBrowserEventsModule,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
+  preserveWorkerEntryPlugin,
 } = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
@@ -185,6 +189,14 @@ export default defineConfig({
     },
   },
   plugins: [
+    // __BRAINSTRIKE_BUILD_ID__: a redeploy must yield a new id, so the deployment id
+    // leads; a plain `vite build` falls back to the commit it was built from.
+    buildIdPlugin([
+      envBuildIdSource('VERCEL_DEPLOYMENT_ID'),
+      envBuildIdSource('VERCEL_GIT_COMMIT_SHA'),
+      envBuildIdSource('GITHUB_SHA'),
+      gitHeadBuildIdSource(__dirname),
+    ]),
     canvasFrameShellPlugin(),
     fullReloadOnCompilerHotspots(),
     wasm(),
@@ -195,7 +207,7 @@ export default defineConfig({
       // Ensure consistent development transforms for React Compiler
       jsxRuntime: 'automatic',
     }),
-    tailwindcss(), // Automatically finds and uses the root tailwind.config.js
+    tailwindcss(),
     viteStaticCopy({
       targets: [
         // PGlite WASM (existing). Conditionally included via spread so the
@@ -388,7 +400,7 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [browserWorkerProcessExitCodePlugin()],
+    plugins: () => [preserveWorkerEntryPlugin(), browserWorkerProcessExitCodePlugin()],
   },
 });
 

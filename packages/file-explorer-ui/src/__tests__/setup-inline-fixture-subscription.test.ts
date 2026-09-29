@@ -20,6 +20,11 @@ interface TestRuntimeHostBridge {
 
 type TestWindowWithRuntimeHosts = Window & {
   chunkingHost?: TestRuntimeHostBridge;
+  electronAPI?: {
+    db: {
+      query: unknown;
+    };
+  };
   embeddingHost?: TestRuntimeHostBridge;
 };
 
@@ -394,10 +399,10 @@ describe('setup-inline-fixture-subscription', () => {
           },
         ],
       });
-    window.electronAPI = {
-      db: { query },
-    } as unknown as NonNullable<Window['electronAPI']>;
     const debugWindow = window as TestWindowWithRuntimeHosts;
+    debugWindow.electronAPI = {
+      db: { query },
+    };
     debugWindow.chunkingHost = {
       getStatus: vi.fn(async () => ({
         active: false,

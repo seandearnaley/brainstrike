@@ -30,7 +30,12 @@
     // these patterns at depth 1 — widening to `**` reinstates the fallback.
     ".": {
       "entry": ["*.{js,mjs,cjs,ts,mts,cts}"],
-      "project": ["*.{js,mjs,cjs,ts,mts,cts}"]
+      "project": ["*.{js,mjs,cjs,ts,mts,cts}"],
+      "ignoreDependencies": [
+        // scripts/react-compiler-inventory.mjs imports transformSync directly.
+        // CLI scripts are outside the root graph; keep the exception root-only.
+        "oxc-transform-react"
+      ]
     },
     // Define workspaces based on the Turborepo setup
     "apps/site": {
@@ -122,6 +127,7 @@
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
+        "@effect/language-service", // Effect language-service plugin name, not a package; see packages/effect-kit
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/renderer/styles.css (knip does not parse CSS)
         "xvfb-maybe", // Script binary in test:e2e* (invoked through scripts/run-env.mjs, which knip cannot resolve) + desktop-e2e.yml
@@ -194,6 +200,12 @@
       "typescript": {
         "config": "tsconfig.json"
       }
+    },
+    "packages/assistant-contract": {
+      "ignoreDependencies": [
+        // Effect language-service plugin name, not a package; see packages/effect-kit.
+        "@effect/language-service"
+      ]
     },
     "packages/assistant-data": {
       "project": ["src/**/*.{ts,tsx}"],
@@ -431,7 +443,9 @@
         // test lane needs no built dist of @brainstrike/config. knip resolves that
         // to a file, not to the package name, so it cannot credit the declaration.
         // The declaration still states the real workspace dependency; do not drop it.
-        "@brainstrike/config"
+        "@brainstrike/config",
+        // Effect language-service plugin name, not a package; see packages/effect-kit.
+        "@effect/language-service"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -454,6 +468,20 @@
         // Exact-pinned official runner provenance. The bounded conformance lane
         // consumes its CLI/package entry rather than importing it from src/.
         "@modelcontextprotocol/conformance"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/effect-kit": {
+      "project": ["src/**/*.ts"],
+      "ignore": ["**/__tests__/**", "**/*.test.ts"],
+      "ignoreDependencies": [
+        // The Effect language-service tsconfig plugin NAME, not a package: the
+        // pinned `@effect/tsgo` binary resolves it in its dedicated diagnostics
+        // mode (docs/agents/effect-boundary.md § "Effect diagnostics"). Every
+        // Effect package carries the same entry.
+        "@effect/language-service"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -487,7 +515,9 @@
       ],
       "ignoreDependencies": [
         // Bundled via tsup.config.ts noExternal; wasm subpath declared in src/types/wasm.d.ts
-        "tiktoken"
+        "tiktoken",
+        // Effect language-service plugin name, not a package; see packages/effect-kit.
+        "@effect/language-service"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -508,6 +538,13 @@
     },
     "packages/agent": {
       "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": [
+        // Hosted bundling inlines workspace logging/tokenization. Their native
+        // loaders remain external and resolve from agent, not their source owner.
+        // verify-hosted-web-bundle loads that real artifact; manifest tests pin ownership.
+        "pino",
+        "tiktoken"
+      ],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",

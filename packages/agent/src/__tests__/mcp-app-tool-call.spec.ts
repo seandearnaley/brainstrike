@@ -75,6 +75,7 @@ async function compose(options: {
     planModeActive: options.planModeActive ?? false,
     preserveExecuteBackedWebSearch: undefined,
     provider: 'openai',
+    remembered: () => undefined,
     resolvedToolResultBudget: resolveScaledToolResultBudget(131_072),
     toolOutputArtifactStore: undefined,
     workspaceSkills: undefined,
@@ -495,7 +496,7 @@ describe('MCP Apps ordinary runtime adapter', () => {
     expect(preToolUse).toHaveBeenCalledOnce();
     expect(postToolUse).toHaveBeenCalledOnce();
     expect(durationRecord).toHaveBeenCalledOnce();
-    expect(durationRecord).toHaveBeenCalledWith('mcp-app-1', expect.any(Number));
+    expect(durationRecord).toHaveBeenCalledWith('mcp-app-1', expect.any(Number), undefined);
     expect(telemetry).toHaveBeenCalledTimes(1);
     expect(telemetry).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'completed', toolName: ORIGINAL_TOOL_ID })

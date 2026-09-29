@@ -381,6 +381,14 @@ export interface TreeTableProps<T> {
   /** Row height (fixed number or function) */
   rowHeight?: RowHeightConfig<T>;
   /**
+   * Pixels at the top of the scroll element that a row brought into view
+   * (keyboard focus, `revealNode`) must clear — e.g. an in-flow sticky
+   * section header inside a shared scroller. TanStack Virtual's option of the
+   * same name; forwarded to the virtualizer and honoured by the shared-scroller
+   * nearest-edge path. Defaults to 0.
+   */
+  scrollPaddingStart?: number;
+  /**
    * Shared-scroller mode (forest sections): virtualize against this ancestor
    * scroll element instead of the internal viewport. The viewport becomes a
    * non-scrolling spacer (overflow-visible, natural height) and the

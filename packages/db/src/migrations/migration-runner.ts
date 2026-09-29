@@ -14,7 +14,7 @@ export interface Migration {
 }
 
 export class MigrationRunner {
-  private static MIGRATION_TABLE = '_migrations';
+  private static readonly MIGRATION_TABLE = '_migrations';
   private readonly logger = createLogger('MigrationRunner');
 
   constructor(private readonly db: PGlite) {}

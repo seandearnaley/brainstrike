@@ -3,6 +3,7 @@ import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-c
 import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, describe, expect, it } from 'vitest';
+import type { AssistantRunEventDisplayStatus } from '../assistant-run-event-derivation';
 import {
   deriveAssistantRunEventRows,
   isAlwaysVisibleRunEvent,
@@ -19,10 +20,13 @@ beforeAll(() => {
   } as never;
 });
 
-function renderTimeline(data: Record<string, unknown>) {
+function renderTimeline(
+  data: Record<string, unknown>,
+  statusOverride?: AssistantRunEventDisplayStatus
+) {
   return render(
     <TooltipProvider>
-      <AssistantRunTimeline data={data} />
+      <AssistantRunTimeline data={data} {...(statusOverride ? { statusOverride } : {})} />
     </TooltipProvider>
   );
 }
@@ -200,6 +204,21 @@ describe('isAlwaysVisibleRunEvent', () => {
     timestamp: ts,
   });
 
+  it('forces the delegation ledger row to stay visible (settled 2026-09-15)', () => {
+    expect(isAlwaysVisibleRunEvent(event('delegation.ledger', 'running'))).toBe(true);
+    expect(isAlwaysVisibleRunEvent(event('delegation.ledger', 'completed'))).toBe(true);
+  });
+
+  it('forces the budget-exhaustion breadcrumb to stay visible (settled 2026-09-15)', () => {
+    expect(isAlwaysVisibleRunEvent(event('delegation.budget.exhausted', 'info'))).toBe(true);
+  });
+
+  it('keeps the resolved permission gate informational, NOT always visible (2026-09-15)', () => {
+    // Debug evidence for why a card appeared; the approval card itself is the
+    // user-facing surface, so this row stays behind Developer detail.
+    expect(isAlwaysVisibleRunEvent(event('permission.gate.resolved', 'completed'))).toBe(false);
+  });
+
   it('forces run-level failure and cancellation rows to stay visible', () => {
     expect(isAlwaysVisibleRunEvent(event('run.failed', 'failed'))).toBe(true);
     expect(isAlwaysVisibleRunEvent(event('run.cancelled', 'cancelled'))).toBe(true);
@@ -224,12 +243,29 @@ describe('isAlwaysVisibleRunEvent', () => {
     expect(isAlwaysVisibleRunEvent(event('tool.approval.requested', 'running'))).toBe(true);
   });
 
+  it('forces a swallowed compaction failure to stay visible (BST-1737)', () => {
+    // The pre-request compaction pass threw, so the turn went to the provider
+    // over budget. Nothing cards that: the user's only other symptom is a later
+    // provider context-overflow error naming an unrelated cause. Without this
+    // membership the row is hidden at default detail and the kind reports
+    // nothing to the user it exists for.
+    expect(isAlwaysVisibleRunEvent(event('compaction.failed', 'failed'))).toBe(true);
+  });
+
   it('forces a skipped MCP server to stay visible (BST-1602)', () => {
     // The cleanest case in this list: the tool never entered the run's map, so
     // NOTHING cards it. The "Tool execution failed." card the user does see
     // belongs to the model's follow-up call on the missing tool and names the
     // wrong cause.
     expect(isAlwaysVisibleRunEvent(event('mcp.tools.unavailable', 'failed'))).toBe(true);
+  });
+
+  it('forces a dropped provider setting to stay visible (BST-1701)', () => {
+    // The provider answered normally after silently discarding part of the
+    // request (a user-set `temperature` on a model that rejects one), so the
+    // turn looks healthy and nothing cards it. Hidden at default detail, this
+    // row would report the silent degradation to nobody.
+    expect(isAlwaysVisibleRunEvent(event('provider.request.warned', 'failed'))).toBe(true);
   });
 
   it('does not force background bookkeeping or already-carded tool failures', () => {
@@ -851,6 +887,113 @@ describe('tool.approval.requested resolution (BST-1402)', () => {
 
   it('renders the pause label', () => {
     renderTimeline(approval('call-1', '2026-06-20T00:00:00.000Z'));
-    expect(screen.getByText('Awaiting your approval')).toBeTruthy();
+    expect(screen.getByText('Approval requested')).toBeTruthy();
+  });
+});
+
+describe('interrupted rule (settled owner, no pending pause)', () => {
+  const settled = { reason: 'stop', type: 'complete' } as const;
+  const started = (id: string, toolCallId: string) => ({
+    id,
+    kind: 'tool.started',
+    label: 'Tool started',
+    metadata: { toolCallId },
+    status: 'running',
+    timestamp: '2026-09-07T00:00:00.000Z',
+  });
+  const approval = (id: string, toolCallId: string) => ({
+    id,
+    kind: 'tool.approval.requested',
+    label: 'Awaiting your approval',
+    metadata: { toolCallId, toolName: 'brainstrike.executeCommand' },
+    runId: 'run-a',
+    status: 'running',
+    timestamp: '2026-09-07T00:00:00.000Z',
+  });
+
+  it('resolves an unpaired running row to interrupted when its message has settled', () => {
+    const event = started('s1', 'call-1');
+    const messages = [{ parts: [runEventPart(event)], role: 'assistant', status: settled }];
+    expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('interrupted');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('interrupted');
+  });
+
+  it('leaves an unpaired running row running while its message is running or requires action', () => {
+    const event = started('s1', 'call-1');
+    for (const status of [{ type: 'running' }, { reason: 'interrupt', type: 'requires-action' }]) {
+      const messages = [{ parts: [runEventPart(event)], role: 'assistant', status }];
+      expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('running');
+      expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('running');
+    }
+  });
+
+  it('never guesses: a message without a status leaves the row running', () => {
+    const event = started('s1', 'call-1');
+    const messages = [{ parts: [runEventPart(event)], role: 'assistant' }];
+    expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('running');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('running');
+  });
+
+  it('keeps a settled pause row running while a pending pause card for that call exists (rediscovered on reload)', () => {
+    const event = approval('a1', 'call-1');
+    const messages = [
+      { parts: [runEventPart(event)], role: 'assistant', status: settled },
+      {
+        parts: [
+          {
+            data: { runId: 'run-a', toolCallId: 'call-1', toolName: 'brainstrike.executeCommand' },
+            name: 'brainstrike.tool-approval',
+            type: 'data',
+          },
+        ],
+        role: 'assistant',
+        status: settled,
+      },
+    ];
+    expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('running');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('running');
+  });
+
+  it('resolves an abandoned pause (settled, no card, no terminal) to interrupted', () => {
+    const event = approval('a1', 'call-1');
+    const messages = [{ parts: [runEventPart(event)], role: 'assistant', status: settled }];
+    expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('interrupted');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('interrupted');
+  });
+
+  it('a pending pause card for ANOTHER call does not keep this pause alive', () => {
+    const event = approval('a1', 'call-1');
+    const messages = [
+      { parts: [runEventPart(event)], role: 'assistant', status: settled },
+      {
+        parts: [
+          {
+            data: { runId: 'run-a', toolCallId: 'call-2', toolName: 'brainstrike.executeCommand' },
+            name: 'brainstrike.tool-approval',
+            type: 'data',
+          },
+        ],
+        role: 'assistant',
+        status: settled,
+      },
+    ];
+    expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('interrupted');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('interrupted');
+  });
+
+  it('renders an interrupted row static, with the approval wording for a pause', () => {
+    renderTimeline({ ...approval('a1', 'call-1') }, 'interrupted');
+    expect(screen.getByLabelText('Interrupted')).toBeInTheDocument();
+    expect(screen.getByText('Approval was pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+  });
+
+  it('renders an interrupted non-approval row with its own label, not the approval wording', () => {
+    renderTimeline({ ...started('s1', 'call-1') }, 'interrupted');
+    expect(screen.getByLabelText('Interrupted')).toBeInTheDocument();
+    expect(screen.getByText('Tool started')).toBeInTheDocument();
+    expect(screen.queryByText('Approval was pending')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(0);
   });
 });

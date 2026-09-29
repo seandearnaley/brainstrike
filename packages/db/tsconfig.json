@@ -16,7 +16,12 @@
       "node"
     ],
     "strictNullChecks": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
   },
   "include": [
     "src/**/*.ts",
@@ -28,6 +33,9 @@
     "node_modules"
   ],
   "references": [
+    {
+      "path": "../effect-kit"
+    },
     {
       "path": "../types"
     },

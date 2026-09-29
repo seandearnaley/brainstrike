@@ -10,6 +10,9 @@ export const PGVECTOR_EXTENSION_PRESENCE_QUERY =
 export async function migrate(db: PGlite): Promise<void> {
   const result = await runMigrations(db);
   if (!result.success) {
-    throw new Error(result.error ?? 'Drizzle migration failed without an error message.');
+    // `cause` keeps the original error (and its SQLSTATE) reachable for boot-failure classification.
+    throw new Error(result.error ?? 'Drizzle migration failed without an error message.', {
+      cause: result.cause,
+    });
   }
 }

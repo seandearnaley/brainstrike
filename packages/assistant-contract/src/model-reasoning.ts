@@ -51,6 +51,7 @@ export type ReasoningControlsAvailability =
       family: 'anthropic';
       efforts: readonly AnthropicEffort[];
       defaultEffort?: AnthropicEffort | undefined;
+      mandatory?: boolean | undefined;
     }
   | {
       /**
@@ -230,6 +231,11 @@ function resolveOpenRouterControls(
     : modelId === undefined
       ? undefined
       : findDeclaredLlmModel('openrouter', modelId)?.reasoning;
+  // OpenRouter routes must declare their own ladder. Direct OpenAI defaults
+  // do not establish capabilities for an undeclared routed model.
+  if (!declared) {
+    return { available: false, reason: 'no-reasoning-controls' };
+  }
   return resolveOpenAiFamilyControls('openrouter', declared);
 }
 
@@ -251,6 +257,9 @@ function resolveAnthropicControls(modelId: string | undefined): ReasoningControl
     defaultEffort: model.anthropicReasoning.defaultEffort,
     efforts: model.anthropicReasoning.supportedEfforts,
     family: 'anthropic',
+    // BST-1706: always-on rows (Fable) carry `mandatory: true` so the toggle
+    // suppresses itself; toggleable rows omit it, as the OpenAI family does.
+    ...(model.anthropicReasoning.mandatory ? { mandatory: true } : {}),
   };
 }
 

@@ -1,7 +1,7 @@
 import {
   createFileTreeFromStructure,
   createNestedDirectoryStructure,
-} from '@brainstrike/test-utils';
+} from '@brainstrike/file-tree-test-fixtures';
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 

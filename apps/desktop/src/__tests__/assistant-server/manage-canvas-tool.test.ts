@@ -175,6 +175,41 @@ describe('runManageCanvas', () => {
     ).resolves.toEqual({ error: 'ambiguous_match', ok: false });
   });
 
+  it('refuses an empty create with a hint to create when the content is ready, and writes nothing', async () => {
+    const db = createFakeDb();
+    // The verifier run 6/7 shape: a titled shell created "to receive the report".
+    const refused = await run(db, {
+      action: 'create',
+      html: '<html><head><title>Report</title></head><body></body></html>',
+      title: 'Findings report',
+    });
+    expect(refused).toEqual({
+      error: 'empty_document',
+      hint: expect.stringContaining('content is ready'),
+      ok: false,
+    });
+    // Mutation: checking AFTER the insert (or not at all) leaves a version row.
+    expect(db.versions).toEqual([]);
+  });
+
+  it('leaves update and rewrite unchanged: an empty replacement and an empty rewrite still version', async () => {
+    const db = createFakeDb();
+    const created = await run(db, { action: 'create', html: '<p>draft</p>', title: 'Draft' });
+    if (!('canvasId' in created)) {
+      throw new Error('expected create result');
+    }
+    // update's empty newString is the documented "delete the match" — a CREATE
+    // rule must not leak into it.
+    await expect(
+      run(db, { action: 'update', canvasId: created.canvasId, newString: '', oldString: 'draft' })
+    ).resolves.toEqual({ canvasId: created.canvasId, version: 2 });
+    // rewrite to an empty document is a deliberate act on a document the user
+    // already has, and stays reversible through the version stepper.
+    await expect(
+      run(db, { action: 'rewrite', canvasId: created.canvasId, html: '<p></p>' })
+    ).resolves.toEqual({ canvasId: created.canvasId, version: 3 });
+  });
+
   it('returns a structured error when there is no active thread or resource', async () => {
     const db = createFakeDb();
     await expect(run(db, { action: 'list' }, {} as RuntimeData)).resolves.toEqual({

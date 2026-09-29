@@ -6,6 +6,7 @@ import type {
   DesktopIpcRegistry,
 } from '../../platform/desktop-ipc-registry';
 import type { Contract } from '../../platform/ipc-contract';
+import { MANUAL_PRODUCTION_REGISTRATIONS } from '../helpers/manual-ipc-inventory';
 
 /**
  * BST-1648 step 5 — the GLOBAL IPC manifest test. `createDesktopIpcRegistry`
@@ -346,13 +347,31 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
 
   it('registers every contract invoke channel exactly once, as an invoke, and never a push event', () => {
     const contracts = discoverContracts();
-    expect(contracts.map(({ file }) => file)).toEqual([
+    expect([...new Set(contracts.map(({ file }) => file))]).toEqual([
+      'changes.contract.ts',
       'clipboard.contract.ts',
+      'command-sessions.contract.ts',
       'context-files.contract.ts',
+      'database.contract.ts',
+      'file-system.contract.ts',
+      'forge.contract.ts',
+      'git.contract.ts',
+      'mcp.contract.ts',
+      'notes-vault.contract.ts',
       'skills.contract.ts',
+      'storage-preferences.contract.ts',
+      'terminal.contract.ts',
       'user-commands.contract.ts',
       'user-personas.contract.ts',
+      'window-focus.contract.ts',
+      'worktrees.contract.ts',
     ]);
+    expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(6);
+    expect(contracts.filter(({ file }) => file === 'file-system.contract.ts')).toHaveLength(2);
+    expect(contracts.filter(({ file }) => file === 'mcp.contract.ts')).toHaveLength(6);
+    expect(contracts.filter(({ file }) => file === 'storage-preferences.contract.ts')).toHaveLength(
+      4
+    );
     const registeredInvokes = new Map(
       union.filter((entry) => entry.kind === 'invoke').map((entry) => [entry.channel, entry])
     );
@@ -368,6 +387,44 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
         expect(registeredInvokes.get(spec.channel), `${exportName}.${key}`).toBeDefined();
       }
     }
+  });
+
+  it('matches the contract registry plus the explicit manual production inventory exactly', () => {
+    const contractRegistrations = [
+      ...new Map(
+        discoverContracts()
+          .flatMap(({ contract }) => Object.values(contract))
+          .filter((spec) => spec.kind === 'invoke')
+          .map((spec) => [spec.channel, { channel: spec.channel, kind: 'invoke' as const }])
+      ).values(),
+    ];
+    const expected = [...contractRegistrations, ...MANUAL_PRODUCTION_REGISTRATIONS]
+      .map(({ channel, kind }) => ({ channel, kind }))
+      .sort((left, right) => left.channel.localeCompare(right.channel));
+    const actual = union
+      .map(({ channel, kind }) => ({ channel, kind }))
+      .sort((left, right) => left.channel.localeCompare(right.channel));
+
+    expect(new Set(expected.map(({ channel }) => channel)).size).toBe(expected.length);
+    expect(actual).toEqual(expected);
+  });
+
+  it("publishes the main window's native focus and blur to its renderer on the window-focus push channel (BST-1864)", () => {
+    const [mainWindow] = mockBrowserWindow.mock.instances as unknown as Array<{
+      on: MockOnFn;
+      webContents: { send: MockOnFn };
+    }>;
+    expect(mainWindow).toBeDefined();
+    if (!mainWindow) {
+      return;
+    }
+    const send = mainWindow.webContents.send;
+    send.mockClear();
+
+    fireHandlersRegisteredSoFar(mainWindow.on, 'blur');
+    expect(send).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.windowFocus.changed, false);
+    fireHandlersRegisteredSoFar(mainWindow.on, 'focus');
+    expect(send).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.windowFocus.changed, true);
   });
 
   it('registers only DESKTOP_IPC_CHANNELS manifest literals', () => {

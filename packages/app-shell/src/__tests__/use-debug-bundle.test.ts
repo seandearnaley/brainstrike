@@ -1,9 +1,11 @@
 import { renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DebugBundleDatabase } from '../diagnostics/debug-bundle';
 import { useDebugBundleBinding } from '../hooks/use-debug-bundle';
 
 const useOptionalPGliteDatabaseMock = vi.hoisted(() => vi.fn());
+const buildThreadPackMock = vi.hoisted(() => vi.fn().mockResolvedValue('{}'));
+vi.mock('../diagnostics/thread-debug-pack', () => ({ buildThreadDebugPack: buildThreadPackMock }));
 
 vi.mock('@brainstrike/db', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -35,6 +37,38 @@ function makeStubDb(): DebugBundleDatabase {
 }
 
 describe('useDebugBundleBinding', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'desktopDiagnostics');
+  });
+
+  it('binds full exports to the current selected thread after navigation', async () => {
+    const db = makeStubDb();
+    useOptionalPGliteDatabaseMock.mockReturnValue(db);
+    const { result, rerender } = renderHook(({ threadId }) => useDebugBundleBinding(threadId), {
+      initialProps: { threadId: 'root' },
+    });
+    await result.current?.buildThreadPack?.();
+    // No desktop diagnostics bridge in this environment: the pack is told so.
+    expect(buildThreadPackMock).toHaveBeenLastCalledWith(db, 'root', null);
+    rerender({ threadId: 'child' });
+    await result.current?.buildThreadPack?.();
+    expect(buildThreadPackMock).toHaveBeenLastCalledWith(db, 'child', null);
+  });
+
+  it('hands the pack the desktop diagnostics bridge when the preload exposes both host readers', async () => {
+    const db = makeStubDb();
+    useOptionalPGliteDatabaseMock.mockReturnValue(db);
+    const bridge = {
+      getSnapshot: vi.fn(),
+      readMainLogWindow: vi.fn(),
+      readProcessCounters: vi.fn(),
+    };
+    Object.assign(window, { desktopDiagnostics: bridge });
+    const { result } = renderHook(() => useDebugBundleBinding('thread-1'));
+    await result.current?.buildThreadPack?.();
+    expect(buildThreadPackMock).toHaveBeenLastCalledWith(db, 'thread-1', bridge);
+  });
+
   it('is null without a db handle', () => {
     useOptionalPGliteDatabaseMock.mockReturnValue(null);
     const { result } = renderHook(() => useDebugBundleBinding('thread-1'));

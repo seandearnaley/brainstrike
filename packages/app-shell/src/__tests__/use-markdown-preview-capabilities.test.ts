@@ -42,11 +42,27 @@ describe('useMarkdownPreviewCapabilitiesValue', () => {
     expect(openExternal).not.toHaveBeenCalled();
   });
 
-  it('falls back to window.open on web and reports popup blocking', async () => {
+  it('falls back to window.open on web', async () => {
+    // A null return is NOT a popup-blocked signal here: per the HTML standard's
+    // window-open steps, `noopener` with a `_blank` target returns null even
+    // when the window opened. Reading it as failure toasted "Could not open
+    // link" on every successful web link. `noopener` stays for isolation. A
+    // blocked popup also returns null rather than throwing, so blocking is
+    // unobservable on this path; accepted, since these run under a user
+    // gesture. The throw case below is defense in depth, not the usual signal.
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
     const { result } = renderHook(() => useMarkdownPreviewCapabilitiesValue());
     const r = await result.current.openExternalLink('https://example.com');
     expect(open).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer');
+    expect(r.ok).toBe(true);
+  });
+
+  it('reports a window.open throw as a failure', async () => {
+    vi.spyOn(window, 'open').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const { result } = renderHook(() => useMarkdownPreviewCapabilitiesValue());
+    const r = await result.current.openExternalLink('https://example.com');
     expect(r.ok).toBe(false);
   });
 

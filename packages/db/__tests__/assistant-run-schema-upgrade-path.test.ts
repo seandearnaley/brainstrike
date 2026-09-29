@@ -138,9 +138,10 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_answer_at_i
   WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported');
 `;
 
-/** The relations 117 and 118 own, and therefore the ones drift can hide in. */
+/** The exact relations 117/118 own. Later migrations (133 background tasks)
+ * must not be mistaken for changes made by the historical bootstrap. */
 const OWNED_RELATION_PREDICATE = `(
-  name LIKE 'mastra\\_%'
+  name IN ('mastra_threads', 'mastra_messages', 'mastra_resources', 'mastra_observational_memory', 'mastra_vectors', 'mastra_workflow_snapshot')
   OR name IN ('brainstrike_assistant_thread_runs', 'brainstrike_assistant_run_events')
 )`;
 
@@ -279,9 +280,15 @@ describe('migrations 117/118: a bootstrapped database upgrades to the fresh shap
       const before = await snapshotOwnedCatalog(db);
       await migrate(db);
       expect(await snapshotOwnedCatalog(db)).toEqual(freshCatalog);
-      // The bootstrap's own shape already matched, so this era proves the
-      // migrations are a no-op where they must be — not that they repair.
-      expect(before).toEqual(freshCatalog);
+      // The bootstrap's own shape already matched everything 117/118 own, so
+      // this era proves those migrations are a no-op where they must be — not
+      // that they repair. Migration 140 is the one LATER change to a relation
+      // they own: it appends `generation_run_id`, which no bootstrap era had,
+      // so the pre-migration catalog differs by exactly that column.
+      expect(before).toEqual({
+        ...freshCatalog,
+        columns: freshCatalog.columns.filter((entry) => !entry.includes('generation_run_id')),
+      });
     } finally {
       await db.close();
     }

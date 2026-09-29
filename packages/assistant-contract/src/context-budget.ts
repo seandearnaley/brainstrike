@@ -47,3 +47,49 @@ export function deriveEffectiveInputBudget(
   }
   return budget;
 }
+
+/**
+ * The catalog facts the agent-loop input limit is derived from. Matches both
+ * static registry rows and runtime-discovered local model definitions.
+ */
+export interface AgentLoopBudgetModelDefinition {
+  readonly contextWindow: number;
+  readonly maxOutputTokens?: number;
+}
+
+/**
+ * THE derivation of `agentLoop.inputTokenLimit` when the user has not pinned
+ * one — the ONE-DERIVATION invariant in docs/agents/assistant-persistence.md.
+ * The renderer's `buildAgentLoopSettings` and desktop compaction's fallback
+ * for a run carrying no `agentLoop` both call this; never re-derive it.
+ *
+ * OpenRouter reserves `requestMaxOutputTokens`: the output limit the run's
+ * request actually sends, already resolved by the request path
+ * (`buildEffectiveModelSettings` in the renderer, `buildModelSettingsOption`
+ * on desktop — both size it for the run's reasoning state). There is NO
+ * default here: one would be a second derivation of that window, so a
+ * missing or malformed value throws. Every other provider reserves the
+ * model's catalog maximum and ignores the argument. Throws rather than
+ * clamping.
+ */
+export function deriveAgentLoopInputTokenLimit(
+  model: AgentLoopBudgetModelDefinition,
+  providerId: string | null | undefined,
+  requestMaxOutputTokens: number | undefined
+): number {
+  if (providerId !== 'openrouter') {
+    return deriveEffectiveInputBudget(model.contextWindow, model.maxOutputTokens);
+  }
+  if (
+    !(
+      typeof requestMaxOutputTokens === 'number' &&
+      Number.isSafeInteger(requestMaxOutputTokens) &&
+      requestMaxOutputTokens > 0
+    )
+  ) {
+    throw new Error(
+      `OpenRouter input budget requires the positive integer output limit the request sends, got ${requestMaxOutputTokens}`
+    );
+  }
+  return deriveEffectiveInputBudget(model.contextWindow, requestMaxOutputTokens);
+}

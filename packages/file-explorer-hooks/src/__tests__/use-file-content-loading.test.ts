@@ -1,6 +1,6 @@
 import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { createFileNode } from '@brainstrike/test-utils';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
 import { act, renderHook } from '@testing-library/react';

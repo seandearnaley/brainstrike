@@ -2,6 +2,12 @@ import { cn } from '@brainstrike/ui';
 import { type ComponentPropsWithoutRef, useId } from 'react';
 
 interface BrainstrikeThinkingMarkProps extends Omit<ComponentPropsWithoutRef<'svg'>, 'children'> {
+  /**
+   * False for the static (finished) rendering. Drives `data-live`, the one
+   * selector the hydration-liveness invariant reads: `[data-live="true"]`
+   * must be empty on a reloaded thread with nothing pending.
+   */
+  live?: boolean;
   testId?: string;
 }
 
@@ -9,6 +15,13 @@ interface AssistantThinkingIndicatorProps
   extends Omit<ComponentPropsWithoutRef<'span'>, 'children'> {
   label?: string;
   markClassName?: string;
+  /**
+   * False when the caller already renders its own live mark beside this label
+   * (BST-1681: the step row's state glyph). Drops the mark entirely — so the
+   * row carries exactly ONE `[data-live="true"]` element — while keeping the
+   * indicator's test id, `data-args-streaming` and shimmer label.
+   */
+  showMark?: boolean;
   showText?: boolean;
   textClassName?: string;
 }
@@ -19,6 +32,7 @@ function toSvgId(prefix: string, reactId: string): string {
 
 export function BrainstrikeThinkingMark({
   className,
+  live = true,
   testId = 'assistant-thinking-mark',
   ...props
 }: BrainstrikeThinkingMarkProps) {
@@ -29,7 +43,12 @@ export function BrainstrikeThinkingMark({
   return (
     <svg
       aria-hidden="true"
-      className={cn('bs-thinking-mark size-4', className)}
+      className={cn(
+        'bs-thinking-mark size-4',
+        live ? undefined : 'bs-thinking-mark-static',
+        className
+      )}
+      data-live={live ? 'true' : 'false'}
       data-testid={testId}
       data-tone="greyscale"
       focusable="false"
@@ -77,6 +96,7 @@ export function AssistantThinkingIndicator({
   className,
   label = 'Thinking',
   markClassName,
+  showMark = true,
   showText = true,
   textClassName,
   ...props
@@ -87,7 +107,7 @@ export function AssistantThinkingIndicator({
       data-testid="assistant-thinking-indicator"
       {...props}
     >
-      <BrainstrikeThinkingMark className={markClassName} />
+      {showMark ? <BrainstrikeThinkingMark className={markClassName} /> : null}
       {showText ? <span className={cn('bs-thinking-shimmer', textClassName)}>{label}</span> : null}
     </span>
   );

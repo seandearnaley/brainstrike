@@ -30,3 +30,15 @@ export function createListingOnlyModel(): LanguageModel {
     supportedUrls: {},
   };
 }
+
+/** Discovery constructs agents but cannot admit an executed child configuration. */
+export function isListingOnlyModel(model: unknown): boolean {
+  return (
+    typeof model === 'object' &&
+    model !== null &&
+    'provider' in model &&
+    model.provider === 'brainstrike-listing-only' &&
+    'modelId' in model &&
+    model.modelId === 'brainstrike-listing-only'
+  );
+}

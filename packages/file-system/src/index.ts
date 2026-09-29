@@ -11,6 +11,7 @@ export * from './dev-fixture-adapter.js';
 export * from './dev-fixture-types.js';
 export * from './errors.js';
 export * from './factory.js';
+export * from './file-node-handles.js';
 // Metadata cache for Electron adapter (BST-146)
 export * from './metadata-cache.js';
 // Testing utilities

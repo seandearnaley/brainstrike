@@ -5,19 +5,26 @@
  * without any in-memory stream handle — so it works after a process
  * restart / renderer reload given only the thread context (BST-1084/D1).
  *
- * `listSuspendedMastraRuns` is the sole public entry point (re-exported from
+ * `listSuspendedMastraRuns` and `listSuspendedChildContinuation` are public (re-exported from
  * `packages/agent/src/index.ts`); `resolveDiscoveredApprovalToolName` is also
  * exported because `attempt-legs.ts`'s `readResumedApprovalToolCall` needs
  * the same registered-to-original tool-name mapping.
  *
  * See docs/agents/assistant-runtime.md and docs/agents/mastra-boundary.md.
  */
+import type { DelegatedToolActionIdentity } from '@brainstrike/assistant-contract';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
-import type { Agent } from '@mastra/core/agent';
+import { Agent } from '@mastra/core/agent';
+import { Mastra } from '@mastra/core/mastra';
+import type { MastraCompositeStore } from '@mastra/core/storage';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import type { MastraAgentRuntimeOptions } from './agent-runtime';
 import { initializeMastraRuntime, withRuntimeDerivedStreamOptions } from './agent-streaming';
+import {
+  type DelegatedSuspensionResolver,
+  discoverDelegatedToolPause,
+} from './delegated-suspension-discovery';
 import { createMastraAgentError } from './mastra-agent-error';
 import { assertNoUnsupportedDirectStreamOptions } from './runtime-assembly/stream-options';
 import { resolveRuntimeConfiguration } from './runtime-configuration';
@@ -26,6 +33,8 @@ const logger = createLogger('MastraAgent');
 
 export interface DiscoveredSuspendedApproval {
   readonly args?: unknown;
+  readonly continuationId?: string;
+  readonly delegation?: DelegatedToolActionIdentity;
   readonly runId: string;
   /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
   readonly suspendedAt: string;
@@ -42,6 +51,8 @@ export interface DiscoveredSuspendedApproval {
  * mapped exactly like approvals.
  */
 export interface DiscoveredSuspendedPause {
+  readonly continuationId?: string;
+  readonly delegation?: DelegatedToolActionIdentity;
   readonly runId: string;
   readonly suspendedAt: string;
   readonly suspendPayload?: unknown;
@@ -107,45 +118,76 @@ type SuspendedRunsForClassification = Awaited<ReturnType<Agent['listSuspendedRun
  * two cards for one call. Only a call missing its ids (e.g. a
  * delegation-thread run) is tolerated + skipped.
  */
-function classifySuspendedToolCalls(
+type ResolveDelegation = (
+  runId: string,
+  toolCall: SuspendedRunsForClassification[number]['toolCalls'][number]
+) => ReturnType<typeof discoverDelegatedToolPause>;
+
+async function resolveDiscoveredCall(
+  run: SuspendedRunsForClassification[number],
+  original: SuspendedRunsForClassification[number]['toolCalls'][number],
+  resolveDelegation: ResolveDelegation | undefined
+) {
+  const delegated = original.toolCallId
+    ? await resolveDelegation?.(run.runId, original)
+    : undefined;
+  const toolCall = delegated?.toolCall ?? original;
+  const suspendedAt = (delegated?.suspendedAt ?? run.suspendedAt).toISOString();
+  const transportToolCallId = original.toolCallId;
+  const decision = delegated ? { delegation: delegated.delegation } : {};
+  if (!(transportToolCallId && toolCall.toolCallId && toolCall.toolName)) {
+    logger.debug('skipping suspended tool call without ids', {
+      code: 'mastra_agent_suspended_run_skipped',
+      requiresApproval: toolCall.requiresApproval,
+      runId: run.runId,
+      toolName: toolCall.toolName,
+    });
+    return;
+  }
+  return {
+    decision,
+    suspendedAt,
+    toolCall: { ...toolCall, toolCallId: toolCall.toolCallId, toolName: toolCall.toolName },
+    transportToolCallId,
+  };
+}
+
+async function classifySuspendedToolCalls(
   runs: SuspendedRunsForClassification,
-  toolNameMap: ReadonlyMap<string, string>
-): { approvals: DiscoveredSuspendedApproval[]; suspends: DiscoveredSuspendedPause[] } {
+  toolNameMap: ReadonlyMap<string, string>,
+  resolveDelegation?: ResolveDelegation
+): Promise<{ approvals: DiscoveredSuspendedApproval[]; suspends: DiscoveredSuspendedPause[] }> {
   const approvals: DiscoveredSuspendedApproval[] = [];
   const suspends: DiscoveredSuspendedPause[] = [];
   const approvalToolCallIds = new Set<string>();
   for (const run of runs) {
-    const suspendedAt = run.suspendedAt.toISOString();
-    for (const toolCall of run.toolCalls) {
-      if (!(toolCall.toolCallId && toolCall.toolName)) {
-        logger.debug('skipping suspended tool call without ids', {
-          code: 'mastra_agent_suspended_run_skipped',
-          requiresApproval: toolCall.requiresApproval,
-          runId: run.runId,
-          toolName: toolCall.toolName,
-        });
+    for (const original of run.toolCalls) {
+      const resolved = await resolveDiscoveredCall(run, original, resolveDelegation);
+      if (!resolved) {
         continue;
       }
+      const { toolCall, suspendedAt, transportToolCallId, decision } = resolved;
       // Snapshots store the REGISTERED (sanitized) id; every client-facing
       // surface is keyed by the ORIGINAL name — map it back here so the
       // desktop route's riskByTool lookup and per-tool overrides match.
       const toolName = resolveDiscoveredApprovalToolName(toolCall.toolName, toolNameMap, run.runId);
       if (toolCall.requiresApproval) {
-        approvalToolCallIds.add(toolCall.toolCallId);
+        approvalToolCallIds.add(JSON.stringify([run.runId, transportToolCallId]));
         approvals.push({
+          ...decision,
           runId: run.runId,
           suspendedAt,
-          toolCallId: toolCall.toolCallId,
+          toolCallId: transportToolCallId,
           toolName,
           ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
         });
         continue;
       }
-      if (approvalToolCallIds.has(toolCall.toolCallId)) {
+      if (approvalToolCallIds.has(JSON.stringify([run.runId, transportToolCallId]))) {
         logger.warn('suspended tool call listed as BOTH approval and suspend; approval wins', {
           code: 'mastra_agent_suspended_run_duplicate_tool_call',
           runId: run.runId,
-          toolCallId: toolCall.toolCallId,
+          toolCallId: transportToolCallId,
           toolName,
         });
         continue;
@@ -153,9 +195,10 @@ function classifySuspendedToolCalls(
       // BST-1084: a tool that called suspend() — carry its durable payload
       // so the rediscovered notice renders the real plan/question.
       suspends.push({
+        ...decision,
         runId: run.runId,
         suspendedAt,
-        toolCallId: toolCall.toolCallId,
+        toolCallId: transportToolCallId,
         toolName,
         ...(toolCall.suspendPayload === undefined
           ? {}
@@ -168,6 +211,36 @@ function classifySuspendedToolCalls(
   approvals.sort(bySuspendedAt);
   suspends.sort(bySuspendedAt);
   return { approvals, suspends };
+}
+
+/** Background roots can finish while their native child snapshot remains suspended.
+ * These are storage-backed dispatch addresses, not resumable parent Agent runs. */
+async function readBackgroundSuspensions(
+  storage: MastraCompositeStore,
+  filter: { readonly threadId: string; readonly resourceId: string }
+): Promise<SuspendedRunsForClassification> {
+  const store = await storage.getStore('backgroundTasks');
+  if (!store) {
+    throw new Error('Background approval discovery requires durable task storage.');
+  }
+  const { tasks } = await store.listTasks({ ...filter, status: 'suspended' });
+  return tasks.map((task) => {
+    if (!(task.runId && task.suspendedAt)) {
+      throw new Error('Suspended background child lacks its native dispatch identity.');
+    }
+    const payload = task.suspendPayload;
+    const requiresApproval = Boolean(
+      payload && typeof payload === 'object' && 'requireToolApproval' in payload
+    );
+    return {
+      runId: task.runId,
+      status: 'suspended',
+      suspendedAt: task.suspendedAt,
+      toolCalls: [
+        { args: task.args, requiresApproval, toolCallId: task.toolCallId, toolName: task.toolName },
+      ],
+    };
+  });
 }
 
 /**
@@ -186,7 +259,9 @@ function classifySuspendedToolCalls(
  */
 export async function listSuspendedMastraRuns(
   filter: { readonly threadId: string; readonly resourceId: string },
-  options: MastraAgentRuntimeOptions = {}
+  options: MastraAgentRuntimeOptions & {
+    readonly delegatedSuspensionDiscovery?: DelegatedSuspensionResolver;
+  } = {}
 ): Promise<ListSuspendedRunsResult> {
   assertNoUnsupportedDirectStreamOptions(options);
   if (!options.storage) {
@@ -200,8 +275,9 @@ export async function listSuspendedMastraRuns(
   // provider/model is resolved. This is why the discovery route can pass a
   // keyless provider with no static default (e.g. ollama) without the
   // `No default model configured` init throw (the D1 fix).
+  const { backgroundTaskScope, ...listingOptions } = options;
   const { runtime } = await initializeMastraRuntime(
-    withRuntimeDerivedStreamOptions({ ...options, modelOverride: createListingOnlyModel() }),
+    withRuntimeDerivedStreamOptions({ ...listingOptions, modelOverride: createListingOnlyModel() }),
     runtimeResolution
   );
 
@@ -211,7 +287,57 @@ export async function listSuspendedMastraRuns(
       threadId: filter.threadId,
     });
 
-    const { approvals, suspends } = classifySuspendedToolCalls(runs, runtime.toolNameMap);
+    const storage = options.storage;
+    const backgroundAddresses = new Set<string>();
+    if (backgroundTaskScope) {
+      if (
+        backgroundTaskScope.threadId !== filter.threadId ||
+        backgroundTaskScope.resourceId !== filter.resourceId
+      ) {
+        throw new Error('Background discovery scope does not match the requested root.');
+      }
+      const pending = await readBackgroundSuspensions(storage, filter);
+      if (pending.length > 0 && !options.delegatedSuspensionDiscovery) {
+        throw new Error('Background decision discovery requires an authorized child resolver.');
+      }
+      for (const candidate of pending) {
+        for (const call of candidate.toolCalls) {
+          backgroundAddresses.add(JSON.stringify([candidate.runId, call.toolCallId]));
+        }
+        const existing = runs.find((run) => run.runId === candidate.runId);
+        if (existing) {
+          const known = new Set(existing.toolCalls.map((call) => call.toolCallId));
+          existing.toolCalls.push(
+            ...candidate.toolCalls.filter((call) => !known.has(call.toolCallId))
+          );
+        } else {
+          runs.push(candidate);
+        }
+      }
+    }
+    const resolver = options.delegatedSuspensionDiscovery;
+    const { approvals, suspends } = await classifySuspendedToolCalls(
+      runs,
+      runtime.toolNameMap,
+      resolver
+        ? async (runId, toolCall) => {
+            const resolved = await discoverDelegatedToolPause({
+              resolveInvocation: resolver,
+              rootThreadId: filter.threadId,
+              runId,
+              storage,
+              toolCall,
+            });
+            if (
+              !resolved &&
+              backgroundAddresses.has(JSON.stringify([runId, toolCall.toolCallId]))
+            ) {
+              throw new Error('Background decision has no authorized child address.');
+            }
+            return resolved;
+          }
+        : undefined
+    );
 
     logger.info('discovered suspended approvals', {
       approvalCount: approvals.length,
@@ -224,5 +350,74 @@ export async function listSuspendedMastraRuns(
     return { approvals, suspends };
   } finally {
     await runtime.dispose();
+  }
+}
+
+/** Read one host-authorized existing child without loading tools or executing a model. */
+export async function listSuspendedChildContinuation(
+  input: {
+    readonly continuationId: string;
+    readonly nativeRunId: string;
+    readonly threadId: string;
+    readonly resourceId: string;
+    readonly personaId: string;
+  },
+  options: {
+    readonly storage: MastraCompositeStore;
+    readonly resolveInvocation: DelegatedSuspensionResolver;
+  }
+): Promise<ListSuspendedRunsResult> {
+  const agent = new Agent({
+    id: input.personaId,
+    instructions: 'Read suspended workflow metadata only.',
+    model: createListingOnlyModel(),
+    name: input.personaId,
+  });
+  const mastra = new Mastra({
+    agents: { discovery: agent },
+    logger: false,
+    storage: options.storage,
+  });
+  try {
+    const { runs } = await agent.listSuspendedRuns({
+      resourceId: input.resourceId,
+      threadId: input.threadId,
+    });
+    const run = runs.find((candidate) => candidate.runId === input.nativeRunId);
+    if (
+      run?.toolCalls.length !== 1 ||
+      !run.toolCalls[0]?.toolCallId ||
+      !run.toolCalls[0]?.toolName
+    ) {
+      throw new Error('Pending continuation has no exact native decision snapshot.');
+    }
+    const result = await classifySuspendedToolCalls([run], new Map(), async (runId, toolCall) => {
+      const resolved = await discoverDelegatedToolPause({
+        resolveInvocation: options.resolveInvocation,
+        rootThreadId: input.threadId,
+        runId,
+        storage: options.storage,
+        toolCall,
+      });
+      if (!resolved && toolCall.toolName?.startsWith('agent-')) {
+        throw new Error('Continuation descendant decision has no authorized native ancestry.');
+      }
+      return resolved;
+    });
+    if (result.approvals.length + result.suspends.length !== 1) {
+      throw new Error('Pending continuation decision could not be classified exactly.');
+    }
+    return {
+      approvals: result.approvals.map((entry) => ({
+        ...entry,
+        continuationId: input.continuationId,
+      })),
+      suspends: result.suspends.map((entry) => ({
+        ...entry,
+        continuationId: input.continuationId,
+      })),
+    };
+  } finally {
+    await mastra.shutdown();
   }
 }

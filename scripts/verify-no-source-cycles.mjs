@@ -61,6 +61,17 @@ import {
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+function parseRepoRootArgument(argv) {
+  if (argv.length === 0) {
+    return;
+  }
+  const [argument, value] = argv;
+  if (argv.length !== 2 || argument !== '--repo-root' || !value || value.startsWith('--')) {
+    throw new Error('verify-no-source-cycles: expected only --repo-root <path>');
+  }
+  return path.resolve(value);
+}
+
 /**
  * One graph PER APP, not a merged one: the two renderers do not resolve
  * `@brainstrike/*` identically, so a single shared alias set would faithfully
@@ -636,5 +647,5 @@ export async function main({ repoRoot = REPO_ROOT } = {}) {
 const isDirectExecution =
   process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectExecution) {
-  await main();
+  await main({ repoRoot: parseRepoRootArgument(process.argv.slice(2)) });
 }

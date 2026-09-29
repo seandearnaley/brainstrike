@@ -55,7 +55,7 @@ export class EmbeddingProviderFactory {
    * Cache of provider instances keyed by composite ID
    * Format: "provider:modelId:variant" where variant captures runtime-specific configuration.
    */
-  private static instances = new Map<string, IEmbeddingProvider>();
+  private static readonly instances = new Map<string, IEmbeddingProvider>();
 
   /**
    * Create or retrieve a cached embedding provider instance

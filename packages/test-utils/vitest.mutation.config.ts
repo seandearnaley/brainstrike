@@ -5,8 +5,8 @@ import { workspaceSrcAliases } from './workspace-src-aliases.mjs';
 
 export default defineConfig({
   resolve: {
-    // Stryker mutation lane: resolve workspace deps (@brainstrike/types) from
-    // SOURCE, not dist. See ./workspace-src-aliases.mjs (incident #1066/#1207).
+    // Stryker mutation lane: resolve workspace deps from SOURCE, not dist.
+    // See ./workspace-src-aliases.mjs (incident #1066/#1207).
     alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
   },
   test: {

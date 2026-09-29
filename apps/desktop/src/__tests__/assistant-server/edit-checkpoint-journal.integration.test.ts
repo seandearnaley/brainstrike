@@ -254,7 +254,24 @@ describe('listRunRangeCheckpoints', () => {
     // Both relations go: 118 creates the run header and its event timeline
     // together, and the timeline's foreign key means the parent cannot be
     // dropped alone.
+    // Migration 127 adds another dependent relation to this intentionally missing-schema fixture.
+    await db.query(
+      'ALTER TABLE brainstrike_assistant_run_usage DROP CONSTRAINT brainstrike_assistant_run_usage_delegation_fk'
+    );
+    // Migration 135 adds continuation receipts and their usage/decision references.
+    await db.query('ALTER TABLE brainstrike_assistant_run_usage DROP COLUMN continuation_id');
+    // Migration 139 adds swarm diagnostics rows that reference the run header.
+    await db.query('DROP TABLE brainstrike_assistant_prompt_manifests');
+    await db.query('DROP TABLE brainstrike_delegated_wakeups');
+    await db.query('DROP TABLE brainstrike_delegated_live_decisions');
+    await db.query('DROP TABLE brainstrike_delegated_continuation_decisions');
+    await db.query('DROP TABLE brainstrike_delegated_continuations');
+    await db.query('DROP TABLE brainstrike_delegated_tool_decisions');
+    await db.query('DROP TABLE brainstrike_delegated_invocations');
+    // Migration 140 maps each native ROOT run to the leg that started it.
+    await db.query('DROP TABLE brainstrike_assistant_native_runs');
     await db.query('DROP TABLE brainstrike_assistant_run_events');
+    await db.query('DROP TABLE brainstrike_delegation_step_reservations');
     await db.query(`DROP TABLE ${RUNS_TABLE}`);
     expect(await runsTableIsPresent()).toBe(false);
 

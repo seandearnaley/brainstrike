@@ -111,12 +111,15 @@ describe('manageCanvas advertisement', () => {
     expect(withTool).toContain('update');
     expect(withTool).toContain('rewrite');
     expect(withTool).toContain('list');
+    expect(withTool).toContain('only when its content is ready');
+    expect(withTool).toContain('never an empty placeholder');
 
     const withoutTool = buildDefaultInstructions(
       new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
     );
     expect(withoutTool).not.toContain('manageCanvas');
     expect(withoutTool).not.toContain('canvas documents');
+    expect(withoutTool).not.toContain('placeholder');
   });
 });
 
@@ -900,5 +903,51 @@ describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
         new Map([['brainstrike_instructionTypo', 'brainstrike.instructionTypo']])
       )
     ).toThrow(/not a native tool id/);
+  });
+});
+
+describe('buildDefaultInstructions delegation guidance', () => {
+  const personas = [{ description: 'Survey code', id: 'explore', label: 'Explorer' }];
+  const names = new Map<string, string>();
+
+  it('permits delegated deliverables only when an admitted Worker is available', () => {
+    const readOnly = buildDefaultInstructions(names, { personas });
+    expect(readOnly).toContain('Explorer is read-only');
+    expect(readOnly).toContain('never for mutations');
+
+    const withWorker = buildDefaultInstructions(names, {
+      personas: [
+        ...personas,
+        {
+          description: 'Implement changes and run checks',
+          id: 'worker',
+          label: 'Worker',
+          mode: 'worker',
+        } as const,
+      ],
+    });
+    expect(withWorker).toContain('agent-worker');
+    expect(withWorker).toContain('Delegate implementation and verification to Worker');
+    expect(withWorker).toContain('Explorer is read-only');
+    expect(withWorker).not.toContain('subagents are read-only');
+  });
+
+  it('names the delegation tools and, with background workers, keeps _background host-owned', () => {
+    const foreground = buildDefaultInstructions(names, { personas });
+    expect(foreground).toContain('agent-explore');
+    expect(foreground).not.toContain('_background');
+    const background = buildDefaultInstructions(names, { backgroundDelegation: true, personas });
+    expect(background).toContain('background workers');
+    expect(background).toContain('Do not set `_background.enabled` to false');
+    expect(background).toContain('until every subagent has returned');
+    expect(background).toContain('_background.maxRetries');
+    expect(background).toContain('waiting for approval');
+    expect(background).toContain('never ask the user for "resume input"');
+  });
+
+  it('says nothing about delegation without personas', () => {
+    expect(buildDefaultInstructions(names, { backgroundDelegation: true })).not.toContain(
+      'background workers'
+    );
   });
 });

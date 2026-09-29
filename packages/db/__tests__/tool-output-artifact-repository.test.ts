@@ -28,6 +28,51 @@ describe('ToolOutputArtifactRepository', () => {
     await db?.close();
   });
 
+  it('keeps sibling execution identities distinct without widening reader ownership', async () => {
+    const input = {
+      content: 'first child',
+      format: 'text' as const,
+      resourceId: 'owner',
+      runId: 'host-run',
+      threadId: 'root',
+      toolCallId: 'reused-call',
+    };
+    const first = await repository.store({ ...input, executionThreadId: 'child-a' });
+    const second = await repository.store({
+      ...input,
+      content: 'second child',
+      executionThreadId: 'child-b',
+    });
+    expect(second.id).not.toBe(first.id);
+    await expect(repository.store({ ...input, executionThreadId: 'child-a' })).resolves.toEqual(
+      first
+    );
+    await expect(
+      repository.store({ ...input, content: 'changed', executionThreadId: 'child-a' })
+    ).rejects.toThrow('insert returned no reference');
+    await expect(
+      repository.readRange({
+        artifactId: first.id,
+        limitBytes: 100,
+        offsetByte: 0,
+        resourceId: 'owner',
+        threadId: 'child-a',
+      })
+    ).resolves.toEqual({ status: 'not_found' });
+    const page = await repository.readRange({
+      artifactId: second.id,
+      limitBytes: 100,
+      offsetByte: 0,
+      resourceId: 'owner',
+      threadId: 'root',
+    });
+    expect(page.status).toBe('found');
+    if (page.status !== 'found') {
+      throw new Error('Missing sibling artifact');
+    }
+    expect(new TextDecoder().decode(page.bytes)).toBe('second child');
+  });
+
   it('stores exact UTF-8 bytes behind an opaque seven-day reference', async () => {
     const content = 'A\u0000🙂\nB';
     const reference = await repository.store({

@@ -13,6 +13,7 @@ import {
   createPriorityDbHandle,
   getCollectionIndexingStats,
   getDatabaseWorkScheduler,
+  getDesktopDatabaseBridge,
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { isAppActive, useAppActive } from '@brainstrike/hooks';
@@ -156,10 +157,7 @@ async function readQueueSnapshot(
 }
 
 function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkSnapshot>) | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  return window.electronAPI?.db?.schedulerSnapshot ?? null;
+  return getDesktopDatabaseBridge()?.schedulerSnapshot ?? null;
 }
 
 export function IndexingActivityCoordinator(): null {

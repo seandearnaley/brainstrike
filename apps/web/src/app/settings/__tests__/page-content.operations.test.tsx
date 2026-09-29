@@ -222,6 +222,7 @@ vi.mock('@brainstrike/settings-ui/settings/system/logging-settings-section', () 
 }));
 
 vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
+  ModelCatalogHeaderActions: vi.fn(() => null),
   ModelSelectionPage: () => <div data-testid="model-selection-page" />,
 }));
 
@@ -359,6 +360,7 @@ describe('SettingsPageContent tool operations', () => {
       'local-runtimes',
       'providers',
       'models',
+      'assistant-memory',
       'logging',
       'ai-tools',
       'permissions',

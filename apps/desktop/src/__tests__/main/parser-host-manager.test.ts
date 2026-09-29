@@ -10,17 +10,21 @@
 
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ParserHostParseRequest, ParserHostParseResponse } from '../../parser-host-shared';
+import { serializeDesktopError } from '../../desktop-error-serialization';
+import type { ParserHostParseRequest } from '../../parser-host-shared';
 
 class FakeUtilityProcess extends EventEmitter {
-  readonly kill = vi.fn(() => true);
+  readonly kill = vi.fn(() => {
+    queueMicrotask(() => this.exit());
+    return true;
+  });
   readonly postMessage = vi.fn((message: ParserHostParseRequest) => {
     this.messages.push(message);
   });
   readonly messages: ParserHostParseRequest[] = [];
   pid: number | undefined = 42;
 
-  reply(response: ParserHostParseResponse): void {
+  reply(response: unknown): void {
     this.emit('message', response);
   }
 
@@ -43,9 +47,12 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
-    createLogger: () => ({
+    createLogger: (scope: string) => ({
       debug: vi.fn(),
-      error: loggerErrorMock,
+      error: (...args: unknown[]) => {
+        loggerErrorMock(...args);
+        actual.createLogger(scope).error(...args);
+      },
       fatal: vi.fn(),
       info: vi.fn(),
       trace: vi.fn(),
@@ -78,6 +85,307 @@ describe('ParserHostManager', () => {
   });
   afterEach(() => {
     vi.resetModules();
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid stop timeout %s',
+    async (stopTimeoutMs) => {
+      const { ParserHostManager } = await import('../../parser-host-manager');
+      expect(() => new ParserHostManager({ entryPath: '/fake/entry.js', stopTimeoutMs })).toThrow(
+        'parser host stopTimeoutMs must be positive and finite'
+      );
+      expect(forkMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['false', 'throw'] as const)(
+    'preserves settled %s kill failure alongside a held-generation timeout',
+    async (mode) => {
+      const { ParserHostManager } = await import('../../parser-host-manager');
+      const manager = new ParserHostManager({ entryPath: '/fake/entry.js', stopTimeoutMs: 20 });
+      const first = manager.parse(baseRequest);
+      const old = latestProcess();
+      old.kill.mockImplementation(() => true);
+      const olderStop = manager.stop().catch((error: unknown) => error);
+      await first;
+      const replacement = manager.parse(baseRequest);
+      const current = latestProcess();
+      const failure = { category: 'kill-failure', message: 'native kill threw' };
+      current.kill.mockImplementation(() => {
+        if (mode === 'throw') {
+          throw failure;
+        }
+        return false;
+      });
+      try {
+        const outcome = await manager.stop().catch((error: unknown) => error);
+        expect(outcome).toBeInstanceOf(AggregateError);
+        if (!(outcome instanceof AggregateError)) {
+          throw new Error('Expected aggregate stop failure');
+        }
+        expect(outcome.errors).toHaveLength(2);
+        if (mode === 'throw') {
+          expect(outcome.errors[0]).toBe(failure);
+        } else {
+          expect(outcome.errors[0]).toEqual(new Error('parser host could not be stopped'));
+        }
+        expect(outcome.errors[1]).toEqual(new Error('parser host stop timeout after 20ms'));
+        const serialized = serializeDesktopError(outcome);
+        expect(serialized.errors).toHaveLength(2);
+        expect(serialized.errors?.[0]?.message).toBe(
+          mode === 'throw' ? 'native kill threw' : 'parser host could not be stopped'
+        );
+        expect(serialized.errors?.[1]?.message).toBe('parser host stop timeout after 20ms');
+        expect(old.kill).toHaveBeenCalledTimes(1);
+        expect(current.kill).toHaveBeenCalledTimes(1);
+        expect(old.listenerCount('exit')).toBe(1);
+        await expect(replacement).resolves.toMatchObject({
+          error: 'parser host stopped',
+          ok: false,
+        });
+      } finally {
+        old.exit();
+        current.kill.mockImplementation(() => {
+          current.exit();
+          return true;
+        });
+        await manager.stop();
+        await olderStop;
+      }
+      expect(old.listenerCount('exit')).toBe(0);
+      expect(current.listenerCount('exit')).toBe(0);
+    }
+  );
+
+  it('joins process exit before stop resolves and removes its listeners', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    const parse = manager.parse(baseRequest);
+    const host = latestProcess();
+    host.kill.mockImplementation(() => true);
+    let stopped = false;
+    const stopping = manager.stop().then(() => {
+      stopped = true;
+    });
+    await expect(parse).resolves.toMatchObject({ error: 'parser host stopped', ok: false });
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    try {
+      expect(stopped).toBe(false);
+    } finally {
+      host.exit();
+      await stopping;
+    }
+    expect(host.listenerCount('message')).toBe(0);
+    expect(host.listenerCount('exit')).toBe(0);
+  });
+
+  it('ignores an old generation exit while a replacement reuses its request id', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    const original = manager.parse(baseRequest);
+    const old = latestProcess();
+    old.kill.mockImplementation(() => true);
+    const closing = manager.stop();
+    await original;
+    const replacement = manager.parse(baseRequest);
+    const current = latestProcess();
+    old.exit();
+    current.reply({ ok: true, requestId: baseRequest.requestId, root: { sentinel: 'new' } });
+    await expect(replacement).resolves.toMatchObject({ ok: true, root: { sentinel: 'new' } });
+    await closing;
+    await manager.stop();
+  });
+
+  it('ignores an old generation message while a replacement reuses its request id', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    const original = manager.parse(baseRequest);
+    const old = latestProcess();
+    old.kill.mockImplementation(() => true);
+    const closing = manager.stop();
+    await original;
+    const replacement = manager.parse(baseRequest);
+    const current = latestProcess();
+    old.reply({ ok: true, requestId: baseRequest.requestId, root: { sentinel: 'old' } });
+    current.reply({ ok: true, requestId: baseRequest.requestId, root: { sentinel: 'new' } });
+    old.exit();
+    await expect(replacement).resolves.toMatchObject({ ok: true, root: { sentinel: 'new' } });
+    await closing;
+    await manager.stop();
+  });
+
+  it.each(['false', 'throw'] as const)(
+    'retains a failed %s kill owner, blocks parsing and allows stop retry',
+    async (mode) => {
+      const { ParserHostManager } = await import('../../parser-host-manager');
+      const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+      const pending = manager.parse(baseRequest);
+      const host = latestProcess();
+      const failure = new Error('kill failed');
+      host.kill.mockImplementationOnce(() => {
+        if (mode === 'throw') {
+          throw failure;
+        }
+        return false;
+      });
+      const stop = manager.stop();
+      if (mode === 'throw') {
+        await expect(stop).rejects.toBe(failure);
+      } else {
+        await expect(stop).rejects.toThrow('parser host could not be stopped');
+      }
+      await expect(pending).resolves.toMatchObject({ error: 'parser host stopped', ok: false });
+      const sent = host.postMessage.mock.calls.length;
+      await expect(manager.parse(baseRequest)).resolves.toMatchObject({
+        error: expect.stringContaining('retry stop before parsing'),
+        ok: false,
+      });
+      expect(host.postMessage).toHaveBeenCalledTimes(sent);
+      expect(forkMock).toHaveBeenCalledTimes(1);
+      await manager.stop();
+      expect(host.kill).toHaveBeenCalledTimes(2);
+      expect(host.listenerCount('exit')).toBe(0);
+      const retry = manager.parse(baseRequest);
+      latestProcess().reply({ ok: true, requestId: baseRequest.requestId, root: {} });
+      await expect(retry).resolves.toMatchObject({ ok: true });
+      await manager.stop();
+    }
+  );
+
+  it('cleans a failed-stop owner on natural exit and then permits lazy restart', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    const pending = manager.parse(baseRequest);
+    const host = latestProcess();
+    host.kill.mockImplementation(() => false);
+    await expect(manager.stop()).rejects.toThrow('could not be stopped');
+    await pending;
+    host.exit();
+    await manager.stop();
+    expect(host.kill).toHaveBeenCalledTimes(1);
+    expect(host.listenerCount('message')).toBe(0);
+    const replacement = manager.parse(baseRequest);
+    latestProcess().reply({ ok: true, requestId: baseRequest.requestId, root: {} });
+    await expect(replacement).resolves.toMatchObject({ ok: true });
+    await manager.stop();
+  });
+
+  it('joins concurrent stops once and includes older closing generations in a later stop', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    const pending = manager.parse(baseRequest);
+    const old = latestProcess();
+    old.kill.mockImplementation(() => true);
+    old.pid = undefined; // Pre-spawn and post-exit share this value: it proves neither.
+    const first = manager.stop();
+    const second = manager.stop();
+    await pending;
+    const replacement = manager.parse(baseRequest);
+    const current = latestProcess();
+    current.kill.mockImplementation(() => true);
+    let laterSettled = false;
+    const later = manager.stop().then(() => {
+      laterSettled = true;
+    });
+    await replacement;
+    current.exit();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    try {
+      expect(laterSettled).toBe(false);
+      expect(old.kill).toHaveBeenCalledTimes(1);
+      expect(current.kill).toHaveBeenCalledTimes(1);
+    } finally {
+      old.exit();
+      await Promise.all([first, second, later]);
+    }
+    expect(old.listenerCount('exit')).toBe(0);
+    expect(current.listenerCount('exit')).toBe(0);
+  });
+
+  it('handles synchronous exit inside kill and repeated stop without killing twice', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    const pending = manager.parse(baseRequest);
+    const host = latestProcess();
+    host.kill.mockImplementation(() => {
+      host.exit();
+      return true;
+    });
+    await manager.stop();
+    await expect(pending).resolves.toMatchObject({ error: 'parser host stopped', ok: false });
+    await manager.stop();
+    expect(host.kill).toHaveBeenCalledTimes(1);
+    expect(host.listenerCount('message')).toBe(0);
+    expect(host.listenerCount('exit')).toBe(0);
+  });
+
+  it('cleans partial message-listener acquisition after its immediate exit observer', async () => {
+    const host = new FakeUtilityProcess();
+    const realOn = host.on;
+    vi.spyOn(host, 'on')
+      .mockImplementationOnce((event, listener) => realOn.call(host, event, listener))
+      .mockImplementationOnce((event, listener) => {
+        realOn.call(host, event, listener);
+        throw new Error('message listener attachment failed');
+      });
+    forkMock.mockReturnValueOnce(host);
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    await expect(manager.parse(baseRequest)).resolves.toMatchObject({
+      error: expect.stringContaining('message listener attachment failed'),
+      ok: false,
+    });
+    await manager.stop();
+    expect(host.kill).toHaveBeenCalledTimes(1);
+    expect(host.listenerCount('message')).toBe(0);
+    expect(host.listenerCount('exit')).toBe(0);
+  });
+
+  it('preserves partial-acquisition failure and reports failed cleanup through the logger', async () => {
+    const host = new FakeUtilityProcess();
+    const realOn = host.on;
+    vi.spyOn(host, 'on')
+      .mockImplementationOnce((event, listener) => realOn.call(host, event, listener))
+      .mockImplementationOnce((event, listener) => {
+        realOn.call(host, event, listener);
+        throw new Error('message listener attachment failed');
+      });
+    host.kill.mockImplementationOnce(() => {
+      throw new Error('cleanup kill failed');
+    });
+    forkMock.mockReturnValueOnce(host);
+    const { addLogListener } = await import('@brainstrike/logging');
+    const records: string[] = [];
+    const remove = addLogListener((record) => {
+      records.push(JSON.stringify(record));
+    });
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    try {
+      await expect(manager.parse(baseRequest)).resolves.toMatchObject({
+        error: expect.stringContaining('message listener attachment failed'),
+        ok: false,
+      });
+      expect(
+        records.some(
+          (record) =>
+            record.includes('Parser host acquisition cleanup failed') &&
+            record.includes('cleanup kill failed')
+        )
+      ).toBe(true);
+      await expect(manager.parse(baseRequest)).resolves.toMatchObject({
+        error: expect.stringContaining('retry stop before parsing'),
+        ok: false,
+      });
+    } finally {
+      await manager.stop();
+      remove();
+    }
+    expect(host.listenerCount('exit')).toBe(0);
   });
 
   it('forks the utility process on first parse and forwards the request', async () => {
@@ -194,6 +502,55 @@ describe('ParserHostManager', () => {
 
     host.reply({ ok: true, requestId: 'req-1', root: { type: 'Program' } });
     await expect(parsePromise).resolves.toMatchObject({ ok: true });
+  });
+
+  it.each([
+    ['success without root', { ok: true, requestId: 'req-1' }],
+    ['success with array root', { ok: true, requestId: 'req-1', root: [] }],
+    [
+      'success with source text instead of a root',
+      { ok: true, requestId: 'req-1', root: 'private user source text' },
+    ],
+    ['failure without error', { ok: false, requestId: 'req-1' }],
+    ['failure with non-string error', { error: 42, ok: false, requestId: 'req-1' }],
+  ])('ignores %s, logs only shape, and lets the known request time out', async (_name, frame) => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js', requestTimeoutMs: 10 });
+    const parsePromise = manager.parse(baseRequest);
+
+    latestProcess().reply(frame);
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'Ignored malformed parser host message',
+      expect.objectContaining({ messageType: 'object' })
+    );
+    expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('private user source text');
+    await expect(parsePromise).resolves.toEqual({
+      error: 'parser host timeout after 10ms',
+      ok: false,
+      requestId: 'req-1',
+    });
+  });
+
+  it('passes through a valid response and its opaque AST descendants unchanged', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    const parsePromise = manager.parse(baseRequest);
+    const root = {
+      body: [{ deeplyNested: { content: 'user source text' } }],
+      end: 10,
+      start: 0,
+      type: 'Program',
+    };
+
+    latestProcess().reply({ ok: true, requestId: 'req-1', root });
+
+    const response = await parsePromise;
+    expect(response).toEqual({ ok: true, requestId: 'req-1', root });
+    if (response.ok) {
+      expect(response.root).toBe(root);
+    }
+    expect(loggerWarnMock).not.toHaveBeenCalled();
   });
 
   it('bounds the shape summary when the shape itself carries the payload', async () => {

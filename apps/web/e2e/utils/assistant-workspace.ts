@@ -164,6 +164,8 @@ export async function openAssistantWorkspace(
   });
 
   if (options.enableLocalAssistantModel === true) {
-    await expect(page.locator('#assistant-input')).toBeEnabled({ timeout: 15_000 });
+    await expect(page.getByRole('textbox', { name: 'Message input' })).toBeEnabled({
+      timeout: 15_000,
+    });
   }
 }

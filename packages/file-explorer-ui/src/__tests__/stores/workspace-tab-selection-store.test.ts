@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
@@ -161,6 +161,169 @@ describe('workspace-tab-selection-store', () => {
     it('closing an app that is not open is a no-op returning null', () => {
       const successor = useWorkspaceTabSelectionStore.getState().closeApp('changes');
       expect(successor).toBeNull();
+      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual(['context-explorer']);
+    });
+
+    it('mounts a restored-but-never-mounted successor in the same transition', async () => {
+      // A session restore mounts only the restored selection.
+      localStorage.setItem(
+        STORE_KEY,
+        JSON.stringify({
+          state: {
+            openAppIds: ['context-explorer', 'changes', 'canvas'],
+            selection: { appId: 'canvas', kind: 'app' },
+          },
+          version: 2,
+        })
+      );
+      await rehydrate();
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual(['canvas']);
+      const listener = vi.fn();
+      const unsubscribe = useWorkspaceTabSelectionStore.subscribe(listener);
+
+      const successor = useWorkspaceTabSelectionStore.getState().closeApp('canvas');
+      unsubscribe();
+
+      expect(successor).toBe('changes');
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        appId: 'changes',
+        kind: 'app',
+      });
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual(['canvas', 'changes']);
+    });
+  });
+
+  describe('closeApps (atomic bulk close)', () => {
+    function openFourApps(): void {
+      const store = useWorkspaceTabSelectionStore.getState();
+      store.openApp('changes');
+      store.openApp('canvas');
+      store.openApp('terminal');
+    }
+
+    function closeAppsCountingPublishes(appIds: readonly string[]): {
+      readonly publishes: number;
+      readonly successor: string | null;
+    } {
+      const listener = vi.fn();
+      const unsubscribe = useWorkspaceTabSelectionStore.subscribe(listener);
+      try {
+        const successor = useWorkspaceTabSelectionStore.getState().closeApps(appIds);
+        return { publishes: listener.mock.calls.length, successor };
+      } finally {
+        unsubscribe();
+      }
+    }
+
+    it('keeps a selected app that survives, in one store transition', () => {
+      openFourApps();
+      useWorkspaceTabSelectionStore.getState().selectApp('canvas');
+
+      const { publishes, successor } = closeAppsCountingPublishes(['changes', 'terminal']);
+
+      expect(successor).toBeNull();
+      expect(publishes).toBe(1);
+      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([
+        'context-explorer',
+        'canvas',
+      ]);
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        appId: 'canvas',
+        kind: 'app',
+      });
+    });
+
+    it('moves a closed selection to the next surviving app, like closeApp', () => {
+      openFourApps();
+      useWorkspaceTabSelectionStore.getState().selectApp('changes');
+
+      const { publishes, successor } = closeAppsCountingPublishes(['changes', 'canvas']);
+
+      expect(successor).toBe('terminal');
+      expect(publishes).toBe(1);
+      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([
+        'context-explorer',
+        'terminal',
+      ]);
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        appId: 'terminal',
+        kind: 'app',
+      });
+    });
+
+    it('falls back to the last surviving app when nothing survives after the selection', () => {
+      openFourApps();
+      useWorkspaceTabSelectionStore.getState().selectApp('canvas');
+
+      const { successor } = closeAppsCountingPublishes(['canvas', 'terminal']);
+
+      expect(successor).toBe('changes');
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        appId: 'changes',
+        kind: 'app',
+      });
+    });
+
+    it('closing every open app yields the empty selection and a null successor', () => {
+      openFourApps();
+
+      const { successor } = closeAppsCountingPublishes([
+        'context-explorer',
+        'changes',
+        'canvas',
+        'terminal',
+      ]);
+
+      expect(successor).toBeNull();
+      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([]);
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({ kind: 'empty' });
+    });
+
+    it('leaves a file selection alone and never shrinks the mounted set', () => {
+      openFourApps();
+      useWorkspaceTabSelectionStore.getState().selectFile('tab-1');
+      const mountedBefore = useWorkspaceTabSelectionStore.getState().mountedAppIds;
+
+      const { successor } = closeAppsCountingPublishes(['changes', 'canvas']);
+
+      expect(successor).toBeNull();
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        kind: 'file',
+        tabId: 'tab-1',
+      });
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toBe(mountedBefore);
+    });
+
+    it('mounts a hydrated-but-never-mounted successor in the same transition', () => {
+      // A thread-workspace hydrate mounts only the hydrated selection.
+      useWorkspaceTabSelectionStore
+        .getState()
+        .hydrate(['context-explorer', 'changes', 'canvas', 'terminal'], {
+          appId: 'changes',
+          kind: 'app',
+        });
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual(['changes']);
+
+      const { publishes, successor } = closeAppsCountingPublishes(['changes', 'canvas']);
+
+      expect(successor).toBe('terminal');
+      expect(publishes).toBe(1);
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        appId: 'terminal',
+        kind: 'app',
+      });
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual([
+        'changes',
+        'terminal',
+      ]);
+    });
+
+    it('is a no-op that publishes nothing when none of the ids is open', () => {
+      const { publishes, successor } = closeAppsCountingPublishes(['changes', 'canvas']);
+
+      expect(successor).toBeNull();
+      expect(publishes).toBe(0);
       expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual(['context-explorer']);
     });
   });

@@ -1,3 +1,4 @@
+import { runAtomicStatements } from '../atomic-transaction.js';
 import type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -31,7 +32,17 @@ import {
   validateEmbeddingDimensions,
 } from './_shared.js';
 import type { ElectronDbAPI } from './electron-file-record-repository';
+import {
+  buildChunkDistanceExpressions,
+  buildRawFullTextScopePlan,
+  buildRawVectorScopePlan,
+  mapFullTextSearchRows,
+  mapVectorSearchRows,
+  normalizeChunkSearchScope,
+  tsqueryFunctionForMode,
+} from './file-chunk-search-policy.js';
 import { runFindGrepCandidatesQuery, runInsertManyWithTx } from './file-chunk-shared-queries.js';
+import type { IFileChunkRepository } from './interfaces.js';
 
 // Type definition for database row returned by Electron IPC
 interface FileChunkRow {
@@ -96,7 +107,7 @@ interface FileChunkStatsRow {
   type_count: string;
 }
 
-export class ElectronFileChunkRepository {
+export class ElectronFileChunkRepository implements IFileChunkRepository {
   constructor(private readonly db: ElectronDbAPI) {}
 
   async findById(id: string): Promise<FileChunk | null> {
@@ -232,15 +243,18 @@ export class ElectronFileChunkRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.query('DELETE FROM file_chunks WHERE id = $1', [id]);
-    return (result as unknown as { rowCount: number }).rowCount > 0;
+    // Count RETURNING rows: the DB host protocol surfaces only `rows`, so the
+    // `rowCount` this used to read was always `undefined` here.
+    const result = await this.db.query('DELETE FROM file_chunks WHERE id = $1 RETURNING id', [id]);
+    return result.rows.length > 0;
   }
 
   async deleteByFileRecordId(fileRecordId: string): Promise<number> {
-    const result = await this.db.query('DELETE FROM file_chunks WHERE file_record_id = $1', [
-      fileRecordId,
-    ]);
-    return (result as unknown as { rowCount: number }).rowCount;
+    const result = await this.db.query(
+      'DELETE FROM file_chunks WHERE file_record_id = $1 RETURNING id',
+      [fileRecordId]
+    );
+    return result.rows.length;
   }
 
   async searchSimilar(
@@ -274,14 +288,14 @@ export class ElectronFileChunkRepository {
       );
     }
 
-    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    const { filePaths: normalizedFilePaths, selectionSnapshotId: normalizedSnapshotId } =
+      normalizeChunkSearchScope({ filePaths, selectionSnapshotId });
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
       throw new Error(
         `searchSimilar filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
           'Use selectionSnapshotId for large selections.'
       );
     }
-    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     const { distance, dimension } = await this.resolveDistanceConfig(
       embeddingSetId,
@@ -314,7 +328,7 @@ export class ElectronFileChunkRepository {
       }
     }
 
-    const { similarityExpr, orderExpr } = this.buildDistanceExpressions(
+    const { similarityExpr, orderExpr } = buildChunkDistanceExpressions(
       distance,
       dimension,
       route === 'exact' ? 'exact' : 'halfvec'
@@ -356,16 +370,12 @@ export class ElectronFileChunkRepository {
         ? await this.db.query(searchSql, [...params, overfetchLimit])
         : await this.runVectorSearchInTransaction(searchSql, [...params, overfetchLimit], efSearch);
 
-    const filtered = (result.rows as unknown as FileChunkSearchRow[]).filter((row) => {
-      const similarity = Number(row.similarity);
-      return Number.isFinite(similarity) && similarity >= threshold;
-    });
-
-    return filtered.slice(0, limit).map((row) => ({
-      chunk: this.mapRowToChunk(row),
-      rank: Number(row.rank),
-      similarity: Number(row.similarity),
-    }));
+    return mapVectorSearchRows(
+      result.rows as unknown as FileChunkSearchRow[],
+      (row) => this.mapRowToChunk(row),
+      threshold,
+      limit
+    );
   }
 
   /**
@@ -389,32 +399,16 @@ export class ElectronFileChunkRepository {
     const statements = [...tuning, { params, sql: searchSql }];
     const resultIndex = statements.length - 1;
 
-    if (this.db.transaction) {
-      const result = await this.db.transaction(statements, resultIndex);
-      return { rows: result.rows as Record<string, unknown>[] };
-    }
-
-    // Fallback for IPC implementations without an atomic transaction primitive.
-    // Unlike `pglite.transaction()`, raw BEGIN/COMMIT over separate IPC calls does
-    // NOT hold the connection lock, so a parallel FTS SELECT can interleave — the
-    // residual ISOLATION + ERROR-COUPLING hazard documented in #1141. The `SET LOCAL`
-    // tuning still takes effect (it persists for the whole tx and an interleaved plain
-    // SELECT neither resets it nor commits the block), so the search is tuned, not
-    // silently untuned.
-    await this.db.query('BEGIN');
-    try {
-      for (const statement of tuning) {
-        await this.db.query(statement.sql);
-      }
-      const result = await this.db.query(searchSql, params);
-      await this.db.query('COMMIT');
-      return { rows: result.rows as Record<string, unknown>[] };
-    } catch (err) {
-      await this.db.query('ROLLBACK').catch(() => {
-        // Surface the original failure, not a secondary rollback error.
-      });
-      throw err;
-    }
+    const atomicTransport = this.db.transaction
+      ? { runTransaction: this.db.transaction.bind(this.db) }
+      : {};
+    const result = await runAtomicStatements(
+      atomicTransport,
+      statements,
+      resultIndex,
+      'Electron ANN search requires atomic database transaction support.'
+    );
+    return { rows: result.rows as Record<string, unknown>[] };
   }
 
   /**
@@ -458,62 +452,28 @@ export class ElectronFileChunkRepository {
     }
     assertFuzzyThreshold(fuzzyThreshold);
 
-    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    const { filePaths: normalizedFilePaths, selectionSnapshotId: normalizedSnapshotId } =
+      normalizeChunkSearchScope({ filePaths, selectionSnapshotId });
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
       throw new Error(
         `fullTextSearch filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
           'Use selectionSnapshotId for large selections.'
       );
     }
-    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     // Build tsquery using the appropriate function based on query mode
-    const tsqueryFunc = this.getTsqueryFunction(queryMode);
-    const params: unknown[] = [trimmedQuery, language];
-    let paramIndex = 3;
-
-    // Build scope filters once so the exact and fuzzy fallback arms cannot
-    // disagree about the caller's file/root/embedding boundaries.
-    const scopeWhereParts: string[] = [];
-
-    paramIndex = this.appendFilterClause(
-      scopeWhereParts,
-      params,
-      paramIndex,
-      fileRecordId,
-      'file_record_id'
-    );
-    paramIndex = this.appendFilterClause(
-      scopeWhereParts,
-      params,
-      paramIndex,
+    const tsqueryFunc = tsqueryFunctionForMode(queryMode);
+    const scopePlan = buildRawFullTextScopePlan(3, {
       chunkType,
-      'chunk_type'
-    );
-    // Embedding-set scope with coverage-identity semantics (getCoverageForSet):
-    // the chunk's own set matches, OR the chunk is pending embedding (NULL set)
-    // and its file record carries the set. Match (tsquery) semantics unchanged.
-    if (embeddingSetId !== undefined) {
-      scopeWhereParts.push(
-        `(embedding_set_id = $${paramIndex} OR (embedding_set_id IS NULL AND file_record_id IN (SELECT id FROM file_records WHERE embedding_set_id = $${paramIndex})))`
-      );
-      params.push(embeddingSetId);
-      paramIndex += 1;
-    }
-    paramIndex = this.appendSelectionFilters(
-      scopeWhereParts,
-      params,
-      paramIndex,
-      normalizedFilePaths,
-      normalizedSnapshotId
-    );
-    if (rootIds !== undefined) {
-      scopeWhereParts.push(
-        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
-      );
-      params.push(Array.from(rootIds));
-      paramIndex += 1;
-    }
+      embeddingSetId,
+      filePaths: normalizedFilePaths,
+      fileRecordId,
+      rootIds,
+      selectionSnapshotId: normalizedSnapshotId,
+    });
+    const params: unknown[] = [trimmedQuery, language, ...scopePlan.values];
+    const scopeWhereParts = scopePlan.clauses;
+    const paramIndex = params.length + 1;
 
     // Execute search query ranked by BM25 (pg_textsearch, migration 066):
     // matching stays tsvector-based above, so query-mode semantics are
@@ -580,49 +540,12 @@ export class ElectronFileChunkRepository {
       matchKind = 'fuzzy';
     }
 
-    // Map results to FTSSearchResult
-    const results: import('../models/file-chunk').FTSSearchResult[] = [];
-    for (const row of rows) {
-      const ftsRow = row as FileChunkRow & {
-        fts_rank: string;
-        headline?: string;
-        position: string;
-      };
-      const rank = Number.parseFloat(ftsRow.fts_rank);
-
-      // Apply threshold filter
-      if (matchKind === 'exact' && threshold > 0 && rank < threshold) {
-        continue;
-      }
-
-      const ftsResult: import('../models/file-chunk').FTSSearchResult = {
-        chunk: this.mapRowToChunk(ftsRow),
-        matchKind,
-        position: Number.parseInt(ftsRow.position, 10),
-        rank,
-      };
-      if (ftsRow.headline) {
-        ftsResult.headline = ftsRow.headline;
-      }
-      results.push(ftsResult);
-    }
-
-    return results;
-  }
-
-  /**
-   * Get the PostgreSQL tsquery function for the given query mode
-   */
-  private getTsqueryFunction(mode: import('../models/file-chunk').FTSQueryMode): string {
-    switch (mode) {
-      case 'plain':
-        return 'plainto_tsquery';
-      case 'phrase':
-        return 'phraseto_tsquery';
-      default:
-        // 'websearch' is the default query mode
-        return 'websearch_to_tsquery';
-    }
+    return mapFullTextSearchRows(
+      rows as Array<FileChunkRow & { fts_rank: string; headline?: string; position: string }>,
+      (row) => this.mapRowToChunk(row),
+      matchKind,
+      threshold
+    );
   }
 
   async findAll(): Promise<FileChunk[]> {
@@ -820,59 +743,6 @@ export class ElectronFileChunkRepository {
     return Number(row?.clearedCount ?? 0);
   }
 
-  private appendFilterClause(
-    whereParts: string[],
-    params: unknown[],
-    paramIndex: number,
-    value: string | undefined,
-    column: string
-  ): number {
-    if (value === undefined) {
-      return paramIndex;
-    }
-    whereParts.push(`${column} = $${paramIndex}`);
-    params.push(value);
-    return paramIndex + 1;
-  }
-
-  private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {
-    if (!filePaths || filePaths.length === 0) {
-      return;
-    }
-    const trimmed = filePaths.map((path) => path.trim()).filter((path) => path.length > 0);
-    if (trimmed.length === 0) {
-      return;
-    }
-    return Array.from(new Set(trimmed));
-  }
-
-  private appendSelectionFilters(
-    whereParts: string[],
-    params: unknown[],
-    paramIndex: number,
-    filePaths: readonly string[] | undefined,
-    selectionSnapshotId: string | undefined
-  ): number {
-    let nextIndex = paramIndex;
-    if (selectionSnapshotId) {
-      whereParts.push(
-        `EXISTS (\n          SELECT 1\n          FROM selection_snapshot_files ssf\n          JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id\n          JOIN file_records fr ON fr.path = ssf.file_path\n          WHERE ssf.snapshot_id = $${nextIndex}\n            AND (ss.expires_at IS NULL OR ss.expires_at > NOW())\n            AND fr.id = file_chunks.file_record_id\n        )`
-      );
-      params.push(selectionSnapshotId);
-      nextIndex += 1;
-    }
-
-    if (filePaths && filePaths.length > 0) {
-      whereParts.push(
-        `file_record_id IN (\n          SELECT id FROM file_records\n          WHERE path = ANY($${nextIndex}::text[])\n        )`
-      );
-      params.push(filePaths);
-      nextIndex += 1;
-    }
-
-    return nextIndex;
-  }
-
   /**
    * Materialize a search's scoping filters starting at `startIndex` ($1 is the
    * query vector in the search SQL, so it passes 2; the selectivity counts have
@@ -884,50 +754,7 @@ export class ElectronFileChunkRepository {
     startIndex: number,
     scope: SearchScope
   ): { clauses: string[]; narrowed: boolean; values: unknown[] } {
-    const clauses: string[] = [];
-    const values: unknown[] = [];
-    let paramIndex = startIndex;
-    paramIndex = this.appendFilterClause(
-      clauses,
-      values,
-      paramIndex,
-      scope.fileRecordId,
-      'file_record_id'
-    );
-    paramIndex = this.appendFilterClause(
-      clauses,
-      values,
-      paramIndex,
-      scope.chunkType,
-      'chunk_type'
-    );
-    paramIndex = this.appendSelectionFilters(
-      clauses,
-      values,
-      paramIndex,
-      scope.filePaths,
-      scope.selectionSnapshotId
-    );
-    // Scope to workspace roots via a subquery (not a JOIN) so the main
-    // file_chunks predicate still matches the partial HNSW index.
-    if (scope.rootId !== undefined) {
-      clauses.push(
-        `file_record_id IN (SELECT id FROM file_records WHERE root_id = $${paramIndex})`
-      );
-      values.push(scope.rootId);
-      paramIndex += 1;
-    }
-    if (scope.rootIds !== undefined) {
-      clauses.push(
-        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
-      );
-      values.push(Array.from(scope.rootIds));
-      paramIndex += 1;
-    }
-    const narrowed = clauses.length > 0;
-    clauses.push(`embedding_set_id = $${paramIndex}`);
-    values.push(scope.embeddingSetId);
-    return { clauses, narrowed, values };
+    return buildRawVectorScopePlan(startIndex, scope);
   }
 
   /**
@@ -1000,56 +827,6 @@ export class ElectronFileChunkRepository {
 
     const distance = (setRow.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
     return { dimension: expectedDimension, distance };
-  }
-
-  /**
-   * Build distance expressions for similarity search.
-   * CRITICAL (#1141, 'halfvec' precision — the ANN route): the embedding column is
-   * cast to `halfvec(dimension)` to match the half-precision partial HNSW index
-   * `(embedding::halfvec(N)) … WHERE vector_dims(embedding) = N`. Without this cast
-   * (and the `vector_dims` predicate added by the caller) the planner cannot use the
-   * dimension index and the search seq-scans — which also makes the `SET LOCAL
-   * hnsw.*` tuning inert. Mirrors the PGlite-direct `FileChunkRepository`. Both the
-   * ANN ranking (orderExpr) AND the returned similarity score are computed in fp16;
-   * the quantization error (~3 sig digits) is negligible for thresholding/display and
-   * keeps the score monotonic with the halfvec rank.
-   * 'exact' precision (the selective-filter route) is the mirror-image guarantee:
-   * full-precision `embedding <=> $1::vector(N)` CANNOT match that index expression,
-   * so the planner must exact-scan the filtered subset — 100% recall by
-   * construction, with fp32 similarity scores.
-   * NOTE: similarity scores are fp32 on the exact route vs fp16 on the
-   * halfvec/ANN route, so scores near the threshold can differ across routes —
-   * callers must not assume one scale.
-   */
-  private buildDistanceExpressions(
-    distance: 'cosine' | 'l2' | 'ip',
-    dimension: number,
-    precision: 'exact' | 'halfvec' = 'halfvec'
-  ): {
-    similarityExpr: string;
-    orderExpr: string;
-  } {
-    const embeddingCast =
-      precision === 'exact' ? 'embedding' : `(embedding::halfvec(${dimension}))`;
-    const paramCast =
-      precision === 'exact' ? `$1::vector(${dimension})` : `$1::halfvec(${dimension})`;
-
-    if (distance === 'l2') {
-      return {
-        orderExpr: `${embeddingCast} <-> ${paramCast}`,
-        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
-      };
-    }
-    if (distance === 'ip') {
-      return {
-        orderExpr: `${embeddingCast} <#> ${paramCast}`,
-        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
-      };
-    }
-    return {
-      orderExpr: `${embeddingCast} <=> ${paramCast}`,
-      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
-    };
   }
 
   private async resolveExistingChunkForUpdate(chunk: FileChunkUpdate): Promise<FileChunk | null> {

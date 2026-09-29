@@ -5,6 +5,7 @@ import {
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantRunNotifications } from '../use-assistant-run-notifications';
+import { blurWindow, focusWindow, resetWindowActivity } from './window-activity-test-support';
 
 function stubNotification() {
   const instances: Array<{ title: string; options: NotificationOptions }> = [];
@@ -28,18 +29,16 @@ function stubNotification() {
 
 describe('useAssistantRunNotifications', () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Notification');
-  let hasFocusSpy: ReturnType<typeof vi.spyOn>;
-  let visibilityStateSpy: ReturnType<typeof vi.spyOn>;
 
+  // The gate reads the shared `isAppActive()`, which caches the window state and
+  // re-reads it on window events, so the tests drive it the way a browser does.
   beforeEach(() => {
     __resetNotificationPreferencesStoreForTests();
-    hasFocusSpy = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
-    visibilityStateSpy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    blurWindow();
   });
 
   afterEach(() => {
-    hasFocusSpy.mockRestore();
-    visibilityStateSpy.mockRestore();
+    resetWindowActivity();
     if (originalDescriptor) {
       Object.defineProperty(globalThis, 'Notification', originalDescriptor);
     } else {
@@ -62,6 +61,28 @@ describe('useAssistantRunNotifications', () => {
     });
 
     expect(NotificationMock).not.toHaveBeenCalled();
+  });
+
+  it('never notifies while the window is active, on the same signal as the unseen badge', () => {
+    const { NotificationMock } = stubNotification();
+    useNotificationPreferencesStore.getState().setMasterEnabled(true);
+    const { result } = renderHook(() => useAssistantRunNotifications());
+    const finished = (runId: string) => ({
+      id: `e-${runId}`,
+      kind: 'run.finished' as const,
+      label: 'Done',
+      runId,
+      status: 'completed' as const,
+      timestamp: '2026-07-09T00:00:00.000Z',
+    });
+
+    focusWindow();
+    result.current.onRunFinished(finished('run-active'));
+    expect(NotificationMock).not.toHaveBeenCalled();
+
+    blurWindow();
+    result.current.onRunFinished(finished('run-blurred'));
+    expect(NotificationMock).toHaveBeenCalledTimes(1);
   });
 
   it('notifies for run finished, run failed, and tool approval once master is enabled', () => {
@@ -109,6 +130,61 @@ describe('useAssistantRunNotifications', () => {
 
     const serialized = JSON.stringify(instances);
     expect(serialized).not.toContain('should-not-leak');
+  });
+
+  it('notifies distinct root runs that reuse a provider tool-call id', () => {
+    const { NotificationMock } = stubNotification();
+    useNotificationPreferencesStore.getState().setMasterEnabled(true);
+    const { result } = renderHook(() => useAssistantRunNotifications());
+    for (const runId of ['first-run', 'second-run']) {
+      result.current.onToolApprovalRequired({
+        runId,
+        toolCallId: 'call_0',
+        toolName: 'brainstrike.executeCommand',
+      });
+    }
+    expect(NotificationMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('alerts for each new child decision while coalescing its root and child copies', () => {
+    const { NotificationMock } = stubNotification();
+    useNotificationPreferencesStore.getState().setMasterEnabled(true);
+    const { result } = renderHook(() => useAssistantRunNotifications());
+    const request = {
+      delegation: {
+        path: [
+          {
+            childRuntimeRunId: 'child',
+            parentRuntimeRunId: 'root',
+            parentToolCallId: 'delegate',
+            personaId: 'worker',
+          },
+        ],
+        toolCallId: 'first-command',
+      },
+      runId: 'root',
+      toolCallId: 'delegate',
+      toolName: 'brainstrike.executeCommand',
+    };
+    result.current.onToolApprovalRequired(request);
+    result.current.onToolApprovalRequired({
+      ...request,
+      runId: 'child',
+      toolCallId: 'first-command',
+    });
+    expect(NotificationMock).toHaveBeenCalledTimes(1);
+    // Both the decorated child projection and the native child request share the decision key.
+    result.current.onToolApprovalRequired({
+      runId: 'child',
+      toolCallId: 'first-command',
+      toolName: 'brainstrike.executeCommand',
+    });
+    expect(NotificationMock).toHaveBeenCalledTimes(1);
+    result.current.onToolApprovalRequired({
+      ...request,
+      delegation: { ...request.delegation, toolCallId: 'second-command' },
+    });
+    expect(NotificationMock).toHaveBeenCalledTimes(2);
   });
 
   it('notifies a local run event that has no runId, coalescing on the event id', () => {

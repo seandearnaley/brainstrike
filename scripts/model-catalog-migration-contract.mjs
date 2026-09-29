@@ -3,6 +3,12 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import {
+  findModelsStatementEnd,
+  insertColumnListWritesColumn,
+  MODELS_WRITE_STATEMENT_START_PATTERN,
+  readSqlStringLiteral,
+} from './model-catalog-migration-sql-statements.mjs';
 import { parseTypeScriptSource } from './provider-registry-ast-helpers.mjs';
 
 const MIGRATION_EXPORT_PATTERN =
@@ -54,6 +60,94 @@ export const STATIC_CATALOG_STALE_ROW_ALLOWLIST = new Set([]);
 // id is simply absent would leave stale DB rows behind while persisted user
 // selections dangle.
 export const RETIRED_PROVIDER_RESIDUE_IDS = new Set(['transformers']);
+// Migrations allowed to write `models.updated_at` or `models.created_at`
+// (docs/agents/assistant-providers.md § "`is_enabled` is not evidence of user
+// intent": "Catalog upserts must never write `models.updated_at`"). Every row
+// these three touch is a `local`-provider ONNX row — 020 and 028 upsert
+// `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`, `onnx-community/Qwen3-0.6B-ONNX` and
+// the ONNX gemma rows (`onnx-community/functiongemma-270m-it-ONNX`,
+// `onnx-community/gemma-4-E2B-it-ONNX`); 024 patches the same LFM2.5/Qwen3-0.6B
+// rows' capabilities. `local`'s `PROVIDER_MODEL_DEFAULT_POLICIES` entry is
+// `null` (keyless, no availability policy), so nothing ever reads these rows'
+// `updated_at` as "the user chose this" — the invariant the rule protects is
+// inert for them by construction.
+// CLOSED list: any OTHER migration writing `models.updated_at` OR resetting
+// `models.created_at` risks making a row permanently unreachable to the
+// `all`/`seed` enablement policies (BST-1794) — a later `created_at` makes a
+// stale `updated_at` look untouched again just as effectively as bumping
+// `updated_at` itself.
+// Scope: this guard scans `up` SQL only; a `down` block writing either column
+// would launder rows on rollback and is not checked.
+export const MODELS_UPDATED_AT_WRITE_ALLOWLIST = new Set([20, 24, 28]);
+// `MODELS_WRITE_STATEMENT_START_PATTERN` and `findModelsStatementEnd` (imported
+// above from ./model-catalog-migration-sql-statements.mjs) locate a whole
+// `UPDATE models ...` / `INSERT INTO models (...) ...` statement — including a
+// `public.models` target — string-literal- and nesting-aware, never an
+// `ALTER TABLE models ALTER COLUMN updated_at ...` schema change (that starts
+// with `ALTER`, not `UPDATE`/`INSERT INTO`, so it never matches the start
+// pattern). BST-1794 follow-up: a lazy `;`-anchored pattern either stopped at
+// a `;` inside a string literal, or — when the `models` statement itself had
+// no terminating `;` — kept scanning into an unrelated later statement,
+// letting a `providers` write masquerade as a `models` one.
+
+/**
+ * The load-bearing guard for "Catalog upserts must never write
+ * `models.updated_at`": a migration that writes it moves a row's `updated_at`
+ * past its `created_at` with no user action, which reads as "the user touched
+ * this row" everywhere `PROVIDER_MODEL_DEFAULT_POLICIES` checks that predicate
+ * — silently making the row permanently unreachable to `all`/`seed`
+ * enablement. Resetting `created_at` instead launders a row the identical
+ * way: a `created_at` moved later than a stale `updated_at` makes that row
+ * look untouched again, so this guard covers both columns of the pair. Scoped
+ * to `models` statements only: migration 023's `UPDATE providers SET ...
+ * updated_at = NOW()` is a different table and must not trip this. A write
+ * can arrive either as an assignment (`UPDATE ... SET updated_at = ...` or
+ * `ON CONFLICT ... DO UPDATE SET updated_at = ...`) or, for `created_at`
+ * only relevantly on `INSERT`, through the statement's target-column list
+ * (`INSERT INTO models (id, name, updated_at) VALUES (...)`), which writes
+ * the column without ever spelling `updated_at =`.
+ */
+export function findModelsUpdatedAtWriteFailures(migrationFiles) {
+  const failures = [];
+
+  for (const file of migrationFiles) {
+    const upSql = extractMigrationUpSql(file);
+    let writesTrackedTimestamp = false;
+    for (const match of upSql.matchAll(MODELS_WRITE_STATEMENT_START_PATTERN)) {
+      const statementEnd = findModelsStatementEnd(upSql, match.index + match[0].length);
+      const statement = upSql.slice(match.index, statementEnd);
+      const afterTable = statement.slice(match[0].length);
+      if (
+        /\bupdated_at\s*=/i.test(statement) ||
+        /\bcreated_at\s*=/i.test(statement) ||
+        insertColumnListWritesColumn(afterTable, 'updated_at') ||
+        insertColumnListWritesColumn(afterTable, 'created_at')
+      ) {
+        writesTrackedTimestamp = true;
+        break;
+      }
+    }
+    if (!writesTrackedTimestamp) {
+      continue;
+    }
+
+    const version = migrationFileVersion(file.file);
+    if (version !== null && MODELS_UPDATED_AT_WRITE_ALLOWLIST.has(version)) {
+      continue;
+    }
+
+    failures.push({
+      file: file.file,
+      message:
+        `${file.file} writes models.updated_at or models.created_at, which only migrations ` +
+        `${[...MODELS_UPDATED_AT_WRITE_ALLOWLIST].sort((a, b) => a - b).join(', ')} may do ` +
+        '(docs/agents/assistant-providers.md § "`is_enabled` is not evidence of user intent": ' +
+        'catalog upserts must never write models.updated_at or models.created_at).',
+    });
+  }
+
+  return failures;
+}
 
 function extractMigrationExportName(source) {
   return source.match(MIGRATION_EXPORT_PATTERN)?.[1] ?? null;
@@ -172,6 +266,14 @@ function extractNestedStringRecord(source, constName, fileName) {
   return record;
 }
 
+/**
+ * Scope limit shared by every guard built on this function (pre-existing, not
+ * a regression): only an `up` property with a plain string or
+ * no-substitution template-literal initializer is read. A migration whose
+ * `up` SQL is assembled via interpolation (a template literal with `${...}`)
+ * or a helper function call is invisible to every guard in this file,
+ * including `findModelsUpdatedAtWriteFailures`.
+ */
 function extractMigrationUpSql(file) {
   const sourceFile = parseTypeScriptSource(file.source, file.file);
   let upSql = '';
@@ -394,33 +496,6 @@ function stripSqlIdentifier(value) {
   return trimmed.replace(/^"|"$/g, '');
 }
 
-function readSqlStringLiteral(sql, startIndex) {
-  if (sql[startIndex] !== "'") {
-    return null;
-  }
-
-  let value = '';
-  let index = startIndex + 1;
-  while (index < sql.length) {
-    const char = sql[index];
-    if (char !== "'") {
-      value += char;
-      index += 1;
-      continue;
-    }
-
-    if (sql[index + 1] === "'") {
-      value += "'";
-      index += 2;
-      continue;
-    }
-
-    return { endIndex: index + 1, value };
-  }
-
-  return null;
-}
-
 function extractSqlStringLiterals(sql) {
   const values = [];
   let index = 0;
@@ -561,42 +636,49 @@ function extractModelCatalogOperations(sql) {
 
   const deleteIdsPattern =
     /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bid\s+IN\s*\(([\s\S]*?)\)/gi;
-  for (const match of sql.matchAll(deleteIdsPattern)) {
-    operations.push({
-      ids: extractSqlStringLiterals(match[1]),
-      index: match.index,
-      kind: 'delete-ids',
-    });
-  }
-
   const deleteIdPattern =
     /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bid\s*=\s*'((?:''|[^'])*)'/gi;
-  for (const match of sql.matchAll(deleteIdPattern)) {
-    operations.push({
-      ids: [match[1].replaceAll("''", "'")],
-      index: match.index,
-      kind: 'delete-ids',
-    });
-  }
-
   const deleteProvidersPattern =
     /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bprovider_id\s+IN\s*\(([\s\S]*?)\)/gi;
-  for (const match of sql.matchAll(deleteProvidersPattern)) {
-    operations.push({
-      index: match.index,
-      kind: 'delete-providers',
-      providerIds: extractSqlStringLiterals(match[1]),
-    });
-  }
-
   const deleteProviderPattern =
     /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bprovider_id\s*=\s*'((?:''|[^'])*)'/gi;
-  for (const match of sql.matchAll(deleteProviderPattern)) {
-    operations.push({
-      index: match.index,
-      kind: 'delete-providers',
-      providerIds: [match[1].replaceAll("''", "'")],
-    });
+  // The `[\s\S]*?` gaps above are lazy but unbounded: run on the whole `up`
+  // block they cross `;` and match a WHERE clause in a later, unrelated
+  // statement (BST-1703). Match per statement so every DELETE pattern stays
+  // inside the statement it starts in; `iterateSqlStatements` skips `;`
+  // inside string literals, which a `[^;]` gap would not.
+  for (const statement of iterateSqlStatements(sql)) {
+    for (const match of statement.text.matchAll(deleteIdsPattern)) {
+      operations.push({
+        ids: extractSqlStringLiterals(match[1]),
+        index: statement.index + match.index,
+        kind: 'delete-ids',
+      });
+    }
+
+    for (const match of statement.text.matchAll(deleteIdPattern)) {
+      operations.push({
+        ids: [match[1].replaceAll("''", "'")],
+        index: statement.index + match.index,
+        kind: 'delete-ids',
+      });
+    }
+
+    for (const match of statement.text.matchAll(deleteProvidersPattern)) {
+      operations.push({
+        index: statement.index + match.index,
+        kind: 'delete-providers',
+        providerIds: extractSqlStringLiterals(match[1]),
+      });
+    }
+
+    for (const match of statement.text.matchAll(deleteProviderPattern)) {
+      operations.push({
+        index: statement.index + match.index,
+        kind: 'delete-providers',
+        providerIds: [match[1].replaceAll("''", "'")],
+      });
+    }
   }
 
   const insertPattern = /INSERT\s+INTO\s+"?models"?\s*\(/gi;
@@ -609,6 +691,17 @@ function extractModelCatalogOperations(sql) {
   }
 
   return operations.sort((left, right) => left.index - right.index);
+}
+
+function* iterateSqlStatements(sql) {
+  let startIndex = 0;
+  while (startIndex < sql.length) {
+    const endIndex = findSqlStatementEnd(sql, startIndex);
+    if (endIndex > startIndex) {
+      yield { index: startIndex, text: sql.slice(startIndex, endIndex) };
+    }
+    startIndex = endIndex;
+  }
 }
 
 function findSqlStatementEnd(sql, startIndex) {
@@ -869,6 +962,7 @@ export function analyzeModelCatalogMigrationContract(input) {
 
   failures.push(...findRemovedAssistantModelRemapFailures(input, migrationSummaries));
   failures.push(...findStaticProviderRegistryFailures(input, migrationSummaries));
+  failures.push(...findModelsUpdatedAtWriteFailures(input.migrationFiles));
   if (input.providerCatalog !== undefined) {
     failures.push(...findCatalogKeyOrderFailures(input.providerCatalog));
   }

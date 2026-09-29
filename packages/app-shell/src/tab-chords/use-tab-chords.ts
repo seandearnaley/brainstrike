@@ -1,0 +1,151 @@
+import type { ActionOutcome } from '@brainstrike/context-actions';
+import {
+  cycleTab,
+  settleTabOperation,
+  settleTabOutcome,
+} from '@brainstrike/context-actions/commands';
+import { createLogger } from '@brainstrike/logging';
+import { useToast } from '@brainstrike/ui';
+import { useEffect } from 'react';
+import { matchTabChord, type TabChordAction, type TabChordEnvironment } from './match-tab-chord';
+import { getTabChordStrip, resolveTabChordScope, type TabChordStrip } from './tab-chord-registry';
+
+const logger = createLogger('TabChords');
+
+/**
+ * Surfaces that own every key while focus is inside them: any dialog (the ⌘K
+ * palette, a popover dialog), an alert dialog, an open menu. Matched by ROLE,
+ * which Radix always sets (cmdk's Command.Dialog included); Radix never sets
+ * aria-modal, it hides the rest of the page instead. A chord there would act
+ * on a tab behind the surface, so the router leaves the key alone.
+ */
+const MODAL_SURFACE = '[role="dialog"], [role="alertdialog"], [role="menu"]';
+
+/**
+ * Focus is lost when nothing holds it, or when it sits inside a `hidden` panel:
+ * the browser moves focus off a hidden element only at its next rendering step,
+ * after animation frames have run. (A removed element drops focus to body at once.)
+ */
+function isFocusLost(active: Element | null): boolean {
+  return active === null || active === document.body || active.closest('[hidden]') !== null;
+}
+
+/**
+ * Closing, cycling or reopening can unmount or hide the element that had focus
+ * (the tab, or the panel it left), dropping focus to body — and the next chord
+ * would then act on the workspace. Once the change has rendered, move LOST focus
+ * back into the strip: its selected tab, else its tablist (the strip's focus
+ * target of last resort). Focus that survived stays put.
+ */
+function keepFocusInStrip(strip: TabChordStrip): void {
+  window.requestAnimationFrame(() => {
+    if (!isFocusLost(document.activeElement)) {
+      return;
+    }
+    const root = strip.getFocusRoot?.() ?? strip.getPanel();
+    const target =
+      root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
+      root?.querySelector<HTMLElement>('[role="tablist"]');
+    target?.focus();
+  });
+}
+
+/**
+ * The chord a keydown asks for and the strip it acts on, or null when the key
+ * is not a tab chord, a nearer handler claimed it, a modal surface owns it, or
+ * no strip is registered for the focus scope.
+ */
+function resolveChordTarget(
+  event: KeyboardEvent,
+  environment: TabChordEnvironment
+): { readonly action: TabChordAction; readonly strip: TabChordStrip } | null {
+  if (event.defaultPrevented || event.isComposing) {
+    return null;
+  }
+  const action = matchTabChord(event, environment);
+  if (action === null || document.activeElement?.closest(MODAL_SURFACE)) {
+    return null;
+  }
+  const strip = getTabChordStrip(resolveTabChordScope(document.activeElement));
+  return strip ? { action, strip } : null;
+}
+
+/**
+ * The one focus-scoped chord router (BST-1842). A chord acts on the strip whose
+ * panel contains `document.activeElement`, or the workspace strip when focus is
+ * in no panel. Mount once, in the visible-UI root.
+ *
+ * With no active tab, ⌘W is left to the host. A chord a nearer handler already
+ * claimed (`defaultPrevented`) is never taken.
+ */
+export function useTabChords(environment: TabChordEnvironment): void {
+  const { claimWindowChords, isMac } = environment;
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const report = (title: string, outcome: ActionOutcome): void => {
+      if (!outcome.ok) {
+        logger.error(`${title} failed`, { error: outcome.error });
+        toast({ description: outcome.error, title, variant: 'destructive' });
+        return;
+      }
+      // A benign no-op (an empty history) informs, as a menu action's success
+      // message does; it is never logged as an error.
+      if (outcome.message) {
+        toast({ description: outcome.message, title });
+      }
+    };
+
+    /**
+     * Run a strip operation to completion (a browser close settles in main),
+     * then restore lost focus and report. A synchronous throw or a rejection
+     * becomes a failed outcome, never an error escaping the keydown listener.
+     */
+    const run = (strip: TabChordStrip, title: string, settled: Promise<ActionOutcome>): void => {
+      void settled.then((outcome) => {
+        keepFocusInStrip(strip);
+        report(title, outcome);
+      });
+    };
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      const target = resolveChordTarget(event, { claimWindowChords, isMac });
+      if (!target) {
+        return;
+      }
+      const { action, strip } = target;
+      if (action === 'close') {
+        const activeId = strip.getActiveId();
+        if (activeId === null) {
+          return;
+        }
+        event.preventDefault();
+        run(
+          strip,
+          'Close Tab',
+          settleTabOperation(() => strip.close(activeId))
+        );
+        return;
+      }
+      event.preventDefault();
+      if (action === 'reopen') {
+        run(
+          strip,
+          'Reopen Closed Tab',
+          settleTabOutcome(() => strip.reopenClosed())
+        );
+        return;
+      }
+      run(
+        strip,
+        action === 'next' ? 'Next Tab' : 'Previous Tab',
+        settleTabOperation(() => cycleTab(strip, action))
+      );
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [claimWindowChords, isMac, toast]);
+}

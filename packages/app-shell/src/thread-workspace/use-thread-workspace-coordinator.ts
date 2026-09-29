@@ -3,13 +3,18 @@ import type {
   WorkspaceSnapshotEditor,
   WorkspaceSnapshotV1,
 } from '@brainstrike/assistant-data';
+import { ThreadWorkspaceUnavailableError } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
-import { useEffect, useRef } from 'react';
+import { useEffect, useEffectEvent, useRef, useSyncExternalStore } from 'react';
+import type { ThreadWorkspaceNavigation } from './thread-workspace-navigation';
 import {
   applyWorkspaceSnapshot,
   captureWorkspaceSnapshot,
   type WorkspaceStateFacade,
 } from './workspace-snapshot-io';
+
+const emptySubscribe = () => () => undefined;
+const emptySnapshot = () => 0;
 
 const logger = createLogger('ThreadWorkspaceCoordinator');
 
@@ -19,6 +24,7 @@ export interface ThreadWorkspaceCoordinatorOptions {
   readonly activeThreadId: string | null;
   readonly debounceMs?: number;
   readonly facade: WorkspaceStateFacade;
+  readonly navigation?: ThreadWorkspaceNavigation;
   readonly openThreadIds: readonly string[];
   readonly repository: ThreadWorkspaceRepository | null;
   readonly resourceId: string;
@@ -35,6 +41,30 @@ interface BootHydrationRecord {
 interface PendingHydrationSave {
   readonly intent: number;
   readonly threadId: string;
+}
+
+function rejectUnavailableChildNavigation(
+  repository: ThreadWorkspaceRepository | null,
+  navigation: ThreadWorkspaceNavigation | undefined,
+  resourceId: string,
+  activeThreadId: string | null
+): void {
+  if (!repository && activeThreadId && navigation?.hasPending(resourceId, activeThreadId)) {
+    navigation.failed(
+      resourceId,
+      activeThreadId,
+      new Error('Conversation storage is not ready. Open the child again after loading completes.')
+    );
+  }
+}
+
+function hasPendingWorkspaceHydration(
+  bootThreadId: string | null,
+  threadId: string,
+  resourceId: string,
+  navigation: ThreadWorkspaceNavigation | undefined
+): boolean {
+  return bootThreadId === threadId || navigation?.hasPending(resourceId, threadId) === true;
 }
 
 function stringListsMatch(left: readonly string[], right: readonly string[]): boolean {
@@ -272,6 +302,7 @@ function shouldPreserveLiveBootEdits(
  */
 export function useThreadWorkspaceCoordinator({
   activeThreadId,
+  navigation,
   debounceMs = THREAD_WORKSPACE_SAVE_DEBOUNCE_MS,
   facade,
   openThreadIds,
@@ -279,6 +310,11 @@ export function useThreadWorkspaceCoordinator({
   resourceId,
   subscribe,
 }: ThreadWorkspaceCoordinatorOptions): void {
+  const navigationRevision = useSyncExternalStore(
+    navigation?.subscribe ?? emptySubscribe,
+    navigation?.getSnapshot ?? emptySnapshot
+  );
+  useEffect(() => () => navigation?.loading(resourceId, null), [navigation, resourceId]);
   const cacheRef = useRef(new Map<string, WorkspaceSnapshotV1>());
   const hydratingRef = useRef(false);
   /** Active async hydration; live-store notifications must not overwrite it. */
@@ -296,6 +332,24 @@ export function useThreadWorkspaceCoordinator({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchIntentRef = useRef(0);
   const facadeRef = useRef(facade);
+  const handlePersistError = useEffectEvent((threadId: string, error: unknown, message: string) => {
+    if (error instanceof ThreadWorkspaceUnavailableError) {
+      cacheRef.current.delete(threadId);
+      // Deletion cancels an outgoing save; a still-active owner failure
+      // remains visible, as do all database/serialization failures below.
+      if (activeThreadId !== threadId) {
+        logger.debug('Cancelled outgoing workspace save after native ownership was revoked', {
+          threadId,
+        });
+        return;
+      }
+      navigation?.failed(resourceId, threadId, error);
+    }
+    logger.error(message, {
+      error: error instanceof Error ? error.message : String(error),
+      threadId,
+    });
+  });
   // FIRST effect on purpose: later effects in this hook read facadeRef, and
   // same-commit effect order is declaration order.
   useEffect(() => {
@@ -312,13 +366,19 @@ export function useThreadWorkspaceCoordinator({
       const snapshot = captureWorkspaceSnapshot(facadeRef.current);
       cacheRef.current.set(activeThreadId, snapshot);
       repository.setThreadWorkspace(activeThreadId, resourceId, snapshot).catch((error) => {
-        logger.error('Failed to persist thread workspace snapshot', {
-          error: error instanceof Error ? error.message : String(error),
-          threadId: activeThreadId,
-        });
+        handlePersistError(activeThreadId, error, 'Failed to persist thread workspace snapshot');
       });
     };
+    let previousAppIds = [...facadeRef.current.getOpenAppIds()];
+    let previousSelection = facadeRef.current.getSelection();
     const unsubscribe = subscribe(() => {
+      const appIds = facadeRef.current.getOpenAppIds();
+      const selection = facadeRef.current.getSelection();
+      const appsChanged = !(
+        stringListsMatch(previousAppIds, appIds) && selectionsMatch(previousSelection, selection)
+      );
+      previousAppIds = [...appIds];
+      previousSelection = selection;
       if (hydratingRef.current) {
         return;
       }
@@ -331,6 +391,12 @@ export function useThreadWorkspaceCoordinator({
       }
       if (saveTimerRef.current !== null) {
         clearTimeout(saveTimerRef.current);
+      }
+      // Tab ownership/selection must reach persistence before a reload can
+      // discard the debounce timer. High-frequency viewport edits stay batched.
+      if (appsChanged) {
+        persist();
+        return;
       }
       saveTimerRef.current = setTimeout(persist, debounceMs);
     });
@@ -392,16 +458,23 @@ export function useThreadWorkspaceCoordinator({
 
   // ---- Switch handling ----
   useEffect(() => {
+    rejectUnavailableChildNavigation(repository, navigation, resourceId, activeThreadId);
     const previous = previousThreadIdRef.current;
     const isDeferredBootHydration =
       previous === activeThreadId &&
       activeThreadId !== null &&
       repository !== null &&
-      pendingBootHydrateRef.current === activeThreadId;
+      hasPendingWorkspaceHydration(
+        pendingBootHydrateRef.current,
+        activeThreadId,
+        resourceId,
+        navigation
+      );
     if (previous === activeThreadId && !isDeferredBootHydration) {
       return;
     }
 
+    navigation?.loading(resourceId, activeThreadId);
     const preserveLiveBootEdits = shouldPreserveLiveBootEdits(
       activeThreadId,
       hasActivatedThreadRef.current,
@@ -441,10 +514,7 @@ export function useThreadWorkspaceCoordinator({
       const outgoing = captureWorkspaceSnapshot(facadeRef.current);
       cacheRef.current.set(previous, outgoing);
       repository.setThreadWorkspace(previous, resourceId, outgoing).catch((error) => {
-        logger.error('Failed to persist outgoing thread workspace snapshot', {
-          error: error instanceof Error ? error.message : String(error),
-          threadId: previous,
-        });
+        handlePersistError(previous, error, 'Failed to persist outgoing thread workspace snapshot');
       });
     }
 
@@ -469,6 +539,7 @@ export function useThreadWorkspaceCoordinator({
         hydratingRef.current = false;
         clearHydrationTracking();
       }
+      navigation?.complete(resourceId, activeThreadId);
     };
     const hydrateLoadedSnapshot = (snapshot: WorkspaceSnapshotV1) => {
       const baseline = bootHydrationBaselineRef.current;
@@ -479,10 +550,11 @@ export function useThreadWorkspaceCoordinator({
           cacheRef.current.set(activeThreadId, merged);
           hydrate(merged);
           repository?.setThreadWorkspace(activeThreadId, resourceId, merged).catch((error) => {
-            logger.error('Failed to persist live edits after workspace hydration', {
-              error: error instanceof Error ? error.message : String(error),
-              threadId: activeThreadId,
-            });
+            handlePersistError(
+              activeThreadId,
+              error,
+              'Failed to persist live edits after workspace hydration'
+            );
           });
           return;
         }
@@ -520,13 +592,15 @@ export function useThreadWorkspaceCoordinator({
         // No row: INHERIT the current workspace (new thread, or first run
         // after upgrade). The live stores already show it — persist as-is.
         clearHydrationTracking();
+        navigation?.complete(resourceId, activeThreadId);
         const inherited = captureWorkspaceSnapshot(facadeRef.current);
         cacheRef.current.set(activeThreadId, inherited);
         repository.setThreadWorkspace(activeThreadId, resourceId, inherited).catch((error) => {
-          logger.error('Failed to persist inherited thread workspace snapshot', {
-            error: error instanceof Error ? error.message : String(error),
-            threadId: activeThreadId,
-          });
+          handlePersistError(
+            activeThreadId,
+            error,
+            'Failed to persist inherited thread workspace snapshot'
+          );
         });
       })
       .catch((error) => {
@@ -535,16 +609,18 @@ export function useThreadWorkspaceCoordinator({
           pendingHydrationSaveRef.current.threadId === activeThreadId;
         if (switchIntentRef.current === intent) {
           clearHydrationTracking();
+          navigation?.failed(resourceId, activeThreadId, error);
           if (hasPendingSave) {
             const pending = captureWorkspaceSnapshot(facadeRef.current);
             cacheRef.current.set(activeThreadId, pending);
             repository
               .setThreadWorkspace(activeThreadId, resourceId, pending)
               .catch((saveError) => {
-                logger.error('Failed to persist live edits after workspace hydration failure', {
-                  error: saveError instanceof Error ? saveError.message : String(saveError),
-                  threadId: activeThreadId,
-                });
+                handlePersistError(
+                  activeThreadId,
+                  saveError,
+                  'Failed to persist live edits after workspace hydration failure'
+                );
               });
           }
         }
@@ -553,5 +629,5 @@ export function useThreadWorkspaceCoordinator({
           threadId: activeThreadId,
         });
       });
-  }, [activeThreadId, repository, resourceId]);
+  }, [activeThreadId, navigation, navigationRevision, repository, resourceId]);
 }

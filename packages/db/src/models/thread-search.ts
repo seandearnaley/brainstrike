@@ -14,8 +14,7 @@ export interface ThreadSearchDatabase {
   /**
    * Optional atomic multi-statement transaction (the DbHandle `runTransaction`
    * IPC primitive from #1141). When present, the vector search arm runs its
-   * `SET LOCAL` HNSW tuning + SELECT inside one transaction here; when absent,
-   * the repository falls back to BEGIN/COMMIT over `query`. Named to match
+   * `SET LOCAL` HNSW tuning + SELECT inside one transaction here. Named to match
    * `DbHandle.runTransaction` — deliberately NOT `transaction`, which would
    * collide with PGlite's callback-style method of that name.
    */
@@ -28,7 +27,8 @@ export interface ThreadSearchDatabase {
    * the WEB production path. Holds the single PGlite connection lock for the
    * callback's duration, so concurrent scheduled work (e.g. the thread-search
    * controller's embedding-backlog writes) cannot interleave inside the open
-   * transaction. Preferred over the raw BEGIN/COMMIT fallback.
+   * transaction. A query-only handle is rejected because separate BEGIN/COMMIT
+   * calls do not hold this transport lock.
    */
   transaction?: <T>(
     fn: (tx: {

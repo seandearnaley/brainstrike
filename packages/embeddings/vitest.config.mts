@@ -61,6 +61,7 @@ export default defineConfig({
     // Use forks pool with parallelization for better performance
     pool: 'forks',
     reporters: ['default', new LostTestFileReporter()],
+    setupFiles: ['@brainstrike/test-utils/vitest.event-loop-watchdog.setup'],
     testTimeout: 30_000,
   },
 });

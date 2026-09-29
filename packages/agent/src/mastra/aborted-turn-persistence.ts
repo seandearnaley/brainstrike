@@ -15,6 +15,8 @@ export interface AbortedTurnPersistence {
     messageList: MessageList | undefined,
     assistantMessageId?: string
   ) => Promise<void> | void;
+  /** Freeze native state at abort without starting persistence before terminal ownership is known. */
+  captureSnapshot: () => void;
   finalize: () => Promise<void>;
   markNormalFinish: () => void;
 }
@@ -38,6 +40,27 @@ function assistantContent(parts: MastraMessagePart[]): MastraMessageContentV2 {
   };
 }
 
+/**
+ * The abort snapshot, under Mastra >= 1.62 cancel persistence.
+ *
+ * Mastra's `MessageHistory` output processor now persists a cancelled run's
+ * transcript itself — the user input, completed tool work, AND any partial
+ * text — through its normal output processing. That write is not awaited by
+ * the aborted loop, so this seam still exists for two reasons: it appends the
+ * model-visible abort marker, and its awaited `saveMessages` is the join that
+ * serializes Mastra's floating write ahead of runtime disposal (without it the
+ * write races the storage close; see the BST-1320 record in
+ * docs/agents/mastra-boundary.md).
+ *
+ * Content rule: everything Mastra persists is kept — re-saving the same ids is
+ * an upsert of the same parts, deliberately re-stamped with a `createdAt` at
+ * or after "now" so the snapshot orders last — EXCEPT tool invocations that
+ * never completed. Mastra filters partial tool calls from its own write, and this
+ * seam must not re-introduce one, or Stop could resurrect execution on the
+ * next turn. Partial text is retained: dropping it here cannot remove the row
+ * Mastra already wrote, and a snapshot that disagrees with the UI's transcript
+ * is the exact failure BST-1415 recorded.
+ */
 function buildAbortedTurnMessages(
   unsavedMessages: MastraDBMessage[],
   assistantMessageId: string,
@@ -50,47 +73,26 @@ function buildAbortedTurnMessages(
     Date.now(),
     ...inputMessages.map((message) => message.createdAt.getTime() + 1)
   );
-  let lastCompletedMessageIndex = -1;
-  let lastCompletedPartIndex = -1;
 
-  for (const [messageIndex, message] of assistantMessages.entries()) {
-    for (const [partIndex, part] of message.content.parts.entries()) {
-      if (isCompletedToolInvocationPart(part)) {
-        lastCompletedMessageIndex = messageIndex;
-        lastCompletedPartIndex = partIndex;
-      }
-    }
-  }
-
-  const completedAssistantMessages = assistantMessages
-    .slice(0, lastCompletedMessageIndex + 1)
+  const retainedAssistantMessages = assistantMessages
     .map((message, messageIndex) => ({
       ...message,
       content: assistantContent(
-        message.content.parts
-          .slice(
-            0,
-            messageIndex === lastCompletedMessageIndex ? lastCompletedPartIndex + 1 : undefined
-          )
-          .filter((part) => part.type !== 'tool-invocation' || isCompletedToolInvocationPart(part))
+        message.content.parts.filter(
+          (part) => part.type !== 'tool-invocation' || isCompletedToolInvocationPart(part)
+        )
       ),
       createdAt: new Date(assistantCreatedAtStart + messageIndex),
     }))
-    .filter(
-      (message, messageIndex) =>
-        messageIndex === lastCompletedMessageIndex ||
-        message.content.parts.some((part) => part.type !== 'step-start')
-    );
-  const markerTarget = completedAssistantMessages.at(-1) ?? assistantMessages[0];
+    .filter((message) => message.content.parts.some((part) => part.type !== 'step-start'));
+  const markerTarget = retainedAssistantMessages.at(-1);
   const markerMessage: MastraDBMessage = markerTarget
     ? {
         ...markerTarget,
         content: assistantContent([
-          ...(completedAssistantMessages.at(-1)?.content.parts ?? []),
+          ...markerTarget.content.parts,
           { text: ABORTED_TURN_MEMORY_MARKER, type: 'text' },
         ]),
-        createdAt:
-          completedAssistantMessages.at(-1)?.createdAt ?? new Date(assistantCreatedAtStart),
       }
     : {
         content: {
@@ -104,21 +106,18 @@ function buildAbortedTurnMessages(
         threadId,
       };
 
-  if (completedAssistantMessages.length === 0) {
-    return [...inputMessages, markerMessage];
-  }
-  return [...inputMessages, ...completedAssistantMessages.slice(0, -1), markerMessage];
+  return [...inputMessages, ...retainedAssistantMessages.slice(0, -1), markerMessage];
 }
 
 async function persistAbortedTurn({
   assistantMessageId,
   memory,
-  messageList,
+  unsavedMessages,
   runtimeData,
 }: {
   assistantMessageId: string;
   memory: MastraMemory;
-  messageList: MessageList;
+  unsavedMessages: MastraDBMessage[];
   runtimeData: RuntimeData;
 }): Promise<void> {
   const memoryContext = runtimeData.memory;
@@ -131,7 +130,7 @@ async function persistAbortedTurn({
     await memory.createThread({ resourceId, threadId });
   }
   const messages = buildAbortedTurnMessages(
-    messageList.drainUnsavedMessages(),
+    unsavedMessages,
     assistantMessageId,
     threadId,
     resourceId
@@ -144,11 +143,13 @@ async function persistAbortedTurn({
 
 export function createAbortedTurnPersistence({
   assistantMessageId,
+  beforePersist,
   memory,
   runtimeData,
   shouldPersist,
 }: {
   assistantMessageId: string;
+  beforePersist?: (() => Promise<void>) | undefined;
   memory: MastraMemory;
   runtimeData: RuntimeData;
   shouldPersist: () => boolean;
@@ -159,6 +160,31 @@ export function createAbortedTurnPersistence({
   let messageList: MessageList | undefined;
   let persistenceTask: Promise<void> | undefined;
   let resolvedAssistantMessageId = assistantMessageId;
+  let snapshot:
+    | { ok: true; messages: MastraDBMessage[]; messageId: string }
+    | { ok: false; error: unknown }
+    | undefined;
+  const captureSnapshot = (): void => {
+    if (snapshot || !messageList || finishedNormally) {
+      return;
+    }
+    try {
+      snapshot = {
+        messageId: resolvedAssistantMessageId,
+        // Match memory-store.ts's JSON content boundary, including toJSON values.
+        // This is the persisted representation, not a fallback to mutable live data.
+        messages: messageList.drainUnsavedMessages().map((message) => ({
+          ...message,
+          content: JSON.parse(JSON.stringify(message.content)) as MastraMessageContentV2,
+          createdAt: new Date(message.createdAt),
+        })),
+        ok: true,
+      };
+    } catch (error) {
+      // Abort listeners cannot throw; the terminal finalizer reports this failure.
+      snapshot = { error, ok: false };
+    }
+  };
 
   const start = (): Promise<void> | undefined => {
     if (!(finalizationRequested && !finishedNormally && shouldPersist() && messageListAttached)) {
@@ -172,12 +198,44 @@ export function createAbortedTurnPersistence({
       );
       return persistenceTask;
     }
-    persistenceTask ??= persistAbortedTurn({
-      assistantMessageId: resolvedAssistantMessageId,
-      memory,
-      messageList,
-      runtimeData,
-    });
+    if (persistenceTask) {
+      return persistenceTask;
+    }
+    captureSnapshot();
+    const captured = snapshot;
+    persistenceTask = (async () => {
+      const errors: unknown[] = [];
+      try {
+        await beforePersist?.();
+      } catch (error) {
+        errors.push(error);
+      }
+      try {
+        if (!captured) {
+          throw new Error('Aborted turn snapshot was not captured.');
+        }
+        if (!captured.ok) {
+          throw captured.error;
+        }
+        await persistAbortedTurn({
+          assistantMessageId: captured.messageId,
+          memory,
+          runtimeData,
+          unsavedMessages: captured.messages,
+        });
+      } catch (error) {
+        errors.push(error);
+      }
+      if (errors.length === 1) {
+        throw errors[0];
+      }
+      if (errors.length > 1) {
+        throw new AggregateError(
+          errors,
+          errors.map((error) => (error instanceof Error ? error.message : String(error))).join('; ')
+        );
+      }
+    })();
     return persistenceTask;
   };
 
@@ -187,6 +245,7 @@ export function createAbortedTurnPersistence({
       messageList = value;
       resolvedAssistantMessageId = messageId ?? resolvedAssistantMessageId;
     },
+    captureSnapshot,
     finalize: () => {
       finalizationRequested = true;
       return start() ?? Promise.resolve();

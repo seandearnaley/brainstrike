@@ -1,5 +1,5 @@
 import type { OAuthProviderDescriptor, OAuthTokenGrant } from '@brainstrike/assistant-contract';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProviderAuthFlowCancelledError } from '../../provider-auth/errors';
 import {
   buildAuthorizeUrl,
@@ -24,6 +24,10 @@ function makeDescriptor(overrides: Partial<OAuthProviderDescriptor> = {}): OAuth
   };
 }
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('buildAuthorizeUrl', () => {
   it('carries client_id, redirect_uri, scope, S256 challenge, state, and extra params', () => {
     const url = new URL(
@@ -47,6 +51,38 @@ describe('buildAuthorizeUrl', () => {
 });
 
 describe('exchangeAuthorizationCode', () => {
+  it('cancels a stalled token response body before accepting a grant', async () => {
+    const controller = new AbortController();
+    let bodyStarted: (() => void) | undefined;
+    const reachedBody = new Promise<void>((resolve) => {
+      bodyStarted = resolve;
+    });
+    const fetchFn = vi.fn<typeof fetch>(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          text: async () => {
+            bodyStarted?.();
+            return await new Promise<string>(() => undefined);
+          },
+        }) as Response
+    );
+    const pending = exchangeAuthorizationCode({
+      cancelSignal: controller.signal,
+      code: 'auth-code',
+      codeVerifier: 'verifier-1',
+      descriptor: makeDescriptor(),
+      fetchFn,
+      redirectUri: 'http://127.0.0.1:43210/callback',
+    });
+
+    await reachedBody;
+    controller.abort();
+    await expect(pending).rejects.toBeInstanceOf(ProviderAuthFlowCancelledError);
+    expect(fetchFn).toHaveBeenCalledOnce();
+  });
+
   it('POSTs application/x-www-form-urlencoded and parses the grant', async () => {
     const fetchFn = vi.fn(
       async () =>

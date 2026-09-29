@@ -100,17 +100,18 @@ export function MessageRewindAction({
  */
 export function RewindComposerBridge(): null {
   const aui = useAui();
+  const context = useRewindContext();
   const pendingText = useRewindComposerStore((state) => state.pendingText);
   const consume = useRewindComposerStore((state) => state.consume);
 
   useEffect(() => {
-    if (pendingText === null) {
+    if (!context || pendingText === null) {
       return;
     }
     // react-doctor-disable-next-line react-doctor/no-event-handler -- This effect drains a cross-package external store into assistant-ui's composer; the producing event happens in another package's modal, with no DOM event here.
     aui.composer().setText(pendingText);
     consume();
-  }, [aui, consume, pendingText]);
+  }, [aui, consume, context, pendingText]);
 
   return null;
 }

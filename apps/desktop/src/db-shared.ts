@@ -3,8 +3,8 @@ import type {
   ManagedCacheInvalidationTarget,
 } from '@brainstrike/db';
 import type {
-  ElectronChunkInsert,
-  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+  DatabaseChunkInsert,
+  InsertChunksAndEnqueueEmbeddingJobsOptions,
 } from '@brainstrike/types';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 
@@ -15,14 +15,14 @@ export const DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL =
   DESKTOP_IPC_CHANNELS.db.invalidateManagedCacheEntriesByIdentity;
 
 type ElectronEmbeddingProvider = NonNullable<
-  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions['provider']
+  InsertChunksAndEnqueueEmbeddingJobsOptions['provider']
 >;
 type ElectronDimensionParameter = NonNullable<
-  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions['dimensionParameter']
+  InsertChunksAndEnqueueEmbeddingJobsOptions['dimensionParameter']
 >;
 
 export interface ParsedInsertChunksAndEnqueueEmbeddingJobsArgs {
-  readonly chunks: readonly ElectronChunkInsert[];
+  readonly chunks: readonly DatabaseChunkInsert[];
   readonly dimensionParameter?: ElectronDimensionParameter | null;
   readonly fileRecordId: string;
   readonly model: string;
@@ -124,12 +124,12 @@ function parseDimensionParameter(value: unknown): ElectronDimensionParameter | n
   return value as ElectronDimensionParameter;
 }
 
-function parseChunkInsert(value: unknown): ElectronChunkInsert {
+function parseChunkInsert(value: unknown): DatabaseChunkInsert {
   if (!(value && typeof value === 'object')) {
     throw new Error('Atomic chunk/job enqueue payload contains an invalid chunk.');
   }
   const candidate = value as Record<string, unknown>;
-  const chunk: ElectronChunkInsert = {
+  const chunk: DatabaseChunkInsert = {
     chunkIndex: requireInteger(candidate['chunkIndex'], 'Chunk insert requires chunkIndex.'),
     chunkSize: requirePositiveInteger(candidate['chunkSize'], 'Chunk insert requires chunkSize.'),
     chunkType: requireNonEmptyString(candidate['chunkType'], 'Chunk insert requires chunkType.') as

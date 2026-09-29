@@ -12,6 +12,7 @@
  * `db-provider.tsx` puts the capability-probed desktop bridge ahead of it.
  */
 import {
+  MASTRA_BACKGROUND_TASKS_TABLE,
   MASTRA_MEMORY_TABLES,
   MASTRA_VECTOR_TABLE,
   MASTRA_WORKFLOW_TABLE,
@@ -23,6 +24,7 @@ import {
   isBrowserPersistentPGliteDataDir,
   isIndexedDbPGliteDataDir,
 } from './browser-pglite-storage.js';
+import { reportDatabaseCloseFailure } from './database-close-diagnostics.js';
 import type {
   ClearAllDataResult,
   DatabaseTransport,
@@ -129,10 +131,10 @@ async function closeDirectConnection(db: PGliteRuntimeClient, dataDir: string): 
       await db.close();
     }
   } catch (err: unknown) {
-    const errorMessage = (err as Error)?.message || '';
-    if (!(errorMessage.includes('closed') || errorMessage.includes('PGlite is closed'))) {
-      logger.error('Failed to close database:', err);
-    }
+    reportDatabaseCloseFailure(
+      err,
+      isBrowserPersistentPGliteDataDir(dataDir) ? 'browser-persistent' : 'direct'
+    );
   }
 }
 
@@ -154,20 +156,7 @@ async function purgeAndCloseDirectDb(
   } catch (err) {
     logger.warn('VACUUM after purge failed:', err);
   }
-  if (isBrowserPersistentPGliteDataDir(dataDir)) {
-    try {
-      await wasmLoader.closeCached(dataDir);
-      logger.info('[DbProvider] Closed cached browser PGlite instance during factory reset');
-    } catch (err) {
-      logger.warn('Failed to close cached browser PGlite instance during reset:', err);
-    }
-  } else {
-    try {
-      await db.close();
-    } catch (err) {
-      logger.warn('Closing database after purge failed:', err);
-    }
-  }
+  await closeDirectConnection(db, dataDir);
 }
 
 async function loadDrizzleEmbeddingSetsRepository() {
@@ -203,6 +192,14 @@ async function purgeTablesTx(tx: { query: (sql: string) => Promise<unknown> }): 
   await clearRelationIfPresent(tx, 'brainstrike_assistant_run_errors');
   await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
   await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_workspaces');
+  await clearRelationIfPresent(tx, 'brainstrike_delegation_step_reservations');
+  await clearRelationIfPresent(tx, 'brainstrike_delegation_child_budgets');
+  await clearRelationIfPresent(tx, 'brainstrike_delegation_budgets');
+  await clearRelationIfPresent(tx, 'brainstrike_delegated_tool_decisions');
+  await clearRelationIfPresent(tx, 'brainstrike_delegated_continuation_decisions');
+  await clearRelationIfPresent(tx, 'brainstrike_delegated_continuations');
+  await clearRelationIfPresent(tx, 'brainstrike_delegated_invocations');
+  await clearRelationIfPresent(tx, 'brainstrike_delegated_conversations');
   await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
   await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.messages);
   await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.observationalMemory);
@@ -210,6 +207,7 @@ async function purgeTablesTx(tx: { query: (sql: string) => Promise<unknown> }): 
   await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.resources);
   await clearRelationIfPresent(tx, MASTRA_VECTOR_TABLE);
   await clearRelationIfPresent(tx, MASTRA_WORKFLOW_TABLE);
+  await clearRelationIfPresent(tx, MASTRA_BACKGROUND_TASKS_TABLE);
   // Task Ledger outcome labels: web-writable (user verdicts), no FK —
   // clear explicitly per the FACTORY RESET CONTRACT (review #1693).
   await clearRelationIfPresent(tx, 'brainstrike_assistant_run_outcomes');
@@ -496,6 +494,14 @@ export function createPgliteDirectTransport(
       // Delete placements before groups, and both before Mastra threads.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_workspaces');
+      await clearRelationIfPresent(tx, 'brainstrike_delegation_step_reservations');
+      await clearRelationIfPresent(tx, 'brainstrike_delegation_child_budgets');
+      await clearRelationIfPresent(tx, 'brainstrike_delegation_budgets');
+      await clearRelationIfPresent(tx, 'brainstrike_delegated_tool_decisions');
+      await clearRelationIfPresent(tx, 'brainstrike_delegated_continuation_decisions');
+      await clearRelationIfPresent(tx, 'brainstrike_delegated_continuations');
+      await clearRelationIfPresent(tx, 'brainstrike_delegated_invocations');
+      await clearRelationIfPresent(tx, 'brainstrike_delegated_conversations');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
       // Mastra memory tables are lazy, database-owned assistant persistence.
       // Delete children before their logical parents even though the current
@@ -510,6 +516,7 @@ export function createPgliteDirectTransport(
       // Suspended Mastra workflow snapshots: unbounded lifetime, no FK, and they
       // retain the pending tool call and its arguments (BST-558).
       await clearRelationIfPresent(tx, MASTRA_WORKFLOW_TABLE);
+      await clearRelationIfPresent(tx, MASTRA_BACKGROUND_TASKS_TABLE);
       // Thread search index (migration 067): derived conversation text + sync
       // state. Diagnostic events (migration 073): the durable warn+ error log,
       // no FK, so nothing cascades it. Neither may survive a "true fresh start"

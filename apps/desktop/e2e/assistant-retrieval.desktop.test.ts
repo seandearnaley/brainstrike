@@ -25,7 +25,7 @@ async function openAssistantChat(window: Page): Promise<void> {
 }
 
 async function sendPrompt(window: Page, prompt: string): Promise<void> {
-  const input = window.locator('#assistant-input');
+  const input = window.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
   await input.fill(prompt);
 
@@ -53,17 +53,27 @@ test.describe('Assistant retrieval (desktop)', () => {
     await expect(window.getByText('Retrieved answer.').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
+    // Sync on the turn actually finishing. `aria-expanded` is no longer that
+    // signal: since BST-1679 the group is collapsed at ALL times, running
+    // included, so waiting for "false" resolves immediately and proves
+    // nothing. `data-state` is what the trace publishes for the transition.
+    await expect(window.getByTestId('assistant-activity-group').first()).toHaveAttribute(
+      'data-state',
+      'done',
+      { timeout: E2E_TIMEOUTS.toolVisibility }
+    );
     const summary = window.getByTestId('assistant-activity-summary').first();
-    await expect(summary).toHaveAttribute('aria-expanded', 'false', {
-      timeout: E2E_TIMEOUTS.toolVisibility,
-    });
     await summary.click();
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    await expect(window.getByText('brainstrike.retrieveContext').first()).toBeVisible({
-      timeout: E2E_TIMEOUTS.toolVisibility,
-    });
+    // Scoped to the CARD: since BST-1679 the collapsed group header also names
+    // the step ("Used brainstrike.retrieveContext"), so an unscoped text query
+    // would pass on the header alone and stop proving the card renders it.
+    await expect(window.getByTestId('tool-fallback').first()).toContainText(
+      'brainstrike.retrieveContext',
+      { timeout: E2E_TIMEOUTS.toolVisibility }
+    );
   });
 
   test('shows retrieval tool errors when execution fails', async ({ window }) => {
@@ -72,10 +82,16 @@ test.describe('Assistant retrieval (desktop)', () => {
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
+    // Sync on the turn actually finishing. `aria-expanded` is no longer that
+    // signal: since BST-1679 the group is collapsed at ALL times, running
+    // included, so waiting for "false" resolves immediately and proves
+    // nothing. `data-state` is what the trace publishes for the transition.
+    await expect(window.getByTestId('assistant-activity-group').first()).toHaveAttribute(
+      'data-state',
+      'done',
+      { timeout: E2E_TIMEOUTS.toolVisibility }
+    );
     const summary = window.getByTestId('assistant-activity-summary').first();
-    await expect(summary).toHaveAttribute('aria-expanded', 'false', {
-      timeout: E2E_TIMEOUTS.toolVisibility,
-    });
     await summary.click();
     await expect(window.getByText(errorMessage).first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
@@ -83,9 +99,13 @@ test.describe('Assistant retrieval (desktop)', () => {
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    await expect(window.getByText('brainstrike.retrieveContext').first()).toBeVisible({
-      timeout: E2E_TIMEOUTS.toolVisibility,
-    });
+    // Scoped to the CARD: since BST-1679 the collapsed group header also names
+    // the step ("Used brainstrike.retrieveContext"), so an unscoped text query
+    // would pass on the header alone and stop proving the card renders it.
+    await expect(window.getByTestId('tool-fallback').first()).toContainText(
+      'brainstrike.retrieveContext',
+      { timeout: E2E_TIMEOUTS.toolVisibility }
+    );
   });
 
   test('surfaces assistant stream failures', async ({ window }) => {

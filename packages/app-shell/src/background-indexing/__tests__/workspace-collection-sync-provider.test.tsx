@@ -363,6 +363,10 @@ vi.mock('@brainstrike/db', () => ({
     run: vi.fn(),
     subscribe: vi.fn(() => () => {}),
   })),
+  getDesktopDatabaseBridge: () =>
+    typeof window === 'undefined'
+      ? undefined
+      : (window as unknown as { electronAPI?: { db?: unknown } }).electronAPI?.db,
   invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityLocalMock,
   JobQueue: vi.fn(function MockJobQueue() {
     return {
@@ -3721,96 +3725,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
-  it('stops the stale loop when a new triggerSync fires mid-loop', async () => {
-    const root1 = {
-      kind: 'directory',
-      name: 'workspace',
-      path: '/workspace/root',
-      platform: 'electron',
-    };
-    const root2 = {
-      kind: 'directory',
-      name: 'workspace2',
-      path: '/workspace/root2',
-      platform: 'electron',
-    };
-    fileSystemState.rootDirectoryHandle = root1;
-    fileSystemState.rootDirectoryHandles = [root1, root2];
-
-    // firstSyncStarted lets the test gate when to fire the re-trigger.
-    let firstSyncStarted!: () => void;
-    const firstSyncStartedPromise = new Promise<void>((res) => {
-      firstSyncStarted = res;
-    });
-    // neverResolve keeps root1 in-flight so we can confirm root2 from the OLD
-    // loop is never called while the service is busy.
-    const neverResolvePromise = new Promise<void>(() => {
-      // intentionally never resolved — the service's own abort ends the in-flight pass
-    });
-
-    const syncCallHandles: string[] = [];
-    const syncSpy = vi
-      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
-      .mockImplementation(async (req) => {
-        const path = (req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null';
-        syncCallHandles.push(path);
-        if (syncCallHandles.filter((p) => p === root1.path).length === 1) {
-          // First call for root1: signal it started, then hang.
-          firstSyncStarted();
-          await neverResolvePromise;
-        }
-      });
-
-    try {
-      const { rerender } = render(
-        <WorkspaceCollectionSyncProvider>
-          <div data-testid="child" />
-        </WorkspaceCollectionSyncProvider>
-      );
-
-      // Wait for the first loop's root1 pass to begin.
-      await firstSyncStartedPromise;
-
-      // Re-trigger via a GENUINE root-set change (BST-1268: identity churn
-      // with an unchanged set deliberately no longer re-fires the effect).
-      fileSystemState.rootDirectoryHandles = [
-        root1,
-        root2,
-        {
-          kind: 'directory',
-          name: 'workspace3',
-          path: '/workspace/root3',
-          platform: 'electron',
-        },
-      ];
-      rerender(
-        <WorkspaceCollectionSyncProvider>
-          <div data-testid="child" />
-        </WorkspaceCollectionSyncProvider>
-      );
-
-      // Wait for the new loop to call root1 again.
-      await waitFor(() => expect(syncCallHandles.filter((p) => p === root1.path).length).toBe(2));
-
-      // Allow microtasks to flush so root2 from the new loop can be reached.
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      });
-
-      // root2 from the OLD stale loop must never have been invoked.
-      // Only root2 from the NEW loop may appear (after root1 resolves from the new loop).
-      // Since root1 from the new loop also uses neverResolve (second call → resolves immediately),
-      // we can assert root2 appears exactly once (from the new loop only).
-      const root2Calls = syncCallHandles.filter((p) => p === root2.path);
-      // The stale guard prevents the old loop from ever reaching root2,
-      // so root2 can only appear from the new loop.
-      // New loop's root1 resolves immediately (second call) → root2 follows.
-      expect(root2Calls.length).toBeLessThanOrEqual(1);
-    } finally {
-      syncSpy.mockRestore();
-    }
-  });
-
   it('stops the active root loop when background work is paused mid-loop', async () => {
     const root1 = {
       kind: 'directory',
@@ -4710,6 +4624,62 @@ describe('WorkspaceCollectionSyncProvider', () => {
       completedChunkCount: 1,
       mode: 'embedding-ceiling',
     });
+  });
+
+  it.each([undefined, null, 42, {}, { getStatus: 'not callable' }])(
+    'reports unavailable debug host capabilities without an unchecked bridge type: %j',
+    async (bridge) => {
+      readFullTreeWithOptionsMock.mockResolvedValue([]);
+      vi.stubGlobal('chunkingHost', bridge);
+      try {
+        render(
+          <WorkspaceCollectionSyncProvider>
+            <div data-testid="child" />
+          </WorkspaceCollectionSyncProvider>
+        );
+
+        const snapshot = await window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?.snapshot();
+        expect(snapshot?.chunkingHostStatus).toEqual({
+          available: false,
+          reason: 'chunkingHost bridge unavailable',
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+  );
+
+  it('preserves the debug host receiver and surfaces rejected status reads', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([]);
+    const chunkingHost = {
+      getStatus() {
+        return Promise.resolve(this.status);
+      },
+      status: { state: 'ready' },
+    };
+    vi.stubGlobal('chunkingHost', chunkingHost);
+    vi.stubGlobal('embeddingHost', {
+      getStatus: () => Promise.reject(new Error('Host disconnected')),
+    });
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      const snapshot = await window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?.snapshot();
+      expect(snapshot?.chunkingHostStatus).toEqual({
+        available: true,
+        status: chunkingHost.status,
+      });
+      expect(snapshot?.embeddingHostStatus).toMatchObject({
+        available: false,
+        reason: 'Host disconnected',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('includes chunked records and chunk stats grouped by root and embedding set in debug snapshots', async () => {

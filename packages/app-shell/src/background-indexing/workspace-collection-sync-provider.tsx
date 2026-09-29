@@ -13,12 +13,9 @@ import {
   createDatabasePressureController,
   createPriorityDbHandle,
   type DatabaseWorkSchedulerSnapshot,
-  ElectronEmbeddingSetsRepository,
-  ElectronFileChunkRepository,
-  ElectronFileRecordRepository,
-  FileSymbolRepository,
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
+  getDesktopDatabaseBridge,
   invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
 } from '@brainstrike/db';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
@@ -35,10 +32,8 @@ import {
 } from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
 import {
   createWorkspaceIndexingQosTransitionLogger,
-  resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
   type WorkspaceIndexingPipelineInputs,
-  type WorkspaceIndexingQosPolicy,
 } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
 import {
@@ -95,6 +90,15 @@ import {
   type WorkspaceIndexDebugSnapshot,
   type WorkspaceIndexDebugSummary,
 } from './workspace-index-debug-harness';
+import {
+  type WorkspaceIndexingTriggerOptions as TriggerSyncOptions,
+  type WorkspaceIndexingTriggerScope as TriggerSyncScope,
+  WorkspaceIndexingCoordinator,
+} from './workspace-indexing-coordinator';
+import {
+  createWorkspaceIndexingQosResolver,
+  createWorkspaceIndexingRepositories,
+} from './workspace-indexing-runtime';
 import { createMountedRootIdentityKey, getActiveRootHandles } from './workspace-root-handles';
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
@@ -196,114 +200,6 @@ function createClearedProgressPatch(): Pick<
 
 interface WorkspaceIndexingPowerBridge {
   getSnapshot?: () => Promise<WorkspaceIndexingPowerSnapshot>;
-}
-
-type TriggerSyncScope =
-  | {
-      mode: 'full';
-    }
-  | {
-      mode: 'paths';
-      roots: Array<{
-        changes: readonly FileSystemChange[];
-        /**
-         * Watcher overflow: events may have been missed for this root, so its
-         * incremental changes are untrustworthy — the root needs a FULL
-         * resync (but other roots keep their incremental scope).
-         */
-        fullResync?: boolean;
-        rootId: string;
-      }>;
-    };
-
-interface TriggerSyncOptions {
-  restartActive?: boolean;
-}
-
-function mergeTriggerSyncScopes(
-  current: TriggerSyncScope | null,
-  incoming: TriggerSyncScope
-): TriggerSyncScope {
-  if (current === null) {
-    return incoming;
-  }
-  if (current.mode === 'full' || incoming.mode === 'full') {
-    return { mode: 'full' };
-  }
-
-  const rootsById = new Map<
-    string,
-    { changes: FileSystemChange[]; fullResync?: boolean; rootId: string }
-  >();
-  for (const root of current.roots) {
-    rootsById.set(root.rootId, {
-      changes: [...root.changes],
-      ...(root.fullResync === true ? { fullResync: true } : {}),
-      rootId: root.rootId,
-    });
-  }
-  for (const root of incoming.roots) {
-    const existing = rootsById.get(root.rootId);
-    rootsById.set(root.rootId, {
-      changes: [...(existing?.changes ?? []), ...root.changes],
-      ...(existing?.fullResync === true || root.fullResync === true ? { fullResync: true } : {}),
-      rootId: root.rootId,
-    });
-  }
-  return {
-    mode: 'paths',
-    roots: [...rootsById.values()],
-  };
-}
-
-function handleActiveSyncLoopRequest(args: {
-  options: TriggerSyncOptions;
-  pendingSyncScopeRef: { current: TriggerSyncScope | null };
-  reportCancelError: (error: unknown) => void;
-  scope: TriggerSyncScope;
-  service: WorkspaceCollectionSyncService;
-  syncLoopActiveRef: { current: boolean };
-  syncLoopDebugRef: { current: Record<string, unknown> };
-  syncLoopGenerationRef: { current: number };
-}): boolean {
-  if (!args.syncLoopActiveRef.current) {
-    return false;
-  }
-  if (args.options.restartActive === true) {
-    args.syncLoopGenerationRef.current += 1;
-    args.syncLoopActiveRef.current = false;
-    args.pendingSyncScopeRef.current = null;
-    void args.service.cancel().catch(args.reportCancelError);
-    return false;
-  }
-
-  args.pendingSyncScopeRef.current = mergeTriggerSyncScopes(
-    args.pendingSyncScopeRef.current,
-    args.scope
-  );
-  args.syncLoopDebugRef.current = {
-    ...args.syncLoopDebugRef.current,
-    pendingScope: args.pendingSyncScopeRef.current.mode,
-    state: 'queued-while-active',
-    updatedAt: new Date().toISOString(),
-  };
-  return true;
-}
-
-function invalidateActiveSyncLoop(args: {
-  pendingSyncScopeRef: { current: TriggerSyncScope | null };
-  reportCancelError: (error: unknown) => void;
-  service: WorkspaceCollectionSyncService;
-  syncLoopActiveRef: { current: boolean };
-  syncLoopGenerationRef: { current: number };
-}): void {
-  if (!(args.syncLoopActiveRef.current || args.pendingSyncScopeRef.current)) {
-    return;
-  }
-  args.syncLoopGenerationRef.current += 1;
-  args.syncLoopActiveRef.current = false;
-  args.pendingSyncScopeRef.current = null;
-  void args.service.cancel().catch(args.reportCancelError);
 }
 
 interface SyncLoopTarget {
@@ -438,30 +334,6 @@ async function loadOrderedSyncTargets(args: {
 
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
-}
-
-function createBackgroundRepositoryDb(db: DbHandle): {
-  exec: (sql: string) => Promise<void>;
-  insertChunksAndEnqueueEmbeddingJobs?: DbHandle['insertChunksAndEnqueueEmbeddingJobs'];
-  query: DbHandle['query'];
-} {
-  if (!db.exec) {
-    throw new Error('Background indexing requires database exec support.');
-  }
-  const handle: {
-    exec: (sql: string) => Promise<void>;
-    insertChunksAndEnqueueEmbeddingJobs?: DbHandle['insertChunksAndEnqueueEmbeddingJobs'];
-    query: DbHandle['query'];
-  } = {
-    exec: async (sql: string) => {
-      await db.exec?.(sql);
-    },
-    query: db.query,
-  };
-  if (db.insertChunksAndEnqueueEmbeddingJobs) {
-    handle.insertChunksAndEnqueueEmbeddingJobs = db.insertChunksAndEnqueueEmbeddingJobs.bind(db);
-  }
-  return handle;
 }
 
 function isFileSystemChange(value: unknown): value is FileSystemChange {
@@ -739,8 +611,7 @@ function createWaitForBackgroundPermit(
     );
   }
 
-  const schedulerSnapshot =
-    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  const schedulerSnapshot = getDesktopDatabaseBridge()?.schedulerSnapshot;
   if (!schedulerSnapshot) {
     throw new Error('Background indexing requires database QoS scheduler snapshots.');
   }
@@ -775,8 +646,7 @@ function createReadDatabasePressure(
     return async () => toWorkspaceIndexingDatabasePressure(scheduler.getSnapshot());
   }
 
-  const schedulerSnapshot =
-    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  const schedulerSnapshot = getDesktopDatabaseBridge()?.schedulerSnapshot;
   if (!schedulerSnapshot) {
     throw new Error('Workspace Index QoS requires database scheduler snapshots.');
   }
@@ -1048,20 +918,10 @@ export function WorkspaceCollectionSyncProvider({
     [backgroundDb]
   );
   const readPowerSnapshot = useMemo(() => createReadPowerSnapshot(), []);
-  const backgroundRepositories = useMemo(() => {
-    if (!backgroundDb) {
-      return null;
-    }
-    const repositoryDb = createBackgroundRepositoryDb(backgroundDb);
-    return {
-      chunkRepository: new ElectronFileChunkRepository(repositoryDb),
-      embeddingSetsRepository: new ElectronEmbeddingSetsRepository(repositoryDb),
-      fileRecordRepository: new ElectronFileRecordRepository(repositoryDb),
-      // Symbol graph (BST-919): needs only `query` — single-statement CTE
-      // inserts keep it atomic on this transactionless background handle.
-      symbolRepository: new FileSymbolRepository(repositoryDb),
-    };
-  }, [backgroundDb]);
+  const backgroundRepositories = useMemo(
+    () => (backgroundDb ? createWorkspaceIndexingRepositories(backgroundDb) : null),
+    [backgroundDb]
+  );
   const { ensureStarted: ensureChunkingWorker } = useChunkingWorkerContext();
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const storeHasHydrated = useBackgroundIndexingPreferencesStore((state) => state.hasHydrated);
@@ -1144,19 +1004,8 @@ export function WorkspaceCollectionSyncProvider({
   const windowVisibleRef = useRef(windowVisible);
   windowVisibleRef.current = windowVisible;
   const workspaceIndexBootstrapInFlightRef = useRef(false);
-  // Stale-loop guard for sequential multi-root sync: incremented each time
-  // triggerSync fires so that an older loop can detect it is superseded and
-  // stop iterating before feeding more roots to service.sync.
-  const syncLoopGenerationRef = useRef(0);
   const syncLoopDebugRef = useRef<Record<string, unknown>>({ state: 'not-started' });
-  const syncLoopActiveRef = useRef(false);
-  const pendingSyncScopeRef = useRef<TriggerSyncScope | null>(null);
-  const replayPendingSyncRef = useRef<(scope: TriggerSyncScope) => void>(() => {});
-  const backgroundWorkSnapshot = useSyncExternalStore(
-    subscribeToBackgroundWorkArbiter,
-    getBackgroundWorkArbiterSnapshot,
-    getBackgroundWorkArbiterSnapshot
-  );
+  const [indexingCoordinator] = useState(() => new WorkspaceIndexingCoordinator());
   const reportAsyncError = useCallback(
     (_operation: string, error: unknown): void => {
       // No direct logger call: the status store's subscription durably logs
@@ -1234,45 +1083,24 @@ export function WorkspaceCollectionSyncProvider({
     }
   }, [runtimeController]);
 
-  // useState lazy initializer guarantees one transition tracker per provider
-  // instance: the sync loop re-resolves the QoS policy every cycle, and the
-  // tracker logs only (state, reason) transitions instead of every resolution.
+  // One transition tracker per provider instance: resolver reconstruction must
+  // not turn an unchanged QoS state into a fresh transition log.
   const [observeQosTransition] = useState(() =>
     createWorkspaceIndexingQosTransitionLogger('app-shell-sync')
   );
-
   const resolveQosPolicy = useCallback(
-    async (options?: {
-      foregroundDbPressureStarvationBypass?: boolean;
-    }): Promise<WorkspaceIndexingQosPolicy> => {
-      if (!(readDatabasePressure && readPipelineInputs)) {
-        throw new Error('Workspace Index QoS requires database scheduler snapshots.');
-      }
-      const powerSnapshot = readPowerSnapshot ? await readPowerSnapshot() : null;
-      const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
-      const policy = resolveWorkspaceIndexingQosPolicy({
-        dbPressure: await readDatabasePressure(),
-        foregroundDbPressureStarvationBypass:
-          options?.foregroundDbPressureStarvationBypass ?? false,
-        // Coarse app-shell signal: this spans the full assistant turn so background
-        // indexing yields while tool/LLM work is active. The desktop hidden-host
-        // ForegroundEmbeddingGate remains the embedding-scoped GPU coordination path.
-        foregroundQueryActive: getAssistantForegroundActivitySnapshot(),
-        idleState: powerSnapshot?.idleState ?? 'unknown',
-        idleTimeMs: powerSnapshot?.idleTimeMs ?? null,
-        manualPaused: latestBackgroundWorkSnapshot.backgroundIndexingPaused,
-        pipeline: await readPipelineInputs(),
-        powerSource: powerSnapshot?.powerSource ?? 'unknown',
-        // TODO(workspace-index-qos): wire hosted provider rate-limit telemetry when
-        // backfill exposes provider throttling as durable state.
-        providerRateLimited: false,
-        recentUserInputMs: readRecentUserInputMs(),
-        thermalState: powerSnapshot?.thermalState ?? 'unknown',
-        windowVisible: windowVisibleRef.current,
-      });
-      observeQosTransition(policy);
-      return policy;
-    },
+    (options?: { foregroundDbPressureStarvationBypass?: boolean }) =>
+      createWorkspaceIndexingQosResolver({
+        observeTransition: observeQosTransition,
+        readBackgroundIndexingPaused: () =>
+          getBackgroundWorkArbiterSnapshot().backgroundIndexingPaused,
+        readDatabasePressure,
+        readForegroundQueryActive: getAssistantForegroundActivitySnapshot,
+        readPipelineInputs,
+        readPowerSnapshot,
+        readRecentUserInputMs,
+        readWindowVisible: () => windowVisibleRef.current,
+      })(options),
     [
       observeQosTransition,
       readDatabasePressure,
@@ -1366,7 +1194,7 @@ export function WorkspaceCollectionSyncProvider({
     }) as typeof backgroundRepositories.embeddingSetsRepository;
     return new WorkspaceCollectionSyncService({
       applyManagedCacheBatch: async (args) => {
-        const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
+        const electronApplyManagedCacheBatch = getDesktopDatabaseBridge()?.applyManagedCacheBatch;
         if (electronApplyManagedCacheBatch) {
           await electronApplyManagedCacheBatch(args, BACKGROUND_DATABASE_WORK_OPTIONS);
           return;
@@ -1412,7 +1240,7 @@ export function WorkspaceCollectionSyncProvider({
       },
       invalidateManagedCacheEntriesByIdentity: async (args) => {
         const electronInvalidateManagedCacheEntries =
-          window.electronAPI?.db?.invalidateManagedCacheEntriesByIdentity;
+          getDesktopDatabaseBridge()?.invalidateManagedCacheEntriesByIdentity;
         if (electronInvalidateManagedCacheEntries) {
           return await electronInvalidateManagedCacheEntries(
             args,
@@ -1511,114 +1339,16 @@ export function WorkspaceCollectionSyncProvider({
     setManagedCollectionId,
   ]);
 
-  const triggerSync = useCallback(
-    (scope: TriggerSyncScope = { mode: 'full' }, options: TriggerSyncOptions = {}) => {
-      // Live reads (not deps): see the rootSetKey comment at the top of the
-      // component — the body below stays byte-identical to the dep'd version.
+  const resolveSyncTargets = useCallback(
+    async (scope: TriggerSyncScope, context: { isCurrent: () => boolean }) => {
+      if (!(service && managedCollectionId)) {
+        return [];
+      }
       const rootDirectoryHandle = rootDirectoryHandleRef.current;
       const rootDirectoryHandles = rootDirectoryHandlesRef.current;
       const rootIdByPath = rootIdByPathRef.current;
-      if (!hasHydrated) {
-        return;
-      }
-
-      if (!service) {
-        if (enabled) {
-          setSyncStatus({
-            activeRootPath: rootDirectoryHandle?.path ?? null,
-            currentFilePath: null,
-            lastError: null,
-            managedCollectionId,
-            managedCollectionName: null,
-            processedFiles: 0,
-            queuedFiles: 0,
-            state: 'waiting',
-          });
-        } else {
-          resetSyncStatus();
-        }
-        return;
-      }
-
-      if (triggerWorkspaceIndexBootstrap()) {
-        return;
-      }
-
-      // Read the arbiter snapshot LIVE rather than as a hook dependency: its
-      // QoS/pressure/pause-reason churn must not change triggerSync's identity,
-      // because that re-runs the owning effect whose cleanup cancels the
-      // in-flight sync — which would abort a newly added root mid-import. The
-      // pause/resume EDGE is wired explicitly via subscribeToBackgroundWorkArbiter
-      // below (a non-cancelling re-trigger).
-      const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
-      if (latestBackgroundWorkSnapshot.backgroundIndexingPaused) {
-        syncLoopGenerationRef.current += 1;
-        syncLoopActiveRef.current = false;
-        pendingSyncScopeRef.current = null;
-        void service.cancel().catch((error) => {
-          reportAsyncError('cancel', error);
-        });
-        setSyncStatus({
-          activeRootPath: rootDirectoryHandle?.path ?? null,
-          currentFilePath: null,
-          lastError: null,
-          managedCollectionId,
-          managedCollectionName: null,
-          pauseReasons: [
-            ...(latestBackgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
-            ...getBackgroundWorkPauseReasonLabels(
-              latestBackgroundWorkSnapshot.automaticPauseReasons
-            ),
-          ],
-          state: 'paused',
-        });
-        return;
-      }
-
-      if (!(enabled && managedCollectionId && rootDirectoryHandle)) {
-        invalidateActiveSyncLoop({
-          pendingSyncScopeRef,
-          reportCancelError: (error) => {
-            reportAsyncError('cancel', error);
-          },
-          service,
-          syncLoopActiveRef,
-          syncLoopGenerationRef,
-        });
-        void service
-          .sync({
-            enabled,
-            indexingPolicyPreset,
-            managedCollectionId,
-            rootDirectoryHandle,
-            scope: { mode: 'full' },
-          })
-          .catch((error) => {
-            reportAsyncError('sync', error);
-          });
-        return;
-      }
-
-      if (isAccessLoading) {
-        syncLoopGenerationRef.current += 1;
-        syncLoopActiveRef.current = false;
-        pendingSyncScopeRef.current = null;
-        // Reported, not fire-and-forget: cancel now asks the host to stop
-        // untracked background-indexing runs (BST-1654) and can reject.
-        void service.cancel().catch((error) => {
-          reportAsyncError('cancel', error);
-        });
-        setSyncStatus({
-          activeRootPath: rootDirectoryHandle.path,
-          currentFilePath: null,
-          lastError: null,
-          managedCollectionId,
-          managedCollectionName: null,
-          processedFiles: 0,
-          queuedFiles: 0,
-          state: 'waiting',
-        });
-        return;
+      if (!rootDirectoryHandle) {
+        return [];
       }
 
       const selection = filterSyncTargetsByIndexingDefault(
@@ -1649,247 +1379,185 @@ export function WorkspaceCollectionSyncProvider({
         previous: excludedRootLogStateRef.current,
         rootSetKey,
       });
-      const { targets } = selection;
-      if (
-        handleActiveSyncLoopRequest({
-          options,
-          pendingSyncScopeRef,
-          reportCancelError: (error) => {
-            reportAsyncError('cancel', error);
-          },
-          scope,
-          service,
-          syncLoopActiveRef,
-          syncLoopDebugRef,
-          syncLoopGenerationRef,
+
+      const resolvedMountedRoots = await Promise.all(
+        mountedHandles.map(async (handle) => {
+          const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path);
+          return {
+            adapterRootId: adapterRootId ?? null,
+            dbRootId: await resolveDbRootId(handle.path, adapterRootId),
+            identityKey: createMountedRootIdentityKey(handle, rootIdByPath),
+            rootPath: handle.path,
+          };
         })
-      ) {
-        return;
+      );
+      if (!context.isCurrent()) {
+        return [];
       }
-
-      // Bump the generation only when starting a real loop. Requests that arrive
-      // while a loop is active are serialized through pendingSyncScopeRef so the
-      // active import is not cancelled and overlapped by the follow-up pass.
-      syncLoopGenerationRef.current += 1;
-      const myGeneration = syncLoopGenerationRef.current;
-      syncLoopActiveRef.current = true;
-      syncLoopDebugRef.current = {
-        generation: myGeneration,
-        scope: scope.mode,
-        state: 'resolving-targets',
-        targetCount: targets.length,
-        targetPaths: targets.map((target) => target.handle.path),
-        updatedAt: new Date().toISOString(),
-      };
-
-      void (async () => {
-        if (syncLoopGenerationRef.current !== myGeneration) {
-          syncLoopDebugRef.current = {
-            ...syncLoopDebugRef.current,
-            generation: myGeneration,
-            state: 'cancelled-before-resolve',
-            updatedAt: new Date().toISOString(),
-          };
-          return;
-        }
-        // eslint-disable-next-line react-doctor/async-defer-await -- the post-await generation guard prevents stale loops from syncing after cancellation during root-id resolution.
-        const resolvedMountedRoots = await Promise.all(
-          mountedHandles.map(async (handle) => {
-            const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path);
-            return {
-              adapterRootId: adapterRootId ?? null,
-              dbRootId: await resolveDbRootId(handle.path, adapterRootId),
-              identityKey: createMountedRootIdentityKey(handle, rootIdByPath),
-              rootPath: handle.path,
-            };
-          })
-        );
-        const mountedDbRootIdByIdentity = new Map(
-          resolvedMountedRoots.map((root) => [root.identityKey, root.dbRootId])
-        );
-        const resolvedTargets = targets.map(
-          (target): ResolvedSyncLoopTargetCandidate => ({
-            ...target,
-            adapterRootId: target.handle.rootId ?? rootIdByPath.get(target.handle.path) ?? null,
-            dbRootId:
-              mountedDbRootIdByIdentity.get(
-                createMountedRootIdentityKey(target.handle, rootIdByPath)
-              ) ?? null,
-          })
-        );
-        if (syncLoopGenerationRef.current !== myGeneration) {
-          syncLoopDebugRef.current = {
-            ...syncLoopDebugRef.current,
-            generation: myGeneration,
-            resolvedTargetCount: resolvedTargets.length,
-            resolvedTargets: resolvedTargets.map((target) => ({
-              dbRootId: target.dbRootId,
-              path: target.handle.path,
-            })),
-            state: 'cancelled-after-resolve',
-            updatedAt: new Date().toISOString(),
-          };
-          return;
-        }
-
-        const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
-        service.reconcileMountedRoots(
-          managedCollectionId,
-          resolvedMountedRoots.map(({ adapterRootId, dbRootId, rootPath }) => ({
-            adapterRootId,
-            dbRootId,
-            rootPath,
-          }))
-        );
-        // Order by ACTUAL indexed coverage: least-indexed roots sync first. A
-        // folder you just added (0 files), or one whose earlier pass imported
-        // nothing, is processed before a giant repo that is only partway through
-        // its import — so one huge root can never block the others, and a newly
-        // added root indexes promptly instead of waiting in line behind a
-        // 20k-file import. Falls back to discovery order if the query fails.
-        // eslint-disable-next-line react-doctor/async-defer-await -- the post-await generation guard prevents stale loops from syncing after cancellation during coverage read.
-        const orderedTargets = await loadOrderedSyncTargets({
-          backgroundDb,
-          managedCollectionId,
-          syncableTargets,
-        });
-        if (syncLoopGenerationRef.current !== myGeneration) {
-          return;
-        }
-        syncLoopDebugRef.current = {
-          ...syncLoopDebugRef.current,
-          generation: myGeneration,
-          resolvedTargetCount: resolvedTargets.length,
-          resolvedTargets: resolvedTargets.map((target) => ({
-            dbRootId: target.dbRootId,
-            path: target.handle.path,
-          })),
-          state: orderedTargets.length > 0 ? 'syncing' : 'no-syncable-targets',
-          syncableTargetCount: orderedTargets.length,
-          syncableTargetPaths: orderedTargets.map((target) => target.handle.path),
-          updatedAt: new Date().toISOString(),
-        };
-
-        publishNoSyncableTargetStatus({
-          collectionId: managedCollectionId,
-          deferredRootPaths: workspaceSelection.deferredRootPaths,
-          excludedRootPaths: workspaceSelection.excludedRootPaths,
-          mountedSyncableTargetCount: workspaceSelection.targets.length,
-          orderedTargets,
-          resolvedTargets,
-          setStatus: setSyncStatus,
-        });
-
-        for (const [targetIndex, target] of orderedTargets.entries()) {
-          const targetPath = target.handle.path;
-          // Stale-loop guard: a newer triggerSync has fired — stop immediately.
-          if (syncLoopGenerationRef.current !== myGeneration) {
-            syncLoopDebugRef.current = {
-              ...syncLoopDebugRef.current,
-              generation: myGeneration,
-              state: 'cancelled-before-service-sync',
-              updatedAt: new Date().toISOString(),
-            };
-            return;
-          }
-          syncLoopDebugRef.current = {
-            ...syncLoopDebugRef.current,
-            activeTargetPath: targetPath,
-            generation: myGeneration,
-            state: 'service-sync-started',
-            updatedAt: new Date().toISOString(),
-          };
-          // backfillMode: only the LAST (most-covered) root enqueues the embedding
-          // backfill; earlier roots defer so a freshly added root's import is not
-          // stuck behind a giant repo's backfill enqueue.
-          // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
-          await service
-            .sync({
-              adapterRootId: target.adapterRootId,
-              backfillMode: targetIndex === orderedTargets.length - 1 ? 'enqueue' : 'defer',
-              dbRootId: target.dbRootId,
-              enabled,
-              indexingPolicyPreset,
-              managedCollectionId,
-              rootDirectoryHandle: target.handle,
-              scope:
-                target.scope.mode === 'paths'
-                  ? { changes: target.scope.changes ?? [], mode: 'paths' }
-                  : { mode: 'full' },
-            })
-            .catch((error) => {
-              syncLoopDebugRef.current = {
-                ...syncLoopDebugRef.current,
-                activeTargetPath: targetPath,
-                error: error instanceof Error ? error.message : String(error),
-                generation: myGeneration,
-                state: 'service-sync-error',
-                updatedAt: new Date().toISOString(),
-              };
-              reportAsyncError('sync', error);
-            });
-          syncLoopDebugRef.current = {
-            ...syncLoopDebugRef.current,
-            activeTargetPath: targetPath,
-            completedTargetPath: targetPath,
-            generation: myGeneration,
-            state: 'service-sync-completed',
-            updatedAt: new Date().toISOString(),
-          };
-        }
-      })()
-        .catch((error) => {
-          syncLoopDebugRef.current = {
-            ...syncLoopDebugRef.current,
-            error: error instanceof Error ? error.message : String(error),
-            generation: myGeneration,
-            state: 'sync-loop-error',
-            updatedAt: new Date().toISOString(),
-          };
-          reportAsyncError('sync loop', error);
+      const mountedDbRootIdByIdentity = new Map(
+        resolvedMountedRoots.map((root) => [root.identityKey, root.dbRootId])
+      );
+      const resolvedTargets = selection.targets.map(
+        (target): ResolvedSyncLoopTargetCandidate => ({
+          ...target,
+          adapterRootId: target.handle.rootId ?? rootIdByPath.get(target.handle.path) ?? null,
+          dbRootId:
+            mountedDbRootIdByIdentity.get(
+              createMountedRootIdentityKey(target.handle, rootIdByPath)
+            ) ?? null,
         })
-        .finally(() => {
-          if (syncLoopGenerationRef.current === myGeneration) {
-            syncLoopActiveRef.current = false;
-          }
-          const pendingScope = pendingSyncScopeRef.current;
-          pendingSyncScopeRef.current = null;
-          if (pendingScope) {
-            replayPendingSyncRef.current(pendingScope);
-          }
-        });
+      );
+      const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
+      service.reconcileMountedRoots(
+        managedCollectionId,
+        resolvedMountedRoots.map(({ adapterRootId, dbRootId, rootPath }) => ({
+          adapterRootId,
+          dbRootId,
+          rootPath,
+        }))
+      );
+      const orderedTargets = await loadOrderedSyncTargets({
+        backgroundDb,
+        managedCollectionId,
+        syncableTargets,
+      });
+      if (!context.isCurrent()) {
+        return [];
+      }
+      publishNoSyncableTargetStatus({
+        collectionId: managedCollectionId,
+        deferredRootPaths: workspaceSelection.deferredRootPaths,
+        excludedRootPaths: workspaceSelection.excludedRootPaths,
+        mountedSyncableTargetCount: workspaceSelection.targets.length,
+        orderedTargets,
+        resolvedTargets,
+        setStatus: setSyncStatus,
+      });
+
+      return orderedTargets.map((target, targetIndex) => ({
+        adapterRootId: target.adapterRootId,
+        backfillMode:
+          targetIndex === orderedTargets.length - 1 ? ('enqueue' as const) : ('defer' as const),
+        dbRootId: target.dbRootId,
+        enabled,
+        indexingPolicyPreset,
+        managedCollectionId,
+        rootDirectoryHandle: target.handle,
+        scope:
+          target.scope.mode === 'paths'
+            ? { changes: target.scope.changes ?? [], mode: 'paths' as const }
+            : { mode: 'full' as const },
+      }));
     },
-    // BST-1268: rootSetKey deliberately replaces the focused handle, handles
-    // array, and path map identities so focus-only changes cannot recreate and
-    // cancel this callback while an import is active.
     [
       backgroundDb,
       dbRootIdByAdapterRootId,
       dbRootKindByAdapterRootId,
       enabled,
-      hasHydrated,
       indexingPolicyPreset,
-      isAccessLoading,
       managedCollectionId,
-      reportAsyncError,
-      resetSyncStatus,
       resolveDbRootId,
       rootSetKey,
       rootsReconciliationSettled,
       service,
       setSyncStatus,
-      triggerWorkspaceIndexBootstrap,
       worktreeRootIndexingOptInById,
     ]
   );
+
   useEffect(() => {
-    replayPendingSyncRef.current = (scope: TriggerSyncScope) => {
-      triggerSync(scope);
-    };
-    return () => {
-      replayPendingSyncRef.current = () => {};
-    };
-  }, [triggerSync]);
+    indexingCoordinator.updateInputs({
+      enabled,
+      hasHydrated,
+      indexingPolicyPreset,
+      isAccessLoading,
+      managedCollectionId,
+      onBootstrap: triggerWorkspaceIndexBootstrap,
+      onError: reportAsyncError,
+      publishPaused: ({
+        activeRootPath,
+        managedCollectionId: collectionId,
+        pauseReasons: reasons,
+      }) => {
+        setSyncStatus({
+          activeRootPath,
+          currentFilePath: null,
+          lastError: null,
+          managedCollectionId: collectionId,
+          managedCollectionName: null,
+          pauseReasons: [...reasons],
+          state: 'paused',
+        });
+      },
+      publishRuntimeUnavailable: ({
+        activeRootPath,
+        enabled: indexingEnabled,
+        managedCollectionId: collectionId,
+      }) => {
+        if (!indexingEnabled) {
+          resetSyncStatus();
+          return;
+        }
+        setSyncStatus({
+          activeRootPath,
+          currentFilePath: null,
+          lastError: null,
+          managedCollectionId: collectionId,
+          managedCollectionName: null,
+          processedFiles: 0,
+          queuedFiles: 0,
+          state: 'waiting',
+        });
+      },
+      publishWaiting: ({ activeRootPath, managedCollectionId: collectionId }) => {
+        setSyncStatus({
+          activeRootPath,
+          currentFilePath: null,
+          lastError: null,
+          managedCollectionId: collectionId,
+          managedCollectionName: null,
+          processedFiles: 0,
+          queuedFiles: 0,
+          state: 'waiting',
+        });
+      },
+      readPaused: () => getBackgroundWorkArbiterSnapshot().backgroundIndexingPaused,
+      readPauseReasons: () => {
+        const snapshot = getBackgroundWorkArbiterSnapshot();
+        if (!snapshot.backgroundIndexingPaused) {
+          return [];
+        }
+        return [
+          ...(snapshot.manualPause ? ['Paused manually'] : []),
+          ...getBackgroundWorkPauseReasonLabels(snapshot.automaticPauseReasons),
+        ];
+      },
+      readRootDirectoryHandle: () => rootDirectoryHandleRef.current,
+      resolveTargets: resolveSyncTargets,
+      service,
+    });
+    indexingCoordinator.trigger({ mode: 'full' }, { restartActive: true });
+  }, [
+    enabled,
+    hasHydrated,
+    indexingCoordinator,
+    indexingPolicyPreset,
+    isAccessLoading,
+    managedCollectionId,
+    reportAsyncError,
+    resetSyncStatus,
+    resolveSyncTargets,
+    service,
+    setSyncStatus,
+    triggerWorkspaceIndexBootstrap,
+  ]);
+
+  const triggerSync = useCallback(
+    (scope: TriggerSyncScope = { mode: 'full' }, options: TriggerSyncOptions = {}) => {
+      indexingCoordinator.trigger(scope, options);
+    },
+    [indexingCoordinator]
+  );
   const triggerSyncFromEvent = useEffectEvent(triggerSync);
 
   // Re-run the sync when background-work state changes (pause -> cancel + paused
@@ -2025,8 +1693,7 @@ export function WorkspaceCollectionSyncProvider({
         return scheduler.getSnapshot();
       }
     }
-    const schedulerSnapshot =
-      typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+    const schedulerSnapshot = getDesktopDatabaseBridge()?.schedulerSnapshot;
     return schedulerSnapshot ? await schedulerSnapshot() : null;
   }, [backgroundDb]);
 
@@ -2052,19 +1719,23 @@ export function WorkspaceCollectionSyncProvider({
   }, [fileSystemAdapter, indexingPolicyPreset, rootDirectoryHandle, rootDirectoryHandles]);
 
   const readDebugHostStatus = useCallback(async (bridgeName: 'chunkingHost' | 'embeddingHost') => {
-    const bridge = (window as unknown as Record<typeof bridgeName, unknown>)[bridgeName] as
-      | { getStatus?: () => Promise<unknown> }
-      | undefined;
-    if (typeof bridge?.getStatus !== 'function') {
+    const bridge: unknown = Reflect.get(window, bridgeName);
+    if (
+      !bridge ||
+      typeof bridge !== 'object' ||
+      !('getStatus' in bridge) ||
+      typeof bridge.getStatus !== 'function'
+    ) {
       return {
         available: false,
         reason: `${bridgeName} bridge unavailable`,
       };
     }
     try {
+      const status: unknown = await bridge.getStatus();
       return {
         available: true,
-        status: await bridge.getStatus(),
+        status,
       };
     } catch (error) {
       return {
@@ -2076,7 +1747,7 @@ export function WorkspaceCollectionSyncProvider({
 
   const readDebugSnapshot = useCallback(async (): Promise<WorkspaceIndexDebugSnapshot> => {
     const accessIssues: Array<{ reason: string; source: string }> = [];
-    const electronQuery = typeof window === 'undefined' ? undefined : window.electronAPI?.db?.query;
+    const electronQuery = getDesktopDatabaseBridge()?.query;
     const query =
       typeof electronQuery === 'function'
         ? (((sql: string, params?: unknown[]) =>
@@ -2278,7 +1949,10 @@ export function WorkspaceCollectionSyncProvider({
         serviceAvailable: Boolean(service),
       },
       selectedDevicePreference,
-      syncLoop: syncLoopDebugRef.current,
+      syncLoop: {
+        ...syncLoopDebugRef.current,
+        ...indexingCoordinator.getDebugState(),
+      },
       syncReadiness: {
         enabled,
         hasHydrated,
@@ -2313,11 +1987,12 @@ export function WorkspaceCollectionSyncProvider({
     rootIdByPath,
     selectedDevicePreference,
     service,
+    indexingCoordinator,
   ]);
 
   const readDebugSummary = useCallback(async (): Promise<WorkspaceIndexDebugSummary> => {
     const accessIssues: Array<{ reason: string; source: string }> = [];
-    const electronQuery = typeof window === 'undefined' ? undefined : window.electronAPI?.db?.query;
+    const electronQuery = getDesktopDatabaseBridge()?.query;
     const query =
       typeof electronQuery === 'function'
         ? (((sql: string, params?: unknown[]) =>
@@ -2454,20 +2129,7 @@ export function WorkspaceCollectionSyncProvider({
 
   const benchmarkDebugStage: WorkspaceIndexDebugApi['benchmarkStage'] = useCallback(
     async (request) => {
-      const electronRunTransaction =
-        typeof window === 'undefined'
-          ? undefined
-          : (
-              window.electronAPI?.db as
-                | {
-                    runTransaction?: (
-                      statements: Array<{ params?: unknown[]; sql: string }>,
-                      resultIndex: number,
-                      options?: unknown
-                    ) => Promise<{ rows?: unknown[] }>;
-                  }
-                | undefined
-            )?.runTransaction;
+      const electronRunTransaction = getDesktopDatabaseBridge()?.runTransaction;
       const chunkingHost =
         typeof window === 'undefined'
           ? undefined
@@ -2515,7 +2177,7 @@ export function WorkspaceCollectionSyncProvider({
       const applyManagedCacheBatch = async (
         args: Parameters<typeof applyManagedCacheBatchLocally>[1]
       ) => {
-        const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
+        const electronApplyManagedCacheBatch = getDesktopDatabaseBridge()?.applyManagedCacheBatch;
         if (electronApplyManagedCacheBatch) {
           await electronApplyManagedCacheBatch(args, BACKGROUND_DATABASE_WORK_OPTIONS);
           return;
@@ -2583,10 +2245,6 @@ export function WorkspaceCollectionSyncProvider({
     triggerSync,
   ]);
 
-  const invalidateActiveSyncLoopFromEffect = useEffectEvent(() => {
-    syncLoopGenerationRef.current += 1;
-  });
-
   useEffect(() => {
     setBackgroundWorkManualPause(paused);
     return () => {
@@ -2599,16 +2257,9 @@ export function WorkspaceCollectionSyncProvider({
       return;
     }
     return registerBackgroundWorkPauseHandler('background-indexing', {
-      pause: async () => {
-        invalidateActiveSyncLoopFromEffect();
-        await service.cancel();
-      },
+      pause: () => indexingCoordinator.cancel(),
     });
-  }, [service]);
-
-  useEffect(() => {
-    triggerSync({ mode: 'full' }, { restartActive: true });
-  }, [backgroundWorkSnapshot, triggerSync]);
+  }, [indexingCoordinator, service]);
 
   // Teardown detaches, it does not cancel (BST-1654). This cleanup runs on
   // unmount AND on every `service` identity change, so cancelling here tied the
@@ -2617,12 +2268,11 @@ export function WorkspaceCollectionSyncProvider({
   // backfill survives and the next sync re-attaches to it.
   useEffect(
     () => () => {
-      invalidateActiveSyncLoopFromEffect();
-      void service?.detach().catch((error) => {
+      void indexingCoordinator.detach(service).catch((error) => {
         reportAsyncError('detach', error);
       });
     },
-    [reportAsyncError, service]
+    [indexingCoordinator, reportAsyncError, service]
   );
 
   useEffect(() => {

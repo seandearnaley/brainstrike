@@ -8,7 +8,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mcpIpc from '../../ipc-mcp';
 import { MCP_EXTENSION_PREFERENCES_STORE_KEY } from '../../mcp/extension-preferences';
 import { loadMcpConfig, watchMcpConfig } from '../../mcp-loader';
+import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
+
+const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
+  getWindowRoleByWebContentsIdMock: vi.fn(() => 'visible-ui'),
+}));
+
+vi.mock('../../window-role', () => ({
+  getTrackedWindowsByRole: vi.fn(() => []),
+  getWindowRoleByWebContentsId: getWindowRoleByWebContentsIdMock,
+}));
 
 type RegisteredHandler = (...args: unknown[]) => Promise<unknown> | unknown;
 
@@ -39,6 +49,14 @@ vi.mock('../../secrets', () => ({
 }));
 
 const authority = createMcpAuthorityTestRuntime();
+const VISIBLE_UI_EVENT = { sender: { id: 1 }, senderFrame: createAllowlistedSenderFrame() };
+
+function invokeRegisteredHandler(handler: RegisteredHandler, args: unknown[]): unknown {
+  if (args.length >= 2 && typeof args[0] === 'object' && args[0] !== null) {
+    return handler(VISIBLE_UI_EVENT, ...args.slice(1));
+  }
+  return handler(VISIBLE_UI_EVENT, ...args);
+}
 
 function createSettingsStore(initial?: unknown) {
   const values = new Map<string, unknown>();
@@ -63,7 +81,7 @@ async function register(stored?: unknown) {
   const handlers = new Map<string, RegisteredHandler>();
   const sent: Array<{ channel: string; payload: unknown }> = [];
   vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
-    handlers.set(channel, handler as RegisteredHandler);
+    handlers.set(channel, (...args) => invokeRegisteredHandler(handler as RegisteredHandler, args));
   });
   vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
     {

@@ -1,4 +1,7 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
+import { createLogger } from '@brainstrike/logging';
+import { Deferred, Effect, Exit, Scope } from 'effect';
 import { renderCallbackErrorPage, renderCallbackSuccessPage } from './callback-pages';
 import { ProviderAuthFlowCancelledError, ProviderAuthFlowError } from './errors';
 
@@ -24,6 +27,8 @@ import { ProviderAuthFlowCancelledError, ProviderAuthFlowError } from './errors'
  *   handle.cancel). An unauthenticated HTTP endpoint must not cancel flows.
  * - Torn down on the first result, timeout, or cancel (default 5 minutes).
  */
+
+const logger = createLogger('ProviderAuthLoopback');
 
 const DEFAULT_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -58,9 +63,8 @@ export interface LoopbackServerHandle {
 
 const LOOPBACK_HOST = '127.0.0.1';
 
-interface PendingWait {
-  readonly reject: (error: Error) => void;
-  readonly resolve: (result: LoopbackCallbackResult) => void;
+function isServerNotRunning(error: Error): boolean {
+  return isErrnoException(error) && error.code === 'ERR_SERVER_NOT_RUNNING';
 }
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
@@ -85,10 +89,12 @@ export async function startLoopbackServer(
   const timeoutMs = options.timeoutMs ?? DEFAULT_CALLBACK_TIMEOUT_MS;
   const pageOptions = { providerLabel: options.providerLabel } as const;
 
-  let pending: PendingWait | undefined;
+  const scope = Scope.makeUnsafe();
+  const callback = Deferred.makeUnsafe<LoopbackCallbackResult, Error>();
+  let waitStarted = false;
   let settled = false;
-  let closed = false;
-  let timeout: NodeJS.Timeout | undefined;
+  let closePromise: Promise<void> | undefined;
+  let callbackWait: Promise<LoopbackCallbackResult> | undefined;
   let boundPort = options.port;
 
   function isAllowedHost(hostHeader: string | undefined): boolean {
@@ -136,8 +142,8 @@ export async function startLoopbackServer(
     if (errorParam !== null) {
       res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(renderCallbackErrorPage(pageOptions, 'The provider reported an error.'));
-      settle((wait) =>
-        wait.reject(
+      settle(
+        Effect.fail(
           new ProviderAuthFlowError(
             'flow_failed',
             `Authorization callback returned error "${errorParam}".`
@@ -151,8 +157,8 @@ export async function startLoopbackServer(
     if (code === null || code.length === 0) {
       res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(renderCallbackErrorPage(pageOptions, 'The callback carried no authorization code.'));
-      settle((wait) =>
-        wait.reject(
+      settle(
+        Effect.fail(
           new ProviderAuthFlowError('flow_failed', 'Authorization callback carried no code.')
         )
       );
@@ -161,65 +167,114 @@ export async function startLoopbackServer(
 
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(renderCallbackSuccessPage(pageOptions));
-    settle((wait) => wait.resolve({ code }));
+    settle(Effect.succeed({ code }));
   });
 
+  // Keep a join handle: a scope is marked closed before asynchronous finalizers
+  // finish, so calling Scope.close again alone is not a completion barrier.
   function teardown(): Promise<void> {
-    if (closed) {
-      return Promise.resolve();
-    }
-    closed = true;
-    if (timeout !== undefined) {
-      clearTimeout(timeout);
-      timeout = undefined;
-    }
-    return new Promise<void>((resolve) => {
-      server.close(() => resolve());
-      // Drop keep-alive sockets so close() completes promptly.
-      server.closeAllConnections();
-    });
+    closePromise ??= (async () => {
+      // The wait's scoped timer finalizer is part of closing the handle too.
+      const waitCleanup = callbackWait?.then(
+        () => undefined,
+        () => undefined
+      );
+      try {
+        await runAtPromiseBoundary(Scope.close(scope, Exit.void));
+      } finally {
+        await waitCleanup;
+      }
+    })();
+    return closePromise;
   }
 
-  function settle(complete: (wait: PendingWait) => void): void {
+  function settle(result: Effect.Effect<LoopbackCallbackResult, Error>): void {
     if (settled) {
       return;
     }
     settled = true;
-    const wait = pending;
-    pending = undefined;
-    if (wait) {
-      complete(wait);
-    }
-    // Teardown AFTER the response above has been queued; close() lets the
-    // in-flight response finish (closeAllConnections only severs sockets once
-    // res.end has flushed on the same tick ordering used here).
+    void runAtPromiseBoundary(Deferred.complete(callback, result));
+    // Keep the existing response-flush ordering before closing owned sockets.
     setImmediate(() => {
-      void teardown();
+      void teardown().catch(() => {
+        logger.error('Provider OAuth loopback listener cleanup failed');
+      });
     });
   }
 
-  await new Promise<void>((resolve, reject) => {
-    const onListenError = (error: Error) => {
-      if (isErrnoException(error) && error.code === 'EADDRINUSE') {
-        reject(
-          new ProviderAuthFlowError(
-            'port_in_use',
-            `OAuth loopback port ${options.port} on ${LOOPBACK_HOST} is already in use. ` +
-              'The provider registration pins this exact port, so Brainstrike cannot use another one - ' +
-              'close the application occupying it and retry.',
-            error
-          )
+  await runAtPromiseBoundary(
+    Scope.addFinalizer(
+      scope,
+      Effect.promise(async () => {
+        const closing = new Promise<void>((resolve, reject) => {
+          server.close((error?: Error) => {
+            if (error && !isServerNotRunning(error)) {
+              reject(error);
+              return;
+            }
+            resolve();
+          });
+        });
+        const connections = Promise.resolve().then(() => server.closeAllConnections());
+        const results = await Promise.allSettled([closing, connections]);
+        const failures = results.flatMap((result): unknown[] =>
+          result.status === 'rejected' ? [result.reason] : []
         );
-        return;
-      }
-      reject(error);
-    };
-    server.once('error', onListenError);
-    server.listen(options.port, LOOPBACK_HOST, () => {
-      server.removeListener('error', onListenError);
-      resolve();
-    });
-  });
+        if (failures.length === 1) {
+          throw failures[0];
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(failures, 'Provider OAuth loopback listener cleanup failed.');
+        }
+      })
+    )
+  );
+
+  try {
+    await runAtPromiseBoundary(
+      Effect.callback<void, Error>((resume) => {
+        const onListenError = (error: Error): void => {
+          server.removeListener('error', onListenError);
+          if (isErrnoException(error) && error.code === 'EADDRINUSE') {
+            resume(
+              Effect.fail(
+                new ProviderAuthFlowError(
+                  'port_in_use',
+                  `OAuth loopback port ${options.port} on ${LOOPBACK_HOST} is already in use. ` +
+                    'The provider registration pins this exact port, so Brainstrike cannot use another one - ' +
+                    'close the application occupying it and retry.',
+                  error
+                )
+              )
+            );
+            return;
+          }
+          resume(Effect.fail(error));
+        };
+        server.once('error', onListenError);
+        try {
+          server.listen(options.port, LOOPBACK_HOST, () => {
+            server.removeListener('error', onListenError);
+            resume(Effect.void);
+          });
+        } catch (error) {
+          server.removeListener('error', onListenError);
+          throw error;
+        }
+        return Effect.sync(() => server.removeListener('error', onListenError));
+      })
+    );
+  } catch (error) {
+    try {
+      await teardown();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Provider OAuth loopback acquisition and cleanup failed.'
+      );
+    }
+    throw error;
+  }
 
   const address = server.address();
   if (address === null || typeof address === 'string') {
@@ -230,33 +285,47 @@ export async function startLoopbackServer(
 
   return {
     cancel: () => {
-      settle((wait) => wait.reject(new ProviderAuthFlowCancelledError()));
+      settle(Effect.fail(new ProviderAuthFlowCancelledError()));
     },
     close: async () => {
-      settle((wait) => wait.reject(new ProviderAuthFlowCancelledError()));
+      settle(Effect.fail(new ProviderAuthFlowCancelledError()));
       await teardown();
     },
     port: boundPort,
     redirectUri: `http://${LOOPBACK_HOST}:${boundPort}${options.callbackPath}`,
-    waitForCallback: () =>
-      new Promise<LoopbackCallbackResult>((resolve, reject) => {
-        if (settled) {
-          reject(
-            new ProviderAuthFlowError('flow_failed', 'Loopback callback wait already settled.')
+    waitForCallback: () => {
+      if (settled) {
+        return Promise.reject(
+          new ProviderAuthFlowError('flow_failed', 'Loopback callback wait already settled.')
+        );
+      }
+      if (waitStarted) {
+        return Promise.reject(
+          new ProviderAuthFlowError('flow_failed', 'Loopback callback wait already in progress.')
+        );
+      }
+      waitStarted = true;
+      callbackWait = runAtPromiseBoundary(
+        Effect.gen(function* () {
+          yield* Effect.acquireRelease(
+            Effect.sync(() =>
+              setTimeout(() => {
+                settle(
+                  Effect.fail(
+                    new ProviderAuthFlowError(
+                      'callback_timeout',
+                      `OAuth callback was not received within ${timeoutMs}ms.`
+                    )
+                  )
+                );
+              }, timeoutMs)
+            ),
+            (timer) => Effect.sync(() => clearTimeout(timer))
           );
-          return;
-        }
-        pending = { reject, resolve };
-        timeout = setTimeout(() => {
-          settle((wait) =>
-            wait.reject(
-              new ProviderAuthFlowError(
-                'callback_timeout',
-                `OAuth callback was not received within ${timeoutMs}ms.`
-              )
-            )
-          );
-        }, timeoutMs);
-      }),
+          return yield* Deferred.await(callback);
+        }).pipe(Effect.scoped)
+      );
+      return callbackWait;
+    },
   };
 }

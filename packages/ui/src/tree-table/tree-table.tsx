@@ -539,16 +539,18 @@ function resolveVirtualScrollElement(
 function scrollExternalRowIntoView(args: {
   measurement: { end: number; start: number } | undefined;
   scrollElement: HTMLElement | null;
+  scrollPaddingStart: number;
   scrollToOffset: (offset: number, options: { behavior: 'auto' }) => void;
 }): void {
-  const { measurement, scrollElement, scrollToOffset } = args;
+  const { measurement, scrollElement, scrollPaddingStart, scrollToOffset } = args;
   if (!(measurement && scrollElement)) {
     return;
   }
-  const viewTop = scrollElement.scrollTop;
-  const viewBottom = viewTop + scrollElement.clientHeight;
+  // The band under a sticky in-scroller header is not visible content.
+  const viewTop = scrollElement.scrollTop + scrollPaddingStart;
+  const viewBottom = scrollElement.scrollTop + scrollElement.clientHeight;
   if (measurement.start < viewTop) {
-    scrollToOffset(measurement.start, { behavior: 'auto' });
+    scrollToOffset(measurement.start - scrollPaddingStart, { behavior: 'auto' });
     return;
   }
   if (measurement.end > viewBottom) {
@@ -793,6 +795,7 @@ export function TreeTable<T>({
   columnSizes,
   onColumnSizesChange,
   scrollParentRef,
+  scrollPaddingStart = 0,
   treeTableRef,
 }: TreeTableProps<T>) {
   const tableAriaRole = resolveTableAriaRole(ariaRole);
@@ -1079,6 +1082,7 @@ export function TreeTable<T>({
     observeElementRect: heightOnlyObserveRect,
     overscan,
     scrollMargin: externalScrollMargin,
+    scrollPaddingStart,
     // Avoid react-virtual calling ReactDOM.flushSync during layout updates.
     useFlushSync: false,
   });
@@ -1114,6 +1118,7 @@ export function TreeTable<T>({
         scrollExternalRowIntoView({
           measurement: rowVirtualizer.measurementsCache[index],
           scrollElement: scrollParentRef?.current ?? null,
+          scrollPaddingStart,
           scrollToOffset: rowVirtualizer.scrollToOffset,
         });
         return;
@@ -1133,6 +1138,7 @@ export function TreeTable<T>({
       rowVirtualizer,
       scrollPagedRowIntoView,
       scrollParentRef,
+      scrollPaddingStart,
     ]
   );
 

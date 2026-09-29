@@ -16,6 +16,7 @@ import {
   createMcpOAuthClientProvider,
   createMcpOAuthStoreIdentity,
 } from '../../mcp/oauth-client-provider';
+import { runProductionMcpConformanceClient } from '../../mcp/official-conformance-client';
 import { discoverToolsFromConfig } from '../../mcp/tool-discovery';
 import type { ResolvedMcpServer } from '../../mcp-loader';
 
@@ -48,6 +49,7 @@ interface FakeOAuthServer {
   readonly dcrRequests: Readonly<Record<string, unknown>>[];
   readonly forceRefresh: () => void;
   readonly mcpRequests: Readonly<Record<string, unknown>>[];
+  readonly protectedResourceRequests: readonly URL[];
   readonly refreshCount: () => number;
   readonly tokenCount: () => number;
   readonly tokenRequests: URLSearchParams[];
@@ -87,6 +89,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
   const authorizationRequests: URLSearchParams[] = [];
   const dcrRequests: Readonly<Record<string, unknown>>[] = [];
   const mcpRequests: Readonly<Record<string, unknown>>[] = [];
+  const protectedResourceRequests: URL[] = [];
   const tokenRequests: URLSearchParams[] = [];
   const codes = new Map<string, { challenge: string; clientId: string; redirectUri: string }>();
   const tokens = new Map<string, { scope: string }>();
@@ -110,6 +113,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
   const server = createServer(async (request, response) => {
     const requestUrl = new URL(request.url ?? '/', baseUrl);
     if (requestUrl.pathname === '/.well-known/oauth-protected-resource') {
+      protectedResourceRequests.push(requestUrl);
       json(response, 200, {
         authorization_servers: [options.authorizationServerUrl?.() ?? baseUrl.href],
         bearer_methods_supported: ['header'],
@@ -309,6 +313,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
       forceRefresh = true;
     },
     mcpRequests,
+    protectedResourceRequests,
     refreshCount: () => refreshCountValue,
     tokenCount: () => tokenCountValue,
     tokenRequests,
@@ -1038,6 +1043,47 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     expect(server.dcrRequests).toHaveLength(0);
     await client.close().catch(() => undefined);
     await provider.close();
+  });
+
+  it('settles and closes the production conformance host on a resource mismatch', async () => {
+    const server = await startFakeOAuthServer({
+      clientRegistration: 'dcr',
+      resourceMismatch: true,
+    });
+    const connectionFailures: unknown[] = [];
+
+    await expect(
+      runProductionMcpConformanceClient(
+        {
+          protocolVersion: '2026-07-28',
+          scenario: 'auth/resource-mismatch',
+          serverUrl: server.url.href.replace('127.0.0.1', 'localhost'),
+        },
+        {
+          createRuntime: (dependencies) =>
+            createDesktopMcpHostRuntime({
+              ...dependencies,
+              onInternalError: (code, cause) => {
+                if (code === 'mcp-connection-failed') {
+                  connectionFailures.push(cause);
+                }
+              },
+            }),
+        }
+      )
+    ).rejects.toMatchObject({ code: 'mcp-connection-failed' });
+
+    expect(server.mcpRequests.length).toBeGreaterThan(0);
+    expect(server.protectedResourceRequests).toHaveLength(1);
+    expect(connectionFailures).toEqual([
+      expect.objectContaining({
+        cause: expect.objectContaining({
+          message: 'MCP OAuth protected-resource metadata does not match the MCP server URL.',
+        }),
+      }),
+    ]);
+    expect(server.authorizationRequests).toHaveLength(0);
+    expect(server.dcrRequests).toHaveLength(0);
   });
 
   it('re-registers after a rejected bearer reveals an authorization-server migration', async () => {
