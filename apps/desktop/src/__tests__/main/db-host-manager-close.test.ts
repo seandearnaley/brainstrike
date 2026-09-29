@@ -798,6 +798,39 @@ describe('DbHostManager close ladder', () => {
       });
 
       it.each([
+        { exitCode: 0, state: 'closed' },
+        { exitCode: 1, state: 'close-failed' },
+      ] as const)(
+        'takes the signal from a later $state announcement as the proof, and forks no replacement',
+        async ({ exitCode, state }) => {
+          const { DbHostUnavailableError } = await import('../../db-host-lifecycle-errors');
+          const { host, manager } = await openManager();
+          host.emit('message', { kind: 'lifecycle', reason: 'SIGTERM', state });
+          exitHost(host, exitCode);
+
+          const error = await requestAfterExit(manager);
+
+          expect(error).toBeInstanceOf(DbHostUnavailableError);
+          expect((error as Error).message).toBe(
+            'DB host is unavailable: it closed after receiving SIGTERM; restart BrainStrike.'
+          );
+          expect(forkMock).toHaveBeenCalledTimes(1);
+        }
+      );
+
+      it('never counts a closed announcement for a requested close as a signal', async () => {
+        const { host, manager } = await openManager();
+        host.emit('message', { kind: 'lifecycle', reason: 'request', state: 'closed' });
+        exitHost(host, 0);
+
+        const diagnostics = observe(manager.getDiagnostics());
+
+        expect(forkMock).toHaveBeenCalledTimes(2);
+        latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
+        expect(await diagnostics.outcome).toBe('resolved');
+      });
+
+      it.each([
         { name: 'there is no marker', seed: async () => undefined },
         { name: 'the marker names another pid', seed: async () => await seedMarker({ pid: 4242 }) },
       ])('is no proof when $name: the next request forks a host', async ({ seed }) => {
