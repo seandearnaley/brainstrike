@@ -56,6 +56,24 @@ export type DatabaseInitFailureCategory =
 
 export type DatabaseInitStage = 'load-extensions' | 'open-database' | 'index-rebuild' | 'migration';
 
+/**
+ * What the DB host is about to do, posted to its manager BEFORE each long synchronous phase of
+ * `init`. The host answers nothing while it runs one, so this is the manager's only chance to
+ * derive that phase's deadline. `phase` is a subset of {@link DatabaseInitStage}, so the failure
+ * classifier and this vocabulary cannot drift apart.
+ */
+export type DatabaseInitPhaseReport =
+  | {
+      readonly phase: Extract<DatabaseInitStage, 'open-database'>;
+      /** Bytes of `pg_wal` segments on disk: an O(1) upper bound of the crash-recovery redo. */
+      readonly pgWalBytes: number;
+    }
+  | {
+      readonly index: DatabaseCrashSensitiveIndex;
+      readonly phase: Extract<DatabaseInitStage, 'index-rebuild'>;
+    }
+  | { readonly phase: Extract<DatabaseInitStage, 'migration'> };
+
 export interface DatabaseInitFailureSnapshot {
   category: DatabaseInitFailureCategory;
   code?: string;
@@ -74,15 +92,23 @@ export interface DatabaseInitFailureSnapshot {
 export type DatabasePreviousShutdown = 'clean' | 'unclean' | 'new-database';
 
 /**
- * One index the crash-recovery pass rebuilt. Mirrors `CrashSensitiveIndexRebuild` in
- * `@brainstrike/db`, which this package cannot import (the dependency points the other way).
+ * A crash-sensitive index with the O(1) catalog sizes the crash-recovery pass reports. Mirrors
+ * `CrashSensitiveIndex` in `@brainstrike/db`, which this package cannot import (the dependency
+ * points the other way).
  */
-export interface DatabaseCrashRecoveryIndexRebuild {
+export interface DatabaseCrashSensitiveIndex {
   readonly accessMethod: string;
-  readonly durationMs: number;
+  readonly heapBytes: number;
   readonly index: string;
+  readonly indexBytes: number;
   readonly schema: string;
   readonly table: string;
+  readonly toastBytes: number;
+}
+
+/** One index the crash-recovery pass rebuilt. Mirrors `CrashSensitiveIndexRebuild` in `@brainstrike/db`. */
+export interface DatabaseCrashRecoveryIndexRebuild extends DatabaseCrashSensitiveIndex {
+  readonly durationMs: number;
 }
 
 /** Mirrors `CrashSensitiveIndexRebuildResult` in `@brainstrike/db`. */

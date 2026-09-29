@@ -28,6 +28,7 @@ export {
   type CrashSensitiveIndexDb,
   type CrashSensitiveIndexRebuild,
   CrashSensitiveIndexRebuildError,
+  type CrashSensitiveIndexRebuildOptions,
   type CrashSensitiveIndexRebuildResult,
   listCrashSensitiveIndexes,
   rebuildCrashSensitiveIndexes,

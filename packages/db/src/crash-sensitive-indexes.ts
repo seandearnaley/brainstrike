@@ -30,11 +30,33 @@ export interface CrashSensitiveIndexDb {
   ) => Promise<{ readonly rows: readonly TRecord[] }>;
 }
 
+/**
+ * One crash-sensitive index with the sizes the catalog reports in O(1). A rebuild's duration
+ * scales with the table's stored content, so the host manager derives its deadline for the
+ * rebuild from `heapBytes + toastBytes` (`docs/agents/database.md` § "PGLITE EXTENSION
+ * INVARIANT"). Mirrored by `DatabaseCrashSensitiveIndex` in `@brainstrike/types`.
+ */
 export interface CrashSensitiveIndex {
   readonly accessMethod: string;
+  /** `pg_relation_size` of the indexed table's heap. */
+  readonly heapBytes: number;
   readonly index: string;
+  /** `pg_relation_size` of the index itself. */
+  readonly indexBytes: number;
   readonly schema: string;
   readonly table: string;
+  /** `pg_relation_size` of the table's TOAST relation; 0 when the table has none. */
+  readonly toastBytes: number;
+}
+
+export interface CrashSensitiveIndexRebuildOptions {
+  readonly clock?: () => number;
+  /**
+   * Called synchronously before each index's `REINDEX`, with that index's catalog sizes. A REINDEX
+   * is one synchronous WASM statement, so this is the last moment the host can tell its parent
+   * what it is about to do. A throw aborts the pass before the statement, unwrapped.
+   */
+  readonly onBeforeIndex?: (entry: CrashSensitiveIndex) => void;
 }
 
 export interface CrashSensitiveIndexRebuild extends CrashSensitiveIndex {
@@ -74,7 +96,10 @@ export async function listCrashSensitiveIndexes(
 ): Promise<readonly CrashSensitiveIndex[]> {
   const result = await db.query<CrashSensitiveIndex>(
     `SELECT n.nspname::text AS "schema", c.relname::text AS "index", t.relname::text AS "table",
-            am.amname::text AS "accessMethod"
+            am.amname::text AS "accessMethod",
+            pg_relation_size(i.indexrelid)::bigint AS "indexBytes",
+            pg_relation_size(i.indrelid)::bigint AS "heapBytes",
+            COALESCE(pg_relation_size(NULLIF(t.reltoastrelid, 0)), 0)::bigint AS "toastBytes"
      FROM pg_index i
      JOIN pg_class c ON c.oid = i.indexrelid
      JOIN pg_class t ON t.oid = i.indrelid
@@ -96,11 +121,13 @@ export async function listCrashSensitiveIndexes(
  */
 export async function rebuildCrashSensitiveIndexes(
   db: CrashSensitiveIndexDb,
-  clock: () => number = () => performance.now()
+  options: CrashSensitiveIndexRebuildOptions = {}
 ): Promise<CrashSensitiveIndexRebuildResult> {
+  const clock = options.clock ?? (() => performance.now());
   const passStart = clock();
   const rebuilt: CrashSensitiveIndexRebuild[] = [];
   for (const entry of await listCrashSensitiveIndexes(db)) {
+    options.onBeforeIndex?.(entry);
     const started = clock();
     try {
       await db.exec(
