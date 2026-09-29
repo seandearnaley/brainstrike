@@ -21,7 +21,7 @@ describe('migration 075 rollback semantics', () => {
       INSERT INTO roots (id, kind, display_name, path)
         VALUES ('rollback-root', 'path', 'root', '/rollback');
       INSERT INTO file_records (id, name, path, size, root_id, content, chunks_processed_at, chunking_strategy, created_at, updated_at)
-        VALUES ('rollback-file', 'a.ts', '/rollback/a.ts', 26, 'rollback-root',
+        VALUES ('rollback-file', 'a.ts', '/rollback/a.ts', 22, 'rollback-root',
                 'export function a() {}', '2026-07-27T00:00:00Z', 'fixture', NOW()::text, NOW()::text);
       INSERT INTO file_records (id, name, path, size, root_id, chunks_processed_at, chunking_strategy, created_at, updated_at)
         VALUES ('rollback-unloaded', 'b.ts', '/rollback/b.ts', 0, 'rollback-root',
@@ -66,9 +66,10 @@ describe('migration 075 rollback semantics', () => {
     );
   }
 
-  async function readFiles(): Promise<unknown[]> {
-    const result = await db.query(`SELECT id, content, root_id, chunks_processed_at,
-      chunking_strategy FROM file_records ORDER BY id`);
+  async function readFiles(): Promise<Record<string, unknown>[]> {
+    const result = await db.query<Record<string, unknown>>(
+      'SELECT * FROM file_records ORDER BY id'
+    );
     return result.rows;
   }
 
@@ -101,22 +102,13 @@ describe('migration 075 rollback semantics', () => {
     await db.exec(migration075FileSymbols.down);
     await runner.runMigration(migration075FileSymbols);
     expect(await runner.isApplied(75)).toBe(true);
-    expect(await readFiles()).toEqual([
-      {
-        chunking_strategy: null,
-        chunks_processed_at: null,
-        content: 'export function a() {}',
-        id: 'rollback-file',
-        root_id: 'rollback-root',
-      },
-      {
-        chunking_strategy: 'fixture',
-        chunks_processed_at: '2026-07-27T00:00:00Z',
-        content: null,
-        id: 'rollback-unloaded',
-        root_id: 'rollback-root',
-      },
-    ]);
+    expect(await readFiles()).toEqual(
+      files.map((row) =>
+        row['id'] === 'rollback-file'
+          ? { ...row, chunking_strategy: null, chunks_processed_at: null }
+          : row
+      )
+    );
     expect((await db.query('SELECT * FROM file_chunks ORDER BY id')).rows).toEqual(chunks.rows);
     expect(await readGraph()).toEqual([]);
     await insertGraph();
