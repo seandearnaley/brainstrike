@@ -524,9 +524,9 @@ export async function runDesktopEmbeddingBackfill(params: {
 
   if (source === 'background-indexing') {
     void runBackfillWithLifecycle().catch(async (error: unknown) => {
-      // The IPC request has already resolved, so its corruption wrapper cannot
-      // observe this terminal failure. Route it back through the composition
-      // root after lifecycle cleanup has settled.
+      // The IPC request has already resolved, so its containment wrapper cannot
+      // observe this terminal failure. Route it back to the IPC domain after
+      // lifecycle cleanup has settled.
       try {
         await onDetachedFailure(error);
       } catch (handlerError) {

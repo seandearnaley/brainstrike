@@ -31,7 +31,7 @@ export function isEngineUpgradeBackupName(name: string): boolean {
  * cross-package test `pg-engine-major-sync.test.ts`. A PG major upgrade changes
  * the on-disk catalog format, so a data dir written by an older engine cannot be
  * opened by the new one — PGlite fails with a generic "failed to initialize
- * properly" error that corruption-recovery does not classify as recoverable.
+ * properly" error that the corruption classifier does not recognize.
  */
 export const BUNDLED_PG_MAJOR = '18';
 
@@ -47,7 +47,7 @@ export function readPgDataMajor(dataDir: string): string | null {
   }
   // An empty / whitespace-only PG_VERSION means the directory is mid-init or
   // corrupt — it is NOT evidence of a different engine major, so report no
-  // version and let the normal init/corruption-recovery path handle it.
+  // version and let the normal initialization path handle it.
   const major = readFileSync(versionFile, 'utf8').trim();
   return major.length > 0 ? major : null;
 }
