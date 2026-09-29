@@ -58,7 +58,7 @@ function formatDesktopDatabaseInitError(
   }
 
   if (failure.category === 'corruption') {
-    return `Desktop database files appear corrupted and cannot be opened safely.${failureDetail}`;
+    return `Desktop database reported an integrity error and could not be opened. BrainStrike did not delete or replace it.${failureDetail}`;
   }
 
   if (failure.category === 'wasm-runtime') {

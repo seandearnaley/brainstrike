@@ -99,7 +99,14 @@ function stringifyDiagnosticValue(value: unknown): string | null {
 function getErrorOwnPropertyPayload(error: Error): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   for (const property of Object.getOwnPropertyNames(error)) {
-    if (property === 'message' || property === 'name' || property === 'stack') {
+    // `cause` is followed by the corruption classifier; serializing it here would copy the
+    // wrapped Postgres error's detail/where fields (row data) into user-visible text and logs.
+    if (
+      property === 'message' ||
+      property === 'name' ||
+      property === 'stack' ||
+      property === 'cause'
+    ) {
       continue;
     }
     payload[property] = (error as unknown as Record<string, unknown>)[property];
@@ -704,7 +711,20 @@ function formatOpenDatabaseFailureMessage(
   if (category === 'filesystem') {
     return `Desktop database filesystem access failed while opening database: ${details}.`;
   }
+  if (category === 'corruption') {
+    return `The desktop database reported an integrity error while opening: ${details}. BrainStrike did not delete or replace it.`;
+  }
   return `Desktop database failed to initialize via PGlite: ${details}.`;
+}
+
+function formatMigrationFailureMessage(
+  category: DatabaseInitFailureCategory | undefined,
+  details: string
+): string {
+  if (category === 'corruption') {
+    return `Database migrations failed with an integrity error: ${details}. BrainStrike did not delete or replace the database.`;
+  }
+  return `Database migrations failed with pgvector: ${details}`;
 }
 
 export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
@@ -748,7 +768,9 @@ export function __resetDatabaseModuleStateForTests(): void {
 }
 
 /**
- * Safely close the database connection, ignoring errors
+ * Close a partial or un-migrated handle after a failed initialization and release the process
+ * lock, ignoring close errors. Never deletes or replaces anything: a failed open must leave the
+ * data directory untouched and the next initialization free to retry.
  */
 async function safeCloseDatabase(): Promise<void> {
   try {
@@ -760,51 +782,6 @@ async function safeCloseDatabase(): Promise<void> {
   } finally {
     db = null;
     releaseDatabaseProcessLock();
-  }
-}
-
-/**
- * Attempt corruption recovery by resetting and reinitializing the database.
- * Throws if recovery fails.
- */
-async function attemptCorruptionRecovery(context: string): Promise<void> {
-  logger.warn(
-    `Recoverable database corruption detected during ${context}. Attempting auto-recovery...`
-  );
-  await safeCloseDatabase();
-  await resetLocalDatabaseInternal();
-  logger.info('Database reset complete. Retrying initialization...');
-}
-
-/**
- * Handle corruption error with optional auto-recovery.
- * Returns reinitalized db if recovery succeeds, otherwise throws.
- */
-async function handleCorruptionError(
-  err: unknown,
-  context: string,
-  retryAfterCorruption: boolean
-): Promise<DesktopDatabase | null> {
-  await safeCloseDatabase();
-
-  const hasCorruptionSignal = isCorruptionError(err);
-  if (!(retryAfterCorruption && hasCorruptionSignal)) {
-    return null; // Signal that we didn't handle it
-  }
-
-  try {
-    await attemptCorruptionRecovery(context);
-    return await initializeMainDatabaseInternal(false);
-  } catch (resetErr) {
-    recordInitializationFailure('runtime-corruption-recovery', resetErr);
-    logger.error('Auto-recovery failed', {
-      context,
-      error: getErrorDetails(resetErr),
-      originalError: getErrorDetails(err),
-    });
-    throw new Error(
-      `Database initialization failed during ${context} and auto-recovery failed. Please manually delete the BrainStrike data folder and restart the app.`
-    );
   }
 }
 
@@ -950,11 +927,10 @@ function setIncompatibleDataDirAside(
 /**
  * Initialize the database with NodeFS
  * Creates the directory if it doesn't exist and runs migrations.
- * If corruption is detected, automatically resets and retries once.
+ * A failure of any kind — an integrity error included — closes the partial handle, records the
+ * failure and rejects; the data directory is never reset or replaced here.
  */
-async function initializeMainDatabaseInternal(
-  retryAfterCorruption = true
-): Promise<DesktopDatabase> {
+async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
   if (db) {
     return db as DesktopDatabase;
   }
@@ -1031,10 +1007,7 @@ async function initializeMainDatabaseInternal(
     } catch (err) {
       recordInitializationFailure('open-database', err);
       releaseInitializationLockOnce();
-      const recovered = await handleCorruptionError(err, 'initialization', retryAfterCorruption);
-      if (recovered) {
-        return recovered;
-      }
+      await safeCloseDatabase();
 
       const msg = getErrorDetails(err).message;
       logger.error('Failed to initialize database with pgvector', {
@@ -1055,10 +1028,8 @@ async function initializeMainDatabaseInternal(
     } catch (err) {
       recordInitializationFailure('migration', err);
       releaseInitializationLockOnce();
-      const recovered = await handleCorruptionError(err, 'migration', retryAfterCorruption);
-      if (recovered) {
-        return recovered;
-      }
+      // The un-migrated handle is already assigned to `db`; drop it so the next caller re-opens.
+      await safeCloseDatabase();
 
       const msg = getErrorDetails(err).message;
       logger.error('Database migrations failed', {
@@ -1066,7 +1037,9 @@ async function initializeMainDatabaseInternal(
         dataDir,
         failure: mutableState.lastInitializationFailure,
       });
-      throw new Error(`Database migrations failed with pgvector: ${msg}`);
+      throw new Error(
+        formatMigrationFailureMessage(mutableState.lastInitializationFailure?.category, msg)
+      );
     }
   } finally {
     releaseInitializationLockOnce();
@@ -1081,7 +1054,7 @@ async function initializeMainDatabaseInternal(
  * Initialize the database once per process lifecycle event loop.
  * Concurrent callers share a single in-flight initialization.
  */
-async function initializeLocalMainDatabase(retryAfterCorruption = true): Promise<DesktopDatabase> {
+async function initializeLocalMainDatabase(): Promise<DesktopDatabase> {
   if (db) {
     return db as DesktopDatabase;
   }
@@ -1090,7 +1063,7 @@ async function initializeLocalMainDatabase(retryAfterCorruption = true): Promise
     return await dbInitializationPromise;
   }
 
-  dbInitializationPromise = initializeMainDatabaseInternal(retryAfterCorruption);
+  dbInitializationPromise = initializeMainDatabaseInternal();
 
   try {
     return await dbInitializationPromise;
@@ -1158,7 +1131,7 @@ async function handleLocalRuntimeCorruption(context: string): Promise<DesktopDat
   await safeCloseDatabase();
   await resetLocalDatabaseInternal();
   logger.info('Database reset complete after runtime corruption. Reinitializing...');
-  return await initializeLocalMainDatabase(false);
+  return await initializeLocalMainDatabase();
 }
 
 /**
@@ -1210,11 +1183,9 @@ async function resetLocalDatabaseInternal(): Promise<void> {
   }
 }
 
-export async function initializeMainDatabase(
-  retryAfterCorruption = true
-): Promise<DesktopDatabase> {
+export async function initializeMainDatabase(): Promise<DesktopDatabase> {
   if (isUtilityProcessRuntime()) {
-    return await initializeLocalMainDatabase(retryAfterCorruption);
+    return await initializeLocalMainDatabase();
   }
   const manager = await getRemoteDbHostManager();
   return await manager.getDatabase();

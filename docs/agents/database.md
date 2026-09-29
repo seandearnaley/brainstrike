@@ -499,6 +499,8 @@ Rules:
 - BM25 orders but never matches: the lexical arm matches through migration 034's
   generated tsvector + GIN index and orders with the migration-066 BM25 index, so recall
   is bounded by the tsvector arm. pg_textsearch owns BM25 normalization.
+- `CRASH_SENSITIVE_INDEX_ACCESS_METHODS` (`packages/db/src/crash-sensitive-indexes.ts`) is the
+  list of index AMs WAL recovery does not restore (`bm25`: pg_textsearch #430/#426).
 - When the exact English `plain` arm returns zero rows, all three file-chunk
   repositories may run ONE bounded `pg_trgm` fallback on the index-supported
   `$query <% content` predicate, pinning its session GUC and explicit `fuzzyThreshold`

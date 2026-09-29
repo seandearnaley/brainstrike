@@ -34,6 +34,8 @@ interface MigrationManifest {
 
 interface MigrationResult {
   appliedMigrations: string[];
+  /** The value the failed run threw, so callers can read its SQLSTATE through the `cause` chain. */
+  cause?: unknown;
   error?: string;
   success: boolean;
 }
@@ -426,7 +428,7 @@ async function applySingleMigration(db: PGlite, migration: DrizzleMigration): Pr
     const fullErrorMessage = rollbackFailed
       ? `Migration "${migration.name}" failed: ${errorMessage}. Additionally, rollback failed: ${rollbackMessage}`
       : `Migration "${migration.name}" failed: ${errorMessage}`;
-    throw new Error(fullErrorMessage);
+    throw new Error(fullErrorMessage, { cause: migrationError });
   }
 }
 
@@ -489,7 +491,7 @@ export async function runMigrations(
     return { appliedMigrations, success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return { appliedMigrations, error: errorMessage, success: false };
+    return { appliedMigrations, cause: error, error: errorMessage, success: false };
   }
 }
 
