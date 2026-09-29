@@ -129,7 +129,10 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1873 raised this from 958 (+3): the factory-reset userData bullet now
   // states that the database root is inside userData only in test runs and on
   // packaged macOS, and that reset deletes the profile before any wipe.
-  'platform-contracts.md': 961,
+  // BST-1874 raised this from 961 (+2): one bullet states that the app shell
+  // shows a notice for every non-healthy integrity state; the L4 change moves it
+  // into the containment section and re-pins.
+  'platform-contracts.md': 963,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
