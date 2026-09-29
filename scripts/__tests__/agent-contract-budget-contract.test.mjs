@@ -104,7 +104,14 @@ const CONTRACT_LINE_BUDGETS = {
   // verification and portable export all obey these class rules, and an agent
   // adding a table must classify it in the same change. The per-table reasoning
   // went to `database/table-durability-classes.md`.
-  'database.md': 895,
+  // BST-1873 raised it from 895 (+11): DESKTOP DATABASE LOCATION is a new
+  // area, not growth of an existing section. Packaged builds now resolve their
+  // database from `app.isPackaged` (never NODE_ENV) and per-OS data folders,
+  // main resolves once and the DB host reads only its environment; an agent
+  // changing a location, the precedence or the host handoff must meet those
+  // rules first. The incident, the vendor citations and the open points went
+  // to `database/desktop-database-location.md`.
+  'database.md': 906,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
@@ -114,7 +121,10 @@ const CONTRACT_LINE_BUDGETS = {
   'local-inference.md': 403,
   'mastra-boundary.md': 402,
   'mcp-conformance.md': 199,
-  'platform-contracts.md': 955,
+  // BST-1873 raised this from 955 (+3): the factory-reset userData bullet now
+  // states that the database root is inside userData only in test runs and on
+  // packaged macOS, and that reset deletes the profile before any wipe.
+  'platform-contracts.md': 958,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
