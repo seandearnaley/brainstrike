@@ -987,6 +987,16 @@ async function closeAfterFailedInitialization(): Promise<void> {
   const failedHandle = (db ?? openingHandle) as PGliteInstanceShape | null;
   db = null;
   openingHandle = null;
+  if (mutableState.closeFailure) {
+    // A handle that could not be closed may still own the directory, whichever close it was.
+    logger.error(
+      'A database close failed earlier; keeping the lock after the failed initialization',
+      {
+        lockPath: mutableState.dbProcessLockPath,
+      }
+    );
+    return;
+  }
   if (failedHandle) {
     try {
       await closeDatabaseInstance(failedHandle, 'initialization-failure');
@@ -1331,12 +1341,26 @@ async function getLocalDatabase(): Promise<DesktopDatabase> {
 }
 
 /**
+ * Never close, reset or replace the database while an open is in flight: wait for it to settle so
+ * its handle (or its cleanup) is the one being closed. The open's own failure is already recorded
+ * and reported to its callers, and its cleanup has closed the handle or set `closeFailure`.
+ */
+async function settleInFlightOpen(): Promise<void> {
+  try {
+    await dbInitializationPromise;
+  } catch {
+    // Reported to the open's callers; the caller here only needs it to be over.
+  }
+}
+
+/**
  * Close the database connection. Fail-closed: a sync or close failure throws
  * `DatabaseCloseError` and KEEPS the process lock (the handle may still own the data
  * directory); only a fully clean close writes the clean-shutdown marker and releases it.
  */
 async function closeLocalDatabase(): Promise<void> {
-  // First: with the handle gone after a failed close, "nothing to close" is not a success.
+  await settleInFlightOpen();
+  // With the handle gone after a failed close, "nothing to close" is not a success.
   assertNoFailedClose();
   const currentDatabase = db as PGliteInstanceShape | null;
   if (!currentDatabase) {
@@ -1411,8 +1435,12 @@ async function handleLocalRuntimeCorruption(context: string): Promise<DesktopDat
  * Next access will lazily recreate and migrate from scratch.
  */
 async function resetLocalDatabaseInternal(): Promise<void> {
-  // A close failure aborts the reset before anything is backed up or deleted.
-  await closeLocalDatabase();
+  // A close failure aborts the reset before anything is backed up or deleted. An open that starts
+  // after the close would open a directory about to be removed, so settle it too; the code after
+  // this loop is synchronous, so nothing can start an open between the check and the deletes.
+  do {
+    await closeLocalDatabase();
+  } while (dbInitializationPromise !== null || db !== null);
 
   const appDataDir = getAppDataPath();
   const dataDir = getDatabasePath();
