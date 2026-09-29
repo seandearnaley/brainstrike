@@ -122,7 +122,10 @@ const CONTRACT_LINE_BUDGETS = {
   // qualification (200 iterations, every shipped platform), and the crash-safety rule now
   // cites the gate by name instead of by ticket. Its design and measurements went to
   // `database/pg-textsearch-qualification.md`.
-  'database.md': 925,
+  // BST-1883 raised it from 925 (+2): the crash-sensitive bullet names the sizes the rebuild
+  // reports to the host manager, which an agent changing the rebuild or its index list must
+  // keep supplying; the measurements went to the same evidence file.
+  'database.md': 927,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
@@ -156,7 +159,12 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1872 L2b added 8 more, to 985: the shutdown-ownership first bullet names the reserved
   // database-close slice (+1) and main's persistent signal listeners installed after ready (+7,
   // with why a listener added earlier never runs).
-  'platform-contracts.md': 985,
+  // BST-1883 raised it from 985 (+7): the DB host init deadline is per phase, a rule an agent
+  // changing the host's init, its phases or the budget constants must obey (a kill mid-rebuild
+  // leaves no marker, so an unscaled deadline loops). The measurements, the rejected
+  // alternatives and the loop mechanics went to
+  // `platform-contracts/graceful-shutdown-ownership.md`.
+  'platform-contracts.md': 992,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a

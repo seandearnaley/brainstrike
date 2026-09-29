@@ -515,7 +515,9 @@ Rules:
   (`CRASH_SENSITIVE_INDEX_ACCESS_METHODS`, `packages/db/src/crash-sensitive-indexes.ts`) on the
   first open after an unclean shutdown, before migrations, and records it as
   `crashRecoveryIndexRebuild` in the diagnostics; a failed rebuild fails the open as
-  `corruption` and never resets. A new index access method joins that list unless the SIGKILL
+  `corruption` and never resets. The rebuild reports each index's heap+toast bytes to the host manager
+  before its `REINDEX`, and `listCrashSensitiveIndexes` returns those sizes; the manager's per-phase
+  budget is derived from them. A new index access method joins that list unless the SIGKILL
   crash gate proves it recovers; a pg_textsearch >= 1.4.0 bump re-derives this rule.
   Web is out of scope: browser PGlite has no process-kill crash mode of this kind.
 - When the exact English `plain` arm returns zero rows, all three file-chunk

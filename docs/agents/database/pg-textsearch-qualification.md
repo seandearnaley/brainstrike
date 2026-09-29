@@ -199,11 +199,110 @@ first open after an unclean shutdown, before migrations.
 - Rebuild cost: `REINDEX` took 1.6-10 s at 11k-71k rows in the crash runs. Synthetic in-memory
   rows (~90 chars): 5k rows 37 ms, 100k 612 ms, 300k 1.9 s. The real 2.3 GB on-disk dev database
   took 11.8 s for `idx_file_chunks_content_bm25`, the production incident.
-- Init deadline: the DB host init request (`DEFAULT_INITIALIZATION_TIMEOUT_MS`, 90 s in
-  `db-host-manager.ts`) now covers WAL replay, this rebuild and migrations, and a timeout
-  terminates the host. A host killed mid-rebuild leaves no clean-shutdown marker, so the next
-  open reads as unclean and rebuilds again from scratch: a rebuild slower than the deadline would
-  never finish. 11.8 s is 13% of 90 s. The timeout was left unchanged.
+- Init deadline: the DB host init request covered WAL replay, this rebuild and migrations under one 90 s
+  deadline, and a timeout terminated the host. A host killed mid-rebuild leaves no clean-shutdown marker, so
+  the next open reads as unclean and rebuilds again from scratch: a rebuild slower than the deadline would
+  never finish. 11.8 s was 13% of 90 s. The deadline is now per phase; see the BST-1883 update below.
+
+### Update (2026-09-29, BST-1883): what the rebuild, WAL replay and migrations cost
+
+Supports the per-phase init deadline (`platform-contracts.md` § "Graceful shutdown ownership (hidden hosts
+and background indexing)"; budgets in `apps/desktop/src/db-host-init-budget.ts`). Machine: Apple M1 Pro, 10
+cores, 16 GB, macOS 27.0, APFS SSD. Electron 44.4.5 (utility process Node 24.21.0, V8 15.2), system Node
+24.18.0 (V8 13.6). PGlite 0.5.8 (repo patch), pglite-pg_textsearch 0.0.10 (extension 1.3.1), pgvector 0.8.1.
+Every instance came from the production factory `createBrainstrikePglite` on an on-disk NodeFS `dataDir`.
+
+**Runtime.** The same REINDEX of the incident database (2.3 GB, 83,004 chunks, average 1060 chars) took
+11.9-12.6 s in Electron's utility process (12532, 11941, 11957, 12572 ms) and 16.0-25.1 s in system Node
+(19596, 15962, 20263, 25079, 21837 ms). Every rebuild point below was measured inside a real Electron utility
+process, because that is the production runtime.
+
+**REINDEX throughput.** Each point: fresh on-disk database, a `file_chunks`-shaped table, the production index
+DDL `CREATE INDEX ... USING bm25 (content) WITH (text_config='english')`, `CHECKPOINT`, then
+`rebuildCrashSensitiveIndexes` twice. Rows are `'topicN <md5> pipeline scheduler'` blocks of ~123 or ~1420
+characters; REAL is an APFS clone of the incident database after its repair.
+
+| point | rows | avg chars | content MB | heap MB | toast MB | index MB | REINDEX ms (runs) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 100k x 123 | 100,000 | 123 | 11.7 | 20.4 | 0 | 19.2 | 1718, 1731 |
+| 300k x 123 | 300,000 | 123 | 35.1 | 61.6 | 0 | 57.4 | 5258, 5793 |
+| 1M x 123 | 1,000,000 | 123 | 116.9 | 205.5 | 0 | 191.2 | 20368, 19942 |
+| 100k x 1420 | 100,000 | 1420 | 135.4 | 156.3 | 0 | 202.8 | 23418, 22026 |
+| 150k x 1420 | 150,000 | 1420 | 203.1 | 234.4 | 0 | 304.4 | 27369, 26858 |
+| 300k x 1420 | 300,000 | 1420 | ~406 | 491 (file) | | | did not complete: `CREATE INDEX` failed with PostgreSQL `error: out of memory` |
+| REAL | 83,004 | 1060 | 83.9 | 130.7 | 211.4 | 32.1 | 12532, 11941, 11957 |
+
+Throughput per candidate predictor (fastest run per point):
+
+| predictor | spread (max/min) | slowest point | fastest point |
+| --- | --- | --- | --- |
+| `content` bytes (`sum(length(content))`, O(n) scan) | 1.29x | 5.9 MB/s (1M x 123) | 7.6 MB/s (150k x 1420) |
+| `heap` bytes (`pg_relation_size(table)`, O(1)) | 1.68x | 7.1 MB/s (100k x 1420) | 11.9 MB/s |
+| `heap + toast` bytes (O(1)) | 4.04x | 7.1 MB/s | 28.7 MB/s (REAL: its heap carries the stored tsvector, 211 MB of toast) |
+| `index` bytes | 4.21x | 2.7 MB/s (REAL) | 11.3 MB/s |
+| rows | 12.8x | 4,540 rows/s | 58,207 rows/s |
+
+`content` bytes predict best (5.9-7.6 MB/s), but measuring them is a full detoasting scan, roughly half the
+cost of the REINDEX, so it cannot be a pre-phase input. The best O(1) input is `heap + toast`: an upper bound
+of the stored content (except where TOAST compression shrinks it), with a slowest observed rate of 7.1 MB/s.
+Index bytes and row counts are 4x and 13x apart and are not usable. `CREATE INDEX` costs the same as REINDEX
+(1753 vs 1718 ms; 22137 vs 22026 ms). The 300k x 1420 point (about 4.8x the incident database) never reached
+REINDEX: after the insert its BM25 `CREATE INDEX` ended in a server-side PostgreSQL `out of memory` (the machine
+was paging, swap 9.4 of 10 GB, so the ceiling is not pinned). pg_textsearch 1.3.1 builds the index in memory,
+and a build of a few hundred MB of content can exhaust PGlite's WASM heap. That is a different failure of the
+same rebuild, not a deadline problem; today's classifier labels it `corruption` (`classifyInitializationFailure`),
+and SQLSTATE class 53 (`insufficient_resources`) is not damage. A follow-up ticket, not BST-1883.
+
+**WAL replay** (system Node, so conservative against Electron): a child opens a fresh on-disk database,
+`CHECKPOINT`s, inserts ~1 MB-of-WAL statements until `pg_wal_lsn_diff` reaches the target with no further
+checkpoint, and idles; the parent SIGKILLs it and times `createBrainstrikePglite` (startup redo runs inside
+`PGlite.create`).
+
+| WAL since last checkpoint | rows | `pg_wal` bytes on disk | open after SIGKILL | clean reopen | redo rate |
+| --- | --- | --- | --- | --- | --- |
+| 33.9 MB | 76,000 | 50.3 MB | 1080 ms | 123 ms | ~35 MB/s |
+| 269.0 MB | 604,000 | 285.2 MB | 2867 ms | 153 ms | ~99 MB/s |
+| 1,074.8 MB | 2,416,000 | 1,090.5 MB | 4663 ms | 68 ms | ~234 MB/s |
+
+No automatic checkpoint ever ran: `pg_control_checkpoint()` still reported the probe's explicit `CHECKPOINT`
+after 1.07 GB of WAL, past `max_wal_size = 1GB` (`checkpoint_timeout = 5min` needs a checkpointer process, which
+single-user PGlite lacks; `fsync = off`, `shared_buffers = 128MB`, `maintenance_work_mem = 64MB`, `work_mem =
+4MB`). The app issues no `CHECKPOINT` (grep of `apps/desktop/src` and `packages/db/src`, tests excluded); PGlite
+checkpoints at a clean `close()`. So the redo length after a crash is bounded only by what was written since
+the last clean close (the incident backup's `pg_wal` holds 912 MB even after its clean close). Redo is fast and
+its per-MB rate rises with size (fixed open cost dominates small cases). Index-heavy WAL (HNSW, GIN, BM25 full-page
+images) and redo inside Electron were not measured. A periodic `CHECKPOINT` from the scheduled maintenance pass
+would bound both `pg_wal` and the redo; a separate ticket, outside BST-1883.
+
+**Migrations** (system Node): fresh `initdb` + open 1960 ms; the full chain of 136 migrations 835 ms; a no-op
+`migrate` on the migrated database 10 ms (4 ms after a 146 ms reopen). No migration rewrites a large table
+today. A future data-rewriting migration is unbounded by the fixed 90 s budget: it must report its own phase
+(or be split) before it ships, and the runner would need an `onMigration` hook then.
+
+**A SIGKILL mid-REINDEX** (system Node, incident-database clone: checkpoint and clean close, a child starts
+the REINDEX, the parent kills it 4 s in, then reopens and compares `base/<db>` files with
+`pg_class.relfilenode`): the reopen took 94 ms (pg_textsearch builds in memory and had written little); the
+index kept its old `relfilenode`, stayed `indisvalid = true` and a BM25 ranked query succeeded, so a kill
+mid-REINDEX discards the work without making things worse than the crash that caused the rebuild. Exactly one
+new file remained, the 8 KB relfilenode the aborted REINDEX allocated. PostgreSQL recovery never removes files
+a crash orphans, so every killed attempt leaves one, up to the size of the index being built (a late kill of a
+32 MB build); two attempts before a loop breaker bound this to two files per incident, and a manual retry adds
+one each. Not cleaned up by BST-1883.
+
+**Risks not retired.** TOAST compression (pglz/lz4) can store text in fewer bytes than its `length()`, so a
+highly repetitive corpus could rebuild slower per stored byte than the 7.1 MB/s floor point; the 7x margin
+absorbs up to ~7x compression on a reference-speed machine and is not measured. Every number is one M1 Pro on
+APFS: Windows, Linux, HDD and network drives are unmeasured (Linux/Windows pg_textsearch qualification is
+already owed, BST-1080). REINDEX with several BM25 indexes is budgeted per index and was not measured.
+
+**How to re-measure and re-pin.** Repeat the ladder above inside a real Electron utility process (fresh
+on-disk database, production index DDL, `CHECKPOINT`, `rebuildCrashSensitiveIndexes` twice), recompute the
+slowest heap+TOAST rate and the slowest redo rate, set the constants in `db-host-init-budget.ts` under those
+rates with a stated margin, and re-pin the worked examples in `db-host-init-budget.test.ts`. Never raise a
+constant to absorb a slow phase. The probes were session scripts (`electron-main.cjs` + `utility-entry.cjs`
+for delivery and the Electron ladder, `throughput-core.mjs`, `reindex-throughput.mjs`, `reindex-real.mjs`,
+`wal-replay.mjs`, `migrations-fresh.mjs`, `orphan-probe.mjs`, `fit.mjs`), not committed; the method is the
+description above.
 
 ### Rejected: replace BM25 ordering with `ts_rank_cd`
 
