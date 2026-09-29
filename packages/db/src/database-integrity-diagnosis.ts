@@ -598,7 +598,7 @@ class DiagnosisRun {
     // An expression key has no column to sample, and bm25 requires a text_config; without both the
     // probe cannot be built.
     // Nor can pg_textsearch resolve a name, the index's or its schema's, that contains a dot, in any
-    // form (pinned by a test).
+    // form (pinned by a test). A double quote is not a reason: the qualified form doubles it and resolves.
     if (
       definition.column === null ||
       definition.textConfig === null ||

@@ -364,18 +364,44 @@ describe('a probe must walk its own index', () => {
     });
   });
 
-  it('pins how pg_textsearch resolves the index name: an unqualified name is exact, a qualified one is SQL syntax, a dotted one has no form', async () => {
+  it('checks a bm25 index whose name contains a double quote: the qualified form resolves it', async () => {
+    await withDatabase(untouched, async (db) => {
+      await db.exec(`
+        CREATE TABLE zz_quoted (body text);
+        INSERT INTO zz_quoted SELECT 'quaternion interpolation ' || g FROM generate_series(1, 5) g;
+        CREATE INDEX "Zz""q" ON zz_quoted USING bm25 (body) WITH (text_config=english);`);
+      const { handle, statements } = recording(db);
+      const diagnosis = await diagnose(handle);
+      expect(diagnosis.findings).toEqual([]);
+      expect(diagnosis.unchecked.filter(({ table }) => table === 'zz_quoted')).toEqual([]);
+      // Both halves ran: the search named the index in SQL name syntax, and the write followed.
+      expect(
+        statements.some(({ sql }) => sql.includes(`to_bm25query($1, '"public"."Zz""q"')`))
+      ).toBe(true);
+      expect(statements.some(({ sql }) => sql.startsWith('UPDATE "public"."zz_quoted"'))).toBe(
+        true
+      );
+    });
+  });
+
+  it('pins how pg_textsearch resolves the index name: an unqualified name is exact, a qualified one is SQL syntax (a quote doubled), a dotted one has no form', async () => {
     await withDatabase(untouched, async (db) => {
       await db.exec(`
         CREATE TABLE zz_resolve (body text);
         INSERT INTO zz_resolve VALUES ('quaternion interpolation');
         CREATE INDEX "Zz Pin" ON zz_resolve USING bm25 (body) WITH (text_config=english);
-        CREATE INDEX "Zz.Pin" ON zz_resolve USING bm25 (body) WITH (text_config=english);`);
-      const search = async (name: string) => {
+        CREATE INDEX "Zz.Pin" ON zz_resolve USING bm25 (body) WITH (text_config=english);
+        CREATE TABLE zz_resolve_quote (body text);
+        INSERT INTO zz_resolve_quote VALUES ('quaternion interpolation');
+        CREATE INDEX "Zz""Pin" ON zz_resolve_quote USING bm25 (body) WITH (text_config=english);
+        CREATE TABLE zz_resolve_both (body text);
+        INSERT INTO zz_resolve_both VALUES ('quaternion interpolation');
+        CREATE INDEX "Zz""Pin.Dot" ON zz_resolve_both USING bm25 (body) WITH (text_config=english);`);
+      const search = async (name: string, table = 'zz_resolve') => {
         await db.exec('BEGIN; SET LOCAL enable_seqscan = off');
         try {
           return await db.query(
-            `SELECT 1 FROM zz_resolve ORDER BY body <@> to_bm25query('quaternion', '${name}') LIMIT 1`
+            `SELECT 1 FROM ${table} ORDER BY body <@> to_bm25query('quaternion', '${name}') LIMIT 1`
           );
         } finally {
           await db.exec('ROLLBACK');
@@ -386,6 +412,15 @@ describe('a probe must walk its own index', () => {
       await expect(search('"Zz Pin"')).rejects.toMatchObject({ code: '42704' });
       await expect(search('Zz.Pin')).rejects.toMatchObject({ code: '42704' });
       await expect(search('"public"."Zz.Pin"')).rejects.toThrow(/not found/u);
+      // The form the probe sends resolves a name with a double quote, when the quote is doubled.
+      expect((await search('"public"."Zz""Pin"', 'zz_resolve_quote')).rows).toHaveLength(1);
+      await expect(search('"public"."Zz"Pin"', 'zz_resolve_quote')).rejects.toMatchObject({
+        code: '42602',
+      });
+      // A quote does not rescue a dot.
+      await expect(search('"public"."Zz""Pin.Dot"', 'zz_resolve_both')).rejects.toThrow(
+        /not found/u
+      );
     });
   });
 });
