@@ -14,21 +14,11 @@
  * any cyclic chain.
  */
 
-export type DatabaseCorruptionSqlstate = 'XX001' | 'XX002';
+import type { DatabaseCorruptionSignal, DatabaseCorruptionSqlstate } from '@brainstrike/types';
 
-/**
- * `message` is the error's own message, or `SQLSTATE <code>` when it carries
- * none. `file`, `routine`, `schema` and `table` are the identifier-only
- * Postgres error fields; row data and SQL text are never copied.
- */
-export interface DatabaseCorruptionSignal {
-  readonly file?: string;
-  readonly message: string;
-  readonly routine?: string;
-  readonly schema?: string;
-  readonly sqlstate: DatabaseCorruptionSqlstate;
-  readonly table?: string;
-}
+// The wire types live in @brainstrike/types (renderers consume them); the
+// classifier keeps re-exporting them so existing importers are unchanged.
+export type { DatabaseCorruptionSignal, DatabaseCorruptionSqlstate };
 
 function isCorruptionSqlstate(code: unknown): code is DatabaseCorruptionSqlstate {
   return code === 'XX001' || code === 'XX002';

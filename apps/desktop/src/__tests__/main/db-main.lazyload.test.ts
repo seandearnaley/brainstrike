@@ -120,7 +120,8 @@ describe('db-main lazy-load getDatabase', () => {
     vi.clearAllMocks();
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
-    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/mock/documents';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
     existsSyncMock.mockReturnValue(true);
     mkdirSyncMock.mockImplementation(() => {});
   });

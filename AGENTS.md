@@ -19,7 +19,7 @@ tests, and live contracts when they disagree with a historical document.
 | Adding `effect` or any `@effect/*` package, writing Effect code, `@brainstrike/effect-kit`, Effect Schema at a runtime boundary | `docs/agents/effect-boundary.md` |
 | Adding any `@mastra/*` package; Mastra Server/Workspace/Browser/RequestContext; stream-mapper ownership; Mastra observability or evals | `docs/agents/mastra-boundary.md` |
 | Embedding workers, local Gemma LLM, hidden hosts — **renderer-only inference is mandatory, never Electron main** | `docs/agents/local-inference.md` |
-| DB migrations, model catalog changes, PGlite construction sites/extensions, browser first-run bootstrap, `DatabaseWorkScheduler` priorities / background-starvation bound | `docs/agents/database.md` |
+| DB migrations, model catalog changes, PGlite construction sites/extensions, desktop database root/profile (packaged vs dev, DB host env), browser first-run bootstrap, `DatabaseWorkScheduler` priorities / background-starvation bound | `docs/agents/database.md` |
 | Agent self-query SQL sandbox, `brainstrike.querySelf`, the read-only role — **`statement_timeout` is inert in PGlite** | `docs/agents/agent-self-query.md` |
 | Code execution (CodeExecutor seam, sandbox backends, run_python) — **no vm→fence downgrade, ever** | `docs/agents/code-execution.md` |
 | Prompt workbench, AGENTS/CLAUDE workspace instructions, user-defined slash commands, Agent Skills / `SKILL.md`, edit-checkpoint undo, read-before-write staleness guards, workspace root identity | `docs/agents/workspace-context.md` |
