@@ -24,21 +24,8 @@ interface DatabaseIdentity {
   readonly previousShutdown: string;
 }
 
-let previousLogLevel: string | undefined;
-
 // The graceful-shutdown completion record is info-level; the `test:e2e` scripts run at `warn`.
-test.beforeAll(() => {
-  previousLogLevel = process.env['LOG_LEVEL'];
-  process.env['LOG_LEVEL'] = 'info';
-});
-
-test.afterAll(() => {
-  if (previousLogLevel === undefined) {
-    delete process.env['LOG_LEVEL'];
-  } else {
-    process.env['LOG_LEVEL'] = previousLogLevel;
-  }
-});
+test.use({ electronEnv: { LOG_LEVEL: 'info' } });
 
 /** Waits for the DB host to open the database, then reports where it lives and how it was last closed. */
 async function waitForOpenDatabase(page: Page): Promise<DatabaseIdentity> {
@@ -129,6 +116,13 @@ function requirePid(mainProcess: ChildProcess): number {
 }
 
 test.describe('Shutdown signals reach the database close', () => {
+  // Windows delivers no catchable POSIX signal: Node's `process.kill` there ends the process at
+  // once, so there is no graceful shutdown to observe. Linux runs; its first regression run is the
+  // measurement for the after-ready listener replacement (measured on macOS only).
+  test.skip(
+    process.platform === 'win32',
+    'Windows has no catchable POSIX signal: process.kill terminates the process outright.'
+  );
   test.setTimeout(240_000);
 
   test('a dev-tree teardown closes the database cleanly, and the next boot reads it as clean', async ({
@@ -148,6 +142,8 @@ test.describe('Shutdown signals reach the database close', () => {
       await electron.endOutOfBand(async (mainProcess) => {
         const mainPid = requirePid(mainProcess);
         readOutput = captureOutput(mainProcess);
+        // `close`, not `exit`: it fires once stdout has drained, so the log assertions below see the
+        // whole run, and the DB host (which inherits main's stdio) must be gone within the bound too.
         const closed = once(mainProcess, 'close', {
           signal: AbortSignal.timeout(CLOSE_TIMEOUT_MS),
         });
@@ -196,7 +192,10 @@ test.describe('Shutdown signals reach the database close', () => {
 
     await electron.endOutOfBand(async (mainProcess) => {
       const mainPid = requirePid(mainProcess);
-      const closed = once(mainProcess, 'close', { signal: AbortSignal.timeout(CLOSE_TIMEOUT_MS) });
+      // `exit`, not `close`: nothing is read from the output here, and a SIGKILLed tree can leave a
+      // sibling process (the DB host inherits main's stdout) holding the pipe open, which would
+      // delay `close` past the bound for a reason unrelated to the crash being simulated.
+      const closed = once(mainProcess, 'exit', { signal: AbortSignal.timeout(CLOSE_TIMEOUT_MS) });
       // Main first, so it can never fork a replacement host in the gap; then the host itself.
       signal(mainPid, 'SIGKILL');
       signal(hostPid, 'SIGKILL');

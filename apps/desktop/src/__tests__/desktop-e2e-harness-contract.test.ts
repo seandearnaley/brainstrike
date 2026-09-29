@@ -57,6 +57,17 @@ describe('desktop E2E harness contract', () => {
     );
   });
 
+  it('lets a spec add launch env, but never override the harness-owned variables', () => {
+    // A spec passes `LOG_LEVEL` (say) through `test.use({ electronEnv })`, not by mutating
+    // `process.env`; the extra env is spread before every variable the harness itself sets.
+    const source = readElectronHelpersSource();
+    const extraEnvAt = source.indexOf('...extraEnv,');
+
+    expect(extraEnvAt).toBeGreaterThan(source.indexOf('...baseEnv,'));
+    expect(extraEnvAt).toBeLessThan(source.indexOf("ELECTRON_IS_E2E_TEST: 'true'"));
+    expect(extraEnvAt).toBeLessThan(source.indexOf('BRAINSTRIKE_DISABLE_FILE_LOGS'));
+  });
+
   it('exposes renderer GC and fails loudly when the memory harness cannot collect', () => {
     const launcherSource = readElectronHelpersSource();
     const memoryHelpersSource = readEmbeddingMemoryHelpersSource();
