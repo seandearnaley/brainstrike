@@ -150,7 +150,10 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1870 L4b: the Guard line names the containment E2E, one more line.
   // BST-1874 raised it from 968 (+3): one bullet states that the app shell shows a notice for
   // every non-healthy integrity state, and its guard joins the section's list.
-  'platform-contracts.md': 971,
+  // BST-1872 L2a added 6, to 977: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a failed
+  // close exits 1 with no marker and no retry); main forks no replacement for a host whose close
+  // was announced or proven by the marker, and a lost announcement is named as the known gap.
+  'platform-contracts.md': 977,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
