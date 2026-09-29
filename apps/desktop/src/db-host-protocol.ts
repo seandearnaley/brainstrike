@@ -1,4 +1,8 @@
-import type { DatabaseDiagnosticsSnapshot, DatabaseInitPhaseReport } from '@brainstrike/types';
+import type {
+  DatabaseDiagnosticsSnapshot,
+  DatabaseInitAttemptRecord,
+  DatabaseInitPhaseReport,
+} from '@brainstrike/types';
 
 export interface DbHostQueryResult<TRecord = unknown> {
   /**
@@ -188,6 +192,8 @@ export interface DbHostDiagnosticsResult extends DatabaseDiagnosticsSnapshot {
 
 export interface DbHostManagerDiagnosticsResult extends DatabaseDiagnosticsSnapshot {
   readonly hostPid: number | null;
+  /** Main's stop after repeated init timeouts; while set, no host was forked to answer. */
+  readonly initStop: DatabaseInitAttemptRecord | null;
 }
 
 export interface DbHostLiveQueryDiagnostics {
@@ -246,7 +252,7 @@ function isByteCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-function isPhaseReport(report: unknown): report is DatabaseInitPhaseReport {
+export function isDatabaseInitPhaseReport(report: unknown): report is DatabaseInitPhaseReport {
   if (!isRecord(report)) {
     return false;
   }
@@ -284,6 +290,6 @@ export function isDbHostProgressEnvelope(value: unknown): value is DbHostProgres
     isRecord(value) &&
     value['kind'] === 'progress' &&
     isNonEmptyString(value['id']) &&
-    isPhaseReport(value['report'])
+    isDatabaseInitPhaseReport(value['report'])
   );
 }
