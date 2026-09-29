@@ -395,3 +395,6 @@ main died from SIGINT mid-shutdown (only "MCP runtime shutdown cleanup completed
 shutdown completed` (`trigger: signal`), exit 0. A signal before ready still reaches Electron's own
 handler (quit through `before-quit`); a second one before ready cannot be caught. Linux and Windows
 are unmeasured: if the re-arm fails there, the first signal still quits through `before-quit`.
+A failure while installing the handlers is logged at error (through a guard, so a throwing logger
+cannot escape) and never stops boot: without them the first signal still quits through Electron's
+own handler (`before-quit`), the same graceful run.
