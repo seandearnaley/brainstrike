@@ -433,11 +433,14 @@ Guard: `apps/web/e2e/web-db-worker-startup.test.ts`.
   required option with no default, so a composition cannot keep serving a
   database a pass has proven corrupt. A background trigger never narrows the
   response, and the visible-window reload is still required.
+- Boot and migration never reset: an integrity error while opening or migrating
+  closes the partial instance, records category `corruption`, and rejects with
+  nothing deleted; the host stays alive so `db:diagnostics` reports the failure.
 
 Settled: `apps/desktop/src/database-corruption-classifier.ts` is SQLSTATE-only (`XX001`,
 `XX002`; `XX000` excluded; no free-text matching), and maintenance recovers rather than
 merely logging. Evidence: `platform-contracts/corruption-recovery-maintenance.md`.
-Guard: `apps/desktop/src/__tests__/database-corruption-classifier.test.ts`, `database-maintenance-scheduler.test.ts`.
+Guard: `apps/desktop/src/__tests__/database-corruption-classifier.test.ts`, `database-maintenance-scheduler.test.ts`, `main/db-main.lifecycle.test.ts`, `main/db-host-manager.test.ts`.
 
 ---
 
