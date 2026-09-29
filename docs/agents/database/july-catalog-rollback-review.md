@@ -20,7 +20,8 @@ It adds an already-enabled target row with explicit user-intent timestamps.
 - Down also deletes a target row that existed before up. Reapplication seeds
   it disabled; the prior enabled choice and overwritten metadata are not
   recovered. This is destructive rollback, not restoration of prior state.
-- A fixture trigger rejects the final order UPDATE after DELETE. PostgreSQL
+- A fixture trigger verifies the seeded target is absent before rejecting the
+  final order UPDATE after DELETE. PostgreSQL
   restores every deleted row, every column and the numbered ledger entry.
   Removing the trigger allows rollback. The repeated runner rollback is a
   ledger skip; raw down is NOT idempotent because it shifts order again.

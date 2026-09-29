@@ -108,14 +108,21 @@ describe('migration 071 catalog rollback semantics', () => {
     const before = await readModels();
     await db.exec(`
       CREATE FUNCTION rollback_reject_shift() RETURNS trigger LANGUAGE plpgsql AS $$
-      BEGIN RAISE EXCEPTION 'fixture rejects order shift'; END $$;
+      BEGIN
+        IF EXISTS (SELECT 1 FROM models WHERE id = 'poolside/laguna-s-2.1') THEN
+          RAISE EXCEPTION 'target DELETE must precede order shift';
+        END IF;
+        RAISE EXCEPTION 'fixture rejects order shift after target deletion';
+      END $$;
       CREATE TRIGGER rollback_reject_shift BEFORE UPDATE OF sort_order ON models
         FOR EACH ROW EXECUTE FUNCTION rollback_reject_shift();
     `);
     await expect(runner.rollback(migration)).rejects.toThrow('fixture rejects order shift');
     expect(await runner.isApplied(71)).toBe(true);
     expect(await readModels()).toEqual(before);
-    await db.exec('DROP TRIGGER rollback_reject_shift ON models');
+    await db.exec(
+      'DROP TRIGGER rollback_reject_shift ON models; DROP FUNCTION rollback_reject_shift()'
+    );
     await runner.rollback(migration);
     expect(await runner.isApplied(71)).toBe(false);
     expect((await readModels()).some((row) => targetIds.includes(row.id))).toBe(false);
