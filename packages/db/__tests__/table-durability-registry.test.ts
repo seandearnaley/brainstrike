@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTableDurabilityIndex,
+  findTableDurability,
   getTableDurability,
+  TABLE_DURABILITY_CLASSES,
   TABLE_DURABILITY_REGISTRY,
 } from '../src/table-durability-registry';
 
@@ -19,6 +21,20 @@ describe('getTableDurability', () => {
     expect(() => getTableDurability('not_a_real_table')).toThrow(
       /Table "not_a_real_table" has no durability class.*table-durability-registry\.ts/u
     );
+  });
+});
+
+describe('findTableDurability', () => {
+  it('returns the class of a registered table and undefined for an unregistered one', () => {
+    expect(findTableDurability('mastra_messages')).toBe('precious');
+    expect(findTableDurability('not_a_real_table')).toBeUndefined();
+  });
+});
+
+describe('TABLE_DURABILITY_CLASSES', () => {
+  it('lists every class a registry entry uses, and no other', () => {
+    const used = new Set(TABLE_DURABILITY_REGISTRY.map((entry) => entry.durability));
+    expect([...TABLE_DURABILITY_CLASSES].sort()).toEqual([...used].sort());
   });
 });
 
