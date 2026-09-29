@@ -33,6 +33,7 @@ interface IndexState {
 function advanceIndexState(previous: IndexState, messages: readonly unknown[]): IndexState {
   const index: MutableApprovalsIndex = {
     answers: new Map(previous.index.answers),
+    cardedSurfaceCalls: new Set(previous.index.cardedSurfaceCalls),
     prompts: new Map(previous.index.prompts),
     requests: new Map(previous.index.requests),
     userDecisions: new Map(previous.index.userDecisions),
@@ -46,6 +47,7 @@ function advanceIndexState(previous: IndexState, messages: readonly unknown[]): 
     value: result.changed
       ? {
           answers: index.answers,
+          cardedSurfaceCalls: index.cardedSurfaceCalls,
           delegationPrompts: index.prompts,
           requests: index.requests,
           userDecisions: index.userDecisions,

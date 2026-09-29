@@ -57,6 +57,8 @@ export interface AnsweredApprovalsIndex {
    * and reason. In a child view, also every answer on its owning root thread.
    */
   readonly answers: ReadonlyMap<string, AssistantToolApprovalAnswered>;
+  /** View-local (host leg, surface call) pairs with a card; display ownership only. */
+  readonly cardedSurfaceCalls: ReadonlySet<string>;
   /** The prompt the root gave each delegation call, keyed by that call's id. */
   readonly delegationPrompts: ReadonlyMap<string, string>;
   /** Every approval request in the thread, in part order, keyed like its notice. */
@@ -68,17 +70,30 @@ export interface AnsweredApprovalsIndex {
 /** The mutable working set `advanceAnsweredApprovalsIndex` folds into. */
 export interface MutableApprovalsIndex {
   readonly answers: Map<string, AssistantToolApprovalAnswered>;
+  readonly cardedSurfaceCalls: Set<string>;
   readonly prompts: Map<string, string>;
   readonly requests: Map<string, IndexedApprovalRequest>;
   readonly userDecisions: Map<string, AssistantToolApprovalDecision>;
 }
 
 export function createMutableApprovalsIndex(): MutableApprovalsIndex {
-  return { answers: new Map(), prompts: new Map(), requests: new Map(), userDecisions: new Map() };
+  return {
+    answers: new Map(),
+    cardedSurfaceCalls: new Set(),
+    prompts: new Map(),
+    requests: new Map(),
+    userDecisions: new Map(),
+  };
+}
+
+/** Not an authorization identity: delegated leaf decisions still use the full action key. */
+export function approvalSurfaceCallKey(runId: string, toolCallId: string): string {
+  return JSON.stringify([runId, toolCallId]);
 }
 
 export const EMPTY_ANSWERED_APPROVALS_INDEX: AnsweredApprovalsIndex = {
   answers: new Map(),
+  cardedSurfaceCalls: new Set(),
   delegationPrompts: new Map(),
   requests: new Map(),
   userDecisions: new Map(),
@@ -124,6 +139,11 @@ function indexPart(part: unknown, index: MutableApprovalsIndex): boolean {
   }
   if (part['name'] === TOOL_APPROVAL_DATA_NAME && isAssistantToolApprovalRequest(part['data'])) {
     const request = part['data'];
+    // Timeline events use durable host-leg IDs; request.runId is a native
+    // Mastra ID. Rediscovered cards without a host binding cannot supply it.
+    if (typeof request.hostRunId === 'string' && request.hostRunId.trim().length > 0) {
+      index.cardedSurfaceCalls.add(approvalSurfaceCallKey(request.hostRunId, request.toolCallId));
+    }
     index.requests.set(getToolActionIdentityKey(request), {
       decided: readRediscoveredPauseDisplay(request)?.decisionState !== undefined,
       request,
@@ -170,6 +190,7 @@ export function advanceAnsweredApprovalsIndex(
     keys.length < cursor.keys.length || cursor.keys.some((key, position) => keys[position] !== key);
   if (rewritten) {
     index.answers.clear();
+    index.cardedSurfaceCalls.clear();
     index.prompts.clear();
     index.requests.clear();
     index.userDecisions.clear();

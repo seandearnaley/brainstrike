@@ -725,7 +725,8 @@ it.each([false, true])(
   'settles a separate acknowledged approval while retaining earlier work: %s',
   async (hasEarlierWork) => {
     const request = {
-      runId: 'run',
+      hostRunId: 'host-leg',
+      runId: 'native-run',
       toolCallId: 'paused-call',
       toolName: 'brainstrike.readWorkspaceFile',
     };
@@ -740,7 +741,7 @@ it.each([false, true])(
               runEventPart({
                 id: 'pause',
                 kind: 'tool.approval.requested',
-                runId: request.runId,
+                runId: request.hostRunId,
                 timestamp: '2026-09-28T19:03:00Z',
                 toolCallId: request.toolCallId,
               }),

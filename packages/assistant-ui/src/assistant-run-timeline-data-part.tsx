@@ -1,6 +1,7 @@
 import { type DataMessagePartComponent, useAuiState } from '@assistant-ui/react';
 import { type AssistantRunEvent, readAssistantRunEvent } from '@brainstrike/assistant-contract';
 import { useAnsweredApprovals } from './answered-approvals-context';
+import { approvalSurfaceCallKey } from './answered-approvals-index-model';
 import { approvalCardToolCallIds } from './approval-history';
 import { shouldShowBackgroundActivity } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
@@ -48,13 +49,15 @@ export const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data })
   // Terminal failures/cancellations retain their established per-row path.
   const { detailLevel } = useAssistantDetailLevel();
   const event = readAssistantRunEvent(data);
-  const { requests } = useAnsweredApprovals();
+  const { cardedSurfaceCalls } = useAnsweredApprovals();
   const toolCallId = event?.metadata?.['toolCallId'];
   const hasApprovalCard = useAuiState(
     (state) =>
       event?.kind === 'tool.approval.requested' &&
       typeof toolCallId === 'string' &&
-      approvalCardToolCallIds(state.message.parts, requests).has(toolCallId)
+      ((event.runId !== undefined &&
+        cardedSurfaceCalls.has(approvalSurfaceCallKey(event.runId, toolCallId))) ||
+        approvalCardToolCallIds(state.message.parts).has(toolCallId))
   );
   if (hasApprovalCard) {
     return null;

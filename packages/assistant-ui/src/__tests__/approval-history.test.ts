@@ -1,4 +1,8 @@
 import { expect, it } from 'vitest';
+import {
+  advanceAnsweredApprovalsIndex,
+  createMutableApprovalsIndex,
+} from '../answered-approvals-index-model';
 import { approvalCardToolCallIds } from '../approval-history';
 
 const request = {
@@ -13,6 +17,7 @@ const request = {
     ],
     toolCallId: 'call_0',
   },
+  hostRunId: 'host-root',
   runId: 'root',
   toolCallId: 'delegate',
   toolName: 'brainstrike.readWorkspaceFile',
@@ -35,7 +40,13 @@ it('never hides activity for malformed, unknown, or absent approval cards', () =
   ).toBe(0);
 });
 
-const indexed = new Map([['approval', { decided: false, request }]]);
+const index = createMutableApprovalsIndex();
+advanceAnsweredApprovalsIndex(
+  [{ content: [{ data: request, name: 'brainstrike.tool-approval', type: 'data' }] }],
+  { keys: [], scanned: [] },
+  index
+);
+const indexed = index.cardedSurfaceCalls;
 function pause(runId: string | undefined, toolCallId: string) {
   return {
     data: {
@@ -52,13 +63,27 @@ function pause(runId: string | undefined, toolCallId: string) {
   };
 }
 it('finds a separate card using the recorded run and surface call', () => {
-  expect([...approvalCardToolCallIds([pause('root', 'delegate')], indexed)]).toEqual(['delegate']);
+  expect([...approvalCardToolCallIds([pause('host-root', 'delegate')], indexed)]).toEqual([
+    'delegate',
+  ]);
 });
 it.each([
   ['another run', 'other', 'delegate'],
-  ['another call', 'root', 'other-call'],
-  ['a child leaf', 'root', 'call_0'],
+  ['the native run namespace', 'root', 'delegate'],
+  ['another call', 'host-root', 'other-call'],
+  ['a child leaf', 'host-root', 'call_0'],
   ['an unscoped pause', undefined, 'delegate'],
 ] as const)('does not replace %s with an unrelated approval card', (_, runId, toolCallId) => {
   expect(approvalCardToolCallIds([pause(runId, toolCallId)], indexed).size).toBe(0);
+});
+
+it('does not guess a host leg for a rediscovered request without one', () => {
+  const withoutHost = createMutableApprovalsIndex();
+  const { hostRunId: _hostRunId, ...rediscovered } = request;
+  advanceAnsweredApprovalsIndex(
+    [{ content: [{ data: rediscovered, name: 'brainstrike.tool-approval', type: 'data' }] }],
+    { keys: [], scanned: [] },
+    withoutHost
+  );
+  expect(withoutHost.cardedSurfaceCalls.size).toBe(0);
 });

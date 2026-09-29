@@ -410,10 +410,10 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
  */
 export function AssistantActivityParts(): ReactNode {
   const messageParts = useAuiState((state) => state.message.parts);
-  const { requests } = useAnsweredApprovals();
+  const { cardedSurfaceCalls } = useAnsweredApprovals();
   const cardedCalls = useMemo(
-    () => approvalCardToolCallIds(messageParts, requests),
-    [messageParts, requests]
+    () => approvalCardToolCallIds(messageParts, cardedSurfaceCalls),
+    [messageParts, cardedSurfaceCalls]
   );
   const trailingGroupHoldsActivity = useAuiState((state) =>
     trailingGroupHasActivity(state.message.parts)

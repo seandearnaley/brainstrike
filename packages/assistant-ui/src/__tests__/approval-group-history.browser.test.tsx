@@ -9,8 +9,9 @@ import { Harness, runEventPart } from './assistant-activity-timeline-fixtures';
 
 const request = {
   args: { path: 'package.json' },
+  hostRunId: 'host-leg',
   riskCategory: 'read' as const,
-  runId: 'paused-run',
+  runId: 'native-run',
   toolCallId: 'read-package',
   toolName: 'brainstrike.readWorkspaceFile',
 };
@@ -42,7 +43,7 @@ test('approving a separate card leaves static history and no stale waiting group
             runEventPart({
               id: 'pause',
               kind: 'tool.approval.requested',
-              runId: request.runId,
+              runId: request.hostRunId,
               timestamp: '2026-09-28T19:03:00Z',
               toolCallId: request.toolCallId,
             }),
@@ -64,6 +65,8 @@ test('approving a separate card leaves static history and no stale waiting group
       )}
     </Harness>
   );
+  expect(screen.queryByTestId('assistant-activity-group')).toBeNull();
+  expect(screen.queryAllByText('Waiting for approval')).toHaveLength(0);
   await userEvent.click(await screen.findByRole('button', { name: `Approve ${request.toolName}` }));
   await screen.findByText('The package has been read.');
   await waitFor(() =>
