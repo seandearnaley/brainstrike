@@ -91,8 +91,9 @@ const INDEXES_OF = `FROM pg_index i
 
 /**
  * Every index of `accessMethod` in a user schema. Nothing filters on validity or key shape (an
- * expression key has `indkey[0] = 0`), and the count is checked against `pg_indexes`, so a later
- * filter or join cannot silently drop an index from a probe or from amcheck.
+ * expression key has `indkey[0] = 0`), and the set of names is checked against `pg_indexes`
+ * (`assertListingMatchesCatalog`), so a later filter or join cannot silently drop an index from a
+ * probe or from amcheck.
  */
 export async function listIndexes(db: CrashGateDb, accessMethod: string): Promise<IndexRow[]> {
   const listed = await db.query<IndexRow>(

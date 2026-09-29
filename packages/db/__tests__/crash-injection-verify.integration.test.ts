@@ -61,20 +61,22 @@ describe('crash gate verifier (real migrated schema)', () => {
   it.each(['bm25', 'btree', 'gin', 'hnsw'])(
     'lists every %s index that pg_indexes knows, so amcheck and the probes miss none',
     async (accessMethod) => {
-      const oracle = await db.query<{ indexname: string }>(
-        `SELECT x.indexname FROM pg_indexes x
+      // The same user-schema scope as the helper, compared by schema-qualified name.
+      const oracle = await db.query<{ index: string }>(
+        `SELECT format('%I.%I', x.schemaname, x.indexname) AS "index" FROM pg_indexes x
          JOIN pg_namespace n ON n.nspname = x.schemaname
          JOIN pg_class c ON c.relname = x.indexname AND c.relnamespace = n.oid
          JOIN pg_am am ON am.oid = c.relam
-         WHERE am.amname = $1 AND x.schemaname = 'public' ORDER BY 1`,
+         WHERE am.amname = $1 AND x.schemaname NOT IN ('pg_catalog', 'information_schema')
+           AND x.schemaname NOT LIKE 'pg\\_toast%' ORDER BY 1`,
         [accessMethod]
       );
       expect(oracle.rows.length).toBeGreaterThan(0);
 
       const listed = await listIndexes(db, accessMethod);
 
-      expect(listed.map((entry) => entry.indexName).sort()).toEqual(
-        oracle.rows.map((row) => row.indexname).sort()
+      expect(listed.map((entry) => entry.index).sort()).toEqual(
+        oracle.rows.map((row) => row.index).sort()
       );
     }
   );
