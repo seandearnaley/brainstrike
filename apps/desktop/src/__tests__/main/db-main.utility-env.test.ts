@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 const originalDbRootPath = process.env['BRAINSTRIKE_DB_ROOT_PATH'];
+const originalDbProfile = process.env['BRAINSTRIKE_DB_PROFILE'];
 const originalNodeEnv = process.env['NODE_ENV'];
 
 function installUtilityProcessParentPort(): void {
@@ -46,6 +47,7 @@ describe('db-main utility process environment', () => {
     vi.resetModules();
     installUtilityProcessParentPort();
     process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/mock/brainstrike-root';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'host-profile';
     process.env['NODE_ENV'] = 'test';
   });
 
@@ -53,15 +55,48 @@ describe('db-main utility process environment', () => {
     vi.resetModules();
     restoreParentPort();
     restoreEnvValue('BRAINSTRIKE_DB_ROOT_PATH', originalDbRootPath);
+    restoreEnvValue('BRAINSTRIKE_DB_PROFILE', originalDbProfile);
     restoreEnvValue('NODE_ENV', originalNodeEnv);
   });
 
-  it('resolves diagnostics paths from the injected database root without Electron app access', async () => {
+  it('resolves diagnostics paths from the injected root and profile without Electron app access', async () => {
     const { getDatabaseDiagnostics } = await import('../../db-main');
 
     expect(getDatabaseDiagnostics()).toMatchObject({
-      appDataDir: path.join('/mock/brainstrike-root', 'profiles', 'test'),
-      dataDir: path.join('/mock/brainstrike-root', 'profiles', 'test', 'pgdata'),
+      appDataDir: path.join('/mock/brainstrike-root', 'profiles', 'host-profile'),
+      databaseProfile: 'host-profile',
+      dataDir: path.join('/mock/brainstrike-root', 'profiles', 'host-profile', 'pgdata'),
     });
   });
+
+  it('never derives a development profile from cwd or git metadata', async () => {
+    process.env['NODE_ENV'] = 'development';
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_PROFILE');
+    const cwdSpy = vi.spyOn(process, 'cwd');
+    const { getDatabaseDiagnostics } = await import('../../db-main');
+
+    expect(() => getDatabaseDiagnostics()).toThrow(/BRAINSTRIKE_DB_PROFILE must be set/u);
+    expect(cwdSpy).not.toHaveBeenCalled();
+    cwdSpy.mockRestore();
+  });
+
+  it.each(['BRAINSTRIKE_DB_ROOT_PATH', 'BRAINSTRIKE_DB_PROFILE'])(
+    'throws a clear error when %s is missing instead of deriving a location',
+    async (name) => {
+      Reflect.deleteProperty(process.env, name);
+      const { getDatabaseDiagnostics } = await import('../../db-main');
+
+      expect(() => getDatabaseDiagnostics()).toThrow(new RegExp(`${name} must be set`, 'u'));
+    }
+  );
+
+  it.each(['BRAINSTRIKE_DB_ROOT_PATH', 'BRAINSTRIKE_DB_PROFILE'])(
+    'treats a blank or literal "undefined" %s as missing',
+    async (name) => {
+      process.env[name] = 'undefined';
+      const { getDatabaseDiagnostics } = await import('../../db-main');
+
+      expect(() => getDatabaseDiagnostics()).toThrow(new RegExp(`${name} must be set`, 'u'));
+    }
+  );
 });

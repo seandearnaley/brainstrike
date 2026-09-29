@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -24,10 +23,14 @@ import type {
   DatabaseInitStage,
 } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
-import { app } from 'electron';
 import { isCorruptionError } from './database-corruption-classifier';
 import type { RemoteDbClient } from './db-host-manager';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
+import {
+  isIsolatedDesktopTestRun,
+  resetDesktopDatabaseLocationForTests,
+  resolveDesktopDatabaseLocation,
+} from './desktop-database-location';
 import {
   BUNDLED_PG_MAJOR,
   ENGINE_UPGRADE_BACKUP_RETENTION_MS,
@@ -55,11 +58,6 @@ interface ErrorDetails {
   message: string;
   name?: string;
   stack?: string;
-}
-
-interface GitProfileContext {
-  branch: string | null;
-  workspaceSeed: string;
 }
 
 function withOptionalErrorCode(message: string, code: string | undefined): ErrorDetails {
@@ -190,9 +188,6 @@ let db: unknown = null;
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
 let dbInitializationPromise: Promise<DesktopDatabase> | null = null;
 interface DatabaseMutableState {
-  cachedDatabaseProfile: string | null;
-  // `undefined` means "not resolved yet"; `null` means "resolved but git metadata unavailable".
-  cachedGitProfileContext: GitProfileContext | null | undefined;
   dbProcessLockPath: string | null;
   initializationAttemptCount: number;
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;
@@ -204,8 +199,6 @@ interface DatabaseMutableState {
 }
 
 const mutableState: DatabaseMutableState = {
-  cachedDatabaseProfile: null,
-  cachedGitProfileContext: undefined,
   dbProcessLockPath: null,
   initializationAttemptCount: 0,
   lastInitializationFailure: null,
@@ -243,8 +236,6 @@ const PGLITE_INITIALIZATION_LOCK_FILENAME_PREFIX = 'brainstrike-pglite-initializ
 const PGLITE_INITIALIZATION_LOCK_HASH_LENGTH = 16 as const;
 const PGLITE_INITIALIZATION_LOCK_TIMEOUT_MS = 60_000 as const;
 const PGLITE_INITIALIZATION_LOCK_POLL_MS = 100 as const;
-const WORKTREE_PROFILE_HASH_LENGTH = 8 as const;
-const WORKTREE_PROFILE_BRANCH_MAX = 40 as const;
 
 interface PGliteInstanceShape {
   close?: () => Promise<void> | void;
@@ -310,187 +301,37 @@ async function createVectorDatabase(
   }
 }
 
-function sanitizeProfileSegment(raw: string): string {
-  const sanitized = raw
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  if (!sanitized) {
-    return 'default';
+// The DB host never derives its own location: main resolves it once
+// (`desktop-database-location.ts`) and hands both fields over via the
+// environment, so a host respawned mid-session cannot disagree with main's
+// reset path about which profile is open.
+function readHostDatabaseLocationEnv(
+  name: typeof DB_ROOT_PATH_ENV | typeof DB_PROFILE_ENV
+): string {
+  const value = process.env[name]?.trim();
+  if (!value || value.toLowerCase() === 'undefined') {
+    throw new Error(
+      `${name} must be set in utility process runtime: main resolves the desktop database location once and the DB host never derives its own.`
+    );
   }
-  return sanitized.slice(0, 64);
-}
-
-function hashProfileSeed(seed: string): string {
-  return createHash('sha1').update(seed).digest('hex').slice(0, WORKTREE_PROFILE_HASH_LENGTH);
-}
-
-function createWorktreeScopedProfile(branch: string, workspaceSeed: string): string {
-  const branchSegment = sanitizeProfileSegment(branch).slice(0, WORKTREE_PROFILE_BRANCH_MAX);
-  return sanitizeProfileSegment(`branch-${branchSegment}-wt-${hashProfileSeed(workspaceSeed)}`);
-}
-
-function parseGitHeadToBranch(headContent: string): string | null {
-  const trimmed = headContent.trim();
-  if (!trimmed.length) {
-    return null;
-  }
-
-  if (trimmed.startsWith('ref:')) {
-    const ref = trimmed.slice(4).trim();
-    if (ref.startsWith('refs/heads/')) {
-      return ref.slice('refs/heads/'.length);
-    }
-    return ref;
-  }
-
-  return `detached-${trimmed.slice(0, 12)}`;
-}
-
-function tryReadGitBranchFromGitDir(gitDirPath: string): string | null {
-  const headPath = path.join(gitDirPath, 'HEAD');
-  if (!existsSync(headPath)) {
-    return null;
-  }
-  return parseGitHeadToBranch(readFileSync(headPath, 'utf8'));
-}
-
-function tryResolveGitDirFromPointer(currentDir: string, gitPointerPath: string): string | null {
-  const gitPointer = readFileSync(gitPointerPath, 'utf8').trim();
-  const gitDirMatch = /^gitdir:\s*(.+)$/i.exec(gitPointer);
-  if (!gitDirMatch?.[1]) {
-    return null;
-  }
-  return path.resolve(currentDir, gitDirMatch[1].trim());
-}
-
-function tryReadGitContextAtDirectory(currentDir: string): GitProfileContext | null {
-  const gitPath = path.join(currentDir, '.git');
-  if (!existsSync(gitPath)) {
-    return null;
-  }
-
-  try {
-    const stats = lstatSync(gitPath);
-
-    if (stats.isDirectory()) {
-      return {
-        branch: tryReadGitBranchFromGitDir(gitPath),
-        workspaceSeed: path.resolve(currentDir),
-      };
-    }
-
-    if (stats.isFile()) {
-      const resolvedGitDir = tryResolveGitDirFromPointer(currentDir, gitPath);
-      if (resolvedGitDir) {
-        return {
-          branch: tryReadGitBranchFromGitDir(resolvedGitDir),
-          workspaceSeed: path.resolve(currentDir),
-        };
-      }
-    }
-  } catch {
-    // Ignore git metadata parsing errors and fall back to default profile.
-  }
-
-  return null;
-}
-
-function resolveGitContextFromDirectory(startDir: string): GitProfileContext | null {
-  let currentDir = path.resolve(startDir);
-
-  while (true) {
-    const contextAtCurrentDir = tryReadGitContextAtDirectory(currentDir);
-    if (contextAtCurrentDir) {
-      return contextAtCurrentDir;
-    }
-
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) {
-      return null;
-    }
-    currentDir = parentDir;
-  }
-}
-
-function getGitProfileContext(): GitProfileContext | null {
-  if (mutableState.cachedGitProfileContext !== undefined) {
-    return mutableState.cachedGitProfileContext;
-  }
-
-  mutableState.cachedGitProfileContext = resolveGitContextFromDirectory(process.cwd());
-  return mutableState.cachedGitProfileContext;
-}
-
-function isIsolatedDesktopTestRun(): boolean {
-  return process.env['NODE_ENV'] === 'test' || process.argv.includes('--test-mode');
+  return value;
 }
 
 function getDatabaseProfile(): string {
-  if (mutableState.cachedDatabaseProfile !== null) {
-    return mutableState.cachedDatabaseProfile;
+  if (isUtilityProcessRuntime()) {
+    return readHostDatabaseLocationEnv(DB_PROFILE_ENV);
   }
-
-  if (isIsolatedDesktopTestRun()) {
-    mutableState.cachedDatabaseProfile = 'test';
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  const explicitProfile = process.env[DB_PROFILE_ENV];
-  const normalizedExplicitProfile = explicitProfile?.trim();
-  if (
-    normalizedExplicitProfile &&
-    normalizedExplicitProfile.length > 0 &&
-    normalizedExplicitProfile.toLowerCase() !== 'undefined'
-  ) {
-    mutableState.cachedDatabaseProfile = sanitizeProfileSegment(normalizedExplicitProfile);
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  if (process.env['NODE_ENV'] === 'production') {
-    mutableState.cachedDatabaseProfile = 'default';
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  const gitContext = getGitProfileContext();
-  if (gitContext?.branch) {
-    mutableState.cachedDatabaseProfile = createWorktreeScopedProfile(
-      gitContext.branch,
-      gitContext.workspaceSeed
-    );
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  mutableState.cachedDatabaseProfile = 'dev-default';
-  return mutableState.cachedDatabaseProfile;
+  return resolveDesktopDatabaseLocation().profile;
 }
 
 function getDatabaseRootPath(): string {
-  const configuredRootPath = process.env[DB_ROOT_PATH_ENV]?.trim();
-  if (configuredRootPath && configuredRootPath.toLowerCase() !== 'undefined') {
-    return configuredRootPath;
+  if (isUtilityProcessRuntime()) {
+    return readHostDatabaseLocationEnv(DB_ROOT_PATH_ENV);
   }
-
-  if (!app || typeof app.getPath !== 'function') {
-    throw new Error(
-      `Desktop database root path is unavailable. ${DB_ROOT_PATH_ENV} must be set in utility process runtime.`
-    );
-  }
-
-  if (isIsolatedDesktopTestRun()) {
-    return app.getPath('userData');
-  }
-
-  const isProduction = process.env['NODE_ENV'] === 'production';
-  const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
-  return path.join(app.getPath('documents'), dbDirName);
+  return resolveDesktopDatabaseLocation().rootPath;
 }
 
 function getAppDataPath(): string {
-  if (isIsolatedDesktopTestRun()) {
-    return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
-  }
   return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
 }
 
@@ -903,8 +744,7 @@ export function __resetDatabaseModuleStateForTests(): void {
   mutableState.runtimeCorruptionRecoveryCount = 0;
   mutableState.lastRuntimeCorruptionAt = null;
   mutableState.lastRuntimeCorruptionContext = null;
-  mutableState.cachedDatabaseProfile = null;
-  mutableState.cachedGitProfileContext = undefined;
+  resetDesktopDatabaseLocationForTests();
 }
 
 /**
