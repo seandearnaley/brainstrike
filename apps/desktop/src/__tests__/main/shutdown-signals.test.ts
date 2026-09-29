@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
-import { installShutdownSignalHandlers } from '../../main/shutdown-signals';
+import {
+  installShutdownSignalHandlers,
+  ShutdownSignalInstallError,
+} from '../../main/shutdown-signals';
 
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 
@@ -123,6 +126,56 @@ describe('installShutdownSignalHandlers', () => {
     }
     expect(dependencyListener).not.toHaveBeenCalled();
     expect(onFirstSignal).toHaveBeenCalledExactlyOnceWith('SIGINT');
+  });
+
+  it('names what a partial install left behind, and still logs every listener it displaced', () => {
+    const target = new EventEmitter();
+    function whenExitHook(): void {
+      // a dependency's listener, displaced by the install
+    }
+    for (const signal of SIGNALS) {
+      target.on(signal, whenExitHook);
+    }
+    const on = target.on.bind(target);
+    vi.spyOn(target, 'on').mockImplementation((event, listener) => {
+      if (event === 'SIGTERM') {
+        throw new Error('libuv could not arm the watcher');
+      }
+      return on(event, listener);
+    });
+    const onFirstSignal = vi.fn();
+    const logger = { info: vi.fn() };
+
+    const thrown = (() => {
+      try {
+        installShutdownSignalHandlers({ logger, onFirstSignal, signals: SIGNALS, target });
+        return null;
+      } catch (error) {
+        return error;
+      }
+    })();
+
+    expect(thrown).toBeInstanceOf(ShutdownSignalInstallError);
+    expect(thrown).toMatchObject({
+      failedSignal: 'SIGTERM',
+      installed: ['SIGINT'],
+      removedListeners: true,
+    });
+    expect((thrown as Error).message).toBe(
+      'Could not install the shutdown handler for SIGTERM after removing its listeners; installed: SIGINT'
+    );
+    // SIGINT kept the handler it got before the failure.
+    target.emit('SIGINT');
+    expect(onFirstSignal).toHaveBeenCalledExactlyOnceWith('SIGINT');
+    // Both displacements are on the record, the failing signal's included.
+    expect(logger.info).toHaveBeenCalledWith(
+      'Replaced existing signal listeners with the shutdown handler',
+      { replaced: ['whenExitHook'], signal: 'SIGINT' }
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      'Replaced existing signal listeners with the shutdown handler',
+      { replaced: ['whenExitHook'], signal: 'SIGTERM' }
+    );
   });
 
   it('touches only the signals it is given, and logs no replacement when nothing was registered', () => {

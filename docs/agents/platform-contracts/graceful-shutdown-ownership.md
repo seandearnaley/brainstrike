@@ -401,7 +401,9 @@ are unmeasured: if the re-arm fails there, the first signal still quits through 
 A failure while installing the handlers is logged at error (through a guard, so a throwing logger
 cannot escape) and never stops boot. A signal whose listeners the install had not yet removed still
 quits through Electron's own handler (`before-quit`, the graceful run); one whose listeners it had
-removed takes its default action and skips the graceful run, which the error log says.
+removed takes its default action and skips the graceful run. The logged `ShutdownSignalInstallError`
+names the failing signal, the signals already installed and whether the failing one's listeners were
+removed, and every listener the install displaced is still logged (`shutdown-signals.test.ts`).
 
 ### Update (2026-09-29, BST-1872 L2c): the signal E2E
 
