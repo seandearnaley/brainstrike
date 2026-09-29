@@ -274,7 +274,7 @@ Guard: `scripts/__tests__/model-catalog-migration-contract.test.mjs`,
 
 BrainStrike has no shipped production `down` path. The app applies only forward migrations through Drizzle's append-only `__drizzle_migrations` ledger; `MigrationRunner.down()` and its `_migrations` ledger are test-only. Never execute raw `down` SQL or edit the production ledger in an active local profile: the next startup can reapply the migration or continue from a schema the ledger falsely reports as current. A reviewed forward migration is the only sanctioned production recovery.
 
-Use this fail-closed procedure:
+Use this fail-closed procedure; rollback scope is guarded by `packages/db/__tests__/migration-076-rollback.integration.test.ts`. Evidence: `database/forensics-rollback-review.md`.
 
 1. Prefer a forward catalog migration that restores compatibility without deleting durable IDs. Treat any manual rollback as an exceptional developer/support investigation, not a supported app operation.
 2. Before an exceptional investigation, fully quit BrainStrike (all desktop processes or browser tabs/workers) to quiesce writes. On desktop, capture both `<database root>/profiles/<profile>/pgdata` (root and profile per § "DESKTOP DATABASE LOCATION"; the running app logs them once at startup) and the relevant Electron `userData` artifacts: Chromium renderer `localStorage` and `electron-storage.json`. On web, capture the origin's PGlite IndexedDB store and `localStorage`. Prove the complete clone can be restored into an isolated profile. BrainStrike does not ship a catalog-rollback backup command; if any required store or a verified restore is unavailable, stop.
