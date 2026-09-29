@@ -305,18 +305,23 @@ describe('the init loop breaker', () => {
         hostPid: 4242,
         lastTimeoutAt: '2026-09-29T18:00:00.000Z',
         phaseKey: REBUILD_KEY,
-        report: REBUILD,
+        report: { ...REBUILD, secret: 'do-not-surface' },
+        secret: 'do-not-surface',
         version: 1,
       })
     );
     const { DbHostInitStoppedError, manager } = await loadManager();
 
     // Diagnostics first, as a platform-diagnostics read after launch would: still no fork.
-    await expect(manager.getDiagnostics()).resolves.toMatchObject({
-      initStop: { consecutiveTimeouts: 2 },
-    });
-    expect(await settled(manager.getDatabase())).toBeInstanceOf(DbHostInitStoppedError);
+    const diagnostics = await manager.getDiagnostics();
+    expect(diagnostics).toMatchObject({ initStop: { consecutiveTimeouts: 2 } });
+    const stopped = await settled(manager.getDatabase());
+    expect(stopped).toBeInstanceOf(DbHostInitStoppedError);
     expect(forkMock).not.toHaveBeenCalled();
+    // A tampered file's extra keys reach neither the diagnostics nor the error.
+    expect(JSON.stringify([diagnostics, stopped, (stopped as Error).message])).not.toContain(
+      'do-not-surface'
+    );
   });
 
   it('logs at error and still kills the host when the record cannot be written', async () => {

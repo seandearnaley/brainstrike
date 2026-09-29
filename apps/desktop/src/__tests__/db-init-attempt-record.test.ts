@@ -91,6 +91,26 @@ describe('db init attempt record', () => {
       expect(readDbInitAttemptRecord(newProfile)).toEqual(RECORD);
     });
 
+    it('rebuilds the record from its known fields: an extra key never surfaces', () => {
+      // A hand-edited or tampered file must not carry extra keys into diagnostics, logs or the stop error.
+      const tampered = {
+        ...RECORD,
+        injected: 'do-not-surface-top',
+        report: {
+          ...REBUILD,
+          index: { ...REBUILD.index, injected: 'do-not-surface-index' },
+          injected: 'do-not-surface-report',
+        },
+      };
+      writeFileSync(recordPath(), JSON.stringify(tampered));
+
+      const record = readDbInitAttemptRecord(profileDir);
+
+      expect(record).toEqual(RECORD);
+      expect(JSON.stringify(record)).not.toContain('do-not-surface');
+      expect(loggerErrorMock).not.toHaveBeenCalled();
+    });
+
     it('reads a first-report timeout, which has no phase report', () => {
       const firstReport: DatabaseInitAttemptRecord = {
         ...RECORD,
@@ -119,6 +139,9 @@ describe('db init attempt record', () => {
       ['a non-numeric budget', JSON.stringify({ ...RECORD, budgetMs: 'long' })],
       ['a malformed report', JSON.stringify({ ...RECORD, report: { phase: 'index-rebuild' } })],
       ['a non-string timestamp', JSON.stringify({ ...RECORD, lastTimeoutAt: 5 })],
+      ['a timestamp that is not ISO', JSON.stringify({ ...RECORD, lastTimeoutAt: 'yesterday' })],
+      ["a phaseKey that is not the report's", JSON.stringify({ ...RECORD, phaseKey: 'migration' })],
+      ['a phaseKey with a report of none', JSON.stringify({ ...RECORD, report: null })],
     ])('reads a file with %s as absent and logs it at error', (_label, contents) => {
       writeFileSync(recordPath(), contents);
 

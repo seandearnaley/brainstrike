@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { DatabaseInitAttemptRecord, DatabaseInitPhaseReport } from '@brainstrike/types';
-import { isDatabaseInitPhaseReport } from './db-host-protocol';
+import { parseDatabaseInitPhaseReport } from './db-host-protocol';
 import { summarizeMalformedMessage } from './platform/summarize-malformed-message';
 import { fsyncDirectory, isNoEntry, writeFileAtomically } from './write-file-atomically';
 
@@ -90,21 +90,41 @@ function isPositiveSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
-function isAttemptRecord(value: unknown): value is DatabaseInitAttemptRecord {
-  if (value === null || typeof value !== 'object') {
+/** A timestamp exactly as `toISOString` writes it: the only form the writer produces. */
+function isIsoTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string') {
     return false;
   }
+  const time = Date.parse(value);
+  return Number.isFinite(time) && new Date(time).toISOString() === value;
+}
+
+/**
+ * Parses, not merely validates: the record main uses is REBUILT from its known fields (and its
+ * report from `parseDatabaseInitPhaseReport`), so a hand-edited or tampered file cannot carry extra
+ * keys into diagnostics, logs or the stop error. `phaseKey` is derived data (a pure function of the
+ * report), so a file whose `phaseKey` disagrees with its report is malformed, not trusted.
+ */
+function parseAttemptRecord(value: unknown): DatabaseInitAttemptRecord | null {
+  if (value === null || typeof value !== 'object') {
+    return null;
+  }
   const candidate = value as Record<string, unknown>;
-  return (
-    candidate['version'] === 1 &&
-    typeof candidate['phaseKey'] === 'string' &&
-    candidate['phaseKey'].length > 0 &&
-    (candidate['report'] === null || isDatabaseInitPhaseReport(candidate['report'])) &&
-    isPositiveSafeInteger(candidate['budgetMs']) &&
-    (candidate['hostPid'] === null || isPositiveSafeInteger(candidate['hostPid'])) &&
-    isPositiveSafeInteger(candidate['consecutiveTimeouts']) &&
-    typeof candidate['lastTimeoutAt'] === 'string'
-  );
+  const { budgetMs, consecutiveTimeouts, hostPid, lastTimeoutAt, phaseKey, version } = candidate;
+  const report =
+    candidate['report'] === null ? null : parseDatabaseInitPhaseReport(candidate['report']);
+  if (
+    version !== 1 ||
+    (candidate['report'] !== null && report === null) ||
+    phaseKey !== initPhaseKey(report) ||
+    !isPositiveSafeInteger(budgetMs) ||
+    !(hostPid === null || isPositiveSafeInteger(hostPid)) ||
+    !isPositiveSafeInteger(consecutiveTimeouts) ||
+    !isIsoTimestamp(lastTimeoutAt)
+  ) {
+    return null;
+  }
+  return { budgetMs, consecutiveTimeouts, hostPid, lastTimeoutAt, phaseKey, report, version };
 }
 
 /**
@@ -137,14 +157,15 @@ export function readDbInitAttemptRecord(
     });
     return null;
   }
-  if (!isAttemptRecord(parsed)) {
+  const record = parseAttemptRecord(parsed);
+  if (record === null) {
     logger.error('Ignoring a malformed or foreign-version DB init attempt record', {
       recordPath,
       ...summarizeMalformedMessage(parsed),
     });
     return null;
   }
-  return parsed;
+  return record;
 }
 
 /**
