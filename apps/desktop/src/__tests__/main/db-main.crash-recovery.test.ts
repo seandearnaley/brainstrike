@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { DatabaseCrashSensitiveIndex, DatabaseInitPhaseReport } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Real filesystem in a temp root. The calls that could reset or replace the database are recorded,
@@ -50,6 +51,20 @@ const REBUILD_RESULT: RebuildResult = {
   ],
   totalDurationMs: 11_800,
 };
+
+const SEGMENT_BYTES = [1000, 2000] as const;
+
+function crashSensitiveIndex(index: string, heapBytes: number): DatabaseCrashSensitiveIndex {
+  return {
+    accessMethod: 'bm25',
+    heapBytes,
+    index,
+    indexBytes: 4096,
+    schema: 'public',
+    table: 'file_chunks',
+    toastBytes: 8192,
+  };
+}
 
 const engine = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
@@ -102,6 +117,28 @@ describe('db-main crash-sensitive index rebuild', () => {
     if (options.marker) {
       writeFileSync(markerPath(), '{}');
     }
+  };
+  // Two real-looking WAL segments (24 upper-case hex digits) plus entries that are NOT segments and
+  // must not count: the archive_status directory, a partial file and a lower-case name.
+  const seedPgWal = (): void => {
+    const walDir = path.join(appDataDir, 'pgdata', 'pg_wal');
+    mkdirSync(path.join(walDir, 'archive_status'), { recursive: true });
+    SEGMENT_BYTES.forEach((bytes, position) => {
+      writeFileSync(
+        path.join(walDir, `00000001000000000000000${position + 1}`),
+        Buffer.alloc(bytes)
+      );
+    });
+    writeFileSync(path.join(walDir, '000000010000000000000009.partial'), Buffer.alloc(500));
+    writeFileSync(path.join(walDir, '00000001000000000000000a'), Buffer.alloc(500));
+  };
+  // Every report and every engine step in one ordered list.
+  const recordPhase = (report: DatabaseInitPhaseReport): void => {
+    probe.order.push(
+      report.phase === 'index-rebuild'
+        ? `phase:index-rebuild:${report.index.index}`
+        : `phase:${report.phase}`
+    );
   };
   const rebuildWarnings = (): unknown[][] =>
     probe.logger.warn.mock.calls.filter(([message]) => message === REBUILD_WARNING);
@@ -161,8 +198,54 @@ describe('db-main crash-sensitive index rebuild', () => {
 
       expect(probe.order).toEqual(['open', 'rebuild', 'migrate']);
       expect(engine.rebuildCrashSensitiveIndexes).toHaveBeenCalledTimes(1);
-      expect(engine.rebuildCrashSensitiveIndexes).toHaveBeenCalledWith(handle);
+      expect(engine.rebuildCrashSensitiveIndexes).toHaveBeenCalledWith(handle, {
+        onBeforeIndex: expect.any(Function),
+      });
       expect(probe.destructive).toEqual([]);
+    });
+
+    it('reports open-database, one index-rebuild per index, then migration, in that order, to onPhase', async () => {
+      seedDatabaseDirectory({ marker: false });
+      seedPgWal();
+      const indexes = [
+        crashSensitiveIndex('Mixed"Case_bm25', 111),
+        crashSensitiveIndex('idx_file_chunks_content_bm25', 222),
+      ];
+      engine.rebuildCrashSensitiveIndexes.mockImplementationOnce(
+        async (_db: unknown, options: { onBeforeIndex: (entry: unknown) => void }) => {
+          for (const entry of indexes) {
+            options.onBeforeIndex(entry);
+            probe.order.push(`reindex:${entry.index}`);
+          }
+          return REBUILD_RESULT;
+        }
+      );
+      const reports: DatabaseInitPhaseReport[] = [];
+      const { initializeMainDatabase } = await import('../../db-main');
+
+      await initializeMainDatabase({
+        onPhase: (report) => {
+          reports.push(report);
+          recordPhase(report);
+        },
+      });
+
+      // Each report precedes the step it announces, so the manager can arm its budget in time.
+      expect(probe.order).toEqual([
+        'phase:open-database',
+        'open',
+        'phase:index-rebuild:Mixed"Case_bm25',
+        'reindex:Mixed"Case_bm25',
+        'phase:index-rebuild:idx_file_chunks_content_bm25',
+        'reindex:idx_file_chunks_content_bm25',
+        'phase:migration',
+        'migrate',
+      ]);
+      // Only the two segment files count: 1000 + 2000 bytes.
+      expect(reports[0]).toEqual({ pgWalBytes: 3000, phase: 'open-database' });
+      expect(reports[1]).toEqual({ index: indexes[0], phase: 'index-rebuild' });
+      expect(reports[2]).toEqual({ index: indexes[1], phase: 'index-rebuild' });
+      expect(reports[3]).toEqual({ phase: 'migration' });
     });
 
     it('records the result in the diagnostics and logs it once at warn', async () => {
@@ -200,6 +283,18 @@ describe('db-main crash-sensitive index rebuild', () => {
     { name: 'a clean shutdown', seed: true, shutdown: 'clean' },
     { name: 'a new database', seed: false, shutdown: 'new-database' },
   ] as const)('after $name', ({ seed, shutdown }) => {
+    it('reports no index-rebuild phase, and 0 pg_wal bytes when there is no pg_wal directory', async () => {
+      if (seed) {
+        seedDatabaseDirectory({ marker: true });
+      }
+      const reports: DatabaseInitPhaseReport[] = [];
+      const { initializeMainDatabase } = await import('../../db-main');
+
+      await initializeMainDatabase({ onPhase: (report) => reports.push(report) });
+
+      expect(reports).toEqual([{ pgWalBytes: 0, phase: 'open-database' }, { phase: 'migration' }]);
+    });
+
     it('never rebuilds and reports no rebuild', async () => {
       if (seed) {
         seedDatabaseDirectory({ marker: true });

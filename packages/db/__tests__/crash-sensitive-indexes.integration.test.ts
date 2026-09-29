@@ -107,14 +107,102 @@ describe('crash-sensitive index rebuild (real migrated database)', () => {
     );
     expect(indexCount.rows[0]?.count).toBeGreaterThan(20);
 
-    await expect(listCrashSensitiveIndexes(db)).resolves.toEqual([
-      {
-        accessMethod: 'bm25',
-        index: PRODUCTION_BM25_INDEX,
-        schema: 'public',
-        table: 'file_chunks',
+    const listed = await listCrashSensitiveIndexes(db);
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({
+      accessMethod: 'bm25',
+      index: PRODUCTION_BM25_INDEX,
+      schema: 'public',
+      table: 'file_chunks',
+    });
+  });
+
+  it('lists heap, toast and index bytes for the production BM25 index', async () => {
+    await seedChunks(db, FIXTURE_ROWS);
+
+    const [entry] = await listCrashSensitiveIndexes(db);
+
+    // Short rows never leave the heap, so the toast relation exists but is empty.
+    expect(entry?.heapBytes).toBeGreaterThan(0);
+    expect(entry?.indexBytes).toBeGreaterThan(0);
+    expect(entry?.toastBytes).toBe(0);
+    for (const bytes of [entry?.heapBytes, entry?.indexBytes, entry?.toastBytes]) {
+      expect(Number.isSafeInteger(bytes)).toBe(true);
+    }
+  });
+
+  it('reports toastBytes for a table whose column is stored out of line', async () => {
+    // 400 md5 digests are ~12.8 kB of hex text per row: over the 2 kB TOAST threshold even
+    // after pglz compression, so every row's content lands in the toast relation.
+    await db.exec(`
+      CREATE TABLE toasted_notes (id int PRIMARY KEY, content text NOT NULL);
+      INSERT INTO toasted_notes
+        SELECT g, (SELECT string_agg(md5(g::text || '-' || i::text), '') FROM generate_series(1, 400) AS i)
+        FROM generate_series(1, 50) AS g;
+      CREATE INDEX toasted_notes_bm25 ON toasted_notes USING bm25 (content) WITH (text_config='english');
+    `);
+
+    const listed = await listCrashSensitiveIndexes(db);
+    const entry = listed.find((candidate) => candidate.table === 'toasted_notes');
+
+    expect(entry?.toastBytes).toBeGreaterThan(0);
+    expect(Number.isSafeInteger(entry?.toastBytes)).toBe(true);
+    expect(entry?.heapBytes).toBeGreaterThan(0);
+  });
+
+  it('calls onBeforeIndex once per index, before its REINDEX, in name order', async () => {
+    await seedChunks(db, 200);
+    await db.exec(
+      `CREATE INDEX "Mixed""Case_bm25" ON file_chunks USING bm25 (content) WITH (text_config='english')`
+    );
+    const events: string[] = [];
+    const sizes: Record<string, { heapBytes: number; indexBytes: number }> = {};
+    const recording: CrashSensitiveIndexDb = {
+      exec: (sql) => {
+        const reindexed = /^REINDEX INDEX "public"\."(?<name>.*)"$/u.exec(sql)?.groups?.['name'];
+        events.push(`reindex:${reindexed?.replaceAll('""', '"') ?? sql}`);
+        return db.exec(sql);
       },
+      query: (sql, params) => db.query(sql, params),
+    };
+
+    await rebuildCrashSensitiveIndexes(recording, {
+      onBeforeIndex: (entry) => {
+        events.push(`before:${entry.index}`);
+        sizes[entry.index] = { heapBytes: entry.heapBytes, indexBytes: entry.indexBytes };
+      },
+    });
+
+    expect(events).toEqual([
+      `before:${QUOTED_BM25_INDEX}`,
+      `reindex:${QUOTED_BM25_INDEX}`,
+      `before:${PRODUCTION_BM25_INDEX}`,
+      `reindex:${PRODUCTION_BM25_INDEX}`,
     ]);
+    // The hook receives the sizes read from the catalog before the pass started.
+    expect(sizes[PRODUCTION_BM25_INDEX]?.heapBytes).toBeGreaterThan(0);
+    expect(sizes[PRODUCTION_BM25_INDEX]?.indexBytes).toBeGreaterThan(0);
+  });
+
+  it('never reaches a REINDEX when onBeforeIndex throws, and surfaces the hook error unwrapped', async () => {
+    const boom = new Error('phase report could not be posted');
+    const statements: string[] = [];
+    const recording: CrashSensitiveIndexDb = {
+      exec: (sql) => {
+        statements.push(sql);
+        return db.exec(sql);
+      },
+      query: (sql, params) => db.query(sql, params),
+    };
+
+    await expect(
+      rebuildCrashSensitiveIndexes(recording, {
+        onBeforeIndex: () => {
+          throw boom;
+        },
+      })
+    ).rejects.toBe(boom);
+    expect(statements).toEqual([]);
   });
 
   it(
@@ -158,9 +246,11 @@ describe('crash-sensitive index rebuild (real migrated database)', () => {
     );
 
     let tick = 0;
-    const result = await rebuildCrashSensitiveIndexes(db, () => {
-      tick += 10;
-      return tick;
+    const result = await rebuildCrashSensitiveIndexes(db, {
+      clock: () => {
+        tick += 10;
+        return tick;
+      },
     });
 
     expect(result.rebuilt.map((entry) => entry.index)).toEqual(expectedOrder);
