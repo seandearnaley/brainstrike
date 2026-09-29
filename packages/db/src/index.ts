@@ -256,6 +256,15 @@ export {
   type ScheduledDatabaseMaintenanceStatus,
 } from './services/scheduled-database-maintenance.js';
 export {
+  DEFAULT_SNAPSHOT_RETENTION_POLICY,
+  planSnapshotRetention,
+  type RetentionRule,
+  type RetentionSnapshot,
+  type SnapshotPrune,
+  type SnapshotRetentionPlan,
+  type SnapshotRetentionPolicy,
+} from './snapshot-retention.js';
+export {
   findTableDurability,
   getTableDurability,
   type RebuildOwner,
