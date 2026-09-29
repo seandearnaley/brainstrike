@@ -171,11 +171,12 @@ export class FileTreeIndex {
       return null;
     }
 
-    if (isWebFileHandle(handle)) {
+    const webHandle = 'platform' in handle && handle.platform === 'web' ? handle._internal : handle;
+    if (isWebFileHandle(webHandle)) {
       return {
         fileName: node.name,
         fileSize: node.size,
-        webHandle: handle,
+        webHandle,
       };
     }
 

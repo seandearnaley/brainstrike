@@ -16,6 +16,12 @@ export interface FileTabState {
 
 interface TabManagerData {
   activeTabId: string | null;
+  /**
+   * A fresh identity per `hydrateTabs` (never persisted): the tab set was
+   * REPLACED by another thread's workspace, which subscribers such as the
+   * closed-tab history must tell apart from closes.
+   */
+  hydration: object;
   tabs: FileTabState[];
 }
 
@@ -43,6 +49,13 @@ interface TabManagerActions {
     activeTabId: string | null
   ) => void;
   openTab: (path: string, tabId: string, compositeKey: string) => void;
+  /**
+   * Atomically adopt `orderedTabIds` as the tab order. Only an exact
+   * permutation of the open tab ids is accepted; anything else (a stale drag,
+   * a missing or foreign id) is rejected with a warning and changes nothing.
+   * Array order IS the persisted order, so `tab-manager.v1` needs no migration.
+   */
+  reorderTabs: (orderedTabIds: readonly string[]) => void;
   setActiveTab: (tabId: string) => void;
   setTabError: (tabId: string, error: string) => void;
   setTabLoading: (tabId: string, isLoading: boolean) => void;
@@ -156,6 +169,27 @@ function migrateV1ToV2(ps: PersistedState): PersistedState {
   return { activeTabId, tabs };
 }
 
+/** `tabs` in `orderedTabIds` order, or null unless the ids are an exact permutation. */
+function permuteTabs(
+  tabs: readonly FileTabState[],
+  orderedTabIds: readonly string[]
+): FileTabState[] | null {
+  if (orderedTabIds.length !== tabs.length) {
+    return null;
+  }
+  const byId = new Map(tabs.map((tab) => [tab.id, tab]));
+  const reordered: FileTabState[] = [];
+  for (const id of orderedTabIds) {
+    const tab = byId.get(id);
+    if (!tab) {
+      return null;
+    }
+    byId.delete(id);
+    reordered.push(tab);
+  }
+  return reordered;
+}
+
 const storage = createJSONStorage(() =>
   createSafeJsonStateStorage({
     migrateOnGet: migrateLegacyTabKey,
@@ -229,8 +263,9 @@ export const useTabManagerStore = create<TabManagerStore>()(
           path: tab.path,
         }));
         const activeExists = hydrated.some((tab) => tab.id === activeTabId);
-        set({ activeTabId: activeExists ? activeTabId : null, tabs: hydrated });
+        set({ activeTabId: activeExists ? activeTabId : null, hydration: {}, tabs: hydrated });
       },
+      hydration: {},
 
       openTab: (path, tabId, compositeKey) => {
         set((state) => {
@@ -260,6 +295,25 @@ export const useTabManagerStore = create<TabManagerStore>()(
           }
           return { activeTabId: tabId, tabs: nextTabs };
         });
+      },
+
+      reorderTabs: (orderedTabIds) => {
+        const { tabs } = get();
+        const reordered = permuteTabs(tabs, orderedTabIds);
+        if (reordered === null) {
+          logger.warn('Rejected a tab reorder that is not a permutation of the open tabs', {
+            openTabCount: tabs.length,
+            orderedTabCount: orderedTabIds.length,
+          });
+          return;
+        }
+        if (
+          reordered.length === tabs.length &&
+          reordered.every((tab, index) => tab === tabs[index])
+        ) {
+          return;
+        }
+        set({ tabs: reordered });
       },
 
       setActiveTab: (tabId) => set({ activeTabId: tabId }),

@@ -126,6 +126,23 @@ import { migration124GoogleCatalogModels } from './124-google-catalog-models.js'
 import { migration125BedrockAnthropicClaudeOpus5 } from './125-bedrock-anthropic-claude-opus-5.js';
 import { migration126DelegatedConversations } from './126-delegated-conversations.js';
 import { migration127DelegatedInvocations } from './127-delegated-invocations.js';
+import { migration128DelegatedInvocationUsage } from './128-delegated-invocation-usage.js';
+import { migration129ArtifactExecutionScope } from './129-artifact-execution-scope.js';
+import { migration130OpenrouterDeepseekDeepseekV41Flash } from './130-openrouter-deepseek-deepseek-v4-1-flash.js';
+import { migration131DelegatedToolDecisions } from './131-delegated-tool-decisions.js';
+import { migration132DelegationBudgets } from './132-delegation-budgets.js';
+import { migration133MastraBackgroundTasks } from './133-mastra-background-tasks.js';
+import { migration134DelegatedCancellationAdmission } from './134-delegated-cancellation-admission.js';
+import { migration135DelegatedContinuations } from './135-delegated-continuations.js';
+import { migration136DelegatedInputPayload } from './136-delegated-input-payload.js';
+import { migration137ChildExecutionConfiguration } from './137-child-execution-configuration.js';
+import { migration138IndependentChildContinuationPauses } from './138-independent-child-continuation-pauses.js';
+import { migration139SwarmDiagnostics } from './139-swarm-diagnostics.js';
+import { migration140AssistantNativeRuns } from './140-assistant-native-runs.js';
+import { migration141OpenrouterInclusionaiLing30Flash } from './141-openrouter-inclusionai-ling-3-0-flash.js';
+import { migration142OpenaiAnthropicOpenrouterBedrockCatalogModels } from './142-openai-anthropic-openrouter-bedrock-catalog-models.js';
+import { migration143AgentIdentityPalettes } from './143-agent-identity-palettes.js';
+import { migration144AgentFamilyColors } from './144-agent-family-colors.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -252,12 +269,29 @@ export const migrations: Migration[] = [
   migration119OpenrouterCatalogModels,
   migration120OpenrouterCatalogModels,
   migration121RetireDelistedOpenRouterModels,
-  migration123OpenaiGpt6Astra,
   migration122AnthropicBedrockCatalogModels,
+  migration123OpenaiGpt6Astra,
   migration124GoogleCatalogModels,
   migration125BedrockAnthropicClaudeOpus5,
   migration126DelegatedConversations,
   migration127DelegatedInvocations,
+  migration128DelegatedInvocationUsage,
+  migration129ArtifactExecutionScope,
+  migration130OpenrouterDeepseekDeepseekV41Flash,
+  migration131DelegatedToolDecisions,
+  migration132DelegationBudgets,
+  migration133MastraBackgroundTasks,
+  migration134DelegatedCancellationAdmission,
+  migration135DelegatedContinuations,
+  migration136DelegatedInputPayload,
+  migration137ChildExecutionConfiguration,
+  migration138IndependentChildContinuationPauses,
+  migration139SwarmDiagnostics,
+  migration140AssistantNativeRuns,
+  migration141OpenrouterInclusionaiLing30Flash,
+  migration142OpenaiAnthropicOpenrouterBedrockCatalogModels,
+  migration143AgentIdentityPalettes,
+  migration144AgentFamilyColors,
 ];
 
 // Export base migrations (without chunks table) for test environments

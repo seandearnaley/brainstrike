@@ -2,12 +2,11 @@ import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-r
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type {
-  ElectronFileChunkRepository,
   ElectronFileRecordRepository,
   FileChunk,
-  FileChunkRepository,
   FileRecord,
   FileRecordRepository,
+  IFileChunkRepository,
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
@@ -32,7 +31,7 @@ interface SearchEmbedder {
 }
 
 export function useSearchFunctionality(
-  chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null,
+  chunkRepository: IFileChunkRepository | null,
   repository: FileRecordRepository | ElectronFileRecordRepository | null,
   toast: ReturnType<typeof useToast>['toast']
 ): SearchFunctionality {

@@ -4,14 +4,18 @@ import {
   delegationToolNameForPersona,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
-import { createElement, useMemo } from 'react';
-import { SubagentExecutionCard } from './subagent-execution-card';
+import { createElement, use, useCallback, useMemo, useSyncExternalStore } from 'react';
 import {
-  readSubagentDelegationOutcomeFromMessages,
-  type SubAgentToolRow,
-  type SubagentDelegationOutcome,
-  serializeLiveSubagentToolRowsFromMessages,
-} from './subagent-tool-rows';
+  readSubagentConversationAddress,
+  readSubagentInvocationRun,
+  type SubagentConversationAddress,
+  type SubagentInvocationRun,
+  SubagentLiveInvocationContext,
+} from './subagent-conversation-navigation';
+import { SubagentExecutionCard } from './subagent-execution-card';
+import { useSubagentInvocationSnapshot } from './use-subagent-invocation-snapshot';
+import { useSubagentNavigation } from './use-subagent-navigation';
+import { useSubagentPresentation } from './use-subagent-presentation';
 
 /**
  * The registered delegation-tool component: reads the current message's parts
@@ -21,33 +25,70 @@ import {
  * before the result (with `subAgentToolResults`) lands. Kept out of the card so
  * the card stays render-testable without the assistant-ui store.
  *
- * The selector serializes the derived rows (see `serializeLiveSubagentToolRows`):
- * `useAuiState` compares selector results with `Object.is`, so returning the raw
- * `state.message.parts` array — a stable reference that grows in place — would
- * never re-render, freezing the live count on an early snapshot (D2).
+ * One thread-level incremental index derives the live rows and special outcome;
+ * this card subscribes only to its `toolCallId` snapshot. That keeps the
+ * sibling-message hydration rule without making every visible card walk the
+ * full retained thread on every store update.
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
-  // THREAD-wide, not message-scoped (2026-08-24 field failure): hydration can
-  // weave this delegation's `subagent.tool.*` events into a SIBLING message of
-  // an approval-resume turn, so a message-scoped read showed "0 tool calls"
-  // on reload for a child that did minutes of work. The events are
-  // `parentToolCallId`-scoped, so the wider read cannot pick up another
-  // delegation's rows.
-  const liveRowsJson = useAuiState((state) =>
-    serializeLiveSubagentToolRowsFromMessages(state.thread.messages, props.toolCallId)
+  const liveInvocations = use(SubagentLiveInvocationContext);
+  const invocationJson = useAuiState((state) =>
+    JSON.stringify(readSubagentInvocationRun(state.message.parts, props.toolCallId))
   );
-  // Same thread-wide scope as the rows above. A string|undefined selector
-  // result is already value-stable under `useAuiState`'s `Object.is`
-  // comparison, so unlike the rows it needs no serialization dance.
-  const outcome = useAuiState((state) =>
-    readSubagentDelegationOutcomeFromMessages(state.thread.messages, props.toolCallId)
-  ) as SubagentDelegationOutcome | undefined;
-  const liveRows = useMemo(() => JSON.parse(liveRowsJson) as SubAgentToolRow[], [liveRowsJson]);
+  const invocation = useMemo(
+    () => JSON.parse(invocationJson) as SubagentInvocationRun,
+    [invocationJson]
+  );
+  const addressJson = useAuiState((state) =>
+    JSON.stringify(
+      readSubagentConversationAddress(state.message.parts, props.toolCallId, props.result)
+    )
+  );
+  const persistedAddress = useMemo(
+    () => JSON.parse(addressJson) as SubagentConversationAddress,
+    [addressJson]
+  );
+  const getLiveThreadId = useCallback(
+    () =>
+      invocation.kind === 'available'
+        ? liveInvocations?.getThreadId({
+            parentRuntimeRunId: invocation.parentRuntimeRunId,
+            parentToolCallId: props.toolCallId,
+          })
+        : undefined,
+    [invocation, liveInvocations, props.toolCallId]
+  );
+  const liveThreadId = useSyncExternalStore(
+    liveInvocations?.subscribe ?? emptySubscribe,
+    getLiveThreadId,
+    getLiveThreadId
+  );
+  const address: SubagentConversationAddress =
+    persistedAddress.kind === 'available' &&
+    liveThreadId &&
+    persistedAddress.threadId !== liveThreadId
+      ? { error: 'Conflicting child conversation addresses.', kind: 'invalid' }
+      : persistedAddress.kind === 'unavailable' && liveThreadId
+        ? { kind: 'available', threadId: liveThreadId }
+        : persistedAddress;
+  const { entry: presentation, reload } = useSubagentPresentation(
+    address.kind === 'available' ? address.threadId : undefined
+  );
+  const navigation = useSubagentNavigation(address, invocation, props.toolCallId);
+  const { outcome, rows: liveRows } = useSubagentInvocationSnapshot(props.toolCallId);
   return createElement(SubagentExecutionCard, {
     // Conditional spread, not `isError: props.isError`: under
     // `exactOptionalPropertyTypes` an optional prop may be absent but never
     // explicitly `undefined`.
     ...(props.isError === undefined ? {} : { isError: props.isError }),
+    ...navigation,
+    ...(presentation && 'presentation' in presentation
+      ? { presentation: presentation.presentation }
+      : {}),
+    ...(presentation && 'error' in presentation
+      ? { onReloadPresentation: reload, presentationError: presentation.error }
+      : {}),
+    ...(typeof props.args['prompt'] === 'string' ? { task: props.args['prompt'] } : {}),
     liveRows,
     ...(outcome ? { outcome } : {}),
     result: props.result,
@@ -56,6 +97,8 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     toolName: props.toolName,
   });
 };
+
+const emptySubscribe = () => () => undefined;
 
 /**
  * `agent-<personaId>` delegation tool name → SubagentExecutionCardConnected,

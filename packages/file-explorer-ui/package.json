@@ -11,7 +11,6 @@
     "@brainstrike/file-tree-worker": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/token-cache": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
@@ -24,6 +23,7 @@
     "react-resizable-panels": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/file-tree-test-fixtures": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@electric-sql/pglite": "catalog:",
     "@testing-library/jest-dom": "catalog:",

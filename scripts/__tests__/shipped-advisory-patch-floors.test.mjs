@@ -15,11 +15,11 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // worthless: an 8-PR sweep once moved it 80 -> 78. These entries are the
 // exception — each was a real severity on a path that ships.
 //
-// Every one had the same shape: the parent's range already admitted the patched
+// Most had the same shape: the parent's range already admitted the patched
 // version, so the tree was held on the vulnerable one by lockfile inertia and a
 // single `pnpm update <pkg> -r` lifted it with no direct-dependency change.
 //
-// It is a TEST rather than an `overrides:` entry because the fix is
+// Range-only lifts use a TEST rather than an `overrides:` entry because the fix is
 // REBASE-FRAGILE, the same way `codemirror-single-resolution.test.mjs` describes:
 // resolving a `pnpm-lock.yaml` conflict by taking one side and re-running
 // `pnpm install` regenerates a lockfile that satisfies every range while quietly
@@ -27,6 +27,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // on the branch that introduced its guard. A caret range means a fresh resolve
 // should pick the patched version unaided; this guard exists for when it does
 // not, because here silence and safety look identical.
+// qs also has a dev-only exact pin in typed-rest-client; its supported scoped
+// override is documented in pnpm-workspace.yaml (BST-881). If that floor fails,
+// inspect the owner pin and override rather than relying on a range refresh.
 //
 // SUPERSEDES `undici-7x-patch-floor.test.mjs`, deleted in the same commit. That
 // file guarded undici alone; this table is a strict superset of it — same 7.x
@@ -60,6 +63,9 @@ const FLOORS = [
   // >=3.0.0 <3.15.1: high, reached @mastra/core and @mastra/memory. The 4.x
   // copies are above the floor on a major comparison and are unaffected.
   { floor: [3, 15, 1], name: 'js-yaml' },
+  // <6.16.0: moderate, reached Express beneath Mastra and MCP Apps; also
+  // resolves BST-881's older comma-stringify advisory beneath Stryker.
+  { floor: [6, 16, 0], name: 'qs' },
 ];
 
 function parseVersion(raw) {

@@ -63,8 +63,12 @@ export function wrapModelWithCallTransform<M extends object>(
   transform: ModelCallTransform
 ): M {
   return new Proxy(model, {
-    get(target, property, receiver) {
-      const value = Reflect.get(target, property, receiver) as unknown;
+    get(target, property) {
+      // Read with the TARGET as receiver, not the proxy: model classes keep
+      // state in `#private` fields, and a prototype getter reading one with
+      // `this` bound to the proxy throws `TypeError: Cannot read private
+      // member` (BST-1742; same hazard `provider-call-warnings.ts` guards).
+      const value = Reflect.get(target, property) as unknown;
       if (typeof property === 'string' && WRAPPED_CALL_METHODS.has(property)) {
         if (typeof value !== 'function') {
           return value;

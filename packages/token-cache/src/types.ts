@@ -114,7 +114,10 @@ export interface TokenCacheStoreOptions {
   debug?: boolean;
   /** Optional composition-layer telemetry sink for persistent cache lookups. */
   telemetry?: TokenCacheStoreTelemetry;
-  /** Base delay for retrying transient batch transaction failures, in milliseconds. */
+  /**
+   * Base delay for transient batch retries, in milliseconds. Construction throws
+   * RangeError if the largest configured exponential delay exceeds 2,147,483,647 ms.
+   */
   transactionRetryBaseDelayMs?: number;
   /** Maximum number of attempts for transient batch transaction failures. */
   transactionRetryMaxAttempts?: number;

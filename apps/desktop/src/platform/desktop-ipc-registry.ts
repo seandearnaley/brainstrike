@@ -40,6 +40,7 @@ export type DesktopIpcDomain =
   | 'userCommands'
   | 'userPersonas'
   | 'vectorPreferences'
+  | 'windowFocus'
   | 'workspace'
   | 'worktrees';
 

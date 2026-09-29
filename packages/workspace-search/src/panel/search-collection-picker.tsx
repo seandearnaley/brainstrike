@@ -53,7 +53,10 @@ export function SearchCollectionPicker({ onCollectionChange }: SearchCollectionP
   if (rows.length < 2) {
     const [only] = rows;
     return (
-      <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-sm">
+      <span
+        className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-sm"
+        data-testid={only ? 'workspace-search-single-collection' : undefined}
+      >
         <Database aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">{only?.name ?? 'Workspace Index'}</span>
       </span>
@@ -62,7 +65,7 @@ export function SearchCollectionPicker({ onCollectionChange }: SearchCollectionP
 
   return (
     <Select onValueChange={handleChange} value={effectiveId}>
-      <SelectTrigger className="h-8 w-full">
+      <SelectTrigger aria-label="Search collection" className="h-8 w-full">
         <SelectValue placeholder="Select collection" />
       </SelectTrigger>
       <SelectContent>

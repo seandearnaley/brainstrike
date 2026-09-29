@@ -3,11 +3,21 @@ import {
   type OpenAiReasoningEffort,
   type ProviderId,
 } from '@brainstrike/assistant-contract';
+import {
+  CHILD_CONTINUATION_DATA_NAME,
+  type ChildContinuationStreamData,
+} from '@brainstrike/assistant-contract/child-followup';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
+import {
+  CHILD_USER_MESSAGE_DATA_NAME,
+  DELEGATED_CONVERSATION_DATA_NAME,
+  type DelegatedConversationStreamData,
+} from '@brainstrike/assistant-contract/delegated-conversation-stream';
 import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
 import {
   type AssistantToolApprovalRequest,
+  TOOL_APPROVAL_ANSWERED_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
 import {
@@ -18,8 +28,10 @@ import { createLogger } from '@brainstrike/logging';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
+  StreamChunkChildContinuation,
   StreamChunkChildRunUsage,
   StreamChunkContextBreakdown,
+  StreamChunkDelegatedConversation,
   StreamChunkFinish,
   StreamChunkMessageFinish,
   StreamChunkReasoning,
@@ -27,6 +39,7 @@ import type {
   StreamChunkShellOutput,
   StreamChunkText,
   StreamChunkTool,
+  StreamChunkToolApprovalAnswered,
   StreamChunkToolApprovalRequired,
   StreamChunkToolSuspendRequired,
   StreamFinishReason,
@@ -34,6 +47,7 @@ import type {
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
 import { formatDiagnosticChunkType } from './diagnostic-chunk-type';
 import { toJsonSafe } from './json';
+import { completeToolInputText } from './tool-input-completion';
 import { boundToolOutputForModel, readToolOutputErrorText } from './tool-output-limits';
 
 interface ToolState {
@@ -346,6 +360,7 @@ export class DataStreamMapper {
   private readonly pendingToolErrorTexts = new Map<string, string>();
   private startNewStepForNextText = false;
   private readonly warnedUnknownChunkTypes = new Set<string>();
+  private readonly delegatedMappers = new Map<string, DataStreamMapper>();
   /**
    * True while a text/reasoning part is streaming. Data parts emitted while a
    * part is open CLOSE it downstream (assistant-stream's appendData ends the
@@ -402,6 +417,34 @@ export class DataStreamMapper {
     }
 
     switch (chunk.type) {
+      case 'child-user-message': {
+        const encoded = {
+          code: DataStreamCode.auiDataPart,
+          value: {
+            data: {
+              ...(chunk.attachments ? { attachments: chunk.attachments } : {}),
+              createdAt: chunk.createdAt,
+              id: chunk.id,
+              text: chunk.text,
+            },
+            name: CHILD_USER_MESSAGE_DATA_NAME,
+          },
+        };
+        if (this.openArgsCallId !== null) {
+          this.pendingRunEventChunks.push(encoded);
+          return;
+        }
+        // Human input deliberately ends the previous assistant text part.
+        yield* this.flushPendingRunEvents();
+        yield encoded;
+        return;
+      }
+      case 'child-continuation-chunk':
+        yield* this.handleChildContinuation(chunk);
+        return;
+      case 'delegated-conversation-chunk':
+        yield* this.handleDelegatedConversation(chunk);
+        return;
       case 'text-delta':
         yield* this.handleTextDelta(chunk);
         return;
@@ -434,6 +477,9 @@ export class DataStreamMapper {
       case 'tool-approval-required':
         yield* this.handleToolApprovalRequired(chunk);
         return;
+      case 'tool-approval-answered':
+        yield* this.handleToolApprovalAnswered(chunk);
+        return;
       case 'tool-suspend-required':
         yield* this.handleToolSuspendRequired(chunk);
         return;
@@ -455,6 +501,80 @@ export class DataStreamMapper {
         return;
       }
     }
+  }
+
+  private *handleChildContinuation(chunk: StreamChunkChildContinuation): Generator<EncodedChunk> {
+    const key = JSON.stringify(['continuation', chunk.continuationId, chunk.nativeRunId]);
+    let mapper = this.delegatedMappers.get(key);
+    const frames: EncodedChunk[] = [];
+    if (!mapper) {
+      mapper = new DataStreamMapper(chunk.messageId);
+      this.delegatedMappers.set(key, mapper);
+      frames.push(...mapper.initialChunks());
+    }
+    frames.push(...mapper.handleChunk(chunk.chunk));
+    if (chunk.chunk.type === 'message-finish' || chunk.chunk.type === 'finish') {
+      this.delegatedMappers.delete(key);
+    }
+    if (frames.length === 0) {
+      return;
+    }
+    const data: ChildContinuationStreamData = {
+      continuationId: chunk.continuationId,
+      frames,
+      messageId: chunk.messageId,
+      nativeRunId: chunk.nativeRunId,
+      threadId: chunk.threadId,
+      ...(chunk.baseline ? { baseline: chunk.baseline } : {}),
+    };
+    yield {
+      code: DataStreamCode.data,
+      value: [{ data: toJsonSafe(data), name: CHILD_CONTINUATION_DATA_NAME }],
+    };
+  }
+
+  private *handleDelegatedConversation(
+    chunk: StreamChunkDelegatedConversation
+  ): Generator<EncodedChunk> {
+    if (!chunk.messageId?.trim()) {
+      throw new Error('Delegated transport requires an observed native message identity.');
+    }
+    const key = JSON.stringify([
+      chunk.identity.parentRuntimeRunId,
+      chunk.identity.parentToolCallId,
+      chunk.identity.childRuntimeRunId,
+    ]);
+    let mapper = this.delegatedMappers.get(key);
+    const frames: EncodedChunk[] = [];
+    if (!mapper) {
+      // One invocation owns the same decoder across native message/step changes.
+      // Each envelope retains the observed native message id for durable routing.
+      // A pinned child must not inherit a model-specific parent error explanation.
+      mapper = new DataStreamMapper(chunk.messageId);
+      this.delegatedMappers.set(key, mapper);
+      frames.push(...mapper.initialChunks());
+    }
+    frames.push(...mapper.handleChunk(chunk.chunk));
+    if (chunk.chunk.type === 'message-finish' || chunk.chunk.type === 'finish') {
+      this.delegatedMappers.delete(key);
+    }
+    if (frames.length === 0) {
+      return;
+    }
+    const data: DelegatedConversationStreamData = {
+      ...(chunk.continuationId ? { continuationId: chunk.continuationId } : {}),
+      frames,
+      ...(chunk.baseline ? { baseline: chunk.baseline } : {}),
+      identity: chunk.identity,
+      messageId: chunk.messageId,
+      ...(chunk.partId ? { partId: chunk.partId } : {}),
+    };
+    // The vendor's out-of-band data frame leaves parent text/args controllers
+    // open. A child must remain live while the parent awaits its result.
+    yield {
+      code: DataStreamCode.data,
+      value: [{ data: toJsonSafe(data), name: DELEGATED_CONVERSATION_DATA_NAME }],
+    };
   }
 
   *handleError(error: unknown): Generator<EncodedChunk> {
@@ -694,15 +814,7 @@ export class DataStreamMapper {
     if (!state || state.argsEmitted) {
       return;
     }
-    state.argsEmitted = true;
-    yield {
-      code: DataStreamCode.toolCall,
-      value: {
-        args: toArgsObject(state.lastInput, state.pendingArgsText),
-        toolCallId: callId,
-        toolName: state.toolName,
-      },
-    } satisfies EncodedChunk;
+    yield* this.finishToolArgs(callId, state);
   }
 
   /**
@@ -740,16 +852,19 @@ export class DataStreamMapper {
       return;
     }
 
+    const existingState = this.toolState.get(callId);
+    if (existingState && chunk.status !== 'progress') {
+      // Native terminal events may carry complete input after the final delta was lost.
+      const nextInput = extractToolInput(chunk.payload);
+      if (
+        nextInput !== undefined &&
+        !(hasNonEmptyToolInput(existingState.lastInput) && !hasNonEmptyToolInput(nextInput))
+      ) {
+        existingState.lastInput = nextInput;
+      }
+    }
     if (chunk.status === 'start') {
-      const existingState = this.toolState.get(callId);
       if (existingState) {
-        const nextInput = extractToolInput(chunk.payload);
-        if (
-          nextInput !== undefined &&
-          !(hasNonEmptyToolInput(existingState.lastInput) && !hasNonEmptyToolInput(nextInput))
-        ) {
-          existingState.lastInput = nextInput;
-        }
         return;
       }
       yield* this.handleToolStart(toolName, callId, chunk.payload);
@@ -776,6 +891,31 @@ export class DataStreamMapper {
       default:
         break;
     }
+  }
+
+  /**
+   * A parked sibling approval the host answered under a session grant: a
+   * plain aui-data part keyed like the notice it answers, so that card locks
+   * live and after reload (the part persists with the assistant message).
+   */
+  private *handleToolApprovalAnswered(
+    chunk: StreamChunkToolApprovalAnswered
+  ): Generator<EncodedChunk> {
+    const { type: _type, ...data } = chunk;
+    const encoded = {
+      code: DataStreamCode.auiDataPart,
+      value: { data, name: TOOL_APPROVAL_ANSWERED_DATA_NAME },
+    } satisfies EncodedChunk;
+    // A live grant is an interaction boundary, like an approval request. The
+    // parent may be parked after text while children resume, so waiting for its
+    // next text/tool/finish boundary leaves consumed sibling controls actionable.
+    // Do not truncate a concurrent parent tool's still-streaming arguments.
+    if (this.openArgsCallId !== null) {
+      this.pendingRunEventChunks.push(encoded);
+      return;
+    }
+    yield* this.flushPendingRunEvents();
+    yield encoded;
   }
 
   private *handleToolApprovalRequired(
@@ -809,15 +949,7 @@ export class DataStreamMapper {
     const state = this.toolState.get(callId);
     const args = chunk.args ?? state?.lastInput;
     if (state && !state.argsEmitted) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(args, state.pendingArgsText),
-          toolCallId: callId,
-          toolName: state.toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state, args);
     }
     // Deferred run events flush only now, AFTER the args-complete `9` — the
     // pre-BST-962 top-of-handler flush landed them inside the open args
@@ -825,6 +957,16 @@ export class DataStreamMapper {
     yield* this.completeArgsStream(callId);
 
     const data: AssistantToolApprovalRequest = {
+      ...(chunk.delegation ? { delegation: chunk.delegation } : {}),
+      // The host leg the pause was streamed by (see the field-by-field warning
+      // below): the ONLY anchor the history topology adapter can resolve a
+      // suspended message's parent with — `runId` beside it is the native
+      // Mastra run, which never matches a thread-run row. Forwarded only when
+      // non-blank, so the wire stays as strict as the action guard it feeds: a
+      // blank id would reach the echo and fail `isBoundedIdentifier` there,
+      // rejecting the whole decision at the resume boundary.
+      ...(chunk.hostRunId?.trim() ? { hostRunId: chunk.hostRunId } : {}),
+      ...(chunk.timelineRunId?.trim() ? { timelineRunId: chunk.timelineRunId } : {}),
       runId: chunk.runId,
       toolCallId: callId,
       toolName: chunk.toolName,
@@ -887,15 +1029,7 @@ export class DataStreamMapper {
     // pause data, not the tool input, so args default to the recorded input.
     const state = this.toolState.get(callId);
     if (state && !state.argsEmitted) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(state.lastInput, state.pendingArgsText),
-          toolCallId: callId,
-          toolName: state.toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
     // Text-part deferral contract: deferred run events flush AFTER this call's
     // args-complete `9` (a flush inside the open args stream is the BST-962
@@ -903,6 +1037,10 @@ export class DataStreamMapper {
     yield* this.completeArgsStream(callId);
 
     const data: AssistantToolSuspendRequest = {
+      ...(chunk.delegation ? { delegation: chunk.delegation } : {}),
+      // Same host-leg anchor as the approval part above (non-blank only); this
+      // rebuild is field-by-field, so an unspread field is silently dropped.
+      ...(chunk.hostRunId?.trim() ? { hostRunId: chunk.hostRunId } : {}),
       runId: chunk.runId,
       toolCallId: callId,
       toolName: chunk.toolName,
@@ -977,21 +1115,48 @@ export class DataStreamMapper {
     // provider path (a `tool-call` part; no input_stream_* events will
     // follow), so the args window would otherwise stay open across the whole
     // EXECUTION — deferring live shell output and run events until the
-    // result. Close it now: `b` immediately followed by its `9`. Streaming
+    // result. Send its complete input and close it now. Streaming
     // providers map `tool-call-input-streaming-start` to a start WITHOUT
     // input, so they are unaffected; a defensive late delta is dropped by the
     // argsEmitted guard either way.
     if (hasNonEmptyToolInput(state.lastInput)) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(state.lastInput),
-          toolCallId: callId,
-          toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
       yield* this.completeArgsStream(callId);
+    }
+  }
+
+  /** After `b`, the native decoder reads arguments from `c`; `9` only closes them. */
+  private *finishToolArgs(
+    callId: string,
+    state: ToolState,
+    input: unknown = state.lastInput
+  ): Generator<EncodedChunk> {
+    const args = toArgsObject(input, state.pendingArgsText);
+    let missingText = '';
+    let completionError: Error | undefined;
+    try {
+      if (state.pendingArgsText.length === 0 || (input !== undefined && input !== null)) {
+        missingText = completeToolInputText(state.pendingArgsText, args);
+      }
+    } catch (error) {
+      completionError = error instanceof Error ? error : new Error(String(error));
+    }
+    state.argsEmitted = true;
+    if (missingText.length > 0) {
+      state.pendingArgsText += missingText;
+      yield {
+        code: DataStreamCode.toolCallArgsTextDelta,
+        value: { argsTextDelta: missingText, toolCallId: callId },
+      } satisfies EncodedChunk;
+    }
+    yield {
+      code: DataStreamCode.toolCall,
+      value: { args, toolCallId: callId, toolName: state.toolName },
+    } satisfies EncodedChunk;
+    // Close the append-only input exactly once before failing the session.
+    // Otherwise handleError would attempt the same invalid completion again.
+    if (completionError) {
+      throw completionError;
     }
   }
 
@@ -1019,6 +1184,11 @@ export class DataStreamMapper {
         logger.debug('Dropping tool args delta after args completion', { toolCallId: callId });
         return;
       }
+      // Deltas supersede an earlier empty placeholder. A later terminal's
+      // explicit empty input is still authoritative and can complete `{`/`[`.
+      if (!hasNonEmptyToolInput(state.lastInput)) {
+        state.lastInput = undefined;
+      }
       state.pendingArgsText += delta;
       yield {
         code: DataStreamCode.toolCallArgsTextDelta,
@@ -1036,12 +1206,7 @@ export class DataStreamMapper {
       if (!state || state.argsEmitted) {
         return;
       }
-      const args = toArgsObject(state.lastInput, state.pendingArgsText);
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: { args, toolCallId: callId, toolName: state.toolName },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
       yield* this.completeArgsStream(callId);
     }
   }
@@ -1067,12 +1232,7 @@ export class DataStreamMapper {
     const bounded = boundToolOutputForModel(state?.toolName ?? toolName, output);
     if (bounded.errorText) {
       if (state && !state.argsEmitted) {
-        const args = toArgsObject(state.lastInput, state.pendingArgsText);
-        state.argsEmitted = true;
-        yield {
-          code: DataStreamCode.toolCall,
-          value: { args, toolCallId: callId, toolName: state.toolName },
-        } satisfies EncodedChunk;
+        yield* this.finishToolArgs(callId, state);
       }
       this.toolState.delete(callId);
       this.settledToolCallIds.add(callId);
@@ -1086,12 +1246,7 @@ export class DataStreamMapper {
       return;
     }
     if (state && !state.argsEmitted) {
-      const args = toArgsObject(state.lastInput, state.pendingArgsText);
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: { args, toolCallId: callId, toolName: state.toolName },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
     this.toolState.delete(callId);
     this.settledToolCallIds.add(callId);
@@ -1119,12 +1274,7 @@ export class DataStreamMapper {
     // Emit ToolCall with args if we haven't already (needed for UI to display tool)
     const state = this.toolState.get(callId);
     if (state && !state.argsEmitted) {
-      const args = toArgsObject(state.lastInput, state.pendingArgsText);
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: { args, toolCallId: callId, toolName: state.toolName },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
 
     this.toolState.delete(callId);
@@ -1164,15 +1314,7 @@ export class DataStreamMapper {
     }
     const state = this.toolState.get(callId);
     if (state && !state.argsEmitted) {
-      state.argsEmitted = true;
-      yield {
-        code: DataStreamCode.toolCall,
-        value: {
-          args: toArgsObject(state.lastInput, state.pendingArgsText),
-          toolCallId: callId,
-          toolName: state.toolName,
-        },
-      } satisfies EncodedChunk;
+      yield* this.finishToolArgs(callId, state);
     }
     this.toolState.delete(callId);
     this.settledToolCallIds.add(callId);

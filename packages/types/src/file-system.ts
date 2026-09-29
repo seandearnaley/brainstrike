@@ -36,7 +36,8 @@ export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
 export interface IFileNode {
   children?: IFileNode[];
   depth: number;
-  handle: FileSystemFileHandle | FileSystemDirectoryHandle;
+  /** Browser capabilities or canonical descriptors consumed by the platform adapter. */
+  handle: FileSystemFileHandle | FileSystemDirectoryHandle | FileHandle | DirectoryHandle;
   isDepthTruncated?: boolean;
   isSymbolicLink?: boolean;
   isVisible?: boolean;
@@ -255,6 +256,20 @@ export interface FileSystemChange {
   kind: 'file' | 'directory';
   path: string;
   type: 'added' | 'removed' | 'modified';
+}
+
+/**
+ * A batched watcher push stamped with the watch id returned by the desktop
+ * file-system capability. The payload remains platform-neutral; bridge method
+ * ownership stays with the desktop application.
+ */
+export interface FileSystemWatchEvent {
+  changes: FileSystemChange[];
+  /** Bounded root-relative default-filter boundaries omitted from `changes`. */
+  filteredChangeBoundaries?: readonly string[];
+  /** More distinct boundaries existed than the typed protocol cap. */
+  filteredChangeBoundariesOverflow?: true;
+  watchId: string;
 }
 
 /** Maximum distinct filtered boundaries retained in one watcher batch. */

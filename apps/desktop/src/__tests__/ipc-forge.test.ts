@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerForgeIpcHandlers } from '../ipc-forge';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -57,14 +58,17 @@ describe('registerForgeIpcHandlers', () => {
         ...args: unknown[]
       ) => unknown;
 
-    await handlerFor(DESKTOP_IPC_CHANNELS.forge.identity)({}, 'root-1');
+    const trustedEvent = createTrustedInvokeEvent();
+    await handlerFor(DESKTOP_IPC_CHANNELS.forge.identity)(trustedEvent, 'root-1');
     expect(handlers.identity).toHaveBeenCalledWith('root-1');
     expect(handlers.prStatus).not.toHaveBeenCalled();
 
-    await handlerFor(DESKTOP_IPC_CHANNELS.forge.prStatus)({}, 'root-1');
+    await handlerFor(DESKTOP_IPC_CHANNELS.forge.prStatus)(trustedEvent, 'root-1');
     expect(handlers.prStatus).toHaveBeenCalledWith('root-1');
 
-    await handlerFor(DESKTOP_IPC_CHANNELS.forge.refresh)({}, 'root-1', { reason: 'user' });
+    await handlerFor(DESKTOP_IPC_CHANNELS.forge.refresh)(trustedEvent, 'root-1', {
+      reason: 'user',
+    });
     expect(handlers.refresh).toHaveBeenCalledWith('root-1', { reason: 'user' });
   });
 

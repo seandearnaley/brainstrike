@@ -25,8 +25,9 @@ import {
   resolveDisplayedContextUsage,
 } from './context-estimate';
 import { ContextRing, type ContextRingState } from './context-ring';
-import { ContextUsagePopoverContent, formatCompact } from './context-usage-popover';
+import { ContextUsagePopoverContent } from './context-usage-popover';
 import { useContextUsageStore } from './context-usage-store';
+import { formatCompact } from './format-compact-token-count';
 
 /** One source's share of the thread total (BST-953). OM figures are local estimates. */
 export interface CumulativeSourceUsage {

@@ -5,48 +5,51 @@
 // graph, and build-main.mjs refuses a bundle that requires anything else.
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+import { changesContract } from './ipc-domains/changes.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
+import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
+import {
+  type DatabaseLiveBridge,
+  type DatabaseLiveQueryUpdate,
+  type DatabasePathBridge,
+  databaseContract,
+  databaseIntegrityContract,
+  databaseLiveContract,
+  databasePathContract,
+} from './ipc-domains/database.contract';
+import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-system.contract';
+import { forgeContract } from './ipc-domains/forge.contract';
+import { gitContract } from './ipc-domains/git.contract';
+import {
+  mcpAppsContract,
+  mcpContentContract,
+  mcpContract,
+  mcpElicitationContract,
+  mcpPathSelectionContract,
+  mcpTasksContract,
+} from './ipc-domains/mcp.contract';
+import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
+import {
+  layoutContract,
+  settingsContract,
+  storageContract,
+} from './ipc-domains/storage-preferences.contract';
+import { terminalContract } from './ipc-domains/terminal.contract';
 import { userCommandsContract } from './ipc-domains/user-commands.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
+import { windowFocusContract } from './ipc-domains/window-focus.contract';
+import { worktreesContract } from './ipc-domains/worktrees.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
-import { createBridgeExposer } from './platform/ipc-bridge';
+import { createBridgeExposer, createIpcBridge } from './platform/ipc-bridge';
 
-type GitDiffParams = import('@brainstrike/types').GitDiffParams;
-type EmbeddingTelemetrySnapshot =
-  import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
-type StructuredFileDiffParams = import('@brainstrike/types').StructuredFileDiffParams;
-type Changeset = import('@brainstrike/types').Changeset;
-type WorktreeAdoptParams = import('@brainstrike/types').WorktreeAdoptParams;
-type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
-type McpConfigStatus = import('./ipc-mcp').McpConfigStatus;
-type McpContentIpcResponse = import('./mcp/content-ipc').McpContentIpcResponse;
+type McpContentIpcResponse = import('./ipc-domains/mcp.contract').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
-type McpExtensionEnablement = import('@brainstrike/assistant-contract').McpExtensionEnablement;
 type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
 type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
-type McpAppShellPrepareRequest =
-  import('@brainstrike/assistant-contract').McpAppShellPrepareRequest;
-type McpAppShellReleaseRequest =
-  import('@brainstrike/assistant-contract').McpAppShellReleaseRequest;
-type McpAppPrepareRequest = import('@brainstrike/assistant-contract').McpAppPrepareRequest;
-type McpAppExecuteRequest = import('@brainstrike/assistant-contract').McpAppExecuteRequest;
-type McpAppReleaseRequest = import('@brainstrike/assistant-contract').McpAppReleaseRequest;
-type McpHostControlRequest = import('@brainstrike/assistant-contract').McpHostControlRequest;
-type McpElicitationPresentationWire =
-  import('@brainstrike/assistant-contract').McpElicitationPresentationWire;
-type McpElicitationRetiredWire =
-  import('@brainstrike/assistant-contract').McpElicitationRetiredWire;
-type McpElicitationSettlement = import('@brainstrike/assistant-contract').McpElicitationSettlement;
-type McpHostWatchEvent = import('@brainstrike/assistant-contract').McpHostWatchEvent;
-type McpTaskActionRequest = import('@brainstrike/assistant-contract').McpTaskActionRequest;
-type McpTaskActionResult = import('@brainstrike/assistant-contract').McpTaskActionResult;
 type McpTaskBridge = import('@brainstrike/assistant-contract').McpTaskBridge;
-type McpTaskListResult = import('@brainstrike/assistant-contract').McpTaskListResult;
-type McpTaskStatusChangedEvent =
-  import('@brainstrike/assistant-contract').McpTaskStatusChangedEvent;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 // Contract-derived bridges (BST-1648): `exposeBridge(name, contract)` exposes
 // exactly `Object.keys(contract)`, each routed to its manifest channel with
@@ -56,34 +59,42 @@ const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
 // authoritative allowlist again on every call.
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
 
-import type {
-  ApplyManagedCacheBatchArgs,
-  ApplyManagedCacheInvalidationsArgs,
-  ManagedCacheInvalidationResult,
-} from '@brainstrike/db';
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { FileHandle } from '@brainstrike/file-system';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
-  DatabaseWorkOptions,
-  ElectronChunkInsert,
-  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
 } from '@brainstrike/types';
 import type {
-  LayoutLoadResult,
-  LayoutPersistenceResult,
-  PanelPersistenceState,
-} from '@brainstrike/ui';
+  ChunkingHostChunkBatchRequest,
+  ChunkingHostChunkFileByIdRequest,
+  ChunkingHostChunkFileRequest,
+  ChunkingHostProgressEvent,
+  ChunkingHostRequest,
+  ChunkingHostResponseReport,
+  ChunkingHostStatus,
+} from './chunking-host-shared';
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
+import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
+import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import type {
+  EmbeddingHostBackfillInfo,
+  EmbeddingHostBackfillProgress,
   EmbeddingHostBackfillRequest,
+  EmbeddingHostCommand,
   EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
+  EmbeddingHostStatus,
 } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
+import {
+  assertDesktopElectronApiKeyParity,
+  type VisibleChunkingHostBridge,
+  type VisibleDesktopElectronApi,
+  type VisibleEmbeddingHostBridge,
+} from './types/desktop-electron-api';
 
 // BST-338 preload duplicate contract: sandboxed preloads cannot import the
 // canonical runtime module. This code and the file-read payload declarations
@@ -109,9 +120,7 @@ const unwrapMcpContent = async (
 };
 
 const readMcpAppResource = async (origin: McpAppOrigin): Promise<string> => {
-  const snapshot = (await ipcRenderer.invoke(
-    DESKTOP_IPC_CHANNELS.mcp.statusGet
-  )) as McpHostSnapshot;
+  const snapshot = (await mcpRootBridge.getServerStatusSnapshot()) as McpHostSnapshot;
   const server = snapshot.servers.find(
     ({ configuredServerId }) => configuredServerId === origin.serverId
   );
@@ -119,7 +128,7 @@ const readMcpAppResource = async (origin: McpAppOrigin): Promise<string> => {
     throw new Error(`MCP Apps server "${origin.serverId}" has no live content authority`);
   }
   const response = await unwrapMcpContent(
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentReadResource, {
+    mcpContentBridge.readResource({
       authority: { configuredServerId: origin.serverId, generation: server.generation },
       uri: origin.resourceUri,
     })
@@ -149,22 +158,17 @@ if (DESKTOP_TEST_MODE) {
   contextBridge.exposeInMainWorld('__brainstrike_e2e_expose_file_explorer_store__', true);
 }
 
-interface DbLiveUpdatePayload {
-  id: number;
-  results: unknown;
-}
-
-type DbLiveUpdateCallback = (payload: DbLiveUpdatePayload) => void;
+type DbLiveUpdateCallback = (payload: DatabaseLiveQueryUpdate) => void;
 
 const dbLiveUpdateCallbacks = new Set<DbLiveUpdateCallback>();
-let dbLiveUpdateIpcListener: ((_event: unknown, payload: DbLiveUpdatePayload) => void) | null =
+let dbLiveUpdateIpcListener: ((_event: unknown, payload: DatabaseLiveQueryUpdate) => void) | null =
   null;
 
 function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
   dbLiveUpdateCallbacks.add(callback);
 
   if (!dbLiveUpdateIpcListener) {
-    dbLiveUpdateIpcListener = (_event: unknown, payload: DbLiveUpdatePayload) => {
+    dbLiveUpdateIpcListener = (_event: unknown, payload: DatabaseLiveQueryUpdate) => {
       for (const subscriber of Array.from(dbLiveUpdateCallbacks)) {
         try {
           subscriber(payload);
@@ -180,17 +184,27 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
         }
       }
     };
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.db.liveQueryUpdate, dbLiveUpdateIpcListener);
+    ipcRenderer.on(databaseLiveContract.onUpdate.channel, dbLiveUpdateIpcListener);
   }
 
   return () => {
     dbLiveUpdateCallbacks.delete(callback);
     if (dbLiveUpdateCallbacks.size === 0 && dbLiveUpdateIpcListener) {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.db.liveQueryUpdate, dbLiveUpdateIpcListener);
+      ipcRenderer.removeListener(databaseLiveContract.onUpdate.channel, dbLiveUpdateIpcListener);
       dbLiveUpdateIpcListener = null;
     }
   };
 }
+
+const databaseBridge = createIpcBridge(
+  ipcRenderer,
+  databaseContract
+) as unknown as VisibleDesktopElectronApi['db'];
+const databasePathBridge: DatabasePathBridge = createIpcBridge(ipcRenderer, databasePathContract);
+const databaseLiveBridge: DatabaseLiveBridge = {
+  ...createIpcBridge(ipcRenderer, databaseLiveContract),
+  onUpdate: subscribeToDbLiveUpdates,
+};
 
 function disabledPreloadBridges(): Set<string> {
   if (!DESKTOP_TEST_MODE) {
@@ -269,124 +283,7 @@ function createDisabledLocalRuntimeCatalog(runtimeId: string) {
   };
 }
 
-type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
-type ChunkingHostLifecycleState = EmbeddingHostLifecycleState;
-type LlmHostLifecycleState = EmbeddingHostLifecycleState;
-
-interface EmbeddingHostStatus {
-  readonly active: boolean;
-  readonly embeddingRuntime?: {
-    readonly actualWorkerMetadata: {
-      readonly device: 'webgpu' | 'wasm';
-      readonly dtype: string;
-      readonly fallbackApplied: boolean;
-    } | null;
-    readonly backendMismatch: boolean;
-    readonly selectedDevicePreference: 'webgpu' | 'wasm';
-    readonly telemetry: EmbeddingTelemetrySnapshot;
-  };
-  readonly lastError: string | null;
-  readonly runtimeId: string;
-  readonly runtimeKind: 'embedding-host';
-  readonly state: EmbeddingHostLifecycleState;
-}
-
-interface EmbeddingHostCommand {
-  readonly channel: 'control';
-  readonly payload: {
-    readonly action: 'reset' | 'stop';
-  };
-  readonly requestId: string;
-  readonly runtimeId: string;
-  readonly type: 'request';
-}
-
-interface EmbeddingHostBackfillProgress {
-  readonly current: number;
-  readonly embeddingSetId: string;
-  readonly message?: string;
-  readonly requestId: string;
-  readonly stage: string;
-  readonly total: number;
-}
-
-interface EmbeddingHostBackfillInfo {
-  readonly embeddingSetId: string;
-  readonly progress: { current: number; total: number } | null;
-  readonly requestId: string;
-}
-
-interface ChunkingHostStatus {
-  readonly active: boolean;
-  readonly lastError: string | null;
-  readonly runtimeId: string;
-  readonly runtimeKind: 'chunking-host';
-  readonly state: ChunkingHostLifecycleState;
-}
-
-interface ChunkingHostFilePayload {
-  readonly content: string;
-  readonly fileName: string;
-  readonly filePath: string;
-  readonly fileRecordId: string;
-}
-
-interface ChunkingHostChunkFileRequest extends ChunkingHostFilePayload {
-  readonly kind: 'chunk-file';
-  readonly options: unknown;
-  readonly requestId: string;
-}
-
-interface ChunkingHostChunkBatchRequest {
-  readonly files: readonly ChunkingHostFilePayload[];
-  readonly kind: 'chunk-batch';
-  readonly options: unknown;
-  readonly requestId: string;
-}
-
-interface ChunkingHostRequest {
-  readonly channel: 'chunk';
-  readonly payload: ChunkingHostChunkBatchRequest | ChunkingHostChunkFileRequest;
-  readonly requestId: string;
-  readonly runtimeId: string;
-  readonly type: 'request';
-}
-
-interface ChunkingHostProgressEvent {
-  readonly channel: 'chunk' | 'chunk-file-complete' | 'chunk-file-error';
-  readonly payload:
-    | {
-        readonly chunksCreated: number;
-        readonly currentIndex?: number;
-        readonly fileRecordId: string;
-        readonly totalFiles?: number;
-      }
-    | {
-        readonly fileRecordId: string;
-        readonly result: unknown;
-      }
-    | {
-        readonly errorMessage: string;
-        readonly fileRecordId: string;
-      };
-  readonly requestId: string;
-  readonly runtimeId: string;
-  readonly type: 'progress';
-}
-
-interface ChunkingHostResponseReport {
-  readonly channel:
-    | 'chunk'
-    | 'chunk-batch-complete'
-    | 'chunk-error'
-    | 'chunk-file-complete'
-    | 'chunk-file-error'
-    | 'chunk-result';
-  readonly payload: Record<string, unknown>;
-  readonly requestId: string;
-  readonly runtimeId: string;
-  readonly type: 'error' | 'progress' | 'result';
-}
+type LlmHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 
 interface LlmHostStatus {
   readonly active: boolean;
@@ -457,120 +354,26 @@ function unwrapFileReadResult(result: unknown): string {
 
 // Expose storage APIs to renderer
 if (shouldExposeBridge('electronAPI')) {
-  contextBridge.exposeInMainWorld('electronAPI', {
-    // Database operations
-    db: {
-      applyManagedCacheBatch: (
-        payload: ApplyManagedCacheBatchArgs,
-        options?: DatabaseWorkOptions
-      ) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.applyManagedCacheBatch, payload, options),
-      clearAll: (confirmationToken?: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.clearAll, confirmationToken),
-      diagnostics: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.diagnostics),
-      exec: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.exec, sql, params, options),
-      insertChunksAndEnqueueEmbeddingJobs: (
-        chunks: readonly ElectronChunkInsert[],
-        fileRecordId: string,
-        options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
-        workOptions?: DatabaseWorkOptions
-      ): Promise<void> =>
-        ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.db.insertChunksAndEnqueueEmbeddingJobs,
-          { chunks, fileRecordId, options },
-          workOptions
-        ),
-      invalidateManagedCacheEntriesByIdentity: (
-        payload: ApplyManagedCacheInvalidationsArgs,
-        options?: DatabaseWorkOptions
-      ): Promise<ManagedCacheInvalidationResult> =>
-        ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.db.invalidateManagedCacheEntriesByIdentity,
-          payload,
-          options
-        ),
-      ping: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.ping),
-      query: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.query, sql, params, options),
-      resetLocal: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.resetLocal),
-      // Atomic transaction over IPC (#1141): ships an ordered statement list to main
-      // to run inside one pglite.transaction() and return statements[resultIndex] rows.
-      runTransaction: (
-        statements: {
-          params?: unknown[];
-          sql: string;
-        }[],
-        resultIndex: number,
-        options?: DatabaseWorkOptions
-      ) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.transaction, statements, resultIndex, options),
-      schedulerSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.schedulerSnapshot),
-      test: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.test),
-    },
-    dbLive: {
-      onUpdate: (callback: (payload: { id: number; results: unknown }) => void) =>
-        subscribeToDbLiveUpdates(callback),
-      refresh: (
-        payload: { id: number; offset?: number; limit?: number },
-        options?: DatabaseWorkOptions
-      ) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.liveQueryRefresh, payload, options),
-      start: (
-        options: {
-          query: string;
-          params?: readonly unknown[];
-          key?: string;
-          mode?: 'query' | 'incremental';
-          offset?: number;
-          limit?: number;
-        },
-        workOptions?: DatabaseWorkOptions
-      ) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.liveQueryStart, options, workOptions),
-      stop: (id: number) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.liveQueryStop, id),
-    },
+  const layoutBridge = createIpcBridge(ipcRenderer, layoutContract);
+  const storageBridge = createIpcBridge(ipcRenderer, storageContract);
+  const electronAPI = {
+    // Database invokes are contract-derived. Live updates keep the intentional
+    // single IPC listener fan-out below while their channel/type comes from the
+    // same contract as main registration.
+    db: databaseBridge,
+    dbLive: databaseLiveBridge,
     fileSystem: {
-      addRoot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.addRoot),
-      addRootByPath: (path: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.addRootByPath, path),
-      exists: (path: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.exists, path),
-      getWatcherTelemetry: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.watchTelemetry),
-      listRecentRoots: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.listRecentRoots),
-      // One-way main→renderer watch pushes (fs:watch-event). Mirrors the other
-      // subscribe-returns-unsubscribe bridges (e.g. power.onPowerState).
-      onWatchEvent: (
-        callback: (event: import('@brainstrike/types').FileSystemWatchEvent) => void
-      ) => {
-        const listener = (
-          _event: unknown,
-          payload: import('@brainstrike/types').FileSystemWatchEvent
-        ) => callback(payload);
-        ipcRenderer.on(DESKTOP_IPC_CHANNELS.files.watchEvent, listener);
-        return () => {
-          ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.files.watchEvent, listener);
-        };
-      },
-      // One-way main→renderer typed watcher health pushes (fs:watch-health,
-      // BST-568 slice 3).
-      onWatchHealth: (
-        callback: (event: import('@brainstrike/types').WatcherHealthEvent) => void
-      ) => {
-        const listener = (
-          _event: unknown,
-          payload: import('@brainstrike/types').WatcherHealthEvent
-        ) => callback(payload);
-        ipcRenderer.on(DESKTOP_IPC_CHANNELS.files.watchHealth, listener);
-        return () => {
-          ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.files.watchHealth, listener);
-        };
-      },
-      readDirectory: (handle: DirectoryHandle) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.readDirectory, handle),
+      ...createIpcBridge(ipcRenderer, fileSystemContract),
+      ...createIpcBridge(ipcRenderer, fileSystemWatchContract),
+      // File reads intentionally retain the preload decoder that turns the
+      // established wire payload into the public string-or-clean-Error API.
       readFile: async (handle: FileHandle) => {
-        const result = await ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.readFile, handle);
+        const result = await ipcRenderer.invoke(fileSystemContract.readFile.channel, handle);
         return unwrapFileReadResult(result);
       },
       readFileByAbsolutePath: async (absolutePath: string, rootPath: string, rootId: string) => {
         const result = await ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.files.readFileByAbsolutePath,
+          fileSystemContract.readFileByAbsolutePath.channel,
           absolutePath,
           rootPath,
           rootId
@@ -579,53 +382,33 @@ if (shouldExposeBridge('electronAPI')) {
       },
       readFileByPath: async (absolutePath: string) => {
         const result = await ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.files.readFileByPath,
+          fileSystemContract.readFileByPath.channel,
           absolutePath
         );
         return unwrapFileReadResult(result);
       },
-      removeRoot: (rootId: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.removeRoot, rootId),
-      requestDirectoryAccess: () =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess),
-      restoreLastFolder: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.restoreLastFolder),
-      restoreRoots: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.restoreRoots),
-      retryWatch: (watchId: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.watchRetry, watchId),
-      saveLastFolder: (folderPath: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.saveLastFolder, folderPath),
-      unwatchDirectory: (watchId: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.unwatch, watchId),
-      watchDirectory: (handle: DirectoryHandle) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.watch, handle),
     },
     // Database path (legacy - kept for compatibility)
-    getUserDataPath: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.getUserDataPath),
-    loadLayout: (): Promise<LayoutLoadResult> =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.preferences.layoutLoad),
+    getUserDataPath: databasePathBridge.getUserDataPath,
+    loadLayout: layoutBridge.loadLayout,
     // Panel layout persistence
-    saveLayout: (state: PanelPersistenceState): Promise<LayoutPersistenceResult> =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.preferences.layoutSave, state),
+    saveLayout: layoutBridge.saveLayout,
     storage: {
       clear: () =>
-        ipcRenderer.invoke(
-          DESKTOP_TEST_MODE
-            ? DESKTOP_IPC_CHANNELS.storage.clearAllForE2e
-            : DESKTOP_IPC_CHANNELS.storage.clear
-        ),
-      getAllKeys: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.getAllKeys),
-      getItem: (key: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.getItem, key),
-      removeItem: (key: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.removeItem, key),
+        DESKTOP_TEST_MODE
+          ? ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.clearAllForE2e)
+          : storageBridge.clear(),
+      getAllKeys: storageBridge.getAllKeys,
+      getItem: storageBridge.getItem,
+      removeItem: storageBridge.removeItem,
       setItem: (key: string, value: string) =>
-        ipcRenderer.invoke(
-          DESKTOP_TEST_MODE && MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E.has(key)
-            ? DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e
-            : DESKTOP_IPC_CHANNELS.storage.setItem,
-          key,
-          value
-        ),
+        DESKTOP_TEST_MODE && MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E.has(key)
+          ? ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e, key, value)
+          : storageBridge.setItem(key, value),
     },
-  });
+  } satisfies VisibleDesktopElectronApi;
+  assertDesktopElectronApiKeyParity('visible-ui', electronAPI);
+  contextBridge.exposeInMainWorld('electronAPI', electronAPI);
 }
 
 // Secure Secrets API
@@ -670,9 +453,7 @@ contextBridge.exposeInMainWorld('providerAuth', {
 });
 
 // Settings Store API (factory reset support)
-contextBridge.exposeInMainWorld('settings', {
-  clearAll: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.preferences.settingsClearAll),
-});
+exposeBridge('settings', settingsContract);
 
 contextBridge.exposeInMainWorld('desktopLifecycle', {
   isTestMode: DESKTOP_TEST_MODE,
@@ -699,144 +480,28 @@ contextBridge.exposeInMainWorld('agent', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.chat, messages, runtime),
 });
 
-// MCP Config API (desktop-only)
+// MCP Config API (desktop-only). The channel methods and subscriptions are
+// derived from pure contracts. `apps.readResource` stays a composed preload
+// operation: it resolves the live server generation before using the content
+// contract, so there is intentionally no dedicated IPC channel for it.
+const mcpRootBridge = createIpcBridge(ipcRenderer, mcpContract);
+const mcpPathSelectionBridge = createIpcBridge(ipcRenderer, mcpPathSelectionContract);
+const mcpContentBridge = createIpcBridge(ipcRenderer, mcpContentContract);
+const mcpElicitationBridge = createIpcBridge(ipcRenderer, mcpElicitationContract);
+const mcpAppsBridge = createIpcBridge(ipcRenderer, mcpAppsContract);
+const mcpTasksBridge = createIpcBridge(ipcRenderer, mcpTasksContract);
 contextBridge.exposeInMainWorld('mcp', {
+  ...mcpRootBridge,
+  ...mcpPathSelectionBridge,
   apps: {
-    execute: (request: McpAppExecuteRequest) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsExecute, request),
-    prepare: (request: McpAppPrepareRequest) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsPrepare, request),
-    prepareShell: (request: McpAppShellPrepareRequest) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsPrepareShell, request),
+    ...mcpAppsBridge,
     readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
-    release: (request: McpAppReleaseRequest) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsRelease, request),
-    releaseShell: (request: McpAppShellReleaseRequest) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsReleaseShell, request),
   } satisfies McpAppBridge,
-  complete: (request: unknown) =>
-    unwrapMcpContent(ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentComplete, request)),
-  controlServer: (request: McpHostControlRequest) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.lifecycleControl, request),
-  createSampleConfig: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configCreateSample),
-  disableServerTools: (serverName: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsDisableServer, serverName),
-  disableTools: (toolIds: string[]) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsDisable, toolIds),
-  enableServerTools: (serverName: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsEnableServer, serverName),
-  enableTools: (toolIds: string[]) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsEnable, toolIds),
-  getConfig: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configGet),
-  getExtensionPreferences: (): Promise<McpExtensionEnablement> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.extensionsGet),
-  getPath: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configGetPath),
-  getPrompt: (request: unknown) =>
-    unwrapMcpContent(ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentGetPrompt, request)),
-  getServerStatusSnapshot: (): Promise<McpHostSnapshot> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.statusGet),
-  getToolStats: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsGetStats),
-  // Tool management
-  listTools: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsList),
-  onConfigUpdated: (callback: (config: McpConfigStatus) => void) => {
-    const listener = (_event: unknown, config: McpConfigStatus) => callback(config);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.configUpdated, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.configUpdated, listener);
-    };
-  },
-  onElicitationRequested: (callback: (presentation: McpElicitationPresentationWire) => void) => {
-    const listener = (_event: unknown, presentation: McpElicitationPresentationWire) =>
-      callback(presentation);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.elicitationRequested, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.elicitationRequested, listener);
-    };
-  },
-  onElicitationRetired: (callback: (retired: McpElicitationRetiredWire) => void) => {
-    const listener = (_event: unknown, retired: McpElicitationRetiredWire) => callback(retired);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.elicitationRetired, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.elicitationRetired, listener);
-    };
-  },
-  onExtensionPreferencesUpdated: (callback: (preferences: McpExtensionEnablement) => void) => {
-    const listener = (_event: unknown, preferences: McpExtensionEnablement) =>
-      callback(preferences);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.extensionsUpdated, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.extensionsUpdated, listener);
-    };
-  },
-  onServerStatusUpdated: (callback: (event: McpHostWatchEvent) => void) => {
-    const listener = (_event: unknown, event: McpHostWatchEvent) => callback(event);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.statusUpdated, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.statusUpdated, listener);
-    };
-  },
-  onToolsUpdated: (
-    callback: (
-      tools: Record<
-        string,
-        Array<{
-          id: string;
-          serverName: string;
-          description?: string;
-          inputSchema?: unknown;
-          enabled: boolean;
-          discoveredAt: number;
-        }>
-      >
-    ) => void
-  ) => {
-    const listener = (
-      _event: unknown,
-      tools: Record<
-        string,
-        Array<{
-          id: string;
-          serverName: string;
-          description?: string;
-          inputSchema?: unknown;
-          enabled: boolean;
-          discoveredAt: number;
-        }>
-      >
-    ) => callback(tools);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.toolsUpdated, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.toolsUpdated, listener);
-    };
-  },
-  readConfigText: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configReadText),
-  readResource: (request: unknown) =>
-    unwrapMcpContent(ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentReadResource, request)),
-  resetTools: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.toolsReset),
-  selectPath: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configSelectPath),
-  setExtensionPreferences: (preferences: McpExtensionEnablement): Promise<McpExtensionEnablement> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.extensionsSet, preferences),
-  setPath: (configPath: string | null) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configSetPath, configPath),
-  settleElicitation: (settlement: McpElicitationSettlement) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.elicitationSettle, settlement),
-  // Durable MCP Tasks (BST-1566): visible UI only; hidden hosts never receive it.
-  tasks: {
-    act: (request: McpTaskActionRequest): Promise<McpTaskActionResult> =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.taskAct, request),
-    list: (): Promise<McpTaskListResult> => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.taskList),
-    onStatusChanged: (callback: (event: McpTaskStatusChangedEvent) => void) => {
-      const listener = (_event: unknown, event: McpTaskStatusChangedEvent) => callback(event);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.taskStatusChanged, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.taskStatusChanged, listener);
-      };
-    },
-  } satisfies McpTaskBridge,
-  unwatch: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configUnwatch),
-  watch: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configWatch),
-  writeConfigText: (content: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.configWriteText, content),
+  complete: (request: unknown) => unwrapMcpContent(mcpContentBridge.complete(request)),
+  getPrompt: (request: unknown) => unwrapMcpContent(mcpContentBridge.getPrompt(request)),
+  readResource: (request: unknown) => unwrapMcpContent(mcpContentBridge.readResource(request)),
+  ...mcpElicitationBridge,
+  tasks: mcpTasksBridge satisfies McpTaskBridge,
 });
 
 // Assistant selection events. Tool execution deliberately stays behind the
@@ -987,6 +652,10 @@ if (shouldExposeBridge('desktopDiagnostics')) {
   contextBridge.exposeInMainWorld('desktopDiagnostics', {
     getSnapshot: (): Promise<DesktopPlatformDiagnosticsSnapshot> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot),
+    readMainLogWindow: (request: MainLogWindowRequest): Promise<MainLogWindowResult> =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow, request),
+    readProcessCounters: (): Promise<ProcessCounterSnapshot> =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters),
   });
 }
 
@@ -1081,7 +750,7 @@ if (shouldExposeBridge('workspace')) {
   });
 }
 
-contextBridge.exposeInMainWorld('embeddingHost', {
+const embeddingHost = {
   cancelAllBackfills: (): Promise<void> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelAllBackfills),
   cancelBackfill: (embeddingSetId: string): Promise<void> =>
@@ -1142,12 +811,13 @@ contextBridge.exposeInMainWorld('embeddingHost', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.reset),
   stop: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.stop),
-});
+} satisfies VisibleEmbeddingHostBridge;
+contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);
 
-contextBridge.exposeInMainWorld('chunkingHost', {
+const chunkingHost = {
   chunkBatch: (request: ChunkingHostChunkBatchRequest) =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.chunkBatch, request),
-  chunkFile: (request: ChunkingHostChunkFileRequest) =>
+  chunkFile: (request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest) =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.chunkFile, request),
   ensureStarted: (): Promise<ChunkingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.ensureStarted),
@@ -1184,7 +854,8 @@ contextBridge.exposeInMainWorld('chunkingHost', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.reset),
   stop: (): Promise<ChunkingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.chunkingHost.stop),
-});
+} satisfies VisibleChunkingHostBridge;
+contextBridge.exposeInMainWorld('chunkingHost', chunkingHost);
 
 contextBridge.exposeInMainWorld('llmHost', {
   cancel: (requestId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.llmHost.cancel, requestId),
@@ -1255,6 +926,25 @@ contextBridge.exposeInMainWorld('llmHost', {
 // direct module call here silently fails on real (non-test-mode) builds.
 exposeBridge('clipboard', clipboardContract);
 
+// Native window focus (BST-1864, desktop-only): `isFocused()` reads THIS window's
+// OS focus and `onChange` receives every focus/blur push. `useAppActive()` in
+// `@brainstrike/hooks` capability-checks `window.windowFocus`: keyboard focus in
+// the browser pane's WebContentsView (or docked DevTools) makes the renderer's own
+// `document.hasFocus()` false while the window is still the focused OS window.
+// Web has no preload, so it keeps `document.hasFocus()`.
+if (shouldExposeBridge('windowFocus')) {
+  exposeBridge('windowFocus', windowFocusContract);
+}
+
+// Database integrity state (BST-1870, desktop-only): `getState()` reads the
+// main-owned snapshot and `onChanged` receives every change. `@brainstrike/db`
+// capability-checks `window.databaseIntegrity`; the embedding host gets its own
+// copy from hidden-preload.ts, the other hidden hosts get none, and web has no
+// preload at all.
+if (shouldExposeBridge('databaseIntegrity')) {
+  exposeBridge('databaseIntegrity', databaseIntegrityContract);
+}
+
 // File-export save bridge (desktop-only): writes export bytes into the OS
 // Downloads folder from MAIN, bypassing Chromium's blob-download pipeline
 // (a blob download whose URL is revoked mid-flight can wedge permanently and
@@ -1303,35 +993,7 @@ if (shouldExposeBridge('platform')) {
 // absent there; consumers must capability-check `window.git` rather than
 // `isElectron()`.
 if (shouldExposeBridge('git')) {
-  contextBridge.exposeInMainWorld('git', {
-    aheadBehind: (rootId: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.aheadBehind, rootId),
-    commit: (rootId: string, params: { description?: string; summary: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.commit, rootId, params),
-    commitFiles: (rootId: string, params: { commit: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.commitFiles, rootId, params),
-    createBranch: (rootId: string, params: { branch: string; startPoint?: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.createBranch, rootId, params),
-    diff: (rootId: string, params: GitDiffParams) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.diff, rootId, params),
-    fetch: (rootId: string, params: { remote: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.fetch, rootId, params),
-    history: (rootId: string, params: { limit: number; offset: number; ref?: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.history, rootId, params),
-    pull: (rootId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.pull, rootId),
-    push: (rootId: string, params?: { remote?: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.push, rootId, params ?? {}),
-    repository: (rootId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.repository, rootId),
-    stage: (rootId: string, params?: { path?: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.stage, rootId, params ?? {}),
-    status: (rootId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.status, rootId),
-    structuredFileDiff: (rootId: string, params: StructuredFileDiffParams) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.structuredFileDiff, rootId, params),
-    switchBranch: (rootId: string, params: { branch: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.switchBranch, rootId, params),
-    unstage: (rootId: string, params?: { path?: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.git.unstage, rootId, params ?? {}),
-  });
+  exposeBridge('git', gitContract);
 }
 
 // Changeset diff bridge (desktop-only, BST-1113): resolves any `Changeset`
@@ -1342,50 +1004,7 @@ if (shouldExposeBridge('git')) {
 // `isElectron()`. Backed by ChangesetDiffService via the `changes` IPC
 // domain (changes-ipc-handlers.ts).
 if (shouldExposeBridge('changes')) {
-  contextBridge.exposeInMainWorld('changes', {
-    // Conversation Rewind (BST-1115 W5 T4). `mode` is required on apply —
-    // there is no default that silently reverts files (Amendment 1).
-    applyRewind: (payload: {
-      acknowledgeConflicts?: boolean;
-      messageId: string;
-      mode: AssistantRewindMode;
-      threadId: string;
-    }) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.applyRewind, payload),
-    fileDiff: (rootId: string, changeset: Changeset, path: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.fileDiff, rootId, changeset, path),
-    // Ends the redo window (BST-1115 W5 T4b). Fired by the renderer when a
-    // USER-authored message starts a new run; a thread with no outstanding
-    // rewind answers `finalized: false` and writes nothing.
-    finalizeRewinds: (payload: { threadId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.finalizeRewinds, payload),
-    // Repository/worktree topology for the Changes surface (BST-1114 T0).
-    // `{ maxAgeMs: 0 }` forces a rebuild that started after the call — the
-    // seam a renderer that just registered a root uses to get its repository
-    // discovered and watched (BST-1397).
-    inventory: (options?: { maxAgeMs?: number }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.inventory, options),
-    // One-way main→renderer live-refresh pushes (changes:invalidated,
-    // BST-1161 spec §6): external git activity on a repository. Returns the
-    // unsubscribe function (terminal onData precedent).
-    onInvalidated: (
-      callback: (event: import('@brainstrike/types').ChangesInvalidationEvent) => void
-    ) => {
-      const listener = (
-        _event: unknown,
-        payload: import('@brainstrike/types').ChangesInvalidationEvent
-      ) => callback(payload);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.changes.invalidated, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.changes.invalidated, listener);
-      };
-    },
-    redoRewind: (payload: { acknowledgeConflicts?: boolean; rewindId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.redoRewind, payload),
-    resolveView: (rootId: string, changeset: Changeset) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.resolveView, rootId, changeset),
-    rewindPreview: (payload: { threadId: string } & ({ messageId: string } | { runId: string })) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.changes.rewindPreview, payload),
-  });
+  exposeBridge('changes', changesContract);
 }
 
 // Managed-worktree bridge (desktop-only, BST-1390): create / list / archive /
@@ -1393,34 +1012,7 @@ if (shouldExposeBridge('changes')) {
 // constructs this bridge, so `window.worktrees` is simply absent there;
 // consumers capability-check it rather than `isElectron()`.
 if (shouldExposeBridge('worktrees')) {
-  contextBridge.exposeInMainWorld('worktrees', {
-    adopt: (params: WorktreeAdoptParams) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.adopt, params),
-    archive: (params: {
-      confirmIgnoredEntries?: string;
-      force?: boolean;
-      runId?: string;
-      worktreeId: string;
-    }) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.archive, params),
-    checkoutStatus: (params: { path: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.checkoutStatus, params),
-    create: (params: unknown) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.create, params),
-    createBranchHere: (params: { branch: string; worktreeId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.createBranchHere, params),
-    createContext: (params: { rootId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.createContext, params),
-    getSettings: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.getSettings),
-    inspectArchive: (params: { worktreeId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.inspectArchive, params),
-    list: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.list),
-    listManagedPaths: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.managedPaths),
-    restore: (params: { worktreeId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.restore, params),
-    setSettings: (params: {
-      managedDirectory: string | null;
-      setupCommand: readonly string[] | null | 'disabled';
-    }) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.worktrees.setSettings, params),
-  });
+  exposeBridge('worktrees', worktreesContract);
 }
 
 // Forge (pull request) bridge (desktop-only, BST-1391): PR identity + status
@@ -1429,27 +1021,7 @@ if (shouldExposeBridge('worktrees')) {
 // `window.forge` is simply absent there; consumers must capability-check
 // `window.forge` rather than `isElectron()`.
 if (shouldExposeBridge('forge')) {
-  contextBridge.exposeInMainWorld('forge', {
-    identity: (rootId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.forge.identity, rootId),
-    // One-way main→renderer pushes (forge:prUpdated): a forge observation
-    // changed. Returns the unsubscribe function (changes.onInvalidated
-    // precedent).
-    onPrUpdated: (callback: (event: import('@brainstrike/types').ForgePrUpdatedEvent) => void) => {
-      const listener = (
-        _event: unknown,
-        payload: import('@brainstrike/types').ForgePrUpdatedEvent
-      ) => callback(payload);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.forge.prUpdated, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.forge.prUpdated, listener);
-      };
-    },
-    prStatus: (rootId: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.forge.prStatus, rootId),
-    refresh: (
-      rootId: string,
-      params: { readonly reason: import('@brainstrike/types').ForgeRendererRefreshReason }
-    ) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.forge.refresh, rootId, params),
-  });
+  exposeBridge('forge', forgeContract);
 }
 
 // Embedded browser pane bridge (BST-1174). Every invoke returns the main-side
@@ -1578,54 +1150,14 @@ if (shouldExposeBridge('assistantPersonas')) {
 // constructs this bridge (no preload), so consumers must capability-check
 // `window.terminal`. The xterm UI lands in the next PR.
 if (shouldExposeBridge('terminal')) {
-  contextBridge.exposeInMainWorld('terminal', {
-    create: (params: { rootId: string; cwd?: string; cols?: number; rows?: number }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.terminal.create, params),
-    destroy: (params: { terminalId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.terminal.destroy, params),
-    onData: (callback: (event: { terminalId: string; data: string }) => void) => {
-      const listener = (_event: unknown, payload: { terminalId: string; data: string }) =>
-        callback(payload);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.terminal.data, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.terminal.data, listener);
-      };
-    },
-    onExit: (
-      callback: (event: { terminalId: string; exitCode: number; signal: number | null }) => void
-    ) => {
-      const listener = (
-        _event: unknown,
-        payload: { terminalId: string; exitCode: number; signal: number | null }
-      ) => callback(payload);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.terminal.exit, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.terminal.exit, listener);
-      };
-    },
-    resize: (params: { terminalId: string; cols: number; rows: number }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.terminal.resize, params),
-    write: (params: { terminalId: string; data: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.terminal.write, params),
-  });
+  exposeBridge('terminal', terminalContract);
 }
 
 // Command-session inventory bridge (desktop-only). These sessions are owned by
 // the main-process assistant runtime and intentionally survive renderer reloads.
 // The bridge exposes workspace-scoped observation/control only; web omits it.
 if (shouldExposeBridge('commandSessions')) {
-  contextBridge.exposeInMainWorld('commandSessions', {
-    list: (params: { rootId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.commandSessions.list, params),
-    read: (params: { rootId: string; sessionId: string; cursor?: number }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.commandSessions.read, params),
-    remove: (params: { rootId: string; sessionId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.commandSessions.remove, params),
-    stop: (params: { rootId: string; sessionId: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.commandSessions.stop, params),
-    write: (params: { rootId: string; sessionId: string; data: string }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.commandSessions.write, params),
-  });
+  exposeBridge('commandSessions', commandSessionsContract);
 }
 
 // Notes vault bridge (desktop-only): Node-fs backend for the markdown notes
@@ -1638,36 +1170,5 @@ if (shouldExposeBridge('commandSessions')) {
 // unsubscribe fn. Web never constructs this bridge (no preload), so consumers
 // must capability-check `window.notesVault` rather than `isElectron()`.
 if (shouldExposeBridge('notesVault')) {
-  contextBridge.exposeInMainWorld('notesVault', {
-    createDirectory: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.createDirectory, absolutePath),
-    deleteEntry: (absolutePath: string, options: { recursive: boolean }) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.deleteEntry, absolutePath, options),
-    ensureDefaultVault: () =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.ensureDefaultVault),
-    listDirectory: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.listDirectory, absolutePath),
-    onChanged: (callback: (event: { watchId: string }) => void) => {
-      const listener = (_event: unknown, payload: { watchId: string }) => callback(payload);
-      ipcRenderer.on(DESKTOP_IPC_CHANNELS.notesVault.changed, listener);
-      return () => {
-        ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.notesVault.changed, listener);
-      };
-    },
-    pickDirectory: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.pickDirectory),
-    readFile: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.readFile, absolutePath),
-    registerRoot: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.registerRoot, absolutePath),
-    rename: (fromPath: string, toPath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.rename, fromPath, toPath),
-    statEntry: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.statEntry, absolutePath),
-    unwatch: (watchId: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.unwatch, watchId),
-    watch: (absolutePath: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.watch, absolutePath),
-    writeFile: (absolutePath: string, content: string) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.notesVault.writeFile, absolutePath, content),
-  });
+  exposeBridge('notesVault', notesVaultContract);
 }

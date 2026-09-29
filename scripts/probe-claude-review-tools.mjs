@@ -7,12 +7,12 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { claudeReviewToolArgs } from './claude-review.mjs';
+import { claudeReviewModel, claudeReviewToolArgs } from './claude-review.mjs';
 
 export async function main({ claudeBinary: binary }) {
-  assert.ok(binary && path.isAbsolute(binary), 'Supply the absolute path to Claude Code 2.1.261.');
+  assert.ok(binary && path.isAbsolute(binary), 'Supply the absolute path to Claude Code 2.1.280.');
   const version = execFileSync(binary, ['--version'], { encoding: 'utf8' }).trim();
-  assert.equal(version, '2.1.261 (Claude Code)', 'Use the version the workflow pins.');
+  assert.equal(version, '2.1.280 (Claude Code)', 'Use the version the workflow pins.');
   const directory = mkdtempSync(path.join(tmpdir(), 'claude-review-tools-'));
   const privateData = 'PRIVATE_FILE_MUST_NOT_BE_READ';
   writeFileSync(path.join(directory, 'private.txt'), privateData);
@@ -42,7 +42,7 @@ export async function main({ claudeBinary: binary }) {
     const message = {
       content: [],
       id: `msg_${requests.length}`,
-      model: 'claude-opus-5',
+      model: claudeReviewModel,
       role: 'assistant',
       stop_reason: null,
       stop_sequence: null,
@@ -88,7 +88,7 @@ export async function main({ claudeBinary: binary }) {
       [
         '-p',
         '--model',
-        'claude-opus-5',
+        claudeReviewModel,
         '--max-turns',
         '3',
         ...claudeReviewToolArgs,

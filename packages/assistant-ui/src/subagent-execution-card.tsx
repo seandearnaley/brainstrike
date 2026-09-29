@@ -1,12 +1,26 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { SUBAGENT_NO_ANSWER_OUTCOME } from '@brainstrike/assistant-contract/personas';
-import { AlertCircle, CheckCircle, CircleDashed, CircleSlash } from 'lucide-react';
-import { type ComponentProps, type ReactElement, useId, useMemo, useState } from 'react';
+import {
+  SUBAGENT_NO_ANSWER_OUTCOME,
+  SUBAGENT_REJECTED_OUTCOME,
+  SUBAGENT_TRUNCATED_OUTCOME,
+} from '@brainstrike/assistant-contract/personas';
+import { Button } from '@brainstrike/ui';
+import { AlertCircle, ArrowUpRight, CheckCircle, CircleDashed, CircleSlash } from 'lucide-react';
+import {
+  type ComponentProps,
+  type MouseEvent,
+  type ReactElement,
+  useId,
+  useMemo,
+  useState,
+} from 'react';
 import type { StepGlyphState } from './activity-step-icons';
 import { StepRowHeader } from './activity-step-row';
 import { toolStepStateFor } from './activity-trace-model';
+import { agentColorStyle } from './agent-color-style';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import type { SubagentConversationPresentation } from './subagent-conversation-navigation';
 import { personaLabelForToolName } from './subagent-persona-label';
 import {
   mergeSubagentToolRows,
@@ -25,6 +39,12 @@ export type SubagentCardProps = Pick<
 > & {
   /** In-flight child rows from live `subagent.tool.*` events (see SUBAGENTS). */
   liveRows?: readonly SubAgentToolRow[];
+  presentation?: SubagentConversationPresentation;
+  task?: string;
+  onOpenConversation?: (event: MouseEvent<HTMLButtonElement>) => void;
+  navigationError?: string;
+  presentationError?: string;
+  onReloadPresentation?: () => void;
   /**
    * Terminal outcome the tool-call status cannot express (BST-1410) — today
    * only `'no-answer'`: the child ran, made tool calls, and never wrote its
@@ -41,8 +61,8 @@ type ToolResult = SubagentCardProps['result'];
  * `· Failed` label of its own: the row's glyph names the state (`role="img"`)
  * and the verb says what happened. A delegation is the one step whose subject
  * is a persona rather than the assistant, so the verb names it — "Delegating
- * to Explorer" while the child runs (and while the call waits at an approval
- * gate: it has not started either way), then "Explorer finished" / "Explorer
+ * to Explorer" while the call waits at an approval gate, then "Explorer is
+ * working" once the child runs, and "Explorer finished" / "Explorer
  * gave no answer" / "Explorer stopped" / "Explorer failed" once it settles.
  *
  * Keyed by `StepGlyphState`, not by a private display union, so the type
@@ -55,7 +75,9 @@ const STEP_VERB: Record<StepGlyphState, (label: string) => string> = {
   done: (label) => `${label} finished`,
   failed: (label) => `${label} failed`,
   'no-answer': (label) => `${label} gave no answer`,
-  running: (label) => `Delegating to ${label}`,
+  rejected: (label) => `${label} delegation rejected`,
+  running: (label) => `${label} is working`,
+  truncated: (label) => `${label} finished with a truncated summary`,
   waiting: (label) => `Delegating to ${label}`,
 };
 
@@ -110,7 +132,68 @@ function resolveDelegationState(
   if (generic !== 'done') {
     return generic;
   }
+  if (outcome === SUBAGENT_REJECTED_OUTCOME) {
+    // BST-1751: refused before the child ran; the tool call itself succeeded.
+    return 'rejected';
+  }
+  if (outcome === SUBAGENT_TRUNCATED_OUTCOME) {
+    // The child's reserved summary was cut at its synthesis budget: a
+    // completion with partial findings, named as such.
+    return 'truncated';
+  }
   return outcome === SUBAGENT_NO_ANSWER_OUTCOME ? 'no-answer' : 'done';
+}
+
+function SubagentTaskSummary({
+  label,
+  presentation,
+  task,
+}: {
+  readonly label: string;
+  readonly presentation: SubagentConversationPresentation | undefined;
+  readonly task: string | undefined;
+}) {
+  if (!(presentation || task)) {
+    return null;
+  }
+  return (
+    <div className="flex min-w-0 items-start gap-2 px-3 pb-2">
+      {presentation ? (
+        <span
+          aria-hidden="true"
+          className={`mt-0.5 size-3 shrink-0 rounded-full border-2 ${presentation.markClassName}`}
+        />
+      ) : null}
+      <div className="min-w-0 text-xs">
+        <span className="font-medium text-muted-foreground">{label}</span>
+        {task ? <p className="line-clamp-2 whitespace-pre-wrap break-words">{task}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function SubagentPresentationError({
+  error,
+  onReload,
+}: {
+  readonly error: string | undefined;
+  readonly onReload: (() => void) | undefined;
+}) {
+  if (!error) {
+    return null;
+  }
+  return (
+    <div className="border-border border-t px-3 py-2 text-xs">
+      <p className="text-destructive" role="alert">
+        {error}
+      </p>
+      {onReload ? (
+        <Button onClick={onReload} size="sm" variant="ghost">
+          Reload child details
+        </Button>
+      ) : null}
+    </div>
+  );
 }
 
 const EMPTY_LIVE_ROWS: readonly SubAgentToolRow[] = [];
@@ -130,6 +213,12 @@ export const SubagentExecutionCard = ({
   result,
   status,
   liveRows = EMPTY_LIVE_ROWS,
+  onOpenConversation,
+  navigationError,
+  presentationError,
+  onReloadPresentation,
+  presentation,
+  task,
   outcome,
 }: SubagentCardProps) => {
   const [expanded, setExpanded] = useState(false);
@@ -147,7 +236,11 @@ export const SubagentExecutionCard = ({
   const hasRows = rows.length > 0;
 
   return (
-    <div className="my-1 rounded-md border border-border bg-muted/30 text-sm">
+    <div
+      className="bs-subagent-card my-1 rounded-md border border-border bg-muted/30 text-sm"
+      data-agent-color={presentation?.colorId}
+      style={agentColorStyle(presentation?.colorId)}
+    >
       <StepRowHeader
         family="delegate"
         label={expanded ? 'Collapse details' : 'Expand details'}
@@ -167,7 +260,7 @@ export const SubagentExecutionCard = ({
             </span>
           ) : null
         }
-        verb={STEP_VERB[stepState](label)}
+        verb={STEP_VERB[stepState](presentation?.displayName ?? label)}
         // Conditional spread, not `prop={x ?? undefined}`: under
         // `exactOptionalPropertyTypes` an optional prop may be absent but
         // never explicitly `undefined`. With no child rows there is nothing to
@@ -177,6 +270,26 @@ export const SubagentExecutionCard = ({
           ? { bodyId: rowsId, expanded, onToggle: () => setExpanded((value) => !value) }
           : {})}
       />
+      <SubagentTaskSummary label={label} presentation={presentation} task={task} />
+      {navigationError ? (
+        <p className="border-border border-t px-3 py-2 text-destructive text-xs" role="alert">
+          {navigationError}
+        </p>
+      ) : null}
+      <SubagentPresentationError error={presentationError} onReload={onReloadPresentation} />
+      {onOpenConversation ? (
+        <div className="flex justify-end border-border border-t px-2 py-1">
+          <Button
+            aria-label={`Open ${presentation?.displayName ?? label} conversation`}
+            className="h-7 gap-1.5 text-xs"
+            onClick={onOpenConversation}
+            size="sm"
+            variant="ghost"
+          >
+            Open conversation <ArrowUpRight aria-hidden="true" className="size-3.5" />
+          </Button>
+        </div>
+      ) : null}
       {expanded && hasRows ? (
         <ul className="border-border border-t px-3 py-2" id={rowsId}>
           {rows.map((row) => (

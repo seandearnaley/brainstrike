@@ -65,22 +65,48 @@ function readAdvertisedClientCapabilities(
   return capabilities as Record<string, unknown>;
 }
 
-afterEach(async () => {
-  const results = await Promise.allSettled(
-    cleanupTasks
-      .splice(0)
-      .reverse()
-      .map((task) => task())
-  );
-  const failures = results.flatMap((result) =>
-    result.status === 'rejected' ? [result.reason] : []
-  );
+async function cleanupAfterTest(): Promise<void> {
+  const tasks = cleanupTasks.splice(0).reverse();
+  const failures: unknown[] = [];
+  for (const task of tasks) {
+    try {
+      await task();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   if (failures.length === 1) {
     throw failures[0];
   }
   if (failures.length > 1) {
     throw new AggregateError(failures, 'Pinned-modern stdio extension cleanup failed');
   }
+}
+
+afterEach(cleanupAfterTest);
+
+it('awaits each wire cleanup in reverse acquisition order', async () => {
+  const closed = Promise.withResolvers<void>();
+  const events: string[] = [];
+  cleanupTasks.push(async () => {
+    events.push('remove directory');
+  });
+  cleanupTasks.push(async () => {
+    events.push('close client');
+    await closed.promise;
+    events.push('client closed');
+  });
+
+  const cleanup = cleanupAfterTest();
+  try {
+    expect([...events]).toEqual(['close client']);
+  } finally {
+    closed.resolve();
+    await cleanup;
+  }
+  expect(events).toEqual(['close client', 'client closed', 'remove directory']);
+  await cleanupAfterTest();
+  expect(events).toHaveLength(3);
 });
 
 it('runs the exact Tasks extension contracts on a spawned modern stdio wire', async () => {

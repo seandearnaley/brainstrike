@@ -34,15 +34,68 @@ import {
   type ResolvedTripwire,
   truncateStreamDetail,
 } from './mastra-chunk-decoding';
-import { makeErrorFinishChunk, makeRunFailedChunk } from './stream-run-event-chunks';
+import {
+  makeErrorFinishChunk,
+  makeRunEventChunk,
+  makeRunFailedChunk,
+  makeSyntheticFinishChunk,
+} from './stream-run-event-chunks';
 import {
   makeCancelledDelegationRunEventChunks,
   makePendingToolOutputRunEventChunks,
+  makeToolLifecycleRunEventChunk,
   type ProcessStreamPartResult,
   type ToolLifecycleState,
 } from './tool-lifecycle-processors';
 
 const logger = createLogger('MastraAgent');
+
+function settleActiveChildTools(state: ToolLifecycleState, cancelled: boolean): StreamChunk[] {
+  const chunks: StreamChunk[] = [];
+  for (const [toolCallId, active] of state.activeToolEvents ?? []) {
+    const tool = {
+      name: active.name,
+      payload: {
+        error: cancelled
+          ? 'Tool cancelled with the child run.'
+          : 'Tool interrupted before returning a result.',
+        toolCallId,
+      },
+      status: 'error',
+      type: 'tool-event',
+    } as const;
+    const terminal = makeToolLifecycleRunEventChunk(tool, 'tool-error', state);
+    chunks.push(tool);
+    if (terminal?.type === 'run-event') {
+      chunks.push(
+        cancelled ? { ...terminal, event: { ...terminal.event, status: 'cancelled' } } : terminal
+      );
+    }
+  }
+  return chunks;
+}
+
+/** A parent ending must settle every still-open child before its own finish. */
+export function makeDelegatedStreamTermination(
+  state: ToolLifecycleState,
+  cancelled: boolean,
+  detail?: string,
+  metadata?: AssistantRunEventMetadata
+): StreamChunk[] {
+  return [
+    ...makeCancelledDelegationRunEventChunks(state),
+    ...makePendingToolOutputRunEventChunks(state),
+    ...settleActiveChildTools(state, cancelled),
+    cancelled
+      ? makeRunEventChunk('run.cancelled', 'cancelled', 'Child run cancelled')
+      : makeRunFailedChunk(
+          'Child stream interrupted',
+          detail ?? 'The parent stream ended before the child reported a terminal result.',
+          metadata
+        ),
+    cancelled ? makeSyntheticFinishChunk() : makeErrorFinishChunk(),
+  ];
+}
 
 /**
  * Terminate a run gracefully after a provider/model error part.
@@ -201,6 +254,17 @@ function resolveStalledVisibleMessage(
   localRuntimeName: string | null,
   model: string | undefined
 ): string {
+  if (error.phase === 'tool-executing') {
+    // Blaming the model or the runner here would send the user to fix the
+    // wrong thing — the provider already answered with a `tool-call`. But the
+    // message must not assert the opposite either: every GUARD window is below
+    // `toolExecutingMs` by construction, while tool-lifecycle hooks compose
+    // OUTSIDE the guard (`tool-pipeline.ts`) and are deliberately not capped in
+    // aggregate, so this silence is `preHooks + guard + postHooks` and a slow
+    // hook chain can reach the backstop with a perfectly working guard. State
+    // what is known, and why this is terminal rather than retried.
+    return `A tool call was still running after ${error.inactivityMs}ms, including its lifecycle hooks. The turn was ended rather than retried, because re-running the step could start a second execution of a command that may still be alive. If no PreToolUse/PostToolUse hook is slow, please report it with a debug bundle.`;
+  }
   if (localRuntimeName && model) {
     return `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`;
   }

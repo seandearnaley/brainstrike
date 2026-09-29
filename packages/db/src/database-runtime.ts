@@ -45,12 +45,11 @@ import {
   waitForDatabaseWorkSchedulerIdle,
 } from './db-reset-drain.js';
 import type { DrizzleDb } from './drizzle/database.js';
-import type { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import type { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
-import type { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import type { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type {
   IEmbeddingSetsRepository,
+  IFileChunkRepository,
   IViewFilterPresetsRepository,
 } from './repositories/interfaces.js';
 
@@ -72,7 +71,7 @@ export type EmbeddingSetsRepo = IEmbeddingSetsRepository;
 export type ViewFilterPresetsRepo = IViewFilterPresetsRepository;
 
 export interface DbRuntimeState {
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  chunkRepository: IFileChunkRepository | null;
   drizzleDb: DrizzleDb | null;
   embeddingSetsRepository: EmbeddingSetsRepo | null;
   error: Error | null;

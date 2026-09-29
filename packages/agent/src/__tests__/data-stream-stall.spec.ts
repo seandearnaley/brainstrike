@@ -30,7 +30,12 @@ describe('data-stream stall handling', () => {
     // that error, calls mapper.handleError(), which emits DataStreamCode.error ('3')
     // followed by a finishMessage ('d'). Without the watchdog this test would hang.
     const session = new AssistantDataStreamSession(
-      withInactivityTimeout(stallingSource(), { firstOutputMs: 1000, interOutputMs: 30 }),
+      withInactivityTimeout(stallingSource(), {
+        firstOutputMs: 1000,
+        interOutputMs: 30,
+        reasoningGapMs: 1000,
+        toolExecutingMs: 1000,
+      }),
       () => {}
     );
     const body = await drain(session.createResponse());

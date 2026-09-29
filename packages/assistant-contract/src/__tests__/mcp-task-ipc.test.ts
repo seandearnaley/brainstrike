@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createMcpTaskToolInvocationResult,
-  MCP_TASK_IPC_CHANNELS,
   McpTaskListResultSchema,
   McpTaskToolInvocationResultSchema,
   parseMcpTaskStatusChangedEvent,
@@ -51,15 +50,6 @@ describe('MCP task IPC contract', () => {
       readMcpTaskToolInvocationResult(createMcpTaskToolInvocationResult(presentation))
     ).toEqual(presentation);
     expect(safeParse).toHaveBeenCalledTimes(2);
-  });
-
-  it('pins the channel names preload and main share', () => {
-    expect(MCP_TASK_IPC_CHANNELS).toEqual({
-      act: 'mcp:task:act',
-      list: 'mcp:task:list',
-      statusChanged: 'mcp:task:status-changed',
-    });
-    expect(Object.isFrozen(MCP_TASK_IPC_CHANNELS)).toBe(true);
   });
 
   it('round-trips a persisted task tool result exactly and rejects near misses', () => {

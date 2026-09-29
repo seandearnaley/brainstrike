@@ -88,7 +88,7 @@ describe('resolveRequestPersonas', () => {
         }),
       })
     );
-    expect(result.personas.map((persona) => persona.id)).toEqual(['analyze', 'docs']);
+    expect(result.personas.map((persona) => persona.id)).toEqual(['analyze', 'worker', 'docs']);
   });
 
   it('resolves API keys for cross-provider pins only (parent + keyless skipped)', async () => {

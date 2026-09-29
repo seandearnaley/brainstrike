@@ -18,6 +18,7 @@
  * executable on PATH; this is the same idea for the model provider via a
  * real local HTTP server. A durable E2E asset — reuse it, don't fork it.
  */
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 export interface ScriptedToolCall {
@@ -26,6 +27,10 @@ export interface ScriptedToolCall {
 }
 
 export interface ModelProviderScript {
+  /** Hold a final response at the external-provider boundary for reload tests. */
+  readonly beforeFinalText?: Promise<void>;
+  /** Hold a streaming tool finish at a deterministic external-provider boundary. */
+  readonly beforeToolFinish?: Promise<void>;
   /**
    * Set when `toolCall` targets a Mastra-deferred tool (present in
    * `deferredToolIds`, not `coreToolIds` — see the `mastra_tool_discovery_surface`
@@ -39,7 +44,14 @@ export interface ModelProviderScript {
    */
   readonly deferredTool?: true;
   readonly finalText: string;
-  readonly toolCall: ScriptedToolCall;
+  /** For a selector that begins a new scripted stage in an existing model turn. */
+  readonly ignorePriorToolResults?: true;
+  /** Omit for a response-only turn, including native background wakeups. */
+  readonly toolCall?: ScriptedToolCall;
+  /** Emit successive tool turns as each preceding stage's results arrive. */
+  readonly toolCallStages?: readonly (readonly ScriptedToolCall[])[];
+  /** Emit one model turn containing independent parallel tool calls. */
+  readonly toolCalls?: readonly ScriptedToolCall[];
 }
 
 /**
@@ -56,19 +68,32 @@ export interface ModelProviderTurnRecord {
   readonly toolResultCount: number;
 }
 
+/** Parsed provider request available to parent/child test script routing. */
+export interface ModelProviderRequest {
+  readonly messages: readonly unknown[];
+  /** Actual parsed wire payload for generation-setting assertions. */
+  readonly requestBody: unknown;
+  readonly requestIndex: number;
+  readonly toolNames: readonly string[];
+}
+
+export type ModelProviderScriptSelector = (request: ModelProviderRequest) => ModelProviderScript;
+
 export interface ModelProviderShim {
   readonly baseUrl: string;
   readonly close: () => Promise<void>;
   readonly requestCount: () => number;
   /** Configure what the next tool-call/follow-up cycle returns. */
-  readonly setScript: (script: ModelProviderScript) => void;
+  readonly setScript: (script: ModelProviderScript | ModelProviderScriptSelector) => void;
   /** Every decided request, oldest first — failure diagnostics only. */
   readonly transcript: () => readonly ModelProviderTurnRecord[];
 }
 
 interface ChatCompletionsRequestBody {
   readonly messages?: unknown[];
+  readonly requestBody?: unknown;
   readonly stream?: boolean;
+  readonly tools?: unknown[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -93,7 +118,9 @@ async function readJsonBody(request: IncomingMessage): Promise<ChatCompletionsRe
     throw new Error('Model provider shim expected a JSON object request body.');
   }
   return {
+    requestBody: parsed,
     ...(Array.isArray(parsed['messages']) ? { messages: parsed['messages'] } : {}),
+    ...(Array.isArray(parsed['tools']) ? { tools: parsed['tools'] } : {}),
     ...(typeof parsed['stream'] === 'boolean' ? { stream: parsed['stream'] } : {}),
   };
 }
@@ -120,24 +147,61 @@ function countToolResultMessages(messages: unknown[] | undefined): number {
 }
 
 /**
- * Decide what this turn emits from the number of tool-result messages seen
- * so far. Without `deferredTool` this is the original 2-turn shape
- * (toolCall, then finalText). With it, a `load_tool` call is inserted first
- * so Mastra loads the deferred `toolCall` target by exact name before it is
- * called.
+ * Decide what this turn emits from the observed tool results. Staged scripts
+ * advance after each stage's complete results. Ordinary scripts retain their
+ * single tool-call turn; a deferred script first calls `load_tool` so Mastra
+ * advertises the requested tool on the following model turn.
  */
+function resolveStagedTurn(
+  stages: readonly (readonly ScriptedToolCall[])[],
+  toolResultCount: number,
+  finalText: string
+): { calls: readonly ScriptedToolCall[] } | { finalText: string } {
+  let completedCalls = 0;
+  for (const calls of stages) {
+    if (calls.length === 0) {
+      throw new Error('Model provider shim tool-call stages cannot be empty.');
+    }
+    if (toolResultCount === completedCalls) {
+      return { calls };
+    }
+    if (toolResultCount < completedCalls + calls.length) {
+      throw new Error('Model provider shim requires all stage tool results before continuing.');
+    }
+    completedCalls += calls.length;
+  }
+  return { finalText };
+}
+
 function resolveTurn(
   script: ModelProviderScript,
   toolResultCount: number
-): { call: ScriptedToolCall } | { finalText: string } {
+): { calls: readonly ScriptedToolCall[] } | { finalText: string } {
+  const observedResults = script.ignorePriorToolResults ? 0 : toolResultCount;
+  if ([script.toolCall, script.toolCalls, script.toolCallStages].filter(Boolean).length > 1) {
+    throw new Error('Model provider shim scripts must select one tool-call shape.');
+  }
+  if (script.toolCallStages) {
+    return resolveStagedTurn(script.toolCallStages, observedResults, script.finalText);
+  }
+  const calls = script.toolCalls ?? (script.toolCall ? [script.toolCall] : []);
+  if (script.deferredTool && calls.length !== 1) {
+    throw new Error('Deferred model provider scripts support exactly one tool call.');
+  }
+  if (calls.length === 0) {
+    return { finalText: script.finalText };
+  }
   if (!script.deferredTool) {
-    return toolResultCount === 0 ? { call: script.toolCall } : { finalText: script.finalText };
+    if (observedResults > 0 && observedResults < calls.length) {
+      throw new Error('Model provider shim requires all parallel tool results before continuing.');
+    }
+    return observedResults === 0 ? { calls } : { finalText: script.finalText };
   }
-  if (toolResultCount === 0) {
-    return { call: { arguments: { toolName: script.toolCall.name }, name: 'load_tool' } };
+  if (observedResults === 0) {
+    return { calls: [{ arguments: { toolName: calls[0]?.name }, name: 'load_tool' }] };
   }
-  if (toolResultCount === 1) {
-    return { call: script.toolCall };
+  if (observedResults === 1) {
+    return { calls };
   }
   return { finalText: script.finalText };
 }
@@ -147,26 +211,31 @@ function completionIdentity(): { created: number; id: string } {
   return { created: Math.floor(now / 1000), id: `chatcmpl-e2e-${now}` };
 }
 
-function toolCallMessage(call: ScriptedToolCall, toolCallId: string): Record<string, unknown> {
+function toolCallMessage(
+  calls: readonly ScriptedToolCall[],
+  toolCallIds: readonly string[]
+): Record<string, unknown> {
   return {
     content: null,
     role: 'assistant',
-    ['tool_calls']: [
-      {
-        function: {
-          arguments: JSON.stringify(call.arguments),
-          name: call.name,
-        },
-        id: toolCallId,
-        type: 'function',
+    ['tool_calls']: calls.map((call, index) => ({
+      function: {
+        arguments: JSON.stringify(call.arguments),
+        name: call.name,
       },
-    ],
+      id: toolCallIds[index],
+      type: 'function',
+    })),
   };
 }
 
-function writeStreamingToolCall(response: ServerResponse, call: ScriptedToolCall): void {
+async function writeStreamingToolCall(
+  response: ServerResponse,
+  calls: readonly ScriptedToolCall[],
+  beforeFinish?: Promise<void>
+): Promise<void> {
   const { created, id } = completionIdentity();
-  const toolCallId = `call_e2e_${Date.now()}`;
+  const toolCallIds = calls.map(() => `call_e2e_${randomUUID()}`);
   response.writeHead(200, {
     'Cache-Control': 'no-cache',
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -178,17 +247,15 @@ function writeStreamingToolCall(response: ServerResponse, call: ScriptedToolCall
         {
           delta: {
             role: 'assistant',
-            ['tool_calls']: [
-              {
-                function: {
-                  arguments: JSON.stringify(call.arguments),
-                  name: call.name,
-                },
-                id: toolCallId,
-                index: 0,
-                type: 'function',
+            ['tool_calls']: calls.map((call, index) => ({
+              function: {
+                arguments: JSON.stringify(call.arguments),
+                name: call.name,
               },
-            ],
+              id: toolCallIds[index],
+              index,
+              type: 'function',
+            })),
           },
           ['finish_reason']: null,
           index: 0,
@@ -200,6 +267,7 @@ function writeStreamingToolCall(response: ServerResponse, call: ScriptedToolCall
       object: 'chat.completion.chunk',
     })
   );
+  await beforeFinish;
   response.write(
     sseChunk({
       choices: [{ delta: {}, ['finish_reason']: 'tool_calls', index: 0 }],
@@ -250,13 +318,16 @@ function writeStreamingFinalText(response: ServerResponse, finalText: string): v
 
 function writeJsonCompletion(
   response: ServerResponse,
-  turn: { call: ScriptedToolCall } | { finalText: string }
+  turn: { calls: readonly ScriptedToolCall[] } | { finalText: string }
 ): void {
   const { created, id } = completionIdentity();
   const finalTurn = 'finalText' in turn;
   const message = finalTurn
     ? { content: turn.finalText, role: 'assistant' }
-    : toolCallMessage(turn.call, `call_e2e_${Date.now()}`);
+    : toolCallMessage(
+        turn.calls,
+        turn.calls.map(() => `call_e2e_${randomUUID()}`)
+      );
   response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
   response.end(
     JSON.stringify({
@@ -302,7 +373,7 @@ function messageRoles(messages: unknown[] | undefined): readonly string[] {
 }
 
 export async function startModelProviderShim(
-  initialScript: ModelProviderScript
+  initialScript: ModelProviderScript | ModelProviderScriptSelector
 ): Promise<ModelProviderShim> {
   let script = initialScript;
   let requestCount = 0;
@@ -319,24 +390,43 @@ export async function startModelProviderShim(
     }
 
     void readJsonBody(request)
-      .then(({ messages, stream }) => {
+      .then(async ({ messages, stream, tools, requestBody }) => {
         const toolResultCount = countToolResultMessages(messages);
-        const turn = resolveTurn(script, toolResultCount);
+        const selectedScript =
+          typeof script === 'function'
+            ? script({
+                messages: messages ?? [],
+                requestBody,
+                requestIndex: requestOrdinal,
+                toolNames: (tools ?? []).flatMap((tool) =>
+                  isRecord(tool) &&
+                  isRecord(tool['function']) &&
+                  typeof tool['function']['name'] === 'string'
+                    ? [tool['function']['name']]
+                    : []
+                ),
+              })
+            : script;
+        const turn = resolveTurn(selectedScript, toolResultCount);
         transcript.push({
-          decision: 'finalText' in turn ? 'final-text' : `tool:${turn.call.name}`,
+          decision:
+            'finalText' in turn
+              ? 'final-text'
+              : `tool:${turn.calls.map((call) => call.name).join('+')}`,
           requestIndex: requestOrdinal,
           roles: messageRoles(messages),
           toolResultCount,
         });
-        if (stream === false) {
+        if (stream !== true) {
           writeJsonCompletion(response, turn);
           return;
         }
         if ('finalText' in turn) {
+          await selectedScript.beforeFinalText;
           writeStreamingFinalText(response, turn.finalText);
           return;
         }
-        writeStreamingToolCall(response, turn.call);
+        await writeStreamingToolCall(response, turn.calls, selectedScript.beforeToolFinish);
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);

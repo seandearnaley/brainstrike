@@ -1,10 +1,14 @@
 import type { OAuthProviderDescriptor, ProviderCredential } from '@brainstrike/assistant-contract';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_TOKEN_EXPIRES_IN_SECONDS } from '../../provider-auth/oauth-flow';
 import { createTokenRefresher, OAUTH_REFRESH_SKEW_MS } from '../../provider-auth/refresh';
 import type { SecretsService } from '../../secrets';
 
 const NOW = 1_700_000_000_000;
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function makeDescriptor(): OAuthProviderDescriptor {
   return {
@@ -74,6 +78,43 @@ function refreshedResponse(overrides: Record<string, unknown> = {}): Response {
 }
 
 describe('createTokenRefresher', () => {
+  it('single-flights a stalled body until the request deadline, without rotating credentials', async () => {
+    vi.useFakeTimers();
+    const secrets = makeSecrets({ 'fake-provider': oauthCredential(NOW) });
+    let bodyStarted: (() => void) | undefined;
+    const reachedBody = new Promise<void>((resolve) => {
+      bodyStarted = resolve;
+    });
+    const fetchFn = vi.fn<typeof fetch>(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          text: async () => {
+            bodyStarted?.();
+            return await new Promise<string>(() => undefined);
+          },
+        }) as Response
+    );
+    const refresher = createTokenRefresher({
+      fetchFn,
+      fetchTimeoutMs: 100,
+      getDescriptor: makeDescriptor,
+      now: () => NOW,
+      secrets,
+    });
+    const first = refresher.getFreshAccessToken('fake-provider');
+    const second = refresher.getFreshAccessToken('fake-provider');
+    await reachedBody;
+    const firstFailure = expect(first).rejects.toMatchObject({ code: 'token_exchange_failed' });
+    const secondFailure = expect(second).rejects.toMatchObject({ code: 'token_exchange_failed' });
+    await vi.advanceTimersByTimeAsync(100);
+    await Promise.all([firstFailure, secondFailure]);
+
+    expect(fetchFn).toHaveBeenCalledOnce();
+    expect(secrets.store.get('fake-provider')).toEqual(oauthCredential(NOW));
+  });
+
   it('returns the stored access token untouched when outside the skew window', async () => {
     const secrets = makeSecrets({
       'fake-provider': oauthCredential(NOW + OAUTH_REFRESH_SKEW_MS + 60_000),

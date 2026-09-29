@@ -7,6 +7,8 @@ import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { CHILD_FOLLOWUP_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/child-followup';
+import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,6 +30,7 @@ function createRepositoryStub(
     deleteThread: vi.fn(),
     getCrossRootUsage: vi.fn(async () => []),
     getThreadCumulativeUsage: vi.fn(async () => null),
+    getThreadRunTurnMessageId: vi.fn(async () => null),
     listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
     listThreadCheckpoints: vi.fn(async () => []),
@@ -61,6 +64,98 @@ describe('useAssistantRequestLifecycle', () => {
     __resetWorkspaceCollectionSyncStatusStoreForTests();
     __resetPermissionPolicyStoreForTests();
   });
+
+  it.each(
+    (['failed', 'completed', 'cancelled'] as const).flatMap((status) =>
+      [false, true].map((detached) => ({ detached, status }))
+    )
+  )(
+    'releases host-owned $status activity when repository detached=$detached',
+    async ({ status, detached }) => {
+      const repository = createRepositoryStub();
+      const { result, rerender } = renderHook(
+        ({ available }) =>
+          useAssistantRequestLifecycle({
+            assistantThreadRepository: available ? repository : null,
+            focusedRootId: 'root',
+            memoryResourceId: 'workspace-a',
+            modelSettings: undefined,
+            permissionEnforceable: true,
+            planModeAvailable: false,
+            providerOptions: undefined,
+            requestData: baseRequestData,
+            resolvedModelName: 'model',
+            selectedMemoryThreadId: 'thread-a',
+            selectedProvider: 'openai',
+          }),
+        { initialProps: { available: true } }
+      );
+      const prepared = await act(async () => result.current.prepareRequestData());
+      expect(getAssistantForegroundActivitySnapshot()).toBe(true);
+      if (detached) {
+        rerender({ available: false });
+      }
+      await act(async () => {
+        await result.current.completePreparedRequest(prepared, status, 'network error', true);
+      });
+      expect(repository.completeThreadRun).not.toHaveBeenCalled();
+      expect(getAssistantForegroundActivitySnapshot()).toBe(false);
+      expect(result.current.getActiveSteerableRunId()).toBeNull();
+    }
+  );
+
+  it.each([
+    {
+      expected: { turnMessageId: 'child-input' },
+      runConfig: {
+        custom: {
+          [CHILD_FOLLOWUP_RUN_CONFIG_KEY]: {
+            id: 'child-input',
+            text: 'Continue',
+            threadId: 'child',
+          },
+        },
+      },
+    },
+    {
+      expected: { childContinuation: { id: 'receipt', nativeRunId: 'native-child' } },
+      runConfig: {
+        custom: {
+          [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+            action: 'approve',
+            continuationId: 'receipt',
+            runId: 'native-child',
+            toolCallId: 'leaf',
+            toolName: 'shell',
+          },
+        },
+      },
+    },
+  ])(
+    'carries child input and decision identity into the real managed-run preparation seam',
+    async ({ runConfig, expected }) => {
+      const repository = createRepositoryStub();
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+      await act(async () =>
+        result.current.prepareRequestData(undefined, 'stale-parent-input', runConfig)
+      );
+      expect(repository.createThreadRun).toHaveBeenCalledWith(expect.objectContaining(expected));
+    }
+  );
 
   it('creates a run record, injects its id into memory, and releases the lease on completion', async () => {
     const repository = createRepositoryStub({

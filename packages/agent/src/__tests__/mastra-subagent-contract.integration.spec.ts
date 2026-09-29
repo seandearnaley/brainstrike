@@ -1,3 +1,4 @@
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { createDelegatedConversationRepository, runDrizzleMigrations } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { createLogger } from '@brainstrike/logging';
@@ -12,16 +13,23 @@ import { Mastra } from '@mastra/core/mastra';
 import { parseMemoryRequestContext } from '@mastra/core/memory';
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import { RequestContext } from '@mastra/core/request-context';
+import { MastraCompositeStore } from '@mastra/core/storage';
 import type { ChunkType } from '@mastra/core/stream';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { processMastraStreamPart } from '../mastra/agent-streaming';
 import { createDelegatedConversationBinding } from '../mastra/delegated-conversation-binding';
 import {
   createDelegatedRunPublicationGuard,
   type DelegatedRunIdentity,
 } from '../mastra/delegated-run-publication';
+import { createDelegatedStreamProjection } from '../mastra/delegated-stream-projection';
+import { createDelegatedTurnPersistence } from '../mastra/delegated-turn-persistence';
+import { makeDelegatedStreamTermination } from '../mastra/stream-termination';
 import { createDelegationConfig } from '../mastra/subagent-delegation';
+import { readMastraStreamPartString, readMastraStreamPartValue } from '../mastra/tool-event-mapper';
+import { createTurnAttemptLifecycleState } from '../mastra/turn-attempts';
 import { createPgliteMastraMemory, type PgliteDatabase } from '../pglite-mastra-memory';
 import {
   hasToolResult,
@@ -29,7 +37,8 @@ import {
   textParts,
   toolCallParts,
   toolThenAnswer,
-} from './fixtures/scripted-agent-model';
+} from '../test-fixtures/scripted-agent-model';
+import { assertStaleDelegatedDecision } from './fixtures/delegated-decision-contract';
 
 async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
   const chunks: ChunkType[] = [];
@@ -37,6 +46,33 @@ async function collect(stream: AsyncIterable<ChunkType>): Promise<ChunkType[]> {
     chunks.push(chunk);
   }
   return chunks;
+}
+
+function initialChildMessageIdentities(chunks: readonly unknown[]): Map<string, string> {
+  const observedRuns = new Map<string, string>();
+  const visit = (part: unknown): void => {
+    if (readMastraStreamPartString(part, 'type') !== 'tool-output') {
+      return;
+    }
+    const nested = readMastraStreamPartValue(part, 'output');
+    const runId = readMastraStreamPartString(nested, 'runId');
+    if (!runId) {
+      return;
+    }
+    if (!observedRuns.has(runId)) {
+      const messageId = readMastraStreamPartString(nested, 'messageId');
+      if (!messageId) {
+        throw new Error('Initial native child has no message id');
+      }
+      observedRuns.set(runId, messageId);
+    }
+    visit(nested);
+  };
+  for (const chunk of chunks) {
+    visit(chunk);
+  }
+  expect(observedRuns.size).toBe(2);
+  return observedRuns;
 }
 
 describe('installed Mastra delegation contract (BST-1716)', () => {
@@ -92,8 +128,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     suspend = false,
     abortController,
     rootModel,
+    leafModelOverride,
     childInputProcessor,
     childOutputProcessor,
+    failChildInstructions = false,
   }: {
     requireApproval?: boolean;
     delegation?: DelegationConfig;
@@ -102,8 +140,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     suspend?: boolean;
     abortController?: AbortController;
     rootModel?: ReturnType<typeof scriptedAgentModel>;
+    leafModelOverride?: ReturnType<typeof scriptedAgentModel>;
     childInputProcessor?: InputProcessor;
     childOutputProcessor?: OutputProcessor;
+    failChildInstructions?: boolean;
   } = {}): {
     child: Agent;
     childModel: ReturnType<typeof scriptedAgentModel>;
@@ -119,7 +159,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       abortController?.abort();
       return Promise.resolve({ value: 'leaf result' });
     });
-    const leafModel = toolThenAnswer('read', 'read-1', {});
+    const leafModel = leafModelOverride ?? toolThenAnswer('read', 'read-1', {});
     const childScopes: unknown[] = [];
     const leaf = new Agent({
       description: 'Read evidence',
@@ -152,6 +192,9 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       description: 'Delegate research',
       id: 'child',
       instructions: ({ requestContext }) => {
+        if (failChildInstructions) {
+          throw new Error('Child instructions failed before execution');
+        }
         childScopes.push(requestContext.get('scope'));
         return 'Delegate to leaf.';
       },
@@ -175,6 +218,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     hosts.add(host);
     return { child, childModel, childScopes, effect, host, leaf, leafModel, parent, parentModel };
   }
+
+  it('rejects a stale leaf decision when the parent delegation call is reused', async () => {
+    await assertStaleDelegatedDecision(tree);
+  });
 
   it('fails closed when a context filter throws before the child sees parent context', async () => {
     const { parent, childModel, effect } = tree({
@@ -258,6 +305,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
             ]
       );
       const delegationPolicy = createDelegationConfig({
+        abortSignal: new AbortController().signal,
         conversationBinding: binding,
         logger: createLogger('SubagentBindingTest'),
         personasById: new Map([
@@ -273,6 +321,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
             },
           ],
         ]),
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       });
       const { parent, effect } = tree({
         childInputProcessor: binding.inputProcessor,
@@ -315,7 +364,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         }
         const key = { parentRuntimeRunId, parentToolCallId: invocation };
         if (nested.type === 'start') {
-          await graph.bindInvocationRun(rootScope, key, nested.runId);
+          await graph.bindInvocationRun(rootScope, { ...key, personaId: 'child' }, nested.runId);
           publishedRuns.set(invocation, nested.runId);
         }
         expect(await reloadedGraph.getInvocation(rootScope, key)).toMatchObject({
@@ -474,11 +523,13 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   it.each([true, false])(
     'routes grandchild approval through recreated agents and storage (approved=%s)',
     async (approved) => {
+      const completions = vi.fn();
       const initialInput = vi.fn(
         ({ messages }: Parameters<NonNullable<InputProcessor['processInput']>>[0]) => messages
       );
       const { parent, effect, host } = tree({
         childInputProcessor: { id: 'resume-input-proof', processInput: initialInput },
+        delegation: { onDelegationComplete: completions },
         requireApproval: true,
       });
       const output = await parent.stream('Read evidence', {
@@ -497,6 +548,8 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         chunks.push(chunk);
       }
       expect(initialBindings).toHaveLength(1);
+      const nativeMessages = initialChildMessageIdentities(chunks);
+      expect(completions).not.toHaveBeenCalled();
       const approval = chunks.find((chunk) => chunk.type === 'tool-call-approval');
       expect(approval).toBeDefined();
       expect(effect).not.toHaveBeenCalled();
@@ -514,6 +567,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       );
       const recreated = tree({
         childInputProcessor: { id: 'resume-input-proof', processInput: resumeInput },
+        delegation: { onDelegationComplete: completions },
         requireApproval: true,
       });
       const resume = approved
@@ -532,14 +586,114 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         },
         new Map([['agent-child', 'child']])
       );
+      const resumedChunks: ChunkType[] = [];
+      const personas = new Map([
+        ['agent-child', 'child'],
+        ['agent-leaf', 'leaf'],
+      ]);
+      const createProjection = () =>
+        createDelegatedStreamProjection({
+          authorize: async (identity) => {
+            const messageId = nativeMessages.get(identity.childRuntimeRunId);
+            if (!messageId) {
+              throw new Error('Unknown resumed native invocation');
+            }
+            const rows = await database.query<{ thread_id: string }>(
+              'SELECT thread_id FROM mastra_messages WHERE id = $1',
+              [messageId]
+            );
+            const threadId = rows.rows[0]?.thread_id;
+            if (!threadId) {
+              throw new Error('Missing persisted native child message');
+            }
+            return { messageId, threadId };
+          },
+          createState: (_personaId, threadId) =>
+            createTurnAttemptLifecycleState({ memory: { threadId } }, undefined, undefined),
+          isActiveToolCall: (state, toolCallId) =>
+            state.activeToolEvents?.has(toolCallId) === true &&
+            !state.terminalToolCallStates.has(toolCallId),
+          mapPart: async (part, state, toolNames) => {
+            const result = await processMastraStreamPart(
+              part,
+              toolNames,
+              state,
+              undefined,
+              new Map(),
+              personas
+            );
+            return {
+              ...result,
+              chunks: result.chunks.map((chunk) => {
+                if (
+                  chunk.type === 'delegated-conversation-chunk' ||
+                  chunk.type === 'child-continuation-chunk'
+                ) {
+                  throw new Error('Child projection cannot contain an already-scoped chunk.');
+                }
+                return chunk;
+              }),
+            };
+          },
+          personas,
+        });
+      const pausedProjection = createProjection();
+      const rootState = createTurnAttemptLifecycleState(undefined, undefined, undefined);
+      const rootToolNames = new Map<string, string>();
+      for (const chunk of chunks) {
+        await pausedProjection?.project(chunk, rootToolNames);
+        // Match streamAttemptChunks: project children first, then stop at the
+        // first parent pause instead of consuming any later native chunks.
+        const rootPart = await processMastraStreamPart(
+          chunk,
+          rootToolNames,
+          rootState,
+          undefined,
+          new Map(),
+          personas
+        );
+        if (rootPart.finished) {
+          break;
+        }
+      }
+      expect(
+        pausedProjection?.finalize((state) =>
+          makeDelegatedStreamTermination(state, false).map((chunk) => {
+            if (
+              chunk.type === 'delegated-conversation-chunk' ||
+              chunk.type === 'child-continuation-chunk'
+            ) {
+              throw new Error('Child terminal cannot contain an already-scoped chunk.');
+            }
+            return chunk;
+          })
+        )
+      ).toEqual([]);
+      const projection = createProjection();
+      const projected = [];
       for await (const chunk of resume.fullStream) {
         await authorizeResume(chunk);
+        resumedChunks.push(chunk);
+        projected.push(...((await projection?.project(chunk, new Map())) ?? []));
       }
+      const firstNested = resumedChunks.find((chunk) => chunk.type === 'tool-output');
+      expect(
+        readMastraStreamPartString(readMastraStreamPartValue(firstNested, 'output'), 'messageId')
+      ).toBeUndefined();
+      expect(new Set(projected.map((chunk) => chunk.identity.childRuntimeRunId)).size).toBe(2);
+      expect(projected.every((chunk) => Boolean(chunk.messageId))).toBe(true);
+      expect(projected.filter((chunk) => chunk.chunk.type === 'message-finish')).toHaveLength(2);
       expect(resumedBindings).toEqual(initialBindings);
       expect(effect).not.toHaveBeenCalled();
       expect(recreated.effect).toHaveBeenCalledTimes(approved ? 1 : 0);
       expect(resumeInput).not.toHaveBeenCalled();
       expect(await resume.text).toBe('child-1 answered');
+      expect(completions).toHaveBeenCalledOnce();
+      expect(completions.mock.calls[0]?.[0]).toMatchObject({
+        result: { usage: { inputTokens: 2, outputTokens: 2, totalTokens: 4 } },
+        runId: output.runId,
+        toolCallId: 'child-1',
+      });
     }
   );
 
@@ -560,6 +714,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
 
   it('does not silently turn a failed Brainstrike completion hook into successful delegation', async () => {
     const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
       logger: {
         debug: vi.fn(),
         error: vi.fn(),
@@ -584,6 +739,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
           },
         ],
       ]),
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
     });
     const { parent } = tree({ delegation: config });
     const output = await parent.stream('Find evidence');
@@ -640,6 +796,87 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     expect(rows.rows).toHaveLength(2);
   });
 
+  it.each(['instructions', 'input'] as const)(
+    'joins native %s failures without waiting for a missing completion hook',
+    async (failureStage) => {
+      const owner = new AbortController();
+      const persistence = createDelegatedTurnPersistence(backing.memory, {
+        resourceId: 'owner',
+        threadId: 'root',
+      });
+      if (!persistence) {
+        throw new Error('Fixture requires memory');
+      }
+      const completion = vi.fn<(context: DelegationCompleteContext) => void>();
+      const { parent, childModel, effect } = tree({
+        childInputProcessor: {
+          id: 'reject-child-input',
+          processInputStep() {
+            throw new Error('Child input rejected');
+          },
+        },
+        delegation: {
+          onDelegationComplete: completion,
+          onDelegationStart: (context) => persistence.prepare(context, owner.signal),
+        },
+        failChildInstructions: failureStage === 'instructions',
+        rootModel: toolThenAnswer('agent-child', 'child-1', {
+          instructions: 'Read carefully',
+          prompt: 'Find evidence',
+        }),
+      });
+      const output = await parent.stream('Read', {
+        abortSignal: owner.signal,
+        hooks: persistence.hooks(owner.signal),
+        memory: { resource: 'owner', thread: 'root' },
+      });
+      const chunks = await collect(output.fullStream);
+      expect(JSON.stringify(chunks)).toContain(
+        failureStage === 'instructions'
+          ? 'Child instructions failed before execution'
+          : 'Child input rejected'
+      );
+      expect(childModel.prompts).toHaveLength(0);
+      expect(effect).not.toHaveBeenCalled();
+      // Instructions are resolved outside native delegation's try/catch.
+      expect(completion).toHaveBeenCalledTimes(failureStage === 'instructions' ? 0 : 1);
+      owner.abort();
+      await persistence.finalize();
+    }
+  );
+
+  it('settles cancelled child persistence after native suspension skips delegation completion', async () => {
+    const owner = new AbortController();
+    const persistence = createDelegatedTurnPersistence(backing.memory, {
+      resourceId: 'owner',
+      threadId: 'root',
+    });
+    if (!persistence) {
+      throw new Error('Fixture requires child persistence');
+    }
+    const completion = vi.fn<(context: DelegationCompleteContext) => void>();
+    const { parent, effect } = tree({
+      childInputProcessor: persistence.processor,
+      childOutputProcessor: persistence.processor,
+      delegation: {
+        onDelegationComplete: completion,
+        onDelegationStart: (context) => persistence.prepare(context, owner.signal),
+      },
+      suspend: true,
+    });
+    const output = await parent.stream('Read', {
+      abortSignal: owner.signal,
+      hooks: persistence.hooks(owner.signal),
+      memory: { resource: 'owner', thread: 'root' },
+    });
+    const chunks = await collect(output.fullStream);
+    expect(chunks.some((chunk) => chunk.type === 'tool-call-suspended')).toBe(true);
+    expect(completion).not.toHaveBeenCalled();
+    expect(effect).not.toHaveBeenCalled();
+    owner.abort();
+    await persistence.finalize();
+  });
+
   it('resumes a grandchild question through the root snapshot', async () => {
     const { parent, effect } = tree({ suspend: true });
     const output = await parent.stream('Read', { memory: { resource: 'owner', thread: 'root' } });
@@ -674,7 +911,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     const host = new Mastra({
       backgroundTasks: { enabled: true },
       logger: false,
-      storage: backing.storage,
+      storage: new MastraCompositeStore({
+        domains: { memory: backing.store },
+        id: 'omitted-domain-control',
+      }),
     });
     hosts.add(host);
     const store = await host.backgroundTaskManager?.getStorage();
@@ -703,7 +943,10 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     const nextHost = new Mastra({
       backgroundTasks: { enabled: true },
       logger: false,
-      storage: recreated.storage,
+      storage: new MastraCompositeStore({
+        domains: { memory: recreated.store },
+        id: 'omitted-domain-recreated',
+      }),
     });
     hosts.add(nextHost);
     const nextStore = await nextHost.backgroundTaskManager?.getStorage();
@@ -714,7 +957,7 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   });
 
   it('uses stream untilIdle without a second model invocation when no background work exists', async () => {
-    const { parent, effect } = tree();
+    const { parent, effect, parentModel } = tree();
     const output = await parent.stream('Read', {
       memory: { resource: 'owner', thread: 'root' },
       untilIdle: true,
@@ -722,5 +965,6 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
     await collect(output.fullStream);
     expect(await output.text).toBe('child-1 answered');
     expect(effect).toHaveBeenCalledTimes(1);
+    expect(parentModel.prompts).toHaveLength(2);
   });
 });

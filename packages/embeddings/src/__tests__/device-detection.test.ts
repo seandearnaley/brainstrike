@@ -145,6 +145,31 @@ describe('device-detection', () => {
       expect(caps.webgpuUnavailableReason).toContain('GPU initialization failed');
     });
 
+    it('gives up on an adapter request that never settles after 5 seconds', async () => {
+      vi.useFakeTimers();
+      try {
+        vi.stubGlobal('navigator', {
+          gpu: {
+            requestAdapter: vi.fn(() => new Promise<never>(() => undefined)),
+          },
+        });
+
+        const detecting = detectDeviceCapabilities();
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(vi.getTimerCount()).toBeGreaterThan(0);
+        await vi.advanceTimersByTimeAsync(1);
+        const caps = await detecting;
+
+        expect(caps.webgpuAdapterAvailable).toBe(false);
+        expect(caps.webgpuUnavailableReason).toBe(
+          'WebGPU adapter request failed: WebGPU adapter request timed out after 5000ms'
+        );
+        expect(caps.recommendedDevice).toBe('wasm');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('recommends WASM when WebGPU uses fallback adapter', async () => {
       const mockFallbackAdapter = {
         features: new Set([]),

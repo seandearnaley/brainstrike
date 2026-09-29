@@ -91,6 +91,7 @@ function setup() {
         addChildView: (view) => added.push(view),
         removeChildView: (view) => removed.push(view),
       },
+      isDestroyed: () => false,
     },
     mintTabId: () => `tab-${++counter}`,
     onTabsChanged,
@@ -135,6 +136,93 @@ describe('normalizeUrl', () => {
     expect(isNavigableUrl('blob:https://x/uuid')).toBe(false);
     expect(isNavigableUrl('https://ok.test')).toBe(true);
     expect(isNavigableUrl('about:blank')).toBe(true);
+  });
+});
+
+/**
+ * A host window that BEHAVES LIKE ELECTRON once destroyed (BST-1843): the
+ * `contentView` getter throws `Object has been destroyed` (as every property
+ * of a destroyed `BrowserWindow` does) while `isDestroyed()` stays callable.
+ */
+function createElectronLikeHostWindow() {
+  let destroyed = false;
+  const attached: BrowserPaneView[] = [];
+  const contentView = {
+    addChildView: (view: BrowserPaneView) => attached.push(view),
+    removeChildView: (view: BrowserPaneView) => {
+      const index = attached.indexOf(view);
+      if (index !== -1) {
+        attached.splice(index, 1);
+      }
+    },
+  };
+  return {
+    attached,
+    destroy: () => {
+      destroyed = true;
+    },
+    hostWindow: {
+      get contentView() {
+        if (destroyed) {
+          throw new TypeError('Object has been destroyed');
+        }
+        return contentView;
+      },
+      isDestroyed: () => destroyed,
+    },
+  };
+}
+
+describe('BrowserViewManager.dispose — host window lifecycle (BST-1843)', () => {
+  function setupWithElectronLikeWindow() {
+    const created: FakeView[] = [];
+    const host = createElectronLikeHostWindow();
+    const onTabsChanged = vi.fn<(tabs: readonly BrowserTabState[]) => void>();
+    let counter = 0;
+    const manager = new BrowserViewManager({
+      createView: () => {
+        const view = createFakeView(created.length + 1);
+        created.push(view);
+        return view;
+      },
+      hostWindow: host.hostWindow,
+      mintTabId: () => `tab-${++counter}`,
+      onTabsChanged,
+      partition: 'persist:browser-pane-test',
+    });
+    return { created, host, manager, onTabsChanged };
+  }
+
+  it('live window (renderer reload / factory reset): detaches every view AND releases its page', () => {
+    const { created, host, manager, onTabsChanged } = setupWithElectronLikeWindow();
+    manager.createTab('a.com');
+    manager.createTab('b.com');
+    expect(host.attached).toHaveLength(2);
+
+    manager.dispose();
+
+    expect(host.attached).toHaveLength(0);
+    expect(created.map((view) => view.calls.closed)).toEqual([true, true]);
+    expect(manager.listTabs()).toEqual([]);
+    // The fresh renderer is told the pane is now empty.
+    expect(onTabsChanged).toHaveBeenLastCalledWith([]);
+  });
+
+  it('destroyed window (win "closed"): does not touch the dead contentView, still releases every page', () => {
+    const { created, host, manager, onTabsChanged } = setupWithElectronLikeWindow();
+    manager.createTab('a.com');
+    manager.createTab('b.com');
+    host.destroy();
+
+    // `closed` fires AFTER the BrowserWindow is destroyed; Electron does NOT
+    // destroy a WebContentsView's webContents with its window, so they must
+    // still be closed here or they leak.
+    expect(() => manager.dispose()).not.toThrow();
+
+    expect(created.map((view) => view.calls.closed)).toEqual([true, true]);
+    expect(manager.listTabs()).toEqual([]);
+    expect(manager.getActiveWebContentsId()).toBeNull();
+    expect(onTabsChanged).toHaveBeenLastCalledWith([]);
   });
 });
 
@@ -248,6 +336,7 @@ describe('BrowserViewManager', () => {
       },
       hostWindow: {
         contentView: { addChildView: () => undefined, removeChildView: () => undefined },
+        isDestroyed: () => false,
       },
       mintTabId: () => `tab-${++counter}`,
       onNavigationError: (event) => errors.push(event),
@@ -318,6 +407,7 @@ describe('BrowserViewManager', () => {
       },
       hostWindow: {
         contentView: { addChildView: () => undefined, removeChildView: () => undefined },
+        isDestroyed: () => false,
       },
       mintTabId: () => `tab-${++counter}`,
       onTabsChanged: () => undefined,
@@ -382,6 +472,7 @@ describe('BrowserViewManager', () => {
           },
           removeChildView: () => undefined,
         },
+        isDestroyed: () => false,
       },
       mintTabId: () => 'tab-1',
       onTabsChanged: vi.fn(),

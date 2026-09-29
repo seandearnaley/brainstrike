@@ -60,7 +60,8 @@ type PreparedRequestStatus = 'cancelled' | 'completed' | 'failed';
 type CompletePreparedRequest = (
   preparedRequestData: Record<string, unknown> | undefined,
   status: PreparedRequestStatus,
-  error?: string
+  error?: string,
+  hostOwnsRun?: boolean
 ) => Promise<void>;
 
 /**
@@ -70,7 +71,8 @@ type CompletePreparedRequest = (
  */
 type PrepareRequestData = (
   abortSignal?: AbortSignal,
-  turnAnchorMessageId?: string | null
+  turnAnchorMessageId?: string | null,
+  runConfig?: unknown
 ) => Promise<Record<string, unknown>>;
 
 export interface UseAssistantUsageLedgerInput {
@@ -146,9 +148,9 @@ export function useAssistantUsageLedger({
   // Thread attribution uses the CURRENT selection — a mid-run thread switch
   // could miss, acceptable for a transient display sum.
   const completeRequestAndSettleLiveUsage = useCallback<CompletePreparedRequest>(
-    async (preparedRequestData, status, error) => {
+    async (preparedRequestData, status, error, hostOwnsRun) => {
       try {
-        await completePreparedRequest(preparedRequestData, status, error);
+        await completePreparedRequest(preparedRequestData, status, error, hostOwnsRun);
       } finally {
         if (status !== 'completed') {
           clearThreadLiveRunUsage();
@@ -174,9 +176,9 @@ export function useAssistantUsageLedger({
   // assistant run while another run is in progress'), so a live sum that is
   // genuinely this thread's own in-flight accumulation cannot exist here.
   const prepareRequestAndResetLiveUsage = useCallback<PrepareRequestData>(
-    (abortSignal, turnAnchorMessageId) => {
+    (abortSignal, turnAnchorMessageId, runConfig) => {
       clearThreadLiveRunUsage();
-      return prepareRequestData(abortSignal, turnAnchorMessageId);
+      return prepareRequestData(abortSignal, turnAnchorMessageId, runConfig);
     },
     [clearThreadLiveRunUsage, prepareRequestData]
   );

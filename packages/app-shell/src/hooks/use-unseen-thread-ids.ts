@@ -5,7 +5,7 @@
  * The watermark (`lastViewedAtByThreadId`, epoch ms) and the `unseenBaselineAt`
  * floor beneath it live in `assistant-thread-store.ts` and are monotonic there;
  * this module owns only the two halves the panel needs — the pure derivation,
- * and the effect that advances the watermark for the ACTIVE thread.
+ * and the effect that advances the watermark for the thread ON SCREEN.
  */
 import type { AssistantMemoryThread, AssistantThreadRunStatus } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
@@ -25,9 +25,15 @@ export interface UnseenThreadIds {
 }
 
 export interface UnseenThreadIdsArgs {
-  /** The thread on screen. It is being watched, so it is never "unseen". */
-  readonly activeThreadId: string | null;
   readonly lastViewedAtByThreadId: Readonly<Record<string, number>>;
+  /**
+   * The thread whose transcript is on screen right now (see
+   * `useOnScreenThreadId`). It is being watched, so it is never "unseen".
+   * `null` when none is — Settings showing, a background window, no transcript
+   * surface mounted — and then every thread is a candidate, the last-open one
+   * included.
+   */
+  readonly onScreenThreadId: string | null;
   readonly threads: readonly AssistantMemoryThread[];
   /**
    * Epoch ms below which nothing is unseen — `unseenBaselineAt` from the thread
@@ -47,8 +53,8 @@ export interface UnseenThreadIdsArgs {
  * claims to report.
  */
 export function deriveUnseenThreadIds({
-  activeThreadId,
   lastViewedAtByThreadId,
+  onScreenThreadId,
   threads,
   unseenBaselineAt,
 }: UnseenThreadIdsArgs): UnseenThreadIds {
@@ -60,7 +66,7 @@ export function deriveUnseenThreadIds({
       continue;
     }
     const completedAt = latestRun.completedAt;
-    if (completedAt === null || thread.id === activeThreadId) {
+    if (completedAt === null || thread.id === onScreenThreadId) {
       continue;
     }
     const seenUpTo = Math.max(lastViewedAtByThreadId[thread.id] ?? 0, unseenBaselineAt);
@@ -77,60 +83,62 @@ export function deriveUnseenThreadIds({
 
 /** {@link deriveUnseenThreadIds}, memoized on its inputs. */
 export function useUnseenThreadIds(args: UnseenThreadIdsArgs): UnseenThreadIds {
-  const { activeThreadId, lastViewedAtByThreadId, threads, unseenBaselineAt } = args;
+  const { lastViewedAtByThreadId, onScreenThreadId, threads, unseenBaselineAt } = args;
   return useMemo(
     () =>
       deriveUnseenThreadIds({
-        activeThreadId,
         lastViewedAtByThreadId,
+        onScreenThreadId,
         threads,
         unseenBaselineAt,
       }),
-    [activeThreadId, lastViewedAtByThreadId, threads, unseenBaselineAt]
+    [lastViewedAtByThreadId, onScreenThreadId, threads, unseenBaselineAt]
   );
 }
 
 /**
- * Advances the viewed watermark for the ACTIVE thread.
+ * Advances the viewed watermark for the thread that is ON SCREEN.
  *
- * Two marks, both required:
- * - on the way IN and OUT of a thread (the cleanup marks the outgoing one), so
- *   switching away from a thread you just read does not leave it unseen;
- * - again whenever the active thread's latest run reaches a NEW completion time
- *   while it is still active. Without this, a run that finishes in the
- *   FOREGROUND would out-run the mount-time watermark and the thread would read
- *   as unseen the moment the user switched away — a badge for something they
- *   watched happen.
+ * "Seen" means the thread's transcript is showing while the window is active
+ * (BST-1845) — whether the thread is merely the ACTIVE one says nothing about
+ * that, since the surface stays mounted under Settings and in a background
+ * window. `onScreenThreadId` is that fact, published once by the transcript
+ * surface; this hook only reacts to it.
  *
- * The stamp is `max(now, completedAt)`: the completion timestamp comes from the
- * database clock, so a renderer clock that trails it must not leave a watermark
- * below the very completion it just observed.
+ * It stamps on TRANSITIONS, never continuously: when a thread comes on screen
+ * (including switching from another), and when the on-screen thread's latest
+ * run reaches a NEW completion time. A continuous stamp would defeat any future
+ * "mark unread". There is deliberately no stamp on the way OUT: it marked a run
+ * seen that finished off screen and was never shown.
+ *
+ * The stamp is that run's own `completedAt` — the value the badge compares
+ * against — not `Date.now()`, so host/renderer clock skew cannot leave a
+ * watermark below the completion it just observed. A thread with no terminal
+ * completion (loading, running, no run) has nothing to stamp.
  */
-export function useMarkActiveThreadViewed({
-  activeThreadId,
+export function useMarkOnScreenThreadViewed({
+  onScreenThreadId,
   threads,
 }: {
-  readonly activeThreadId: string | null;
+  readonly onScreenThreadId: string | null;
   readonly threads: readonly AssistantMemoryThread[];
 }): void {
   const markThreadViewed = useAssistantThreadStore((state) => state.markThreadViewed);
-  const activeCompletedAtMs = useMemo(() => {
-    if (activeThreadId === null) {
+  const completedAtMs = useMemo(() => {
+    if (onScreenThreadId === null) {
       return null;
     }
-    const completedAt = threads.find((thread) => thread.id === activeThreadId)?.latestRun
-      ?.completedAt;
-    return completedAt ? completedAt.getTime() : null;
-  }, [activeThreadId, threads]);
+    const latestRun = threads.find((thread) => thread.id === onScreenThreadId)?.latestRun;
+    if (!(latestRun && TERMINAL_RUN_STATUSES.has(latestRun.status) && latestRun.completedAt)) {
+      return null;
+    }
+    return latestRun.completedAt.getTime();
+  }, [onScreenThreadId, threads]);
 
   useEffect(() => {
-    if (activeThreadId === null) {
+    if (onScreenThreadId === null || completedAtMs === null) {
       return;
     }
-    const mark = (): void => {
-      markThreadViewed(activeThreadId, Math.max(Date.now(), activeCompletedAtMs ?? 0));
-    };
-    mark();
-    return mark;
-  }, [activeCompletedAtMs, activeThreadId, markThreadViewed]);
+    markThreadViewed(onScreenThreadId, completedAtMs);
+  }, [completedAtMs, markThreadViewed, onScreenThreadId]);
 }

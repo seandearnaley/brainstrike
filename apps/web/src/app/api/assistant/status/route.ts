@@ -1,10 +1,10 @@
 import { ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR } from '@brainstrike/agent/request-boundary';
-import { resolveHostedWebAssistantStatus } from '../../../../server/assistant-config';
+import { resolveHostedWebAssistantStatus } from '../../../../server/assistant-config.js';
 import {
   isWebAssistantRequestBodyLimitConfigError,
   resolveWebAssistantRequestBodyLimitBytes,
   WEB_ASSISTANT_INVALID_REQUEST_BODY_LIMIT_REASON,
-} from '../../../../server/web-assistant-body-limit';
+} from '../../../../server/web-assistant-body-limit.js';
 
 export async function GET(): Promise<Response> {
   try {

@@ -13,6 +13,7 @@ import {
   TOOL_SUSPEND_DATA_NAME,
   UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '@brainstrike/assistant-contract/tool-suspend';
+import { readDelegatedTaskTerminalError } from './delegated-terminal-status';
 
 /**
  * Pure run-event derivation: pairing `.started` rows with their terminal
@@ -70,6 +71,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * emits a `tool-call` part for that id, so without the exemption it would be
  * suppressed as "already carded" at every detail level.
  *
+ * `compaction.failed` (BST-1737) is included on the SAME grounds as
+ * `mcp.tools.unavailable`, and its case is just as clean: the pre-request
+ * compaction pass threw, so the turn went to the provider over budget and
+ * NOTHING cards that — the user's only other symptom is a later provider
+ * context-overflow error naming an unrelated cause, or quietly degraded output.
+ * Membership is load-bearing for the same reason as below; without it the kind
+ * would sit in the contract reporting nothing to the user it exists for. It
+ * carries no `toolCallId` and is not `tool.*`, so it needs no card-suppression
+ * exemption.
+ *
  * `mcp.tools.unavailable` (BST-1602) is included for the same reason and is the
  * cleanest case in this list: an MCP server contributed ZERO tools to the run,
  * so NOTHING cards it — the tool never entered the map, which is why
@@ -80,6 +91,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Membership here is load-bearing, not decorative: rows are hidden at default
  * detail, so a kind added to the contract alone would still report nothing to
  * the user it exists for.
+ *
+ * `provider.request.warned` (BST-1701) is included on exactly that reasoning.
+ * The provider dropped part of the request - a user-set `temperature` on a
+ * model that rejects one - and answered anyway, so the turn LOOKS healthy:
+ * there is no failed tool, no error bubble, and no card of any kind. This row
+ * is the only evidence the setting was ignored, and hiding it at default
+ * detail would leave the silent degradation exactly as it was found. Like
+ * `run.failed`/`mcp.tools.unavailable` it carries no `toolCallId` and is not
+ * `tool.*`, so it needs no card-suppression exemption.
+ *
+ * `delegation.ledger` (settled 2026-09-15) is the user-facing status of a
+ * fan-out — "3 of 4 specialists returned · 1 running" — and exists to be seen
+ * at default detail; earlier rows of the same ledger are hidden by the render
+ * plan (`isSupersededLedgerRow`), so only the newest shows.
  */
 export function isAlwaysVisibleRunEvent(data: unknown): boolean {
   const event = readAssistantRunEvent(data);
@@ -87,7 +112,11 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     return false;
   }
   return (
+    event.kind === 'compaction.failed' ||
+    event.kind === 'delegation.budget.exhausted' ||
+    event.kind === 'delegation.ledger' ||
     event.kind === 'mcp.tools.unavailable' ||
+    event.kind === 'provider.request.warned' ||
     event.kind === 'run.failed' ||
     event.kind === 'run.cancelled' ||
     event.kind === 'tool.approval.requested' ||
@@ -148,6 +177,22 @@ function isSettledMessage(message: unknown): boolean {
   return status['type'] === 'complete' || status['type'] === 'incomplete';
 }
 
+/** A failed child receiver leaves its last pause card in a terminally incomplete message. */
+function isTerminallyIncompleteMessage(message: unknown): boolean {
+  if (!(isRecord(message) && isRecord(message['status']))) {
+    return false;
+  }
+  const status = message['status'];
+  if (status['type'] !== 'incomplete') {
+    return false;
+  }
+  const terminal = readDelegatedTaskTerminalError(status['error']);
+  return (
+    (status['reason'] === 'error' && terminal?.outcome === 'failed') ||
+    (status['reason'] === 'cancelled' && terminal?.outcome === 'cancelled')
+  );
+}
+
 /**
  * The `toolCallId` a pending pause card (live approval/suspend notice, or the
  * synthetic message `appendSuspendedPauseMessages` re-appends for a pause
@@ -180,6 +225,9 @@ function pendingPauseToolCallIdFromPart(part: unknown): string | null {
 function collectPendingPauseToolCallIds(messages: readonly unknown[]): Set<string> {
   const ids = new Set<string>();
   for (const message of messages) {
+    if (isTerminallyIncompleteMessage(message)) {
+      continue;
+    }
     for (const part of getMessageParts(message)) {
       const toolCallId = pendingPauseToolCallIdFromPart(part);
       if (toolCallId) {
@@ -220,7 +268,7 @@ interface RunEventIndex {
  * event is indexed under each key it carries; a `.started` row then matches
  * terminals through the ONE key `scopeMetadataKey` picks for its kind.
  */
-const SCOPE_METADATA_KEYS = ['toolCallId', 'parentToolCallId'] as const;
+const SCOPE_METADATA_KEYS = ['toolCallId', 'parentToolCallId', 'ledgerId'] as const;
 
 /**
  * The metadata key scoping a `.started` row to its OWN terminal, or null when
@@ -245,6 +293,12 @@ function scopeMetadataKey(kind: AssistantRunEventKind): string | null {
   }
   if (kind === 'subagent.started') {
     return 'parentToolCallId';
+  }
+  // A ledger row is superseded by a LATER row of the same ledger, never by a
+  // terminal of another kind; `ledgerId` is the parent run that dispatched
+  // the work and the identity that survives across host legs.
+  if (kind === 'delegation.ledger') {
+    return 'ledgerId';
   }
   return null;
 }
@@ -275,8 +329,10 @@ function nextMatchingEventIndex(
   // (see `isRunAgnosticTerminalKind`): the answering terminal legitimately
   // carries a DIFFERENT runId, so the run-scoped buckets below can never find
   // it. `byKindAndScope` indexes every event carrying the scope key regardless
-  // of runId, which is exactly the pairing wanted here.
-  if (scoped && isRunAgnosticTerminalKind(event.kind)) {
+  // of runId, which is exactly the pairing wanted here. A ledger row is the
+  // same case: its identity is the `ledgerId`, and the initial leg and the
+  // resume leg that supersedes it are different host runs.
+  if (scoped && isRunAgnosticScopeKind(event.kind)) {
     return (
       index.byKindAndScope.get(scopeKey(kind, metadataKey, scopeId)) ?? Number.POSITIVE_INFINITY
     );
@@ -343,6 +399,7 @@ function collectIndexedRunEvents(messages: readonly unknown[]): {
   const pendingPauseToolCallIds = new Set<string>();
   for (const message of messages) {
     const settled = isSettledMessage(message);
+    const terminallyIncomplete = isTerminallyIncompleteMessage(message);
     for (const part of getMessageParts(message)) {
       const event = getRunEventFromPart(part);
       if (event) {
@@ -358,7 +415,7 @@ function collectIndexedRunEvents(messages: readonly unknown[]): {
         continue;
       }
       const pendingToolCallId = pendingPauseToolCallIdFromPart(part);
-      if (pendingToolCallId) {
+      if (pendingToolCallId && !terminallyIncomplete) {
         pendingPauseToolCallIds.add(pendingToolCallId);
       }
     }
@@ -433,7 +490,14 @@ function initialRenderPlanKey(
     event.kind.startsWith('tool.') &&
     typeof toolCallId === 'string' &&
     toolCallIds.has(toolCallId);
-  return event.kind.startsWith('subagent.') || hasToolCard || hasIndexedTerminalEvent(event, index)
+  // The indexed form of `isSupersededLedgerRow`, so both paths agree.
+  const supersededLedger =
+    event.kind === 'delegation.ledger' &&
+    Number.isFinite(nextMatchingEventIndex(index, 'delegation.ledger', event, 'ledgerId'));
+  return event.kind.startsWith('subagent.') ||
+    hasToolCard ||
+    supersededLedger ||
+    hasIndexedTerminalEvent(event, index)
     ? 'hidden'
     : 'visible:1';
 }
@@ -623,6 +687,19 @@ function isRunAgnosticTerminalKind(kind: AssistantRunEventKind): boolean {
 }
 
 /**
+ * Kinds whose indexed scope lookup ignores `runId` altogether: the run-agnostic
+ * terminal kinds above, plus `delegation.ledger`, whose superseding row is a
+ * LATER row of its own kind for the same `ledgerId` — published by the resume
+ * leg, a different host run from the initial leg that published the stale one.
+ * Live parts carry no `runId`, hydrated parts do, so without this a RELOADED
+ * thread would keep the initial leg's "2 of 4 · 2 running" row visible on the
+ * batched path while the per-event path (`isSupersededLedgerRow`) hid it.
+ */
+function isRunAgnosticScopeKind(kind: AssistantRunEventKind): boolean {
+  return kind === 'delegation.ledger' || isRunAgnosticTerminalKind(kind);
+}
+
+/**
  * Every terminal kind that can close a `running` row: the explicit list when the
  * kind declares one, otherwise its suffix-derived completed/failed pair. Empty
  * means the row has no terminal of its own and only the generic end-of-run
@@ -732,6 +809,29 @@ function hasTerminalRowForStartedEvent(
     );
 }
 
+/**
+ * A `delegation.ledger` row is superseded by any LATER row of the same
+ * ledger (`metadata.ledgerId`), in this message or a later one: the newest
+ * row is the status, the earlier ones are history the timeline never shows.
+ * Deliberately ignores `runId` — see `isRunAgnosticScopeKind`.
+ */
+function isSupersededLedgerRow(
+  events: readonly AssistantRunEvent[],
+  event: AssistantRunEvent,
+  index: number
+): boolean {
+  if (event.kind !== 'delegation.ledger') {
+    return false;
+  }
+  const ledgerId = event.metadata?.['ledgerId'];
+  return events
+    .slice(index + 1)
+    .some(
+      (candidate) =>
+        candidate.kind === 'delegation.ledger' && candidate.metadata?.['ledgerId'] === ledgerId
+    );
+}
+
 export interface AssistantRunEventRenderPlan {
   hidden: boolean;
   repeatCount: number;
@@ -781,6 +881,9 @@ export function resolveAssistantRunEventRenderPlan(
     return VISIBLE_ONCE;
   }
   if (hasTerminalRowForStartedEvent(events, event, index)) {
+    return HIDDEN;
+  }
+  if (isSupersededLedgerRow(events, event, index)) {
     return HIDDEN;
   }
 

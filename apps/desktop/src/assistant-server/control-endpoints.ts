@@ -1,7 +1,9 @@
 import type http from 'node:http';
 import { respondJson } from '@brainstrike/assistant-service/http';
-import { requestRunCancel, requestRunSteer } from '@brainstrike/assistant-service/steering';
+import { requestRunSteer } from '@brainstrike/assistant-service/steering';
+import { cancelDesktopAssistantRun } from './cancel-run';
 import { readRequestBody } from './http';
+import { desktopAssistantServerLogger as logger } from './logger';
 
 /** Transport ceiling shared with approval/resume action identifiers. */
 const STEER_RUN_ID_MAX_CHARS = 512;
@@ -73,7 +75,8 @@ export async function handleSteerRequest(
  */
 export async function handleCancelRequest(
   req: http.IncomingMessage,
-  res: http.ServerResponse
+  res: http.ServerResponse,
+  boundaries?: Parameters<typeof cancelDesktopAssistantRun>[1]
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -110,7 +113,18 @@ export async function handleCancelRequest(
     });
     return;
   }
-  if (!requestRunCancel(runId)) {
+  let cancelled: boolean;
+  try {
+    cancelled = await cancelDesktopAssistantRun(runId, boundaries);
+  } catch (error) {
+    logger.error('Failed to persist assistant cancellation', { error, runId });
+    respondJson(res, 503, {
+      error: 'cancel_run_unavailable',
+      message: 'Cancellation could not be recorded. Reload and try again.',
+    });
+    return;
+  }
+  if (!cancelled) {
     respondJson(res, 404, {
       error: 'no_active_run',
       message: 'No active cancellable run with that id; it may have already finished.',

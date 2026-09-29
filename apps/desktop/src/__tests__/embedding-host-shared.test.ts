@@ -10,6 +10,24 @@ describe('embedding host shared command helpers', () => {
     vi.restoreAllMocks();
   });
 
+  it('preserves exact control acknowledgement identity and rejects malformed identities', () => {
+    const status = {
+      active: false,
+      lastError: null,
+      runtimeId: 'runtime',
+      runtimeKind: 'embedding-host',
+      state: 'stopped',
+    };
+    expect(assertEmbeddingHostStatus({ ...status, commandId: 'stop-request' })).toMatchObject({
+      commandId: 'stop-request',
+    });
+    for (const commandId of ['', ' ', 1, null]) {
+      expect(() => assertEmbeddingHostStatus({ ...status, commandId })).toThrow(
+        'non-empty commandId'
+      );
+    }
+  });
+
   it('creates a strict embedding host command envelope', () => {
     const randomUUIDMock = vi
       .spyOn(globalThis.crypto, 'randomUUID')

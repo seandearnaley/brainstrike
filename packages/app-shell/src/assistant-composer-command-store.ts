@@ -1,4 +1,19 @@
+import { createLogger } from '@brainstrike/logging';
+import { toast } from '@brainstrike/ui/use-toast';
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
+
+const logger = createLogger('AssistantComposerDrafts');
+let saveFailureReported = false;
+
+function reportDraftStorageError(error: unknown, title: string): void {
+  logger.error(title, { error });
+  toast({
+    description: 'Composer text could not be saved or restored. Keep a copy before reloading.',
+    title,
+    variant: 'destructive',
+  });
+}
 
 export type ComposerDraftMode = 'append' | 'replace';
 
@@ -28,59 +43,131 @@ function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T
   return Object.fromEntries(Object.entries(record).filter(([entryKey]) => entryKey !== key));
 }
 
-export const useAssistantComposerCommandStore = create<AssistantComposerCommandState>((set) => ({
-  acknowledge: (threadId, commandId) => {
-    set((state) => {
-      const commands = state.commandsByThreadId[threadId];
-      if (!commands?.some((command) => command.id === commandId)) {
-        return state;
-      }
+function isDraftRecord(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.entries(value).every(([threadId, text]) => threadId.trim() && typeof text === 'string')
+  );
+}
 
-      const remainingCommands = commands.filter((command) => command.id !== commandId);
-      return {
-        commandsByThreadId:
-          remainingCommands.length > 0
-            ? { ...state.commandsByThreadId, [threadId]: remainingCommands }
-            : withoutKey(state.commandsByThreadId, threadId),
-      };
-    });
-  },
-  commandsByThreadId: {},
-  draftTextByThreadId: {},
-  enqueue: (input) => {
-    if (!input.threadId.trim()) {
-      throw new Error('Assistant composer commands require a thread id.');
-    }
-    if (!input.text.trim()) {
-      throw new Error('Assistant composer commands require non-whitespace text.');
-    }
+export const useAssistantComposerCommandStore = create<AssistantComposerCommandState>()(
+  persist(
+    (set) => ({
+      acknowledge: (threadId, commandId) => {
+        set((state) => {
+          const commands = state.commandsByThreadId[threadId];
+          if (!commands?.some((command) => command.id === commandId)) {
+            return state;
+          }
 
-    const command: AssistantComposerCommand = {
-      id: crypto.randomUUID(),
-      mode: input.mode,
-      text: input.text,
-      threadId: input.threadId,
-    };
-    set((state) => ({
-      commandsByThreadId: {
-        ...state.commandsByThreadId,
-        [input.threadId]: [...(state.commandsByThreadId[input.threadId] ?? []), command],
+          const remainingCommands = commands.filter((command) => command.id !== commandId);
+          return {
+            commandsByThreadId:
+              remainingCommands.length > 0
+                ? { ...state.commandsByThreadId, [threadId]: remainingCommands }
+                : withoutKey(state.commandsByThreadId, threadId),
+          };
+        });
       },
-    }));
-    return command;
-  },
-  recordDraft: (threadId, text) => {
-    if (!threadId.trim()) {
-      throw new Error('Assistant composer drafts require a thread id.');
+      commandsByThreadId: {},
+      draftTextByThreadId: {},
+      enqueue: (input) => {
+        if (!input.threadId.trim()) {
+          throw new Error('Assistant composer commands require a thread id.');
+        }
+        if (!input.text.trim()) {
+          throw new Error('Assistant composer commands require non-whitespace text.');
+        }
+
+        const command: AssistantComposerCommand = {
+          id: crypto.randomUUID(),
+          mode: input.mode,
+          text: input.text,
+          threadId: input.threadId,
+        };
+        set((state) => ({
+          commandsByThreadId: {
+            ...state.commandsByThreadId,
+            [input.threadId]: [...(state.commandsByThreadId[input.threadId] ?? []), command],
+          },
+        }));
+        return command;
+      },
+      recordDraft: (threadId, text) => {
+        if (!threadId.trim()) {
+          throw new Error('Assistant composer drafts require a thread id.');
+        }
+        set((state) => ({
+          draftTextByThreadId: {
+            ...state.draftTextByThreadId,
+            [threadId]: text,
+          },
+        }));
+      },
+      reset: () => {
+        set({ commandsByThreadId: {}, draftTextByThreadId: {} });
+      },
+    }),
+    {
+      merge: (persisted, current) => {
+        if (persisted === undefined) {
+          return current;
+        }
+        if (
+          !(
+            persisted &&
+            typeof persisted === 'object' &&
+            'draftTextByThreadId' in persisted &&
+            isDraftRecord(persisted.draftTextByThreadId)
+          )
+        ) {
+          throw new Error('Stored composer drafts are invalid.');
+        }
+        const { draftTextByThreadId } = persisted;
+        return {
+          ...current,
+          commandsByThreadId: Object.fromEntries(
+            Object.entries(draftTextByThreadId)
+              .filter(([, text]) => text.trim())
+              .map(([threadId, text]) => [
+                threadId,
+                [
+                  {
+                    id: crypto.randomUUID(),
+                    mode: 'replace' as const,
+                    text,
+                    threadId,
+                  },
+                ],
+              ])
+          ),
+          draftTextByThreadId,
+        };
+      },
+      name: 'assistant-composer-drafts.v1',
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) {
+          reportDraftStorageError(error, 'Draft could not be restored');
+        }
+      },
+      partialize: (state) => ({ draftTextByThreadId: state.draftTextByThreadId }),
+      storage: createJSONStorage(() => ({
+        getItem: (name) => sessionStorage.getItem(name),
+        removeItem: (name) => sessionStorage.removeItem(name),
+        setItem: (name, value) => {
+          try {
+            sessionStorage.setItem(name, value);
+            saveFailureReported = false;
+          } catch (error) {
+            if (!saveFailureReported) {
+              saveFailureReported = true;
+              reportDraftStorageError(error, 'Draft not saved');
+            }
+          }
+        },
+      })),
     }
-    set((state) => ({
-      draftTextByThreadId: {
-        ...state.draftTextByThreadId,
-        [threadId]: text,
-      },
-    }));
-  },
-  reset: () => {
-    set({ commandsByThreadId: {}, draftTextByThreadId: {} });
-  },
-}));
+  )
+);

@@ -3,7 +3,10 @@ import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { vi } from 'vitest';
 import { configureDesktopRendererTarget } from '../desktop-renderer-target';
+import type { VisibleDesktopElectronApi } from '../types/desktop-electron-api';
 import { TEST_DESKTOP_RENDERER_TARGET } from './helpers/desktop-ipc-sender-frame-test-allowlist';
+
+type WatchHealthCallback = Parameters<VisibleDesktopElectronApi['fileSystem']['onWatchHealth']>[0];
 
 // Install the renderer target the loaders and the sender-frame allowlist
 // (`registerAuthorizedInvoke`'s second factor, BST-1641) resolve. Production
@@ -49,6 +52,19 @@ const mockElectronAPI = {
       persisted: true,
       rootId: 'mock-root-id',
     }),
+    addRootByPath: vi.fn().mockResolvedValue({
+      displayName: 'mock-directory',
+      handle: {
+        kind: 'directory',
+        name: 'mock-directory',
+        path: '/mock/path',
+        platform: 'electron',
+      },
+      kind: 'path',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'mock-root-id',
+    }),
     exists: vi.fn().mockResolvedValue(true),
     getWatcherTelemetry: vi.fn().mockResolvedValue({
       activeWatchers: 0,
@@ -63,12 +79,14 @@ const mockElectronAPI = {
       retries: 0,
       setupLatencySamples: 0,
     }),
+    listRecentRoots: vi.fn().mockResolvedValue([]),
     onWatchEvent: vi.fn(() => () => {}),
-    onWatchHealth: vi.fn((_callback: (event: unknown) => void) => () => {}),
+    onWatchHealth: vi.fn((_callback: WatchHealthCallback) => () => {}),
     readDirectory: vi.fn().mockResolvedValue([]),
     readFile: vi.fn().mockResolvedValue('mock file content'),
     readFileByAbsolutePath: vi.fn().mockResolvedValue('mock file content by absolute path'),
     readFileByPath: vi.fn().mockResolvedValue('mock file content by path'),
+    removeRoot: vi.fn().mockResolvedValue(undefined),
     requestDirectoryAccess: vi.fn().mockResolvedValue({
       kind: 'directory',
       name: 'mock-directory',
@@ -90,7 +108,7 @@ const mockElectronAPI = {
     removeItem: vi.fn().mockResolvedValue(undefined),
     setItem: vi.fn().mockResolvedValue(undefined),
   },
-};
+} satisfies Pick<VisibleDesktopElectronApi, 'fileSystem' | 'getUserDataPath' | 'storage'>;
 
 // Guard: this file's `Object.defineProperty(window, ...)` calls below are
 // jsdom-only bootstrapping. `window` is always defined under this package's

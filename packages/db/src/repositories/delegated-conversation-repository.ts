@@ -1,23 +1,39 @@
-/**
- * Host-owned graph over native Mastra conversations. Write inputs come from
- * the host's observed delegation scope, never model arguments or renderer ids.
- * Read authorization joins the live root owner and exact native child scope.
- */
-export interface DelegatedConversationDatabase {
-  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
-}
+import {
+  AGENT_SEMANTIC_COLOR_IDS,
+  type AgentColor,
+  isAgentColor,
+} from '@brainstrike/types/agent-color';
+import {
+  type DelegatedConversationDatabase,
+  DelegatedConversationIdentityError,
+  type DelegatedConversationScope,
+} from './delegated-conversation-boundary.js';
+
+export {
+  type DelegatedConversationDatabase,
+  DelegatedConversationIdentityError,
+  type DelegatedConversationScope,
+} from './delegated-conversation-boundary.js';
+
+import {
+  type AssistantRunEvent,
+  type DelegatedOriginalToolCall,
+  sanitizeAssistantRunEventMetadata,
+} from '@brainstrike/assistant-contract';
+import type { DelegatedRunIdentity } from '@brainstrike/assistant-contract/delegated-conversation-stream';
+import {
+  type DelegatedContinuation,
+  readDelegatedContinuation,
+} from './delegated-continuation-repository.js';
+import { AUTHORIZED_DELEGATED_GRAPH as AUTHORIZED_GRAPH } from './delegated-graph-sql.js';
 
 type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject;
 interface JsonObject {
   readonly [key: string]: JsonValue;
 }
 
-export interface DelegatedConversationScope {
-  readonly ownerResourceId: string;
-  readonly rootThreadId: string;
-}
-
-export type DelegatedConversationColor = 'blue' | 'emerald' | 'amber' | 'rose' | 'violet' | 'slate';
+export const DELEGATED_CONVERSATION_COLOR_IDS = AGENT_SEMANTIC_COLOR_IDS;
+export type DelegatedConversationColor = AgentColor;
 
 export interface CreateDelegatedChild {
   readonly color: DelegatedConversationColor;
@@ -46,6 +62,7 @@ export interface DelegatedInvocationKey {
 
 export interface CreateDelegatedInvocation extends DelegatedInvocationKey {
   readonly hostRunId: string;
+  readonly originalToolCall?: DelegatedOriginalToolCall;
   readonly parentThreadId: string;
   readonly personaId: string;
   readonly threadId: string;
@@ -56,12 +73,24 @@ export interface DelegatedInvocation extends CreateDelegatedInvocation, Delegate
   readonly turnMessageId: string;
 }
 
+export interface DelegatedInvocationUsage {
+  readonly currentHostRunId: string;
+  readonly id: string;
+  readonly inputTokens: number;
+  readonly model?: string;
+  readonly outputTokens: number;
+  readonly provider?: string;
+  readonly resourceId: string;
+  readonly threadId: string;
+}
+
 export interface DelegatedConversationRepository {
   bindInvocationRun(
     scope: DelegatedConversationScope,
-    key: DelegatedInvocationKey,
-    childRuntimeRunId: string
-  ): Promise<DelegatedInvocation>;
+    key: DelegatedInvocationKey & { readonly personaId: string },
+    childRuntimeRunId: string,
+    currentHostRunId?: string
+  ): Promise<DelegatedInvocation & { messageId?: string }>;
 
   /** Register the root first; write inputs must be observed by the trusted host. */
   createChild(
@@ -76,6 +105,10 @@ export interface DelegatedConversationRepository {
     scope: DelegatedConversationScope,
     threadId: string
   ): Promise<DelegatedConversationNode | null>;
+  getContinuation(
+    scope: DelegatedConversationScope,
+    id: string
+  ): Promise<DelegatedContinuation | null>;
   getInvocation(
     scope: DelegatedConversationScope,
     key: DelegatedInvocationKey
@@ -84,16 +117,19 @@ export interface DelegatedConversationRepository {
     scope: DelegatedConversationScope,
     parentThreadId: string
   ): Promise<DelegatedConversationNode[]>;
+  listDescendants(scope: DelegatedConversationScope): Promise<DelegatedConversationNode[]>;
+  recordInvocationEvent(
+    scope: DelegatedConversationScope,
+    identity: DelegatedRunIdentity,
+    currentHostRunId: string,
+    event: AssistantRunEvent & { readonly runId: string; readonly sequence: number }
+  ): Promise<void>;
+  recordInvocationUsage(
+    scope: DelegatedConversationScope,
+    key: DelegatedInvocationKey & { readonly personaId: string },
+    usage: DelegatedInvocationUsage
+  ): Promise<void>;
   registerRoot(scope: DelegatedConversationScope): Promise<DelegatedConversationNode>;
-}
-
-export class DelegatedConversationIdentityError extends Error {
-  constructor() {
-    super(
-      'Delegated conversation identity is missing, unauthorized or conflicts with its persisted binding.'
-    );
-    this.name = 'DelegatedConversationIdentityError';
-  }
 }
 
 function requireString(value: unknown): string {
@@ -103,15 +139,15 @@ function requireString(value: unknown): string {
   return value;
 }
 
+function requireTokenCount(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new DelegatedConversationIdentityError('invalid-token-count');
+  }
+  return value;
+}
+
 function requireColor(value: unknown): DelegatedConversationColor {
-  if (
-    value === 'blue' ||
-    value === 'emerald' ||
-    value === 'amber' ||
-    value === 'rose' ||
-    value === 'violet' ||
-    value === 'slate'
-  ) {
+  if (isAgentColor(value)) {
     return value;
   }
   throw new DelegatedConversationIdentityError();
@@ -202,7 +238,13 @@ function readInvocation(value: unknown): DelegatedInvocation {
     throw new DelegatedConversationIdentityError();
   }
   const row = value as Record<string, unknown>;
+  const rawToolCall = row['original_tool_call'];
+  const originalToolCall =
+    rawToolCall === null || rawToolCall === undefined
+      ? undefined
+      : readOriginalToolCall(rawToolCall);
   return {
+    ...(originalToolCall ? { originalToolCall } : {}),
     childRuntimeRunId: nullableString(row['child_runtime_run_id']),
     hostRunId: requireString(row['host_run_id']),
     ownerResourceId: requireString(row['owner_resource_id']),
@@ -216,20 +258,15 @@ function readInvocation(value: unknown): DelegatedInvocation {
   };
 }
 
+function readOriginalToolCall(value: unknown): DelegatedOriginalToolCall {
+  const parsed = requireConfiguration(value);
+  if (Object.keys(parsed).length !== 2 || !Object.hasOwn(parsed, 'args')) {
+    throw new DelegatedConversationIdentityError('invocation-input-invalid');
+  }
+  return { args: parsed['args'], toolName: requireString(parsed['toolName']) };
+}
+
 const TABLE = 'brainstrike_delegated_conversations';
-// Walk outward from the authorized root. Checking only the requested node
-// would leave grandchildren accessible after an intermediate scope changed.
-const AUTHORIZED_GRAPH = `WITH RECURSIVE owned_nodes AS (
-  SELECT node.* FROM ${TABLE} node
-  JOIN mastra_threads native ON native.id = node.thread_id AND native."resourceId" = node.resource_id
-  WHERE node.owner_resource_id = $1 AND node.thread_id = $2
-    AND node.root_thread_id = $2 AND node.parent_thread_id IS NULL
-  UNION ALL
-  SELECT node.* FROM ${TABLE} node
-  JOIN owned_nodes parent ON node.parent_thread_id = parent.thread_id
-  JOIN mastra_threads native ON native.id = node.thread_id AND native."resourceId" = node.resource_id
-  WHERE node.owner_resource_id = $1 AND node.root_thread_id = $2
-)`;
 
 export function createDelegatedConversationRepository(
   database: DelegatedConversationDatabase
@@ -262,26 +299,53 @@ export function createDelegatedConversationRepository(
   return {
     async bindInvocationRun(
       scope: DelegatedConversationScope,
-      key: DelegatedInvocationKey,
-      childRuntimeRunId: string
-    ): Promise<DelegatedInvocation> {
+      key: DelegatedInvocationKey & { readonly personaId: string },
+      childRuntimeRunId: string,
+      currentHostRunId?: string
+    ): Promise<DelegatedInvocation & { messageId?: string }> {
       const result = await database.query(
         `${AUTHORIZED_GRAPH} UPDATE brainstrike_delegated_invocations invocation
          SET child_runtime_run_id = $5
-         FROM owned_nodes child, brainstrike_assistant_thread_runs host
+         FROM owned_nodes child, brainstrike_assistant_thread_runs host,
+           brainstrike_assistant_thread_runs current_leg
          WHERE host.id = invocation.host_run_id AND host.thread_id = $2
            AND host.resource_id = $1 AND host.turn_message_id = invocation.turn_message_id
+           AND current_leg.id = COALESCE($7::text, invocation.host_run_id)
+           AND current_leg.resource_id = $1 AND current_leg.thread_id = $2
+           AND current_leg.turn_message_id = invocation.turn_message_id
            AND invocation.root_thread_id = $2 AND invocation.owner_resource_id = $1
            AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4
+           AND invocation.persona_id = $6
            AND invocation.thread_id = child.thread_id
            AND (invocation.child_runtime_run_id IS NULL OR invocation.child_runtime_run_id = $5)
-         RETURNING invocation.*, child.parent_thread_id`,
-        [...invocationParameters(scope, key), requireString(childRuntimeRunId)]
+         RETURNING invocation.*, child.parent_thread_id,
+           (SELECT event.metadata->>'nativeMessageId'
+            FROM brainstrike_assistant_run_events event
+            JOIN brainstrike_assistant_thread_runs event_run ON event_run.id = event.run_id
+            WHERE event.thread_id = invocation.thread_id
+              AND event.metadata->>'childRuntimeRunId' = $5
+              AND event.metadata->>'parentRuntimeRunId' = $3
+              AND event.metadata->>'parentToolCallId' = $4
+              AND event.metadata->>'personaId' = $6
+              AND event.metadata->>'nativeMessageId' IS NOT NULL
+            ORDER BY event_run.started_at DESC, event_run.created_at DESC, event_run.id DESC,
+              event.sequence DESC
+            LIMIT 1) AS native_message_id`,
+        [
+          ...invocationParameters(scope, key),
+          requireString(childRuntimeRunId),
+          requireString(key.personaId),
+          currentHostRunId === undefined ? null : requireString(currentHostRunId),
+        ]
       );
       if (result.rows.length !== 1) {
-        throw new DelegatedConversationIdentityError();
+        throw new DelegatedConversationIdentityError('invocation-binding-conflict');
       }
-      return readInvocation(result.rows[0]);
+      const invocation = readInvocation(result.rows[0]);
+      const messageId = nullableString(
+        (result.rows[0] as Record<string, unknown>)['native_message_id']
+      );
+      return { ...invocation, ...(messageId ? { messageId } : {}) };
     },
     async createChild(
       scope: DelegatedConversationScope,
@@ -335,9 +399,9 @@ export function createDelegatedConversationRepository(
         `${AUTHORIZED_GRAPH}, inserted AS (
          INSERT INTO brainstrike_delegated_invocations
            (owner_resource_id, root_thread_id, thread_id, host_run_id, turn_message_id,
-            parent_runtime_run_id, parent_tool_call_id, persona_id)
+            parent_runtime_run_id, parent_tool_call_id, persona_id, original_tool_call)
          SELECT child.owner_resource_id, child.root_thread_id, child.thread_id, host.id,
-           host.turn_message_id, $3, $4, $8
+           host.turn_message_id, $3, $4, $8, $9::jsonb
          FROM owned_nodes child
          JOIN brainstrike_assistant_thread_runs host ON host.id = $7
            AND host.resource_id = $1 AND host.thread_id = $2
@@ -350,6 +414,7 @@ export function createDelegatedConversationRepository(
            AND brainstrike_delegated_invocations.host_run_id = EXCLUDED.host_run_id
            AND brainstrike_delegated_invocations.turn_message_id = EXCLUDED.turn_message_id
            AND brainstrike_delegated_invocations.persona_id = EXCLUDED.persona_id
+           AND brainstrike_delegated_invocations.original_tool_call IS NOT DISTINCT FROM EXCLUDED.original_tool_call
          RETURNING *)
          SELECT inserted.*, child.parent_thread_id FROM inserted
          JOIN owned_nodes child ON child.thread_id = inserted.thread_id`,
@@ -359,14 +424,16 @@ export function createDelegatedConversationRepository(
           requireString(invocation.parentThreadId),
           requireString(invocation.hostRunId),
           requireString(invocation.personaId),
+          invocation.originalToolCall
+            ? JSON.stringify(readOriginalToolCall(invocation.originalToolCall))
+            : null,
         ]
       );
       if (result.rows.length !== 1) {
-        throw new DelegatedConversationIdentityError();
+        throw new DelegatedConversationIdentityError('invocation-binding-conflict');
       }
       return readInvocation(result.rows[0]);
     },
-
     async get(
       scope: DelegatedConversationScope,
       threadId: string
@@ -377,6 +444,11 @@ export function createDelegatedConversationRepository(
         [...scopeParameters(scope), requireString(threadId)]
       );
       return result.rows.length === 0 ? null : readNode(result.rows[0]);
+    },
+
+    async getContinuation(scope, id) {
+      await requireOwner(scope);
+      return readDelegatedContinuation(database, scope, id);
     },
     async getInvocation(
       scope: DelegatedConversationScope,
@@ -408,6 +480,165 @@ export function createDelegatedConversationRepository(
         [...scopeParameters(scope), requireString(parentThreadId)]
       );
       return result.rows.map(readNode);
+    },
+    async listDescendants(scope: DelegatedConversationScope): Promise<DelegatedConversationNode[]> {
+      await requireOwner(scope);
+      const result = await database.query(
+        `${AUTHORIZED_GRAPH} SELECT * FROM owned_nodes WHERE parent_thread_id IS NOT NULL
+        ORDER BY created_at, thread_id`,
+        scopeParameters(scope)
+      );
+      return result.rows.map(readNode);
+    },
+    async recordInvocationEvent(scope, identity, currentHostRunId, event) {
+      const terminalStatus =
+        event.kind === 'run.finished'
+          ? 'completed'
+          : event.kind === 'run.cancelled'
+            ? 'cancelled'
+            : event.kind === 'run.failed'
+              ? 'failed'
+              : null;
+      const result = await database.query(
+        `${AUTHORIZED_GRAPH}, authorized AS (
+          SELECT child.*, original.provider, original.model, original.runtime_kind
+          FROM brainstrike_delegated_invocations invocation
+          JOIN owned_nodes child ON child.thread_id = invocation.thread_id
+          JOIN brainstrike_assistant_thread_runs original ON original.id = invocation.host_run_id
+            AND original.resource_id = $1 AND original.thread_id = $2
+            AND original.turn_message_id = invocation.turn_message_id
+          JOIN brainstrike_assistant_thread_runs current_leg ON current_leg.id = $7
+            AND current_leg.resource_id = $1 AND current_leg.thread_id = $2
+            AND current_leg.turn_message_id = invocation.turn_message_id
+          WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+            AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4
+            AND invocation.child_runtime_run_id = $5 AND invocation.persona_id = $6
+            AND (child.configuration #> '{persona,model}' IS NULL OR (
+              jsonb_typeof(child.configuration #> '{persona,model,provider}') = 'string'
+              AND length(btrim(child.configuration #>> '{persona,model,provider}')) > 0
+              AND jsonb_typeof(child.configuration #> '{persona,model,modelId}') = 'string'
+              AND length(btrim(child.configuration #>> '{persona,model,modelId}')) > 0))
+            AND NOT EXISTS (SELECT 1 FROM brainstrike_assistant_run_events prior
+              WHERE prior.id = $9 AND ROW(prior.run_id, prior.resource_id, prior.thread_id,
+                prior.sequence, prior.kind, prior.status, prior.label, prior.detail,
+                prior.metadata, prior.occurred_at, prior.duration_ms) IS DISTINCT FROM
+                ROW($8::text, child.resource_id, child.thread_id, $10::integer, $11::text,
+                  $12::text, $13::text, $14::text, $15::jsonb, $16::timestamptz, $17::integer))
+        ), child_run AS (
+          INSERT INTO brainstrike_assistant_thread_runs AS stored
+            (id, resource_id, thread_id, provider, model, runtime_kind, status,
+             started_at, completed_at, created_at, updated_at)
+          SELECT $8, resource_id, thread_id,
+            COALESCE(configuration #>> '{persona,model,provider}', provider),
+            COALESCE(configuration #>> '{persona,model,modelId}', model), runtime_kind,
+            COALESCE($18::text, 'running'), $16::timestamptz,
+            CASE WHEN $18::text IS NOT NULL THEN $16::timestamptz END, NOW(), NOW()
+          FROM authorized
+          ON CONFLICT (id) DO UPDATE SET
+            status = COALESCE($18::text, stored.status),
+            completed_at = CASE WHEN $18::text IS NOT NULL THEN $16::timestamptz ELSE stored.completed_at END,
+            updated_at = NOW()
+          WHERE stored.thread_id = EXCLUDED.thread_id AND stored.resource_id = EXCLUDED.resource_id
+            AND stored.provider = EXCLUDED.provider AND stored.model = EXCLUDED.model
+            AND stored.runtime_kind = EXCLUDED.runtime_kind
+            AND ($18::text IS NULL OR stored.status = 'running' OR stored.status = $18)
+          RETURNING *
+        ), event_write AS (INSERT INTO brainstrike_assistant_run_events AS stored
+          (id, run_id, resource_id, thread_id, sequence, kind, status, label, detail,
+           metadata, occurred_at, duration_ms, created_at, updated_at)
+          SELECT $9, id, resource_id, thread_id, $10::integer, $11, $12, $13, $14,
+            $15::jsonb, $16::timestamptz, $17::integer, NOW(), NOW() FROM child_run
+          ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+          WHERE stored.run_id = EXCLUDED.run_id AND stored.resource_id = EXCLUDED.resource_id
+            AND stored.thread_id = EXCLUDED.thread_id AND stored.sequence = EXCLUDED.sequence
+            AND stored.kind = EXCLUDED.kind AND stored.status = EXCLUDED.status
+            AND stored.label = EXCLUDED.label AND stored.detail IS NOT DISTINCT FROM EXCLUDED.detail
+            AND stored.metadata IS NOT DISTINCT FROM EXCLUDED.metadata
+            AND stored.occurred_at = EXCLUDED.occurred_at
+            AND stored.duration_ms IS NOT DISTINCT FROM EXCLUDED.duration_ms
+          RETURNING id
+        ), settled_prior_legs AS (
+          UPDATE brainstrike_assistant_thread_runs prior_run
+          SET status = $18, completed_at = $16::timestamptz, updated_at = NOW()
+          FROM authorized child
+          WHERE $18::text IS NOT NULL AND EXISTS (SELECT 1 FROM event_write)
+            AND prior_run.id <> $8 AND prior_run.status = 'running'
+            AND prior_run.thread_id = child.thread_id AND prior_run.resource_id = child.resource_id
+            AND EXISTS (
+              SELECT 1 FROM brainstrike_assistant_run_events prior_event
+              WHERE prior_event.run_id = prior_run.id
+                AND prior_event.thread_id = child.thread_id AND prior_event.resource_id = child.resource_id
+                AND prior_event.metadata->>'parentRuntimeRunId' = $3
+                AND prior_event.metadata->>'parentToolCallId' = $4
+                AND prior_event.metadata->>'childRuntimeRunId' = $5
+                AND prior_event.metadata->>'personaId' = $6
+            )
+          RETURNING prior_run.id
+        ) SELECT id FROM event_write`,
+        [
+          ...invocationParameters(scope, identity),
+          requireString(identity.childRuntimeRunId),
+          requireString(identity.personaId),
+          requireString(currentHostRunId),
+          requireString(event.runId),
+          requireString(event.id),
+          requireTokenCount(event.sequence),
+          event.kind,
+          event.status,
+          event.label,
+          event.detail ?? null,
+          JSON.stringify(sanitizeAssistantRunEventMetadata(event.metadata) ?? {}),
+          event.timestamp,
+          event.durationMs ?? null,
+          terminalStatus,
+        ]
+      );
+      if (result.rows.length !== 1) {
+        throw new DelegatedConversationIdentityError('event-binding-conflict');
+      }
+    },
+    async recordInvocationUsage(scope, key, usage) {
+      const result = await database.query(
+        `${AUTHORIZED_GRAPH} INSERT INTO brainstrike_assistant_run_usage AS stored
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens,
+           run_kind, delegation_parent_run_id, delegation_tool_call_id)
+         SELECT $5, invocation.root_thread_id, invocation.host_run_id, invocation.owner_resource_id,
+           COALESCE($10, original.model), COALESCE($11, original.provider), $12::integer, $13::integer,
+           'subagent', invocation.parent_runtime_run_id, invocation.parent_tool_call_id
+         FROM brainstrike_delegated_invocations invocation
+         JOIN owned_nodes child ON child.thread_id = invocation.thread_id
+         JOIN brainstrike_assistant_thread_runs original ON original.id = invocation.host_run_id
+           AND original.resource_id = $1 AND original.thread_id = $2
+           AND original.turn_message_id = invocation.turn_message_id
+         JOIN brainstrike_assistant_thread_runs current_leg ON current_leg.id = $6
+           AND current_leg.resource_id = $1 AND current_leg.thread_id = $2
+           AND current_leg.turn_message_id = invocation.turn_message_id
+         WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+           AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4
+           AND invocation.thread_id = $7 AND invocation.persona_id = $8
+           AND invocation.child_runtime_run_id IS NOT NULL AND child.resource_id = $9
+         ON CONFLICT (thread_id, delegation_parent_run_id, delegation_tool_call_id)
+         DO UPDATE SET input_tokens = GREATEST(stored.input_tokens, EXCLUDED.input_tokens),
+           output_tokens = GREATEST(stored.output_tokens, EXCLUDED.output_tokens)
+         WHERE stored.run_id = EXCLUDED.run_id AND stored.resource_id = EXCLUDED.resource_id
+           AND stored.model = EXCLUDED.model AND stored.provider = EXCLUDED.provider
+         RETURNING id`,
+        [
+          ...invocationParameters(scope, key),
+          requireString(usage.id),
+          requireString(usage.currentHostRunId),
+          requireString(usage.threadId),
+          requireString(key.personaId),
+          requireString(usage.resourceId),
+          usage.model === undefined ? null : requireString(usage.model),
+          usage.provider === undefined ? null : requireString(usage.provider),
+          requireTokenCount(usage.inputTokens),
+          requireTokenCount(usage.outputTokens),
+        ]
+      );
+      if (result.rows.length !== 1) {
+        throw new DelegatedConversationIdentityError('usage-binding-conflict');
+      }
     },
     async registerRoot(scope: DelegatedConversationScope): Promise<DelegatedConversationNode> {
       const result = await database.query(

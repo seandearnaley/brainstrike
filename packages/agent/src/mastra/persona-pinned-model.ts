@@ -38,6 +38,9 @@ export interface CreatePersonaPinnedModelResolverParams {
    * — BST-1352: the FULL input, so custom_fetch/aws pins stay intact).
    */
   readonly auth: ProviderAuthInput | undefined;
+  readonly inheritedModel?:
+    | { readonly name: string; readonly model: MastraModelConfig }
+    | undefined;
   /** Model instantiation seam (production: `createProvider`). */
   readonly instantiate: (
     provider: string,
@@ -67,6 +70,9 @@ export function createPersonaPinnedModelResolver(
     }
 
     if (pin.provider === params.parentProvider) {
+      if (params.inheritedModel?.name === pin.modelId) {
+        return params.inheritedModel.model;
+      }
       return params.instantiate(pin.provider, params.auth, pin.modelId, params.runtime);
     }
 

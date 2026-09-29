@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL } from '../desktop-platform-diagnostics';
+import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 
 const { handlers, ipcMainHandle, ipcMainRemoveHandler } = vi.hoisted(() => {
-  const handlers = new Map<string, () => unknown>();
+  const handlers = new Map<string, (...args: unknown[]) => unknown>();
   return {
     handlers,
-    ipcMainHandle: vi.fn((channel: string, handler: () => unknown) => {
+    ipcMainHandle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
       handlers.set(channel, handler);
     }),
     ipcMainRemoveHandler: vi.fn(),
@@ -37,6 +38,9 @@ describe('desktop diagnostics IPC', () => {
         })),
       },
       database: { getDiagnostics: vi.fn(async () => ({ hasDatabaseHandle: true })) },
+      databaseIntegrity: {
+        getSnapshot: vi.fn(() => ({ revision: 0, state: { kind: 'healthy' } })),
+      },
       databaseScheduler: { getSnapshot: vi.fn(() => ({ activeCount: 0 })) },
       embeddingHost: {
         getPlatformStatus: vi.fn(() => ({
@@ -84,6 +88,9 @@ describe('desktop diagnostics IPC', () => {
           },
         })),
       },
+      processCounters: {
+        getSnapshot: vi.fn(() => ({ installedAt: '2026-09-15T02:00:00.000Z', samples: [] })),
+      },
       reset: {
         getSnapshot: vi.fn(() => ({
           lastCompletedAt: null,
@@ -102,16 +109,49 @@ describe('desktop diagnostics IPC', () => {
     expect(handler).toBeDefined();
     await expect(handler?.()).resolves.toMatchObject({
       database: { hasDatabaseHandle: true },
+      databaseIntegrity: { revision: 0, state: { kind: 'healthy' } },
       indexing: { activeBackfills: [] },
       reset: { userDataPath: '<redacted>' },
       telemetry: {
         backgroundRuntimeMetrics: [],
         embedding: { batchTransfer: { totalBytes: 0 }, peakVectorsInFlight: 0 },
+        processCounters: { installedAt: '2026-09-15T02:00:00.000Z', samples: [] },
       },
     });
+    const countersHandler = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters);
+    expect(countersHandler).toBeDefined();
+    expect(countersHandler?.()).toEqual({ installedAt: '2026-09-15T02:00:00.000Z', samples: [] });
 
     unregister();
 
     expect(ipcMainRemoveHandler).toHaveBeenCalledWith(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL);
+    expect(ipcMainRemoveHandler).toHaveBeenCalledWith(
+      DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow
+    );
+    expect(ipcMainRemoveHandler).toHaveBeenCalledWith(
+      DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters
+    );
+  });
+
+  it('validates the main-log window before touching the provider and forwards a valid one', async () => {
+    const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
+    const readWindow = vi.fn().mockResolvedValue({ lines: [] });
+    const unregister = registerDesktopDiagnosticsIpcHandlers({
+      mainLog: { readWindow },
+    } as unknown as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]);
+    const handler = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow);
+    expect(handler).toBeDefined();
+
+    await expect(handler?.({}, { since: 'nope', until: 'nope' })).rejects.toThrow('since');
+    await expect(
+      handler?.({}, { since: '2026-09-15T02:00:00.000Z', until: '2026-09-15T01:00:00.000Z' })
+    ).rejects.toThrow('until');
+    expect(readWindow).not.toHaveBeenCalled();
+
+    const request = { since: '2026-09-15T02:00:00.000Z', until: '2026-09-15T02:30:00.000Z' };
+    await expect(handler?.({}, request)).resolves.toEqual({ lines: [] });
+    expect(readWindow).toHaveBeenCalledWith(request);
+
+    unregister();
   });
 });

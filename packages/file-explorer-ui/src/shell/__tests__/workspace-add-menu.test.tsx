@@ -23,7 +23,7 @@ function app(id: string, label: string): WorkspaceApp {
     [CONTEXT_EXPLORER_APP_ID]: FileText,
     [TERMINAL_APP_ID]: TerminalSquare,
   };
-  return { icon: icons[id] ?? FileText, id, label, render: () => null };
+  return { icon: icons[id] ?? FileText, id, label, placement: 'pinned', render: () => null };
 }
 
 describe('workspaceAddMenuItems', () => {

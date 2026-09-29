@@ -155,7 +155,7 @@ describe('web vite config alias contract', () => {
     expect(config).toContain("code.includes('process.exitCode')");
     expect(config).toContain('code.replaceAll(');
     expect(config).toMatch(
-      /worker:\s*\{\s*format:\s*'es',\s*plugins:\s*\(\)\s*=>\s*\[browserWorkerProcessExitCodePlugin\(\)\]/
+      /worker:\s*\{\s*format:\s*'es',\s*plugins:\s*\(\)\s*=>\s*\[\s*preserveWorkerEntryPlugin\(\),\s*browserWorkerProcessExitCodePlugin\(\),?\s*\]/
     );
   });
 

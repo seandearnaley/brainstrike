@@ -45,6 +45,7 @@ vi.mock('node:fs', () => ({
   default: {
     closeSync: closeSyncMock,
     existsSync: existsSyncMock,
+    fsyncSync: vi.fn(),
     lstatSync: lstatSyncMock,
     mkdirSync: mkdirSyncMock,
     openSync: openSyncMock,
@@ -54,6 +55,7 @@ vi.mock('node:fs', () => ({
     writeFileSync: writeFileSyncMock,
   },
   existsSync: existsSyncMock,
+  fsyncSync: vi.fn(),
   lstatSync: lstatSyncMock,
   mkdirSync: mkdirSyncMock,
   openSync: openSyncMock,
@@ -87,6 +89,7 @@ vi.mock('@electric-sql/pglite-pgvector', () => ({ vector: { name: 'vector' } }))
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   migrate: migrateMock,
+  rebuildCrashSensitiveIndexes: vi.fn(async () => ({ rebuilt: [], totalDurationMs: 0 })),
 }));
 vi.mock('@brainstrike/db/react', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
@@ -115,7 +118,9 @@ describe('initializeMainDatabase', () => {
     vi.clearAllMocks();
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
-    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    // The utility-process host receives both fields from main; it derives nothing.
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/mock/db-root';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'host-profile';
     process.argv = [...originalArgv];
   });
 
@@ -126,16 +131,13 @@ describe('initializeMainDatabase', () => {
 
   it('creates directory, migrates, and returns singleton instance', async () => {
     existsSyncMock.mockReturnValue(false);
-    // Mock getPath to return different paths for documents vs userData
-    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
 
     const { initializeMainDatabase } = await import('../../db-main');
     const db1 = await initializeMainDatabase();
 
-    // In NODE_ENV=test, we expect it to use 'userData' path for isolation
-    const expectedPath = path.join('/mock/userData', 'profiles', 'test', 'pgdata');
+    const expectedPath = path.join('/mock/db-root', 'profiles', 'host-profile', 'pgdata');
 
-    expect(appGetPathMock).toHaveBeenCalledWith('userData');
+    expect(appGetPathMock).not.toHaveBeenCalled();
     expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
     expect(PGliteMock).toHaveBeenCalledTimes(1);
     // Verify PGlite was called with dataDir and vector extension in strict mode
@@ -169,18 +171,17 @@ describe('initializeMainDatabase', () => {
     expect(db2).toBe(db);
   });
 
-  it('uses the isolated userData database path for Electron --test-mode runs', async () => {
+  it('uses the injected location even when the host sees --test-mode or a development NODE_ENV', async () => {
     process.env['NODE_ENV'] = 'development';
     process.argv = [...originalArgv, '--test-mode'];
     existsSyncMock.mockReturnValue(false);
-    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
 
     const { initializeMainDatabase } = await import('../../db-main');
     await initializeMainDatabase();
 
-    const expectedPath = path.join('/mock/userData', 'profiles', 'test', 'pgdata');
+    const expectedPath = path.join('/mock/db-root', 'profiles', 'host-profile', 'pgdata');
 
-    expect(appGetPathMock).toHaveBeenCalledWith('userData');
+    expect(appGetPathMock).not.toHaveBeenCalled();
     expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
     expect(PGliteMock).toHaveBeenCalledWith(
       expect.objectContaining({

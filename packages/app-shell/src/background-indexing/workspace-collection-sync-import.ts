@@ -566,12 +566,12 @@ function applyDiscoveredPreparedFiles(args: {
 
 async function buildBackgroundImportBatchMutations(args: {
   batch: readonly PreparedCacheChange[];
-  batchContents: Record<string, string>;
+  selectedContents: Readonly<Record<string, string>>;
 }): Promise<BackgroundManagedCacheBatchMutation[]> {
   const mutations: BackgroundManagedCacheBatchMutation[] = [];
   const batchCreatedAt = new Date().toISOString();
   for (const change of args.batch) {
-    const content = args.batchContents[change.compositeKey];
+    const content = args.selectedContents[change.compositeKey];
     if (content === undefined) {
       continue;
     }
@@ -607,7 +607,7 @@ async function buildBackgroundImportBatchMutations(args: {
 async function applyBackgroundImportBatch(args: {
   applyManagedCacheBatch: (args: ApplyManagedCacheBatchArgs) => Promise<void>;
   batch: readonly PreparedCacheChange[];
-  batchContents: Record<string, string>;
+  selectedContents: Readonly<Record<string, string>>;
   collectionId: string;
   rootId?: string | null;
   waitForBackgroundPermit: (options: { readonly label: string }) => Promise<void>;
@@ -618,7 +618,7 @@ async function applyBackgroundImportBatch(args: {
   const skippedResults: FileImportResult[] = [];
   const skippedErrors: Array<{ error: string; file: string }> = [];
   for (const change of args.batch) {
-    if (args.batchContents[change.compositeKey] !== undefined) {
+    if (args.selectedContents[change.compositeKey] !== undefined) {
       continue;
     }
     const message = 'Background cache import descriptor is missing.';
@@ -635,7 +635,7 @@ async function applyBackgroundImportBatch(args: {
   }
   const mutations = await buildBackgroundImportBatchMutations({
     batch: args.batch,
-    batchContents: args.batchContents,
+    selectedContents: args.selectedContents,
   });
   if (mutations.length === 0) {
     return { errors: skippedErrors, results: skippedResults };
@@ -1227,6 +1227,7 @@ export async function runRootFolderCacheImport(args: {
       const batchResults = await runEnhancedImport<IFileNode>({
         abortSignal,
         baseImportRunner: async ({
+          fileContents: selectedContents,
           selectedFilePaths: selectedKeys,
           onProgress: emitImportProgress,
         }: {
@@ -1250,9 +1251,9 @@ export async function runRootFolderCacheImport(args: {
             const batchOutcome = await applyBackgroundImportBatch({
               applyManagedCacheBatch,
               batch: selectedBatch,
-              batchContents: fileContents,
               collectionId: collection.id,
               rootId: rootId ?? null,
+              selectedContents,
               waitForBackgroundPermit,
             });
             errors.push(...batchOutcome.errors);

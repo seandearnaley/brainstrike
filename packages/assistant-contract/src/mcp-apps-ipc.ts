@@ -7,17 +7,9 @@ import { z } from 'zod';
  * admission (prepare / execute / release against the live assistant run),
  * resource reads, and the shell registry that serves each mount's sandbox
  * shell from the privileged `brainstrike-mcp-app:` scheme (prepareShell /
- * releaseShell). Channel names are the single source of truth for preload
- * and IPC.
+ * releaseShell). This module owns the payload schemas; the desktop pure IPC
+ * contract owns channel names and authorization.
  */
-export const MCP_APPS_IPC_CHANNELS = Object.freeze({
-  execute: 'mcp:apps:execute',
-  prepare: 'mcp:apps:prepare',
-  prepareShell: 'mcp:apps:prepareShell',
-  release: 'mcp:apps:release',
-  releaseShell: 'mcp:apps:releaseShell',
-} as const);
-
 /** Scheme the desktop main process serves registered sandbox shells from. */
 export const MCP_APP_SHELL_URL_SCHEME = 'brainstrike-mcp-app';
 export const MCP_APP_SHELL_TOKEN_PATTERN = /^[0-9a-f]{32}$/u;

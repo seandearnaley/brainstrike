@@ -10,7 +10,7 @@ export function buildNodeFromPath(
   path: string,
   rootPath: string,
   rootFolderId: string,
-  handle: FileSystemDirectoryHandle
+  handle: IFileNode['handle']
 ): IFileNode {
   const normalizedRootPath =
     rootPath.length > 1 && rootPath.charCodeAt(rootPath.length - 1) === SLASH

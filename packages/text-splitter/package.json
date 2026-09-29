@@ -1,6 +1,9 @@
 {
   "name": "@brainstrike/text-splitter",
   "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/indexing-contract": "workspace:*"
+  },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",

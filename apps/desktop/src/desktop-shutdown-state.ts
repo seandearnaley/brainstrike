@@ -45,3 +45,8 @@ export function isBenignBackfillShutdownError(error: unknown): boolean {
 export function isExpectedBackfillTeardown(error: unknown): boolean {
   return isDesktopShuttingDown() || isBenignBackfillShutdownError(error);
 }
+
+/** Test-only: the production flag is never reset because the process exits. */
+export function resetDesktopShutdownStateForTests(): void {
+  shuttingDown = false;
+}

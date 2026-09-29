@@ -3,12 +3,22 @@ import type {
   SharedV2ProviderOptions,
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
-import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
+import type {
+  AssistantChildAttachment,
+  RuntimeData as ContractRuntimeData,
+} from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
+import type {
+  DelegatedConversationBaseline,
+  DelegatedRunIdentity,
+} from '@brainstrike/assistant-contract/delegated-conversation-stream';
 import type { HookTrustRequest } from '@brainstrike/assistant-contract/hook-trust-request';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
-import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
+import type {
+  AssistantToolApprovalAnswered,
+  AssistantToolApprovalRequest,
+} from '@brainstrike/assistant-contract/tool-approval';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
 import {
@@ -204,9 +214,10 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * When present, the runtime gates the agent's tool map by the policy BEFORE
    * the immutable Mastra `Agent` is built (`filterToolsByPermissionWithMetadata`):
    * `'allow'` keeps a tool, `'deny'` omits it, and `'ask'` keeps a CLONE carrying
-   * Mastra's PER-TOOL `requireApproval: true` so the run SUSPENDS for approval
-   * only when that tool is called (allowed tools run free; the run-wide
-   * `requireToolApproval` is NOT forced). Never silently run; when no storage
+   * the FUNCTION form of Mastra's PER-TOOL `requireApproval` (the runtime's live
+   * gate, `mastra/approval-gate.ts`) so the run SUSPENDS for approval only when
+   * that tool is called and no remembered session grant allows it (allowed
+   * tools run free; the run-wide `requireToolApproval` is NOT forced). Never silently run; when no storage
    * exists to resume, `'ask'` falls back to a fail-safe omit. OPTIONAL — when
    * absent, the tool map is unchanged (production-default). Agent-only. See
    * `mastra/permission-tool-gate.ts`.
@@ -527,6 +538,10 @@ export interface StreamChunkTokenEstimateCalibration {
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
+/** A parked sibling approval the host answered under a session grant. */
+export interface StreamChunkToolApprovalAnswered extends AssistantToolApprovalAnswered {
+  type: 'tool-approval-answered';
+}
 export interface StreamChunkToolSuspendRequired extends AssistantToolSuspendRequest {
   /**
    * `false` when this build has no registered resume UI for the tool
@@ -573,7 +588,16 @@ export interface StreamChunkMessageFinish {
     cacheReadInputTokens?: number;
   };
 }
-export type StreamChunk =
+export interface StreamChunkChildUserMessage {
+  readonly attachments?: readonly AssistantChildAttachment[];
+  readonly createdAt: string;
+  readonly id: string;
+  readonly text: string;
+  readonly type: 'child-user-message';
+}
+
+export type ConversationStreamChunk =
+  | StreamChunkChildUserMessage
   | StreamChunkChildRunUsage
   | StreamChunkContextBreakdown
   | StreamChunkReasoning
@@ -584,8 +608,33 @@ export type StreamChunk =
   | StreamChunkToolCallTelemetry
   | StreamChunkTool
   | StreamChunkToolApprovalRequired
+  | StreamChunkToolApprovalAnswered
   | StreamChunkToolSuspendRequired
   | StreamChunkFinish
   | StreamChunkMessageFinish;
+
+export interface StreamChunkDelegatedConversation {
+  readonly baseline?: DelegatedConversationBaseline;
+  readonly chunk: ConversationStreamChunk;
+  readonly continuationId?: string;
+  readonly identity: DelegatedRunIdentity;
+  readonly messageId: string;
+  readonly partId?: string;
+  readonly type: 'delegated-conversation-chunk';
+}
+
+export interface StreamChunkChildContinuation {
+  readonly baseline?: DelegatedConversationBaseline;
+  readonly chunk: ConversationStreamChunk;
+  readonly continuationId: string;
+  readonly messageId: string;
+  readonly nativeRunId: string;
+  readonly threadId: string;
+  readonly type: 'child-continuation-chunk';
+}
+export type StreamChunk =
+  | ConversationStreamChunk
+  | StreamChunkDelegatedConversation
+  | StreamChunkChildContinuation;
 
 export type StreamIterator = AsyncIterable<StreamChunk>;

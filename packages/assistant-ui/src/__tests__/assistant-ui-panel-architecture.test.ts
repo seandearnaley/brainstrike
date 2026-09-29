@@ -193,7 +193,11 @@ describe('assistant UI panel architecture', () => {
     // isActivityPart, ActivityPartLayout, ActivityToolPart, and
     // LocalChainOfThought are deleted — that grouped-parts renderer is the
     // one implementation now, and its invariants live in its own module.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1509);
+    // Bumped 1509 → 1524 for the thread-tab run-state seam (BST-1844):
+    // onRunningChange threads the SAME 5 layers as onRunFinished/onUsage
+    // (AssistantUiPanel → Local/DataStream chat → ChatThreadUI); the bridge
+    // itself lives in running-state-bridge.tsx.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1524);
   });
 
   it('keeps the composer workspace bar an app-shell-rendered SLOT above the context meter', () => {
@@ -684,7 +688,11 @@ describe('assistant UI panel architecture', () => {
 
   it('registers data renderers only via useAssistantDataUI, never a `Data:` key in a components map', () => {
     const panelSource = readSource('assistant-ui-panel.tsx');
-    expect(panelSource).toContain('useAssistantDataUI(assistantRunTimelineDataUI)');
+    expect(panelSource).toContain("from './assistant-data-renderer-registration'");
+    expect(panelSource).toContain('<AssistantDataRendererRegistration />');
+    expect(readSource('assistant-data-renderer-registration.tsx')).toContain(
+      'useAssistantDataUI(assistantRunTimelineDataUI)'
+    );
     // Unquoted, not quoted, is the real regression shape — `components={{
     // Data: X }}`, exactly like the existing `Text: AssistantMessageText`
     // entry — so the guard must match a bare `Data:` object key, not just a

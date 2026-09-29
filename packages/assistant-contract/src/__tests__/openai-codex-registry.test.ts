@@ -104,8 +104,9 @@ describe('openai-codex provider definition', () => {
 
   it('applies the upstream context/output limits', () => {
     for (const model of llmModels(provider.models)) {
-      // opencode pins gpt-5.5 to 400k context / 128k output; the rest of the
-      // allowed set already carries those limits in the base registry.
+      // opencode pins gpt-5.5 to 400k context / 128k output. Each codex row
+      // declares its own limits; they are not inherited from the base `openai`
+      // rows (which carry OpenAI's 1.05M window for gpt-5.5 and gpt-5.4).
       expect(model.contextWindow, `${model.id} context`).toBe(400_000);
       expect(model.maxOutputTokens, `${model.id} max output`).toBe(128_000);
     }

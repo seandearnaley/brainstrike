@@ -1180,7 +1180,7 @@ describe('assistant-preferences-store', () => {
         expect.arrayContaining([
           'qwen/qwen3.8-flash',
           'qwen/qwen3.8-max-0902',
-          'nvidia/nemotron-3.5-lightning',
+          'inclusionai/ling-3.0-flash',
           'kwaipilot/kat-coder-pro-v2.5',
         ])
       );

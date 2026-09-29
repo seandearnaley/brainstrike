@@ -44,7 +44,7 @@ interface ElectronStorageBridge {
  * canonical record server-side, so a hidden renderer can neither enumerate nor
  * address any other persisted store.
  */
-interface ElectronVectorPreferencesBridge {
+export interface ElectronVectorPreferencesBridge {
   readonly clear: () => Promise<void>;
   readonly read: () => Promise<string | null>;
   readonly write: (value: string) => Promise<void>;

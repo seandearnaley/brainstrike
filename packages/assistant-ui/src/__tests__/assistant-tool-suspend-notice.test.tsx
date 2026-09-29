@@ -77,6 +77,64 @@ describe('AssistantToolSuspendNotice', () => {
     threadMessagesMock.splice(0);
   });
 
+  it.each(['claimed', 'consumed', 'interrupted', 'unknown'])(
+    'preserves a recovered plan but prevents resubmitting a %s decision',
+    async (decisionState) => {
+      const user = userEvent.setup();
+      render(
+        <AssistantToolSuspendNotice
+          data={{
+            ...planRequest,
+            decisionState,
+            delegation: {
+              path: [
+                {
+                  childRuntimeRunId: 'child',
+                  parentRuntimeRunId: planRequest.runId,
+                  parentToolCallId: planRequest.toolCallId,
+                  personaId: 'worker',
+                },
+              ],
+              toolCallId: 'leaf',
+            },
+            stale: true,
+            suspendedAt: '2026-09-10T00:00:00Z',
+          }}
+        />
+      );
+      expect(screen.getByText('Refactor the parser.')).toBeInTheDocument();
+      const approve = screen.getByRole('button', { name: 'Approve' });
+      expect(approve).toBeDisabled();
+      expect(screen.getByRole('button', { name: /reject/i })).toBeDisabled();
+      expect(screen.getByTestId('delegated-decision-recovery-status')).toBeInTheDocument();
+      await user.click(approve);
+      expect(appendMessageMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it("carries the pause's durable host leg into the resume echo", async () => {
+    // The marker's `runId` is the NATIVE Mastra run the resume route addresses
+    // and never matches a thread-run row; the history topology adapter anchors
+    // the suspended message on the host leg that surfaced the pause instead.
+    const user = userEvent.setup();
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          hostRunId: 'run-host-leg-1',
+          runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+        }}
+      />
+    );
+    await user.type(screen.getByRole('textbox'), 'Vancouver');
+    await user.click(screen.getByRole('button', { name: /send|answer|submit/i }));
+    await waitFor(() => expect(appendMessageMock).toHaveBeenCalled());
+    expect(lastResumeAction()).toMatchObject({
+      hostRunId: 'run-host-leg-1',
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+    });
+  });
+
   it('renders the plan overview, steps, risks, and verification', () => {
     render(<AssistantToolSuspendNotice data={planRequest} />);
     expect(screen.getByTestId('assistant-submit-plan-notice')).toBeInTheDocument();
@@ -197,6 +255,35 @@ describe('AssistantToolSuspendNotice', () => {
     expect(onExit).toHaveBeenCalledTimes(1);
   });
 
+  it('approving a delegated plan preserves the root plan-mode authority', async () => {
+    const user = userEvent.setup();
+    const onExit = vi.fn();
+    const delegation = {
+      path: [
+        {
+          childRuntimeRunId: 'run-1',
+          parentRuntimeRunId: 'root-run',
+          parentToolCallId: 'delegate-plan',
+          personaId: 'decision-probe',
+        },
+      ],
+      toolCallId: 'call-1',
+    };
+    render(
+      <PlanModeExitProvider onExit={onExit}>
+        <AssistantToolSuspendNotice data={{ ...planRequest, delegation }} />
+      </PlanModeExitProvider>
+    );
+    await user.click(screen.getByRole('button', { name: /^approve$/i }));
+    expect(onExit).not.toHaveBeenCalled();
+    expect(lastResumeAction()).toMatchObject({
+      delegation,
+      resumeData: { action: 'approved' },
+      runId: 'root-run',
+      toolCallId: 'delegate-plan',
+    });
+  });
+
   it('Reject does NOT exit plan mode (stays on so the model can revise)', async () => {
     const user = userEvent.setup();
     const onExit = vi.fn();
@@ -219,6 +306,30 @@ describe('AssistantToolSuspendNotice', () => {
     expect(lastResumeAction()?.['resumeData']).toEqual({
       action: 'rejected',
       feedback: 'tighten step 2',
+    });
+  });
+
+  it('routes a child question to its parent snapshot with exact leaf identity', async () => {
+    const user = userEvent.setup();
+    const delegation = {
+      path: [
+        {
+          childRuntimeRunId: 'run-2',
+          parentRuntimeRunId: 'root-run',
+          parentToolCallId: 'delegate-1',
+          personaId: 'explore',
+        },
+      ],
+      toolCallId: 'call-2',
+    };
+    render(<AssistantToolSuspendNotice data={{ ...askFreeTextRequest, delegation }} />);
+    await user.type(screen.getByRole('textbox'), 'Paris');
+    await user.click(screen.getByRole('button', { name: /^send$/i }));
+    expect(lastResumeAction()).toMatchObject({
+      delegation,
+      resumeData: { answer: 'Paris' },
+      runId: 'root-run',
+      toolCallId: 'delegate-1',
     });
   });
 

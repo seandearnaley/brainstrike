@@ -1,20 +1,11 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { BROWSER_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/browser-pane/availability';
-import { CHANGES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/changes/availability';
-import { FORGE_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/forge/availability';
-import { GIT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/git-panel/availability';
 import { PLATFORM_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/platform-bridge';
-import {
-  COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
-  TERMINAL_BRIDGE_REQUIRED_METHODS,
-} from '@brainstrike/app-shell/terminal-panel/availability';
 import { WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge';
-import { WORKTREES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/worktrees/availability';
 import { ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/provider-auth';
 import { SECRETS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/secrets-bridge';
-import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
@@ -167,67 +158,23 @@ describe('preload runtime contract', () => {
     );
   });
 
-  it('keeps the MCP bridge shape on manifest channels with no raw invoke escape hatch', () => {
+  it('derives the MCP bridge from pure manifests with no raw invoke escape hatch', () => {
     const preloadSource = readPreloadSource();
-    const mcpBridge = extractExposedBridgeProperties(preloadSource, 'mcp');
-    const appsBridge = requireExposedBridgeProperty(mcpBridge, 'mcp', 'apps');
-    expect(appsBridge).toContain(
-      'ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsPrepare, request)'
-    );
-    expect(appsBridge).toContain(
-      'ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsExecute, request)'
-    );
-    expect(appsBridge).toContain(
-      'ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.appsRelease, request)'
-    );
-    expect(appsBridge).toContain('readMcpAppResource(origin)');
-    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'getServerStatusSnapshot')).toContain(
-      'ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.statusGet)'
-    );
-    const statusSubscription = requireExposedBridgeProperty(
-      mcpBridge,
-      'mcp',
-      'onServerStatusUpdated'
-    );
-    expect(statusSubscription).toContain(
-      'ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.statusUpdated, listener)'
-    );
-    expect(statusSubscription).toContain(
-      'ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.statusUpdated, listener)'
-    );
-    // BST-1585: content browsing crosses IPC as three verb-specific channels;
-    // the renderer never gets a raw `invoke(method, params)` escape hatch.
-    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'readResource')).toContain(
-      'ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentReadResource, request)'
-    );
-    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'getPrompt')).toContain(
-      'ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentGetPrompt, request)'
-    );
-    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'complete')).toContain(
-      'ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.contentComplete, request)'
-    );
-    expect([...mcpBridge.keys()]).not.toContain('invoke');
-    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'settleElicitation')).toContain(
-      'ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.elicitationSettle, settlement)'
-    );
-    for (const [property, member] of [
-      ['onElicitationRequested', 'DESKTOP_IPC_CHANNELS.mcp.elicitationRequested'],
-      ['onElicitationRetired', 'DESKTOP_IPC_CHANNELS.mcp.elicitationRetired'],
-    ] as const) {
-      const subscription = requireExposedBridgeProperty(mcpBridge, 'mcp', property);
-      expect(subscription).toContain(`ipcRenderer.on(${member}, listener)`);
-      expect(subscription).toContain(`ipcRenderer.removeListener(${member}, listener)`);
+
+    for (const contract of [
+      'mcpContract',
+      'mcpPathSelectionContract',
+      'mcpContentContract',
+      'mcpElicitationContract',
+      'mcpAppsContract',
+      'mcpTasksContract',
+    ]) {
+      expect(preloadSource).toContain(`createIpcBridge(ipcRenderer, ${contract})`);
     }
-    // Durable MCP Tasks bridge (BST-1566): act/list invokes plus the status push.
-    const tasksBridge = requireExposedBridgeProperty(mcpBridge, 'mcp', 'tasks');
-    expect(tasksBridge).toContain('ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.taskAct, request)');
-    expect(tasksBridge).toContain('ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.mcp.taskList)');
-    expect(tasksBridge).toContain(
-      'ipcRenderer.on(DESKTOP_IPC_CHANNELS.mcp.taskStatusChanged, listener)'
+    expect(preloadSource).toContain(
+      'readResource: (origin: McpAppOrigin) => readMcpAppResource(origin)'
     );
-    expect(tasksBridge).toContain(
-      'ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.mcp.taskStatusChanged, listener)'
-    );
+    expect(preloadSource).not.toMatch(/ipcRenderer\.invoke\(DESKTOP_IPC_CHANNELS\.mcp\./);
   });
 
   it('keeps resolver-gated bridge key sets in parity with their required-method contracts', () => {
@@ -240,18 +187,11 @@ describe('preload runtime contract', () => {
     // instead of this source walk.
     const expectedBridgeMethods: Record<string, readonly string[]> = {
       browser: BROWSER_BRIDGE_REQUIRED_METHODS,
-      changes: CHANGES_BRIDGE_REQUIRED_METHODS,
-      commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
       envBootstrap: ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS,
-      forge: FORGE_BRIDGE_REQUIRED_METHODS,
-      git: GIT_BRIDGE_REQUIRED_METHODS,
-      notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
       providerAuth: PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS,
       secrets: SECRETS_BRIDGE_REQUIRED_METHODS,
-      terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
       workspace: WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS,
-      worktrees: WORKTREES_BRIDGE_REQUIRED_METHODS,
     };
 
     for (const [bridgeName, requiredMethods] of Object.entries(expectedBridgeMethods)) {

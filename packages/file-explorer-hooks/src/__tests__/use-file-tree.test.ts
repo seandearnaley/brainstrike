@@ -1,6 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { createLogger } from '@brainstrike/logging';
-import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -127,7 +127,7 @@ describe('useFileTree', () => {
       const mockSuccessDir: IFileNode = {
         children: [],
         depth: 1,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'success-dir',
         path: 'root/success-dir',
         rootFolderId: 'root',
@@ -138,7 +138,7 @@ describe('useFileTree', () => {
       const mockFailDir: IFileNode = {
         children: [],
         depth: 1,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'fail-dir',
         path: 'root/fail-dir',
         rootFolderId: 'root',
@@ -197,7 +197,7 @@ describe('useFileTree', () => {
       const mockFailDir1: IFileNode = {
         children: [],
         depth: 1,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'fail-dir1',
         path: 'root/fail-dir1',
         rootFolderId: 'root',
@@ -208,7 +208,7 @@ describe('useFileTree', () => {
       const mockFailDir2: IFileNode = {
         children: [],
         depth: 1,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'fail-dir2',
         path: 'root/fail-dir2',
         rootFolderId: 'root',
@@ -260,7 +260,7 @@ describe('useFileTree', () => {
       const mockParentDir: IFileNode = {
         children: [],
         depth: 1,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'parent',
         path: 'root/parent',
         rootFolderId: 'root',
@@ -271,7 +271,7 @@ describe('useFileTree', () => {
       const mockSuccessNestedDir: IFileNode = {
         children: [],
         depth: 2,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'success-nested',
         path: 'root/parent/success-nested',
         rootFolderId: 'root',
@@ -282,7 +282,7 @@ describe('useFileTree', () => {
       const mockFailNestedDir: IFileNode = {
         children: [],
         depth: 2,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'fail-nested',
         path: 'root/parent/fail-nested',
         rootFolderId: 'root',
@@ -349,7 +349,7 @@ describe('useFileTree', () => {
       const mockSuccessDir: IFileNode = {
         children: [],
         depth: 1,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'success-dir',
         path: 'root/success-dir',
         rootFolderId: 'root',
@@ -370,7 +370,7 @@ describe('useFileTree', () => {
       const mockFailDir: IFileNode = {
         children: [],
         depth: 1,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'fail-dir',
         path: 'root/fail-dir',
         rootFolderId: 'root',
@@ -433,7 +433,7 @@ describe('useFileTree', () => {
       const mockParentDir: IFileNode = {
         children: [],
         depth: 1,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'parent',
         path: 'root/parent',
         rootFolderId: 'root',
@@ -445,7 +445,7 @@ describe('useFileTree', () => {
       const mockSubDirZ: IFileNode = {
         children: [],
         depth: 2,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'z-subdir',
         path: 'root/parent/z-subdir',
         rootFolderId: 'root',
@@ -466,7 +466,7 @@ describe('useFileTree', () => {
       const mockSubDirA: IFileNode = {
         children: [],
         depth: 2,
-        handle: {} as FileSystemDirectoryHandle,
+        handle: { kind: 'directory', name: 'directory' } as FileSystemDirectoryHandle,
         name: 'a-subdir',
         path: 'root/parent/a-subdir',
         rootFolderId: 'root',

@@ -156,7 +156,7 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
       })
       .toBe(initialTimeOrigin);
 
-    const input = window.locator('#assistant-input');
+    const input = window.getByRole('textbox', { name: 'Message input' });
     await expect(input).toBeVisible({ timeout: 5000 });
     await input.fill('hello desktop');
 

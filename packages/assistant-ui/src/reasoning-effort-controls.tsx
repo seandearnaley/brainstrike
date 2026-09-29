@@ -329,6 +329,12 @@ export function buildThinkingToggleModel(
   }
 
   if (availability.family === 'anthropic') {
+    // BST-1706: always-on thinking has no off state, so a toggle that claims
+    // to switch it off must not render — the effort ladder above stays as the
+    // only control, matching what the vendor makes configurable.
+    if (availability.mandatory) {
+      return;
+    }
     const thinkingValue = clampNumber(
       settings.anthropicThinkingBudgetTokens ?? ANTHROPIC_THINKING_DEFAULT,
       ANTHROPIC_THINKING_MIN,

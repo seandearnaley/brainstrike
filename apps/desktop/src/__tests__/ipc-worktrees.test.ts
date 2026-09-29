@@ -112,7 +112,13 @@ describe('registerWorktreesIpcHandlers', () => {
     expect(handlers.inspectArchive).toHaveBeenCalledWith(inspectArchivePayload);
 
     clearHandlerMocks();
-    const payload = { name: 'feature' };
+    const payload = {
+      baseRef: 'HEAD',
+      branch: { name: 'feature' },
+      createdBy: 'user',
+      name: 'feature',
+      rootId: 'root-1',
+    } as const;
     await handlerFor(DESKTOP_IPC_CHANNELS.worktrees.create)(visibleEvent, payload);
     expect(handlers.create).toHaveBeenCalledWith(payload);
     expect(handlers.adopt).not.toHaveBeenCalled();
@@ -284,6 +290,39 @@ describe('registerWorktreesIpcHandlers', () => {
     for (const handler of Object.values(handlers)) {
       expect(handler).not.toHaveBeenCalled();
     }
+  });
+
+  it('preserves raw GitResult failures for type-valid domain errors', async () => {
+    const { ipcMain } = await import('electron');
+    const branchFailure = { error: 'branch is required', ok: false } as const;
+    const settingsFailure = { error: 'setup command cannot be empty', ok: false } as const;
+    const handlers = {
+      ...stubHandlers(),
+      createBranchHere: vi.fn(async () => branchFailure),
+      setSettings: vi.fn(async () => settingsFailure),
+    } satisfies WorktreesIpcHandlers;
+    registerWorktreesIpcHandlers(handlers);
+
+    const handleMock = ipcMain.handle as unknown as ReturnType<typeof vi.fn>;
+    const handlerFor = (channel: string) =>
+      handleMock.mock.calls.find(([registered]) => registered === channel)?.[1] as (
+        event: unknown,
+        payload: unknown
+      ) => unknown;
+    const visibleEvent = { sender: { id: 8101 }, senderFrame: createAllowlistedSenderFrame() };
+
+    await expect(
+      handlerFor(DESKTOP_IPC_CHANNELS.worktrees.createBranchHere)(visibleEvent, {
+        branch: '',
+        worktreeId: 'worktree-1',
+      })
+    ).resolves.toBe(branchFailure);
+    await expect(
+      handlerFor(DESKTOP_IPC_CHANNELS.worktrees.setSettings)(visibleEvent, {
+        managedDirectory: null,
+        setupCommand: [],
+      })
+    ).resolves.toBe(settingsFailure);
   });
 
   it('disposer removes all twelve registered channels', async () => {

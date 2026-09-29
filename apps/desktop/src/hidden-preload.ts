@@ -3,7 +3,21 @@
 // duplicated, or unknown role is a packaging error and fails closed.
 const { contextBridge, ipcRenderer } = require('electron');
 
+import {
+  databaseChunkingContract,
+  databaseEmbeddingContract,
+  databaseIntegrityContract,
+} from './ipc-domains/database.contract';
+import { vectorPreferencesContract } from './ipc-domains/storage-preferences.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { createIpcBridge } from './platform/ipc-bridge';
+import {
+  assertDesktopElectronApiKeyParity,
+  type ChunkingHostElectronApi,
+  type ChunkingHostRuntimeBridge,
+  type EmbeddingHostElectronApi,
+  type EmbeddingHostRuntimeBridge,
+} from './types/desktop-electron-api';
 
 type ChunkingHostRequest = import('./chunking-host-shared').ChunkingHostRequest;
 type ChunkingHostResponseReport = import('./chunking-host-shared').ChunkingHostResponseReport;
@@ -58,7 +72,11 @@ function exposeLoggingBridge(): void {
 }
 
 function exposeChunkingHostBridge(): void {
-  contextBridge.exposeInMainWorld('chunkingHost', {
+  const db = createIpcBridge(
+    ipcRenderer,
+    databaseChunkingContract
+  ) as unknown as ChunkingHostElectronApi['db'];
+  const chunkingHost = {
     onRequest: (callback: (request: ChunkingHostRequest) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.chunkingHost.request, callback),
     reportResponse: (response: ChunkingHostResponseReport): void => {
@@ -67,17 +85,17 @@ function exposeChunkingHostBridge(): void {
     reportStatus: (status: ChunkingHostStatus): void => {
       ipcRenderer.send(DESKTOP_IPC_CHANNELS.chunkingHost.reportStatus, status);
     },
-  });
+  } satisfies ChunkingHostRuntimeBridge;
+  contextBridge.exposeInMainWorld('chunkingHost', chunkingHost);
   contextBridge.exposeInMainWorld('parserHost', {
     parse: (request: unknown) =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.parserHostParse, request),
   });
-  contextBridge.exposeInMainWorld('electronAPI', {
-    db: {
-      query: (sql: string, params?: unknown[], options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.query, sql, params, options),
-    },
-  });
+  const electronAPI = {
+    db,
+  } satisfies ChunkingHostElectronApi;
+  assertDesktopElectronApiKeyParity('chunking-host', electronAPI);
+  contextBridge.exposeInMainWorld('electronAPI', electronAPI);
 }
 
 /**
@@ -89,53 +107,22 @@ function exposeChunkingHostBridge(): void {
  * because main pins the record server-side.
  */
 function exposeEmbeddingElectronApiBridge(): void {
-  contextBridge.exposeInMainWorld('electronAPI', {
-    db: {
-      applyManagedCacheBatch: (payload: unknown, options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.applyManagedCacheBatch, payload, options),
-      diagnostics: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.diagnostics),
-      exec: (sql: string, params?: unknown[], options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.exec, sql, params, options),
-      insertChunksAndEnqueueEmbeddingJobs: (
-        chunks: readonly unknown[],
-        fileRecordId: string,
-        options: unknown,
-        workOptions?: unknown
-      ) =>
-        ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.db.insertChunksAndEnqueueEmbeddingJobs,
-          { chunks, fileRecordId, options },
-          workOptions
-        ),
-      invalidateManagedCacheEntriesByIdentity: (payload: unknown, options?: unknown) =>
-        ipcRenderer.invoke(
-          DESKTOP_IPC_CHANNELS.db.invalidateManagedCacheEntriesByIdentity,
-          payload,
-          options
-        ),
-      query: (sql: string, params?: unknown[], options?: unknown) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.query, sql, params, options),
-      runTransaction: (
-        statements: ReadonlyArray<{ params?: unknown[]; sql: string }>,
-        resultIndex: number,
-        options?: unknown
-      ) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.transaction, statements, resultIndex, options),
-      schedulerSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.schedulerSnapshot),
-      test: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.db.test),
-    },
-    vectorPreferences: {
-      clear: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.clear),
-      read: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.read),
-      write: (value: string) =>
-        ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.vectorPreferences.write, value),
-    },
-  });
+  const db = createIpcBridge(
+    ipcRenderer,
+    databaseEmbeddingContract
+  ) as unknown as EmbeddingHostElectronApi['db'];
+  const vectorPreferences = createIpcBridge(ipcRenderer, vectorPreferencesContract);
+  const electronAPI = {
+    db,
+    vectorPreferences,
+  } satisfies EmbeddingHostElectronApi;
+  assertDesktopElectronApiKeyParity('embedding-host', electronAPI);
+  contextBridge.exposeInMainWorld('electronAPI', electronAPI);
 }
 
 function exposeEmbeddingHostBridge(): void {
   exposeEmbeddingElectronApiBridge();
-  contextBridge.exposeInMainWorld('embeddingHost', {
+  const embeddingHost = {
     onCommand: (callback: (command: EmbeddingHostCommand) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.command, callback),
     onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) =>
@@ -146,7 +133,14 @@ function exposeEmbeddingHostBridge(): void {
     reportStatus: (status: EmbeddingHostStatus): void => {
       ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportStatus, status);
     },
-  });
+  } satisfies EmbeddingHostRuntimeBridge;
+  contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);
+  // BST-1870: the claim permit parks while database integrity is contained, so
+  // the host reads the main-owned state. Read-only; chunking/LLM hosts get none.
+  contextBridge.exposeInMainWorld(
+    'databaseIntegrity',
+    createIpcBridge(ipcRenderer, databaseIntegrityContract)
+  );
   contextBridge.exposeInMainWorld('power', {
     getSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.powerSnapshot),
     onPowerState: (callback: (state: 'resume' | 'suspend') => void) =>

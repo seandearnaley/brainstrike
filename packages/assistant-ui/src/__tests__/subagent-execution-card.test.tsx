@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantDetailLevel } from '../assistant-detail-level';
 import {
   ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
@@ -61,6 +61,36 @@ describe('personaLabelForToolName', () => {
 });
 
 describe('SubagentExecutionCard', () => {
+  it('uses the child color on its delegation card', () => {
+    const { container } = renderCard({
+      presentation: { colorId: 'orange', displayName: 'Aspen', markClassName: 'bg-orange-500' },
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(container.querySelector('.bs-subagent-card')?.getAttribute('data-agent-color')).toBe(
+      'orange'
+    );
+  });
+  it('derives scheme accents for a family-colored delegation card', () => {
+    const { container } = renderCard({
+      presentation: {
+        colorId: 'family:1375:540',
+        displayName: 'Aspen',
+        markClassName: 'bs-agent-family-mark',
+      },
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    const card = container.querySelector('.bs-subagent-card');
+    expect(card).toHaveAttribute('data-agent-color', 'family:1375:540');
+    expect((card as HTMLElement).style.getPropertyValue('--agent-accent-light')).toMatch(
+      /^oklch\(/
+    );
+  });
   it('shows a delegation that ran but never answered as "No answer", not Completed', () => {
     // BST-1410. The delegation tool call succeeds even when the child exhausts
     // its step cap mid-tool-loop and writes nothing, so `status.type` alone
@@ -77,6 +107,23 @@ describe('SubagentExecutionCard', () => {
     expect(screen.queryByText('Explorer finished')).toBeNull();
     expect(screen.getByRole('img', { name: 'No answer' })).toBeTruthy();
     // Still a real delegation with real child work: the rows stay browsable.
+    expect(screen.getByText('· 2 tool calls')).toBeTruthy();
+  });
+
+  it('names a delegation whose reserved summary was cut as a truncated completion', () => {
+    // GLM pack 2026-09-15: the child hit its budget and the model cut its
+    // summary at the synthesis reservation. It COMPLETED with partial
+    // findings — never "failed", never plainly "finished".
+    renderCard({
+      outcome: 'truncated',
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('Explorer finished with a truncated summary')).toBeTruthy();
+    expect(screen.queryByText('Explorer finished')).toBeNull();
+    expect(screen.getByRole('img', { name: 'Completed (truncated summary)' })).toBeTruthy();
     expect(screen.getByText('· 2 tool calls')).toBeTruthy();
   });
 
@@ -116,7 +163,7 @@ describe('SubagentExecutionCard', () => {
       toolCallId: 'delegation-1',
       toolName: 'agent-analyze',
     });
-    expect(screen.getByText('Delegating to Analyst')).toBeTruthy();
+    expect(screen.getByText('Analyst is working')).toBeTruthy();
     expect(screen.getByRole('img', { name: 'Running' })).toBeTruthy();
     expect(screen.getByText('· 0 tool calls')).toBeTruthy();
     // No child rows yet: nothing to expand, so the row is not a button.
@@ -195,7 +242,7 @@ describe('SubagentExecutionCard', () => {
       toolCallId: 'delegation-1',
       toolName: 'agent-explore',
     });
-    expect(screen.getByText('Delegating to Explorer')).toBeTruthy();
+    expect(screen.getByText('Explorer is working')).toBeTruthy();
     // The header count reflects the in-flight child tool, NOT zero.
     expect(screen.getByText('· 1 tool call')).toBeTruthy();
     fireEvent.click(screen.getByRole('button'));
@@ -347,11 +394,56 @@ describe('SubagentExecutionCard non-interactive row name', () => {
       },
       'standard'
     );
-    const row = screen.getByRole('group', { name: /^Delegating to Analyst$/ });
+    const row = screen.getByRole('group', { name: /^Analyst is working$/ });
     expect(row).toBeInTheDocument();
     // The chip is present as row text — proving "fixed" (chip renders,
     // excluded from the name) rather than "not rendered" (chip absent,
     // making the name assertion above vacuous).
     expect(row).toHaveTextContent('0 tool calls');
   });
+});
+
+it('opens the child conversation without expanding its activity rows', () => {
+  const open = vi.fn();
+  renderCard({
+    onOpenConversation: open,
+    result: completedResult,
+    status: { type: 'complete' },
+    toolCallId: 'delegate',
+    toolName: 'agent-explore',
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Open Explorer conversation' }));
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText('brainstrike_grepSearch')).not.toBeInTheDocument();
+});
+
+it('keeps a conflicting conversation address visible as a card-local error', () => {
+  renderCard({
+    navigationError: 'Conflicting child conversation addresses.',
+    result: completedResult,
+    status: { type: 'complete' },
+    toolCallId: 'call',
+    toolName: 'agent-explore',
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent('Conflicting child conversation addresses.');
+  expect(screen.queryByRole('button', { name: /Open .* conversation/ })).not.toBeInTheDocument();
+  expect(screen.getByText('Explorer finished')).toBeInTheDocument();
+});
+
+it('keeps valid child navigation available when presentation fails and offers an explicit reload', () => {
+  const open = vi.fn();
+  const reload = vi.fn();
+  renderCard({
+    onOpenConversation: open,
+    onReloadPresentation: reload,
+    presentationError: 'Child details could not be loaded',
+    status: { type: 'complete' },
+    toolCallId: 'call',
+    toolName: 'agent-explore',
+  });
+  expect(screen.getByRole('alert').textContent).toContain('Child details could not be loaded');
+  fireEvent.click(screen.getByRole('button', { name: 'Open Explorer conversation' }));
+  expect(open).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Reload child details' }));
+  expect(reload).toHaveBeenCalledTimes(1);
 });

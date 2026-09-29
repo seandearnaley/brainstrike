@@ -1,8 +1,12 @@
+// Side-effect import, deliberately FIRST: wraps WebAssembly before any other
+// import (PGlite, tokenizers, xxhash-wasm) can instantiate a module.
+import './diagnostics/install-webassembly-counter';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
+import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
   addLogListener,
@@ -22,7 +26,6 @@ import {
   configureDesktopCommandSessionManager,
   disposeDesktopCommandSessions,
 } from './assistant-server/command-session-manager';
-import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
@@ -31,8 +34,6 @@ import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-wo
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
-import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
-import { reapOrphanedThreadRuns } from './assistant-server/thread-run-startup-reaper';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { isPathWithin } from './assistant-server/worktree-paths';
 import type { createWorktreeService } from './assistant-server/worktree-service';
@@ -48,23 +49,22 @@ import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
+import { closeDesktopRenderers } from './close-desktop-renderers';
 import { createWindow, noteNextWindowReload } from './create-window';
-import {
-  createDesktopDatabaseMaintenanceScheduler,
-  type DesktopDatabaseMaintenanceScheduler,
-} from './database-maintenance-scheduler';
+import { startDatabaseIntegrityContainment } from './database-integrity-containment';
+import { getDesktopDatabaseIntegrity } from './database-integrity-state';
+import { createDesktopDatabaseMaintenanceScheduler } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
-import {
-  closeDatabase,
-  getDatabase,
-  handleRuntimeCorruption as replaceCorruptedDatabase,
-  resetLocalDatabase,
-} from './db-main';
+import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
-import { type SerializedDesktopError, serializeDesktopError } from './desktop-error-serialization';
+import { serializeDesktopError } from './desktop-error-serialization';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
+import {
+  createDesktopMaintenanceTriggerGraph,
+  type DesktopMaintenanceTriggerGraph,
+} from './desktop-maintenance-trigger-graph';
 import {
   configureDesktopRendererTarget,
   createDesktopRendererTarget,
@@ -83,6 +83,7 @@ import {
   listErrorLogFilePaths,
 } from './diagnostics/error-log-sink';
 import { resolveMainLogTransportPath } from './diagnostics/main-log-transport-path';
+import { readMainLogWindow } from './diagnostics/main-log-window';
 import { MAIN_WATCHDOG_CHECK_INTERVAL_MS } from './diagnostics/main-watchdog-core';
 import { resolveMainWatchdogWorkerPath } from './diagnostics/main-watchdog-path';
 import {
@@ -91,15 +92,18 @@ import {
   createMainWatchdogRuntime,
   runMainWatchdogPowerTransition,
 } from './diagnostics/main-watchdog-runtime';
+import {
+  PROCESS_COUNTER_RING_CAPACITY,
+  ProcessCounterRing,
+} from './diagnostics/process-counter-ring';
+import { createProcessCounterSampler } from './diagnostics/process-counter-sampler';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
+import { installWebAssemblyCounter } from './diagnostics/webassembly-counter';
 import {
   type DimensionIndexBuildStrategy,
   probeDimensionIndexRuntimeCapabilities,
 } from './dimension-index-maintenance-capabilities';
-import {
-  createDesktopDimensionIndexMaintenanceScheduler,
-  type DesktopDimensionIndexMaintenanceScheduler,
-} from './dimension-index-maintenance-scheduler';
+import { createDesktopDimensionIndexMaintenanceScheduler } from './dimension-index-maintenance-scheduler';
 import { resolveBuiltRendererPath } from './dist-root';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
@@ -115,6 +119,7 @@ import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
+import { registerDatabaseIntegrityIpcHandlers } from './ipc-domains/database-integrity-ipc';
 import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
@@ -125,9 +130,7 @@ import {
   cleanupDesktopLiveSubscriptionsForShutdown,
   getDesktopDatabaseWorkScheduler,
   getDesktopDatabaseWorkSchedulerSnapshot,
-  quiesceDesktopDatabaseWorkForRecovery,
   registerIpcHandlers,
-  resumeDesktopDatabaseWorkAfterRecoveryReload,
   runDesktopScheduledDatabaseWork,
   runWithDesktopDatabaseResetBarrier,
   setBackgrounded,
@@ -154,9 +157,15 @@ import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerWorktreesIpcHandlers } from './ipc-worktrees';
 import { LlmHostManager } from './llm-host-manager';
 import { registerLoggingIpcHandlers } from './logging-ipc';
+import {
+  createDesktopGracefulShutdown,
+  type DesktopShutdownRunPlan,
+} from './main/desktop-graceful-shutdown';
 import { createDisposerStack, type DisposerHandle } from './main/disposer-stack';
 import { startGitAwarenessLifecycle } from './main/git-awareness-lifecycle';
 import { createDesktopLoggingPreferencesController } from './main/logging-preferences';
+import { installShutdownSignalHandlers } from './main/shutdown-signals';
+import { startSnapshotStartupMaintenance } from './main/snapshot-lifecycle';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
@@ -174,6 +183,7 @@ import { getSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
+import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
 import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 import {
@@ -344,6 +354,16 @@ const mainProcessStartedAt = new Date();
 configureDesktopCommandSessionManager({ resolver: createDatabaseRootResolver(getDatabase) });
 logger.debug('Main process started');
 const mainLogBuffer = new LogBuffer({ size: 3000 });
+// Same counter the first-import side-effect module installed (idempotent).
+const mainWebAssemblyCounter = installWebAssemblyCounter();
+const processCounterRing = new ProcessCounterRing(PROCESS_COUNTER_RING_CAPACITY);
+
+const processCounterSampler = createProcessCounterSampler({
+  counter: mainWebAssemblyCounter,
+  getDatabase,
+  ring: processCounterRing,
+  runScheduledWork: runDesktopScheduledDatabaseWork,
+});
 const removeLogBufferListener = addLogListener((record) => {
   mainLogBuffer.push(record);
 });
@@ -359,9 +379,38 @@ try {
 loggingPreferences.applyInitial();
 
 async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
+  let db: Awaited<ReturnType<typeof getDatabase>>;
+  let recovered: number;
+  try {
+    db = await getDatabase();
+    if (isDesktopShuttingDown()) {
+      return;
+    }
+    // This process owns the single-instance lock and maintenance triggers have
+    // not started. Only here can a persisted `running` build be proven orphaned.
+    recovered = await recoverInterruptedDimensionIndexMaintenanceAtStartup(db, {
+      now: () => mainProcessStartedAt,
+    });
+  } catch (error) {
+    if (!isDesktopShuttingDown()) {
+      throw error;
+    }
+    logger.info('Dimension index maintenance initialization aborted by shutdown', {
+      error: serializeDesktopError(error),
+    });
+    return;
+  }
+  if (recovered > 0) {
+    logger.info('Recovered interrupted dimension index maintenance at startup', {
+      recovered,
+    });
+  }
+  if (isDesktopShuttingDown()) {
+    return;
+  }
   try {
     const capabilities = await probeDimensionIndexRuntimeCapabilities({
-      db: await getDatabase(),
+      db,
       initialMemoryBytes: null,
       now: () => new Date(),
       scratchTableName: `brainstrike_hnsw_probe_${randomUUID().replaceAll('-', '_')}`,
@@ -405,7 +454,7 @@ let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 // registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
 // the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
 // `unregisterForgeIpc` below is the deliberate exception: it is torn down
-// inside runGracefulShutdown's 'forge' step, BEFORE 'database'.
+// inside the graceful shutdown's 'forge' step, BEFORE 'database-drain'.
 const ipcDisposers = createDisposerStack();
 // Per-window: the embedded browser pane's IPC is bound to the CURRENT visible
 // window (rebound on a macOS dock-reopen), so its handle is kept to retire the
@@ -435,84 +484,44 @@ let worktreeService: ReturnType<typeof createWorktreeService> | null = null;
 // load, before construction. There is exactly one instance; T2/T3 consume it
 // through the injected seams, never by constructing a second service.
 let snapshotService: SnapshotService | null = null;
-let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
-let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
-  null;
+let desktopMaintenanceTriggerGraph: DesktopMaintenanceTriggerGraph | null = null;
 let desktopDimensionIndexStrategy: DimensionIndexBuildStrategy | null = null;
-let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
-let gracefulShutdownPromise: Promise<void> | null = null;
 let gracefulShutdownInFlight = false;
-let forcedProcessExitTimeout: NodeJS.Timeout | null = null;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
 let completeFactoryResetRendererReplacement: (() => Promise<void>) | null = null;
 
-async function runShutdownStep(
-  step: string,
-  fn: () => Promise<void>
-): Promise<SerializedDesktopError | null> {
-  try {
-    await fn();
-    return null;
-  } catch (error) {
-    return {
-      step,
-      ...serializeDesktopError(error),
-    };
-  }
-}
-
-function scheduleForcedProcessExit(trigger: NodeJS.Signals | 'before-quit'): void {
-  if (forcedProcessExitTimeout) {
-    return;
-  }
-
-  forcedProcessExitTimeout = setTimeout(() => {
-    logger.error('Timed out waiting for graceful shutdown; forcing exit', {
-      trigger,
-    });
-    process.exit(1);
-  }, SIGNAL_SHUTDOWN_TIMEOUT_MS);
-  forcedProcessExitTimeout.unref();
-}
-
-function clearForcedProcessExitTimer(): void {
-  if (!forcedProcessExitTimeout) {
-    return;
-  }
-  clearTimeout(forcedProcessExitTimeout);
-  forcedProcessExitTimeout = null;
-}
-
-async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<void> {
-  // Mark shutdown before any host/DB teardown so background work torn down
-  // mid-flight (e.g. an in-flight embedding backfill) is logged as a benign
-  // stop, not a failure.
-  markDesktopShuttingDown();
-  if (gracefulShutdownPromise) {
-    await gracefulShutdownPromise;
-    return;
-  }
-
-  gracefulShutdownPromise = (async () => {
-    const failures: SerializedDesktopError[] = [];
-    // Adding a new step? Call `runShutdownStep` and pass its result through
-    // `recordFailure` like every step below, rather than a bespoke
-    // `const x = ...; if (x) { failures.push(x); }` — that pattern, repeated
-    // once per step, is what pushed this closure over the cognitive-
-    // complexity lint budget when the error-log-sink step (Flight Recorder
-    // P2a Task 3) was added.
-    const recordFailure = (failure: SerializedDesktopError | null): void => {
-      if (failure) {
-        failures.push(failure);
+// One shutdown run's step BODIES, built when the run starts so they capture
+// its state. They live here beside the module state they read and clear. The
+// keys are sorted, not ordered: the run ORDER, failure isolation, forced-exit
+// budget and logs are `main/desktop-graceful-shutdown.ts`'s
+// `DESKTOP_SHUTDOWN_STEP_ORDER`, which is where a new step is ordered.
+function planDesktopShutdownRun(): DesktopShutdownRunPlan {
+  const stopServer = stopAssistantServer;
+  let assistantServerDrained = stopServer === null;
+  return {
+    // The reserved slice: `desktop-graceful-shutdown.ts` runs it after the ordered
+    // steps even when the deadline aborted one. `database-drain` has already
+    // stopped what issues database work, so this is the host close alone.
+    closeDatabase: () => closeDatabase(),
+    // Runs last, after the aggregate failure warn (the shutdown module logs
+    // it first): the durable NDJSON file is the last writer standing, so it
+    // stays open to capture every earlier failure. The handle is nulled from
+    // a `finally` so a throwing `close()` still leaves `errorLogSink` cleared
+    // rather than a stale handle that later `recordDurableLog` calls would
+    // treat as still open.
+    closeErrorLogSink: () => {
+      const sinkToClose = errorLogSink;
+      try {
+        sinkToClose?.close();
+      } finally {
+        errorLogSink = null;
       }
-    };
-
-    const stopServer = stopAssistantServer;
-    let assistantServerDrained = stopServer === null;
-    recordFailure(
-      await runShutdownStep('assistant-server', async () => {
+    },
+    isAssistantServerDrained: () => assistantServerDrained,
+    steps: {
+      'assistant-server': async () => {
         // Start every process reaper in the same settlement batch as the server
         // drain. A hung or rejected drain must never prevent shell, terminal,
         // command-session, or LSP cleanup from being attempted.
@@ -533,67 +542,58 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
         if (causes.length > 0) {
           throw new AggregateError(causes, 'Assistant server shutdown cleanup failed');
         }
-      })
-    );
-
-    recordFailure(await runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown));
-    if (!assistantServerDrained) {
-      failures.push({
-        message: 'Closed MCP host before assistant-server drain completed',
-        name: 'McpShutdownOrderingError',
-        step: 'mcp-runtime',
-      });
-    }
-
-    recordFailure(
-      await runShutdownStep('chunking-host', async () => {
+      },
+      'chunking-host': async () => {
         await chunkingHostManager.dispose();
-      })
-    );
-
-    recordFailure(
-      await runShutdownStep('parser-host', async () => {
-        await parserHostManager.stop();
-      })
-    );
-
-    recordFailure(
-      await runShutdownStep('embedding-host', async () => {
-        await embeddingHostManager.dispose();
-      })
-    );
-
-    recordFailure(
-      await runShutdownStep('llm-host', async () => {
-        await llmHostManager.dispose();
-      })
-    );
-
-    recordFailure(
-      await runShutdownStep('git-inventory', async () => {
-        // BEFORE 'database' below: this service's `loadRoots` dependency
-        // reads the DB `roots` table, so its watchers/in-flight build must
-        // be torn down while the database is still available to it.
-        if (gitInventoryService) {
-          await gitInventoryService.stop();
-          gitInventoryService = null;
+      },
+      // Stops everything that issues database work. It does NOT close the
+      // database: that is `closeDatabase` below, a slice that always runs.
+      'database-drain': async () => {
+        const maintenance = desktopMaintenanceTriggerGraph;
+        maintenance?.stop();
+        desktopMaintenanceTriggerGraph = null;
+        // Before the idle join: a submitted sample drains; later ticks are no-ops.
+        processCounterSampler.stop();
+        const triggerClosures = await Promise.allSettled([maintenance?.close()]);
+        const triggerErrors: unknown[] = triggerClosures.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        // A failed trigger finalizer cannot skip the independent DB idle join.
+        // Admitted SQL remains owned by the work scheduler.
+        let databaseDrainFailed = false;
+        let databaseDrainError: unknown;
+        try {
+          await cleanupDesktopLiveSubscriptionsForShutdown();
+          await waitForDesktopDatabaseWorkSchedulerIdle();
+          await cleanupDesktopLiveSubscriptionsForShutdown();
+        } catch (error) {
+          databaseDrainFailed = true;
+          databaseDrainError = error;
         }
-      })
-    );
-
-    // Its own step, deliberately NOT nested inside 'git-inventory' above:
-    // `gitInventoryService.stop()`'s final `await toDispose.disposeAll()` is
-    // unguarded, and `runShutdownStep` catches a rejection at the step
-    // boundary — nesting forge teardown after it would silently skip these
-    // three lines on a throwing watcher disposer, leaving `ipcMain` handlers
-    // registered and a live `forgeService` heading into 'database' below.
-    // forge has the same DB dependency as git-inventory (`getDatabase` ->
-    // `readForgePrCacheEntry`/`writeForgePrCacheEntry`) but is otherwise
-    // unrelated to git-inventory's success, so it gets its own
-    // failure-isolated step, BEFORE 'database' for the same reason.
-    //
-    recordFailure(
-      await runShutdownStep('forge', async () => {
+        if (triggerErrors.length > 0) {
+          throw new AggregateError(
+            databaseDrainFailed ? [...triggerErrors, databaseDrainError] : triggerErrors,
+            'Desktop database shutdown cleanup failed'
+          );
+        }
+        if (databaseDrainFailed) {
+          throw databaseDrainError;
+        }
+      },
+      'embedding-host': async () => {
+        await embeddingHostManager.dispose();
+      },
+      // Its own step, deliberately NOT nested inside 'git-inventory':
+      // `gitInventoryService.stop()`'s final `await toDispose.disposeAll()` is
+      // unguarded, and the shutdown sequence catches a rejection at the step
+      // boundary — nesting forge teardown after it would silently skip these
+      // three lines on a throwing watcher disposer, leaving `ipcMain` handlers
+      // registered and a live `forgeService` heading into 'database-drain'.
+      // forge has the same DB dependency as git-inventory (`getDatabase` ->
+      // `readForgePrCacheEntry`/`writeForgePrCacheEntry`) but is otherwise
+      // unrelated to git-inventory's success, so it gets its own
+      // failure-isolated step, BEFORE 'database-drain' for the same reason.
+      forge: async () => {
         const service = forgeService;
         // Retire both authorities before any await: watcher invalidations and
         // IPC can no longer enqueue work while stop aborts and drains the
@@ -606,102 +606,97 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
           unregisterForgeIpc = undefined;
           await drain;
         }
-      })
-    );
-
-    recordFailure(
-      await runShutdownStep('database', async () => {
-        desktopDimensionIndexMaintenanceScheduler?.stop();
-        desktopDimensionIndexMaintenanceScheduler = null;
-        desktopDatabaseMaintenanceScheduler?.stop();
-        desktopDatabaseMaintenanceScheduler = null;
-        await cleanupDesktopLiveSubscriptionsForShutdown();
-        await waitForDesktopDatabaseWorkSchedulerIdle();
-        await cleanupDesktopLiveSubscriptionsForShutdown();
-        await closeDatabase();
-      })
-    );
-
-    if (failures.length > 0) {
-      // The ONLY place any of the failures collected above gets logged — and
-      // therefore the only warn+ record that could describe them. It MUST
-      // run before the error-log-sink step below: closing the sink first
-      // would make `recordDurableLog` a no-op for this very call, so the
-      // NDJSON backstop would contain no trace of a shutdown-step failure
-      // (e.g. `closeDatabase()` throwing) despite being "the last writer
-      // standing".
-      logger.warn('Graceful shutdown completed with cleanup failures', {
-        failures,
-        trigger,
-      });
-    }
-
-    // Last shutdown step, deliberately, and AFTER the warn above (not just
-    // after 'database'): the durable NDJSON file is the last writer
-    // standing, so it must stay open through every earlier step — including
-    // the aggregate failure log immediately above — in order to capture
-    // their failures too.
-    //
-    // Deliberately NOT routed through `recordFailure`/`failures`: the
-    // aggregate `if (failures.length > 0) logger.warn(...)` above is the
-    // ONLY consumer of that array and has already run, so a failure pushed
-    // into it now would never be read by anything — logging it here is the
-    // only way this failure reaches console/`brainstrike.log` at all (the
-    // NDJSON sink itself is exactly what just failed to close). The handle
-    // is nulled from a `finally` so a throwing `close()` still leaves
-    // `errorLogSink` cleared rather than a stale handle that later
-    // `recordDurableLog` calls would treat as still open.
-    const sinkToClose = errorLogSink;
-    const sinkCloseFailure = await runShutdownStep('error-log-sink', async () => {
-      try {
-        sinkToClose?.close();
-      } finally {
-        errorLogSink = null;
-      }
-    });
-    if (sinkCloseFailure) {
-      logger.error('Failed to close the durable NDJSON error log', {
-        failure: sinkCloseFailure,
-        trigger,
-      });
-    }
-  })().finally(() => {
-    clearForcedProcessExitTimer();
-  });
-  await gracefulShutdownPromise;
+      },
+      'git-inventory': async () => {
+        // Runs BEFORE 'database-drain': this service's `loadRoots` dependency
+        // reads the DB `roots` table, so its watchers/in-flight build must
+        // be torn down while the database is still available to it.
+        if (gitInventoryService) {
+          await gitInventoryService.stop();
+          gitInventoryService = null;
+        }
+      },
+      'llm-host': async () => {
+        await llmHostManager.dispose();
+      },
+      // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
+      'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
+      'parser-host': async () => {
+        await parserHostManager.stop();
+      },
+      // before-quit postpones Electron's own window close. Join the renderer
+      // producers first, while their DB/chunking/assistant dependencies still
+      // live. Hidden renderer hosts must retain command listeners until their
+      // own stop.
+      renderers: () =>
+        closeDesktopRenderers(
+          BrowserWindow.getAllWindows(),
+          (window) =>
+            chunkingHostManager.isHostWindow(window) ||
+            embeddingHostManager.isHostWindow(window) ||
+            llmHostManager.isHostWindow(window)
+        ),
+    },
+  };
 }
+
+const gracefulShutdown = createDesktopGracefulShutdown({
+  deadlineMs: SIGNAL_SHUTDOWN_TIMEOUT_MS,
+  exitProcess: (code) => process.exit(code),
+  logger,
+  markShuttingDown: markDesktopShuttingDown,
+  planRun: planDesktopShutdownRun,
+  // Background indexing keeps requesting embedding backfills until its
+  // renderer dies, and each request would restart the embedding host that the
+  // ordered steps are about to stop. Retire the admission first so host
+  // teardown owns its window; the job rows stay durable and resume next launch.
+  retireBackgroundAdmission: cancelAllDesktopEmbeddingBackfills,
+});
 
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
-  if (signalShutdownInFlight) {
-    return;
-  }
-  signalShutdownInFlight = true;
-
   logger.warn('Received shutdown signal, attempting graceful desktop shutdown', { signal });
-  scheduleForcedProcessExit(signal);
 
-  // runGracefulShutdown logs and resolves even when cleanup fails, so we always continue
-  // to quit the process rather than hanging on a partial shutdown.
-  await runGracefulShutdown('signal');
+  // The graceful run logs and resolves even when cleanup fails, so we always
+  // continue to quit the process rather than hanging on a partial shutdown.
+  await gracefulShutdown.run('signal', signal);
 
   allowImmediateQuit = true;
-  if (app.isReady()) {
-    app.quit();
-  } else {
-    process.exit(0);
-  }
+  app.quit();
 }
 
+// Called from `app.whenReady()`, never at module scope. Electron converts the FIRST
+// SIGINT/SIGTERM/SIGHUP into `app.quit()` with its own one-shot handler, installed before ready:
+// a JS listener registered earlier is replaced by it and never runs (measured, Electron 44.4.5),
+// and a second signal then takes the default action and kills main mid-shutdown. One registered
+// here replaces Electron's, and the persistent listeners take every later signal.
 function registerShutdownSignalHandlers(): void {
-  if (process.env['NODE_ENV'] === 'test') {
+  // A unit test that imports this module must install nothing on the test
+  // runner's own process; the E2E launch also runs under NODE_ENV=test but is the
+  // real app and must exercise the handlers.
+  if (process.env['NODE_ENV'] === 'test' && !isElectronE2ETestMode()) {
     return;
   }
-
-  const shutdownSignals: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
-  for (const signal of shutdownSignals) {
-    process.once(signal, () => {
-      void handleShutdownSignal(signal);
+  // Loud, but never a boot failure: the boot `catch` below quits the app. A signal whose listeners
+  // were not yet removed still quits through Electron's own handler (`before-quit`); one whose
+  // listeners were removed takes its default action and skips the graceful run.
+  try {
+    installShutdownSignalHandlers({
+      logger,
+      onFirstSignal: (signal) => {
+        void handleShutdownSignal(signal);
+      },
+      signals: ['SIGINT', 'SIGTERM', 'SIGHUP'],
+      target: process,
     });
+  } catch (error) {
+    try {
+      logger.error(
+        'Failed to install the shutdown signal handlers; a signal may skip the graceful shutdown',
+        { error }
+      );
+    } catch {
+      // A throwing logger must not escape into the boot callback either.
+    }
   }
 }
 
@@ -723,87 +718,19 @@ const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 const llmHostManager = new LlmHostManager();
-let runtimeDatabaseRecoveryPromise: Promise<void> | null = null;
 
-async function recoverRuntimeDatabaseAndReload(context: string): Promise<void> {
-  if (runtimeDatabaseRecoveryPromise) {
-    await runtimeDatabaseRecoveryPromise;
-    return;
-  }
+// Integrity state clears only when a user-confirmed reset completed: a failed
+// reset must never mark the database healthy, so the wrapper marks after the
+// reset resolves and lets a rejection propagate untouched.
+const databaseIntegrity = getDesktopDatabaseIntegrity();
 
-  const recovery = (async (): Promise<void> => {
-    logger.warn('Runtime database recovery started; active indexing work is being canceled', {
-      context,
-    });
-    quiesceDesktopDatabaseWorkForRecovery();
-    let reloadScheduled = false;
-    try {
-      cancelAllDesktopEmbeddingBackfills();
-      // Recovery runs inside the scheduler operation whose database call just
-      // failed, so waiting for scheduler idle here would deadlock on itself.
-      // Backfills receive the recovery-aware scheduler; queued work cannot run
-      // until this operation unwinds and then rejects against the old epoch.
-      await cleanupDesktopLiveSubscriptionsForShutdown();
-      await replaceCorruptedDatabase(context);
-
-      const visibleWindows = BrowserWindow.getAllWindows().filter(
-        (window) =>
-          !(
-            chunkingHostManager.isHostWindow(window) ||
-            embeddingHostManager.isHostWindow(window) ||
-            llmHostManager.isHostWindow(window)
-          )
-      );
-      if (visibleWindows.length === 0) {
-        logger.warn('Runtime database recovery completed without a visible window to reload', {
-          context,
-        });
-        resumeDesktopDatabaseWorkAfterRecoveryReload();
-        return;
-      }
-
-      for (const window of visibleWindows) {
-        noteNextWindowReload(window, {
-          reason: 'runtime-database-corruption-recovery',
-          source: 'main',
-        });
-      }
-      logger.info('Runtime database recovery completed; visible windows will reload', {
-        context,
-        visibleWindowCount: visibleWindows.length,
-      });
-
-      // Let the failed IPC invocation unwind first. Until this timer runs,
-      // scheduler quiescence rejects both old queued closures and new work from
-      // the stale renderer. The replacement database cannot receive either.
-      reloadScheduled = true;
-      setTimeout(() => {
-        try {
-          for (const window of visibleWindows) {
-            if (!window.isDestroyed()) {
-              window.webContents.reloadIgnoringCache();
-            }
-          }
-        } finally {
-          resumeDesktopDatabaseWorkAfterRecoveryReload();
-        }
-      }, 0);
-    } catch (error) {
-      if (!reloadScheduled) {
-        resumeDesktopDatabaseWorkAfterRecoveryReload();
-      }
-      throw error;
-    }
-  })();
-
-  runtimeDatabaseRecoveryPromise = recovery;
-  try {
-    await recovery;
-  } finally {
-    if (runtimeDatabaseRecoveryPromise === recovery) {
-      runtimeDatabaseRecoveryPromise = null;
-    }
-  }
+function createDatabaseResetMarkingReplaced(
+  reason: 'factory-reset' | 'developer-reset'
+): () => Promise<void> {
+  return async () => {
+    await resetLocalDatabase();
+    databaseIntegrity.markDatabaseReplaced(reason);
+  };
 }
 
 const handleResetLocal = createDesktopFactoryResetHandler({
@@ -821,7 +748,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   // folder while the DB rows it mirrors do not (see desktop-factory-reset.ts).
   errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
-  resetLocalDatabase,
+  resetLocalDatabase: createDatabaseResetMarkingReplaced('factory-reset'),
   resetPersistentStorageAfterDataDeletion: () => storage.clear(),
   resumeAfterReset: (outcome) =>
     resumeMcpRuntimeAfterFactoryReset(getDesktopMcpHostRuntime(), outcome),
@@ -840,6 +767,15 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     },
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
     { name: 'chunking-host', stop: () => chunkingHostManager.stop() },
+    // In-memory diagnostics ring: a factory reset must not carry the previous
+    // profile's process samples into the next one.
+    {
+      name: 'process-counter-ring',
+      stop: () => {
+        processCounterRing.clear();
+        return Promise.resolve();
+      },
+    },
     { name: 'llm-host', stop: () => llmHostManager.stop() },
     // Reap any shell command the assistant left running so a factory reset is a
     // true fresh start with no orphaned subprocess surviving the wipe.
@@ -901,9 +837,25 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
 });
 
-desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
+// An integrity error cancels running backfills; every other background writer is
+// paused by the scheduler gate and the owner-level skips (BST-1870).
+ipcDisposers.add(
+  'database-integrity-containment',
+  startDatabaseIntegrityContainment({
+    cancelAllDesktopEmbeddingBackfills,
+    integrity: databaseIntegrity,
+  })
+);
+// The visible UI and the embedding host read the state and receive every change;
+// the host's claim permit parks on it (BST-1870).
+ipcDisposers.add(
+  'database-integrity',
+  registerDatabaseIntegrityIpcHandlers({ integrity: databaseIntegrity })
+);
+const desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
   getDatabase,
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+  integrity: databaseIntegrity,
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,
   // BST-1333: lets the scheduler require SUSTAINED idle before starting an
@@ -911,14 +863,23 @@ desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler(
   subscribeToSchedulerSnapshots: (listener) =>
     getDesktopDatabaseWorkScheduler().subscribe(listener),
 });
-desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenanceScheduler({
+const desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenanceScheduler({
   getDatabase,
   getDimensionIndexStrategy: () => desktopDimensionIndexStrategy,
   getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+  integrity: databaseIntegrity,
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,
+  // The HNSW build cannot be preempted: it starts only after sustained
+  // scheduler quiet with no assistant work in flight (database.md).
+  subscribeToSchedulerSnapshots: (listener) =>
+    getDesktopDatabaseWorkScheduler().subscribe(listener),
 });
+desktopMaintenanceTriggerGraph = createDesktopMaintenanceTriggerGraph(
+  desktopDatabaseMaintenanceScheduler,
+  desktopDimensionIndexMaintenanceScheduler
+);
 
 ipcDisposers.add(
   'logging',
@@ -960,7 +921,6 @@ ipcDisposers.add(
         : 'unmanaged';
     },
     onResetLocal: handleResetLocal,
-    onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
     onWorkspaceRootGranted: (grantedPath: string) => {
       pendingRootGrantSubscriber?.(grantedPath);
     },
@@ -978,6 +938,9 @@ ipcDisposers.add(
     },
     database: {
       getDiagnostics: async () => await getDbHostManager().getDiagnostics(),
+    },
+    databaseIntegrity: {
+      getSnapshot: () => databaseIntegrity.getSnapshot(),
     },
     databaseScheduler: {
       getSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
@@ -1004,6 +967,21 @@ ipcDisposers.add(
     logging: {
       getState: loggingPreferences.getSettingsPayload,
     },
+    mainLog: {
+      readWindow: (request) => {
+        const mainLogFilePath = getLogFilePath();
+        if (mainLogFilePath === null) {
+          throw new Error('Main log file logging is disabled; no log window is available.');
+        }
+        return readMainLogWindow({ logFilePath: mainLogFilePath, request });
+      },
+    },
+    processCounters: {
+      getSnapshot: () => ({
+        installedAt: mainWebAssemblyCounter.snapshot().installedAt,
+        samples: processCounterRing.list(),
+      }),
+    },
     reset: {
       getSnapshot: () => getDesktopResetDiagnosticsSnapshot(app.getPath('userData')),
     },
@@ -1014,6 +992,7 @@ ipcDisposers.add(
 );
 ipcDisposers.add('shell', registerShellIpcHandlers());
 ipcDisposers.add('clipboard', registerClipboardIpcHandlers());
+ipcDisposers.add('window-focus', registerWindowFocusIpcHandlers());
 ipcDisposers.add('file-exports', registerFileExportsIpcHandlers());
 // Lazy resolver for the same reason as `resolveSnapshotService` below: this
 // registration runs at module load, the ONE snapshot service is constructed
@@ -1099,7 +1078,6 @@ process.on('unhandledRejection', (reason, promise) => {
     reason: serializedReason,
   });
 });
-registerShutdownSignalHandlers();
 
 const singleInstanceLockAcquired = isElectronE2ETestMode()
   ? true
@@ -1129,19 +1107,22 @@ if (singleInstanceLockAcquired) {
     },
     timeoutMs: FACTORY_RESET_RENDERER_READY_TIMEOUT_MS,
   });
-  registerWorkspaceOpenReadyIpcHandlers({
-    onOpenPathReady: (signal) => {
-      if (signal.kind === 'invalid') {
-        logger.error(
-          { diagnostic: signal.diagnostic, senderWebContentsId: signal.senderWebContentsId },
-          'Invalid renderer readiness acknowledgement'
-        );
-      } else {
-        workspaceOpenReadyCallbacksByWebContentsId.get(signal.senderWebContentsId)?.();
-      }
-      factoryResetRendererReplacement.handleRendererReady(signal);
-    },
-  });
+  ipcDisposers.add(
+    'workspace-open-ready',
+    registerWorkspaceOpenReadyIpcHandlers({
+      onOpenPathReady: (signal) => {
+        if (signal.kind === 'invalid') {
+          logger.error(
+            { diagnostic: signal.diagnostic, senderWebContentsId: signal.senderWebContentsId },
+            'Invalid renderer readiness acknowledgement'
+          );
+        } else {
+          workspaceOpenReadyCallbacksByWebContentsId.get(signal.senderWebContentsId)?.();
+        }
+        factoryResetRendererReplacement.handleRendererReady(signal);
+      },
+    })
+  );
 
   completeFactoryResetRendererReplacement = async () => {
     const visibleWindows = BrowserWindow.getAllWindows().filter(
@@ -1163,6 +1144,9 @@ if (singleInstanceLockAcquired) {
   // way this entry point is observable end to end.
   app.on('open-file', (event, openedPath) => {
     event.preventDefault();
+    if (isDesktopShuttingDown()) {
+      return;
+    }
     enqueueFolderCandidates(
       workspaceOpenQueue,
       filterDirectoryOpenCandidates([openedPath], 'open-file'),
@@ -1187,6 +1171,9 @@ if (singleInstanceLockAcquired) {
     // its delivery path is the SAME queue + channel the open-file e2e
     // exercises end to end. No e2e is invented for it.
     app.on('second-instance', (_event, secondInstanceArgv, workingDirectory) => {
+      if (isDesktopShuttingDown()) {
+        return;
+      }
       enqueueFolderCandidates(
         workspaceOpenQueue,
         filterDirectoryOpenCandidates(
@@ -1236,6 +1223,7 @@ if (singleInstanceLockAcquired) {
   };
 
   app.whenReady().then(async () => {
+    registerShutdownSignalHandlers();
     try {
       emitBootMeasurementMark('app-ready', app.isPackaged);
       // Validated up front (before assistant-server startup) so a malformed
@@ -1289,7 +1277,7 @@ if (singleInstanceLockAcquired) {
       // worktree services (+ their renderer pushes) — constructed HERE, inside
       // app.whenReady(), never at module scope (main/git-awareness-lifecycle.ts
       // carries the full rationale). The module-scope slots below are what
-      // runGracefulShutdown's 'git-inventory' and 'forge' steps tear down.
+      // graceful shutdown's 'git-inventory' and 'forge' steps tear down.
       const gitAwareness = startGitAwarenessLifecycle({
         broadcast: broadcastToRenderers,
         getDatabase,
@@ -1314,82 +1302,13 @@ if (singleInstanceLockAcquired) {
         snapshotsBaseDir,
       });
       snapshotService = constructedSnapshotService;
-      // Startup orphan sweep: remove shadow repos whose workspace root row no
-      // longer EXISTS at all. Deliberately keyed on every `roots` row (any
-      // status), NOT on `status = 'live'`: disconnect ≠ delete (the row is
-      // kept and the root can reconnect), and sweeping a disconnected root
-      // here would irreversibly destroy its snapshot history. Fire-and-forget
-      // so startup never blocks on it; failures are logged visibly, never
-      // swallowed.
-      void (async () => {
-        try {
-          const database = await getDatabase();
-          // BST-1162: unstick rewind's in-flight gate. Rows a previous
-          // process left in 'running' are provably dead (see the reaper's
-          // evidence rule); marking them failed here is what re-enables
-          // Conversation Rewind on their threads. Runs before the snapshot
-          // GC on purpose (its retention floor walks run ranges), but in its
-          // OWN try/catch: a reap failure must neither skip the orphan sweep
-          // and GC below nor report itself under their step name.
-          try {
-            const reapReport = await reapOrphanedThreadRuns(
-              database as unknown as EditCheckpointDatabase,
-              mainProcessStartedAt
-            );
-            if (reapReport.reaped.length > 0) {
-              logger.info('Startup thread-run reap completed', {
-                reapedRunIds: reapReport.reaped.map((row) => row.id),
-              });
-            }
-          } catch (reapError) {
-            logger.error('Startup thread-run reap failed', { error: reapError });
-          }
-          const rootRows = await database.query<{ id: string; path: string }>(
-            'SELECT id, path FROM roots'
-          );
-          const result = await constructedSnapshotService.sweepOrphans(
-            snapshotsBaseDir,
-            rootRows.rows.map((row) => row.id)
-          );
-          logger.info('Workspace snapshot orphan sweep completed', {
-            kept: result.kept.length,
-            removed: result.removed,
-            snapshotsBaseDir,
-          });
-          // T4 startup GC (after the orphan sweep so vanished-root repos are
-          // already gone): dead-thread rows + refs, ref-only residue, the
-          // 50-turn retention ring, and shallow-cut history reclamation.
-          // Same fire-and-forget block — logged, non-blocking, failures
-          // visible per item.
-          const gcDatabase = database as unknown as EditCheckpointDatabase;
-          const gcReport = await runSnapshotStartupGc({
-            db: gcDatabase,
-            liveRoots: rootRows.rows.map((row) => ({ path: row.path, rootId: row.id })),
-            snapshotRepository: createSnapshotRepository(gcDatabase),
-            snapshotService: constructedSnapshotService,
-          });
-          for (const failure of gcReport.failures) {
-            logger.error('Workspace snapshot GC item failed', { failure });
-          }
-          if (gcReport.skippedInaccessibleRoots.length > 0) {
-            // Expected condition (deleted directory / unmounted volume), so a
-            // single warn — not one error per boot forever.
-            logger.warn('Workspace snapshot GC skipped inaccessible roots', {
-              roots: gcReport.skippedInaccessibleRoots,
-            });
-          }
-          logger.info('Workspace snapshot startup GC completed', {
-            deadThreadsPruned: gcReport.deadThreadsPruned.length,
-            failures: gcReport.failures.length,
-            historyPrunedRoots: gcReport.historyPrunedRoots,
-            refOnlyPruned: gcReport.refOnlyPruned.length,
-            ringTrimmed: gcReport.ringTrimmed,
-            skippedInaccessibleRoots: gcReport.skippedInaccessibleRoots.length,
-          });
-        } catch (error) {
-          logger.error('Workspace snapshot orphan sweep failed', { error, snapshotsBaseDir });
-        }
-      })();
+      startSnapshotStartupMaintenance({
+        getDatabase,
+        logger,
+        mainProcessStartedAt,
+        snapshotService: constructedSnapshotService,
+        snapshotsBaseDir,
+      });
 
       // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
       if (e2eTestMode && process.platform === 'darwin') {
@@ -1453,26 +1372,29 @@ if (singleInstanceLockAcquired) {
       // ElectronStore instances over the same file would serve stale reads to
       // each other.
       const secretsService = getSecretsService();
-      registerSecretsIpcHandlers(secretsService, {
-        envFileFailures: desktopEnvLoadResult.failures,
-        // Factory reset must also drop the provider-auth engine's IN-MEMORY
-        // rotated-token overlay (BST-1356); wiping the secrets file alone
-        // would leave it the active credential for the process lifetime.
-        onClearAll: async () => {
-          await purgeProviderAuthRuntimeState();
-          await purgeMcpOAuthRuntimeState();
-        },
-        // Projected per invoke from the RECORDED bootstrap result — loading is
-        // never re-run (initializeDesktopEnvironment throws on double-init).
-        readEnvBootstrapReport: () =>
-          buildDesktopEnvBootstrapReport({
-            appRoot: app.getAppPath(),
-            env: process.env,
-            isPackaged: app.isPackaged,
-            result: desktopEnvLoadResult,
-            userDataPath: app.getPath('userData'),
-          }),
-      });
+      ipcDisposers.add(
+        'secrets',
+        registerSecretsIpcHandlers(secretsService, {
+          envFileFailures: desktopEnvLoadResult.failures,
+          // Factory reset must also drop the provider-auth engine's IN-MEMORY
+          // rotated-token overlay (BST-1356); wiping the secrets file alone
+          // would leave it the active credential for the process lifetime.
+          onClearAll: async () => {
+            await purgeProviderAuthRuntimeState();
+            await purgeMcpOAuthRuntimeState();
+          },
+          // Projected per invoke from the RECORDED bootstrap result — loading is
+          // never re-run (initializeDesktopEnvironment throws on double-init).
+          readEnvBootstrapReport: () =>
+            buildDesktopEnvBootstrapReport({
+              appRoot: app.getAppPath(),
+              env: process.env,
+              isPackaged: app.isPackaged,
+              result: desktopEnvLoadResult,
+              userDataPath: app.getPath('userData'),
+            }),
+        })
+      );
       // Provider OAuth engine (BST-1355) + the OpenAI Codex descriptor
       // (BST-1356). The browser opener is the SAME validated
       // shell.openExternal path the shell IPC domain uses (allow-listed
@@ -1483,19 +1405,22 @@ if (singleInstanceLockAcquired) {
       // resolution (see provider-auth-runtime): a second engine would carry
       // its own single-flight map and replay a rotating refresh token.
       const shellOpenHandlers = createShellIpcHandlers({ shell });
-      registerProviderAuthIpcHandlers({
-        engine: initializeProviderAuthRuntime({
-          appVersion: app.getVersion(),
-          openExternal: async (url) => {
-            const result = await shellOpenHandlers.openExternal(url);
-            if (!result.ok) {
-              throw new Error(result.error ?? 'shell.openExternal failed');
-            }
-          },
-          secrets: secretsService,
-        }),
-      });
-      registerAgentIpcHandlers();
+      ipcDisposers.add(
+        'provider-auth',
+        registerProviderAuthIpcHandlers({
+          engine: initializeProviderAuthRuntime({
+            appVersion: app.getVersion(),
+            openExternal: async (url) => {
+              const result = await shellOpenHandlers.openExternal(url);
+              if (!result.ok) {
+                throw new Error(result.error ?? 'shell.openExternal failed');
+              }
+            },
+            secrets: secretsService,
+          }),
+        })
+      );
+      ipcDisposers.add('agent', registerAgentIpcHandlers());
       ipcDisposers.add(
         'mcp',
         registerMcpIpcHandlers({
@@ -1503,25 +1428,30 @@ if (singleInstanceLockAcquired) {
           settingsStore: getSettingsStore,
         })
       );
-      registerRuntimeIpcHandlers();
+      ipcDisposers.add('runtime', registerRuntimeIpcHandlers());
       logger.debug('Ready-dependent IPC handlers registered successfully');
       // Kick off DB initialization (utilityProcess spawn + migrations) and the
       // dimension-index capability probe WITHOUT blocking window creation: the
       // visible window needs none of it to paint, and renderer DB calls
       // coalesce on the same getDatabase() promise. Only the maintenance
       // schedulers wait for the probe (they consume the selected strategy).
-      // initializeDesktopDimensionIndexStrategy never rejects (it catches and
-      // degrades internally); the .catch guards the scheduler start() calls so
-      // a future throw there can never become an unhandled rejection.
+      // The capability probe catches its own failures. The outer catch keeps
+      // startup recovery and scheduler start failures visible and handled.
       void initializeDesktopDimensionIndexStrategy()
-        .then(() => {
-          desktopDatabaseMaintenanceScheduler?.start();
-          logger.debug('Scheduled desktop database maintenance started');
-          desktopDimensionIndexMaintenanceScheduler?.start();
-          logger.debug('Scheduled desktop dimension index maintenance started');
+        .then(async () => {
+          if (isDesktopShuttingDown()) {
+            return;
+          }
+          const maintenance = desktopMaintenanceTriggerGraph;
+          if (maintenance) {
+            await maintenance.start();
+            logger.debug('Scheduled desktop maintenance triggers started');
+          }
         })
         .catch((error) => {
-          logger.error('Failed to start desktop maintenance schedulers', { error });
+          logger.error('Failed to start desktop maintenance schedulers', {
+            error: serializeDesktopError(error),
+          });
         });
 
       // Setup security before creating windows
@@ -1657,7 +1587,7 @@ if (singleInstanceLockAcquired) {
                   // closing over in-flight work.
                   await resetDesktopDatabaseProfile({
                     cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
-                    resetLocalDatabase,
+                    resetLocalDatabase: createDatabaseResetMarkingReplaced('developer-reset'),
                     runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
                     waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
                   });
@@ -2074,8 +2004,10 @@ if (singleInstanceLockAcquired) {
               process as NodeJS.Process & { _getActiveRequests?: () => unknown[] }
             )._getActiveRequests?.()?.length ?? -1;
 
+          void processCounterSampler.sample(mem);
           const payload = {
             backgroundRuntimeMetrics: collectBackgroundRuntimeMetrics(),
+            backgroundTasks: processCounterRing.list().at(-1)?.backgroundTasks ?? null,
             cpuPercent: (cpuPercent * 100).toFixed(1),
             handles,
             heapUsedKb: (mem.heapUsed / 1024).toFixed(0),
@@ -2084,6 +2016,7 @@ if (singleInstanceLockAcquired) {
             loopLagP99Ms: p99.toFixed(1),
             requests,
             rssKb: (mem.rss / 1024).toFixed(0),
+            wasm: mainWebAssemblyCounter.snapshot().counts,
           };
 
           // Always log — if entries stop appearing, the event loop is stuck.
@@ -2094,6 +2027,10 @@ if (singleInstanceLockAcquired) {
             logger.debug(payload, 'main-process-health');
           }
         }, 30_000).unref();
+        // Deliberately never stopped: it and the watchdog below keep reporting
+        // THROUGH graceful shutdown, whose hangs they exist to diagnose. Both
+        // are unref'd, and after the database close the stopped
+        // processCounterSampler turns each tick's sample into a no-op.
       }
 
       // ---------------------------------------------------------------
@@ -2224,6 +2161,9 @@ if (singleInstanceLockAcquired) {
       });
 
       app.on('activate', async () => {
+        if (isDesktopShuttingDown()) {
+          return;
+        }
         const hasVisibleWindow = BrowserWindow.getAllWindows().some(
           (window) =>
             !(
@@ -2267,10 +2207,9 @@ app.on('before-quit', (event) => {
     return;
   }
   gracefulShutdownInFlight = true;
-  scheduleForcedProcessExit('before-quit');
   void (async () => {
     try {
-      await runGracefulShutdown('before-quit');
+      await gracefulShutdown.run('before-quit', 'before-quit');
     } catch (error) {
       logger.error('Graceful shutdown failed in before-quit handler', { error });
     }
@@ -2281,8 +2220,7 @@ app.on('before-quit', (event) => {
 
 app.on('will-quit', () => {
   logger.debug('will-quit triggered');
-  clearForcedProcessExitTimer();
-  // AFTER runGracefulShutdown (before-quit re-enters quit only once it has
+  // AFTER the graceful shutdown (before-quit re-enters quit only once it has
   // settled): every IPC domain's disposer unwinds here, LIFO, each throw
   // isolated so a failing pty/watcher reap never leaves a later domain's
   // handlers registered. Terminal's disposer also reaps every live pty and

@@ -83,6 +83,25 @@ describe('ThemeProvider', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 
+  it('re-applies the system mode on a runtime transition into system', async () => {
+    // BST-1735, ported to the mode/theme API. Mount settles on an explicit
+    // light mode while the OS resolves dark (see beforeEach), then mode is
+    // switched to system at runtime: the effect must drop the explicit class AND
+    // add the matchMedia-resolved one. The whole className is asserted, not
+    // `contains`: a missing remove leaves a stale "light dark", and an
+    // add-before-remove leaves the root classless; both fail an exact match.
+    const storage = createStorage({ 'ui-theme': 'light' });
+    const { result } = renderHook(() => useTheme(), { wrapper: wrapperFor(storage) });
+    await waitFor(() => expect(result.current.mode).toBe('light'));
+    expect(document.documentElement.className).toBe('light');
+
+    act(() => result.current.setMode('system'));
+
+    expect(result.current.mode).toBe('system');
+    expect(document.documentElement.className).toBe('dark');
+    expect(storage.setItem).toHaveBeenCalledWith('ui-theme', 'system');
+  });
+
   it('warns but still switches when persisting the preference rejects', async () => {
     const storage = createStorage();
     const failure = new Error('quota exceeded');

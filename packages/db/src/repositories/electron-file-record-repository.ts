@@ -15,8 +15,11 @@ export interface ElectronDbAPI {
    * interleave into the block — fixing the isolation/error-coupling hazard that raw
    * `BEGIN`/`COMMIT` over separate IPC calls leaves open (#1141).
    *
-   * Optional: the real desktop preload provides it; older or mocked `ElectronDbAPI`
-   * implementations may not, in which case callers fall back to raw BEGIN/COMMIT.
+   * This renderer-facing adapter keeps the historical `transaction` name, but its
+   * shape is the desktop statement-list capability (the preload calls it
+   * `runTransaction`), not a callback transaction. Callers that require atomic
+   * multi-statement work must reject when it is absent; separate BEGIN/COMMIT IPC
+   * calls cannot hold the main-process connection lock.
    * Reuses {@link TransactionStatement} (the single source of truth, also used by
    * `runStatementsInTransaction`) rather than redeclaring the `{ sql, params }` shape.
    */

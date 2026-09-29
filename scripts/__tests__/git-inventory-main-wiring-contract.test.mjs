@@ -13,10 +13,12 @@
  *      boot (the build's own try/catch turns it into a cached, empty
  *      "no repositories" snapshot with nothing logged).
  *   2. The `'git-inventory'` graceful-shutdown step must run BEFORE the
- *      `'database'` step (its own `main.ts` comment says so: `loadRoots`
+ *      `'database-drain'` step (its own `main.ts` comment says so: `loadRoots`
  *      reads the DB, so the service's watchers/in-flight build must be torn
  *      down while the DB is still available) — a step reorder would pass
- *      every unit test for the service itself while breaking shutdown.
+ *      every unit test for the service itself while breaking shutdown. The
+ *      order lives in `DESKTOP_SHUTDOWN_STEP_ORDER`
+ *      (`main/desktop-graceful-shutdown.ts`); the step BODIES stay in `main.ts`.
  *
  * Neither of these is reachable by constructing the service in isolation, so
  * this is a raw source-text contract over `main.ts` (and, since BST-1648
@@ -34,8 +36,10 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const mainTsPath = path.join(repoRoot, 'apps/desktop/src/main.ts');
 const lifecycleTsPath = path.join(repoRoot, 'apps/desktop/src/main/git-awareness-lifecycle.ts');
+const shutdownTsPath = path.join(repoRoot, 'apps/desktop/src/main/desktop-graceful-shutdown.ts');
 const source = readFileSync(mainTsPath, 'utf8');
 const lifecycleSource = readFileSync(lifecycleTsPath, 'utf8');
+const shutdownSource = readFileSync(shutdownTsPath, 'utf8');
 
 function requireIndexIn(haystack, haystackPath, needle, description) {
   const index = haystack.indexOf(needle);
@@ -54,66 +58,82 @@ function requireLifecycleIndexOf(needle, description) {
   return requireIndexIn(lifecycleSource, lifecycleTsPath, needle, description);
 }
 
-test('git-inventory shutdown step runs before the database shutdown step', () => {
-  const gitInventoryStepIndex = requireIndexOf(
-    "runShutdownStep('git-inventory'",
-    "the 'git-inventory' runShutdownStep call"
+/** The ordered step names, read from the `DESKTOP_SHUTDOWN_STEP_ORDER` literal. */
+function shutdownStepOrder() {
+  const start = requireIndexIn(
+    shutdownSource,
+    shutdownTsPath,
+    'export const DESKTOP_SHUTDOWN_STEP_ORDER = [',
+    'the DESKTOP_SHUTDOWN_STEP_ORDER literal'
   );
-  const databaseStepIndex = requireIndexOf(
-    "runShutdownStep('database'",
-    "the 'database' runShutdownStep call"
+  const end = requireIndexIn(
+    shutdownSource.slice(start),
+    shutdownTsPath,
+    '] as const;',
+    'the end of the DESKTOP_SHUTDOWN_STEP_ORDER literal'
   );
+  const names = [...shutdownSource.slice(start, start + end).matchAll(/'([a-z-]+)'/g)].map(
+    ([, name]) => name
+  );
+  assert.ok(names.length > 5, 'expected DESKTOP_SHUTDOWN_STEP_ORDER to list the shutdown steps');
+  return names;
+}
+
+function requireStepPosition(order, step) {
+  const position = order.indexOf(step);
+  assert.ok(position !== -1, `expected DESKTOP_SHUTDOWN_STEP_ORDER to contain '${step}'`);
+  return position;
+}
+
+test('git-inventory shutdown step runs before the database drain step', () => {
+  const order = shutdownStepOrder();
+  requireIndexOf("'git-inventory': async () => {", "the 'git-inventory' step body in main.ts");
   assert.ok(
-    gitInventoryStepIndex < databaseStepIndex,
-    "the 'git-inventory' shutdown step must run BEFORE 'database': its loadRoots dependency " +
+    requireStepPosition(order, 'git-inventory') < requireStepPosition(order, 'database-drain'),
+    "the 'git-inventory' shutdown step must run BEFORE 'database-drain': its loadRoots dependency " +
       'reads the DB, so watchers/in-flight builds must be torn down while the database is ' +
-      'still available (see the git-inventory-service comment at the runShutdownStep call site)'
+      'still available (see the git-inventory-service comment at the step body in main.ts)'
   );
 });
 
-test("forge shutdown is its own step, before 'database', not nested inside 'git-inventory' (BST-1391)", () => {
+test("forge shutdown is its own step, before 'database-drain', not nested inside 'git-inventory' (BST-1391)", () => {
   // A prior revision nested forge teardown INSIDE the 'git-inventory' step,
   // after `await gitInventoryService.stop()`. `stop()`'s final `await
-  // toDispose.disposeAll()` is unguarded, and `runShutdownStep` catches a
+  // toDispose.disposeAll()` is unguarded, and the shutdown sequence catches a
   // rejection at the step boundary, so a throwing watcher disposer would
   // silently skip forge teardown entirely — leaving `ipcMain` handlers
-  // registered and a live `forgeService` heading into 'database'. forge gets
+  // registered and a live `forgeService` heading into 'database-drain'. forge gets
   // its own failure-isolated step for the same DB-availability reason as
   // git-inventory (`getDatabase` -> `readForgePrCacheEntry`/
-  // `writeForgePrCacheEntry`), so it must run BEFORE 'database' too.
-  const gitInventoryStepIndex = requireIndexOf(
-    "runShutdownStep('git-inventory'",
-    "the 'git-inventory' runShutdownStep call"
-  );
-  const forgeStepIndex = requireIndexOf(
-    "runShutdownStep('forge'",
-    "the 'forge' runShutdownStep call"
-  );
-  const databaseStepIndex = requireIndexOf(
-    "runShutdownStep('database'",
-    "the 'database' runShutdownStep call"
-  );
-  const unregisterCallIndex = requireIndexOf(
-    'unregisterForgeIpc?.();',
-    'the unregisterForgeIpc() call inside forge teardown'
-  );
-
+  // `writeForgePrCacheEntry`), so it must run BEFORE 'database-drain' too.
+  // Each step is its own key in main.ts's step record, so nesting forge
+  // inside git-inventory would mean moving these lines into that body.
+  const order = shutdownStepOrder();
   assert.ok(
-    gitInventoryStepIndex < forgeStepIndex,
-    "the 'forge' runShutdownStep call must come AFTER the 'git-inventory' step call site, " +
-      'proving it is a sibling step rather than nested inside it'
+    requireStepPosition(order, 'git-inventory') < requireStepPosition(order, 'forge'),
+    "'forge' must be its own step AFTER 'git-inventory'"
   );
   assert.ok(
-    forgeStepIndex < databaseStepIndex,
-    "the 'forge' shutdown step must run BEFORE 'database' — forge reads the DB " +
+    requireStepPosition(order, 'forge') < requireStepPosition(order, 'database-drain'),
+    "the 'forge' shutdown step must run BEFORE 'database-drain' — forge reads the DB " +
       '(getDatabase -> readForgePrCacheEntry/writeForgePrCacheEntry), so it must be torn ' +
       'down while the database is still available'
   );
+
+  // The step record's keys are sorted, not ordered, so find the forge body's
+  // end as the next step key at the same indentation.
+  const forgeBodyIndex = requireIndexOf(
+    '      forge: async () => {',
+    "the 'forge' step body in main.ts"
+  );
+  const afterForge = source.slice(forgeBodyIndex + 1);
+  const nextStep = /\n {6}(?:'[a-z-]+'|[a-z]+): /.exec(afterForge);
+  assert.ok(nextStep, "expected another step body after 'forge' in main.ts");
+  const forgeBody = afterForge.slice(0, nextStep.index);
   assert.ok(
-    forgeStepIndex < unregisterCallIndex && unregisterCallIndex < databaseStepIndex,
-    'unregisterForgeIpc() must be called from inside the forge step, between its ' +
-      "runShutdownStep('forge', ...) call and the 'database' step — a copy-paste that left " +
-      "it inside 'git-inventory' instead would still pass the ordering check above alone"
+    forgeBody.includes('unregisterForgeIpc?.();'),
+    'unregisterForgeIpc() must be called from inside the forge step body — a copy-paste ' +
+      "that left it inside 'git-inventory' instead would still pass the ordering checks above"
   );
 });
 

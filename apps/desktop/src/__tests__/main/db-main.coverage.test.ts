@@ -30,6 +30,7 @@ const fsMocks = vi.hoisted(() => ({
   closeSync: vi.fn(),
   cpSync: vi.fn(),
   existsSync: vi.fn(() => true),
+  fsyncSync: vi.fn(),
   lstatSync: vi.fn(() => ({
     isDirectory: () => false,
     isFile: () => false,
@@ -83,7 +84,10 @@ function mockSuccessfulDatabaseModules(options?: {
   vi.doMock('@electric-sql/pglite', () => ({
     PGlite: { create: (options: unknown) => Promise.resolve(new PGliteMock(options)) },
   }));
-  vi.doMock('@brainstrike/db', () => ({ migrate: vi.fn().mockResolvedValue(undefined) }));
+  vi.doMock('@brainstrike/db', () => ({
+    migrate: vi.fn().mockResolvedValue(undefined),
+    rebuildCrashSensitiveIndexes: vi.fn().mockResolvedValue({ rebuilt: [], totalDurationMs: 0 }),
+  }));
   vi.doMock('@electric-sql/pglite-pgvector', () => options?.vectorModule ?? { vector: 'vector' });
   vi.doMock('@electric-sql/pglite/live', () => options?.liveModule ?? { live: 'live' });
   vi.doMock(
@@ -124,7 +128,8 @@ describe('db-main coverage helpers', () => {
       isFile: () => false,
     });
     process.env['NODE_ENV'] = 'test';
-    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/tmp';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
   });
 
   afterEach(() => {

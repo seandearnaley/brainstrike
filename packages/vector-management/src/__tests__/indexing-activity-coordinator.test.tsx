@@ -144,6 +144,10 @@ vi.mock('@brainstrike/db', () => ({
   createPriorityDbHandle: createPriorityDbHandleMock,
   getCollectionIndexingStats: getCollectionIndexingStatsMock,
   getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
+  getDesktopDatabaseBridge: () =>
+    typeof window === 'undefined'
+      ? undefined
+      : (window as unknown as { electronAPI?: { db?: unknown } }).electronAPI?.db,
   makeLiveQueryKey: makeLiveQueryKeyMock,
   usePGliteDatabase: usePGliteDatabaseMock,
   usePGliteLiveQuery: usePGliteLiveQueryMock,

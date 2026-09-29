@@ -58,7 +58,8 @@ const logger = createLogger('RewindFinalization');
 
 type PrepareRequestData = (
   abortSignal?: AbortSignal,
-  turnAnchorMessageId?: string | null
+  turnAnchorMessageId?: string | null,
+  runConfig?: unknown
 ) => Promise<Record<string, unknown>>;
 
 export interface UseRewindFinalizationArgs {
@@ -130,8 +131,8 @@ export function useRewindFinalization({
   }, [bridge, threadId]);
 
   const prepareRequestDataAndFinalize = useCallback<PrepareRequestData>(
-    async (abortSignal, turnAnchorMessageId) => {
-      const prepared = await prepareRequestData(abortSignal, turnAnchorMessageId);
+    async (abortSignal, turnAnchorMessageId, runConfig) => {
+      const prepared = await prepareRequestData(abortSignal, turnAnchorMessageId, runConfig);
       // An abort that lands AFTER the run row exists still aborts the send:
       // `prepareRequest` throws the reason once this resolves. No message was
       // authored, so nothing finalizes; the arming flag stays set and the retry

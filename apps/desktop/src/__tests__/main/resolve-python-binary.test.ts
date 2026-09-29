@@ -1,9 +1,20 @@
-import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  ARCHIVE_FILE_NAME,
+  ARCHIVE_SHA256,
+  createFixtureDirs as createPythonFixture,
+  installDirFor,
+  PYTHON_VERSION,
+  plantUnpackedRuntime,
+  RELEASE_TAG,
+  TRIPLE,
+  writeArchive,
+  writeManifest,
+} from './python-runtime-test-fixtures';
 
 type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
@@ -21,80 +32,41 @@ const execFileMock = vi.hoisted(() =>
   })
 );
 
-vi.mock('node:child_process', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('node:child_process')>();
-  return {
-    ...mod,
-    default: { ...mod, execFile: execFileMock },
-    execFile: execFileMock,
-  };
+const readStreamMock = vi.hoisted(() => vi.fn());
+
+vi.mock('node:fs', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('node:fs')>();
+  const createReadStream = (...args: Parameters<typeof mod.createReadStream>) =>
+    readStreamMock(...args) ?? mod.createReadStream(...args);
+  return { ...mod, createReadStream, default: { ...mod, createReadStream } };
 });
 
-interface ManifestOverrides {
-  readonly sha256?: string;
-  readonly supportedTargets?: readonly string[];
-  readonly targets?: Record<string, { bytes: number; sha256: string }> | undefined;
-}
-
-const ARCHIVE_CONTENT = 'not-a-real-tarball-but-hashable';
-const ARCHIVE_SHA256 = createHash('sha256').update(ARCHIVE_CONTENT).digest('hex');
-const RELEASE_TAG = '20260728';
-const PYTHON_VERSION = '3.13.14';
-const TRIPLE = 'aarch64-apple-darwin';
-const ARCHIVE_FILE_NAME = `cpython-${PYTHON_VERSION}+${RELEASE_TAG}-${TRIPLE}-install_only.tar.gz`;
+vi.mock('node:child_process', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('node:child_process')>();
+  const execFile = (
+    command: string,
+    args: readonly string[],
+    options: unknown,
+    callback: ExecFileCallback
+  ) => {
+    const child = new mod.ChildProcess();
+    const returned: unknown = execFileMock(
+      command,
+      args,
+      options,
+      (error: Error | null, stdout: string, stderr: string) => {
+        callback(error, stdout, stderr);
+        queueMicrotask(() => child.emit('close', error ? 1 : 0, null));
+      }
+    );
+    return returned instanceof mod.ChildProcess ? returned : child;
+  };
+  return { ...mod, default: { ...mod, execFile }, execFile };
+});
 
 const cleanupPaths: string[] = [];
-
-async function createFixtureDirs(): Promise<{ resourcesDir: string; userDataDir: string }> {
-  const fixture = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-python-runtime-'));
-  cleanupPaths.push(fixture);
-  const resourcesDir = path.join(fixture, 'resources');
-  const userDataDir = path.join(fixture, 'user-data');
-  mkdirSync(resourcesDir, { recursive: true });
-  mkdirSync(userDataDir, { recursive: true });
-  return { resourcesDir, userDataDir };
-}
-
-function writeManifest(resourcesDir: string, overrides: ManifestOverrides = {}): void {
-  const manifest = {
-    assetUrlTemplate:
-      'https://github.com/astral-sh/python-build-standalone/releases/download/{releaseTag}/cpython-{pythonVersion}+{releaseTag}-{target}-{variant}.tar.gz',
-    pythonVersion: PYTHON_VERSION,
-    releaseTag: RELEASE_TAG,
-    supportedTargets: overrides.supportedTargets ?? [TRIPLE, 'x86_64-apple-darwin'],
-    targets:
-      'targets' in overrides
-        ? overrides.targets
-        : {
-            [TRIPLE]: { bytes: ARCHIVE_CONTENT.length, sha256: overrides.sha256 ?? ARCHIVE_SHA256 },
-            'x86_64-apple-darwin': { bytes: 1, sha256: 'f'.repeat(64) },
-          },
-    variant: 'install_only',
-  };
-  writeFileSync(path.join(resourcesDir, 'manifest.json'), JSON.stringify(manifest));
-}
-
-function writeArchive(resourcesDir: string): void {
-  writeFileSync(path.join(resourcesDir, ARCHIVE_FILE_NAME), ARCHIVE_CONTENT);
-}
-
-function installDirFor(userDataDir: string): string {
-  return path.join(
-    userDataDir,
-    'python-runtime',
-    `cpython-${PYTHON_VERSION}+${RELEASE_TAG}-${TRIPLE}`
-  );
-}
-
-/** Materializes the layout tar would produce, so the mock stays a pure spawn stub. */
-function plantUnpackedRuntime(targetDir: string): string {
-  const binDir = path.join(targetDir, 'python', 'bin');
-  mkdirSync(binDir, { recursive: true });
-  const binary = path.join(binDir, 'python3');
-  writeFileSync(binary, '#!/bin/sh\nexit 0\n');
-  chmodSync(binary, 0o755);
-  return binary;
-}
+const createFixtureDirs = (): Promise<{ resourcesDir: string; userDataDir: string }> =>
+  createPythonFixture(cleanupPaths);
 
 function mockTarSuccess(): void {
   execFileMock.mockImplementation(
@@ -114,6 +86,7 @@ describe('resolvePythonBinary', () => {
   beforeEach(() => {
     vi.resetModules();
     execFileMock.mockReset();
+    readStreamMock.mockReset();
   });
 
   afterEach(async () => {
@@ -142,6 +115,17 @@ describe('resolvePythonBinary', () => {
     const { resourcesDir, userDataDir } = await createFixtureDirs();
     writeManifest(resourcesDir, { supportedTargets: ['x86_64-apple-darwin'] });
     writeArchive(resourcesDir);
+    const { resolvePythonBinary } = await loadModule();
+    await expect(
+      resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+    ).rejects.toMatchObject({ code: 'python_unsupported_platform' });
+  });
+
+  it('throws unsupported-platform when a valid manifest omits the target entry', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir, {
+      targets: { 'x86_64-apple-darwin': { bytes: 1, sha256: 'f'.repeat(64) } },
+    });
     const { resolvePythonBinary } = await loadModule();
     await expect(
       resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
@@ -361,13 +345,104 @@ describe('resolvePythonBinary', () => {
   });
 
   describe('manifest shape validation (python_manifest_invalid)', () => {
-    it('rejects a manifest whose top-level value is not an object', async () => {
+    it.each(['[]', 'null', '"just-a-string"'])(
+      'rejects top-level %s as a non-object',
+      async (raw) => {
+        const { resourcesDir, userDataDir } = await createFixtureDirs();
+        const manifestPath = path.join(resourcesDir, 'manifest.json');
+        writeFileSync(manifestPath, raw);
+        const { resolvePythonBinary } = await loadModule();
+        await expect(
+          resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+        ).rejects.toMatchObject({
+          code: 'python_manifest_invalid',
+          message: `Bundled Python runtime manifest at ${manifestPath} is not an object.`,
+        });
+      }
+    );
+
+    it('rejects an array in place of the targets map', async () => {
       const { resourcesDir, userDataDir } = await createFixtureDirs();
-      writeFileSync(path.join(resourcesDir, 'manifest.json'), JSON.stringify('just-a-string'));
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.targets = [];
+      writeFileSync(manifestPath, JSON.stringify(manifest));
       const { resolvePythonBinary } = await loadModule();
       await expect(
         resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
-      ).rejects.toMatchObject({ code: 'python_manifest_invalid' });
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid "targets" map.`,
+      });
+    });
+
+    it('reports the first invalid field in the legacy priority order', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.assetUrlTemplate = '';
+      manifest.variant = '';
+      manifest.supportedTargets = [123];
+      manifest.targets = [];
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} is missing string field "assetUrlTemplate".`,
+      });
+    });
+
+    it('reports an invalid supported-target list before an invalid targets map', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.supportedTargets = [123];
+      manifest.targets = [];
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid "supportedTargets" list.`,
+      });
+    });
+
+    it('rejects a target size above the safe-integer limit', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.targets[TRIPLE].bytes = Number.MAX_SAFE_INTEGER + 1;
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid entry for target "${TRIPLE}".`,
+      });
+    });
+
+    it('validates entries beyond the selected target', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.targets['x86_64-apple-darwin'].sha256 = 'A'.repeat(64);
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid entry for target "x86_64-apple-darwin".`,
+      });
     });
 
     it('rejects a manifest missing a required string field', async () => {
@@ -384,7 +459,7 @@ describe('resolvePythonBinary', () => {
         resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
       ).rejects.toMatchObject({
         code: 'python_manifest_invalid',
-        message: expect.stringContaining('variant'),
+        message: `Bundled Python runtime manifest at ${manifestPath} is missing string field "variant".`,
       });
     });
 
@@ -398,7 +473,10 @@ describe('resolvePythonBinary', () => {
       const { resolvePythonBinary } = await loadModule();
       await expect(
         resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
-      ).rejects.toMatchObject({ code: 'python_manifest_invalid' });
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid "supportedTargets" list.`,
+      });
     });
 
     it('rejects a manifest whose target entry is malformed', async () => {
@@ -413,7 +491,7 @@ describe('resolvePythonBinary', () => {
         resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
       ).rejects.toMatchObject({
         code: 'python_manifest_invalid',
-        message: expect.stringContaining(TRIPLE),
+        message: `Bundled Python runtime manifest at ${manifestPath} has an invalid entry for target "${TRIPLE}".`,
       });
     });
 

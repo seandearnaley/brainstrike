@@ -11,6 +11,7 @@
   },
   "include": [
     "src/**/*",
+    "src/__tests__/fixtures/*.json",
     "**/*.test.*"
   ],
   "exclude": [

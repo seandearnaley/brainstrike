@@ -15,6 +15,8 @@ export interface AbortedTurnPersistence {
     messageList: MessageList | undefined,
     assistantMessageId?: string
   ) => Promise<void> | void;
+  /** Freeze native state at abort without starting persistence before terminal ownership is known. */
+  captureSnapshot: () => void;
   finalize: () => Promise<void>;
   markNormalFinish: () => void;
 }
@@ -110,12 +112,12 @@ function buildAbortedTurnMessages(
 async function persistAbortedTurn({
   assistantMessageId,
   memory,
-  messageList,
+  unsavedMessages,
   runtimeData,
 }: {
   assistantMessageId: string;
   memory: MastraMemory;
-  messageList: MessageList;
+  unsavedMessages: MastraDBMessage[];
   runtimeData: RuntimeData;
 }): Promise<void> {
   const memoryContext = runtimeData.memory;
@@ -128,7 +130,7 @@ async function persistAbortedTurn({
     await memory.createThread({ resourceId, threadId });
   }
   const messages = buildAbortedTurnMessages(
-    messageList.drainUnsavedMessages(),
+    unsavedMessages,
     assistantMessageId,
     threadId,
     resourceId
@@ -141,11 +143,13 @@ async function persistAbortedTurn({
 
 export function createAbortedTurnPersistence({
   assistantMessageId,
+  beforePersist,
   memory,
   runtimeData,
   shouldPersist,
 }: {
   assistantMessageId: string;
+  beforePersist?: (() => Promise<void>) | undefined;
   memory: MastraMemory;
   runtimeData: RuntimeData;
   shouldPersist: () => boolean;
@@ -156,6 +160,31 @@ export function createAbortedTurnPersistence({
   let messageList: MessageList | undefined;
   let persistenceTask: Promise<void> | undefined;
   let resolvedAssistantMessageId = assistantMessageId;
+  let snapshot:
+    | { ok: true; messages: MastraDBMessage[]; messageId: string }
+    | { ok: false; error: unknown }
+    | undefined;
+  const captureSnapshot = (): void => {
+    if (snapshot || !messageList || finishedNormally) {
+      return;
+    }
+    try {
+      snapshot = {
+        messageId: resolvedAssistantMessageId,
+        // Match memory-store.ts's JSON content boundary, including toJSON values.
+        // This is the persisted representation, not a fallback to mutable live data.
+        messages: messageList.drainUnsavedMessages().map((message) => ({
+          ...message,
+          content: JSON.parse(JSON.stringify(message.content)) as MastraMessageContentV2,
+          createdAt: new Date(message.createdAt),
+        })),
+        ok: true,
+      };
+    } catch (error) {
+      // Abort listeners cannot throw; the terminal finalizer reports this failure.
+      snapshot = { error, ok: false };
+    }
+  };
 
   const start = (): Promise<void> | undefined => {
     if (!(finalizationRequested && !finishedNormally && shouldPersist() && messageListAttached)) {
@@ -169,12 +198,44 @@ export function createAbortedTurnPersistence({
       );
       return persistenceTask;
     }
-    persistenceTask ??= persistAbortedTurn({
-      assistantMessageId: resolvedAssistantMessageId,
-      memory,
-      messageList,
-      runtimeData,
-    });
+    if (persistenceTask) {
+      return persistenceTask;
+    }
+    captureSnapshot();
+    const captured = snapshot;
+    persistenceTask = (async () => {
+      const errors: unknown[] = [];
+      try {
+        await beforePersist?.();
+      } catch (error) {
+        errors.push(error);
+      }
+      try {
+        if (!captured) {
+          throw new Error('Aborted turn snapshot was not captured.');
+        }
+        if (!captured.ok) {
+          throw captured.error;
+        }
+        await persistAbortedTurn({
+          assistantMessageId: captured.messageId,
+          memory,
+          runtimeData,
+          unsavedMessages: captured.messages,
+        });
+      } catch (error) {
+        errors.push(error);
+      }
+      if (errors.length === 1) {
+        throw errors[0];
+      }
+      if (errors.length > 1) {
+        throw new AggregateError(
+          errors,
+          errors.map((error) => (error instanceof Error ? error.message : String(error))).join('; ')
+        );
+      }
+    })();
     return persistenceTask;
   };
 
@@ -184,6 +245,7 @@ export function createAbortedTurnPersistence({
       messageList = value;
       resolvedAssistantMessageId = messageId ?? resolvedAssistantMessageId;
     },
+    captureSnapshot,
     finalize: () => {
       finalizationRequested = true;
       return start() ?? Promise.resolve();

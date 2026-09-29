@@ -389,7 +389,7 @@ async function verifyResourceRead(page: Page): Promise<void> {
  * DRAFT (never auto-sent).
  */
 async function verifyComposerPromptSelection(page: Page): Promise<void> {
-  const input = page.locator('#assistant-input');
+  const input = page.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: 30_000 });
   await input.fill('');
   await input.click();
@@ -460,7 +460,7 @@ async function executeAssistantTool(
     provider: 'openrouter',
   });
   await ensureAssistantShellVisible(page);
-  const input = page.locator('#assistant-input');
+  const input = page.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: 30_000 });
   await input.fill('Run the packaged modern MCP proof.');
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
@@ -524,7 +524,7 @@ async function executeElicitationTool(
       name: 'oauth_elicit_confirm',
     },
   });
-  const input = page.locator('#assistant-input');
+  const input = page.getByRole('textbox', { name: 'Message input' });
   await input.fill('Run the packaged MCP elicitation proof.');
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
   // The first proof's resolved approval notice (disabled Approve) stays in the

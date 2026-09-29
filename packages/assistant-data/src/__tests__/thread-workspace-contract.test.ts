@@ -45,7 +45,7 @@ describe('thread workspace persistence contract', () => {
   it('thread deletion cascades the workspace row via the shared sidecar list', () => {
     expect(THREAD_DELETE_SIDECAR_TABLES).toContainEqual({
       table: TABLE,
-      threadColumn: 'thread_id',
+      threadColumns: ['thread_id'],
     });
   });
 

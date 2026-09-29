@@ -204,6 +204,21 @@ describe('isAlwaysVisibleRunEvent', () => {
     timestamp: ts,
   });
 
+  it('forces the delegation ledger row to stay visible (settled 2026-09-15)', () => {
+    expect(isAlwaysVisibleRunEvent(event('delegation.ledger', 'running'))).toBe(true);
+    expect(isAlwaysVisibleRunEvent(event('delegation.ledger', 'completed'))).toBe(true);
+  });
+
+  it('forces the budget-exhaustion breadcrumb to stay visible (settled 2026-09-15)', () => {
+    expect(isAlwaysVisibleRunEvent(event('delegation.budget.exhausted', 'info'))).toBe(true);
+  });
+
+  it('keeps the resolved permission gate informational, NOT always visible (2026-09-15)', () => {
+    // Debug evidence for why a card appeared; the approval card itself is the
+    // user-facing surface, so this row stays behind Developer detail.
+    expect(isAlwaysVisibleRunEvent(event('permission.gate.resolved', 'completed'))).toBe(false);
+  });
+
   it('forces run-level failure and cancellation rows to stay visible', () => {
     expect(isAlwaysVisibleRunEvent(event('run.failed', 'failed'))).toBe(true);
     expect(isAlwaysVisibleRunEvent(event('run.cancelled', 'cancelled'))).toBe(true);
@@ -228,12 +243,29 @@ describe('isAlwaysVisibleRunEvent', () => {
     expect(isAlwaysVisibleRunEvent(event('tool.approval.requested', 'running'))).toBe(true);
   });
 
+  it('forces a swallowed compaction failure to stay visible (BST-1737)', () => {
+    // The pre-request compaction pass threw, so the turn went to the provider
+    // over budget. Nothing cards that: the user's only other symptom is a later
+    // provider context-overflow error naming an unrelated cause. Without this
+    // membership the row is hidden at default detail and the kind reports
+    // nothing to the user it exists for.
+    expect(isAlwaysVisibleRunEvent(event('compaction.failed', 'failed'))).toBe(true);
+  });
+
   it('forces a skipped MCP server to stay visible (BST-1602)', () => {
     // The cleanest case in this list: the tool never entered the run's map, so
     // NOTHING cards it. The "Tool execution failed." card the user does see
     // belongs to the model's follow-up call on the missing tool and names the
     // wrong cause.
     expect(isAlwaysVisibleRunEvent(event('mcp.tools.unavailable', 'failed'))).toBe(true);
+  });
+
+  it('forces a dropped provider setting to stay visible (BST-1701)', () => {
+    // The provider answered normally after silently discarding part of the
+    // request (a user-set `temperature` on a model that rejects one), so the
+    // turn looks healthy and nothing cards it. Hidden at default detail, this
+    // row would report the silent degradation to nobody.
+    expect(isAlwaysVisibleRunEvent(event('provider.request.warned', 'failed'))).toBe(true);
   });
 
   it('does not force background bookkeeping or already-carded tool failures', () => {
@@ -855,7 +887,7 @@ describe('tool.approval.requested resolution (BST-1402)', () => {
 
   it('renders the pause label', () => {
     renderTimeline(approval('call-1', '2026-06-20T00:00:00.000Z'));
-    expect(screen.getByText('Awaiting your approval')).toBeTruthy();
+    expect(screen.getByText('Approval requested')).toBeTruthy();
   });
 });
 

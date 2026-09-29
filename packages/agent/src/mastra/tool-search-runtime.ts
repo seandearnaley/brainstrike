@@ -9,7 +9,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { type MastraDBMessage, MessageList, type ToolsInput } from '@mastra/core/agent';
 import { ToolSearchProcessor } from '@mastra/core/processors';
-import { MASTRA_THREAD_ID_KEY } from '@mastra/core/request-context';
+import { MASTRA_THREAD_ID_KEY, type RequestContext } from '@mastra/core/request-context';
 import type { Tool } from '@mastra/core/tools';
 import { describeAvailableDeferredCapabilityFamilies } from './deferred-capability-families';
 import { createDeferredToolCatalog, LIST_AVAILABLE_TOOLS_ID } from './deferred-tool-catalog';
@@ -440,7 +440,9 @@ export class BrainstrikeToolSearchProcessor {
   private readonly delegate: ToolSearchProcessor;
   private readonly catalogSize: number;
   private readonly catalogTool: CatalogTool;
-  private readonly loadPersistedMessages: (() => Promise<readonly MastraDBMessage[]>) | undefined;
+  private readonly loadPersistedMessages:
+    | ((requestContext?: RequestContext) => Promise<readonly MastraDBMessage[]>)
+    | undefined;
   private readonly model: ToolSearchStepArgs['model'];
   private readonly onToolsLoaded: ((tools: ToolsInput) => void) | undefined;
   private readonly previousLoadedByThread = new Map<string, ReadonlySet<string>>();
@@ -450,7 +452,9 @@ export class BrainstrikeToolSearchProcessor {
 
   constructor(options: {
     readonly deferredTools: ToolsInput;
-    readonly loadPersistedMessages?: () => Promise<readonly MastraDBMessage[]>;
+    readonly loadPersistedMessages?: (
+      requestContext?: RequestContext
+    ) => Promise<readonly MastraDBMessage[]>;
     readonly model: ToolSearchStepArgs['model'];
     readonly onToolsLoaded?: (tools: ToolsInput) => void;
     readonly toolNameMap: ReadonlyMap<string, string>;
@@ -556,7 +560,7 @@ export class BrainstrikeToolSearchProcessor {
       // tool before processInputStep runs. A fresh context-backed processor has
       // no supplemental in-memory set, so rehydrate from the durable thread
       // messages and let Mastra's own context-store parser resolve loaded ids.
-      const persistedMessages = await this.loadPersistedMessages();
+      const persistedMessages = await this.loadPersistedMessages(args?.requestContext);
       if (persistedMessages.length === 0) {
         return loadedTools;
       }

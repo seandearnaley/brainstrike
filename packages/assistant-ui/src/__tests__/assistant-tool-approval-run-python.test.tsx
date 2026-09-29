@@ -12,9 +12,10 @@
  *   describe;
  * - every other tool's card is completely unaffected by the suppression seam.
  */
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({

@@ -37,6 +37,7 @@ describe('@brainstrike/assistant-ui package contract', () => {
         './assistant-link-capabilities',
         './assistant-link-capabilities-provider',
         './context-usage-store',
+        './data-stream-runtime',
         './follow-up-queue-store',
         './mcp-task-bridge-context',
         './mcp-task-status-card',

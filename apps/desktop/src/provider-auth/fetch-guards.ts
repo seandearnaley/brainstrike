@@ -1,10 +1,9 @@
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
+import { Effect } from 'effect';
 import { ProviderAuthFlowCancelledError, type ProviderAuthFlowError } from './errors';
 
 /**
- * Abort + timeout guards for every network call the OAuth engine makes
- * (security-review finding 4): no token exchange, device poll, or refresh
- * fetch may hang forever, and a flow cancel must reject a stalled call
- * promptly instead of waiting on a dead socket.
+ * One deadline covers response headers and body for every OAuth request.
  */
 
 export const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
@@ -20,24 +19,53 @@ export interface GuardedFetchOptions {
   readonly url: string;
 }
 
+export interface GuardedFetchTextResult {
+  readonly response: Response;
+  readonly text: string;
+}
+
 function isAbortShaped(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
 }
 
-export async function guardedFetch(options: GuardedFetchOptions): Promise<Response> {
-  const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS);
-  const signal = options.cancelSignal
-    ? AbortSignal.any([options.cancelSignal, timeoutSignal])
-    : timeoutSignal;
+function resolveTimeoutMs(value: number | undefined): number {
+  const timeoutMs = value ?? DEFAULT_FETCH_TIMEOUT_MS;
+  // Match AbortSignal.timeout's accepted range, including zero.
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 4_294_967_295) {
+    throw new RangeError('OAuth request timeout must be an integer from 0 to 4294967295 ms.');
+  }
+  return timeoutMs;
+}
+
+export async function guardedFetchText(
+  options: GuardedFetchOptions
+): Promise<GuardedFetchTextResult> {
+  const timeoutMs = resolveTimeoutMs(options.timeoutMs);
+  const cancellation = new AbortController();
+  const onCancel = (): void => {
+    cancellation.abort(new ProviderAuthFlowCancelledError('Flow cancelled during a network call.'));
+  };
+  options.cancelSignal?.addEventListener('abort', onCancel, { once: true });
+  if (options.cancelSignal?.aborted) {
+    onCancel();
+  }
+
+  const request = Effect.tryPromise({
+    catch: (error: unknown): unknown => (isAbortShaped(error) ? options.onTimeout() : error),
+    try: async (signal): Promise<GuardedFetchTextResult> => {
+      // A bare call preserves native browser fetch's required receiver.
+      const { fetchFn } = options;
+      const response = await fetchFn(options.url, { ...options.init, signal });
+      return { response, text: await response.text() };
+    },
+  });
+  const bounded = Effect.timeoutOrElse(request, {
+    duration: timeoutMs,
+    orElse: () => Effect.fail(options.onTimeout()),
+  });
   try {
-    return await options.fetchFn(options.url, { ...options.init, signal });
-  } catch (error) {
-    if (options.cancelSignal?.aborted) {
-      throw new ProviderAuthFlowCancelledError('Flow cancelled during a network call.');
-    }
-    if (isAbortShaped(error)) {
-      throw options.onTimeout();
-    }
-    throw error;
+    return await runAtPromiseBoundary(bounded, { signal: cancellation.signal });
+  } finally {
+    options.cancelSignal?.removeEventListener('abort', onCancel);
   }
 }

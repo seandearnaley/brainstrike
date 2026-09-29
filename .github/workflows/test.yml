@@ -195,7 +195,8 @@ jobs:
     # execution dominated recent runs (8m + 12m). Three native Vitest shards
     # preserve every file and one worker per VM without making PGlite suites
     # compete on the same host. The remaining UI packages keep their own row.
-    # DB retains its two native shards. Rest owns every other affected package.
+    # DB and Agent retain two native shards each. Rest owns every other
+    # affected package.
     # scripts/__tests__/unit-shard-partition.test.mjs verifies complete,
     # disjoint coverage; Unit below remains the required fan-in.
     timeout-minutes: 30
@@ -212,6 +213,16 @@ jobs:
             partition: db
             pr_filters: --filter="@brainstrike/db"
             push_filters: --filter="@brainstrike/db"
+            vitest_shard: 2/2
+          - shard: agent-1
+            partition: agent
+            pr_filters: --filter="@brainstrike/agent"
+            push_filters: --filter="@brainstrike/agent"
+            vitest_shard: 1/2
+          - shard: agent-2
+            partition: agent
+            pr_filters: --filter="@brainstrike/agent"
+            push_filters: --filter="@brainstrike/agent"
             vitest_shard: 2/2
           - shard: desktop-1
             partition: desktop
@@ -243,6 +254,7 @@ jobs:
             partition: rest
             pr_filters: >-
               --filter="!@brainstrike/db"
+              --filter="!@brainstrike/agent"
               --filter="!@brainstrike/desktop"
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
@@ -250,6 +262,7 @@ jobs:
             vitest_shard: ''
             push_filters: >-
               --filter="!@brainstrike/db"
+              --filter="!@brainstrike/agent"
               --filter="!@brainstrike/desktop"
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
@@ -348,10 +361,10 @@ jobs:
       # no-build `topo` transit node instead of `^build` (turbo.jsonc). The few
       # lanes that genuinely consume built artifacts (packages/utils' own-dist
       # test, packages/db's nested-tsc test) declare exact `#build` edges in
-      # their own turbo.json, and `turbo run test` SELF-BUILDS exactly those
-      # (verified: the whole-repo test+test:integration graph contains 3 build
-      # tasks — utils + its dep closure — and a full clean-state no-dist run is
-      # green; see the B4 PR). The predecessor step's #1066/#1207 rationale
+      # their own turbo.json, and Turbo SELF-BUILDS exactly those. Desktop's
+      # native restart verifier additionally declares agent/assistant-data builds:
+      # its child Node processes resolve public exports outside Vitest aliases.
+      # The predecessor step's #1066/#1207 rationale
       # ("exports maps pointing at dist fail to resolve at test time") is
       # retired by source resolution, and unlike that incident a regression
       # here fails LOUDLY on the always-clean CI runner instead of passing
@@ -394,7 +407,7 @@ jobs:
       # named steps (not one `&&` step) give clearer failure attribution in the
       # UI; turbo re-resolves quickly on the second invocation. turbo.jsonc's
       # `test:integration` has `dependsOn: ["topo"]` (the B4 no-build transit
-      # node), so phase 2's graph builds nothing and is cheap. turbo skips each
+      # node), plus explicit package-local built-artifact edges. turbo skips each
       # task for packages that do not define it (no `--if-present` needed).
       # COVERAGE="false" (2026-07-20): the PR path previously omitted this,
       # and per-package vitest configs enable V8 coverage whenever CI==='true'
@@ -409,6 +422,8 @@ jobs:
         env:
           TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
           TURBO_SCM_HEAD: ${{ github.sha }}
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -429,6 +444,8 @@ jobs:
           # fence-host-gate.ts. Deliberately NOT set in the coverage lanes,
           # which install nothing and keep the loud-skip behaviour.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -457,6 +474,8 @@ jobs:
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
         env:
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -470,6 +489,8 @@ jobs:
         env:
           # See the pull-request integration step above.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -658,10 +679,10 @@ jobs:
       # rare — key misses happen on every Node patch bump and on LRU eviction,
       # and run 34353973428 was exactly a `Cache not found for input keys` run.
       #
-      # Restore is prefix-only because `.nvmrc` pins a major (`24`) and the
-      # exact version is not known until setup-node runs inside the composite
-      # below; the save step keys on that resolved version, so a patch bump
-      # writes a NEW entry instead of hitting a stale key forever.
+      # Restore is prefix-only: the save key is this `.nvmrc`-hash prefix plus
+      # the version setup-node resolves inside the composite below, which is
+      # not known yet here. `.nvmrc` pins an exact version, not a major, so a
+      # Node bump changes the prefix itself and can never hit a stale entry.
       - name: Restore node-gyp headers
         uses: actions/cache/restore@v5
         with:
@@ -1031,8 +1052,17 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
 
-  desktop-e2e:
-    name: Desktop E2E
+  # BST-1762: desktop smoke runs as two lanes on separate runners. One serial
+  # lane of 47 passing cases took 722-871 s of its 900 s Playwright ceiling
+  # across 24 green runs (2026-09-12..15) and timed out at 898 s in run
+  # 34988958978. Per-case CI means summed to 466 s for the delegated specs and
+  # 337 s for every other spec, so each lane gets its own runner and 900 s
+  # ceiling. The required `Desktop E2E` check is the fan-in after them, so the
+  # ruleset is unchanged.
+  # Lane spec lists and this job graph are pinned by
+  # scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs.
+  desktop-e2e-smoke:
+    name: Desktop E2E (smoke)
     if: >-
       always() &&
       (
@@ -1055,7 +1085,7 @@ jobs:
       - name: Require successful admission
         if: needs.admission.result != 'success'
         run: |
-          echo "::error::Quiet-head admission failed; refusing to skip the required Desktop E2E check."
+          echo "::error::Quiet-head admission failed; refusing to skip the desktop smoke lane."
           exit 1
 
       - name: Checkout
@@ -1128,6 +1158,119 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
+  # Same provisioning as desktop-e2e-smoke; its step comments explain each step.
+  desktop-e2e-delegated:
+    name: Desktop E2E (delegated smoke)
+    if: >-
+      always() &&
+      (
+        needs.admission.result != 'success' ||
+        (
+          github.event_name != 'workflow_dispatch' &&
+          needs.admission.outputs.admitted == 'true' &&
+          needs.build.result == 'success'
+        )
+      )
+    needs: [admission, build]
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      CI: "true"
+      ELECTRON_ENABLE_STACK_DUMPING: "false"
+      ELECTRON_DISABLE_GPU: "1"
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the desktop delegated smoke lane."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
+      - name: Install Chromium system dependencies
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
+
+      - name: Run desktop delegated smoke
+        working-directory: apps/desktop
+        run: dbus-run-session -- pnpm run test:e2e:lane:smoke-delegated
+
+      - name: Upload desktop delegated smoke traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-smoke-delegated-test-results
+          path: apps/desktop/blob-report/
+          retention-days: 1
+          if-no-files-found: warn
+
+  # Fan-in job preserving the required-check name "Desktop E2E" over both smoke
+  # lanes, like `unit` over `unit-shard`. It carries the lanes' exact condition,
+  # so it skips exactly when they skip (not admitted, failed build, manual
+  # dispatch) and fails when admission failed or any lane did not succeed.
+  desktop-e2e:
+    name: Desktop E2E
+    if: >-
+      always() &&
+      (
+        needs.admission.result != 'success' ||
+        (
+          github.event_name != 'workflow_dispatch' &&
+          needs.admission.outputs.admitted == 'true' &&
+          needs.build.result == 'success'
+        )
+      )
+    needs: [admission, build, desktop-e2e-smoke, desktop-e2e-delegated]
+    # Reads two dependency results and completes in seconds, so it uses the
+    # same slim runner as the Unit fan-in.
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Desktop E2E check."
+          exit 1
+
+      - name: Check lane results
+        env:
+          LANE_RESULTS: ${{ needs.desktop-e2e-smoke.result }} ${{ needs.desktop-e2e-delegated.result }}
+        run: |
+          echo "Desktop smoke lane results: $LANE_RESULTS"
+          if [ "$LANE_RESULTS" != "success success" ]; then
+            echo "::error::Desktop smoke lanes did not all succeed: $LANE_RESULTS"
+            exit 1
+          fi
+
   # BST-1301: make a red `main` announce itself.
   #
   # THE GATE ALREADY EXISTS. This workflow's `on:` block subscribes to
@@ -1161,7 +1304,7 @@ jobs:
   # Persistent E2E breakage is still caught within 24h by the scheduled
   # notifiers in web-e2e.yml / desktop-e2e.yml.
   #
-  # `browser-tests`, affected `native-windows`, and `native-electron` also run
+  # `browser-tests`, `native-windows`, and `native-electron` also run
   # on pushes to `main` and are also NOT notified — not on flakiness grounds,
   # but because none of them is a required check. A red one of those does not
   # block anyone else's branch, so it is not this job's class of problem.
@@ -1226,7 +1369,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # NO `2>/dev/null || true` HERE, unlike the four sibling notifiers.
+          # No notifier (this one or its four siblings) uses `2>/dev/null || true`.
           # That idiom swallows the expected "label already exists" AND a real
           # failure (token not elevated, API 5xx, org label restrictions)
           # indistinguishably. The label does not exist until the first red

@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/worker-runtime": "workspace:*"
+    "@brainstrike/worker-runtime": "workspace:*",
+    "effect": "catalog:",
+    "@brainstrike/effect-kit": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -12,7 +14,8 @@
     "@vitest/coverage-v8": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@effect/tsgo": "catalog:"
   },
   "exports": {
     ".": {
@@ -37,7 +40,7 @@
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest --watch",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "sideEffects": false,

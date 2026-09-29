@@ -197,6 +197,25 @@ describe('Desktop SettingsPageContent', () => {
     expect(within(toolsPane).queryByTestId('tool-row-skill_search')).not.toBeInTheDocument();
   });
 
+  it('renders Assistant Memory and the subagent budgets in their own categories', async () => {
+    render(
+      <ThemeProvider storageAdapter={themeStorageAdapter}>
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+
+    const nav = await screen.findByRole('navigation', { name: /settings categories/i });
+    fireEvent.click(within(nav).getByRole('button', { name: /^Assistant Memory$/i }));
+    const memoryPane = await screen.findByTestId('settings-category-assistant-memory');
+    expect(within(memoryPane).getByTestId('assistant-memory-settings-section')).toBeInTheDocument();
+
+    fireEvent.click(within(nav).getByRole('button', { name: /^Subagents$/i }));
+    const subagentsPane = await screen.findByTestId('settings-category-subagents');
+    expect(within(subagentsPane).getByTestId('subagent-settings-section')).toBeInTheDocument();
+  });
+
   it('filters categories using the search box', async () => {
     render(
       <ThemeProvider storageAdapter={themeStorageAdapter}>
@@ -292,6 +311,7 @@ vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOri
 });
 
 vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
+  ModelCatalogHeaderActions: vi.fn(() => null),
   ModelSelectionPage: vi.fn(() => (
     <div data-testid="model-selection-page-mock">
       <h4>Provider API Keys</h4>

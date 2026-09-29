@@ -1,19 +1,32 @@
-import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
+import type {
+  AssistantUiThreadHistoryAdapter,
+  DelegatedConversationBaseline,
+  DelegatedToolActionIdentity,
+} from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
   ASSISTANT_EDIT_CHECKPOINT_OPS,
   type AssistantEditCheckpointCaptureStatus,
   type AssistantEditCheckpointOp,
   type AssistantEditCheckpointRecord,
+  CHILD_INPUT_DELIVERY_METADATA_KEY,
+  childInputDeliveryStateSchema,
+  getToolActionIdentityKey,
   isGuardedToolError,
+  NATIVE_MESSAGE_IDS_METADATA_KEY,
+  SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
+  type SuspendedRunDiscoveryError,
 } from '@brainstrike/assistant-contract';
 import {
   isApprovalActionMessage,
-  readActionMessageRunId,
+  readActionMessageHostRunId,
+  readActionMessagePausedOwnerId,
 } from '@brainstrike/assistant-contract/approval-action-message';
+import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/assistant-stream-session';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
-  ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
   DEFAULT_THREAD_TITLE,
+  DELEGATED_THREAD_DELETE_CTES,
   MASTRA_MEMORY_TABLES,
   MIND_OPS_TABLE,
   THREAD_DELETE_SIDECAR_TABLES,
@@ -22,11 +35,7 @@ import {
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
-  ASSISTANT_RUN_EVENT_KINDS,
-  ASSISTANT_RUN_EVENT_STATUSES,
   type AssistantRunEvent,
-  type AssistantRunEventKind,
-  type AssistantRunEventStatus,
   sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/assistant-contract/run-events';
 import {
@@ -34,6 +43,8 @@ import {
   type AssistantRunUsageKind,
 } from '@brainstrike/assistant-contract/run-usage';
 import {
+  createDeclinedToolCallResult,
+  isDeclinedToolCallResult,
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
@@ -42,8 +53,26 @@ import {
   type RediscoveredToolSuspend,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+  type AssistantHistoryMessage,
+  type AssistantThreadMessageListOptions,
+  type AssistantThreadRunEventListOptions,
+  createDelegatedConversationRepository,
+  readAssistantHistoryMessages,
+  readAssistantHistoryRunEvents,
+  recordAssistantHistoryParent,
+} from '@brainstrike/db';
+
 import type { DbHandle } from '@brainstrike/db/react';
 import type { SuspendedRunDiscovery } from './assistant-suspended-approvals';
+
+export {
+  ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+  type AssistantHistoryMessage,
+  type AssistantThreadMessageListOptions,
+  type AssistantThreadRunEventListOptions,
+} from '@brainstrike/db';
 
 export interface AssistantMemoryThread {
   readonly createdAt: Date;
@@ -64,17 +93,15 @@ export const ASSISTANT_THREAD_ICON_IDS = [
   'plan',
 ] as const;
 
-export const ASSISTANT_THREAD_COLOR_IDS = [
-  'blue',
-  'emerald',
-  'amber',
-  'rose',
-  'violet',
-  'slate',
-] as const;
-
 export type AssistantThreadIconId = (typeof ASSISTANT_THREAD_ICON_IDS)[number];
-export type AssistantThreadColorId = (typeof ASSISTANT_THREAD_COLOR_IDS)[number];
+export { ASSISTANT_THREAD_COLOR_IDS } from './assistant-thread-palette.js';
+
+import {
+  ASSISTANT_THREAD_COLOR_IDS,
+  type AssistantThreadColorId,
+} from './assistant-thread-palette.js';
+
+export type { AssistantThreadColorId } from './assistant-thread-palette.js';
 
 // biome-ignore assist/source/useSortedInterfaceMembers: BST-1391 Task 6 explicitly places forge fields immediately before model.
 export interface AssistantThreadMetadata {
@@ -130,7 +157,12 @@ type MutableAssistantThreadMetadata = {
   -readonly [Key in keyof AssistantThreadMetadata]?: AssistantThreadMetadata[Key];
 };
 
-export type AssistantThreadRunStatus = 'cancelled' | 'completed' | 'failed' | 'running';
+export type AssistantThreadRunStatus =
+  | 'cancelling'
+  | 'cancelled'
+  | 'completed'
+  | 'failed'
+  | 'running';
 export type AssistantThreadRuntimeKind = 'browser' | 'gateway' | 'hosted' | 'local';
 
 export interface AssistantThreadRunRecord {
@@ -160,9 +192,25 @@ export interface AssistantThreadRunRecord {
 }
 
 export interface CreateAssistantThreadRunInput {
+  /** Resolve the original turn from the owned durable continuation before insertion. */
+  readonly childContinuation?: { readonly id: string; readonly nativeRunId: string };
   readonly completedAt?: Date | null;
+  /**
+   * The approval/resume decision this leg answers, when it answers one
+   * (BST-1749, migration 140). The GENERATION it belongs to is derived from
+   * durable state — a delegated pause through its invocation's host leg, a
+   * root-own pause through the native run the host mapped — so every leg of
+   * one generation carries the same ledger identity. A leg with no decision
+   * (an initial send, a regeneration) opens its own generation.
+   */
+  readonly decision?: {
+    readonly delegated: boolean;
+    readonly runId: string;
+    readonly toolCallId: string;
+  };
   readonly error?: string | null;
-  readonly id: string;
+  /** Minted only by app-shell's `createThreadRunId` (see `HostRunId`). */
+  readonly id: HostRunId;
   readonly model: string;
   readonly modelSettings?: Record<string, unknown>;
   readonly provider: string;
@@ -178,7 +226,7 @@ export interface CreateAssistantThreadRunInput {
 
 export interface CompleteAssistantThreadRunInput {
   readonly error?: string | null;
-  readonly status: Exclude<AssistantThreadRunStatus, 'running'>;
+  readonly status: Exclude<AssistantThreadRunStatus, 'running' | 'cancelling'>;
 }
 
 /**
@@ -614,6 +662,12 @@ export interface AssistantThreadRepository {
   deleteThread: (threadId: string) => Promise<void>;
   deleteThreads?: (threadIds: readonly string[]) => Promise<void>;
   getCrossRootUsage: (resourceId: string) => Promise<readonly CrossRootUsageRow[]>;
+  /** Read an edge even when its transient UI message has no Mastra row. */
+  getMessageParent?: (
+    messageId: string,
+    threadId: string,
+    resourceId: string
+  ) => Promise<string | null | undefined>;
   /** Task Ledger read model. Optional only for read-only/test repositories. */
   getRunLedger?: (
     resourceId: string,
@@ -624,7 +678,14 @@ export interface AssistantThreadRepository {
    * BST-1163 run↔turn link, read by the history adapter's suspended-edge
    * backfill (BST-1243). Optional only for read-only/test repositories.
    */
-  getThreadRunTurnMessageId?: (runId: string, threadId: string) => Promise<string | null>;
+  /**
+   * REQUIRED, not optional: the approval/suspend echo backfill anchors a
+   * suspended message on the host leg's turn and has no fallback, so a
+   * repository without this method would throw on every live decision. Keeping
+   * it required puts that gap in the compiler's hands instead of the user's.
+   */
+  getThreadRunTurnMessageId: (runId: string, threadId: string) => Promise<string | null>;
+  hasResolvedToolCallInGeneration?: (hostRunId: string, toolCallId: string) => Promise<boolean>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
     threadId: string,
@@ -644,6 +705,8 @@ export interface AssistantThreadRepository {
   recordRunOutcome?: (input: RecordRunOutcomeInput) => Promise<void>;
   recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
   renameThread: (threadId: string, title: string) => Promise<void>;
+  /** The first host owner and later legs in its scoped generation. */
+  sharesNativeRunGeneration?: (hostRunId: string, nativeRunId: string) => Promise<boolean>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
   updateThreadsMetadata?: (
     threadIds: readonly string[],
@@ -664,15 +727,6 @@ export interface BulkAssistantThreadRepository extends AssistantThreadRepository
   ) => Promise<void>;
 }
 
-interface AssistantHistoryMessage {
-  readonly content: unknown;
-  readonly createdAt: Date;
-  readonly id: string;
-  /** Undefined only for legacy rows written before durable branch topology. */
-  readonly parentId?: string | null;
-  readonly role: string;
-}
-
 export interface RecordAssistantMessageParentInput {
   readonly messageId: string;
   readonly parentId: string | null;
@@ -680,17 +734,83 @@ export interface RecordAssistantMessageParentInput {
   readonly threadId: string;
 }
 
-export interface AssistantThreadMessageListOptions {
-  readonly limitLatest?: number;
-}
-
-export interface AssistantThreadRunEventListOptions {
-  readonly limitLatestRuns?: number;
-}
-
-export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
-
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
+
+/**
+ * The generation ONE generation read names, from the rows it matched.
+ *
+ * Every predicate behind those reads is a primary key —
+ * `brainstrike_assistant_native_runs.native_run_id`, a continuation's `id`, an
+ * invocation's `(root_thread_id, parent_runtime_run_id, parent_tool_call_id)` —
+ * joined to its owner leg by `id`, so one row or none is the only possible
+ * shape. A second row means that assumption is wrong; taking `rows[0]` of an
+ * unordered result would pick a generation arbitrarily and give this leg a
+ * ledger no sibling leg of its turn shares. The read says so instead.
+ */
+export function readSoleGenerationRunId(
+  rows: readonly { readonly generationRunId: string | null }[]
+): string | null {
+  if (rows.length > 1) {
+    throw new Error(
+      `A generation read matched ${rows.length} rows; its predicate is a primary key and must match one row or none.`
+    );
+  }
+  const value = rows[0]?.generationRunId;
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/**
+ * The GENERATION a new leg belongs to (migration 140, BST-1749). An initial
+ * send or a regeneration opens its OWN; a leg that answers a decision inherits
+ * the generation of the leg whose paused run it continues — a child
+ * continuation through its receipt, a DELEGATED pause through its invocation's
+ * host leg, a ROOT-OWN pause through the native run the host mapped. NULL when
+ * nothing maps that run (a pause parked before migration 140, or a surface
+ * that maps no native runs at all): the background ledger throws there rather
+ * than guess an identity no other leg of the turn shares.
+ */
+async function resolveGenerationRunId(
+  database: Parameters<typeof createPgliteAssistantThreadRepository>[0],
+  input: CreateAssistantThreadRunInput
+): Promise<string | null> {
+  const readGeneration = async (sql: string, values: unknown[]): Promise<string | null> => {
+    const found = await database.query<{ generationRunId: string | null }>(
+      sql,
+      values as Parameters<typeof database.query>[1]
+    );
+    return readSoleGenerationRunId(found.rows);
+  };
+  if (input.childContinuation) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_delegated_continuations continuation
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = continuation.host_run_id
+        WHERE continuation.id = $1 AND continuation.owner_resource_id = $2
+          AND continuation.root_thread_id = $3`,
+      [input.childContinuation.id, input.resourceId, input.threadId]
+    );
+  }
+  if (input.decision?.delegated) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_delegated_invocations invocation
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = invocation.host_run_id
+        WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+          AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4`,
+      [input.resourceId, input.threadId, input.decision.runId, input.decision.toolCallId]
+    );
+  }
+  if (input.decision) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_assistant_native_runs mapped
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = mapped.host_run_id
+        WHERE mapped.native_run_id = $1 AND owner.resource_id = $2 AND owner.thread_id = $3`,
+      [input.decision.runId, input.resourceId, input.threadId]
+    );
+  }
+  return input.id;
+}
 const LATEST_THREAD_RUNS_BY_RESOURCE_SQL = `SELECT DISTINCT ON (thread_id)
     id,
     resource_id,
@@ -716,7 +836,6 @@ const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints
 /** Workspace roots (migration 039); joined by the cross-root usage rollup. */
 const ROOTS_TABLE = 'roots';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
-const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 /**
  * Every relation the repository reads or writes, and therefore every relation
  * whose absence means this database was never migrated.
@@ -742,6 +861,7 @@ export function requiredAssistantMemoryRelations(): readonly string[] {
       ASSISTANT_RUN_OUTCOMES_TABLE,
       ASSISTANT_EDIT_CHECKPOINTS_TABLE,
       MIND_OPS_TABLE,
+      'brainstrike_delegated_conversations',
       // `roots` is not assistant-owned (migration 039 creates it), but
       // CROSS_ROOT_USAGE_AGGREGATION_SQL reads it through `LEFT JOIN roots`.
       // Without it here, a handle carrying every assistant relation but no
@@ -913,30 +1033,6 @@ function requireNonEmptyTopologyId(value: unknown, fieldName: string): string {
     throw new Error(`Assistant message topology ${fieldName} must be a non-empty string.`);
   }
   return value;
-}
-
-function mapAssistantHistoryMessageRow(row: Record<string, unknown>): AssistantHistoryMessage {
-  const parentMappingMessageId = row['parentMappingMessageId'];
-  if (parentMappingMessageId !== null && parentMappingMessageId !== undefined) {
-    requireNonEmptyTopologyId(parentMappingMessageId, 'parentMappingMessageId');
-  }
-  const parentId = row['parentId'];
-  if (parentMappingMessageId !== null && parentMappingMessageId !== undefined) {
-    if (parentId !== null) {
-      requireNonEmptyTopologyId(parentId, 'parentId');
-    }
-  } else if (parentId !== null && parentId !== undefined) {
-    throw new Error('Assistant message parent exists without a mapping row.');
-  }
-  return {
-    content: parseJson(row['content']),
-    createdAt: normalizeDate(row['createdAt']),
-    id: requireString(row['id'], 'id'),
-    ...(parentMappingMessageId === null || parentMappingMessageId === undefined
-      ? {}
-      : { parentId: parentId === null ? null : (parentId as string) }),
-    role: requireString(row['role'], 'role'),
-  };
 }
 
 /**
@@ -1381,7 +1477,13 @@ function assertAllBulkThreadsFound(row: Record<string, unknown> | undefined): vo
 }
 
 function requireRunStatus(value: unknown): AssistantThreadRunStatus {
-  if (value === 'cancelled' || value === 'completed' || value === 'failed' || value === 'running') {
+  if (
+    value === 'cancelling' ||
+    value === 'cancelled' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'running'
+  ) {
     return value;
   }
   throw new Error('Invalid assistant thread run row: status is not valid.');
@@ -1426,60 +1528,6 @@ function boundedNullableString(value: unknown, maxChars: number): string | null 
   // surrogate. `[...text]` iterates code points.
   const codePoints = [...text];
   return codePoints.length <= maxChars ? text : codePoints.slice(0, maxChars).join('');
-}
-
-const ASSISTANT_RUN_EVENT_KIND_SET = new Set<AssistantRunEventKind>(ASSISTANT_RUN_EVENT_KINDS);
-
-const ASSISTANT_RUN_EVENT_STATUS_SET = new Set<AssistantRunEventStatus>(
-  ASSISTANT_RUN_EVENT_STATUSES
-);
-
-function requireRunEventKind(value: unknown): AssistantRunEventKind {
-  if (
-    typeof value === 'string' &&
-    ASSISTANT_RUN_EVENT_KIND_SET.has(value as AssistantRunEventKind)
-  ) {
-    return value as AssistantRunEventKind;
-  }
-  throw new Error('Invalid assistant run event row: kind is not valid.');
-}
-
-function requireRunEventStatus(value: unknown): AssistantRunEventStatus {
-  if (
-    typeof value === 'string' &&
-    ASSISTANT_RUN_EVENT_STATUS_SET.has(value as AssistantRunEventStatus)
-  ) {
-    return value as AssistantRunEventStatus;
-  }
-  throw new Error('Invalid assistant run event row: status is not valid.');
-}
-
-function isFiniteInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value);
-}
-
-function toThreadRunEvent(row: Record<string, unknown>): AssistantRunEvent {
-  const metadata = optionalJsonRecord(row['metadata']);
-  const sanitizedMetadata = sanitizeAssistantRunEventMetadata(metadata);
-  const detail = nullableString(row['detail']);
-  const durationRaw = getRowValue(row, 'durationMs', 'duration_ms');
-  const durationMs = isFiniteInteger(durationRaw) ? durationRaw : undefined;
-  const event: AssistantRunEvent = {
-    id: requireString(row['id'], 'id'),
-    kind: requireRunEventKind(row['kind']),
-    label: requireString(row['label'], 'label'),
-    runId: requireString(getRowValue(row, 'runId', 'run_id'), 'runId'),
-    sequence: isFiniteInteger(row['sequence']) ? row['sequence'] : Number(row['sequence']),
-    status: requireRunEventStatus(row['status']),
-    timestamp: normalizeDate(getRowValue(row, 'timestamp', 'occurred_at')).toISOString(),
-    ...(detail ? { detail } : {}),
-    ...(durationMs === undefined ? {} : { durationMs }),
-    ...(sanitizedMetadata ? { metadata: sanitizedMetadata } : {}),
-  };
-  if (!Number.isSafeInteger(event.sequence)) {
-    throw new Error('Invalid assistant run event row: sequence is not valid.');
-  }
-  return event;
 }
 
 function requireCheckpointOp(value: unknown): AssistantEditCheckpointOp {
@@ -1748,6 +1796,16 @@ function toHistoryReasoningPart(
  * `role: 'tool'` rows in this dialect (see the live-loop proof in
  * packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts).
  */
+function readNativeDeclinedResult(invocation: Record<string, unknown>) {
+  if (isDeclinedToolCallResult(invocation['result'])) {
+    return invocation['result'];
+  }
+  const approval = invocation['approval'];
+  const reason =
+    isRecord(approval) && typeof approval['reason'] === 'string' ? approval['reason'] : undefined;
+  return createDeclinedToolCallResult(reason);
+}
+
 function toHistoryToolCallPartFromInvocation(
   record: Record<string, unknown>
 ): AssistantHistoryToolCallPart | undefined {
@@ -1773,6 +1831,16 @@ function toHistoryToolCallPartFromInvocation(
   const args = (
     inv['args'] && typeof inv['args'] === 'object' && !Array.isArray(inv['args']) ? inv['args'] : {}
   ) as AssistantHistoryToolCallPart['args'];
+  if (state === 'output-denied') {
+    return {
+      args,
+      argsText: stringifyArgsText(args),
+      result: readNativeDeclinedResult(inv),
+      toolCallId,
+      toolName: denormalizeNativeToolName(toolName),
+      type: 'tool-call',
+    };
+  }
   const hasResult = Object.hasOwn(inv, 'result');
   const errorText = typeof inv['errorText'] === 'string' ? inv['errorText'] : undefined;
   const isError =
@@ -2009,6 +2077,21 @@ function applyToolEventTimes(
   });
 }
 
+/** Scoped lifecycle events cannot precede their own persisted tool part. */
+function nativeToolEventPosition(
+  event: AssistantRunEvent,
+  toolPositions: ReadonlyMap<string, number>
+): number | undefined {
+  if (
+    !['tool.started', 'tool.completed', 'tool.failed'].includes(event.kind) ||
+    typeof event.metadata?.['nativeMessageId'] !== 'string'
+  ) {
+    return;
+  }
+  const toolCallId = event.metadata?.['toolCallId'];
+  return typeof toolCallId === 'string' ? toolPositions.get(toolCallId) : undefined;
+}
+
 /**
  * Interleave run events with content parts in live order: each event is
  * emitted before the first content part produced after it. Parts without a
@@ -2024,14 +2107,34 @@ function weaveRunEventsIntoContent(
     return parts.map((timed) => timed.part);
   }
   const woven: Array<AssistantHydratedContentPart | AssistantRunEventDataPart> = [];
+  const toolPositions = new Map(
+    parts.flatMap((timed, index) =>
+      timed.part.type === 'tool-call' ? [[timed.part.toolCallId, index] as const] : []
+    )
+  );
   let eventIndex = 0;
   let lastAt = groupStartMs;
-  for (const timed of parts) {
+  for (const [partIndex, timed] of parts.entries()) {
     const at = timed.at ?? lastAt;
     lastAt = at;
     while (eventIndex < eventParts.length) {
       const eventPart = eventParts[eventIndex];
-      if (!eventPart || runEventTimeMs(eventPart) > at) {
+      if (!eventPart) {
+        break;
+      }
+      // Scoped child streams publish tool.started after the tool part. Native
+      // message/tool identity preserves that boundary when millisecond clocks tie.
+      // A cancelled call may have no saved part; retain its journal event normally.
+      const toolPosition = nativeToolEventPosition(eventPart.data, toolPositions);
+      if (toolPosition !== undefined && toolPosition >= partIndex) {
+        break;
+      }
+      // A terminal may follow text streamed while its tool was running. Its
+      // tool boundary is a lower bound; only tool.started overrides event time.
+      if (
+        (toolPosition === undefined || eventPart.data.kind !== 'tool.started') &&
+        runEventTimeMs(eventPart) > at
+      ) {
         break;
       }
       woven.push(eventPart);
@@ -2094,7 +2197,10 @@ function appendAssistantGroupMessage(args: {
       createdAt: firstRow.createdAt,
       id: messageId,
       metadata: {
-        custom: readHistoryCustomMetadata(lastRow.content),
+        custom: {
+          ...readHistoryCustomMetadata(lastRow.content),
+          [NATIVE_MESSAGE_IDS_METADATA_KEY]: args.group.rows.map((row) => row.id),
+        },
         steps: [],
         // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
         unstable_annotations: [],
@@ -2188,12 +2294,33 @@ function toUserHistoryAttachments(
   return attachments;
 }
 
+function readChildInputReceipt(message: AssistantHistoryMessage): Record<string, unknown> {
+  if (!(isNativeUserSignal(message) && isRecord(message.content))) {
+    return {};
+  }
+  const metadata = message.content['metadata'];
+  if (!isRecord(metadata) || metadata['brainstrikeFollowup'] === undefined) {
+    return {};
+  }
+  const receipt = metadata['brainstrikeFollowup'];
+  if (!isRecord(receipt)) {
+    throw new Error('Child input has an invalid delivery receipt.');
+  }
+  return {
+    [CHILD_INPUT_DELIVERY_METADATA_KEY]: childInputDeliveryStateSchema.parse(receipt['state']),
+  };
+}
+
 function appendUserHistoryMessage(args: {
   message: AssistantHistoryMessage;
   parentId: string | null;
   repositoryMessages: AssistantHistoryRepositoryMessages;
 }): boolean {
-  const content = toTextHistoryContentParts(args.message.content);
+  const content = toTextHistoryContentParts(
+    isNativeUserSignal(args.message)
+      ? readContentPartArray(args.message.content)
+      : args.message.content
+  );
   const attachments = toUserHistoryAttachments(args.message.id, args.message.content);
   // An image-only user message has no text part but must survive hydration.
   if (content.length === 0 && attachments.length === 0) {
@@ -2206,7 +2333,7 @@ function appendUserHistoryMessage(args: {
       content,
       createdAt: args.message.createdAt,
       id: args.message.id,
-      metadata: { custom: {} },
+      metadata: { custom: readChildInputReceipt(args.message) },
       role: 'user',
     },
     parentId: args.parentId,
@@ -2237,6 +2364,18 @@ function appendSystemHistoryMessage(args: {
   return true;
 }
 
+function isNativeUserSignal(message: AssistantHistoryMessage): boolean {
+  if (message.role !== 'signal' || !isRecord(message.content)) {
+    return false;
+  }
+  const metadata = message.content['metadata'];
+  if (!isRecord(metadata)) {
+    return false;
+  }
+  const signal = metadata['signal'];
+  return isRecord(signal) && signal['type'] === 'user';
+}
+
 /**
  * Partition the row stream into units: user/system rows stand alone;
  * assistant snapshot rows with one topology identity collapse into one group
@@ -2264,6 +2403,7 @@ function buildHistoryUnits(
       return;
     }
     units.push({ kind: 'assistant-group', parts: openGroup.parts, rows: openGroup.rows });
+    seenToolCallsById.clear();
     openGroup = null;
   };
 
@@ -2294,15 +2434,80 @@ function buildHistoryUnits(
       );
       continue;
     }
-    if (message.role === 'user' || message.role === 'system') {
+    const role = isNativeUserSignal(message) ? 'user' : message.role;
+    if (role === 'user' || role === 'system') {
       closeOpenGroup();
-      units.push({ kind: message.role, message });
+      units.push({ kind: role, message });
     }
     // Other roles (legacy 'tool' rows) are folded into tool results and never
     // rendered — they intentionally do not split an assistant group.
   }
   closeOpenGroup();
   return units;
+}
+
+function assignNativeMessageRunEvent(
+  event: AssistantRunEvent,
+  groups: ReadonlyMap<string, AssistantHistoryRowGroup>,
+  assignments: Map<AssistantHistoryUnit, AssistantRunEventDataPart[]>
+): boolean {
+  const nativeMessageId = event.metadata?.['nativeMessageId'];
+  if (typeof nativeMessageId !== 'string') {
+    return false;
+  }
+  // Multiple host resume legs can belong to one native assistant message.
+  // An id outside the loaded window must never land on an unrelated turn.
+  const group = groups.get(nativeMessageId);
+  if (group) {
+    const parts = assignments.get(group) ?? [];
+    parts.push(...toRunEventDataParts([event]));
+    assignments.set(group, parts);
+  }
+  return true;
+}
+
+/** Background notices can split a turn into multiple topology-bearing messages.
+ * Bind delegated events to the actual call within the persisted owning user turn. */
+function assignDelegatedInvocationRunEvent(
+  event: AssistantRunEvent,
+  units: readonly AssistantHistoryUnit[],
+  assignments: Map<AssistantHistoryUnit, AssistantRunEventDataPart[]>
+): boolean {
+  const turnMessageId = event.metadata?.['originatingTurnMessageId'];
+  const toolCallId = event.metadata?.['parentToolCallId'];
+  if (
+    !event.kind.startsWith('subagent.') ||
+    typeof turnMessageId !== 'string' ||
+    typeof toolCallId !== 'string'
+  ) {
+    return false;
+  }
+  let insideTurn = false;
+  const matches: AssistantHistoryRowGroup[] = [];
+  for (const unit of units) {
+    if (unit.kind === 'user') {
+      insideTurn = unit.message.id === turnMessageId;
+      continue;
+    }
+    if (
+      unit.kind === 'assistant-group' &&
+      (insideTurn || unit.rows.some((row) => row.parentId === turnMessageId)) &&
+      unit.parts.some(({ part }) => part.type === 'tool-call' && part.toolCallId === toolCallId)
+    ) {
+      matches.push(unit);
+    }
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      'Delegated history event has ambiguous call ownership within its original turn.'
+    );
+  }
+  const target = matches[0];
+  if (target) {
+    assignments.set(target, [...(assignments.get(target) ?? []), ...toRunEventDataParts([event])]);
+  }
+  // A call outside the retained history window must not attach to another turn.
+  return true;
 }
 
 /**
@@ -2325,7 +2530,16 @@ function assignRunEventsToGroups(
   }
 
   const eventsByRunId = new Map<string, AssistantRunEvent[]>();
+  const groupsByNativeMessageId = new Map(
+    assistantGroups.flatMap((group) => group.rows.map((row) => [row.id, group] as const))
+  );
   for (const event of runEvents) {
+    if (
+      assignNativeMessageRunEvent(event, groupsByNativeMessageId, assignments) ||
+      assignDelegatedInvocationRunEvent(event, units, assignments)
+    ) {
+      continue;
+    }
     const runId = event.runId;
     if (!runId) {
       continue;
@@ -2368,7 +2582,10 @@ function assignRunEventsToGroups(
     if (!candidate) {
       continue;
     }
-    assignments.set(candidate, toRunEventDataParts(run.events));
+    assignments.set(candidate, [
+      ...(assignments.get(candidate) ?? []),
+      ...toRunEventDataParts(run.events),
+    ]);
     unassignedGroups.delete(candidate);
   }
   return assignments;
@@ -2474,6 +2691,21 @@ function orderHistoryGraphForImport(
   return orderedMessages;
 }
 
+/** Replay the host's pre-effect rows through the ordinary history mapper. */
+export function restoreDelegatedConversationHistory(
+  baseline: DelegatedConversationBaseline
+): Awaited<ReturnType<AssistantUiThreadHistoryAdapter['load']>> {
+  const history = toHistoryRepository(
+    baseline.messages.map(({ parentId, ...message }) => ({
+      ...message,
+      createdAt: normalizeDate(message.createdAt),
+      ...(parentId === undefined ? {} : { parentId }),
+    })),
+    baseline.runEvents
+  );
+  return baseline.headId === undefined ? history : { ...history, headId: baseline.headId };
+}
+
 function toHistoryRepository(
   messages: readonly AssistantHistoryMessage[],
   runEvents: readonly AssistantRunEvent[] = []
@@ -2525,13 +2757,150 @@ function toHistoryRepository(
   };
 }
 
+function hasHostPauseEvidence(input: {
+  readonly events: readonly AssistantRunEvent[];
+  readonly hostRunId: string;
+  readonly pauseKind: 'approval' | 'suspend';
+  readonly toolCallId: string;
+}): boolean {
+  // Typed suspend has no durable pause event; its unresolved tool start is
+  // the host-side evidence before native snapshot authorization.
+  const expectedKind = input.pauseKind === 'approval' ? 'tool.approval.requested' : 'tool.started';
+  return input.events.some(
+    (event) =>
+      event.runId === input.hostRunId &&
+      event.kind === expectedKind &&
+      event.metadata?.['toolCallId'] === input.toolCallId
+  );
+}
+
+/**
+ * Capture the paused assistant exactly as persisted before a continuation can
+ * add a new Mastra snapshot to its hydration group. A tool-call identity must
+ * select one durable message; chronology is never used to choose an owner.
+ */
+export async function readPausedActionReplayPrefix(input: {
+  readonly repository: AssistantThreadRepository;
+  readonly resourceId: string;
+  readonly threadId: string;
+  readonly toolCallId: string;
+  readonly nativeRunId: string;
+  readonly pauseKind: 'approval' | 'suspend';
+  readonly delegation?: DelegatedToolActionIdentity;
+  readonly pausedMessageId?: string;
+  readonly hostRunId?: string | undefined;
+}): Promise<NonNullable<AssistantDiscoveredRun['actionReplay']>> {
+  const { repository, resourceId, threadId, toolCallId, pausedMessageId, nativeRunId, delegation } =
+    input;
+  const rows = await repository.listMessages(threadId, resourceId);
+  const runEvents = await repository.listThreadRunEvents(threadId, resourceId);
+  const history = toHistoryRepository(rows, runEvents);
+  const candidates = history.messages.filter(
+    (item) =>
+      item.message.role === 'assistant' &&
+      item.message.content.some(
+        (part) => part.type === 'tool-call' && part.toolCallId === toolCallId
+      )
+  );
+  const syntheticIdentity = delegation
+    ? getToolActionIdentityKey({ delegation, runId: nativeRunId, toolCallId })
+    : `${nativeRunId}:${toolCallId}`;
+  const syntheticApprovalId = `suspended-approval:${syntheticIdentity}`;
+  const syntheticPauseId = `suspended-pause:${syntheticIdentity}`;
+  const syntheticPauseMessageId =
+    input.pauseKind === 'approval' ? syntheticApprovalId : syntheticPauseId;
+  // A durable paused ID is an exact owner selector even when another native run
+  // reused the same tool call ID. A synthetic notice identifies the action, not
+  // the durable owner, and therefore still requires unique tool ownership.
+  const hasDurablePausedId = pausedMessageId && pausedMessageId !== syntheticPauseMessageId;
+  let matchingCandidates = hasDurablePausedId
+    ? candidates.filter((item) => item.message.id === pausedMessageId)
+    : candidates;
+  if (
+    hasDurablePausedId &&
+    matchingCandidates.length === 0 &&
+    candidates.length === 1 &&
+    !rows.some((row) => row.id === pausedMessageId)
+  ) {
+    const candidate = candidates[0];
+    const hostRunId = input.hostRunId;
+    if (
+      candidate &&
+      hostRunId &&
+      repository.getMessageParent &&
+      repository.sharesNativeRunGeneration &&
+      repository.hasResolvedToolCallInGeneration
+    ) {
+      const [transientParent, turnMessageId, sharesNativeRunGeneration, hasTerminal] =
+        await Promise.all([
+          repository.getMessageParent(pausedMessageId, threadId, resourceId),
+          repository.getThreadRunTurnMessageId(hostRunId, threadId),
+          repository.sharesNativeRunGeneration(hostRunId, nativeRunId),
+          repository.hasResolvedToolCallInGeneration(hostRunId, toolCallId),
+        ]);
+      const hasExactHostPause = hasHostPauseEvidence({
+        events: runEvents,
+        hostRunId,
+        pauseKind: input.pauseKind,
+        toolCallId,
+      });
+      if (
+        sharesNativeRunGeneration &&
+        transientParent !== undefined &&
+        transientParent !== null &&
+        transientParent === candidate.parentId &&
+        turnMessageId === transientParent &&
+        hasExactHostPause &&
+        !hasTerminal
+      ) {
+        matchingCandidates = [candidate];
+      }
+    }
+  }
+  if (matchingCandidates.length !== 1) {
+    if (hasDurablePausedId && matchingCandidates.length === 0) {
+      throw new Error(
+        'Approval action paused assistant ID disagrees with persisted tool ownership.'
+      );
+    }
+    throw new Error(
+      `Approval action tool call ${toolCallId} has no unique durable assistant owner.`
+    );
+  }
+  const candidate = matchingCandidates[0];
+  if (candidate?.message.role !== 'assistant') {
+    throw new Error('Approval action paused assistant owner disappeared.');
+  }
+  const prefixContent = candidate.message.content.filter(
+    (part) =>
+      part.type === 'text' ||
+      part.type === 'reasoning' ||
+      part.type === 'tool-call' ||
+      part.type === 'data'
+  );
+  if (prefixContent.length !== candidate.message.content.length) {
+    throw new Error('Approval action prefix contains an unsupported persisted part.');
+  }
+  return {
+    pausedMessageId: candidate.message.id,
+    pausedParentMessageId: candidate.parentId,
+    prefixContent,
+    syntheticPauseMessageId,
+  };
+}
+
 /**
  * Synthetic rediscovered-pause message id prefixes. These ids exist only in
  * the hydrated UI thread (never as Mastra rows), so the topology adapter must
  * treat them as transient parents (BST-1243) — keep the prefix list and the
- * id construction in `appendSuspendedPauseMessages` in lockstep.
+ * id construction in `appendSuspendedPauseMessages` and
+ * `appendSuspendedDiscoveryError` in lockstep.
  */
-const SUSPENDED_PAUSE_MESSAGE_ID_PREFIXES = ['suspended-approval', 'suspended-pause'] as const;
+const SUSPENDED_PAUSE_MESSAGE_ID_PREFIXES = [
+  'suspended-approval',
+  'suspended-pause',
+  SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
+] as const;
 type SuspendedPauseMessageIdPrefix = (typeof SUSPENDED_PAUSE_MESSAGE_ID_PREFIXES)[number];
 
 function isSuspendedPauseMessageId(messageId: string): boolean {
@@ -2593,7 +2962,10 @@ function appendSuspendedPauseMessages(
   let parentId: string | null = result.headId ?? null;
   let headId: string | null = result.headId ?? null;
   for (const source of sources) {
-    const id = `${source.idPrefix}:${source.runId}:${source.toolCallId}`;
+    const identity = source.data.delegation
+      ? getToolActionIdentityKey(source.data)
+      : `${source.runId}:${source.toolCallId}`;
+    const id = `${source.idPrefix}:${identity}`;
     messages.push({
       message: {
         content: [{ data: source.data, name: source.dataName, type: 'data' }],
@@ -2618,6 +2990,44 @@ function appendSuspendedPauseMessages(
     headId = id;
   }
   return { headId, messages };
+}
+
+/** A transient data notice preserves history without inventing a failed model run. */
+function appendSuspendedDiscoveryError(
+  result: AssistantHistoryLoadResult,
+  error: SuspendedRunDiscoveryError | undefined,
+  threadId: string
+): AssistantHistoryLoadResult {
+  if (!error) {
+    return result;
+  }
+  const id = `${SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME}:${threadId}`;
+  return {
+    headId: id,
+    messages: [
+      ...result.messages,
+      {
+        message: {
+          content: [{ data: error, name: SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME, type: 'data' }],
+          createdAt: new Date(),
+          id,
+          metadata: {
+            custom: {},
+            steps: [],
+            // biome-ignore lint/style/useNamingConvention: assistant-ui metadata keys.
+            unstable_annotations: [],
+            // biome-ignore lint/style/useNamingConvention: assistant-ui metadata keys.
+            unstable_data: [],
+            // biome-ignore lint/style/useNamingConvention: assistant-ui metadata keys.
+            unstable_state: null,
+          },
+          role: 'assistant',
+          status: { reason: 'stop', type: 'complete' },
+        },
+        parentId: result.headId ?? null,
+      },
+    ],
+  };
 }
 
 export function createPgliteAssistantThreadRepository(
@@ -2717,49 +3127,7 @@ export function createPgliteAssistantThreadRepository(
     options?: AssistantThreadRunEventListOptions
   ): Promise<readonly AssistantRunEvent[]> => {
     await initialize();
-    const limitLatestRuns =
-      typeof options?.limitLatestRuns === 'number' && Number.isSafeInteger(options.limitLatestRuns)
-        ? options.limitLatestRuns
-        : undefined;
-    if (limitLatestRuns !== undefined && limitLatestRuns < 1) {
-      throw new Error('Assistant run event history limit must be a positive safe integer.');
-    }
-    const params: unknown[] = [threadId, resourceId];
-    const boundedRunFilter =
-      limitLatestRuns === undefined
-        ? ''
-        : `AND run.id IN (
-            SELECT recent_run.id
-            FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS recent_run
-            WHERE recent_run.thread_id = $1 AND recent_run.resource_id = $2
-            ORDER BY recent_run.started_at DESC, recent_run.created_at DESC, recent_run.id DESC
-            LIMIT $3
-          )`;
-    if (limitLatestRuns !== undefined) {
-      params.push(limitLatestRuns);
-    }
-    const result = await database.query<Record<string, unknown>>(
-      `SELECT
-          event.id,
-          event.run_id,
-          event.sequence,
-          event.kind,
-          event.status,
-          event.label,
-          event.detail,
-          event.duration_ms,
-          event.metadata,
-          event.occurred_at
-       FROM ${ASSISTANT_RUN_EVENTS_TABLE} AS event
-       INNER JOIN ${ASSISTANT_THREAD_RUNS_TABLE} AS run ON run.id = event.run_id
-       WHERE event.thread_id = $1
-          AND event.resource_id = $2
-          ${boundedRunFilter}
-       ORDER BY run.started_at ASC, run.created_at ASC, run.id ASC,
-                event.sequence ASC, event.occurred_at ASC, event.id ASC`,
-      params
-    );
-    return result.rows.map(toThreadRunEvent);
+    return readAssistantHistoryRunEvents(database, threadId, resourceId, options);
   };
 
   const repository: BulkAssistantThreadRepository = {
@@ -2838,7 +3206,7 @@ export function createPgliteAssistantThreadRepository(
       await database.query(
         `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
          SET status = $2, error = $3, completed_at = $4, updated_at = $5
-         WHERE id = $1`,
+         WHERE id = $1 AND status NOT IN ('cancelling', 'cancelled')`,
         [runId, input.status, input.error ?? null, new Date(), new Date()]
       );
     },
@@ -2876,6 +3244,24 @@ export function createPgliteAssistantThreadRepository(
     },
     async createThreadRun(input: CreateAssistantThreadRunInput): Promise<AssistantThreadRunRecord> {
       await initialize();
+      let turnMessageId = input.turnMessageId ?? null;
+      if (input.childContinuation) {
+        const receipt = await createDelegatedConversationRepository(database).getContinuation(
+          { ownerResourceId: input.resourceId, rootThreadId: input.threadId },
+          input.childContinuation.id
+        );
+        if (
+          !receipt ||
+          receipt.nativeRunId !== input.childContinuation.nativeRunId ||
+          !['awaiting-approval', 'awaiting-input'].includes(receipt.state)
+        ) {
+          throw new Error(
+            'Child continuation decision is no longer pending or does not belong to this root.'
+          );
+        }
+        turnMessageId = receipt.turnMessageId;
+      }
+      const generationRunId = await resolveGenerationRunId(database, input);
       const now = new Date();
       const startedAt = input.startedAt ?? now;
       const completedAt = input.completedAt ?? null;
@@ -2891,7 +3277,7 @@ export function createPgliteAssistantThreadRepository(
         startedAt,
         status: input.status ?? 'running',
         threadId: input.threadId,
-        turnMessageId: input.turnMessageId ?? null,
+        turnMessageId,
         updatedAt: now,
         ...(input.modelSettings ? { modelSettings: { ...input.modelSettings } } : {}),
         ...(input.providerOptions ? { providerOptions: { ...input.providerOptions } } : {}),
@@ -2913,9 +3299,10 @@ export function createPgliteAssistantThreadRepository(
             completed_at,
             created_at,
             updated_at,
-            turn_message_id
+            turn_message_id,
+            generation_run_id
           )
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)`,
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           record.id,
           record.resourceId,
@@ -2932,6 +3319,7 @@ export function createPgliteAssistantThreadRepository(
           record.createdAt,
           record.updatedAt,
           record.turnMessageId,
+          generationRunId,
         ]
       );
       return record;
@@ -2945,30 +3333,33 @@ export function createPgliteAssistantThreadRepository(
       // clearThreadPlacement round trip; the CTE now owns the full cascade
       // (placements without a live thread were already inert by contract).
       const sidecarStages = THREAD_DELETE_SIDECAR_TABLES.map(
-        ({ table, threadColumn }) => `deleted_${table} AS (
+        ({ table, threadColumns }) => `deleted_${table} AS (
             DELETE FROM ${table}
-            WHERE ${threadColumn} = $1
-            RETURNING ${threadColumn}
+            WHERE (${threadColumns.map((column) => `${column} IN (SELECT id FROM deletion_threads)`).join(' OR ')})
+            RETURNING 1
           )`
       ).join(',\n          ');
       const sidecarCounts = THREAD_DELETE_SIDECAR_TABLES.map(
         ({ table }) => `(SELECT count(*) FROM deleted_${table}) AS "deleted_${table}_count"`
       ).join(',\n          ');
-      await database.query(
-        `WITH deleted_observational_memory AS (
+      const result = await database.query<{ allAuthorized: boolean }>(
+        `WITH RECURSIVE requested(id) AS (VALUES ($1::text)),
+          ${DELEGATED_THREAD_DELETE_CTES},
+          deleted_observational_memory AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
-            WHERE "threadId" = $1 OR "lookupKey" = $2
+            WHERE "threadId" IN (SELECT id FROM deletion_threads)
+              OR "lookupKey" IN (SELECT 'thread:' || id FROM deletion_threads)
             RETURNING id
           ),
           deleted_messages AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.messages}
-            WHERE thread_id = $1
+            WHERE thread_id IN (SELECT id FROM deletion_threads)
             RETURNING id
           ),
           ${sidecarStages},
           deleted_thread AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
-            WHERE id = $1
+            WHERE id IN (SELECT id FROM deletion_threads)
             RETURNING id, "resourceId"
           ),
           inserted_mind_ops AS (
@@ -2977,21 +3368,28 @@ export function createPgliteAssistantThreadRepository(
             RETURNING seq
           )
          SELECT
+          (SELECT all_authorized FROM deletion_scope_validation) AS "allAuthorized",
           (SELECT count(*) FROM deleted_observational_memory) AS deleted_observational_memory_count,
           (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
           ${sidecarCounts},
           (SELECT count(*) FROM deleted_thread) AS deleted_thread_count,
           (SELECT count(*) FROM inserted_mind_ops) AS inserted_mind_op_count`,
-        [threadId, `thread:${threadId}`]
+        [threadId]
       );
+      if (result.rows[0]?.allAuthorized !== true) {
+        throw new Error('Delegated branch deletion requires unchanged native ownership.', {
+          cause: { operation: 'delete-delegated-branch', requestedThreadIds: [threadId] },
+        });
+      }
     },
     async deleteThreads(threadIds: readonly string[]): Promise<void> {
       requireAssistantThreadIds(threadIds);
       await initialize();
       const result = await database.query<Record<string, unknown>>(
-        `WITH requested(id) AS (
+        `WITH RECURSIVE requested(id) AS (
             VALUES ${threadIdValuesSql(threadIds)}
           ),
+          ${DELEGATED_THREAD_DELETE_CTES},
           validation AS (
             SELECT COUNT(threads.id) = ${threadIds.length} AS all_found
             FROM requested
@@ -3001,29 +3399,29 @@ export function createPgliteAssistantThreadRepository(
             DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
             WHERE (SELECT all_found FROM validation)
               AND (
-                "threadId" IN (SELECT id FROM requested)
-                OR "lookupKey" IN (SELECT 'thread:' || id FROM requested)
+                "threadId" IN (SELECT id FROM deletion_threads)
+                OR "lookupKey" IN (SELECT 'thread:' || id FROM deletion_threads)
               )
             RETURNING id
           ),
           deleted_messages AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.messages}
             WHERE (SELECT all_found FROM validation)
-              AND thread_id IN (SELECT id FROM requested)
+              AND thread_id IN (SELECT id FROM deletion_threads)
             RETURNING id
           ),
           ${THREAD_DELETE_SIDECAR_TABLES.map(
-            ({ table, threadColumn }) => `deleted_${table} AS (
+            ({ table, threadColumns }) => `deleted_${table} AS (
             DELETE FROM ${table}
             WHERE (SELECT all_found FROM validation)
-              AND ${threadColumn} IN (SELECT id FROM requested)
-            RETURNING ${threadColumn}
+              AND (${threadColumns.map((column) => `${column} IN (SELECT id FROM deletion_threads)`).join(' OR ')})
+            RETURNING 1
           )`
           ).join(',\n          ')},
           deleted_threads AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE (SELECT all_found FROM validation)
-              AND id IN (SELECT id FROM requested)
+              AND id IN (SELECT id FROM deletion_threads)
             RETURNING id, "resourceId"
           ),
           inserted_mind_ops AS (
@@ -3033,6 +3431,7 @@ export function createPgliteAssistantThreadRepository(
           )
          SELECT
           (SELECT all_found FROM validation) AS "allFound",
+          (SELECT all_authorized FROM deletion_scope_validation) AS "allAuthorized",
           (SELECT count(*) FROM deleted_observational_memory) AS "deletedObservationalMemoryCount",
           (SELECT count(*) FROM deleted_messages) AS "deletedMessageCount",
           ${THREAD_DELETE_SIDECAR_TABLES.map(
@@ -3043,6 +3442,11 @@ export function createPgliteAssistantThreadRepository(
         [...threadIds]
       );
       assertAllBulkThreadsFound(result.rows[0]);
+      if (result.rows[0]?.['allAuthorized'] !== true) {
+        throw new Error('Delegated branch deletion requires unchanged native ownership.', {
+          cause: { operation: 'delete-delegated-branch', requestedThreadIds: [...threadIds] },
+        });
+      }
     },
     async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {
       await initialize();
@@ -3055,6 +3459,19 @@ export function createPgliteAssistantThreadRepository(
         [resourceId]
       );
       return result.rows.map(mapCrossRootUsageRow);
+    },
+    async getMessageParent(messageId, threadId, resourceId) {
+      requireString(messageId, 'messageId');
+      requireString(threadId, 'threadId');
+      requireString(resourceId, 'resourceId');
+      await initialize();
+      const result = await database.query<{ parentId: string | null }>(
+        `SELECT parent_id AS "parentId"
+         FROM brainstrike_assistant_message_parents
+         WHERE message_id = $1 AND thread_id = $2 AND resource_id = $3`,
+        [messageId, threadId, resourceId]
+      );
+      return result.rows[0]?.parentId;
     },
     async getRunLedger(
       resourceId: string,
@@ -3166,60 +3583,33 @@ export function createPgliteAssistantThreadRepository(
       const value = result.rows[0]?.turnMessageId;
       return typeof value === 'string' && value.length > 0 ? value : null;
     },
-    listLatestThreadRuns,
-    async listMessages(
-      threadId: string,
-      resourceId: string,
-      options?: AssistantThreadMessageListOptions
-    ): Promise<readonly AssistantHistoryMessage[]> {
+    async hasResolvedToolCallInGeneration(hostRunId, toolCallId) {
+      requireString(hostRunId, 'hostRunId');
+      requireString(toolCallId, 'toolCallId');
       await initialize();
-      const limitLatest =
-        typeof options?.limitLatest === 'number' && Number.isSafeInteger(options.limitLatest)
-          ? options.limitLatest
-          : undefined;
-      if (limitLatest !== undefined && limitLatest < 1) {
-        throw new Error('Assistant message history limit must be a positive safe integer.');
-      }
-      const params: unknown[] = [threadId, resourceId];
-      const limitClause =
-        limitLatest === undefined
-          ? ''
-          : `-- id is a deterministic tie-breaker for same-timestamp rows;
-               -- insertion-order ties need a future monotonic schema column.
-               ORDER BY "createdAt" DESC, id DESC
-               LIMIT $3`;
-      // Soft-rewind exclusion (BST-1115) sits INSIDE the windowing subquery, so
-      // it applies before `limitLatest` — the hydration window is the latest N
-      // VISIBLE messages, not N rows of which some are then dropped. Reload
-      // hydration is this query, which is why a tombstoned message stays gone
-      // across a restart without any renderer-side memory of the rewind.
-      const sql = `SELECT
-          recent_messages.id,
-          recent_messages.role,
-          recent_messages.content,
-          recent_messages."createdAt",
-          message_parents.message_id AS "parentMappingMessageId",
-          message_parents.parent_id AS "parentId"
-        FROM (
-          SELECT id, role, content, "createdAt"
-          FROM ${MASTRA_MEMORY_TABLES.messages}
-          WHERE thread_id = $1 AND "resourceId" = $2
-            AND NOT EXISTS (
-              SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
-              WHERE tombstones.message_id = ${MASTRA_MEMORY_TABLES.messages}.id
-            )
-          ${limitClause}
-        ) AS recent_messages
-        LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents
-          ON message_parents.message_id = recent_messages.id
-          AND message_parents.thread_id = $1
-          AND message_parents.resource_id = $2
-        ORDER BY recent_messages."createdAt" ASC, recent_messages.id ASC`;
-      if (limitLatest !== undefined) {
-        params.push(limitLatest);
-      }
-      const result = await database.query<Record<string, unknown>>(sql, params);
-      return result.rows.map(mapAssistantHistoryMessageRow);
+      const result = await database.query<{ resolved: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM brainstrike_assistant_run_events terminal
+           JOIN brainstrike_assistant_thread_runs terminal_run ON terminal_run.id = terminal.run_id
+           JOIN brainstrike_assistant_thread_runs paused_run ON paused_run.id = $1
+           WHERE terminal_run.thread_id = paused_run.thread_id
+             AND terminal_run.resource_id = paused_run.resource_id
+             AND (
+               terminal.run_id = paused_run.id OR
+               (paused_run.generation_run_id IS NOT NULL AND
+                terminal_run.generation_run_id = paused_run.generation_run_id)
+             )
+             AND terminal.metadata->>'toolCallId' = $2
+             AND terminal.kind IN ('tool.completed', 'tool.failed')
+         ) AS resolved`,
+        [hostRunId, toolCallId]
+      );
+      return result.rows[0]?.resolved === true;
+    },
+    listLatestThreadRuns,
+    async listMessages(threadId, resourceId, options) {
+      await initialize();
+      return readAssistantHistoryMessages(database, threadId, resourceId, options);
     },
     listThreadCheckpoints,
     listThreadRunEvents,
@@ -3277,22 +3667,7 @@ export function createPgliteAssistantThreadRepository(
       const parentId =
         input.parentId === null ? null : requireNonEmptyTopologyId(input.parentId, 'parentId');
       await initialize();
-      const now = new Date();
-      const result = await database.query(
-        `INSERT INTO ${ASSISTANT_MESSAGE_PARENTS_TABLE}
-          (message_id, thread_id, resource_id, parent_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $5)
-         ON CONFLICT (message_id) DO UPDATE
-           SET updated_at = EXCLUDED.updated_at
-           WHERE ${ASSISTANT_MESSAGE_PARENTS_TABLE}.thread_id = EXCLUDED.thread_id
-             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.resource_id = EXCLUDED.resource_id
-             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.parent_id IS NOT DISTINCT FROM EXCLUDED.parent_id
-         RETURNING message_id`,
-        [messageId, threadId, resourceId, parentId, now]
-      );
-      if (result.rows.length !== 1) {
-        throw new Error(`Assistant message ${messageId} has conflicting branch topology.`);
-      }
+      await recordAssistantHistoryParent(database, { messageId, parentId, resourceId, threadId });
     },
     async recordRunOutcome(input: RecordRunOutcomeInput): Promise<void> {
       requireString(input.runId, 'runId');
@@ -3404,6 +3779,29 @@ export function createPgliteAssistantThreadRepository(
         [threadId, normalizedTitle, THREAD_TITLE_SOURCE_METADATA_KEY, new Date()]
       );
     },
+    async sharesNativeRunGeneration(hostRunId, nativeRunId) {
+      requireString(hostRunId, 'hostRunId');
+      requireString(nativeRunId, 'nativeRunId');
+      await initialize();
+      const result = await database.query<{ owns: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM brainstrike_assistant_thread_runs host
+           JOIN brainstrike_assistant_native_runs mapped ON mapped.native_run_id = $2
+           JOIN brainstrike_assistant_thread_runs owner ON owner.id = mapped.host_run_id
+           WHERE host.id = $1
+             AND host.thread_id = owner.thread_id
+             AND host.resource_id = owner.resource_id
+             AND (
+               -- Legacy null-generation rows can still prove their exact first owner.
+               mapped.host_run_id = host.id OR
+               (host.generation_run_id IS NOT NULL AND
+                host.generation_run_id = owner.generation_run_id)
+             )
+         ) AS owns`,
+        [hostRunId, nativeRunId]
+      );
+      return result.rows[0]?.owns === true;
+    },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
       assertPersistableThreadMetadata(metadata);
       const normalized = normalizeThreadMetadataForPersistence(metadata);
@@ -3468,11 +3866,49 @@ export function createPgliteAssistantThreadRepository(
   return repository;
 }
 
+async function loadHistoryThroughSearchTarget(
+  repository: AssistantThreadRepository,
+  threadId: string,
+  resourceId: string,
+  targetMessageId?: string,
+  signal?: AbortSignal
+): Promise<readonly AssistantHistoryMessage[]> {
+  signal?.throwIfAborted();
+  let messages = await repository.listMessages(threadId, resourceId, {
+    limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    ...(targetMessageId ? { targetMessageId } : {}),
+  });
+  if (!targetMessageId) {
+    return messages;
+  }
+  // Explicit search navigation pages backwards; ordinary hydration remains bounded.
+  while (!messages.some((message) => message.id === targetMessageId)) {
+    signal?.throwIfAborted();
+    const first = messages[0];
+    if (!first) {
+      throw new Error('The selected message is no longer available in this conversation.');
+    }
+    const older = await repository.listMessages(threadId, resourceId, {
+      beforeMessageId: first.id,
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+      ...(targetMessageId ? { targetMessageId } : {}),
+    });
+    if (older.length === 0) {
+      throw new Error('The selected message is no longer available in this conversation.');
+    }
+    messages = [...older, ...messages];
+  }
+  signal?.throwIfAborted();
+  return messages;
+}
+
 export function createAssistantThreadHistoryAdapter({
   discoverSuspendedRuns,
   repository,
   resourceId,
   threadId,
+  targetMessageId,
+  signal,
 }: {
   /**
    * Desktop-only capability: rediscover approvals AND suspend() pauses
@@ -3481,23 +3917,27 @@ export function createAssistantThreadHistoryAdapter({
    * where its absence means "no suspended pauses" and hydration is
    * byte-identical to today.
    */
+  /** Explicit search navigation only; ordinary hydration retains its 80-row bound. */
+  readonly targetMessageId?: string;
+  readonly signal?: AbortSignal;
   readonly discoverSuspendedRuns?: SuspendedRunDiscovery;
   readonly repository: AssistantThreadRepository;
   readonly resourceId: string;
   readonly threadId: string;
 }): AssistantUiThreadHistoryAdapter {
-  // DURABLE-PARENT INVARIANT (BST-1243): every persisted edge must reference a
-  // durable (Mastra-persisted) message id or null. Approval/suspend flows
-  // append UI-transient messages — the action echo, the post-resume leg, and
-  // the synthetic rediscovered-pause notices — that Mastra deliberately never
-  // persists; persisting their edges (or chaining a real message onto their
-  // ids) dangles the graph, and reload hydration re-roots the child into a
-  // phantom root carousel sibling. The maps below alias each transient id to
-  // its nearest durable ancestor so persisted topology skips them entirely.
+  // DURABLE-PARENT INVARIANT (BST-1243): every persisted edge must point to a
+  // Mastra-persisted parent id or null. Action echoes, ordinary resume legs,
+  // and rediscovered notices have no Mastra rows; alias them to their nearest
+  // durable ancestor so subsequent messages cannot dangle on transient ids.
+  // The narrow exception is a resumed assistant that owns a NEW pause: its
+  // action echo records a proof edge from that UI id to the exact host turn,
+  // allowing replay to verify the later Mastra tool owner without splitting
+  // the hydrated continuation group.
   const transientParentByAliasId = new Map<string, string | null>();
+  const transientResumeMessageIds = new Set<string>();
+  let topologyEpoch = 0;
   const hydratedParentById = new Map<string, string | null>();
   const persistedEdgeIds = new Set<string>();
-  let durableTailId: string | null = null;
 
   const resolveDurableParentId = (parentId: string | null): string | null => {
     let current = parentId;
@@ -3516,41 +3956,122 @@ export function createAssistantThreadHistoryAdapter({
     if (!repository.recordMessageParent) {
       throw new Error('Assistant history repository cannot persist message branch topology.');
     }
+    const epoch = topologyEpoch;
     await repository.recordMessageParent({ messageId, parentId, resourceId, threadId });
-    persistedEdgeIds.add(messageId);
+    if (epoch === topologyEpoch) {
+      persistedEdgeIds.add(messageId);
+    }
   };
 
   // The echo is transport bookkeeping with no durable row — never an edge.
   // Its parent is the SUSPENDED assistant message, whose own runEnd append
-  // never fires (suspension interrupts it), so backfill that durable edge
-  // here; otherwise the reload group keys to a snapshot row id and every
-  // descendant edge dangles. The backfill parent, in order of authority: the
-  // hydrated graph parent when the suspended message was loaded; else the
-  // suspending run's durable turn anchor (BST-1163 `turn_message_id`, stamped
-  // identically on every leg of the turn — exact even when other sends landed
-  // during the suspension or the suspended run was a regeneration branched
-  // from an older prompt); else the live session tail as a legacy last resort
-  // (runs predating the turn link). The repository upsert stays loud on
-  // conflicting topology.
+  // never fires (assistant-ui writes a `requires-action` message only through a
+  // history `update`, which this adapter deliberately does not expose), so
+  // backfill that durable edge here; otherwise the reload group keys to a
+  // snapshot row id and every descendant edge dangles.
+  //
+  // The backfill parent, in order of authority: the hydrated graph parent when
+  // the suspended message was loaded; else the DURABLE HOST LEG the pause named
+  // (`hostRunId`) and its `turn_message_id` (BST-1163 — every leg of a turn
+  // stamps the same link, so this stays exact when other sends land during the
+  // suspension and when the suspended run is a regeneration branched from an
+  // older prompt).
+  //
+  // NEVER the marker's `runId`, and never the session tail. `runId` is the
+  // NATIVE Mastra run the resume routes address: Mastra mints it
+  // (`options?.runId || generateId()`), no leg passes the host id in, and one
+  // host leg can hold several native runs (a background wake-up mints another),
+  // so it never matched a `thread_runs` row — the lookup missed on EVERY live
+  // backfill and the tail silently answered instead, guessing wrong whenever
+  // the tail was not the suspended message's own turn. A live pause always
+  // names its host leg; anything else is a producer defect and throws.
+  const recordResumedPauseEdge = async (
+    message: unknown,
+    pausedMessageId: string | null,
+    resolvedParentId: string | null
+  ): Promise<boolean> => {
+    if (!(pausedMessageId && transientResumeMessageIds.has(pausedMessageId))) {
+      return false;
+    }
+    const epoch = topologyEpoch;
+    const assertCurrent = (): void => {
+      if (
+        epoch !== topologyEpoch ||
+        !transientResumeMessageIds.has(pausedMessageId) ||
+        transientParentByAliasId.get(pausedMessageId) !== resolvedParentId
+      ) {
+        throw new Error('Assistant resumed pause changed while its parent was loading.');
+      }
+    };
+    const hostRunId = readActionMessageHostRunId(message);
+    if (!hostRunId) {
+      throw new Error('Assistant history cannot anchor a resumed pause without its host leg.');
+    }
+    const turnMessageId = await repository.getThreadRunTurnMessageId(hostRunId, threadId);
+    const resolvedParent =
+      resolvedParentId && repository.getMessageParent
+        ? await repository.getMessageParent(resolvedParentId, threadId, resourceId)
+        : undefined;
+    assertCurrent();
+    if (
+      !(turnMessageId && (resolvedParentId === turnMessageId || resolvedParent === turnMessageId))
+    ) {
+      throw new Error('Assistant resumed pause disagrees with its durable host turn.');
+    }
+    if (persistedEdgeIds.has(pausedMessageId)) {
+      const existingParent = await repository.getMessageParent?.(
+        pausedMessageId,
+        threadId,
+        resourceId
+      );
+      assertCurrent();
+      if (existingParent !== turnMessageId) {
+        throw new Error('Assistant resumed pause has a conflicting persisted parent.');
+      }
+    } else {
+      await recordParentEdge(pausedMessageId, turnMessageId);
+      assertCurrent();
+    }
+    return true;
+  };
+
   const recordActionEchoAppend = async (
     message: unknown,
+    pausedMessageId: string | null,
     resolvedParentId: string | null
   ): Promise<void> => {
+    if (await recordResumedPauseEdge(message, pausedMessageId, resolvedParentId)) {
+      return;
+    }
     if (resolvedParentId === null || persistedEdgeIds.has(resolvedParentId)) {
       return;
     }
-    let suspendedParentId: string | null;
     if (hydratedParentById.has(resolvedParentId)) {
-      suspendedParentId = hydratedParentById.get(resolvedParentId) ?? null;
-    } else {
-      const actionRunId = readActionMessageRunId(message);
-      const turnMessageId =
-        actionRunId !== undefined && repository.getThreadRunTurnMessageId
-          ? await repository.getThreadRunTurnMessageId(actionRunId, threadId)
-          : null;
-      suspendedParentId = turnMessageId ?? durableTailId;
+      await recordParentEdge(resolvedParentId, hydratedParentById.get(resolvedParentId) ?? null);
+      return;
     }
-    await recordParentEdge(resolvedParentId, suspendedParentId);
+    const hostRunId = readActionMessageHostRunId(message);
+    if (!hostRunId) {
+      throw new Error(
+        `Assistant history cannot anchor suspended message ${resolvedParentId}: its pause named no durable host leg.`
+      );
+    }
+    const turnMessageId = await repository.getThreadRunTurnMessageId(hostRunId, threadId);
+    // An approval on a still-streaming leg aborts that leg, and its terminal
+    // runEnd append can persist the suspended message's own edge while this
+    // lookup is pending. That edge is authoritative, so session state read
+    // across the await is re-validated, never trusted (PR #3201).
+    if (persistedEdgeIds.has(resolvedParentId)) {
+      return;
+    }
+    // Truthiness, matching the `!hostRunId` guard above: a blank or absent
+    // anchor is as unusable as a missing one and must never reach an edge.
+    if (!turnMessageId) {
+      throw new Error(
+        `Assistant history cannot anchor suspended message ${resolvedParentId}: host leg ${hostRunId} records no turn message.`
+      );
+    }
+    await recordParentEdge(resolvedParentId, turnMessageId);
   };
 
   return {
@@ -3563,8 +4084,16 @@ export function createAssistantThreadHistoryAdapter({
       }
       const resolvedParentId = resolveDurableParentId(item.parentId);
       if (isApprovalActionMessage(item.message)) {
+        const appendEpoch = topologyEpoch;
+        // assistant-ui keeps the optimistic echo even when the async history
+        // write rejects. Its descendants still need the durable parent alias.
         transientParentByAliasId.set(item.message.id, resolvedParentId);
-        await recordActionEchoAppend(item.message, resolvedParentId);
+        const pausedOwnerId = readActionMessagePausedOwnerId(item.message) ?? item.parentId;
+        const resolvedPausedOwnerId = resolveDurableParentId(pausedOwnerId);
+        await recordActionEchoAppend(item.message, pausedOwnerId, resolvedPausedOwnerId);
+        if (appendEpoch !== topologyEpoch) {
+          throw new Error('Assistant approval action changed while its parent was loading.');
+        }
         return;
       }
       if (
@@ -3586,20 +4115,18 @@ export function createAssistantThreadHistoryAdapter({
         // "regeneration taken from a post-approval response" case in
         // assistant-approval-topology.integration.test.ts.
         transientParentByAliasId.set(item.message.id, resolvedParentId);
+        transientResumeMessageIds.add(item.message.id);
         return;
       }
       await recordParentEdge(item.message.id, resolvedParentId);
-      durableTailId = item.message.id;
     },
     async load() {
-      // Discovery is a bounded, best-effort HTTP round-trip (see
-      // assistant-suspended-approvals.ts) and the rare case, so it runs
-      // CONCURRENTLY with the history queries instead of gating them: thread
-      // render waits at most max(history, discovery-timeout), never their sum.
+      topologyEpoch += 1;
+      // Discovery and history run concurrently. The discovery fetch has a
+      // deadline and explicit recovery errors (assistant-suspended-approvals.ts);
+      // endpoint/auth resolution retains its bridge-owned lifecycle.
       const [messages, runEvents, discovery] = await Promise.all([
-        repository.listMessages(threadId, resourceId, {
-          limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
-        }),
+        loadHistoryThroughSearchTarget(repository, threadId, resourceId, targetMessageId, signal),
         repository.listThreadRunEvents(threadId, resourceId, {
           limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
         }),
@@ -3609,6 +4136,7 @@ export function createAssistantThreadHistoryAdapter({
       ]);
       // Reseed session topology state from hydration (a re-load replaces it).
       transientParentByAliasId.clear();
+      transientResumeMessageIds.clear();
       hydratedParentById.clear();
       persistedEdgeIds.clear();
       for (const message of messages) {
@@ -3620,8 +4148,11 @@ export function createAssistantThreadHistoryAdapter({
       for (const hydrated of base.messages) {
         hydratedParentById.set(hydrated.message.id, hydrated.parentId);
       }
-      durableTailId = base.headId ?? null;
-      const result = appendSuspendedPauseMessages(base, discovery.approvals, discovery.suspends);
+      const result = appendSuspendedDiscoveryError(
+        appendSuspendedPauseMessages(base, discovery.approvals, discovery.suspends),
+        'error' in discovery ? discovery.error : undefined,
+        threadId
+      );
       // Synthetic pause notices chain onto the durable head (and each other);
       // alias them in order so an approve from a rediscovered notice resolves
       // through to the durable graph.

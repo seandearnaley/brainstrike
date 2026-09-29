@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import type { AssistantEditCheckpointOp, RuntimeData } from '@brainstrike/agent';
+import { createDelegatedConversationRepository } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
+import { z } from 'zod';
+import { delegatedHostRunId } from './delegated-host-run-id';
 import {
   type EditCheckpointCapture,
   type EditCheckpointDatabase,
@@ -99,6 +102,7 @@ export interface EditCheckpointCaptureRequest {
     EditCheckpointCapture,
     'beforeExisted' | 'beforeHash' | 'beforeSize' | 'captureStatus'
   >;
+  readonly executionThreadId?: string | undefined;
   readonly fromPath?: string;
   readonly op: AssistantEditCheckpointOp;
   readonly path: string;
@@ -116,6 +120,46 @@ export interface EditCheckpointCaptureOptions {
 async function resolveDesktopDatabase(): Promise<EditCheckpointDatabase> {
   const { getDatabase } = await import('../db-main');
   return (await getDatabase()) as unknown as EditCheckpointDatabase;
+}
+
+async function checkpointOwner(
+  db: EditCheckpointDatabase,
+  memory: { runId: string; threadId: string; resourceId: string },
+  executionThreadId: string | undefined
+): Promise<{ runId: string; threadId: string; resourceId: string }> {
+  if (!executionThreadId || executionThreadId === memory.threadId) {
+    return memory;
+  }
+  const scope = { ownerResourceId: memory.resourceId, rootThreadId: memory.threadId };
+  const node = await createDelegatedConversationRepository(db).get(scope, executionThreadId);
+  if (!node?.parentThreadId) {
+    throw new Error('Child edit has no authorized conversation owner.');
+  }
+  const result = await db.query(
+    `SELECT invocation.parent_runtime_run_id AS "parentRuntimeRunId",
+    invocation.parent_tool_call_id AS "parentToolCallId",
+    invocation.child_runtime_run_id AS "childRuntimeRunId"
+    FROM brainstrike_delegated_invocations invocation
+    JOIN brainstrike_assistant_thread_runs current_leg ON current_leg.id = $4
+      AND current_leg.resource_id = invocation.owner_resource_id
+      AND current_leg.thread_id = invocation.root_thread_id
+      AND current_leg.turn_message_id = invocation.turn_message_id
+    WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+      AND invocation.thread_id = $3`,
+    [memory.resourceId, memory.threadId, executionThreadId, memory.runId]
+  );
+  const identity = z
+    .object({
+      childRuntimeRunId: z.string().min(1),
+      parentRuntimeRunId: z.string().min(1),
+      parentToolCallId: z.string().min(1),
+    })
+    .parse(result.rows.length === 1 ? result.rows[0] : undefined);
+  return {
+    resourceId: node.resourceId,
+    runId: delegatedHostRunId(memory.runId, identity),
+    threadId: node.threadId,
+  };
 }
 
 /**
@@ -151,6 +195,11 @@ export async function recordEditCheckpointForTool(
   }
 
   try {
+    const owner = await checkpointOwner(
+      db,
+      { resourceId, runId, threadId },
+      request.executionThreadId
+    );
     await recordEditCheckpoint(db, {
       afterExisted: request.afterExisted,
       afterHash: request.afterHash,
@@ -158,10 +207,8 @@ export async function recordEditCheckpointForTool(
       beforeHash: request.before.beforeHash,
       beforeSize: request.before.beforeSize,
       captureStatus: request.before.captureStatus,
-      resourceId,
+      ...owner,
       rootId: request.rootId,
-      runId,
-      threadId,
       toolName: request.toolName,
       ...(request.toolCallId ? { toolCallId: request.toolCallId } : {}),
       ...(request.op === 'rename'

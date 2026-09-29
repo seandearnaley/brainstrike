@@ -12,6 +12,7 @@ const resetToolsMock = vi.hoisted(() => vi.fn());
 const createToolsSettingsCategoryMock = vi.hoisted(() => vi.fn());
 const createTokenCountingSettingsCategoryMock = vi.hoisted(() => vi.fn());
 const createHooksSettingsCategoryMock = vi.hoisted(() => vi.fn());
+const createAssistantMemorySettingsCategoryMock = vi.hoisted(() => vi.fn());
 const modelSelectionPageMock = vi.hoisted(() =>
   vi.fn(() => <div data-testid="model-selection-page" />)
 );
@@ -171,6 +172,7 @@ vi.mock('@brainstrike/settings-ui/settings/models/model-runtime-services', () =>
 }));
 
 vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
+  ModelCatalogHeaderActions: vi.fn(() => null),
   ModelSelectionPage: modelSelectionPageMock,
 }));
 
@@ -220,6 +222,12 @@ vi.mock('@brainstrike/settings-ui/settings-category-factories', () => ({
     id: 'appearance',
     title: 'Appearance',
   }),
+  createAssistantMemorySettingsCategory:
+    createAssistantMemorySettingsCategoryMock.mockImplementation(() => ({
+      content: <div data-testid="assistant-memory-category" />,
+      id: 'assistant-memory',
+      title: 'Assistant Memory',
+    })),
   createFactoryResetSettingsCategory: vi.fn((options: unknown) => ({
     content: <div data-options={JSON.stringify(options)} data-testid="factory-reset-category" />,
     id: 'factory-reset',
@@ -716,7 +724,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     );
   });
 
-  it('passes status provider key sources into assistant memory model settings', async () => {
+  it('passes status provider key sources into the Assistant Memory category', async () => {
     getDesktopWindow().assistant = { url: 'http://127.0.0.1:4111' };
     assistantAvailability.current = {
       providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
@@ -729,13 +737,35 @@ describe('desktop SettingsPageContent tool operations', () => {
 
     render(<SettingsPageContent />);
 
-    expect(modelSelectionPageMock).toHaveBeenCalledWith(
-      {
-        assistantMemoryBackendAvailable: true,
-        providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
-      },
-      undefined
+    expect(createAssistantMemorySettingsCategoryMock).toHaveBeenCalledWith({
+      assistantMemoryBackendAvailable: true,
+      providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
+    });
+    // The Model Catalog page no longer carries the memory settings.
+    expect(modelSelectionPageMock).toHaveBeenCalledWith({}, undefined);
+  });
+
+  it('omits provider key sources from Assistant Memory while availability is loading', async () => {
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
     );
+
+    render(<SettingsPageContent />);
+
+    expect(createAssistantMemorySettingsCategoryMock).toHaveBeenLastCalledWith({
+      assistantMemoryBackendAvailable: expect.any(Boolean),
+    });
+  });
+
+  it('lists Assistant Memory right after Model Catalog', async () => {
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+
+    const { getAllByTestId } = render(<SettingsPageContent />);
+
+    const titles = getAllByTestId('settings-category-title').map((node) => node.textContent);
+    expect(titles.indexOf('Assistant Memory')).toBe(titles.indexOf('Model Catalog') + 1);
   });
 
   it('threads the live mounted workspace roots into the Hooks settings category', async () => {
