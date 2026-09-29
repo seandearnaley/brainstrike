@@ -672,7 +672,12 @@ class DefaultDbHostManager implements DbHostManager {
     try {
       await this.send<DbHostInitResult>({ kind: 'init' });
     } catch (error) {
-      this.#terminateHost(error instanceof Error ? error : new Error(String(error)));
+      // Only a timeout can mean a wedged host. Any other rejection is a real initialization
+      // failure the host has already recorded; killing it would discard that record, and the
+      // next `db:diagnostics` would fork a fresh host that reports no failure at all.
+      if (error instanceof DbHostRequestTimeoutError) {
+        this.#terminateHost(error);
+      }
       throw error;
     }
     this.#assertActive();

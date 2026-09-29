@@ -158,6 +158,32 @@ describe('createElectronIpcTransport', () => {
     expect(terminal.purged()).toBe(1);
   });
 
+  it('tells the user an integrity error kept the database from opening and that nothing was replaced', async () => {
+    // The host records the failure and stays alive, so diagnostics carry the real category
+    // instead of the "pgvector extension is required" text a fresh, failure-free host produced.
+    const message = 'index "idx_chunks_bm25" contains unexpected zero page at block 4';
+    installBridge(
+      createBridge({
+        diagnostics: vi.fn(() =>
+          Promise.resolve({
+            lastInitializationFailure: {
+              category: 'corruption',
+              message,
+              stage: 'open-database',
+              timestamp: '2026-09-29T00:00:00.000Z',
+            },
+          })
+        ),
+        query: vi.fn(() => Promise.reject(new Error('Desktop database failed to initialize'))),
+      })
+    );
+    const transport = createElectronIpcTransport({ isEnabled: () => true });
+
+    await expect(transport.open()).rejects.toMatchObject({
+      message: `Desktop database reported an integrity error and could not be opened. BrainStrike did not delete or replace it. Last failure: ${message}`,
+    });
+  });
+
   it('rejects purgeAndClose rather than reporting a purge the renderer cannot perform', async () => {
     // Unreachable through the runtime now that `hardReset()` throws instead of
     // returning false — kept as the assertion that keeps it unreachable.

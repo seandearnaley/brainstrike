@@ -114,7 +114,9 @@ const CONTRACT_LINE_BUDGETS = {
   'local-inference.md': 403,
   'mastra-boundary.md': 402,
   'mcp-conformance.md': 199,
-  'platform-contracts.md': 955,
+  // BST-1870 L1 raised this from 955 (+3): the boot/migration never-reset rule; the L4
+  // change replaces this whole section and re-pins to its exact new count.
+  'platform-contracts.md': 958,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
