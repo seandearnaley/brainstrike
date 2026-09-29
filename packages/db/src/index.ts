@@ -38,6 +38,7 @@ export {
   diagnoseDatabaseIntegrity,
   type IntegrityDiagnosis,
   type IntegrityDiagnosisOptions,
+  IntegrityDiagnosisStoppedError,
   type UncheckedRelation,
 } from './database-integrity-diagnosis.js';
 export {

@@ -20,10 +20,10 @@ import {
   overwriteBytes,
   PAGE,
   PKEY_INDEX,
-  planWalksIndex,
   readError,
   recording,
   registerDiagnosisFixture,
+  statementWalksIndex,
   TOAST_KEY,
   untouched,
   withDatabase,
@@ -87,14 +87,298 @@ describe('damage that reaches past the relation being checked', () => {
   });
 });
 
+describe('a catalog read that fails stops the run, and is never a finding on a user relation', () => {
+  const stopped = (stage: string) =>
+    expect.objectContaining({ name: 'IntegrityDiagnosisStoppedError', stage });
+
+  it.each([
+    ['an index definition', 'pg_get_indexdef(i.indexrelid, 1, true)'],
+    ['the relation list', 'FROM pg_class c'],
+    ['the amcheck lookup', 'FROM pg_extension'],
+  ])('stops, with the catalog stage, when reading %s fails', async (_label, fragment) => {
+    await withDatabase(untouched, async (db) => {
+      await expect(
+        diagnose(failingStatements(db, readError(), (sql) => sql.includes(fragment)))
+      ).rejects.toEqual(stopped('catalog'));
+    });
+  });
+
+  it.each([
+    ['BEGIN', (sql: string) => sql === 'BEGIN'],
+    ['SET LOCAL', (sql: string) => sql.startsWith('SET LOCAL')],
+    ['the count settings', (sql: string) => sql.startsWith('SET enable_indexscan')],
+  ])(
+    'stops, with the session stage, when %s fails, never as a probe finding',
+    async (_label, fails) => {
+      await withDatabase(untouched, async (db) => {
+        const handle = failingStatements(
+          db,
+          readError(),
+          () => false,
+          (sql) => (fails(sql) ? readError() : undefined)
+        );
+        await expect(diagnose(handle)).rejects.toEqual(stopped('session'));
+      });
+    }
+  );
+
+  it('lets a fatal trap through a catalog read unwrapped', async () => {
+    await withDatabase(untouched, async (db) => {
+      const trap = Object.assign(new Error('WebAssembly trap'), { name: 'PGliteFatalTrapError' });
+      await expect(
+        diagnose(failingStatements(db, trap, (sql) => sql.includes('FROM pg_class c')))
+      ).rejects.toBe(trap);
+    });
+  });
+
+  it('carries no raw probe error out of a failed rollback', async () => {
+    await withDatabase(untouched, async (db) => {
+      const echo = Object.assign(new Error('refused topic0 md5'), { code: 'XX001' });
+      const handle = failingStatements(db, echo, HNSW_PROBE, (sql) =>
+        sql === 'ROLLBACK' ? new Error('rollback failed near topic0') : undefined
+      );
+      const error = await diagnose(handle).catch((thrown: unknown) => thrown);
+      expect(error).toEqual(stopped('cleanup'));
+      expect((error as Error).cause).toBeUndefined();
+      expect(String((error as Error).message)).not.toContain('topic');
+    });
+  });
+});
+
+describe('a probe must walk its own index', () => {
+  it('lists an hnsw index the planner does not choose as unchecked, not as clean', async () => {
+    await withDatabase(untouched, async (db) => {
+      // Two identical indexes: the planner uses one of them for the probe's search.
+      await db.exec(`
+        CREATE TABLE zz_dup (emb vector(3));
+        INSERT INTO zz_dup SELECT ('[' || g || ',1,2]')::vector FROM generate_series(1, 30) g;
+        CREATE INDEX zz_dup_a ON zz_dup USING hnsw (emb vector_cosine_ops);
+        CREATE INDEX zz_dup_b ON zz_dup USING hnsw (emb vector_cosine_ops);`);
+      const diagnosis = await diagnose(db);
+      expect(diagnosis.findings).toEqual([]);
+      const notDriven = diagnosis.unchecked.filter(
+        ({ reason }) => reason === 'probe-not-index-driven'
+      );
+      expect(notDriven).toHaveLength(1);
+      expect(['zz_dup_a', 'zz_dup_b']).toContain(notDriven[0]?.relation);
+    });
+  });
+
+  it('lists a bm25 index as unchecked when the plan reads another index and sorts', async () => {
+    await withDatabase(untouched, async (db) => {
+      const plan = [
+        {
+          Plan: {
+            'Node Type': 'Sort',
+            Plans: [
+              {
+                'Index Name': PKEY_INDEX,
+                'Node Type': 'Index Scan',
+                'Order By': '(id)',
+                'Parent Relationship': 'Outer',
+              },
+            ],
+          },
+        },
+      ];
+      const handle = answering(db, (sql) =>
+        sql.startsWith('EXPLAIN (FORMAT JSON)') && sql.includes('to_bm25query')
+          ? [{ 'QUERY PLAN': plan }]
+          : undefined
+      );
+      const diagnosis = await diagnose(handle);
+      expect(diagnosis.findings).toEqual([]);
+      expect(diagnosis.unchecked).toContainEqual(
+        expect.objectContaining({ reason: 'probe-not-index-driven', relation: BM25_INDEX })
+      );
+    });
+  });
+
+  it('probes an index whose name needs quoting: mixed case and a space', async () => {
+    await withDatabase(untouched, async (db) => {
+      // No test can make the qualified form matter more: every probe function needs public on the
+      // search_path anyway. It is adopted as hardening, and the resolution test below pins both forms.
+      await db.exec(`
+        CREATE TABLE zz_named (body text);
+        INSERT INTO zz_named SELECT 'quaternion interpolation ' || g FROM generate_series(1, 5) g;
+        CREATE INDEX "Zz Mixed Bm25" ON zz_named USING bm25 (body) WITH (text_config=english);`);
+      const diagnosis = await diagnose(db);
+      expect(diagnosis.findings).toEqual([]);
+      expect(diagnosis.unchecked.map(({ relation }) => relation)).not.toContain('Zz Mixed Bm25');
+    });
+  });
+
+  it('lists a bm25 index whose name contains a dot as unchecked: no form of the name resolves', async () => {
+    await withDatabase(untouched, async (db) => {
+      await db.exec(`
+        CREATE TABLE zz_dotted (body text);
+        INSERT INTO zz_dotted SELECT 'quaternion interpolation ' || g FROM generate_series(1, 5) g;
+        CREATE INDEX "Zz.Dotted" ON zz_dotted USING bm25 (body) WITH (text_config=english);`);
+      const diagnosis = await diagnose(db);
+      expect(diagnosis.findings).toEqual([]);
+      expect(diagnosis.unchecked).toContainEqual(
+        expect.objectContaining({ reason: 'unsupported-index-definition', relation: 'Zz.Dotted' })
+      );
+    });
+  });
+
+  it('pins how pg_textsearch resolves the index name: an unqualified name is exact, a qualified one is SQL syntax, a dotted one has no form', async () => {
+    await withDatabase(untouched, async (db) => {
+      await db.exec(`
+        CREATE TABLE zz_resolve (body text);
+        INSERT INTO zz_resolve VALUES ('quaternion interpolation');
+        CREATE INDEX "Zz Pin" ON zz_resolve USING bm25 (body) WITH (text_config=english);
+        CREATE INDEX "Zz.Pin" ON zz_resolve USING bm25 (body) WITH (text_config=english);`);
+      const search = async (name: string) => {
+        await db.exec('BEGIN; SET LOCAL enable_seqscan = off');
+        try {
+          return await db.query(
+            `SELECT 1 FROM zz_resolve ORDER BY body <@> to_bm25query('quaternion', '${name}') LIMIT 1`
+          );
+        } finally {
+          await db.exec('ROLLBACK');
+        }
+      };
+      expect((await search('Zz Pin')).rows).toHaveLength(1);
+      expect((await search('"public"."Zz Pin"')).rows).toHaveLength(1);
+      await expect(search('"Zz Pin"')).rejects.toMatchObject({ code: '42704' });
+      await expect(search('Zz.Pin')).rejects.toMatchObject({ code: '42704' });
+      await expect(search('"public"."Zz.Pin"')).rejects.toThrow(/not found/u);
+    });
+  });
+});
+
+describe('the bm25 write probe blames no other index', () => {
+  it.each([
+    [
+      'an index with no check for its access method',
+      'CREATE INDEX zz_w_brin ON zz_w USING brin (n);',
+    ],
+    [
+      'an hnsw index with no row it covers',
+      'CREATE INDEX zz_w_hnsw ON zz_w USING hnsw (emb vector_cosine_ops);',
+    ],
+    [
+      'an index marked invalid but still written',
+      `CREATE INDEX zz_w_btree ON zz_w (n);
+       UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'zz_w_btree'::regclass;`,
+    ],
+  ])('skips the write, listing the bm25 index as unchecked, for %s', async (_label, other) => {
+    await withDatabase(untouched, async (db) => {
+      await db.exec(`
+        CREATE TABLE zz_w (n int, body text, emb vector(3));
+        INSERT INTO zz_w SELECT g, 'quaternion interpolation ' || g, NULL FROM generate_series(1, 5) g;
+        CREATE INDEX zz_w_bm25 ON zz_w USING bm25 (body) WITH (text_config=english);
+        ${other}`);
+      const { handle, statements } = recording(db);
+      const diagnosis = await diagnose(handle);
+      expect(diagnosis.unchecked).toContainEqual(
+        expect.objectContaining({ reason: 'table-has-unverified-indexes', relation: 'zz_w_bm25' })
+      );
+      expect(diagnosis.findings.filter(({ check }) => check === 'bm25-probe')).toEqual([]);
+      expect(statements.some(({ sql }) => sql.startsWith('UPDATE "public"."zz_w"'))).toBe(false);
+    });
+  });
+});
+
+describe('a probe write the table rejects is not damage', () => {
+  it('still reports a write that fails with no SQLSTATE, as a finding with no state', async () => {
+    await withDatabase(untouched, async (db) => {
+      const handle = failingStatements(db, new Error('no code'), (sql) =>
+        sql.startsWith('UPDATE "public"."file_chunks"')
+      );
+      const diagnosis = await diagnose(handle);
+      expect(diagnosis.findings).toEqual([
+        expect.objectContaining({ check: 'bm25-probe', relation: BM25_INDEX, sqlstate: null }),
+      ]);
+    });
+  });
+
+  it.each([
+    ['a CHECK constraint', `CHECK (body NOT LIKE '% ')`],
+    ['a domain constraint', ''],
+    ['a constraint raising a class 22 error', 'CHECK (zz_short(body))'],
+  ])('lists the index as unchecked when %s rejects the write', async (label, check) => {
+    await withDatabase(untouched, async (db) => {
+      await db.exec(`
+        CREATE FUNCTION zz_short(v text) RETURNS boolean LANGUAGE plpgsql AS
+          $$ BEGIN IF v LIKE '% ' THEN RAISE EXCEPTION 'too long' USING ERRCODE = '22001'; END IF; RETURN true; END $$;
+        CREATE DOMAIN zz_dom AS text CHECK (VALUE NOT LIKE '% ');
+        CREATE TABLE zz_rej (body ${label === 'a domain constraint' ? 'zz_dom' : 'text'} ${check});
+        INSERT INTO zz_rej VALUES ('quaternion interpolation');
+        CREATE INDEX zz_rej_bm25 ON zz_rej USING bm25 (body) WITH (text_config=english);`);
+      const diagnosis = await diagnose(db);
+      expect(diagnosis.findings).toEqual([]);
+      expect(diagnosis.unchecked).toContainEqual(
+        expect.objectContaining({ reason: 'probe-write-rejected', relation: 'zz_rej_bm25' })
+      );
+    });
+  });
+
+  it('checks a varchar(n) column at its limit: the appended space is truncated, not rejected', async () => {
+    await withDatabase(untouched, async (db) => {
+      await db.exec(`
+        CREATE TABLE zz_vc (body varchar(12));
+        INSERT INTO zz_vc VALUES ('quaternion i');
+        CREATE INDEX zz_vc_bm25 ON zz_vc USING bm25 (body) WITH (text_config=english);`);
+      const diagnosis = await diagnose(db);
+      expect(diagnosis.findings).toEqual([]);
+      expect(diagnosis.unchecked.map(({ relation }) => relation)).not.toContain('zz_vc_bm25');
+    });
+  });
+});
+
+describe('an unpopulated materialized view with probed indexes', () => {
+  it('lists its hnsw and bm25 indexes as unchecked instead of reporting a false finding', async () => {
+    await withDatabase(untouched, async (db) => {
+      await db.exec(`
+        CREATE MATERIALIZED VIEW zz_mv AS SELECT 'text'::text AS body, '[1,2,3]'::vector(3) AS emb WITH NO DATA;
+        CREATE INDEX zz_mv_bm25 ON zz_mv USING bm25 (body) WITH (text_config=english);
+        CREATE INDEX zz_mv_hnsw ON zz_mv USING hnsw (emb vector_cosine_ops);`);
+      const diagnosis = await diagnose(db);
+      expect(diagnosis.findings).toEqual([]);
+      for (const relation of ['zz_mv_bm25', 'zz_mv_hnsw']) {
+        expect(diagnosis.unchecked, relation).toContainEqual(
+          expect.objectContaining({ reason: 'unpopulated-materialized-view', relation })
+        );
+      }
+    });
+  });
+});
+
+describe('what a finding says about a table outside public', () => {
+  it('never classifies it through the public registry by its bare name', async () => {
+    await withDatabase(untouched, async (db) => {
+      // A registered table's name, in another schema, with a TOAST relation listed from pg_toast.
+      await db.exec(`
+        CREATE SCHEMA zz_other;
+        CREATE TABLE zz_other.file_chunks (body text);
+        INSERT INTO zz_other.file_chunks SELECT string_agg(md5(random()::text || k::text), '')
+          FROM generate_series(1, 400) k;`);
+      const { rows } = await db.query<{ oid: string }>(
+        `SELECT reltoastrelid::text AS oid FROM pg_class WHERE oid = 'zz_other.file_chunks'::regclass`
+      );
+      const toastOid = rows[0]?.oid;
+      const diagnosis = await diagnose(
+        answering(db, (sql, params) =>
+          sql.includes('verify_heapam') && String(params?.[0]) === toastOid
+            ? [{ blkno: '0', msg: 'damaged', offnum: 1 }]
+            : undefined
+        )
+      );
+      expect(diagnosis.findings).toEqual([
+        expect.objectContaining({
+          check: 'heap',
+          durability: 'unclassified',
+          table: 'file_chunks',
+        }),
+      ]);
+    });
+  });
+});
+
 describe('a probe whose setup reads fail', () => {
   it.each([
-    // Two hnsw indexes fail; the bm25 index is then skipped, as its table already has findings.
-    [
-      'its index definition',
-      'pg_get_indexdef(i.indexrelid, 1, true)',
-      ['hnsw-probe', 'hnsw-probe'],
-    ],
     ['its bm25 sample', 'left(', ['bm25-probe']],
     [
       'its hnsw population check',
@@ -252,12 +536,13 @@ describe('bm25 probes on a partial index, and on a table with triggers', () => {
       // The first rows lie outside the predicate: a sample taken from them is not in the index.
       expect(diagnosis.findings).toEqual([]);
       const search = statements.find(
-        ({ sql }) => sql.includes('to_bm25query') && sql.includes('zz_part_bm25')
+        ({ sql }) =>
+          sql.includes('to_bm25query') && sql.includes('zz_part_bm25') && !sql.startsWith('EXPLAIN')
       );
       if (!search) {
         throw new Error('the diagnosis issued no bm25 probe for the partial index');
       }
-      expect(await planWalksIndex(db, search, 'zz_part_bm25')).toBe(true);
+      expect(await statementWalksIndex(db, search, 'zz_part_bm25')).toBe(true);
     });
   });
 

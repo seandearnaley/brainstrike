@@ -22,11 +22,11 @@ import {
   PAGE,
   PKEY_INDEX,
   PROBE_ROWS,
-  planWalksIndex,
   recording,
   registerDiagnosisFixture,
   SEQUENCE,
   SEQUENCE_OWNER,
+  statementWalksIndex,
   TOASTED_CHUNKS,
   UNCLASSIFIED_TABLE,
   untouched,
@@ -109,8 +109,13 @@ describe('a healthy migrated database', () => {
       const { handle, statements } = recording(db);
       await diagnose(handle);
 
-      const bm25Search = statements.find(({ sql }) => sql.includes('to_bm25query'));
-      const hnswSearch = statements.find(({ sql }) => HNSW_PROBE(sql));
+      // The probes plan their own searches (EXPLAIN); the tests plan the searches themselves.
+      const bm25Search = statements.find(
+        ({ sql }) => sql.includes('to_bm25query') && !sql.startsWith('EXPLAIN')
+      );
+      const hnswSearch = statements.find(
+        ({ sql }) => HNSW_PROBE(sql) && !sql.startsWith('EXPLAIN')
+      );
       if (!(bm25Search && hnswSearch)) {
         throw new Error('the diagnosis issued no bm25 or hnsw probe');
       }
@@ -118,7 +123,7 @@ describe('a healthy migrated database', () => {
         [bm25Search, BM25_INDEX],
         [hnswSearch, HNSW_INDEX],
       ] as const) {
-        expect(await planWalksIndex(db, statement, index), index).toBe(true);
+        expect(await statementWalksIndex(db, statement, index), index).toBe(true);
         await db.exec('BEGIN; SET LOCAL enable_seqscan = off');
         try {
           const result = await db.query(statement.sql, statement.params as unknown[] | undefined);
@@ -347,6 +352,12 @@ describe('sequences', () => {
         expect(diagnosis.findings.map((finding) => classifyFindingSeverity(finding))).toEqual([
           'blocking',
         ]);
+        // heapallindexed never reads a sequence: the owner's indexes are still verified.
+        expect(
+          diagnosis.unchecked.filter(
+            ({ reason, table }) => reason === 'table-has-findings' && table === SEQUENCE_OWNER
+          )
+        ).toEqual([]);
       }
     );
   });

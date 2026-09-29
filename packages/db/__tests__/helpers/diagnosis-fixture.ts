@@ -15,6 +15,7 @@ import {
   diagnoseDatabaseIntegrity,
   type IntegrityDiagnosis,
   type IntegrityDiagnosisOptions,
+  planWalksIndex,
 } from '../../src/database-integrity-diagnosis.js';
 import { createVerificationPglite } from '../../src/pglite-verification-factory.js';
 import { findTableDurability } from '../../src/table-durability-registry.js';
@@ -196,42 +197,20 @@ export function recording(db: PGlite): { handle: CrashSensitiveIndexDb; statemen
   };
 }
 
-export interface PlanNode {
-  'Index Name'?: string;
-  'Node Type': string;
-  'Order By'?: string;
-  'Parent Relationship'?: string;
-  Plans?: PlanNode[];
-}
-
-/** An ordered index scan on `index` that is not inside an InitPlan or SubPlan: the search walks it. */
-export function walksIndex(node: PlanNode, index: string, nested = false): boolean {
-  const inSubplan =
-    nested ||
-    node['Parent Relationship'] === 'InitPlan' ||
-    node['Parent Relationship'] === 'SubPlan';
-  const walks =
-    !inSubplan &&
-    node['Node Type'].includes('Index') &&
-    node['Index Name'] === index &&
-    node['Order By'] !== undefined;
-  return walks || (node.Plans ?? []).some((child) => walksIndex(child, index, inSubplan));
-}
-
 /** Plans `statement` the way the probe runs it (sequential scans off) and reports whether it walks `index`. */
-export async function planWalksIndex(
+export async function statementWalksIndex(
   db: PGlite,
   statement: Statement,
   index: string
 ): Promise<boolean> {
   await db.exec('BEGIN; SET LOCAL enable_seqscan = off');
   try {
-    const { rows } = await db.query<{ 'QUERY PLAN': { Plan: PlanNode }[] }>(
+    const { rows } = await db.query<{ 'QUERY PLAN': { Plan: unknown }[] }>(
       `EXPLAIN (FORMAT JSON) ${statement.sql}`,
       statement.params as unknown[] | undefined
     );
-    const plan = rows[0]?.['QUERY PLAN'][0]?.Plan;
-    return plan !== undefined && walksIndex(plan, index);
+    // The production walker: the tests and the probes share one implementation.
+    return planWalksIndex(rows[0]?.['QUERY PLAN'][0]?.Plan, index);
   } finally {
     await db.exec('ROLLBACK');
   }

@@ -40,12 +40,30 @@
  * write probe so read-side damage is named correctly; a failure only the write
  * path reaches is still attributed to the bm25 index, the one being probed.
  *
+ * A probe must prove it walked its index: it plans its own search (`EXPLAIN (FORMAT JSON)`, inside
+ * the same transaction) and counts the index as checked only when the main plan tree has an
+ * ordered index scan on exactly that index. `enable_seqscan = off` only makes a sequential scan
+ * expensive; the planner can still read another index and sort, and then the search would return a
+ * row while the named index was never touched. Such an index is `unchecked`
+ * (`probe-not-index-driven`). The bm25 write also inserts into every other index of the table that
+ * is ready for writes, so it runs only when each of them was verified, and a write the table
+ * rejects (a CHECK or domain constraint, a class 22 or 23 SQLSTATE) is not damage: both are
+ * `unchecked`.
+ *
+ * Stopping versus findings. A finding names a relation, so it is only ever made where the failing
+ * statement is about that relation. A failure that cannot be attributed stops the run with an
+ * {@link IntegrityDiagnosisStoppedError} instead, and the caller reports the snapshot as
+ * unverifiable or `open`: reading the extension list, the relation list or an index definition
+ * (stage `catalog`), and starting a probe transaction or changing a session setting (stage
+ * `session`). A failing BEGIN is never a probe finding. A probe transaction that cannot be rolled
+ * back stops it too (stage `cleanup`), with no raw cause: probe errors can echo row content.
+ *
  * The diagnosis is sequential on purpose: one statement per relation on a single
  * connection, and a fatal WebAssembly trap must stop it at the relation that
  * caused it.
  */
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
-import { Schema } from 'effect';
+import { Predicate, Schema } from 'effect';
 import type { CrashSensitiveIndexDb } from './crash-sensitive-indexes.js';
 import {
   classifyFindingSeverity,
@@ -69,7 +87,10 @@ export interface UncheckedRelation {
   readonly accessMethod: string | null;
   readonly reason:
     | 'no-indexed-rows'
+    | 'probe-not-index-driven'
+    | 'probe-write-rejected'
     | 'table-has-findings'
+    | 'table-has-unverified-indexes'
     | 'unpopulated-materialized-view'
     | 'unsupported-access-method'
     | 'unsupported-index-definition';
@@ -110,13 +131,16 @@ const relationRows = makeThrowingDecoder(
     Schema.Struct({
       accessMethod: Schema.NullOr(Schema.String),
       hasToast: Schema.Boolean,
+      heapOid: Schema.String,
       kind: Schema.Literals(['r', 'm', 't', 'i', 'S']),
       oid: Schema.String,
       populated: Schema.Boolean,
+      ready: Schema.Boolean,
       relation: Schema.String,
       schema: Schema.String,
       table: Schema.String,
       tableOid: Schema.String,
+      tablePopulated: Schema.Boolean,
       tableSchema: Schema.String,
       usable: Schema.Boolean,
     })
@@ -147,6 +171,44 @@ const heapProblemRows = makeThrowingDecoder(
     })
   )
 );
+const planRows = makeThrowingDecoder(
+  Schema.Array(
+    Schema.Struct({ 'QUERY PLAN': Schema.Array(Schema.Struct({ Plan: Schema.Unknown })) })
+  )
+);
+
+const INDEX_SCAN_NODES: ReadonlySet<string> = new Set([
+  'Bitmap Index Scan',
+  'Index Only Scan',
+  'Index Scan',
+]);
+
+/**
+ * Whether a plan node (the `Plan` of `EXPLAIN (FORMAT JSON)`) walks `indexName`: an index scan on
+ * exactly that index that has an `Order By`, in the MAIN tree. Anything under an InitPlan or a
+ * SubPlan is skipped: a probe's sample subquery is not the search.
+ */
+export function planWalksIndex(node: unknown, indexName: string): boolean {
+  if (!Predicate.isObject(node)) {
+    return false;
+  }
+  const parent = node['Parent Relationship'];
+  if (parent === 'InitPlan' || parent === 'SubPlan') {
+    return false;
+  }
+  const type = node['Node Type'];
+  if (
+    typeof type === 'string' &&
+    INDEX_SCAN_NODES.has(type) &&
+    node['Index Name'] === indexName &&
+    typeof node['Order By'] === 'string'
+  ) {
+    return true;
+  }
+  const children = node['Plans'];
+  return Array.isArray(children) && children.some((child) => planWalksIndex(child, indexName));
+}
+
 const countRows = makeThrowingDecoder(Schema.Array(Schema.Struct({ rows: Schema.Int })));
 const flagRows = makeThrowingDecoder(Schema.Array(Schema.Struct({ present: Schema.Boolean })));
 const sampleRows = makeThrowingDecoder(Schema.Array(Schema.Struct({ sample: Schema.String })));
@@ -171,6 +233,8 @@ const RELATIONS_SQL = `
          c.relkind::text AS "kind", am.amname::text AS "accessMethod",
          (c.reltoastrelid <> 0) AS "hasToast", c.relispopulated AS "populated",
          COALESCE(i.indisvalid AND i.indisready, true) AS "usable",
+         COALESCE(i.indisready, true) AS "ready", base.oid::text AS "heapOid",
+         base.relispopulated AS "tablePopulated",
          owner.oid::text AS "tableOid", owner.relname::text AS "table",
          owner_ns.nspname::text AS "tableSchema"
   FROM pg_class c
@@ -230,11 +294,38 @@ function isFatalTrap(error: unknown): boolean {
 /** Probe errors can echo row content (the write path, the tokenizer), so their findings keep only the SQLSTATE. */
 const PROBE_CHECKS: ReadonlySet<IntegrityCheck> = new Set(['bm25-probe', 'hnsw-probe']);
 
-/** A probe transaction that would not roll back leaves the connection in an unknown state: the diagnosis stops. */
-class ProbeCleanupError extends Error {
-  constructor(cause: unknown) {
-    super('A probe transaction could not be rolled back, so the diagnosis stopped.', { cause });
-    this.name = 'ProbeCleanupError';
+/**
+ * The diagnosis cannot go on, and no relation can be blamed: `catalog` (a catalog read failed),
+ * `session` (a transaction or setting statement failed) or `cleanup` (a probe transaction would
+ * not roll back, which leaves the connection in an unknown state). The caller reports the snapshot
+ * as unverifiable. A `cleanup` error carries no `cause`: it would be the raw probe error, which can
+ * echo row content; the other stages are catalog or session statements, which cannot.
+ */
+export class IntegrityDiagnosisStoppedError extends Error {
+  readonly sqlstate: string | null;
+  readonly stage: 'catalog' | 'cleanup' | 'session';
+
+  constructor(stage: 'catalog' | 'cleanup' | 'session', what: string, cause?: unknown) {
+    super(`${what}, so the diagnosis stopped.`, stage === 'cleanup' ? undefined : { cause });
+    this.name = 'IntegrityDiagnosisStoppedError';
+    this.sqlstate = sqlstateOf(cause);
+    this.stage = stage;
+  }
+}
+
+/** Runs a statement whose failure cannot be blamed on a relation: a trap passes through, anything else stops the run. */
+async function orStop<T>(
+  stage: 'catalog' | 'session',
+  what: string,
+  run: () => Promise<T>
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (isFatalTrap(error)) {
+      throw error;
+    }
+    throw new IntegrityDiagnosisStoppedError(stage, what, error);
   }
 }
 
@@ -251,7 +342,10 @@ class DiagnosisRun {
   readonly #classify: IntegrityDiagnosisOptions['classify'];
   readonly #relations: readonly RelationRow[];
   readonly #tablesWithFindings = new Set<string>();
-  readonly #tablesWithHeapFindings = new Set<string>();
+  /** Heaps (a table, a TOAST table) with a heap finding: what `heapallindexed` reads, by heap oid. */
+  readonly #damagedHeaps = new Set<string>();
+  /** Indexes that ran to a verdict; the bm25 write is only safe when every other written index did. */
+  readonly #verifiedIndexes = new Set<string>();
 
   constructor(
     db: CrashSensitiveIndexDb,
@@ -298,20 +392,22 @@ class DiagnosisRun {
       }
       switch (index.accessMethod) {
         case 'btree':
-          if (this.#tablesWithHeapFindings.has(index.tableOid)) {
-            // heapallindexed reads the table's heap: a damaged heap would be blamed on every index.
+          if (this.#damagedHeaps.has(index.heapOid)) {
+            // heapallindexed reads the heap this index is on: a damaged heap would be blamed on every index.
             this.#skip(index, 'table-has-findings');
           } else {
             // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential by design: one amcheck statement per index on the single connection, attributed to that index; a fatal trap must stop here.
             await this.#attempt(index, 'btree', () =>
               this.#db.query('SELECT bt_index_check($1::oid::regclass, true)', [index.oid])
             );
+            this.#verifiedIndexes.add(index.oid);
           }
           break;
         case 'gin':
           await this.#attempt(index, 'gin', () =>
             this.#db.query('SELECT gin_index_check($1::oid::regclass)', [index.oid])
           );
+          this.#verifiedIndexes.add(index.oid);
           break;
         case 'bm25':
         case 'hnsw':
@@ -332,8 +428,10 @@ class DiagnosisRun {
 
   /** One `count(*)` per public table, with index scans off so the count reads the heap. */
   async countTables(): Promise<DiagnosedTable[]> {
-    await this.#db.exec(
-      'SET enable_indexscan = off; SET enable_indexonlyscan = off; SET enable_bitmapscan = off'
+    await orStop('session', 'Changing the count settings failed', () =>
+      this.#db.exec(
+        'SET enable_indexscan = off; SET enable_indexonlyscan = off; SET enable_bitmapscan = off'
+      )
     );
     let tables: DiagnosedTable[];
     try {
@@ -397,33 +495,73 @@ class DiagnosisRun {
   }
 
   async #probe(index: RelationRow): Promise<void> {
+    if (!index.tablePopulated) {
+      // Every read of an unpopulated materialized view fails; that is not damage to its index.
+      this.#skip(index, 'unpopulated-materialized-view');
+      return;
+    }
     // A probe walks the table's heap and, for a write, every index on it. Its error could
     // belong to any of them, so it runs only when the table's own checks found nothing.
     if (this.#tablesWithFindings.has(index.tableOid)) {
       this.#skip(index, 'table-has-findings');
       return;
     }
-    const check = index.accessMethod === 'bm25' ? 'bm25-probe' : 'hnsw-probe';
-    // Every read the probe needs is inside the attempt: a value that cannot be read (a TOAST
-    // pointer that passed amcheck, say) is a finding on this index, not the end of the diagnosis.
-    await this.#attempt(index, check, async () => {
-      const [definition] = indexDefinitionRows(
-        (await this.#db.query(INDEX_DEFINITION_SQL, [index.oid])).rows
-      );
-      if (definition?.keyColumns !== 1) {
-        return this.#notChecked(index, 'unsupported-index-definition');
-      }
-      return index.accessMethod === 'bm25'
-        ? this.#probeBm25(index, definition)
-        : this.#probeHnsw(index, definition);
-    });
+    // The definition is a catalog read: its own step, outside the attempt, so a failure stops the
+    // run instead of becoming a finding on this user index.
+    const [definition] = indexDefinitionRows(
+      (
+        await orStop('catalog', 'Reading an index definition failed', () =>
+          this.#db.query(INDEX_DEFINITION_SQL, [index.oid])
+        )
+      ).rows
+    );
+    if (definition?.keyColumns !== 1) {
+      this.#skip(index, 'unsupported-index-definition');
+      return;
+    }
+    // Every read of the user's table the probe needs is inside the attempt: a value that cannot
+    // be read (a TOAST pointer that passed amcheck, say) is a finding on this index.
+    const result = await this.#attempt(
+      index,
+      index.accessMethod === 'bm25' ? 'bm25-probe' : 'hnsw-probe',
+      () =>
+        index.accessMethod === 'bm25'
+          ? this.#probeBm25(index, definition)
+          : this.#probeHnsw(index, definition)
+    );
+    if (result !== NOT_CHECKED) {
+      this.#verifiedIndexes.add(index.oid);
+    }
+  }
+
+  /** Whether `search`, planned inside the open probe transaction, walks `index` itself. */
+  async #walksIndex(index: RelationRow, search: string, params?: unknown[]): Promise<boolean> {
+    const [row] = planRows((await this.#db.query(`EXPLAIN (FORMAT JSON) ${search}`, params)).rows);
+    return planWalksIndex(row?.['QUERY PLAN'][0]?.Plan, index.relation);
+  }
+
+  /** Every other index on the table that a write reaches and no check verified. */
+  #unverifiedWrittenIndexes(index: RelationRow): readonly RelationRow[] {
+    return this.#relations.filter(
+      (other) =>
+        other.kind === 'i' &&
+        other.ready &&
+        other.tableOid === index.tableOid &&
+        other.oid !== index.oid &&
+        !this.#verifiedIndexes.has(other.oid)
+    );
   }
 
   /** Searches with text taken from the table, then rewrites one row through the index; both roll back. */
   async #probeBm25(index: RelationRow, definition: IndexDefinition): Promise<Verdict<void>> {
     // An expression key has no column to sample, and bm25 requires a text_config; without both the
     // probe cannot be built.
-    if (definition.column === null || definition.textConfig === null) {
+    // Nor can pg_textsearch resolve an index name that contains a dot, in any form (pinned by a test).
+    if (
+      definition.column === null ||
+      definition.textConfig === null ||
+      index.relation.includes('.')
+    ) {
       return this.#notChecked(index, 'unsupported-index-definition');
     }
     const table = qualified(index.tableSchema, index.table);
@@ -446,21 +584,37 @@ class DiagnosisRun {
     if (!sample) {
       return this.#notChecked(index, 'no-indexed-rows');
     }
-    await this.#inRolledBackTransaction(async () => {
-      const found = await this.#db.query(
-        `SELECT 1 FROM ${table}${definition.predicate ? ` WHERE (${definition.predicate})` : ''} ORDER BY ${column} <@> to_bm25query($1, ${quoteLiteral(index.relation)}) LIMIT 1`,
-        [sample.sample]
-      );
+    // qualified: the argument is SQL name syntax when it has a dot, and an exact name otherwise
+    // (pinned by a test), so this form does not depend on the search_path or the letter case.
+    const search = `SELECT 1 FROM ${table}${definition.predicate ? ` WHERE (${definition.predicate})` : ''} ORDER BY ${column} <@> to_bm25query($1, ${quoteLiteral(qualified(index.schema, index.relation))}) LIMIT 1`;
+    return this.#inRolledBackTransaction(async (): Promise<Verdict<void>> => {
+      if (!(await this.#walksIndex(index, search, [sample.sample]))) {
+        return this.#notChecked(index, 'probe-not-index-driven');
+      }
+      const found = await this.#db.query(search, [sample.sample]);
       if (found.rows.length === 0) {
         this.#record(index, 'bm25-probe', { message: BM25_LOST_ENTRIES, sqlstate: null });
-        return;
+        return undefined;
       }
-      // A non-HOT update: the access method's insert path runs, then the write rolls back.
-      await this.#db.query(
-        `UPDATE ${table} SET ${column} = ${column} || ' ' WHERE ctid = (SELECT ctid FROM ${table} WHERE ${column} IS NOT NULL${inIndex} LIMIT 1)`
-      );
+      // The write inserts into every other index that is ready for writes: with one of them
+      // unverified, a failure could not be blamed on this index.
+      if (this.#unverifiedWrittenIndexes(index).length > 0) {
+        return this.#notChecked(index, 'table-has-unverified-indexes');
+      }
+      try {
+        // A non-HOT update: the access method's insert path runs, then the write rolls back.
+        await this.#db.query(
+          `UPDATE ${table} SET ${column} = ${column} || ' ' WHERE ctid = (SELECT ctid FROM ${table} WHERE ${column} IS NOT NULL${inIndex} LIMIT 1)`
+        );
+      } catch (error) {
+        // A CHECK, a domain or a length rejects the write (class 22 or 23): the table's rule, not damage.
+        if (/^2[23]/u.test(sqlstateOf(error) ?? '')) {
+          return this.#notChecked(index, 'probe-write-rejected');
+        }
+        throw error;
+      }
+      return undefined;
     });
-    return undefined;
   }
 
   /** Orders the table by distance to one of its own vectors, forced through the index. */
@@ -483,15 +637,17 @@ class DiagnosisRun {
     if (!populated?.present) {
       return this.#notChecked(index, 'no-indexed-rows');
     }
-    await this.#inRolledBackTransaction(async () => {
-      const found = await this.#db.query(
-        `SELECT 1 FROM ${table}${indexed} ORDER BY ${key} ${operator} (SELECT ${key} FROM ${table}${covered} LIMIT 1) LIMIT 1`
-      );
+    const search = `SELECT 1 FROM ${table}${indexed} ORDER BY ${key} ${operator} (SELECT ${key} FROM ${table}${covered} LIMIT 1) LIMIT 1`;
+    return this.#inRolledBackTransaction(async (): Promise<Verdict<void>> => {
+      if (!(await this.#walksIndex(index, search))) {
+        return this.#notChecked(index, 'probe-not-index-driven');
+      }
+      const found = await this.#db.query(search);
       if (found.rows.length === 0) {
         this.#record(index, 'hnsw-probe', { message: HNSW_LOST_ENTRIES, sqlstate: null });
       }
+      return undefined;
     });
-    return undefined;
   }
 
   /**
@@ -499,30 +655,38 @@ class DiagnosisRun {
    * names. A trap skips the rollback (the instance is dead) and is rethrown; any other failure
    * is rethrown after a rollback that must itself succeed.
    */
-  async #inRolledBackTransaction(run: () => Promise<void>): Promise<void> {
-    await this.#db.exec('BEGIN');
-    let failure: { error: unknown } | undefined;
+  async #inRolledBackTransaction<T>(run: () => Promise<T>): Promise<T> {
+    await orStop('session', 'Starting a probe transaction failed', () => this.#db.exec('BEGIN'));
+    let outcome: { error: unknown } | { value: T };
     try {
       // replica: the probe write does not fire user triggers or foreign-key checks, which would
       // run application code against a copy; a trigger marked ENABLE ALWAYS still fires.
-      await this.#db.exec(
-        'SET LOCAL enable_seqscan = off; SET LOCAL session_replication_role = replica'
+      await orStop('session', 'Changing the probe transaction settings failed', () =>
+        this.#db.exec(
+          'SET LOCAL enable_seqscan = off; SET LOCAL session_replication_role = replica'
+        )
       );
-      await run();
+      outcome = { value: await run() };
     } catch (error) {
-      failure = { error };
+      outcome = { error };
     }
-    if (failure && isFatalTrap(failure.error)) {
-      throw failure.error;
+    if ('error' in outcome && isFatalTrap(outcome.error)) {
+      throw outcome.error;
     }
     try {
       await this.#db.exec('ROLLBACK');
     } catch (error) {
-      throw isFatalTrap(error) ? error : new ProbeCleanupError(error);
+      throw isFatalTrap(error)
+        ? error
+        : new IntegrityDiagnosisStoppedError(
+            'cleanup',
+            'A probe transaction could not be rolled back'
+          );
     }
-    if (failure) {
-      throw failure.error;
+    if ('error' in outcome) {
+      throw outcome.error;
     }
+    return outcome.value;
   }
 
   /**
@@ -540,7 +704,7 @@ class DiagnosisRun {
       this.#countChecked(check, result);
       return result;
     } catch (error) {
-      if (isFatalTrap(error) || error instanceof ProbeCleanupError) {
+      if (isFatalTrap(error) || error instanceof IntegrityDiagnosisStoppedError) {
         throw error;
       }
       this.#record(relation, check, {
@@ -570,8 +734,9 @@ class DiagnosisRun {
       // A catalog marking is not a failed read, so it never gates another check on the table.
       this.#tablesWithFindings.add(relation.tableOid);
     }
-    if (check === 'heap') {
-      this.#tablesWithHeapFindings.add(relation.tableOid);
+    if (check === 'heap' && relation.kind !== 'S') {
+      // heapallindexed reads a table or a TOAST table, never a sequence.
+      this.#damagedHeaps.add(relation.oid);
     }
     this.findings.push({
       accessMethod: relation.accessMethod,
@@ -603,8 +768,11 @@ class DiagnosisRun {
     if (relation.tableSchema === 'pg_catalog') {
       return 'catalog';
     }
-    // RELATIONS_SQL reaches only public and pg_catalog owners (TOAST relations report theirs).
-    return this.#classify(relation.table) ?? 'unclassified';
+    // Only public tables are in the registry: a table of the same name in another schema is not
+    // that table. RELATIONS_SQL lists TOAST relations from pg_toast whatever schema owns their table.
+    return relation.tableSchema === 'public'
+      ? (this.#classify(relation.table) ?? 'unclassified')
+      : 'unclassified';
   }
 }
 
@@ -623,7 +791,9 @@ export async function diagnoseDatabaseIntegrity(
   const run = new DiagnosisRun(
     db,
     options.classify,
-    relationRows((await db.query(RELATIONS_SQL)).rows)
+    relationRows(
+      (await orStop('catalog', 'Listing the relations failed', () => db.query(RELATIONS_SQL))).rows
+    )
   );
   // Heaps first: every later check is gated on its table having no finding yet.
   await run.checkHeaps();
@@ -648,8 +818,10 @@ export async function diagnoseDatabaseIntegrity(
 async function assertAmcheckInstalled(db: CrashSensitiveIndexDb): Promise<void> {
   const [installed] = flagRows(
     (
-      await db.query(
-        `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'amcheck') AS "present"`
+      await orStop('catalog', 'Reading the installed extensions failed', () =>
+        db.query(
+          `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'amcheck') AS "present"`
+        )
       )
     ).rows
   );
