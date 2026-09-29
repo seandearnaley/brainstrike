@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/ui';
 import { AccountMenu } from './account-menu';
 import { AppReloadStrip } from './app-reload/app-reload-strip';
+import { DatabaseIntegrityNotice } from './database-integrity/database-integrity-notice';
 import { useModelMigrationNotices } from './hooks/use-model-migration-notices';
 import { DatabaseStatusItem } from './status-items/database-status-item';
 import { DiagnosticsStatusItem } from './status-items/diagnostics-status-item';
@@ -47,6 +48,9 @@ export function AppLayout({
               {/* Persistent app-reload strip (failed lazy chunk, reload pending). It sits
                   in the column, so the content below shrinks by its height. */}
               <AppReloadStrip />
+              {/* Persistent database integrity notice (containment paused background work).
+                  Renders nothing without the desktop integrity capability. */}
+              <DatabaseIntegrityNotice />
               {/* Main content area */}
               <div className="flex min-h-0 flex-1">
                 <NavigationSidebar
