@@ -11,10 +11,11 @@ contract holds the rules; this file is the record of why.
 `ubicloud-standard-4`. (Corrected: the original named a single `desktop-e2e`
 job; that id is now the `ubuntu-slim` fan-in over the two Ubicloud jobs.) That runner preserves the
 4-vCPU/16-GB class used for the x64 work while moving the measured, dominant
-Linux x64 lanes to the connected Ubicloud runner fleet. PR Coverage, React
-Doctor, Claude Auto Review, and `@claude` handling use
-`ubicloud-standard-2`, preserving the previous private `ubuntu-latest`
-2-vCPU/8-GB shape at the lower managed-runner rate. The boundary is deliberate:
+Linux x64 lanes to the connected Ubicloud runner fleet. React Doctor, Claude
+Auto Review, and `@claude` handling use `ubicloud-standard-2`, preserving the
+previous private `ubuntu-latest` 2-vCPU/8-GB shape at the lower managed-runner
+rate. PR Coverage started there too and moved to `ubicloud-standard-4` (BST-1882,
+see the dated note below). The boundary is deliberate:
 
 - quiet-head admission remains on GitHub `ubuntu-slim`
 - the lightweight Unit and Desktop E2E fan-ins also use GitHub `ubuntu-slim`
@@ -101,3 +102,28 @@ CI routing machinery. `native-windows` therefore depends directly on
 `admission` and runs for every admitted PR, push to `main`, and manual dispatch.
 `scripts/__tests__/ubicloud-runner-contract.test.mjs` guards both the always-on
 dependency and the absence of a `native-windows-impact` planner.
+
+## PR Coverage moved to `ubicloud-standard-4` (BST-1882, 2026-09-29)
+
+Every PR `Coverage` run from 2026-09-29 05:24 UTC failed: 12 consecutive runs on
+unrelated branches, after weeks of passing. The job died inside `Setup workspace`
+with the step still `in_progress` and no runner name. The check-run annotation
+was `System.IO.IOException: No space left on device` writing the runner's own
+`_diag/Worker_*.log`.
+
+Ruled out: the `.turbo` cache (at most 305 MB), the pnpm store cache (671 MB) and
+git history (95 MB packed) were all unchanged in size. React Doctor runs on the
+same label with `fetch-depth: 0` and kept passing, but it never runs
+`pnpm install`. Coverage was the only `ubicloud-standard-2` workflow doing the
+full install + turbo build + coverage run, and every `test.yml` lane doing that
+work runs on `ubicloud-standard-4` and kept passing.
+
+Ubicloud's runner-types documentation lists `ubicloud-standard-2` at 75 GB of
+disk and `ubicloud-standard-4` at 150 GB. The workload is a few GB, so the free
+space left on the 2-vCPU image dropped below what a full install needs. That
+this was an image change is an inference from the branch-independent onset.
+
+Coverage now uses the same runner class as the install + build lanes. It runs
+once per PR lifecycle, never on `synchronize`, so the cost delta is small.
+Freeing space by deleting preinstalled toolchains was rejected: it depends on
+the image's contents and silently breaks when they move.
