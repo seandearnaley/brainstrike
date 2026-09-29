@@ -97,6 +97,15 @@ export interface HostRequestChannelOptions<TRequest, TResponse> {
     request: TRequest,
     context: HostRequestTimeoutContext
   ) => HostRequestTimeoutDecision;
+  /**
+   * The deadline window a progress report re-arms, when it is not the request's own `timeoutMs`:
+   * for a host that reports what it is ABOUT to do before a long synchronous step and cannot
+   * speak during it. `HostRequestTimeoutContext.timeoutMs` then reports the window that expired.
+   * A throw is logged at error and leaves the current deadline armed, neither re-armed nor
+   * counted: a report whose window cannot be derived is never treated as liveness. Default:
+   * every report re-arms `timeoutMs(request)`.
+   */
+  readonly progressTimeoutMs?: (request: TRequest, response: TResponse) => number;
   readonly requestId: (request: TRequest) => string;
   readonly responseId: (response: TResponse) => string;
   /** Human-readable host label used in error messages and log context, e.g. `Chunking host`. */
@@ -134,7 +143,8 @@ interface PendingHostRequest<TRequest, TResponse> {
   readonly requestId: string;
   readonly resolve: (response: TResponse) => void;
   readonly startedAt: number;
-  readonly timeoutMs: number;
+  /** The window currently armed: the request's own until a progress report supplies another. */
+  timeoutMs: number;
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 
@@ -299,6 +309,41 @@ export function createHostRequestChannel<TRequest, TResponse>(
     });
   };
 
+  // Progress is liveness: the deadline is an inactivity window, not a wall-clock ceiling. A wedged
+  // host goes silent and still expires one window after its last report.
+  const acceptProgress = (
+    entry: PendingHostRequest<TRequest, TResponse>,
+    response: TResponse
+  ): void => {
+    const { requestId } = entry;
+    let windowMs = entry.timeoutMs;
+    if (options.progressTimeoutMs) {
+      try {
+        windowMs = options.progressTimeoutMs(entry.request, response);
+      } catch (error) {
+        // Runs inside the transport listener, like the hooks below. Nothing is re-armed: the
+        // running deadline stays, so a report we cannot size cannot postpone a kill.
+        logger.error(`${role} progress budget failed; the deadline was not re-armed`, {
+          error,
+          requestId,
+          role,
+        });
+        return;
+      }
+    }
+    clearTimeout(entry.timer);
+    entry.timeoutMs = windowMs;
+    entry.timer = arm(entry);
+    entry.progressCount += 1;
+    try {
+      entry.onProgress?.(response);
+    } catch (error) {
+      // Same isolation as the late-response hook. The deadline is already re-armed above, so a
+      // throwing consumer cannot shorten it either.
+      logger.error(`${role} progress hook failed`, { error, requestId, role });
+    }
+  };
+
   const accept = (response: TResponse): void => {
     const requestId = options.responseId(response);
     const entry = pending.get(requestId);
@@ -335,19 +380,7 @@ export function createHostRequestChannel<TRequest, TResponse>(
       return;
     }
     if (options.isProgress?.(response)) {
-      // Progress is liveness: the deadline is an inactivity window, not a
-      // wall-clock ceiling. A wedged host goes silent and still expires one
-      // window after its last report.
-      clearTimeout(entry.timer);
-      entry.timer = arm(entry);
-      entry.progressCount += 1;
-      try {
-        entry.onProgress?.(response);
-      } catch (error) {
-        // Same isolation as the late-response hook. The deadline is already
-        // re-armed above, so a throwing consumer cannot shorten it either.
-        logger.error(`${role} progress hook failed`, { error, requestId, role });
-      }
+      acceptProgress(entry, response);
       return;
     }
     release(entry);

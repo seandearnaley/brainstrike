@@ -162,6 +162,97 @@ describe('createHostRequestChannel', () => {
     });
   });
 
+  it('re-arms each progress report with progressTimeoutMs when the adapter provides it', async () => {
+    const onTimeout = vi.fn(
+      (_request: TestRequest, _context: HostRequestTimeoutContext) =>
+        ({ error: new Error('phase budget expired'), policy: 'abandon' }) as const
+    );
+    const { channel } = createChannel({
+      onTimeout,
+      // The report carries its own budget in ms; the request's first window is 15 ms.
+      progressTimeoutMs: (_request, response) => Number(response.value),
+      timeoutMs: () => 15,
+    });
+
+    const pending = observe(channel.request({ id: 'req-phase', kind: 'slow' }));
+    await vi.advanceTimersByTimeAsync(10);
+    channel.accept({ id: 'req-phase', type: 'progress', value: '100' });
+
+    // Alive well past the 15 ms first window, and until the 100 ms budget re-armed at t=10 expires.
+    await vi.advanceTimersByTimeAsync(50);
+    expect(channel.has('req-phase')).toBe(true);
+    await vi.advanceTimersByTimeAsync(49);
+    expect(channel.has('req-phase')).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(pending).resolves.toMatchObject({ message: 'phase budget expired' });
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+    // The context reports the budget that actually expired, not the first window.
+    expect(onTimeout.mock.calls[0]?.[1]).toMatchObject({ progressCount: 1, timeoutMs: 100 });
+  });
+
+  it('gives every progress report its own budget, replacing the previous one', async () => {
+    const onTimeout = vi.fn(
+      (_request: TestRequest, _context: HostRequestTimeoutContext) =>
+        ({ error: new Error('phase budget expired'), policy: 'abandon' }) as const
+    );
+    const { channel } = createChannel({
+      onTimeout,
+      progressTimeoutMs: (_request, response) => Number(response.value),
+      timeoutMs: () => 15,
+    });
+
+    const pending = observe(channel.request({ id: 'req-phases', kind: 'slow' }));
+    channel.accept({ id: 'req-phases', type: 'progress', value: '1000' });
+    await vi.advanceTimersByTimeAsync(500);
+    channel.accept({ id: 'req-phases', type: 'progress', value: '30' });
+    await vi.advanceTimersByTimeAsync(29);
+    expect(channel.has('req-phases')).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(pending).resolves.toMatchObject({ message: 'phase budget expired' });
+    expect(onTimeout.mock.calls[0]?.[1]).toMatchObject({ progressCount: 2, timeoutMs: 30 });
+  });
+
+  it('keeps the current deadline, counts no progress and logs at error when progressTimeoutMs throws', async () => {
+    const budgetFailure = new RangeError('budget past the longest timer');
+    const onProgress = vi.fn<(response: TestResponse) => void>();
+    const onTimeout = vi.fn(
+      (_request: TestRequest, _context: HostRequestTimeoutContext) =>
+        ({ error: new Error('first window expired'), policy: 'abandon' }) as const
+    );
+    const { channel } = createChannel({
+      onTimeout,
+      progressTimeoutMs: () => {
+        throw budgetFailure;
+      },
+      timeoutMs: () => 50,
+    });
+
+    const pending = observe(
+      channel.request({ id: 'req-bad-budget', kind: 'slow' }, { onProgress })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    expect(() => {
+      channel.accept({ id: 'req-bad-budget', type: 'progress', value: 'x' });
+    }).not.toThrow();
+
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'Test host progress budget failed; the deadline was not re-armed',
+      expect.objectContaining({
+        error: budgetFailure,
+        requestId: 'req-bad-budget',
+        role: 'Test host',
+      })
+    );
+    expect(onProgress).not.toHaveBeenCalled();
+
+    // Not re-armed: the original 50 ms window still ends at t=50, not t=70.
+    await vi.advanceTimersByTimeAsync(30);
+    await expect(pending).resolves.toMatchObject({ message: 'first window expired' });
+    expect(onTimeout.mock.calls[0]?.[1]).toMatchObject({ progressCount: 0, timeoutMs: 50 });
+  });
+
   it('rejects with the abort reason and releases the request when the signal fires', async () => {
     const { channel } = createChannel();
     const controller = new AbortController();
