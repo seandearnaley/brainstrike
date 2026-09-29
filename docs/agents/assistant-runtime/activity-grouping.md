@@ -126,3 +126,24 @@ receives an acknowledgement, and checks static Approved history and one adapter
 execution without the stale waiting group or shimmer. This is renderer coverage,
 not a claim of a live-model desktop end-to-end run. Existing host stamping and
 mapper-forwarding tests cover production of `hostRunId`.
+
+### Delegated display owner correction (2026-09-29)
+
+The desktop observer intentionally stamps the root `hostRunId` on child notices:
+the root owns the decision echo and its history anchor. Child timeline persistence
+uses `delegatedHostRunId`, so the second candidate still could not match a separate
+child card. A real native two-child fan-out reproduced that mismatch.
+
+Approval notices now carry display-only `timelineRunId`, assigned by the same
+canonical host identity functions as event persistence and forwarded by the shared
+mapper. The UI index uses that explicit owner plus the surface call; native
+`runId`, decision `hostRunId`, and the full delegated action identity keep their
+original jobs. A missing display owner creates no inferred cross-message match.
+Managed child continuations use `continuationProjectionId` for both live event
+and notice display, matching their existing durable writer without adding a root
+message anchor or persisting twice.
+
+Proof includes the native two-child approval suite; persisted child and grandchild
+events across two resume legs; continuation persistence/live parity; mapper field
+transport; and Chromium clicks on separate cards with distinct root/child display
+owners. Resolved approval history stays static; no tool result is fabricated.

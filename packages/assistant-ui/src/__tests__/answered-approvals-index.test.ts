@@ -89,7 +89,13 @@ describe('advanceAnsweredApprovalsIndex', () => {
     const cursor = advanceAnsweredApprovalsIndex(
       [
         {
-          content: [answered, { ...request, data: { ...request.data, hostRunId: 'host-root' } }],
+          content: [
+            answered,
+            {
+              ...request,
+              data: { ...request.data, hostRunId: 'host-root', timelineRunId: 'host-root' },
+            },
+          ],
           id: 'm1',
         },
       ],

@@ -14,7 +14,9 @@ import {
 } from '@brainstrike/agent';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { AssistantRunErrorRepository } from '@brainstrike/db';
+import { continuationProjectionId } from './delegated-continuation-identity';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
+import { delegatedHostRunId } from './delegated-host-run-id';
 import { completeFailedRootRun, settleFailedDelegationChildRuns } from './delegated-stream-failure';
 import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
@@ -69,13 +71,41 @@ const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
  */
 function withHostLeg(chunk: StreamChunk, hostRunId: string): StreamChunk {
   if (chunk.type === 'tool-approval-required' || chunk.type === 'tool-suspend-required') {
-    return { ...chunk, hostRunId };
+    return {
+      ...chunk,
+      hostRunId,
+      ...(chunk.type === 'tool-approval-required' ? { timelineRunId: hostRunId } : {}),
+    };
   }
   if (
     chunk.type === 'delegated-conversation-chunk' &&
     (chunk.chunk.type === 'tool-approval-required' || chunk.chunk.type === 'tool-suspend-required')
   ) {
-    return { ...chunk, chunk: { ...chunk.chunk, hostRunId } };
+    return {
+      ...chunk,
+      chunk: {
+        ...chunk.chunk,
+        hostRunId,
+        ...(chunk.chunk.type === 'tool-approval-required'
+          ? { timelineRunId: delegatedHostRunId(hostRunId, chunk.identity) }
+          : {}),
+      },
+    };
+  }
+  // Continuations have a child timeline but no root-message decision anchor.
+  // Their events are already persisted by the continuation host; align only
+  // the live display with that writer's canonical projection identity.
+  if (chunk.type === 'child-continuation-chunk') {
+    const timelineRunId = continuationProjectionId(hostRunId, chunk.continuationId);
+    if (chunk.chunk.type === 'tool-approval-required') {
+      return { ...chunk, chunk: { ...chunk.chunk, timelineRunId } };
+    }
+    if (chunk.chunk.type === 'run-event') {
+      return {
+        ...chunk,
+        chunk: { ...chunk.chunk, event: { ...chunk.chunk.event, runId: timelineRunId } },
+      };
+    }
   }
   return chunk;
 }

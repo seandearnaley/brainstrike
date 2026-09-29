@@ -139,10 +139,12 @@ function indexPart(part: unknown, index: MutableApprovalsIndex): boolean {
   }
   if (part['name'] === TOOL_APPROVAL_DATA_NAME && isAssistantToolApprovalRequest(part['data'])) {
     const request = part['data'];
-    // Timeline events use durable host-leg IDs; request.runId is a native
-    // Mastra ID. Rediscovered cards without a host binding cannot supply it.
-    if (typeof request.hostRunId === 'string' && request.hostRunId.trim().length > 0) {
-      index.cardedSurfaceCalls.add(approvalSurfaceCallKey(request.hostRunId, request.toolCallId));
+    // Display ownership is explicit: hostRunId routes the decision through the
+    // root, and runId is native. Neither identifies a delegated timeline.
+    if (typeof request.timelineRunId === 'string' && request.timelineRunId.trim().length > 0) {
+      index.cardedSurfaceCalls.add(
+        approvalSurfaceCallKey(request.timelineRunId, request.toolCallId)
+      );
     }
     index.requests.set(getToolActionIdentityKey(request), {
       decided: readRediscoveredPauseDisplay(request)?.decisionState !== undefined,

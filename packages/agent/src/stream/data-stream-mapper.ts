@@ -966,6 +966,7 @@ export class DataStreamMapper {
       // blank id would reach the echo and fail `isBoundedIdentifier` there,
       // rejecting the whole decision at the resume boundary.
       ...(chunk.hostRunId?.trim() ? { hostRunId: chunk.hostRunId } : {}),
+      ...(chunk.timelineRunId?.trim() ? { timelineRunId: chunk.timelineRunId } : {}),
       runId: chunk.runId,
       toolCallId: callId,
       toolName: chunk.toolName,

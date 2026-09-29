@@ -2345,6 +2345,7 @@ it('forwards the host leg through BOTH live pause data parts (approval and suspe
     {
       hostRunId: 'run-host-leg-1',
       runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+      timelineRunId: 'delegated-display-leg',
       toolCallId: 'call-approval',
       toolName: 'brainstrike.executeCommand',
       type: 'tool-approval-required',
@@ -2377,5 +2378,6 @@ it('forwards the host leg through BOTH live pause data parts (approval and suspe
     return (part?.value as { data?: Record<string, unknown> })?.data;
   };
   expect(readPart('brainstrike.tool-approval')?.['hostRunId']).toBe('run-host-leg-1');
+  expect(readPart('brainstrike.tool-approval')?.['timelineRunId']).toBe('delegated-display-leg');
   expect(readPart('brainstrike.tool-suspend')?.['hostRunId']).toBe('run-host-leg-1');
 });

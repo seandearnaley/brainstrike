@@ -83,6 +83,47 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
       'delegate-1',
       'delegate-2',
     ]);
+    // Compare the independently persisted event and encoded notice from the real
+    // native fan-out. Root transport IDs intentionally differ from child display IDs.
+    const { createStatelessAssistantDataStreamResponse } = await import('@brainstrike/agent');
+    const response = createStatelessAssistantDataStreamResponse(
+      (async function* () {
+        yield* fanout.initial;
+      })(),
+      { messageId: 'approval-owner-proof' }
+    );
+    const wire = await response.text();
+    let childNotices = 0;
+    for (const chunk of fanout.initial) {
+      if (
+        chunk.type !== 'delegated-conversation-chunk' ||
+        chunk.chunk.type !== 'tool-approval-required'
+      ) {
+        continue;
+      }
+      childNotices += 1;
+      const notice = chunk.chunk;
+      const pause = fanout.initial.find(
+        (candidate) =>
+          candidate.type === 'delegated-conversation-chunk' &&
+          candidate.identity.childRuntimeRunId === chunk.identity.childRuntimeRunId &&
+          candidate.chunk.type === 'run-event' &&
+          candidate.chunk.event.kind === 'tool.approval.requested'
+      );
+      if (pause?.type !== 'delegated-conversation-chunk' || pause.chunk.type !== 'run-event') {
+        throw new Error('Missing child approval event');
+      }
+      expect(pause.chunk.event.runId).not.toBe('host-leg');
+      expect(notice).toMatchObject({
+        hostRunId: 'host-leg',
+        timelineRunId: pause.chunk.event.runId,
+      });
+      expect(wire).toContain(`"timelineRunId":"${pause.chunk.event.runId}"`);
+    }
+    expect(childNotices).toBe(2);
+    for (const notice of fanout.rootNotices) {
+      expect(notice).toMatchObject({ hostRunId: 'host-leg', timelineRunId: 'host-leg' });
+    }
     expect(fanout.execute).not.toHaveBeenCalled();
     expect(await fanout.parkedTasks()).toEqual(['delegate-1', 'delegate-2']);
     // The user's status row (WAKEUP LEDGER, settled 2026-09-15) reached the

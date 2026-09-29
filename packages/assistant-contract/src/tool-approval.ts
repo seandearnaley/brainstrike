@@ -174,6 +174,12 @@ export interface AssistantToolApprovalRequest {
    */
   riskCategory?: ToolRiskCategory;
   runId: string;
+  /**
+   * Display owner of this surface's approval event. Root and delegated child
+   * timelines have different host-leg IDs; hostRunId above still owns the
+   * decision echo. Not an action target or authorization identity.
+   */
+  timelineRunId?: string;
   toolCallId: string;
   toolName: string;
 }
