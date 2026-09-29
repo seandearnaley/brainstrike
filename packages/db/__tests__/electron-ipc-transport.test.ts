@@ -249,6 +249,21 @@ describe('createElectronIpcTransport', () => {
       });
     });
 
+    it('names a phase this renderer does not know generically, never as "undefined"', async () => {
+      // Main and renderer can be out of sync, and the IPC payload is not validated.
+      const unknownPhase = { ...initStop, report: { phase: 'defragment' } };
+
+      const error = await openWith({ initStop: unknownPhase }).then(
+        () => null,
+        (rejection: unknown) => rejection as Error
+      );
+
+      expect(error?.message).not.toContain('undefined');
+      expect(error?.message).toContain(
+        'a step of starting the database timed out twice (last budget 372 s)'
+      );
+    });
+
     it('leaves the other messages alone when there is no stop', async () => {
       await expect(
         openWith({ initStop: null, lastInitializationFailure: null })

@@ -30,6 +30,21 @@ export function initPhaseKey(report: DatabaseInitPhaseReport | null): string {
     : report.phase;
 }
 
+/**
+ * The window that expired, as the whole positive millisecond count the reader accepts. A record the
+ * reader rejects reads as absent, so the count would never reach two and the breaker would silently
+ * never trip: the writer only ever produces what the reader takes, and refuses anything else.
+ */
+function toRecordedBudgetMs(windowMs: number): number {
+  const wholeMs = Math.ceil(windowMs);
+  if (!Number.isSafeInteger(wholeMs) || wholeMs < 1) {
+    throw new RangeError(
+      `An init timeout window must be a positive number of milliseconds; received ${windowMs}.`
+    );
+  }
+  return wholeMs;
+}
+
 /** The record after one more init timeout: the count grows only when the same phase expired again. */
 export function nextInitTimeoutRecord(
   previous: DatabaseInitAttemptRecord | null,
@@ -42,7 +57,7 @@ export function nextInitTimeoutRecord(
 ): DatabaseInitAttemptRecord {
   const phaseKey = initPhaseKey(timeout.report);
   return {
-    budgetMs: timeout.budgetMs,
+    budgetMs: toRecordedBudgetMs(timeout.budgetMs),
     consecutiveTimeouts: previous?.phaseKey === phaseKey ? previous.consecutiveTimeouts + 1 : 1,
     hostPid: timeout.hostPid,
     lastTimeoutAt: timeout.now.toISOString(),

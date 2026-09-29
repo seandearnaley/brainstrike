@@ -413,9 +413,9 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   and re-pin, never raise one to absorb a slow phase. Why: a host inside a synchronous WASM statement
   answers nothing, and a kill mid-rebuild leaves no clean-shutdown marker, so an unscaled deadline loops.
 - Main persists `<profile>/.db-init-attempt.json` on each init timeout; two consecutive timeouts in one
-  phase stop the manager (`DbHostInitStoppedError`, no third fork, diagnostics answered from main with
-  `initStop`). Only a user action clears a stop: `retryInit` or either reset. A successful init removes
-  the record and a non-timeout failure leaves it. The host never touches the record.
+  phase stop the manager: `DbHostInitStoppedError`, no request of any kind forks a host, diagnostics are
+  answered from main with `initStop`. Only a user action clears a stop: `retryInit` or either reset. A
+  successful init removes the record and a non-timeout failure leaves it. The host never touches the record.
 
 Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:

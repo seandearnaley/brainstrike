@@ -21,6 +21,11 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 import {
+  DB_HOST_INIT_FIRST_REPORT_TIMEOUT_MS,
+  DB_HOST_INIT_MAX_BUDGET_MS,
+  resolveInitPhaseBudgetMs,
+} from '../db-host-init-budget';
+import {
   DB_INIT_STOP_AFTER_TIMEOUTS,
   initPhaseKey,
   isInitStopped,
@@ -29,6 +34,8 @@ import {
   removeDbInitAttemptRecord,
   writeDbInitAttemptRecord,
 } from '../db-init-attempt-record';
+
+const MIB = 1024 * 1024;
 
 const REBUILD: DatabaseInitPhaseReport = {
   index: {
@@ -156,8 +163,9 @@ describe('db init attempt record', () => {
     const NOW = new Date('2026-09-29T18:05:00.000Z');
     const timeout = (
       previous: DatabaseInitAttemptRecord | null,
-      report: DatabaseInitPhaseReport | null
-    ) => nextInitTimeoutRecord(previous, { budgetMs: 372_000, hostPid: 77, now: NOW, report });
+      report: DatabaseInitPhaseReport | null,
+      budgetMs = 372_000
+    ) => nextInitTimeoutRecord(previous, { budgetMs, hostPid: 77, now: NOW, report });
 
     it('names the phases the way the report does', () => {
       expect(initPhaseKey(null)).toBe('init:first-report');
@@ -193,6 +201,42 @@ describe('db init attempt record', () => {
         report: null,
       });
     });
+
+    it('never writes a budget the reader rejects: every real budget round-trips', () => {
+      // The writer takes whatever window expired; the reader accepts only a positive safe integer.
+      // If they ever disagree the record reads as absent and the count never reaches two, so the
+      // breaker would silently never trip. Use the real budgets, not hand-picked integers.
+      const budgets = [
+        resolveInitPhaseBudgetMs({ pgWalBytes: 0, phase: 'open-database' }),
+        resolveInitPhaseBudgetMs({ pgWalBytes: 912 * MIB, phase: 'open-database' }),
+        resolveInitPhaseBudgetMs(REBUILD),
+        resolveInitPhaseBudgetMs({ phase: 'migration' }),
+        DB_HOST_INIT_FIRST_REPORT_TIMEOUT_MS,
+        // `retryInit({ noDeadline })` arms this; a timeout at it must still be recordable.
+        DB_HOST_INIT_MAX_BUDGET_MS,
+      ];
+      for (const budgetMs of budgets) {
+        const record = timeout(null, REBUILD, budgetMs);
+        writeDbInitAttemptRecord(profileDir, record);
+        expect(readDbInitAttemptRecord(profileDir)).toEqual(record);
+      }
+      expect(loggerErrorMock).not.toHaveBeenCalled();
+    });
+
+    it('rounds a fractional window up to a whole millisecond rather than write one the reader rejects', () => {
+      const record = timeout(null, REBUILD, 372_000.4);
+      expect(record.budgetMs).toBe(372_001);
+
+      writeDbInitAttemptRecord(profileDir, record);
+      expect(readDbInitAttemptRecord(profileDir)).toEqual(record);
+    });
+
+    it.each([Number.NaN, 0, -5, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 2])(
+      'refuses to record a window of %s: nothing armed a timer that could have expired',
+      (budgetMs) => {
+        expect(() => timeout(null, REBUILD, budgetMs)).toThrow(RangeError);
+      }
+    );
 
     it('stops at two consecutive timeouts, not at one', () => {
       expect(DB_INIT_STOP_AFTER_TIMEOUTS).toBe(2);

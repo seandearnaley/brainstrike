@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import type { DatabaseInitAttemptRecord, DatabaseInitPhaseReport } from '@brainstrike/types';
+import type { DatabaseInitPhaseReport } from '@brainstrike/types';
 import { utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { cleanShutdownMarkerNamesPid } from './db-clean-shutdown-marker';
@@ -15,11 +14,7 @@ import {
   DB_HOST_INIT_MAX_BUDGET_MS,
   resolveInitPhaseBudgetMs,
 } from './db-host-init-budget';
-import {
-  DbHostCloseError,
-  DbHostInitStoppedError,
-  DbHostUnavailableError,
-} from './db-host-lifecycle-errors';
+import { DbHostCloseError, DbHostUnavailableError } from './db-host-lifecycle-errors';
 import { closeDbHostProcess, DbHostProcess, killWedgedHost } from './db-host-process';
 import {
   type DbHostDiagnosticsResult,
@@ -49,13 +44,7 @@ import {
   type RequestTimeoutDiagnostics,
 } from './db-host-request-diagnostics';
 import { DbHostRequestTimeoutError } from './db-host-timeout-error';
-import {
-  isInitStopped,
-  nextInitTimeoutRecord,
-  readDbInitAttemptRecord,
-  removeDbInitAttemptRecord,
-  writeDbInitAttemptRecord,
-} from './db-init-attempt-record';
+import { InitAttemptGuard } from './db-init-attempt-guard';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 import {
   resolveDesktopDatabaseLocation,
@@ -172,8 +161,7 @@ class DefaultDbHostManager implements DbHostManager {
   #initialization: Promise<RemoteDbClient> | null = null;
   // The phase the running `init` last reported; null before its first report. Main-side state only.
   #initPhase: DatabaseInitPhaseReport | null = null;
-  // Set once the attempt record says init timed out twice in one phase; cleared only by `retryInit`.
-  #stopped: DatabaseInitAttemptRecord | null = null;
+  readonly #attempts = new InitAttemptGuard();
   // `retryInit({ noDeadline })` arms the NEXT init only: pending until it starts, suspended while it runs.
   #pendingNoDeadline = false;
   #initDeadlineSuspended = false;
@@ -191,6 +179,16 @@ class DefaultDbHostManager implements DbHostManager {
     this.#initializationTimeoutMs =
       options.initializationTimeoutMs ??
       Math.max(DB_HOST_INIT_FIRST_REPORT_TIMEOUT_MS, this.#requestTimeoutMs);
+    // The window a timeout records: only a whole, armable number of milliseconds can expire and be recorded.
+    if (
+      !Number.isSafeInteger(this.#initializationTimeoutMs) ||
+      this.#initializationTimeoutMs < 1 ||
+      this.#initializationTimeoutMs > DB_HOST_INIT_MAX_BUDGET_MS
+    ) {
+      throw new RangeError(
+        `The DB host initialization window must be 1..${DB_HOST_INIT_MAX_BUDGET_MS} ms; received ${this.#initializationTimeoutMs}.`
+      );
+    }
     this.#requests = createHostRequestChannel<
       DbHostRequestEnvelope,
       DbHostResponseEnvelope | DbHostProgressEnvelope
@@ -242,9 +240,9 @@ class DefaultDbHostManager implements DbHostManager {
 
   async getDiagnostics(): Promise<DbHostManagerDiagnosticsResult> {
     // While stopped, main answers from its own record: a fresh host would report no failure at all.
-    const stop = this.#readStop();
+    const stop = this.#attempts.readStop();
     if (stop) {
-      return this.#stoppedDiagnostics(stop);
+      return this.#attempts.stoppedDiagnostics(stop);
     }
     const result = await this.send<DbHostDiagnosticsResult>({ kind: 'diagnostics' });
     const { activeLiveQueryCount, ...databaseDiagnostics } = result;
@@ -259,8 +257,7 @@ class DefaultDbHostManager implements DbHostManager {
   retryInit(options: { readonly noDeadline: boolean }): void {
     this.#assertActive();
     // Removing the record is what can fail; the stop stays until it has succeeded.
-    removeDbInitAttemptRecord(resolveDesktopDatabaseProfileDirectory());
-    this.#stopped = null;
+    this.#attempts.retry();
     this.#pendingNoDeadline = options.noDeadline;
   }
 
@@ -284,6 +281,9 @@ class DefaultDbHostManager implements DbHostManager {
   async reset(): Promise<void> {
     await this.send({ kind: 'reset' });
     this.#client = null;
+    // The reset deleted the profile, and the record with it: nothing of an earlier attempt applies.
+    this.#attempts.reset();
+    this.#pendingNoDeadline = false;
   }
 
   // Default-manager replacement is permanent; explicit close() remains reusable
@@ -531,6 +531,8 @@ class DefaultDbHostManager implements DbHostManager {
     if (this.#departingHost) {
       throw new DbHostUnavailableError(PREVIOUS_HOST_ALIVE_MESSAGE);
     }
+    // The fork path itself, so no request (data, reset, diagnostics) can start a host while stopped.
+    this.#attempts.assertNotStopped();
     // Only an existing host may serve shutdown-time work; a fork now would re-open a closed database.
     if (isDesktopShuttingDown()) {
       throw new DbHostUnavailableError('DB host is unavailable: the application is shutting down.');
@@ -559,10 +561,7 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async #initialize(): Promise<RemoteDbClient> {
-    const stop = this.#readStop();
-    if (stop) {
-      throw new DbHostInitStoppedError(stop);
-    }
+    this.#attempts.assertNotStopped();
     this.#initDeadlineSuspended = this.#pendingNoDeadline;
     this.#pendingNoDeadline = false;
     this.#initPhase = null;
@@ -580,14 +579,15 @@ class DefaultDbHostManager implements DbHostManager {
       // failure the host has already recorded; killing it would discard that record, and the
       // next `db:diagnostics` would fork a fresh host that reports no failure at all.
       if (error instanceof DbHostRequestTimeoutError) {
-        this.#recordInitTimeout(error);
+        this.#attempts.recordTimeout(error, this.#host?.handle.pid ?? null);
         this.#terminateHost(error, { requestKind: 'init' });
       }
       throw error;
     } finally {
       this.#initPhase = null;
+      this.#initDeadlineSuspended = false;
     }
-    this.#clearAttemptRecord();
+    this.#attempts.recordSuccess();
     this.#assertActive();
     this.#client = this.#createClient();
     return this.#client;
@@ -597,74 +597,6 @@ class DefaultDbHostManager implements DbHostManager {
     return this.#initDeadlineSuspended
       ? DB_HOST_INIT_MAX_BUDGET_MS
       : resolveInitPhaseBudgetMs(report);
-  }
-
-  /** The recorded stop, if init timed out twice in one phase: read from disk once, then remembered. */
-  #readStop(): DatabaseInitAttemptRecord | null {
-    if (!this.#stopped) {
-      const record = readDbInitAttemptRecord(resolveDesktopDatabaseProfileDirectory());
-      this.#stopped = isInitStopped(record) ? record : null;
-    }
-    return this.#stopped;
-  }
-
-  /**
-   * Counts one more timeout in the phase that expired. A record that cannot be written is logged
-   * at error and never hides the timeout or spares the wedged host: the stop just cannot survive.
-   */
-  #recordInitTimeout(error: DbHostRequestTimeoutError): void {
-    try {
-      const profileDirectory = resolveDesktopDatabaseProfileDirectory();
-      writeDbInitAttemptRecord(
-        profileDirectory,
-        nextInitTimeoutRecord(readDbInitAttemptRecord(profileDirectory), {
-          budgetMs: error.timeoutMs,
-          hostPid: this.#host?.handle.pid ?? null,
-          now: new Date(),
-          report: error.phase,
-        })
-      );
-    } catch (recordError) {
-      logger.error(
-        'Could not persist the DB init attempt record; a stop after repeated timeouts cannot survive',
-        { error: recordError }
-      );
-    }
-  }
-
-  /** A successful init ends the streak. A record that cannot be removed only makes a later stop one timeout early. */
-  #clearAttemptRecord(): void {
-    try {
-      removeDbInitAttemptRecord(resolveDesktopDatabaseProfileDirectory());
-    } catch (error) {
-      logger.error('Could not remove the DB init attempt record after a successful init', {
-        error,
-      });
-    }
-  }
-
-  /** What main knows while it refuses to fork: it never opened the database, and says why. */
-  #stoppedDiagnostics(stop: DatabaseInitAttemptRecord): DbHostManagerDiagnosticsResult {
-    const appDataDir = resolveDesktopDatabaseProfileDirectory();
-    return {
-      appDataDir,
-      closeFailure: null,
-      crashRecoveryIndexRebuild: null,
-      databaseLockHeld: false,
-      databaseLockPath: null,
-      databaseProfile: resolveDesktopDatabaseLocation().profile,
-      dataDir: path.join(appDataDir, 'pgdata'),
-      hasDatabaseHandle: false,
-      hostPid: null,
-      initializationAttemptCount: 0,
-      initializationInFlight: false,
-      initStop: stop,
-      lastInitializationFailure: null,
-      lastInitializationStartedAt: null,
-      lastInitializationSucceededAt: null,
-      nodeEnv: process.env['NODE_ENV'] ?? null,
-      previousShutdown: null,
-    };
   }
 
   #createClient(): RemoteDbClient {

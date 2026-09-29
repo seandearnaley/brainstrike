@@ -561,7 +561,7 @@ leaves no clean-shutdown marker, so the next open rebuilds again. Main now stops
 - It is written on a timeout only. `consecutiveTimeouts` is one more than the previous record's when the same
   `phaseKey` expired again, else 1. A successful init removes the record; a non-timeout init failure leaves it
   (the host is alive and holds the real failure). At `consecutiveTimeouts >= 2` (`DB_INIT_STOP_AFTER_TIMEOUTS`)
-  `#initialize` forks nothing and rejects `DbHostInitStoppedError`, whose message is the copy a person reads:
+  the manager forks nothing and rejects `DbHostInitStoppedError` (see the fork gate below), whose message is the copy a person reads:
   `BrainStrike stopped retrying the database start: rebuilding the search index timed out twice (last budget
   372 s). Nothing was deleted or replaced.` The stop persists across relaunches because the record does.
 - `getDiagnostics()` while stopped answers from main and forks nothing: a fresh host reports no failure, which the
@@ -570,15 +570,35 @@ leaves no clean-shutdown marker, so the next open rebuilds again. Main now stops
   `lastInitializationFailure` null, ...). The platform diagnostics `migration.initStop` reports it too, and the
   renderer transport reads `initStop` before any recorded failure.
 - `retryInit({ noDeadline })` is the only way out besides a reset: it removes the record (a failure to remove it
-  throws and keeps the stop) and clears the in-memory stop. `noDeadline: true` arms the NEXT `#initialize` only, the
+  throws and keeps the stop). `noDeadline: true` arms the NEXT `#initialize` only, the
   init request and every phase, with `DB_HOST_INIT_MAX_BUDGET_MS` (2^31 - 1 ms, 24.8 days: the longest timer
   Node honours), which is the user-confirmed "wait as long as it takes" that option (B) above was kept for. Nothing
   calls it yet: its IPC and button are PR2b, and the record's stop persists across relaunches, so PR2a must not
   ship without them.
-- A record that cannot be written (the timeout is logged at error and still kills the host) means the stop cannot
-  survive; one that cannot be removed after a success is logged and only makes a later stop one timeout early. An
-  unreadable or foreign-version file reads as no record and is logged at error by shape only: it can cost one more
-  attempt and it never deletes anything. Any other read failure (a directory at the path, permissions) throws.
+- A record that cannot be written (the timeout is logged at error and still kills the host) is kept in memory
+  (`InitAttemptGuard`): the count never depends on persisting it, so the breaker still trips in this session and only
+  the relaunch is lost. One that cannot be removed after a success is logged and only makes a later stop one timeout
+  early. An unreadable or foreign-version file reads as no record and is logged at error by shape only: it can cost
+  one more attempt and it never deletes anything. Any other read failure (a directory at the path, permissions) throws.
+  The writer only produces what the reader accepts: the recorded budget is rounded up to a whole millisecond, a
+  window that is not a positive safe integer is refused, and the manager refuses an initialization window it could not
+  arm or record, because a record the reader rejects reads as absent and the breaker would silently never trip.
+
+Review round (PR #3417) rulings:
+
+- The stop is checked in the fork path itself (`#ensureHost`) as well as in `#initialize`, so no request (data,
+  reset, live-query diagnostics) can start a host while stopped. Nothing caches the stop: the record, or the one that
+  could not be written, is the only source, so a reset that deletes the profile and `retryInit` clear it by
+  construction. `DbHostManager.reset()` (a request for a host to reset itself, with no production caller) rejects
+  while stopped like any other request. The user-confirmed resets never use it: `resetLocalDatabase` retires the
+  default manager (`closeDbHostManager`, a no-op with no host) and deletes the profile from main, which is how a
+  person clears a stop without a host. `db-host-manager-init-stop-reset.test.ts` runs the real manager and the real
+  db-main reset over a temp profile and asserts no fork, the record gone and a new manager that opens.
+- A completed `reset()` clears a pending `noDeadline`, and the suspension flag is reset in `#initialize`'s `finally`,
+  so "the next init only" holds locally.
+- Reading the record on each diagnostics call, each `#initialize` and each fork costs 5.5-9.1 microseconds when the
+  file is absent (10,000 `readFileSync` ENOENT calls in 55-91 ms, Node 24.18, Apple M1 Pro) and 36 microseconds for
+  a present 300-byte record read and parsed.
 
 The brief's design wrote the record on every progress report and carried `consecutiveTimeouts` forward only when
 the reported phase matched the stored one. That never reaches two in production: each attempt reports

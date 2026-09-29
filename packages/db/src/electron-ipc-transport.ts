@@ -45,8 +45,10 @@ const INIT_STOP_ACTIVITY = {
 
 /** Main's own words for a stop; the same copy the manager's `DbHostInitStoppedError` carries. */
 function formatInitStop(stop: DatabaseInitAttemptRecord): string {
+  // The payload is not validated: a phase this renderer does not know (main and renderer out of
+  // sync) is named generically, never interpolated as `undefined`.
   const activity = stop.report
-    ? INIT_STOP_ACTIVITY[stop.report.phase]
+    ? (INIT_STOP_ACTIVITY[stop.report.phase] ?? 'a step of starting the database')
     : 'starting the database process';
   const times =
     stop.consecutiveTimeouts === 2 ? 'twice' : `${stop.consecutiveTimeouts} times in a row`;

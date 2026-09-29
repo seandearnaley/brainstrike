@@ -331,10 +331,102 @@ describe('the init loop breaker', () => {
     expect(error).toBeInstanceOf(DbHostRequestTimeoutError);
     expect(killSpy).toHaveBeenCalledWith(host.pid, 'SIGKILL');
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'Could not persist the DB init attempt record; a stop after repeated timeouts cannot survive',
+      'Could not persist the DB init attempt record; a stop after repeated timeouts is kept for this session only',
       expect.objectContaining({ error: expect.any(Error) })
     );
   });
+});
+
+describe('a stopped manager forks nothing, on any path', () => {
+  const seedStop = (): void => {
+    writeFileSync(
+      recordPath(),
+      JSON.stringify({
+        budgetMs: REBUILD_BUDGET_MS,
+        consecutiveTimeouts: 2,
+        hostPid: 4242,
+        lastTimeoutAt: '2026-09-29T18:00:00.000Z',
+        phaseKey: REBUILD_KEY,
+        report: REBUILD,
+        version: 1,
+      })
+    );
+  };
+
+  it('rejects every request that would fork a host, and forks none', async () => {
+    seedStop();
+    const { DbHostInitStoppedError, manager } = await loadManager();
+
+    // Data requests, and a reset (which needs a host to run in): none may start one.
+    for (const request of [
+      manager.applyManagedCacheBatch({}),
+      manager.insertChunksAndEnqueueEmbeddingJobs({}),
+      manager.invalidateManagedCacheEntriesByIdentity({}),
+      manager.reset(),
+    ]) {
+      expect(await settled(request)).toBeInstanceOf(DbHostInitStoppedError);
+    }
+    expect(forkMock).not.toHaveBeenCalled();
+    // Closing a manager with no host is still a no-op, so a reset can retire it.
+    await expect(manager.close()).resolves.toBeUndefined();
+    expect(forkMock).not.toHaveBeenCalled();
+  });
+
+  it('follows the record: once a reset has removed it, the same manager forks again', async () => {
+    seedStop();
+    const { DbHostInitStoppedError, manager } = await loadManager();
+    expect(await settled(manager.getDatabase())).toBeInstanceOf(DbHostInitStoppedError);
+
+    // A reset deletes the profile, and the record with it.
+    rmSync(recordPath());
+    void manager.getDatabase();
+
+    expect(forkMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a completed reset cancels a pending no-deadline for the init after it', async () => {
+    const { DbHostRequestTimeoutError, manager } = await loadManager();
+    manager.retryInit({ noDeadline: true });
+    const reset = manager.reset();
+    const host = latestProcess();
+    host.emit('message', {
+      id: host.messages.at(-1)?.id,
+      kind: 'response',
+      ok: true,
+      result: null,
+    });
+    await reset;
+
+    const attempt = settled(manager.getDatabase());
+    await vi.advanceTimersByTimeAsync(15);
+
+    expect(await attempt).toBeInstanceOf(DbHostRequestTimeoutError);
+  });
+
+  it('keeps counting in memory when the record cannot be written, so the breaker still trips', async () => {
+    // A directory where the write's temp file belongs: every write fails.
+    mkdirSync(`${recordPath()}.tmp`);
+    const { DbHostInitStoppedError, manager } = await loadManager();
+
+    await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    await timedOutAttempt(manager, [OPEN, REBUILD], REBUILD_BUDGET_MS);
+    const third = await settled(manager.getDatabase());
+
+    expect(existsSync(recordPath())).toBe(false);
+    expect(third).toBeInstanceOf(DbHostInitStoppedError);
+    expect(forkMock).toHaveBeenCalledTimes(2);
+    // ...and retryInit still clears it, so the person is never stuck on a record that never existed.
+    manager.retryInit({ noDeadline: false });
+    void manager.getDatabase();
+    expect(forkMock).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([0, -1, Number.NaN, 1.5, 2_147_483_648])(
+    'refuses an initialization window of %s: it could not be armed, or recorded',
+    async (window) => {
+      await expect(loadManager(window)).rejects.toThrow(RangeError);
+    }
+  );
 });
 
 describe('retryInit', () => {
