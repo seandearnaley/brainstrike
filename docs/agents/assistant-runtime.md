@@ -80,6 +80,11 @@ the Mastra error-processor layer.
   the warmup immediately while the shared renderer-host download continues with
   visible broadcast progress. Auth headers, request persistence and request-body
   construction share the bounded watchdog for every provider, local included.
+- **A local run's Stop is classified by the run's own abort signal, never by the
+  error's shape:** Electron IPC keeps only an error's message, so a hidden-host
+  abort arrives as a plain `Error`. A cancelled completion stores no reason, like
+  the data-stream Stop. Evidence: `assistant-runtime/local-run-stop-classification.md`.
+  Guard: `packages/assistant-ui/src/__tests__/local-runtime-adapter.test.ts`.
 - Read the optional desktop assistant transport through `getAssistantBridge()`
   from `@brainstrike/assistant-contract`, which owns the `window.assistant`
   shape, returns no capability on web/SSR, and reports a malformed bridge at most
@@ -117,19 +122,16 @@ the Mastra error-processor layer.
   prose; the one parameter VALUE is labelled `ms`.
 - **`resolveGuardedToolSignal` is mandatory for any tool that owns a process or a
   network request** (`packages/agent/src/tools/tool-guard-deadline.ts`). The guard
-  stops the WAIT, not the work, so fold the guard deadline into the tool's own
-  signal. It returns the execution signal BY IDENTITY when there is no deadline,
-  because `retainRawMcpCallToolResult` keys on that identity.
-  `manageCommandSession` deliberately does not fold it in — a session outlives any
-  one guarded call.
+  stops the WAIT, not the work, so fold its deadline into the tool's own signal;
+  it returns the execution signal BY IDENTITY when there is no deadline
+  (`retainRawMcpCallToolResult` keys on it). `manageCommandSession` deliberately
+  does not fold it in — a session outlives any one guarded call.
 - **The guard also CANCELS the work it gave up on.** It publishes a deadline
-  `AbortSignal` and aborts it BEFORE resolving `tool_timeout`. The seam is keyed
-  by TOOL-CALL ID through the single `readToolCallId` reader, never by execution-
-  context identity. Registration returns a release the guard runs in its
-  `finally`. The MCP runtime client folds the deadline into its `tools/call`
-  signal without replacing `context.abortSignal`, so the SDK sends
-  `notifications/cancelled`. A call with no tool-call id publishes nothing and
-  keeps the pre-guard behaviour. The id is PROVIDER data: the later registration
+  `AbortSignal` keyed by TOOL-CALL ID (the single `readToolCallId` reader, never
+  execution-context identity) and aborts it BEFORE resolving `tool_timeout`. The
+  MCP runtime client folds it into its `tools/call` signal without replacing
+  `context.abortSignal`, so the SDK sends `notifications/cancelled`. A call with no
+  tool-call id publishes nothing. The id is PROVIDER data: the later registration
   wins and the collision is LOGGED at `error`, never thrown.
 
 Settled: the budget is per call; the guard cancels its abandoned work; the
@@ -240,12 +242,10 @@ Guard: `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec
 - **PrefillErrorHandler** recovers reloaded-thread assistant-prefill rejections;
   **ProviderHistoryCompat** handles cross-provider `mastra_messages` reuse.
 - Placement: the two `processAPIError`-only processors plus ProviderHistoryCompat's
-  REACTIVE rules go on the Agent-config `errorProcessors` seam.
-  ProviderHistoryCompat's PREEMPTIVE `processLLMRequest` rules (strip foreign
-  reasoning — the ONLY place that incompatibility is handled) fire only from
-  `inputProcessors`, so a SECOND instance is composed into the per-call
-  `inputProcessors` array alongside the TokenLimiter, composing rather than
-  clobbering.
+  REACTIVE rules go on the Agent-config `errorProcessors` seam. Its PREEMPTIVE
+  `processLLMRequest` rules (the ONLY place foreign reasoning is stripped) fire
+  only from `inputProcessors`, so a SECOND instance composes into the per-call
+  `inputProcessors` array alongside the TokenLimiter, never clobbering it.
 - Keep `maxProcessorRetries` pinned (`ASSISTANT_MAX_PROCESSOR_RETRIES = 3`): any
   `errorProcessors` flips Mastra's implicit default to 10.
 - EXCLUDE the whole layer for the built-in local provider; the hidden llm-host
