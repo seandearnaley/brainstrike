@@ -6,8 +6,8 @@ import {
   DB_HOST_INIT_MIGRATION_BUDGET_MS,
   DB_HOST_INIT_MIN_PHASE_BUDGET_MS,
   DB_HOST_INIT_PHASE_FLOOR_MS,
-  DB_HOST_REINDEX_BUDGET_BYTES_PER_MS,
-  DB_HOST_WAL_REDO_BUDGET_BYTES_PER_MS,
+  DB_HOST_REINDEX_BUDGET_BYTES_PER_SECOND,
+  DB_HOST_WAL_REDO_BUDGET_BYTES_PER_SECOND,
   resolveInitPhaseBudgetMs,
 } from '../../db-host-init-budget';
 
@@ -41,9 +41,9 @@ describe('resolveInitPhaseBudgetMs', () => {
     expect(DB_HOST_INIT_MIGRATION_BUDGET_MS).toBe(90_000);
     // No phase gets less than the single 90 s deadline this replaced (unmeasured platforms).
     expect(DB_HOST_INIT_MIN_PHASE_BUDGET_MS).toBe(90_000);
-    // 4 MiB/s of pg_wal and 1 MiB/s of heap+toast, expressed per millisecond.
-    expect(DB_HOST_WAL_REDO_BUDGET_BYTES_PER_MS).toBeCloseTo((4 * MIB) / 1000, 9);
-    expect(DB_HOST_REINDEX_BUDGET_BYTES_PER_MS).toBeCloseTo(MIB / 1000, 9);
+    // 4 MiB/s of pg_wal and 1 MiB/s of heap+toast, as whole bytes per second.
+    expect(DB_HOST_WAL_REDO_BUDGET_BYTES_PER_SECOND).toBe(4 * MIB);
+    expect(DB_HOST_REINDEX_BUDGET_BYTES_PER_SECOND).toBe(MIB);
     // The longest delay Node's setTimeout honours; a longer one fires after 1 ms.
     expect(DB_HOST_INIT_MAX_BUDGET_MS).toBe(2_147_483_647);
   });

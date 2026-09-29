@@ -86,17 +86,14 @@ function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
 
-/**
- * Derived from the catalog, never a hardcoded index-name list, so a new index
- * on a crash-sensitive access method is covered the moment a migration creates
- * it. Every user schema is included: filtering to one schema would silently
- * skip an index created elsewhere. Ordered by schema then name so a rebuild
- * pass is deterministic.
- */
 type CatalogIndexRow = Omit<CrashSensitiveIndex, 'heapBytes' | 'indexBytes' | 'toastBytes'> &
   Record<'heapBytes' | 'indexBytes' | 'toastBytes', unknown>;
 
-/** `int8` reaches JS as a number while safe and as a bigint past 2^53: make the declared type true. */
+/**
+ * PGlite parses `int8` to a number while it is safe and to a bigint past 2^53; make the declared
+ * type true. A driver that returns `int8` as a string (node-postgres by default) is refused here,
+ * loudly: this function runs only on the PGlite handles the DB host and the tests open.
+ */
 function toByteCount(
   row: CatalogIndexRow,
   field: 'heapBytes' | 'indexBytes' | 'toastBytes'
@@ -111,6 +108,13 @@ function toByteCount(
   return count;
 }
 
+/**
+ * Derived from the catalog, never a hardcoded index-name list, so a new index
+ * on a crash-sensitive access method is covered the moment a migration creates
+ * it. Every user schema is included: filtering to one schema would silently
+ * skip an index created elsewhere. Ordered by schema then name so a rebuild
+ * pass is deterministic.
+ */
 export async function listCrashSensitiveIndexes(
   db: CrashSensitiveIndexDb
 ): Promise<readonly CrashSensitiveIndex[]> {
