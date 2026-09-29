@@ -305,7 +305,7 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
         const result = await db.query<AssistantThreadRunStatusRow>(
           `SELECT status FROM brainstrike_assistant_thread_runs
            WHERE thread_id = $1
-           ORDER BY created_at`,
+           ORDER BY created_at, id`,
           [threadId]
         );
         return result.rows.map((row) => row.status);

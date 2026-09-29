@@ -155,7 +155,7 @@ test.describe('Assistant thread tabs with runs in flight @stateful @web-assistan
     const { alphaId } = await startHeldRunInFirstOfTwoThreads(page);
     const alphaPanel = page.getByTestId(`assistant-thread-panel-${alphaId}`);
     const runningSpinners = page.getByTestId('threads-panel').getByTestId('thread-active-spinner');
-    expect(await readThreadRunStatuses(page, alphaId)).toEqual(['running']);
+    await expect.poll(() => readThreadRunStatuses(page, alphaId)).toEqual(['running']);
 
     await alphaPanel.getByRole('button', { name: 'Stop' }).click();
 

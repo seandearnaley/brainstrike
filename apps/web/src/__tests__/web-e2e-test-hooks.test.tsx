@@ -390,7 +390,7 @@ describe('WebE2ETestHooks', () => {
     expect(query).toHaveBeenCalledTimes(1);
     const [sql, params] = query.mock.calls[0] ?? [];
     expect(sql).toMatch(
-      /SELECT status FROM brainstrike_assistant_thread_runs\s+WHERE thread_id = \$1\s+ORDER BY created_at/
+      /SELECT status FROM brainstrike_assistant_thread_runs\s+WHERE thread_id = \$1\s+ORDER BY created_at, id$/
     );
     expect(params).toEqual(['thread-1']);
   });
