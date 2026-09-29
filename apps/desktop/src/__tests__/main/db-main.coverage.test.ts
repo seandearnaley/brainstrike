@@ -30,6 +30,7 @@ const fsMocks = vi.hoisted(() => ({
   closeSync: vi.fn(),
   cpSync: vi.fn(),
   existsSync: vi.fn(() => true),
+  fsyncSync: vi.fn(),
   lstatSync: vi.fn(() => ({
     isDirectory: () => false,
     isFile: () => false,

@@ -22,10 +22,16 @@ import type {
   DatabaseInitFailureCategory,
   DatabaseInitFailureSnapshot,
   DatabaseInitStage,
+  DatabasePreviousShutdown,
 } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { app } from 'electron';
 import { isCorruptionError } from './database-corruption-classifier';
+import {
+  hasCleanShutdownMarker,
+  removeCleanShutdownMarker,
+  writeCleanShutdownMarker,
+} from './db-clean-shutdown-marker';
 import type { RemoteDbClient } from './db-host-manager';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 import {
@@ -207,6 +213,7 @@ interface DatabaseMutableState {
   lastInitializationSucceededAt: string | null;
   lastRuntimeCorruptionAt: string | null;
   lastRuntimeCorruptionContext: string | null;
+  previousShutdown: DatabasePreviousShutdown | null;
   runtimeCorruptionRecoveryCount: number;
 }
 
@@ -220,6 +227,7 @@ const mutableState: DatabaseMutableState = {
   lastInitializationSucceededAt: null,
   lastRuntimeCorruptionAt: null,
   lastRuntimeCorruptionContext: null,
+  previousShutdown: null,
   runtimeCorruptionRecoveryCount: 0,
 };
 
@@ -260,7 +268,18 @@ interface PGliteInstanceShape {
   syncToFs?: () => Promise<void>;
 }
 
-async function trySyncToFs(instance: PGliteInstanceShape, context: string): Promise<void> {
+/** The database could not be flushed (`sync`) or shut down (`close`) cleanly. */
+export class DatabaseCloseError extends Error {
+  readonly stage: 'sync' | 'close';
+
+  constructor(stage: 'sync' | 'close', cause: unknown) {
+    super(`Database ${stage} failed: ${getErrorDetails(cause).message}`, { cause });
+    this.name = 'DatabaseCloseError';
+    this.stage = stage;
+  }
+}
+
+async function syncDatabaseToFs(instance: PGliteInstanceShape, context: string): Promise<void> {
   if (typeof instance.syncToFs !== 'function') {
     return;
   }
@@ -268,7 +287,7 @@ async function trySyncToFs(instance: PGliteInstanceShape, context: string): Prom
   try {
     await instance.syncToFs();
   } catch (error) {
-    logger.warn('Failed to sync database files to disk', {
+    logger.error('Failed to sync database files to disk', {
       context,
       error: getErrorDetails(error),
     });
@@ -276,7 +295,7 @@ async function trySyncToFs(instance: PGliteInstanceShape, context: string): Prom
   }
 }
 
-async function tryCloseDatabaseInstance(
+async function closeDatabaseInstance(
   instance: PGliteInstanceShape,
   context: string
 ): Promise<void> {
@@ -287,10 +306,11 @@ async function tryCloseDatabaseInstance(
   try {
     await instance.close();
   } catch (error) {
-    logger.warn('Failed to close database instance cleanly', {
+    logger.error('Failed to close database instance cleanly', {
       context,
       error: getErrorDetails(error),
     });
+    throw error;
   }
 }
 
@@ -300,21 +320,19 @@ async function createVectorDatabase(
   dataDir: string
 ): Promise<BrainstrikePglite> {
   const instance = await createDatabase({ dataDir });
+  // Owned by `db` from creation, so a failed validation below is closed (or its close
+  // failure kept visible with the lock) by closeAfterFailedInitialization(), never dropped.
+  db = instance;
 
-  try {
-    await instance.query('SELECT 1');
-    await instance.exec('CREATE EXTENSION IF NOT EXISTS vector');
-    const res = await instance.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
-    if (!res.rows.length) {
-      throw new Error('pgvector extension not registered in database');
-    }
-    // Force an initial sync barrier so startup writes are persisted before continuing.
-    await trySyncToFs(instance as PGliteInstanceShape, 'initialization');
-    return instance;
-  } catch (error) {
-    await tryCloseDatabaseInstance(instance as PGliteInstanceShape, 'initialization-failure');
-    throw error;
+  await instance.query('SELECT 1');
+  await instance.exec('CREATE EXTENSION IF NOT EXISTS vector');
+  const res = await instance.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+  if (!res.rows.length) {
+    throw new Error('pgvector extension not registered in database');
   }
+  // Force an initial sync barrier so startup writes are persisted before continuing.
+  await syncDatabaseToFs(instance as PGliteInstanceShape, 'initialization');
+  return instance;
 }
 
 function sanitizeProfileSegment(raw: string): string {
@@ -904,6 +922,7 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
     lastRuntimeCorruptionAt: mutableState.lastRuntimeCorruptionAt,
     lastRuntimeCorruptionContext: mutableState.lastRuntimeCorruptionContext,
     nodeEnv: process.env['NODE_ENV'] ?? null,
+    previousShutdown: mutableState.previousShutdown,
     runtimeCorruptionRecoveryCount: mutableState.runtimeCorruptionRecoveryCount,
   };
 }
@@ -923,26 +942,33 @@ export function __resetDatabaseModuleStateForTests(): void {
   mutableState.runtimeCorruptionRecoveryCount = 0;
   mutableState.lastRuntimeCorruptionAt = null;
   mutableState.lastRuntimeCorruptionContext = null;
+  mutableState.previousShutdown = null;
   mutableState.cachedDatabaseProfile = null;
   mutableState.cachedGitProfileContext = undefined;
 }
 
 /**
- * Close a partial or un-migrated handle after a failed initialization and release the process
- * lock, ignoring close errors. Never deletes or replaces anything: a failed open must leave the
- * data directory untouched and the next initialization free to retry.
+ * Close a partial or un-migrated handle after a failed initialization and, when that close
+ * succeeded (or there was nothing to close), release the process lock. A close that FAILS keeps
+ * the lock — the handle may still own the data directory — and is logged, not thrown: the
+ * initialization error stays primary. Never deletes or replaces anything: a failed open must
+ * leave the data directory untouched and the next initialization free to retry.
  */
-async function safeCloseDatabase(): Promise<void> {
-  try {
-    if (db) {
-      await tryCloseDatabaseInstance(db as PGliteInstanceShape, 'safe-close');
+async function closeAfterFailedInitialization(): Promise<void> {
+  const failedHandle = db as PGliteInstanceShape | null;
+  db = null;
+  if (failedHandle) {
+    try {
+      await closeDatabaseInstance(failedHandle, 'initialization-failure');
+    } catch (error) {
+      logger.error('Failed to close the database after a failed initialization; keeping the lock', {
+        error: getErrorDetails(error),
+        lockPath: mutableState.dbProcessLockPath,
+      });
+      return;
     }
-  } catch {
-    // ignore close errors
-  } finally {
-    db = null;
-    releaseDatabaseProcessLock();
   }
+  releaseDatabaseProcessLock();
 }
 
 /**
@@ -1085,6 +1111,24 @@ function setIncompatibleDataDirAside(
 }
 
 /**
+ * How the previous session ended, read from the clean-shutdown marker, and then the marker is
+ * removed BEFORE the database opens: a crash anywhere later must read as unclean, so removing
+ * first is the conservative order. A removal failure fails the open (filesystem category).
+ */
+function consumePreviousShutdown(appDataDir: string, dataDir: string): DatabasePreviousShutdown {
+  const hadMarker = hasCleanShutdownMarker(appDataDir);
+  removeCleanShutdownMarker(appDataDir);
+  if (!existsSync(path.join(dataDir, 'PG_VERSION'))) {
+    return 'new-database';
+  }
+  if (hadMarker) {
+    return 'clean';
+  }
+  logger.warn('Previous database session did not close cleanly', { appDataDir });
+  return 'unclean';
+}
+
+/**
  * Initialize the database with NodeFS
  * Creates the directory if it doesn't exist and runs migrations.
  * A failure of any kind — an integrity error included — closes the partial handle, records the
@@ -1138,9 +1182,9 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
       // Greenfield engine-upgrade guard. Runs only after the exclusive process
       // lock is held, so we never touch a data dir another process is using.
       const movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir);
+      mutableState.previousShutdown = consumePreviousShutdown(appDataDir, dataDir);
 
       readyDatabase = await createVectorDatabase(loadedPGlite.createBrainstrikePglite, dataDir);
-      db = readyDatabase;
       logger.debug('Database initialized with pgvector extension at:', dataDir);
 
       // Reclaim any engine-upgrade backups past their retention window now that
@@ -1167,7 +1211,7 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
     } catch (err) {
       recordInitializationFailure('open-database', err);
       releaseInitializationLockOnce();
-      await safeCloseDatabase();
+      await closeAfterFailedInitialization();
 
       const msg = getErrorDetails(err).message;
       logger.error('Failed to initialize database with pgvector', {
@@ -1189,7 +1233,7 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
       recordInitializationFailure('migration', err);
       releaseInitializationLockOnce();
       // The un-migrated handle is already assigned to `db`; drop it so the next caller re-opens.
-      await safeCloseDatabase();
+      await closeAfterFailedInitialization();
 
       const msg = getErrorDetails(err).message;
       logger.error('Database migrations failed', {
@@ -1248,23 +1292,49 @@ async function getLocalDatabase(): Promise<DesktopDatabase> {
 }
 
 /**
- * Close the database connection
+ * Close the database connection. Fail-closed: a sync or close failure throws
+ * `DatabaseCloseError` and KEEPS the process lock (the handle may still own the data
+ * directory); only a fully clean close writes the clean-shutdown marker and releases it.
  */
 async function closeLocalDatabase(): Promise<void> {
+  const currentDatabase = db as PGliteInstanceShape | null;
+  if (!currentDatabase) {
+    return;
+  }
+  let failure: DatabaseCloseError | null = null;
   try {
-    if (db) {
-      const currentDatabase = db as PGliteInstanceShape;
-      try {
-        await trySyncToFs(currentDatabase, 'closeDatabase');
-      } catch {
-        // trySyncToFs already logs sync failures; still close the handle to avoid leaks.
-      }
-      await tryCloseDatabaseInstance(currentDatabase, 'closeDatabase');
-      logger.debug('Database connection closed');
-    }
-  } finally {
-    db = null;
-    releaseDatabaseProcessLock();
+    await syncDatabaseToFs(currentDatabase, 'closeDatabase');
+  } catch (error) {
+    failure = new DatabaseCloseError('sync', error);
+  }
+  // Even after a failed sync: close runs PGlite's shutdown checkpoint and frees the handle.
+  try {
+    await closeDatabaseInstance(currentDatabase, 'closeDatabase');
+  } catch (error) {
+    failure = new DatabaseCloseError('close', error);
+  }
+  db = null;
+  if (failure) {
+    throw failure;
+  }
+  writeMarkerBeforeReleasingLock();
+  releaseDatabaseProcessLock();
+  logger.debug('Database connection closed');
+}
+
+// The marker goes down while the lock is still held, so no other process can open in between.
+// A failed write costs only conservatism: the next open treats this session as unclean.
+function writeMarkerBeforeReleasingLock(): void {
+  try {
+    writeCleanShutdownMarker(getAppDataPath(), {
+      closedAt: new Date().toISOString(),
+      pid: process.pid,
+    });
+  } catch (error) {
+    logger.error(
+      'Failed to write the clean-shutdown marker; the next open will treat this session as unclean',
+      { error: getErrorDetails(error) }
+    );
   }
 }
 
@@ -1288,7 +1358,6 @@ async function handleLocalRuntimeCorruption(context: string): Promise<DesktopDat
   mutableState.lastRuntimeCorruptionAt = new Date().toISOString();
   mutableState.lastRuntimeCorruptionContext = context;
   logger.warn(`Runtime corruption detected during ${context}. Resetting database...`);
-  await safeCloseDatabase();
   await resetLocalDatabaseInternal();
   logger.info('Database reset complete after runtime corruption. Reinitializing...');
   return await initializeLocalMainDatabase();
@@ -1300,12 +1369,8 @@ async function handleLocalRuntimeCorruption(context: string): Promise<DesktopDat
  * Next access will lazily recreate and migrate from scratch.
  */
 async function resetLocalDatabaseInternal(): Promise<void> {
-  // Ensure any existing handle is closed
-  try {
-    await closeLocalDatabase();
-  } catch {
-    // ignore
-  }
+  // A close failure aborts the reset before anything is backed up or deleted.
+  await closeLocalDatabase();
 
   const appDataDir = getAppDataPath();
   const dataDir = getDatabasePath();
