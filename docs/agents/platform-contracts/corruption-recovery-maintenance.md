@@ -62,9 +62,9 @@ corruption-recovery block in
 Before this change `isCorruptionError` (then in `db-main.ts`) matched the error's
 SQLSTATE OR any of six free-text patterns against the lowercased message. One
 pattern, `database system was interrupted`, is Postgres's NORMAL crash-recovery
-log line, so an ordinary restart after a kill could read as corruption; the
-others could match user text echoed inside an unrelated error (a JSON syntax
-error quoting a phrase from a note). Messages are not a reliable signal in
+log line, so an ordinary restart after a kill could read as corruption; any
+pattern could also match user text echoed inside an unrelated error. Messages
+are not a reliable signal in
 either direction: the 2026-09-29 incident diagnosis found pg_textsearch damage
 surfacing as `58P01 could not open file …`, with text that names the heap.
 
@@ -82,4 +82,4 @@ or `position`, which can hold row data or SQL text
 (`docs/diagnostics-privacy-contract.md`). Paired tests:
 `apps/desktop/src/__tests__/database-corruption-classifier.test.ts` and the
 error-transport cases in `apps/desktop/src/__tests__/main/db-host-entry.test.ts`
-and `db-host-manager.test.ts`.
+and `apps/desktop/src/__tests__/main/db-host-error-transport.test.ts`.
