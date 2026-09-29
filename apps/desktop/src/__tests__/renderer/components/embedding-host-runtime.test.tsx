@@ -700,6 +700,14 @@ describe('EmbeddingHostRuntime', () => {
       undefined,
       'webgpu'
     );
+    // A user's search waits on the model read, and host-window work defaults to
+    // background, which the desktop scheduler rejects while integrity is
+    // contained (BST-1870): the read must name the foreground lane.
+    expect(dbHandle.query).toHaveBeenCalledWith(
+      expect.stringContaining('FROM models'),
+      ['Xenova/all-MiniLM-L6-v2'],
+      { label: 'query embedding model config', priority: 'foreground' }
+    );
     expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledWith({ forceReload: true });
     expect(reportStatusMock).toHaveBeenCalledWith(
       expect.objectContaining({
