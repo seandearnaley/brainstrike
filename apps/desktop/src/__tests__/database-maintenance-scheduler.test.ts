@@ -5,10 +5,18 @@ import type {
 } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
 import { isCorruptionError } from '../database-corruption-classifier';
+import { createDesktopDatabaseIntegrity } from '../database-integrity-state';
 import {
   createDesktopDatabaseMaintenanceScheduler,
   type DesktopDatabaseMaintenanceSchedulerOptions,
 } from '../database-maintenance-scheduler';
+
+function createHealthyIntegrity() {
+  return createDesktopDatabaseIntegrity({
+    logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    now: () => new Date('2026-09-29T12:00:00.000Z'),
+  });
+}
 
 const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   activeJobs: 0,
@@ -78,6 +86,7 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
         queued: createQueuedCounts(),
         runningPriority: null,
       }),
+      integrity: createHealthyIntegrity(),
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
       now: () => new Date(nowMs),
       onRuntimeCorruption: vi.fn(),
@@ -179,6 +188,7 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
           queued: createQueuedCounts(),
           runningPriority: null,
         }),
+        integrity: createHealthyIntegrity(),
         logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
         onRuntimeCorruption: vi.fn(),
         quietPeriodMs: -1,
@@ -203,6 +213,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         queued: createQueuedCounts({ foreground: 1 }),
         runningPriority: null,
       }),
+      integrity: createHealthyIntegrity(),
       logger: {
         debug: vi.fn(),
         error: vi.fn(),
@@ -251,6 +262,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         queued: createQueuedCounts(),
         runningPriority: null,
       }),
+      integrity: createHealthyIntegrity(),
       logger,
       onRuntimeCorruption: vi.fn(),
       runMaintenance,
@@ -315,6 +327,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         queued: createQueuedCounts(),
         runningPriority: null,
       }),
+      integrity: createHealthyIntegrity(),
       logger,
       onRuntimeCorruption: vi.fn(),
       runMaintenance: vi.fn(async () => partialResult),
@@ -358,6 +371,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         queued: createQueuedCounts(),
         runningPriority: null,
       }),
+      integrity: createHealthyIntegrity(),
       logger: {
         debug: vi.fn(),
         error: vi.fn(),
@@ -418,6 +432,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
           runningPriority: null,
         }),
         initialDelayMs: 250,
+        integrity: createHealthyIntegrity(),
         intervalMs: 10_000,
         logger: {
           debug: vi.fn(),
@@ -468,6 +483,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
           runningPriority: null,
         }),
         initialDelayMs: 1000,
+        integrity: createHealthyIntegrity(),
         intervalMs: 100,
         logger: {
           debug: vi.fn(),
@@ -546,6 +562,7 @@ describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
         runningPriority: null,
       }),
       initialDelayMs: 0,
+      integrity: createHealthyIntegrity(),
       logger,
       onRuntimeCorruption,
       quietPeriodMs: 0,
@@ -662,6 +679,7 @@ describe('DesktopDatabaseMaintenanceScheduler assistant work admission', () => {
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
       getDatabase: vi.fn(async () => databaseWithAssistantWork(inFlight)),
       getSchedulerSnapshot: () => ({ queued: createQueuedCounts(), runningPriority: null }),
+      integrity: createHealthyIntegrity(),
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
       onRuntimeCorruption: vi.fn(),
       quietPeriodMs: 0,
@@ -678,5 +696,59 @@ describe('DesktopDatabaseMaintenanceScheduler assistant work admission', () => {
     expect(result.status).toBe('skipped');
     expect((result as { reason: string }).reason).toBe('assistant-work-in-flight');
     expect(runMaintenance).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * BST-1870: while an integrity error is contained, background database work is
+ * paused. The pass skips quietly before it touches the lane or the database.
+ */
+describe('DesktopDatabaseMaintenanceScheduler integrity containment', () => {
+  function createContainedHarness() {
+    const integrity = createHealthyIntegrity();
+    integrity.contain('db:query', { message: 'invalid page in block 3', sqlstate: 'XX001' });
+    const getDatabase = vi.fn(async () => databaseWithAssistantWork());
+    const runMaintenance = vi.fn(async () => COMPLETED_MAINTENANCE_RESULT);
+    const runScheduledWork = vi.fn(
+      async <TResult>(_options: DatabaseWorkOptions, work: () => Promise<TResult>) => await work()
+    );
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+    const scheduler = createDesktopDatabaseMaintenanceScheduler({
+      getDatabase,
+      getSchedulerSnapshot: () => ({ queued: createQueuedCounts(), runningPriority: null }),
+      integrity,
+      logger,
+      onRuntimeCorruption: vi.fn(),
+      quietPeriodMs: 0,
+      runMaintenance,
+      runScheduledWork:
+        runScheduledWork as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'],
+    });
+    return { getDatabase, integrity, logger, runMaintenance, runScheduledWork, scheduler };
+  }
+
+  it('skips with database-integrity-contained and never enters the lane or opens the database', async () => {
+    const harness = createContainedHarness();
+
+    const result = await harness.scheduler.runOnce();
+
+    expect(result).toMatchObject({ reason: 'database-integrity-contained', status: 'skipped' });
+    expect(harness.runScheduledWork).not.toHaveBeenCalled();
+    expect(harness.getDatabase).not.toHaveBeenCalled();
+    expect(harness.runMaintenance).not.toHaveBeenCalled();
+    expect(harness.logger.info).toHaveBeenCalledExactlyOnceWith(
+      { integrityState: 'contained', revision: 1 },
+      'Skipped scheduled database maintenance because database integrity containment is active'
+    );
+  });
+
+  it('runs again once the database has been replaced', async () => {
+    const harness = createContainedHarness();
+    harness.integrity.markDatabaseReplaced('factory-reset');
+
+    const result = await harness.scheduler.runOnce();
+
+    expect(result).toBe(COMPLETED_MAINTENANCE_RESULT);
+    expect(harness.runMaintenance).toHaveBeenCalledTimes(1);
   });
 });

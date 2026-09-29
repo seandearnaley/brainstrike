@@ -4,6 +4,7 @@ import {
   dropDimensionIndex,
   hnswParams,
   type IDatabase,
+  isBackgroundDatabaseWorkAdmitted,
   type JobQueue,
   type RequestDimensionIndexMaintenanceInput,
   requestDimensionIndexMaintenance,
@@ -16,6 +17,7 @@ import {
 } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { canonicalizeProviderModelKey } from '@brainstrike/utils';
+import { getDesktopDatabaseIntegrity } from './database-integrity-state';
 import { isDesktopShuttingDown, isExpectedBackfillTeardown } from './desktop-shutdown-state';
 import { EMBEDDING_BACKFILL_CANCELED_MESSAGE } from './embedding-host-shared';
 
@@ -517,6 +519,16 @@ async function completeBackfillDimensionIndexMaintenance(
   return true;
 }
 
+/**
+ * Integrity containment (BST-1870) pauses background database work the way
+ * shutdown does: the durable HNSW suspension stays and maintenance reconciles
+ * it after restart, so recovery must not touch the database and must not read
+ * as a failure.
+ */
+function isBackgroundDatabaseWorkPaused(): boolean {
+  return !isBackgroundDatabaseWorkAdmitted(getDesktopDatabaseIntegrity().getSnapshot().state);
+}
+
 function getDeferredDimensionIndexRebuildKey(embeddingSetId: string, dimension: number): string {
   return `${embeddingSetId}:${dimension}`;
 }
@@ -547,7 +559,7 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
     requestDimensionIndexMaintenance,
   } = params;
   const key = getDeferredDimensionIndexRebuildKey(embeddingSetId, dimension);
-  if (isDesktopShuttingDown()) {
+  if (isDesktopShuttingDown() || isBackgroundDatabaseWorkPaused()) {
     logger.info('Deferred dimension HNSW recovery retained for next eligible maintenance run', {
       dimension,
       embeddingSetId,
@@ -563,10 +575,12 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
   }
   deferredDimensionIndexRebuilds.add(key);
   void (async () => {
-    const shutdown = new Error('Deferred dimension HNSW recovery stopped for shutdown.');
-    const assertNotShuttingDown = (): void => {
-      if (isDesktopShuttingDown()) {
-        throw shutdown;
+    const stopped = new Error(
+      'Deferred dimension HNSW recovery stopped for shutdown or database integrity containment.'
+    );
+    const assertCanPoll = (): void => {
+      if (isDesktopShuttingDown() || isBackgroundDatabaseWorkPaused()) {
+        throw stopped;
       }
     };
     try {
@@ -576,9 +590,9 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
         backlogPollMs,
         drainTimeoutMs,
         now,
-        { assertBeforePoll: assertNotShuttingDown }
+        { assertBeforePoll: assertCanPoll }
       );
-      assertNotShuttingDown();
+      assertCanPoll();
       await completeBackfillDimensionIndexMaintenance(
         db,
         embeddingSetId,
@@ -598,7 +612,7 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
         rebuildDimensionIndexOnCompletion,
       });
     } catch (error) {
-      if (error === shutdown) {
+      if (error === stopped) {
         logger.info('Deferred dimension HNSW recovery retained for next eligible maintenance run', {
           dimension,
           embeddingSetId,
@@ -729,6 +743,14 @@ async function recoverInterruptedBackfillDimensionIndexSafely(
     ) => Promise<void>;
   }
 ): Promise<boolean> {
+  if (isBackgroundDatabaseWorkPaused()) {
+    logger.info('Dimension HNSW recovery retained for the next eligible maintenance run', {
+      dimension,
+      embeddingSetId,
+      reason: 'database-integrity-contained',
+    });
+    return false;
+  }
   try {
     return await recoverInterruptedBackfillDimensionIndex(
       db,
