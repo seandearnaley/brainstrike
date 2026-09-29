@@ -608,7 +608,7 @@ async function handleEnvelope(envelope: DbHostRequestEnvelope): Promise<void> {
       ...getQueuedRequestCounts(),
       durationMs: Math.max(0, Date.now() - startedAt),
       error: {
-        ...readPostgresErrorFields(error),
+        ...readPostgresErrorFields(serializedError),
         message: serializedError.message,
         ...(serializedError.name ? { name: serializedError.name } : {}),
       },

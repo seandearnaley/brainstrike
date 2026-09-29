@@ -150,10 +150,7 @@ function toError(error: DbHostSerializedError): Error {
   if (error.stack) {
     normalized.stack = error.stack;
   }
-  if (error.code) {
-    (normalized as Error & { code?: string }).code = error.code;
-  }
-  for (const field of DB_HOST_ERROR_IDENTIFIER_FIELDS) {
+  for (const field of ['code', ...DB_HOST_ERROR_IDENTIFIER_FIELDS] as const) {
     const value = error[field];
     if (value) {
       Object.assign(normalized, { [field]: value });

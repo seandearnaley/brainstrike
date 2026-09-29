@@ -49,6 +49,31 @@ describe('classifyDatabaseCorruption', () => {
     });
   });
 
+  it('classifies a corruption SQLSTATE preserved as an ES2022 cause', () => {
+    const original = codedError('XX001', 'invalid page index at block 2753');
+    const wrapped = new Error('maintenance pass failed', { cause: original });
+
+    expect(classifyDatabaseCorruption(wrapped)).toEqual({
+      message: 'invalid page index at block 2753',
+      sqlstate: 'XX001',
+    });
+    expect(
+      isCorruptionError(new Error('outer', { cause: new Error('middle', { cause: original }) }))
+    ).toBe(true);
+  });
+
+  it('stops following causes past the depth bound and on a cycle', () => {
+    let deep: Error = codedError('XX001', 'too deep');
+    for (let level = 0; level < 6; level += 1) {
+      deep = new Error(`wrapper ${level}`, { cause: deep });
+    }
+    expect(classifyDatabaseCorruption(deep)).toBeNull();
+
+    const cyclic: Error & { cause?: unknown } = new Error('cycle');
+    cyclic.cause = cyclic;
+    expect(classifyDatabaseCorruption(cyclic)).toBeNull();
+  });
+
   it('names the SQLSTATE when the error carries no message', () => {
     expect(classifyDatabaseCorruption({ code: 'XX002' })).toEqual({
       message: 'SQLSTATE XX002',

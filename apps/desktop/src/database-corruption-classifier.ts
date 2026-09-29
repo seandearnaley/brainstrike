@@ -7,6 +7,11 @@
  * failures. There is no free-text matching of any kind: error messages can echo
  * user input, and Postgres writes routine crash-recovery lines such as
  * "database system was interrupted" during a healthy restart.
+ *
+ * A wrapper that preserves the original error as its ES2022 `cause` is still
+ * classified: the `cause` chain is followed for at most
+ * {@link MAX_CAUSE_DEPTH} levels, by SQLSTATE only, and the bound also ends
+ * any cyclic chain.
  */
 
 export type DatabaseCorruptionSqlstate = 'XX001' | 'XX002';
@@ -34,11 +39,9 @@ function readStringField(source: Record<string, unknown>, key: string): string |
   return typeof value === 'string' ? value : undefined;
 }
 
-export function classifyDatabaseCorruption(error: unknown): DatabaseCorruptionSignal | null {
-  if (typeof error !== 'object' || error === null) {
-    return null;
-  }
-  const fields = error as Record<string, unknown>;
+const MAX_CAUSE_DEPTH = 5;
+
+function readSignal(fields: Record<string, unknown>): DatabaseCorruptionSignal | null {
   const sqlstate = fields['code'];
   if (!isCorruptionSqlstate(sqlstate)) {
     return null;
@@ -55,6 +58,22 @@ export function classifyDatabaseCorruption(error: unknown): DatabaseCorruptionSi
     ...(schema === undefined ? {} : { schema }),
     ...(table === undefined ? {} : { table }),
   };
+}
+
+export function classifyDatabaseCorruption(error: unknown): DatabaseCorruptionSignal | null {
+  let current: unknown = error;
+  for (let depth = 0; depth <= MAX_CAUSE_DEPTH; depth += 1) {
+    if (typeof current !== 'object' || current === null) {
+      return null;
+    }
+    const fields = current as Record<string, unknown>;
+    const signal = readSignal(fields);
+    if (signal) {
+      return signal;
+    }
+    current = fields['cause'];
+  }
+  return null;
 }
 
 export function isCorruptionError(error: unknown): boolean {

@@ -67,10 +67,13 @@ async function failInsideHost(failure: Error): Promise<{ readonly error: unknown
   dbMainMocks.getDatabase.mockResolvedValue({ query: vi.fn(() => Promise.reject(failure)) });
   await import('../../db-host-entry');
 
+  // Electron's parentPort delivers `{ data: envelope }`; post the production shape.
   listeners[0]?.({
-    id: 'host-request',
-    kind: 'request',
-    request: { kind: 'query', params: [], sql: 'SELECT 1' },
+    data: {
+      id: 'host-request',
+      kind: 'request',
+      request: { kind: 'query', params: [], sql: 'SELECT 1' },
+    },
   });
   await vi.waitFor(() => {
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
