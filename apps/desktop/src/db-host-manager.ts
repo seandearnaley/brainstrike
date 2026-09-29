@@ -417,21 +417,34 @@ class DefaultDbHostManager implements DbHostManager {
     return this.#departingHost !== null;
   }
 
-  /** Resolves only when the database is closed AND the host has exited; else `DbHostCloseError`. */
+  /**
+   * Resolves only when the database is closed AND the host has exited; else `DbHostCloseError`.
+   *
+   * With no live host it resolves once any earlier host has been observed to exit, however that
+   * host went: after a failed close (or kill) whose exit is later observed, a repeated close
+   * RESOLVES. Nothing owns the directory any more, and the absent clean-shutdown marker records
+   * that session as unclean, so the next open reports `unclean`. Guarded by the `afterExit` case of
+   * "never reports a repeated close as success while the host may still be alive".
+   * Either way `#closing` is set for the whole close, so a request waiting on a departing host
+   * re-checks, sees it, and rejects instead of forking a host as the close reports closed.
+   */
   async close(): Promise<void> {
     if (this.#closing) {
       return await this.#closing;
     }
     const host = this.#host;
-    if (!host) {
-      await this.#assertDepartingHostExited();
-      return;
+    if (!(host || this.#departingHost)) {
+      return; // nothing to close and nothing that could still be alive
     }
-    const closing = closeDbHostProcess(host, {
-      acknowledge: async () => await this.send({ kind: 'close' }),
-      ackTimeoutMs: this.#closeTimeoutMs,
-      detach: () => this.#detachHost(new Error('DB host closed.')),
-    }).finally(() => {
+    const closing = (
+      host
+        ? closeDbHostProcess(host, {
+            acknowledge: async () => await this.send({ kind: 'close' }),
+            ackTimeoutMs: this.#closeTimeoutMs,
+            detach: () => this.#detachHost(new Error('DB host closed.')),
+          })
+        : this.#assertDepartingHostExited()
+    ).finally(() => {
       // Cleared before close() settles, so a caller resuming from it forks at once.
       this.#closing = null;
     });
