@@ -45,11 +45,12 @@ export class DbHostProcess {
       this.#exitCode = code;
       resolveExit(code);
     });
+    // Every lifecycle state carries the reason, so `closed` or `close-failed` still proves a
+    // signal close whose `closing` announcement was lost (posting is best effort).
     handle.on('message', (message: unknown) => {
       if (
         isDbHostToMainMessage(message) &&
         message.kind === 'lifecycle' &&
-        message.state === 'closing' &&
         message.reason !== 'request'
       ) {
         this.#closedBySignal = message.reason;

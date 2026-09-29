@@ -315,8 +315,9 @@ by its own failure path, so the signal close finds nothing to close and exits 0 
 
 **A signal before the database was ever opened.** `closeLocalDatabase()` has no handle to close, so
 it writes no marker and leaves one from an earlier session untouched; the host still announces
-`closed` and exits 0. That marker names the earlier session's pid, so it is never proof for this
-host. `db-host-entry.db-main.test.ts` pins it (a mutation that writes the marker without a handle
+`closed` and exits 0. That marker names the earlier session's pid, so it is no proof for this host,
+barring pid reuse: if the OS gave this host the earlier pid, main would read the marker as proof and
+refuse a replacement. That fails closed (restart BrainStrike), and the close ladder shares it. `db-host-entry.db-main.test.ts` pins it (a mutation that writes the marker without a handle
 turns the test red).
 
 **Main's side composes with the departing-host barrier.** A host that closes on a signal aimed at
@@ -331,17 +332,19 @@ no proof and is logged. That reason lives in the same `#unavailable` slot as ret
 and none waits on an exited host. A host main closed itself (the ladder's SIGTERM included) is
 detached before it exits and never counts, marker or not.
 
-**Known gap: a lost `closing` announcement.** Only the `closing` announcement or the marker naming
-the host's pid keeps main from forking a replacement. A failed close writes no marker, and a signal
-close before any open writes none either, so if `closing` is also lost, main sees an unexplained
-exit and the next request forks a replacement while main is still serving. The replacement opens
-the directory as after a crash: the dead host's lock is reclaimed as stale (`isPidAlive`), and the
-missing marker makes the open unclean. Nothing is deleted, and the never-opened case changed nothing
-on disk. `closing` is posted when the close begins, before any close work; the measured loss above
-(one E2E run in four) is of the log line posted just before the exit, and a lost `closing` was
-never observed.
-Not closed, because no other signal distinguishes this exit from a crash; the exit code is never
-proof.
+**Known gap: every lifecycle announcement lost.** Main forks no replacement once it receives a
+`lifecycle` message with a signal reason in any state (`closing`, `closed` or `close-failed`) or
+reads a marker naming the host's pid. A failed close writes no marker, and neither does a signal
+close before any open, so if every announcement is also lost, main sees an unexplained exit and the
+next request forks a replacement while main is still serving. The replacement opens the directory
+as after a crash: the dead host's lock is reclaimed as stale (`isPidAlive`), and the missing marker
+makes the open unclean. Nothing is deleted, and the never-opened case changed nothing on disk.
+Loss is not rare: `DB host received <signal>` is posted over the same port in the same tick just
+before `closing`, and one E2E run in four lacked that line, so `closing` was most likely lost in
+those runs too; their database was open, so the marker proved the clean close. Accepting `closed`
+and `close-failed` as well (`db-host-manager-close.test.ts`) helps only against an isolated loss:
+they are posted later, closer to the exit, so a loss at exit takes them before it takes `closing`.
+Not closed, because nothing else tells this exit apart from a crash; the exit code is never proof.
 
 ### Update (2026-09-29, BST-1872 L2b): main's signal handlers and the reserved database-close slice
 

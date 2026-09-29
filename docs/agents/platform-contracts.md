@@ -403,8 +403,8 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   every process in it): it rejects queued envelopes, lets the in-flight one finish, unsubscribes
   live queries, closes PGlite and exits 0 only after a clean close. A failed close exits 1 without
   the marker, keeps the lock and is never retried. Once it stops serving it rejects every data
-  envelope. Main forks no replacement for a host whose `closing` it received or whose pid the
-  marker names; if both are missing (a lost announcement), the exit reads as a crash (known gap).
+  envelope. Main forks no replacement for a host that announced a signal close (in any lifecycle
+  state) or whose pid the marker names; if both are missing, the exit reads as a crash (known gap).
 
 Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:
