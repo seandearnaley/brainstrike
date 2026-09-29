@@ -21,7 +21,7 @@ interface DatabaseIntegrityNoticeCopy {
 
 const COPY: DatabaseIntegrityNoticeCopy = {
   containedMessage:
-    'Background indexing is paused because BrainStrike found a problem in its local database. Your conversations and files have not been changed.',
+    'Background indexing is paused because BrainStrike found a problem in its local database. Nothing was deleted or replaced.',
   contexts: {
     'assistant:reindex': 'assistant file re-indexing',
     'db:query': 'a database query',
@@ -35,8 +35,7 @@ const COPY: DatabaseIntegrityNoticeCopy = {
     since: 'First seen',
     where: 'Where it happened',
   },
-  restartGuidance:
-    'Restart BrainStrike to resume indexing. Automatic repair is coming in a later update.',
+  restartGuidance: 'Restart BrainStrike to resume indexing.',
   unreadableMessage:
     "BrainStrike couldn't read the database status. Restart BrainStrike to check again.",
 };

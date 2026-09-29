@@ -98,7 +98,7 @@ function exposeBridge(bridge: DesktopDatabaseIntegrityBridge): void {
 }
 
 const COPY_MESSAGE =
-  'Background indexing is paused because BrainStrike found a problem in its local database. Your conversations and files have not been changed.';
+  'Background indexing is paused because BrainStrike found a problem in its local database. Nothing was deleted or replaced.';
 
 describe('DatabaseIntegrityNotice', () => {
   afterEach(() => {
@@ -154,11 +154,7 @@ describe('DatabaseIntegrityNotice', () => {
     const time = within(alert).getByText(new Date(SINCE).toLocaleString());
     expect(time).toBeVisible();
     expect(time).toHaveAttribute('datetime', SINCE);
-    expect(
-      within(alert).getByText(
-        'Restart BrainStrike to resume indexing. Automatic repair is coming in a later update.'
-      )
-    ).toBeVisible();
+    expect(within(alert).getByText('Restart BrainStrike to resume indexing.')).toBeVisible();
   });
 
   it.each<[DatabaseIntegrityContext, string]>([
