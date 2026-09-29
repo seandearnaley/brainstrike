@@ -32,6 +32,7 @@ export {
   listCrashSensitiveIndexes,
   rebuildCrashSensitiveIndexes,
 } from './crash-sensitive-indexes.js';
+export * from './database-integrity.js';
 export * from './database-pressure-controller.js';
 export * from './database-query-telemetry.js';
 export * from './database-work-scheduler.js';

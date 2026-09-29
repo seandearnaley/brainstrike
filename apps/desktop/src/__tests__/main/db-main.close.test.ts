@@ -72,6 +72,7 @@ vi.mock('@brainstrike/logging', async () => {
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 const originalDbRootPath = process.env['BRAINSTRIKE_DB_ROOT_PATH'];
+const originalDbProfile = process.env['BRAINSTRIKE_DB_PROFILE'];
 
 function restoreEnvValue(key: string, value: string | undefined): void {
   if (value === undefined) {
@@ -111,7 +112,9 @@ describe('db-main close and open', () => {
     rootPath = mkdtempSync(path.join(tmpdir(), 'brainstrike-db-close-'));
     appDataDir = path.join(rootPath, 'profiles', 'test');
     process.env['NODE_ENV'] = 'test';
+    // The DB host reads its location only from main's environment (BST-1873).
     process.env['BRAINSTRIKE_DB_ROOT_PATH'] = rootPath;
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
     Object.defineProperty(process, 'parentPort', {
       configurable: true,
       value: { on: vi.fn(), postMessage: vi.fn() },
@@ -139,6 +142,7 @@ describe('db-main close and open', () => {
       originalParentPortDescriptor ?? { configurable: true, value: undefined, writable: true }
     );
     restoreEnvValue('BRAINSTRIKE_DB_ROOT_PATH', originalDbRootPath);
+    restoreEnvValue('BRAINSTRIKE_DB_PROFILE', originalDbProfile);
     rmSync(rootPath, { force: true, recursive: true });
   });
 
@@ -390,7 +394,8 @@ describe('db-main close and open', () => {
       expect(getDatabaseDiagnostics().closeFailure).toBeNull();
     });
 
-    it('keeps the lock when a close fails while the open is running and the open then fails', async () => {
+    // With closes waiting for an in-flight open, the failing close here is the open's own cleanup.
+    it('keeps the lock when a close waits for a failing open whose own cleanup close fails', async () => {
       let failMigration: (error: Error) => void = () => undefined;
       engine.migrate.mockImplementationOnce(
         () =>
@@ -520,6 +525,30 @@ describe('db-main close and open', () => {
       expect(await resetting).toBeNull();
       expect(engine.close).toHaveBeenCalledTimes(2);
       expect(existsSync(pgVersionPath())).toBe(false);
+    });
+  });
+
+  describe('a reset whose database keeps reopening', () => {
+    it('gives up after three closes without deleting anything', async () => {
+      const { getDatabase, initializeMainDatabase, resetLocalDatabase } = await import(
+        '../../db-main'
+      );
+      await initializeMainDatabase();
+      seedDatabaseDirectory({ marker: false });
+      // Every lock release is answered by a fresh open, so the reset can never quiesce.
+      fsProbe.afterLockUnlink = () => {
+        void getDatabase().catch(() => undefined);
+      };
+      fsProbe.events.length = 0;
+
+      await expect(resetLocalDatabase()).rejects.toThrow(
+        /reopened after each of 3 closes; nothing was deleted/
+      );
+
+      fsProbe.afterLockUnlink = null;
+      expect(destructiveFsEvents()).toEqual([]);
+      expect(engine.close).toHaveBeenCalledTimes(3);
+      expect(existsSync(pgVersionPath())).toBe(true);
     });
   });
 
