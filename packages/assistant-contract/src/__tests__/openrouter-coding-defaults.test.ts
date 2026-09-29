@@ -69,12 +69,17 @@ describe('resolveOpenRouterCodingMaxOutputTokens', () => {
 });
 
 describe('resolveOpenRouterAutoRuntimeProfile', () => {
-  it('sends Ox Alpha its mandatory max default without widening the coding output ceiling', () => {
-    const oxAlpha = listProviderLlmModels('openrouter').find(({ id }) => id === 'stealth/ox-alpha');
-    if (!oxAlpha) {
-      throw new Error('Ox Alpha is missing from the OpenRouter registry');
+  // Retargeted from the delisted stealth/ox-alpha (BST-1697) to GLM 5.3: same
+  // mandatory max default, same 131,072 route ceiling, so the clamp under test
+  // is unchanged.
+  it('sends a mandatory max default without widening the coding output ceiling', () => {
+    const mandatoryMax = listProviderLlmModels('openrouter').find(
+      ({ id }) => id === 'z-ai/glm-5.3'
+    );
+    if (!mandatoryMax) {
+      throw new Error('GLM 5.3 is missing from the OpenRouter registry');
     }
-    expect(resolveOpenRouterAutoRuntimeProfile(oxAlpha)).toEqual({
+    expect(resolveOpenRouterAutoRuntimeProfile(mandatoryMax)).toEqual({
       maxOutputTokens: 32_000,
       reasoningEffort: 'max',
     });

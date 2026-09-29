@@ -2,8 +2,19 @@ import { resolve } from 'node:path';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
+import type { BrowserCommand, BrowserConfigOptions } from 'vitest/node';
 import { createBrowserProject } from '../config/src/vitest-browser.ts';
+
+const emulateReducedMotion: BrowserCommand<[options: { enabled: boolean | null }]> = async (
+  { page },
+  { enabled }
+): Promise<void> => {
+  await page.emulateMedia({
+    reducedMotion: enabled === null ? null : enabled ? 'reduce' : 'no-preference',
+  });
+};
 
 const browserProject = createBrowserProject({
   // Carries TEST_TIMEOUT_MULTIPLIER into the browser page, where `process`
@@ -17,6 +28,8 @@ const browserProject = createBrowserProject({
   setupFiles: ['@brainstrike/test-utils/vitest.browser.setup'],
   testPattern: 'src/**/*.browser.test.{ts,tsx}',
 });
+
+const sharedBrowserOptions: BrowserConfigOptions = browserProject.test.browser;
 
 const workspaceAliases = [
   {
@@ -36,6 +49,7 @@ export default defineConfig({
   optimizeDeps: {
     include: ['@testing-library/jest-dom/vitest'],
   },
+  plugins: [tailwindcss()],
   resolve: {
     alias: workspaceAliases,
   },
@@ -95,6 +109,10 @@ export default defineConfig({
         },
         test: {
           ...browserProject.test,
+          browser: {
+            ...sharedBrowserOptions,
+            commands: { ...sharedBrowserOptions.commands, emulateReducedMotion },
+          },
           globals: true,
           sequence: {
             groupOrder: 1,

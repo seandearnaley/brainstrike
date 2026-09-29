@@ -1147,6 +1147,88 @@ describe('assistant-preferences-store', () => {
       expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toEqual([]);
     });
 
+    // BST-1697. The four September 2026 delistings all remap to a MORE
+    // EXPENSIVE row (two of them from free), so a user whose SELECTED model is
+    // one of them must be told. Seeding at version 9 is load-bearing: it is
+    // the version these remaps shipped after, so a snapshot written by the
+    // previous release only re-runs the persist migration while
+    // ASSISTANT_PREFERENCES_STORE_VERSION is 10 or higher.
+    it('remaps the delisted OpenRouter routes and surfaces the selected one', async () => {
+      const { rehydrate } = seedSnapshot(
+        {
+          enabledModelsByProvider: {
+            openrouter: [
+              'stealth/ox-alpha',
+              'qwen/qwen3.8-max',
+              'inclusionai/ling-3.0-flash:free',
+              'kwaipilot/kat-coder-air-v2.5',
+            ],
+          },
+          modelsByProvider: { openrouter: 'stealth/ox-alpha' },
+          providerSettings: {},
+          recentModels: ['openrouter::stealth/ox-alpha', 'openrouter::qwen/qwen3.8-max'],
+          selectedModel: 'openrouter::stealth/ox-alpha',
+        },
+        9
+      );
+
+      await rehydrate();
+
+      const store = useAssistantPreferencesStore.getState();
+      const enabled = store.enabledModelsByProvider['openrouter'];
+      expect(enabled).toEqual(
+        expect.arrayContaining([
+          'qwen/qwen3.8-flash',
+          'qwen/qwen3.8-max-0902',
+          'inclusionai/ling-3.0-flash',
+          'kwaipilot/kat-coder-pro-v2.5',
+        ])
+      );
+      for (const retired of [
+        'stealth/ox-alpha',
+        'qwen/qwen3.8-max',
+        'inclusionai/ling-3.0-flash:free',
+        'kwaipilot/kat-coder-air-v2.5',
+      ]) {
+        expect(enabled).not.toContain(retired);
+      }
+      // Free + vision-capable -> the cheapest replacement that KEEPS vision.
+      expect(store.selectedModel).toBe('openrouter::qwen/qwen3.8-flash');
+      expect(store.modelMigrationNotices).toEqual([
+        { from: 'stealth/ox-alpha', provider: 'openrouter', to: 'qwen/qwen3.8-flash' },
+      ]);
+      expect(store.recentModels).toEqual([
+        'openrouter::qwen/qwen3.8-flash',
+        'openrouter::qwen/qwen3.8-max-0902',
+      ]);
+    });
+
+    it('stays quiet when a delisted route was only in the enabled list', async () => {
+      const { rehydrate } = seedSnapshot(
+        {
+          enabledModelsByProvider: {
+            anthropic: ['claude-sonnet-4-6'],
+            openrouter: ['kwaipilot/kat-coder-air-v2.5', 'anthropic/claude-sonnet-4.6'],
+          },
+          modelsByProvider: {
+            anthropic: 'claude-sonnet-4-6',
+            openrouter: 'kwaipilot/kat-coder-air-v2.5',
+          },
+          providerSettings: {},
+          selectedModel: 'anthropic::claude-sonnet-4-6',
+        },
+        9
+      );
+
+      await rehydrate();
+
+      const store = useAssistantPreferencesStore.getState();
+      expect(store.enabledModelsByProvider['openrouter']).toContain('kwaipilot/kat-coder-pro-v2.5');
+      // modelsByProvider is seeded for every provider, so a retired per-provider
+      // default under a provider the user is not running on is not intent.
+      expect(store.modelMigrationNotices).toEqual([]);
+    });
+
     it('takeModelMigrationNotices returns the list and clears it atomically', async () => {
       const { rehydrate } = seedSnapshot(
         {

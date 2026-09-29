@@ -22,7 +22,7 @@ function readDescriptions(): string[] {
 describe('useDocumentTitle', () => {
   beforeEach(() => {
     act(() => {
-      usePanelLayoutStore.setState({ activeTab: 'explorer', settingsOpen: false });
+      usePanelLayoutStore.setState({ activeTab: 'explorer' });
     });
   });
 
@@ -53,7 +53,9 @@ describe('useDocumentTitle', () => {
     expect(document.title).toBe('Terminal - BrainStrike.ai');
   });
 
-  test('lets the settings overlay win over the tab underneath it', () => {
+  test('follows the settings route like any other tab (BST-1668)', () => {
+    // Settings is a shell route, so `openSettings` and `setActiveTab` are the
+    // same transition and the title tracks `activeTab` alone.
     render(<TitleWriter />);
 
     act(() => {
@@ -63,26 +65,9 @@ describe('useDocumentTitle', () => {
     expect(readDescriptions()).toEqual(['Customize your application settings']);
 
     act(() => {
-      usePanelLayoutStore.getState().setSettingsOpen(false);
+      usePanelLayoutStore.getState().setActiveTab('explorer');
     });
     expect(readTitles()).toEqual(['BrainStrike.ai - Home']);
-  });
-
-  test('treats activeTab "settings" as settings even when settingsOpen is false', () => {
-    // The half of `selectVisibleSurface` the cases above never reach: a snapshot
-    // written straight through `setState` (rather than `setActiveTab`, which
-    // sets both) leaves `activeTab: 'settings'` with the flag down.
-    // `root-layout-content.tsx` still shows the settings dialog for that state,
-    // so the title has to agree — this pins the equivalence rather than
-    // assuming it.
-    render(<TitleWriter />);
-
-    act(() => {
-      usePanelLayoutStore.setState({ activeTab: 'settings', settingsOpen: false });
-    });
-
-    expect(readTitles()).toEqual(['Settings - BrainStrike.ai']);
-    expect(readDescriptions()).toEqual(['Customize your application settings']);
   });
 
   test('never accumulates a second title or description element', () => {

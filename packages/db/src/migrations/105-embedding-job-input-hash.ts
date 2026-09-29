@@ -16,6 +16,7 @@ export const migration105EmbeddingJobInputHash: Migration = {
      WHERE job_type = 'embed_chunk'
        AND jsonb_typeof(payload) = 'object';
   `,
+  ledgerKey: 'custom-105-embedding-job-input-hash',
   name: 'embedding_job_input_hash',
   up: `
     WITH proven_source AS (

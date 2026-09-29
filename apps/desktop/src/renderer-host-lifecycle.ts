@@ -1,10 +1,15 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
+import { Effect, Schedule } from 'effect';
 import { app, BrowserWindow } from 'electron';
-import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
-import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
+import {
+  type DesktopRendererTarget,
+  resolveDesktopRendererTarget,
+} from './desktop-renderer-target';
+import { resolveDistRoot } from './dist-root';
 import { waitForWindowClosed } from './window-lifecycle-utils';
 import {
   assignWindowRole,
@@ -18,6 +23,10 @@ const HOST_LOAD_RETRY_ATTEMPTS = 3;
 const HOST_LOAD_RETRY_DELAY_MS = 300;
 const logger = createLogger('RendererHostLifecycle');
 const RENDERER_HOST_LIFECYCLE_DISPOSED_CODE = 'RENDERER_HOST_LIFECYCLE_DISPOSED';
+
+class HostLoadFailure {
+  constructor(readonly cause: unknown) {}
+}
 
 export type RendererHostLifecycleState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 
@@ -54,11 +63,6 @@ interface RendererHostLifecycleOptions<TStatus extends RendererHostStatusShape> 
   readonly role: Exclude<DesktopWindowRole, 'visible-ui'>;
   readonly statusEventName: string;
   readonly timeoutMessage: string;
-}
-
-function resolveDistRoot(): string {
-  const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
-  return path.basename(appPath) === 'dist' ? appPath : path.join(appPath, 'dist');
 }
 
 function createLifecycleDisposedError(role: Exclude<DesktopWindowRole, 'visible-ui'>): Error {
@@ -135,7 +139,18 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         );
       }
 
-      // An existing hidden host window in stopped/stopping/error is not usable for new work.
+      if (this.status.state === 'stopping') {
+        // A stop owner is awaiting this window's cooperative 'stopped' report.
+        // Replacing the window here would orphan that wait for its full timeout
+        // and let the stop then destroy the replacement. Let the stop settle.
+        await this.waitForStatus(
+          (status) => status.state !== 'stopping',
+          DEFAULT_HOST_READY_TIMEOUT_MS
+        );
+        return this.ensureStarted(options);
+      }
+
+      // An existing hidden host window in stopped/error is not usable for new work.
       // Replace it inside the startup promise so concurrent callers share one restart path.
     }
 
@@ -174,16 +189,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         this.hostWindow = window;
         this.attachWindow(window);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.setStatus(
-          this.options.createStatus({
-            active: false,
-            lastError: message,
-            runtimeId,
-            state: 'error',
-          })
-        );
-        return this.getStatus();
+        return this.settleStartupFailure(error, runtimeId);
       }
 
       try {
@@ -231,27 +237,9 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       return Promise.reject(error);
     }
 
-    return new Promise<TStatus>((resolve, reject) => {
-      let settled = false;
-      let timeoutId: ReturnType<typeof setTimeout> | null = null;
-      const rejectPendingWaiter = (error: Error) => {
-        if (settled) {
-          return;
-        }
-        cleanup();
-        reject(error);
-      };
-      const cleanup = () => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
-        this.pendingWaiterRejectors.delete(rejectPendingWaiter);
-        this.events.removeListener(this.options.statusEventName, listener);
-      };
+    let release = () => {};
+    const wait = Effect.callback<TStatus, Error>((resume) => {
+      const rejectPendingWaiter = (error: Error) => resume(Effect.fail(error));
       const listener = (status: TStatus) => {
         let matches = false;
         try {
@@ -260,20 +248,28 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           rejectPendingWaiter(error instanceof Error ? error : new Error(String(error)));
           return;
         }
-        if (!matches) {
-          return;
+        if (matches) {
+          resume(Effect.sync(() => this.createStatusSnapshot(status)));
         }
-        cleanup();
-        resolve(this.createStatusSnapshot(status));
       };
-
-      timeoutId = setTimeout(() => {
-        rejectPendingWaiter(new Error(this.options.timeoutMessage));
-      }, timeoutMs);
-
+      const timeoutId = setTimeout(
+        () => rejectPendingWaiter(new Error(this.options.timeoutMessage)),
+        timeoutMs
+      );
+      release = () => {
+        clearTimeout(timeoutId);
+        this.pendingWaiterRejectors.delete(rejectPendingWaiter);
+        this.events.removeListener(this.options.statusEventName, listener);
+      };
       this.pendingWaiterRejectors.add(rejectPendingWaiter);
       this.events.on(this.options.statusEventName, listener);
     });
+    return runAtPromiseBoundary(
+      Effect.ensuring(
+        wait,
+        Effect.sync(() => release())
+      )
+    );
   }
 
   setStatus(status: TStatus): void {
@@ -298,6 +294,13 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   destroyHostWindow(): void {
     const window = this.hostWindow;
     this.hostWindow = null;
+    if (window) {
+      this.rejectPendingStatusWaiters(
+        this.disposed
+          ? createLifecycleDisposedError(this.options.role)
+          : this.createWindowClosedError()
+      );
+    }
     if (window && !window.isDestroyed()) {
       clearWindowRoleByWebContentsId(window.webContents.id);
       window.destroy();
@@ -313,13 +316,35 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     // Any caller already awaiting the previously captured startup promise still needs a concrete
     // disposal signal here; otherwise it would sit until the status wait timeout fires.
     this.startupPromise = null;
-    const disposalError = createLifecycleDisposedError(this.options.role);
-    for (const rejectPendingWaiter of [...this.pendingWaiterRejectors]) {
-      rejectPendingWaiter(disposalError);
-    }
-    this.pendingWaiterRejectors.clear();
+    this.rejectPendingStatusWaiters(createLifecycleDisposedError(this.options.role));
     this.events.removeAllListeners();
     this.status = this.options.createStoppedStatus();
+  }
+
+  private createWindowClosedError(): Error {
+    return new Error(`${this.options.role} window closed before its state transition completed.`);
+  }
+
+  private rejectPendingStatusWaiters(error: Error): void {
+    for (const rejectPendingWaiter of [...this.pendingWaiterRejectors]) {
+      rejectPendingWaiter(error);
+    }
+    this.pendingWaiterRejectors.clear();
+  }
+
+  private settleStartupFailure(error: unknown, runtimeId: string): TStatus {
+    if (this.disposed) {
+      return this.getStatus();
+    }
+    this.setStatus(
+      this.options.createStatus({
+        active: false,
+        lastError: error instanceof Error ? error.message : String(error),
+        runtimeId,
+        state: 'error',
+      })
+    );
+    return this.getStatus();
   }
 
   private createStatusSnapshot(status: TStatus): TStatus {
@@ -360,23 +385,20 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     return window;
   }
 
-  private async loadWindow(window: BrowserWindow, runtimeId: string): Promise<void> {
-    // Resolve the renderer launch mode the SAME way the visible window does
-    // (create-window.ts → resolveDesktopRendererLaunchMode). The hidden hosts
-    // share the main process's argv, so they MUST agree with the visible window
-    // on where the renderer lives. Previously this branched on
-    // `app.isPackaged || --test-mode` and IGNORED
-    // `--brainstrike-desktop-launch-mode=built`, so `pnpm start` (unpackaged,
-    // built) pointed every hidden host at the dev server (localhost:38181) that
-    // isn't running → ERR_CONNECTION_REFUSED → background embedding/llm/chunking
-    // hosts dead while the visible window loaded the built file fine.
-    const launchMode = resolveDesktopRendererLaunchMode({
-      argv: process.argv,
-      isPackaged: app.isPackaged,
-      isTestMode: process.env['CI'] === 'true' || process.argv.includes('--test-mode'),
-    });
-    if (launchMode === 'built' || launchMode === 'test-built') {
-      await window.loadFile(path.join(resolveDistRoot(), 'renderer/index.html'), {
+  private async loadWindow(
+    window: BrowserWindow,
+    target: DesktopRendererTarget,
+    runtimeId: string
+  ): Promise<void> {
+    // The hidden hosts load the SAME document as the visible window — the
+    // process-wide renderer target `main.ts` configured (BST-1641) — with the
+    // role and runtime id as query parameters. Consuming that one object is
+    // what keeps the hosts, the visible window, and the IPC sender-frame
+    // allowlist in agreement (an earlier bug had this class branch on
+    // `app.isPackaged || --test-mode` on its own and point `pnpm start`'s
+    // hosts at a dev server that wasn't running).
+    if (target.kind === 'built-renderer') {
+      await window.loadFile(target.rendererPath, {
         query: {
           mode: this.options.mode,
           runtimeId,
@@ -385,57 +407,84 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       return;
     }
     await window.loadURL(
-      `${DESKTOP_DEV_RENDERER_URL}?mode=${encodeURIComponent(this.options.mode)}&runtimeId=${encodeURIComponent(runtimeId)}`
+      `${target.url}?mode=${encodeURIComponent(this.options.mode)}&runtimeId=${encodeURIComponent(runtimeId)}`
     );
   }
 
   private async createWindow(runtimeId: string): Promise<BrowserWindow> {
+    // Resolved once, before the retry loop: an unconfigured target is a boot
+    // ordering bug, not a transient load failure, so it fails by name here
+    // instead of being retried and reported as a generic load error.
+    const target = resolveDesktopRendererTarget();
+    const owner = this;
     let lastError: Error | null = null;
-    for (let attempt = 0; attempt < HOST_LOAD_RETRY_ATTEMPTS; attempt++) {
-      if (this.disposed) {
-        throw new Error(`${this.options.role} lifecycle was disposed during load retry.`);
+    let attempt = 0;
+    const load = Effect.gen(function* () {
+      attempt++;
+      if (owner.disposed) {
+        throw new Error(`${owner.options.role} lifecycle was disposed during load retry.`);
       }
-      const window = this.buildWindow();
-      assignWindowRole(window, this.options.role);
+      const window = owner.buildWindow();
+      assignWindowRole(window, owner.options.role);
       // Expose the in-flight window to status-report acceptance BEFORE the
       // page-load await: the host app can mount and send its one-shot
       // 'running' status while loadURL/loadFile is still pending. If the
       // manager's acceptStatusReport can't see this window yet, that report
       // is dropped and ensureStarted waits out the full ready timeout (then
       // destroys a perfectly healthy host).
-      this.hostWindow = window;
-      try {
-        await this.loadWindow(window, runtimeId);
-        return window;
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        logger.warn(
-          `${this.options.role} failed to load (attempt ${attempt + 1}/${HOST_LOAD_RETRY_ATTEMPTS})`,
-          {
-            attempt: attempt + 1,
-            errorMessage: lastError.message,
-          }
-        );
-        this.clearHostWindow(window);
-        clearWindowRoleByWebContentsId(window.webContents.id);
-        if (attempt < HOST_LOAD_RETRY_ATTEMPTS - 1) {
-          // Register the closed listener BEFORE destroy() — Electron's destroy()
-          // synchronously sets isDestroyed()=true, so waitForWindowClosed must
-          // capture the 'closed' event while the window is still alive. The 300ms
-          // timeout acts as a maximum wait; if 'closed' fires sooner, we retry
-          // immediately (the goal is resource release, not a guaranteed backoff).
-          const closedPromise = waitForWindowClosed(window, HOST_LOAD_RETRY_DELAY_MS);
-          window.destroy();
-          await closedPromise;
-        } else {
-          window.destroy();
-        }
+      owner.hostWindow = window;
+      yield* Effect.tryPromise({
+        catch: (error) => new HostLoadFailure(error),
+        try: () => owner.loadWindow(window, target, runtimeId),
+      }).pipe(
+        Effect.catch((failure) =>
+          Effect.gen(function* () {
+            if (owner.disposed) {
+              throw createLifecycleDisposedError(owner.options.role);
+            }
+            lastError =
+              failure.cause instanceof Error ? failure.cause : new Error(String(failure.cause));
+            logger.warn(
+              `${owner.options.role} failed to load (attempt ${attempt}/${HOST_LOAD_RETRY_ATTEMPTS})`,
+              {
+                attempt,
+                errorMessage: lastError.message,
+              }
+            );
+            owner.clearHostWindow(window);
+            clearWindowRoleByWebContentsId(window.webContents.id);
+            if (attempt < HOST_LOAD_RETRY_ATTEMPTS) {
+              // Register the closed listener BEFORE destroy() — Electron's destroy()
+              // synchronously sets isDestroyed()=true, so waitForWindowClosed must
+              // capture the 'closed' event while the window is still alive. The 300ms
+              // timeout acts as a maximum wait; if 'closed' fires sooner, we retry
+              // immediately (the goal is resource release, not a guaranteed backoff).
+              const closedPromise = waitForWindowClosed(window, HOST_LOAD_RETRY_DELAY_MS);
+              window.destroy();
+              yield* Effect.promise(() => closedPromise);
+            } else {
+              window.destroy();
+            }
+            return yield* Effect.fail(failure);
+          })
+        )
+      );
+      return window;
+    });
+    try {
+      return await runAtPromiseBoundary(
+        Effect.retry(load, Schedule.recurs(HOST_LOAD_RETRY_ATTEMPTS - 1))
+      );
+    } catch (error) {
+      if (!(error instanceof HostLoadFailure)) {
+        // Construction, disposal, and cleanup failures are terminal defects.
+        throw error;
       }
+      throw new Error(
+        `${this.options.role} failed to load after ${HOST_LOAD_RETRY_ATTEMPTS} attempts`,
+        { cause: lastError }
+      );
     }
-    throw new Error(
-      `${this.options.role} failed to load after ${HOST_LOAD_RETRY_ATTEMPTS} attempts`,
-      { cause: lastError }
-    );
   }
 
   private attachWindow(window: BrowserWindow): void {
@@ -444,6 +493,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         return;
       }
       this.hostWindow = null;
+      this.rejectPendingStatusWaiters(this.createWindowClosedError());
       this.options.onWindowClosed?.(window);
     });
 

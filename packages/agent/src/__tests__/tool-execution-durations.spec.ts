@@ -7,6 +7,32 @@ import { createToolExecutionDurations } from '../tools/tool-execution-durations'
 const ctx = (toolCallId: string) => [{ q: 1 }, { toolCallId }] as const;
 
 describe('tool execution durations', () => {
+  it('keeps reused tool-call ids isolated by the native execution thread', async () => {
+    let now = 0;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const durations = createToolExecutionDurations();
+    const guarded = guardToolExecution(
+      {
+        execute: async (elapsed: number, ..._args: unknown[]) => {
+          now += elapsed;
+          return { ok: true };
+        },
+      },
+      { durations, timeoutMs: 5000, toolName: 't' }
+    );
+    try {
+      await guarded.execute(11, { agent: { threadId: 'child-a', toolCallId: 'same' } });
+      await guarded.execute(29, { agent: { threadId: 'child-b', toolCallId: 'same' } });
+      await guarded.execute(7, { agent: { threadId: 'root', toolCallId: 'same' } });
+      expect(durations.read('same', 'child-a')).toBe(11);
+      expect(durations.read('same', 'child-b')).toBe(29);
+      expect(durations.read('same', 'root')).toBe(7);
+      expect(durations.read('same')).toBeUndefined();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('records the time execute actually ran, keyed by tool-call id', async () => {
     // This wrapper is the only place that sees real execution time. Everything
     // downstream can only see stream timestamps, which for an approval-gated

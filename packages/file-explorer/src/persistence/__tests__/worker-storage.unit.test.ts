@@ -9,6 +9,7 @@
 
 import type { StorageAdapter } from '@brainstrike/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readGlobalSlot, setGlobalSlot } from './global-slots';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
@@ -73,16 +74,16 @@ describe('WorkerStorage - No Worker Environment', () => {
     mockLogger.error.mockClear();
 
     // Save original Worker
-    originalWorker = (global as unknown as { Worker?: typeof Worker }).Worker;
+    originalWorker = readGlobalSlot<typeof Worker>('Worker');
 
     // Remove Worker from global to simulate non-Worker environment
-    (global as unknown as { Worker: typeof Worker | undefined }).Worker = undefined;
+    setGlobalSlot<typeof Worker>('Worker', undefined);
   });
 
   afterEach(() => {
     // Restore original Worker
     if (originalWorker !== undefined) {
-      (global as unknown as { Worker: typeof Worker }).Worker = originalWorker;
+      setGlobalSlot('Worker', originalWorker);
     }
     vi.restoreAllMocks();
   });
@@ -225,7 +226,7 @@ describe('WorkerStorage - Debouncing Behavior', () => {
     mockLogger.error.mockClear();
 
     // Ensure Worker is undefined for fallback testing
-    (global as unknown as { Worker: typeof Worker | undefined }).Worker = undefined;
+    setGlobalSlot<typeof Worker>('Worker', undefined);
   });
 
   afterEach(() => {
@@ -289,7 +290,7 @@ describe('WorkerStorage - Destroy Cleanup', () => {
     vi.useFakeTimers();
 
     // Ensure Worker is undefined
-    (global as unknown as { Worker: typeof Worker | undefined }).Worker = undefined;
+    setGlobalSlot<typeof Worker>('Worker', undefined);
 
     const { WorkerStorage } = await import('../worker-storage');
     const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);

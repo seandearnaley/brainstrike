@@ -8,6 +8,7 @@ export const migration104GoogleGemini37Flash: Migration = {
       AND id = 'gemini-3.7-flash';
     UPDATE models SET sort_order = sort_order - 1 WHERE provider_id = 'google';
   `,
+  ledgerKey: 'custom-104-google-gemini-3-7-flash',
   name: 'google_gemini_3_7_flash',
   up: `
     UPDATE models SET sort_order = sort_order + 1 WHERE provider_id = 'google';

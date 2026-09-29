@@ -56,6 +56,14 @@ function readVercelConfig(): VercelConfig {
 const APP_SHELL_SOURCE = String.raw`/((?!canvas-frame\.html$).*)`;
 
 const REVALIDATE = 'public, max-age=0, must-revalidate';
+const CACHE_HEADER_KEYS = ['cache-control', 'cdn-cache-control', 'vercel-cdn-cache-control'];
+/** Every source that sets a cache header today; none of them can match the app shell. */
+const REVIEWED_CACHE_SOURCES = [
+  '/canvas-frame.html',
+  '/assets/(.*)',
+  '/assets/grammars/(.*)',
+  '/assets/pglite.wasm',
+];
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 
 function cacheControlOf(rule: VercelHeaderRule): string | undefined {
@@ -146,13 +154,32 @@ describe('vercel.json production headers', () => {
     }
   });
 
-  it('never marks anything outside /assets/ immutable (index.html must revalidate)', () => {
+  it("lets / and /index.html fall through to Vercel's default revalidation (BST-1850)", () => {
+    // A failed lazy chunk is recovered by a reload, and the reload must fetch the NEW
+    // index.html or it re-requests the old build's chunk names and fails again. Vercel's
+    // documented default for a file with no rule is `public, max-age=0, must-revalidate`;
+    // any cache header on a rule that matches the shell replaces it. Vercel's CDN reads
+    // the CDN-Cache-Control pair ahead of Cache-Control, so all three count.
     const config = readVercelConfig();
+    const matchesShell = (source: string): boolean =>
+      ['/', '/index.html'].some((route) => new RegExp(`^${source}$`).test(route));
+
+    // Prove the matcher can see the shell at all: the app-wide rule must match both paths.
+    expect(matchesShell(APP_SHELL_SOURCE)).toBe(true);
+
     for (const rule of config.headers ?? []) {
-      const cacheControl = cacheControlOf(rule);
-      if (cacheControl?.includes('immutable')) {
-        expect(rule.source.startsWith('/assets/')).toBe(true);
+      const cacheHeaders = rule.headers.filter((header) =>
+        CACHE_HEADER_KEYS.includes(header.key.toLowerCase())
+      );
+      if (cacheHeaders.length === 0) {
+        continue;
       }
+      // A rule that sets a cache header must be a reviewed one that cannot match the shell.
+      expect(
+        REVIEWED_CACHE_SOURCES,
+        `${rule.source} sets ${cacheHeaders.map((header) => header.key).join(', ')}; review that it cannot match / or /index.html before adding it here`
+      ).toContain(rule.source);
+      expect(matchesShell(rule.source), `${rule.source} matches the app shell`).toBe(false);
     }
   });
 });

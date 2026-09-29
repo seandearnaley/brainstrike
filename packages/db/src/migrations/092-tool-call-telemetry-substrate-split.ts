@@ -29,6 +29,7 @@ export const migration092ToolCallTelemetrySubstrateSplit: Migration = {
       DROP COLUMN IF EXISTS scan_limited,
       DROP COLUMN IF EXISTS candidates_truncated;
   `,
+  ledgerKey: 'custom-092-tool-call-telemetry-substrate-split',
   name: 'tool_call_telemetry_substrate_split',
   up: `
     ALTER TABLE brainstrike_tool_call_telemetry

@@ -20,8 +20,12 @@ const REQUIRED_JOBS = new Map([
   ['desktop-e2e', 'Desktop E2E'],
 ]);
 
+// The parallel lanes behind the required Desktop E2E fan-in (BST-1762).
+const DESKTOP_SMOKE_LANE_JOB_IDS = ['desktop-e2e-smoke', 'desktop-e2e-delegated'];
+
 const ADMITTED_JOBS = [
   ...REQUIRED_JOBS.keys(),
+  ...DESKTOP_SMOKE_LANE_JOB_IDS,
   'native-windows',
   'native-electron',
   // Non-required like the native jobs, but expensive (three Chromium
@@ -58,7 +62,13 @@ test('required check names remain stable and always come from the admitted full 
   }
 
   assert.match(jobBlock('web-e2e'), /^ {4}needs: \[admission, build\]$/m);
-  assert.match(jobBlock('desktop-e2e'), /^ {4}needs: \[admission, build\]$/m);
+  assert.match(
+    jobBlock('desktop-e2e'),
+    /^ {4}needs: \[admission, build, desktop-e2e-smoke, desktop-e2e-delegated\]$/m
+  );
+  for (const laneJobId of DESKTOP_SMOKE_LANE_JOB_IDS) {
+    assert.match(jobBlock(laneJobId), /^ {4}needs: \[admission, build\]$/m, laneJobId);
+  }
 });
 
 test('every expensive test job is held behind the same admission decision', () => {

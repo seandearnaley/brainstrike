@@ -15,7 +15,12 @@ const workflowPaths = [
 // also never reintroduce the unused ~/.cache/electron cache location.
 const electronCacheConfigPaths = [...workflowPaths, '.github/actions/setup-workspace/action.yml'];
 const desktopSetupJobs = [
-  { job: 'desktop-e2e', relativePath: '.github/workflows/test.yml', turboCache: 'false' },
+  { job: 'desktop-e2e-smoke', relativePath: '.github/workflows/test.yml', turboCache: 'false' },
+  {
+    job: 'desktop-e2e-delegated',
+    relativePath: '.github/workflows/test.yml',
+    turboCache: 'false',
+  },
   {
     job: 'desktop-full-regression',
     relativePath: '.github/workflows/desktop-e2e.yml',
@@ -99,8 +104,8 @@ test('every provisioning step uses the container-safe runner temp fallback', () 
 
   assert.equal(
     provisioningSteps.length,
-    7,
-    'expected native packaging, smoke, two regression, and three official-conformance provisioning sites'
+    8,
+    'expected native packaging, two smoke lanes, two regression, and three official-conformance provisioning sites'
   );
   for (const { relativePath, run } of provisioningSteps) {
     assert.equal(typeof run, 'string', `${relativePath} provisioning must remain a shell step`);

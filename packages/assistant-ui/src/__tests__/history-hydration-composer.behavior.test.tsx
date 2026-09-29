@@ -29,8 +29,8 @@ vi.mock('../assistant-message-text', () => ({
 }));
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('../local-runtime-adapter', () => ({
+  acquireLocalBackend: vi.fn(() => () => {}),
   createLocalModelAdapter: vi.fn(() => ({ run: vi.fn() })),
-  disposeLocalBackend: vi.fn().mockResolvedValue(undefined),
   hasDesktopLlmHost: vi.fn(() => false),
 }));
 

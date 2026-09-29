@@ -354,6 +354,24 @@ describe('IdeLayout', () => {
     expect(within(header).getByTestId('hide-x-panel')).toBeInTheDocument();
   });
 
+  it('draws the right-panel hide button as a panel-close icon, never a scroll-like chevron', () => {
+    render(
+      <IdeLayout
+        rightPanelChrome={{
+          headerContent: <div data-testid="custom-header-strip">strip</div>,
+          hideButtonTestId: 'hide-x-panel',
+        }}
+        rightPanelContent={rightContent}
+      >
+        <div>Main Content</div>
+      </IdeLayout>
+    );
+
+    const icon = screen.getByTestId('hide-x-panel').querySelector('svg');
+    expect(icon).toHaveClass('lucide-panel-right-close');
+    expect(icon).not.toHaveClass('lucide-chevron-right');
+  });
+
   it('keeps the icon+title header when headerContent is absent', () => {
     render(
       <IdeLayout rightPanelChrome={{ title: 'Workspace' }} rightPanelContent={rightContent}>

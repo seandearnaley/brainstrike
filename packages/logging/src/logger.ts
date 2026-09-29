@@ -5,6 +5,7 @@ import type {
   TransportTargetOptions,
 } from 'pino';
 import pino from 'pino';
+import { isErrorObject, logSerializers } from './log-serializers.js';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 type ManagedNodeDestination = DestinationStream & {
@@ -493,18 +494,7 @@ function createRootLogger(): PinoLogger {
   const baseOptions: LoggerOptions = {
     base: resolveBaseBindings(internalConfig),
     level: resolvedLevel,
-    serializers: {
-      // Redact sensitive fields
-      apiKey: () => '[REDACTED]',
-      authorization: () => '[REDACTED]',
-      cookie: () => '[REDACTED]',
-      err: pino.stdSerializers.err,
-      password: () => '[REDACTED]',
-      req: pino.stdSerializers.req,
-      res: pino.stdSerializers.res,
-      secret: () => '[REDACTED]',
-      token: () => '[REDACTED]',
-    },
+    serializers: logSerializers,
     timestamp: internalConfig.includeTimestamp ? pino.stdTimeFunctions.isoTime : false,
   };
 
@@ -676,35 +666,49 @@ function isSensitiveLogKey(key: string, path: readonly string[]): boolean {
 export function redactSensitiveLogValue(
   value: unknown,
   path: readonly string[] = [],
-  seen = new WeakMap<object, unknown>()
+  seen = new WeakMap<object, unknown>(),
+  options: {
+    readonly maxDepth?: number;
+    readonly onDepthTruncated?: () => void;
+    readonly onRepeatedValue?: () => void;
+    readonly repeatedValue?: string;
+  } = {}
 ): unknown {
   if (typeof value !== 'object' || value === null) {
     return value;
   }
+  if (path.length >= (options.maxDepth ?? Number.POSITIVE_INFINITY)) {
+    options.onDepthTruncated?.();
+    return '[TRUNCATED: maximum diagnostic depth]';
+  }
   const existing = seen.get(value);
   if (existing !== undefined) {
-    return existing;
+    options.onRepeatedValue?.();
+    return options.repeatedValue ?? existing;
   }
   const redacted = (Array.isArray(value) ? [] : {}) as Record<string, unknown>;
   // Memoize BEFORE any recursion (including the Error-cause walk below): a
   // cyclic cause chain (err.cause === err, or mutual A<->B) must hit the
   // WeakMap and terminate — recursing first would loop forever.
   seen.set(value, redacted);
-  if (value instanceof Error) {
+  // Shares the serializer's Error-object test rather than `instanceof Error`,
+  // so a cross-realm Error is not stripped here — before the (wider) serializer
+  // gate downstream ever sees it (BST-1662).
+  if (isErrorObject(value)) {
     Object.assign(redacted, { message: value.message, name: value.name, stack: value.stack });
     // `Error.cause` is a non-enumerable own property, so the `Object.entries`
     // walk below never visits it — without this, the cause chain silently
     // disappears the moment an Error is redacted (see diagnostic-events.ts,
     // which relies on `cause` surviving to walk it back out).
     if (value.cause !== undefined) {
-      redacted['cause'] = redactSensitiveLogValue(value.cause, [...path, 'cause'], seen);
+      redacted['cause'] = redactSensitiveLogValue(value.cause, [...path, 'cause'], seen, options);
     }
   }
   for (const [key, entry] of Object.entries(value)) {
     const entryPath = [...path, key];
     redacted[key] = isSensitiveLogKey(key, entryPath)
       ? '[REDACTED]'
-      : redactSensitiveLogValue(entry, entryPath, seen);
+      : redactSensitiveLogValue(entry, entryPath, seen, options);
   }
   return redacted;
 }
@@ -945,6 +949,7 @@ export const __loggerTesting = {
   isRootTransportEnabled: () => ensureRootLogger().isLevelEnabled(currentLevel),
   normalizePinoLogArgs,
   sanitizeBrowserConsoleValue,
+  serializers: logSerializers,
   writePinoLog,
 };
 

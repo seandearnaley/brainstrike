@@ -1,5 +1,5 @@
-import { GET as handleAssistantStatusRequest } from '../../src/app/api/assistant/status/route';
-import { resolveWebAssistantDeploymentAccess } from '../../src/server/web-assistant-deployment';
+import { GET as handleAssistantStatusRequest } from '../../src/app/api/assistant/status/route.js';
+import { resolveWebAssistantDeploymentAccess } from '../../src/server/web-assistant-deployment.js';
 
 const JSON_HEADERS = {
   'Cache-Control': 'no-store',

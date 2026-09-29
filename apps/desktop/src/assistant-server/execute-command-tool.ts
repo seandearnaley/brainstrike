@@ -6,11 +6,16 @@ import {
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type RuntimeData,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import {
+  NATIVE_TOOL_ID,
+  requireNativeToolExecutionBudget,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
+import { withWorkspaceMutationLease } from './workspace-mutation-lease';
 import { isWithinRoot } from './workspace-path';
 import {
   describeOpenRootTopology,
@@ -24,10 +29,12 @@ const logger = createLogger('ExecuteCommandTool');
 const REDACTED_COMMAND_LOG_VALUE = { redacted: true } as const;
 const REDACTED_CWD_LOG_VALUE = { redacted: true } as const;
 
-/** Default per-command timeout when the model does not specify one. */
-const DEFAULT_TIMEOUT_MS = 120_000;
-/** Hard ceiling on the per-call timeout so a bad value cannot wedge the host. */
-const MAX_TIMEOUT_MS = 600_000;
+/**
+ * `defaultMs`: per-command timeout when the model does not specify one.
+ * `maxMs`: hard ceiling on the per-call timeout so a bad value cannot wedge the host.
+ */
+const { defaultMs: DEFAULT_TIMEOUT_MS, maxMs: MAX_TIMEOUT_MS } =
+  requireNativeToolExecutionBudget(EXECUTE_COMMAND_TOOL_ID);
 /** Maximum command-input characters repeated in the model-facing result. */
 const MAX_ECHOED_COMMAND_CHARS = 200;
 /**
@@ -147,8 +154,10 @@ const liveChildProcesses = new Map<number, ChildProcess>();
  * group and `process.kill(-pid, signal)` signals the WHOLE group (the shell AND
  * every grandchild it forked) in one call — the orphan-prevention guarantee.
  * `tree-kill` is the cross-platform backstop (it walks the child tree itself and
- * is the only mechanism on Windows, which has no negative-pid groups). A kill
- * failure is logged, never swallowed (no-silent-fallbacks).
+ * is the only mechanism on Windows, which has no negative-pid groups). A real
+ * kill failure is logged, never swallowed (no-silent-fallbacks) — tree-kill is
+ * the authority on whether the tree actually died, because a dead group leader
+ * never proves a dead tree.
  *
  * KNOWN, ACCEPTED LIMITATION: a process that deliberately double-forks /
  * daemonizes (setsid → reparents to PID 1 in its own new process group) escapes
@@ -159,16 +168,35 @@ const liveChildProcesses = new Map<number, ChildProcess>();
  * (tests, builds, git, package managers) do not daemonize, so this is acceptable.
  */
 function killProcessTree(pid: number, signal: NodeJS.Signals): void {
-  let groupKilled = false;
   try {
     // Negative pid → signal the whole process group (POSIX). Requires the child
     // to have been spawned detached so it leads its own group.
     process.kill(-pid, signal);
-    groupKilled = true;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    // ESRCH = the group is already gone (normal once the child has exited).
-    if (code !== 'ESRCH') {
+    // Neither code proves a FAILURE on its own, so neither warns here:
+    //   ESRCH — the group no longer exists (normal once the child has exited).
+    //   EPERM — nothing in the group could be signalled. Usually that is the
+    //     post-reap window, where the survivors are killed-but-unreaped zombies
+    //     Darwin's killpg1() drops from its signalable count (Linux keeps them
+    //     in the group and simply succeeds, so this arm is Darwin-observable
+    //     only). But it ALSO covers a LIVE member we may not signal — a `sudo`
+    //     or setuid process an arbitrary user command started — which is a real
+    //     orphan. Unlike the conformance driver's `killPosixProcessGroup`
+    //     (BST-1674), this tool runs arbitrary commands, so "every member is our
+    //     own descendant running as us" does NOT hold here. EPERM is therefore
+    //     inconclusive, never proof of success.
+    // tree-kill below resolves most of that ambiguity: it signals the positive
+    // pid and every descendant individually, so a survivor it can SEE fails
+    // there and is logged with its own error. Its reach is the PPID tree
+    // (`pgrep -P`), not the process group, so a group member whose intermediate
+    // parent already exited — reparented to PID 1 — is invisible to it. That
+    // residual case is why EPERM still emits a debug line: no warn (this window
+    // is usually benign, and warn-noise is what this guard exists to remove),
+    // but never a completely silent teardown either.
+    if (code === 'EPERM') {
+      logger.debug('Process-group kill found nothing signalable', { code, pid, signal });
+    } else if (code !== 'ESRCH') {
       logger.warn('Process-group kill failed; falling back to tree-kill', {
         code,
         pid,
@@ -179,9 +207,10 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
   // Always also run tree-kill: it covers Windows (no process groups) and any
   // grandchild that escaped the group (rare, but the recipe is belt-and-braces).
   treeKill(pid, signal, (error) => {
-    // Only log when the group kill ALSO did not land and the failure is not the
-    // expected "already dead" race after a successful kill (no-silent-fallbacks).
-    if (!groupKilled && error && !/no such process/i.test(error.message)) {
+    // NOT gated on the group kill: a dead group leader does not prove a dead
+    // tree, and the escaped grandchild is the exact case tree-kill exists for.
+    // The already-dead race is filtered by message alone (no-silent-fallbacks).
+    if (error && !/no such process/i.test(error.message)) {
       logger.warn('tree-kill failed', { error: error.message, pid, signal });
     }
   });
@@ -216,11 +245,16 @@ async function resolveCommandCwd(
   runtimeData: RuntimeData | undefined,
   rootQualifier: string | undefined,
   requestedCwd: string | undefined
-): Promise<{ cwd: string; rootId: string; rootName: string }> {
+): Promise<{ cwd: string; rootId: string; rootName: string; rootPath: string }> {
   const root = resolveWorkspaceRoot(runtimeData, rootQualifier);
   const canonicalRootPath = await fsPromises.realpath(root.path);
   if (requestedCwd === undefined || requestedCwd.trim().length === 0) {
-    return { cwd: canonicalRootPath, rootId: root.rootId, rootName: root.displayName };
+    return {
+      cwd: canonicalRootPath,
+      rootId: root.rootId,
+      rootName: root.displayName,
+      rootPath: canonicalRootPath,
+    };
   }
   // A relative cwd is resolved against the root; an absolute cwd is taken as-is.
   // Either way the canonical (symlink-resolved) result must be inside the root.
@@ -233,16 +267,21 @@ async function resolveCommandCwd(
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      throw new Error(`cwd "${requestedCwd}" does not exist.`);
+      throw new ToolInputError(`cwd "${requestedCwd}" does not exist.`);
     }
     throw error;
   }
   if (!isWithinRoot(canonicalRootPath, canonicalCwd)) {
-    throw new Error(
+    throw new ToolInputError(
       `cwd "${requestedCwd}" resolves outside the workspace root "${root.displayName}". A command's start directory must be inside an open folder.`
     );
   }
-  return { cwd: canonicalCwd, rootId: root.rootId, rootName: root.displayName };
+  return {
+    cwd: canonicalCwd,
+    rootId: root.rootId,
+    rootName: root.displayName,
+    rootPath: canonicalRootPath,
+  };
 }
 
 export interface SpawnOutcome {
@@ -710,16 +749,48 @@ export async function runExecuteCommand(
   options?: { signal?: AbortSignal | undefined; stream?: ShellOutputStreamer | undefined }
 ): Promise<ExecuteCommandToolResult> {
   const topology = describeOpenRootTopology(runtimeData);
-  const { cwd, rootId, rootName } = await resolveCommandCwd(runtimeData, input.root, input.cwd);
+  const { cwd, rootId, rootName, rootPath } = await resolveCommandCwd(
+    runtimeData,
+    input.root,
+    input.cwd
+  );
   const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
   const startedAt = Date.now();
-  const outcome = await runShellCommand({
-    command: input.command,
-    cwd,
-    signal: options?.signal,
-    streamer: options?.stream,
-    timeoutMs,
+  // Queueing is part of the same call budget; an expired waiter must never spawn.
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const admissionSignal = options?.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+  let spawned = false;
+  const outcome = await withWorkspaceMutationLease(
+    rootPath,
+    'opaque',
+    () => {
+      admissionSignal.throwIfAborted();
+      const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
+      if (remainingTimeoutMs <= 0) {
+        throw new ToolInputError(
+          'The command timed out while waiting for workspace ownership; it was not run.'
+        );
+      }
+      spawned = true;
+      return runShellCommand({
+        command: input.command,
+        cwd,
+        signal: options?.signal,
+        streamer: options?.stream,
+        timeoutMs: remainingTimeoutMs,
+      });
+    },
+    admissionSignal
+  ).catch((error: unknown) => {
+    if (!spawned && admissionSignal.aborted) {
+      throw new ToolInputError(
+        options?.signal?.aborted
+          ? 'The command was aborted before execution.'
+          : 'The command timed out while waiting for workspace ownership; it was not run.'
+      );
+    }
+    throw error;
   });
   const durationMs = Date.now() - startedAt;
 

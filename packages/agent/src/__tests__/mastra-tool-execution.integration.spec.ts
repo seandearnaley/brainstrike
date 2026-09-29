@@ -27,6 +27,7 @@ import {
   assignTaskIds,
   type ManageTaskListResult,
   type McpHostPort,
+  NATIVE_TOOL_ID,
   parseConfiguredMcpServerId,
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
@@ -39,6 +40,11 @@ import type { Transport } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import {
+  projectToolOutputArtifactPage,
+  readToolOutputArtifact,
+} from '../mastra/tool-output-artifact-reader';
+import type { StoreSettledToolOutputInput } from '../mastra/tool-output-artifact-settlement';
 import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import {
@@ -86,6 +92,50 @@ const MCP_AUDIO_DATA = 'YXVkaW8tYnl0ZXM=';
 const MCP_IMAGE_DATA = 'aW1hZ2UtYnl0ZXM=';
 const MCP_TEXT_RAW_ONLY_TAIL = 'mcp-multimodal-raw-only-tail';
 const MCP_STDIO_TEXT_RAW_ONLY_TAIL = 'mcp-stdio-multimodal-raw-only-tail';
+const ARTIFACT_FIXTURE_NOW = new Date('2026-09-05T12:00:00.000Z');
+const ARTIFACT_FIXTURE_EXPIRES_AT = new Date(
+  ARTIFACT_FIXTURE_NOW.getTime() + 7 * 24 * 60 * 60 * 1000
+).toISOString();
+function createStoredArtifactReaderTool(stored: readonly StoreSettledToolOutputInput[]) {
+  return createTool({
+    description: 'Read the saved tool output by its cursor.',
+    execute: ({ cursor }) =>
+      readToolOutputArtifact(
+        { cursor, mode: 'cursor' },
+        {
+          // The stored fixture has a fixed lifetime; real transport timers stay live.
+          now: () => new Date(ARTIFACT_FIXTURE_NOW),
+          reader: {
+            readRange: async ({ artifactId, offsetByte, limitBytes }) => {
+              const entry = stored[0];
+              if (!entry || artifactId !== '019f7d67-7165-7c23-8e99-d70c2a2f168d') {
+                return { status: 'not_found' as const };
+              }
+              const complete = new TextEncoder().encode(entry.content);
+              const bytes = complete.slice(offsetByte, offsetByte + limitBytes);
+              return {
+                bytes,
+                endByte: offsetByte + bytes.length,
+                offsetByte,
+                reference: {
+                  byteLength: complete.length,
+                  expiresAt: ARTIFACT_FIXTURE_EXPIRES_AT,
+                  format: entry.format,
+                  id: artifactId,
+                },
+                status: 'found' as const,
+              };
+            },
+          },
+        }
+      ),
+    id: NATIVE_TOOL_ID.readToolOutputArtifact,
+    inputSchema: z.object({ cursor: z.string() }),
+    toModelOutput(this: { id: string }, output) {
+      return projectToolOutputArtifactPage(output, undefined, this.id);
+    },
+  });
+}
 const MIXED_MEDIA_STDIO_SERVER_PATH = fileURLToPath(
   new URL('./fixtures/mcp-mixed-media-stdio-server.mjs', import.meta.url)
 );
@@ -213,9 +263,14 @@ async function closeHttpMcpFixture(
 /**
  * A scripted LanguageModelV2: first turn emits a single tool call; once the
  * prompt contains the tool result (role "tool"), it emits a final text answer.
- * This is the minimal real-model contract the Mastra loop drives.
+ * This is the minimal real-model contract the Mastra loop drives. With
+ * `discover`, an extra leading turn loads the deferred tool by exact name via
+ * Mastra's `load_tool` meta-tool so it is callable on the next step.
  */
 function createScriptedToolCallModel(args: {
+  continueWithTool?: (
+    prompt: LanguageModelV2CallOptions['prompt']
+  ) => { input: string; toolCallId: string; toolName: string } | undefined;
   discover?: boolean;
   toolName: string;
   toolCallId: string;
@@ -243,9 +298,9 @@ function createScriptedToolCallModel(args: {
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
             {
-              input: JSON.stringify({ query: args.toolName }),
-              toolCallId: `${args.toolCallId}-search`,
-              toolName: 'search_tools',
+              input: JSON.stringify({ toolName: args.toolName }),
+              toolCallId: `${args.toolCallId}-load`,
+              toolName: 'load_tool',
               type: 'tool-call',
             },
             { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
@@ -272,6 +327,17 @@ function createScriptedToolCallModel(args: {
 
       if (promptHasToolResult) {
         args.onToolResultPrompt?.(options.prompt);
+        const continuation = args.continueWithTool?.(options.prompt);
+        if (continuation) {
+          expect(options.tools?.map((tool) => tool.name)).toContain(continuation.toolName);
+          return Promise.resolve({
+            stream: enqueue([
+              { type: 'stream-start', warnings: [] },
+              { type: 'tool-call', ...continuation },
+              { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+            ]),
+          });
+        }
         const id = 'text-final';
         return Promise.resolve({
           stream: enqueue([
@@ -814,7 +880,10 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       {
         runtime: { apiKey: 'test-key', provider: 'openai' },
         toolOutputArtifactStore: { store },
-        tools: { settled_large_output: largeOutputTool },
+        tools: {
+          settled_large_output: largeOutputTool,
+          [NATIVE_TOOL_ID.readToolOutputArtifact]: createStoredArtifactReaderTool([]),
+        },
       }
     );
 
@@ -828,7 +897,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       format: 'json',
       toolCallId: 'call-settled-large-output-1',
     });
-    expect(modelFacingToolOutput).toContain('brainstrike.readToolOutputArtifact');
+    expect(modelFacingToolOutput).toContain('brainstrike_readToolOutputArtifact');
     expect(modelFacingToolOutput).toContain('"cursor"');
     expect(modelFacingToolOutput).not.toContain('artifactRef');
     expect(modelFacingToolOutput).not.toContain('output was truncated');
@@ -960,6 +1029,193 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
     expect(toModelOutput).toHaveBeenCalledWith(rawOutput);
     expect(modelFacingToolOutput).toBe(JSON.stringify(rawOutput));
+  });
+
+  it.each([
+    {
+      hook: false,
+      name: 'ordinary',
+      value: `${'x'.repeat(4500)}required-middle-criterion${'y'.repeat(4500)}`,
+    },
+    {
+      hook: false,
+      name: 'escaped',
+      value: `${'\\n"quoted"'.repeat(420)}required-middle-criterion`,
+    },
+    {
+      hook: true,
+      name: 'hook context',
+      value: `${'x'.repeat(4500)}required-middle-criterion${'y'.repeat(4500)}`,
+    },
+    {
+      hook: false,
+      name: 'multiple pages',
+      value: `${'x'.repeat(5900)}required-middle-criterion${'y'.repeat(5900)}`,
+    },
+  ])(
+    'preserves recoverable MCP data below the artifact byte ceiling ($name)',
+    async ({ hook, name, value }) => {
+      const server = await startStreamableMcpServer();
+      const mcpHost = createRealTransportMcpHost({
+        name: 'remote',
+        transport: 'streamable-http',
+        url: server.url,
+      });
+      const stored: StoreSettledToolOutputInput[] = [];
+      let modelOutput = '';
+      let recovered = '';
+      let readerAction: { input: { cursor: string }; tool: string } | undefined;
+      let recoveryCall = 0;
+      modelHolder.current = createScriptedToolCallModel({
+        continueWithTool: (prompt) => {
+          if (recoveryCall > 10) {
+            throw new Error('Artifact recovery did not converge.');
+          }
+          const output = readToolResultOutput(
+            prompt.filter((message) => message.role === 'tool').at(-1)
+          ) as { type: string; value: unknown };
+          const value =
+            output.type === 'text'
+              ? JSON.parse(z.string().parse(output.value).split('\nPost-tool context: ')[0] ?? '')
+              : output.value;
+          const page = z
+            .object({
+              content: z.string(),
+              next: z
+                .object({ input: z.object({ cursor: z.string() }), tool: z.string() })
+                .optional(),
+            })
+            .parse(value);
+          recovered += page.content;
+          readerAction = page.next;
+          if (!readerAction) {
+            return;
+          }
+          return {
+            input: JSON.stringify(readerAction.input),
+            toolCallId: `recover-${recoveryCall++}`,
+            toolName: readerAction.tool,
+          };
+        },
+        discover: true,
+        finalText: 'Read the issue.',
+        input: JSON.stringify({ value }),
+        onToolResultPrompt: (prompt) => {
+          if (modelOutput === '') {
+            modelOutput = JSON.stringify(
+              readToolResultOutput(prompt.filter((message) => message.role === 'tool').at(-1))
+            );
+          }
+        },
+        toolCallId: 'call-medium-mcp',
+        toolName: 'remote_echo',
+      });
+      try {
+        const iterator = await streamMastraAgent(
+          [
+            {
+              id: 'u-medium-mcp',
+              parts: [{ text: 'Read the entire issue.', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          {
+            ...(hook
+              ? {
+                  hookRunner: {
+                    postToolUse: async () => ({
+                      additionalContext: 'Preserve the acceptance criteria.',
+                    }),
+                    preToolUse: async () => ({ decision: 'allow' as const }),
+                  },
+                }
+              : {}),
+            mcpHost,
+            runtime: { apiKey: 'test-key', provider: 'openai' },
+            toolOutputArtifactStore: {
+              store: async (input) => {
+                stored.push(input);
+                return {
+                  byteLength: new TextEncoder().encode(input.content).byteLength,
+                  expiresAt: ARTIFACT_FIXTURE_EXPIRES_AT,
+                  format: input.format,
+                  id: '019f7d67-7165-7c23-8e99-d70c2a2f168d',
+                };
+              },
+            },
+            tools: {
+              [NATIVE_TOOL_ID.readToolOutputArtifact]: createStoredArtifactReaderTool(stored),
+            },
+          }
+        );
+        for await (const _chunk of iterator) {
+          // Exercise discovery, actual MCP transport, settlement and next model input.
+        }
+      } finally {
+        await closeHttpMcpFixture(mcpHost, server);
+      }
+      expect(server.executions).toEqual([value]);
+      expect(stored).toHaveLength(1);
+      expect(stored[0]?.content).toBe(JSON.stringify({ echoed: value }));
+      expect(new TextEncoder().encode(stored[0]?.content).byteLength).toBeLessThan(12_000);
+      if (name === 'escaped') {
+        expect(value.length).toBeLessThan(8000);
+        expect(
+          JSON.stringify({ type: 'text', value: JSON.stringify({ echoed: value }) }).length
+        ).toBeGreaterThan(8000);
+      }
+      expect(recovered).toBe(stored[0]?.content);
+      expect(modelOutput).toContain('cursor');
+      expect(modelOutput).toContain('brainstrike_readToolOutputArtifact');
+      expect(modelOutput).not.toContain('tool_result_truncated');
+      if (hook) {
+        expect(modelOutput).toContain('Preserve the acceptance criteria.');
+      }
+    }
+  );
+
+  it('does not apply MCP-only settlement to an ordinary local tool', async () => {
+    const store = vi.fn(async () => {
+      throw new Error('Local inline output must not be settled.');
+    });
+    let modelOutput = '';
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'Local result received.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        modelOutput = JSON.stringify(
+          readToolResultOutput(prompt.filter((message) => message.role === 'tool').at(-1))
+        );
+      },
+      toolCallId: 'local-inline-call',
+      toolName: 'local_inline',
+    });
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'local-inline-user',
+          parts: [{ text: 'Read local output.', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        toolOutputArtifactStore: { store },
+        tools: {
+          local_inline: createTool({
+            description: 'Local fixture',
+            execute: async () => 'x'.repeat(9042),
+            id: 'local_inline',
+            inputSchema: z.object({}),
+          }),
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      /* Drive the actual runtime to completion. */
+    }
+    expect(store).not.toHaveBeenCalled();
+    expect(modelOutput).toContain('x'.repeat(100));
   });
 
   it('discovers and executes a real Streamable HTTP MCP tool through the real agent loop', async () => {
@@ -1226,7 +1482,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
   });
 
-  it('enumerates, discovers, auto-loads, and executes a deferred native tool through the real loop', async () => {
+  it('enumerates, discovers, loads via load_tool, and executes a deferred native tool through the real loop', async () => {
     const executions: string[] = [];
     const offeredToolNames: string[][] = [];
     let turn = 0;
@@ -1284,9 +1540,9 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
               {
-                input: JSON.stringify({ query: 'brainstrike_listWorkspaceContext' }),
-                toolCallId: 'call-search-1',
-                toolName: 'search_tools',
+                input: JSON.stringify({ toolName: 'brainstrike_listWorkspaceContext' }),
+                toolCallId: 'call-load-1',
+                toolName: 'load_tool',
                 type: 'tool-call',
               },
               { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
@@ -1345,12 +1601,13 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       chunks.push(chunk);
     }
 
-    expect(offeredToolNames[0]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[1]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[2]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[3]).toEqual(['search_tools', 'list_available_tools']);
+    expect(offeredToolNames[0]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+    expect(offeredToolNames[1]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+    expect(offeredToolNames[2]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
+    expect(offeredToolNames[3]).toEqual(['search_tools', 'load_tool', 'list_available_tools']);
     expect(offeredToolNames[4]).toEqual([
       'search_tools',
+      'load_tool',
       'brainstrike_listWorkspaceContext',
       'list_available_tools',
     ]);

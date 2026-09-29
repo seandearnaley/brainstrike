@@ -137,6 +137,85 @@
   --radius: var(--bs-radius, 0.5rem);
 }
 
+/* Agent identity is scoped to a conversation. The same validated color paints
+   its reading surface and composer; delegation cards override it per child. */
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="blue"] { --agent-accent: var(--color-sky-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="emerald"] { --agent-accent: var(--color-emerald-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="amber"] { --agent-accent: var(--color-amber-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="rose"] { --agent-accent: var(--color-rose-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="violet"] { --agent-accent: var(--color-violet-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="slate"] { --agent-accent: var(--color-slate-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="cyan"] { --agent-accent: var(--color-cyan-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="lime"] { --agent-accent: var(--color-lime-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="orange"] { --agent-accent: var(--color-orange-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="fuchsia"] { --agent-accent: var(--color-fuchsia-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="indigo"] { --agent-accent: var(--color-indigo-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="red"] { --agent-accent: var(--color-red-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="teal"] { --agent-accent: var(--color-teal-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="green"] { --agent-accent: var(--color-green-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="yellow"] { --agent-accent: var(--color-yellow-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="pink"] { --agent-accent: var(--color-pink-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="purple"] { --agent-accent: var(--color-purple-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="zinc"] { --agent-accent: var(--color-zinc-500); }
+
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color^="family:"] {
+  --agent-accent: var(--agent-accent-light);
+}
+
+.dark :where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color^="family:"] {
+  --agent-accent: var(--agent-accent-dark);
+}
+
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="unresolved"] {
+  --agent-accent: hsl(var(--muted-foreground));
+}
+
+.assistant-ui-panel[data-agent-color] {
+  --agent-wash: color-mix(in oklab, var(--agent-accent) 4%, hsl(var(--background)));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 7%, hsl(var(--background)));
+  --agent-edge: color-mix(in oklab, var(--agent-accent) 22%, hsl(var(--border)));
+}
+
+.dark .assistant-ui-panel[data-agent-color] {
+  --agent-wash: color-mix(in oklab, var(--agent-accent) 6%, hsl(var(--background)));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
+}
+
+.assistant-ui-panel[data-agent-color] .bs-thread {
+  background: var(--agent-wash);
+}
+
+.assistant-ui-panel[data-agent-color] .bs-composer-shell {
+  border-top-color: var(--agent-edge);
+  background: linear-gradient(to top, var(--agent-wash) 78%, transparent), var(--agent-wash);
+}
+
+.assistant-ui-panel[data-agent-color] .aui-composer-root {
+  border-color: var(--agent-edge);
+  background: linear-gradient(180deg, var(--agent-card), hsl(var(--background)));
+}
+
+.assistant-ui-panel[data-agent-color] .aui-user-message-content {
+  background-color: var(--agent-card);
+}
+
+.assistant-ui-panel[data-agent-color] :where(.bs-tool-timeline, .bs-run-timeline) {
+  border-color: var(--agent-edge);
+  background-color: var(--agent-card);
+}
+
+.assistant-ui-panel[data-agent-color] .aui-composer-send:not(:disabled) {
+  background: color-mix(in oklab, var(--agent-accent) 28%, hsl(var(--background)));
+  color: hsl(var(--foreground));
+}
+
+.bs-subagent-card[data-agent-color] {
+  --agent-card: color-mix(in oklab, var(--agent-accent) 7%, hsl(var(--background)));
+  --agent-edge: color-mix(in oklab, var(--agent-accent) 24%, hsl(var(--border)));
+  border-color: var(--agent-edge);
+  background: var(--agent-card);
+}
+
 /**
  * CRITICAL: Override .aui-root fixed positioning for embedded panel layout
  *
@@ -665,6 +744,7 @@
   gap: 0.5rem;
   width: 100%;
   min-width: 0;
+  min-height: 2rem;
   padding: 0.4rem 0.6rem;
   color: hsl(var(--foreground) / 0.85);
   font-size: 0.75rem;
@@ -676,9 +756,51 @@
   background: hsl(var(--muted) / 0.5);
 }
 
+/*
+ * The resting row's own flex line. Stylesheet-owned rather than left to
+ * utility classes on the span, for the same reason as the label rule below:
+ * this row's single-line height is a scroll-anchoring invariant (§4.7), and
+ * `min-width: 0` here is what lets the headline shrink at all (a flex item's
+ * automatic minimum is its content).
+ */
+.assistant-ui-panel .bs-activity-summary-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+/*
+ * The headline is model-influenced text of unbounded length (and
+ * `restingOverride` is model-written outright), so it must yield to the meta
+ * segments beside it rather than push them out of the row: it shrinks
+ * (`min-width: 0` — a flex item's automatic minimum is its content, which
+ * `flex-shrink: 0` here compounded) and ellipsises on one line. Declared on
+ * the rule rather than left to the `truncate` utility on the element: this
+ * stylesheet is unlayered and therefore authoritative for this element, and
+ * the row's single-line height is a scroll-anchoring invariant (§4.7), not a
+ * utility-class detail.
+ */
 .assistant-ui-panel .bs-activity-summary-label {
-  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The live label's own one-line rule — the running counterpart of
+ * `.bs-activity-summary-label`, and stylesheet-owned for the same reason: a
+ * live label is model-influenced too ("Calling some.long.mcp.tool /long/path")
+ * and the browser test lane has no Tailwind utilities, so `truncate` on the
+ * span left this invariant unverified (review finding 6).
+ */
+.assistant-ui-panel .bs-activity-live-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .assistant-ui-panel .bs-activity-summary-meta {
@@ -687,15 +809,9 @@
   font-weight: 400;
 }
 
-.assistant-ui-panel .bs-activity-active-tool {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: hsl(var(--muted-foreground));
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.7rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.assistant-ui-panel .bs-activity-summary-failed {
+  color: hsl(var(--destructive));
+  font-weight: 600;
 }
 
 .assistant-ui-panel .bs-activity-right {
@@ -721,6 +837,517 @@
 
 .assistant-ui-panel .bs-activity-body[hidden] {
   display: none;
+}
+
+/**
+ * ACTIVITY TRACE MOTION (phase 2). CSS-only by repo rule. Four primitives:
+ * - .bs-trace-label: a keyed span that fades/slides in when its text changes
+ *   (the caller re-keys the element on the label string).
+ * - .bs-trace-collapse[data-open]: grid-rows disclosure, no measured heights.
+ * - .bs-trace-reveal: one-shot fade-up with a --bs-stagger index capped at 5.
+ * - .bs-trace-detail: a fixed one-line slot under the header while running,
+ *   so the header itself never changes height (scroll-anchoring rule).
+ */
+@keyframes bs-trace-label-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bs-trace-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.assistant-ui-panel .bs-trace-label {
+  animation: bs-trace-label-enter 250ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  display: inline-block;
+  min-width: 0;
+}
+
+/*
+ * The same label box with no entrance. The label element is keyed on its own
+ * text, so it re-mounts — and `bs-trace-label-enter` replays — whenever the
+ * status row's wording changes; that is the point. But the group's FIRST
+ * paint is not a change of wording, it is the whole trace appearing at once,
+ * and animating the label there made the row arrive twice. Geometry is
+ * repeated rather than inherited so the two classes are interchangeable in
+ * layout terms — only the animation differs.
+ */
+.assistant-ui-panel .bs-trace-label-static {
+  animation: none;
+  display: inline-block;
+  min-width: 0;
+}
+
+.assistant-ui-panel .bs-trace-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.assistant-ui-panel .bs-trace-collapse[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.assistant-ui-panel .bs-trace-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The stagger index is set on an ANCESTOR (`.bs-step-list`'s nth-child rules
+   below) and reaches the row by inheritance, so the default belongs in the
+   `var()` fallback and NOT in a `--bs-stagger: 0` declaration here: declaring
+   it on the revealed element itself wins over the inherited value on every
+   row that is not itself the list's direct child — which, in production, is
+   every row (see the `.bs-step-list` block). Pinned by the wrapper-shaped
+   stagger case in activity-step-row.browser.test.tsx. */
+.assistant-ui-panel .bs-trace-reveal {
+  animation: bs-trace-reveal 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation-delay: calc(min(var(--bs-stagger, 0), 5) * 40ms);
+}
+
+.assistant-ui-panel .bs-trace-detail {
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  height: 1.25rem;
+  line-height: 1.25rem;
+  overflow: hidden;
+  padding-inline: 0.6rem 0.6rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-ui-panel .bs-trace-glyph {
+  transition: transform 160ms ease;
+}
+
+/*
+ * Fixed icon box for the header's phase glyph (BrainstrikeThinkingMark while
+ * running; CheckCircle/Square/AlertCircle at rest). Pinned in real CSS —
+ * not left to the `size-4` utility alone — so the live and resting rows
+ * always resolve to the same header height (verified in
+ * activity-trace.browser.test.tsx): the running mark has no intrinsic
+ * width/height of its own, and swapping it for a differently-proportioned
+ * lucide icon must never change the row's height.
+ */
+.assistant-ui-panel .bs-trace-phase-glyph {
+  height: 1rem;
+  width: 1rem;
+}
+
+.assistant-ui-panel .bs-trace-phase-icon {
+  display: block;
+  height: 1rem;
+  width: 1rem;
+}
+
+.assistant-ui-panel [aria-expanded="true"] > .bs-trace-glyph {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-trace-label,
+  .assistant-ui-panel .bs-trace-reveal {
+    animation: none;
+  }
+
+  .assistant-ui-panel .bs-trace-collapse,
+  .assistant-ui-panel .bs-trace-glyph {
+    transition: none;
+  }
+}
+
+/* ACTIVITY STEP ROWS (phase 3, spec §4.3 L1). One row per step in the group
+   body: family icon · verb (tense follows state) · target chip · timing ·
+   state glyph · chevron. Geometry lives here, not in utilities, so the
+   browser lane measures the real thing (phase-2 landmine). The reveal
+   stagger is positional: `.bs-step-list` children pick up `--bs-stagger`
+   from their nth-child index (capped at 5), so no row needs to know its
+   index and a row already visible never re-animates (the animation runs
+   once per mount).
+
+   The DIRECT children here are the wrappers, never the rows themselves —
+   `ActivityPartLayout`'s div for every step, and for `ToolFallback` two more
+   levels (`.bs-tool-timeline` > `.bs-step-row-line`) below that. The row
+   reads the value by INHERITANCE, which is why `.bs-trace-reveal` above
+   defaults through `var(--bs-stagger, 0)` instead of declaring the property
+   on itself: a declaration there would shadow the inherited value and flatten
+   every delay to 0. Run-event rows (`.bs-run-timeline`, Developer detail) are
+   direct children too, so they CONSUME nth-child slots and shift the rows
+   after them one step further along — but they carry no `.bs-trace-reveal`
+   and do not animate. */
+.assistant-ui-panel .bs-step-list > :nth-child(2) {
+  --bs-stagger: 1;
+}
+.assistant-ui-panel .bs-step-list > :nth-child(3) {
+  --bs-stagger: 2;
+}
+.assistant-ui-panel .bs-step-list > :nth-child(4) {
+  --bs-stagger: 3;
+}
+.assistant-ui-panel .bs-step-list > :nth-child(5) {
+  --bs-stagger: 4;
+}
+.assistant-ui-panel .bs-step-list > :nth-child(n + 6) {
+  --bs-stagger: 5;
+}
+
+/* Inter-row rhythm. `.bs-activity-body` is a flex column with `gap: 0.25rem`,
+   but since phase 3 its only child is `.bs-step-list`, so that gap no longer
+   separates anything and rows fell back to `ActivityPartLayout`'s `mb-2`
+   alone (0.5rem, was 0.75rem). The list must stay a BLOCK container — the
+   `.bs-step-row` `width: 100%` / `flex: 1 1 0%` geometry below is written for
+   a non-flex parent — so the rhythm is restored with a margin here rather
+   than by making this a flex container.
+
+   0.75rem, NOT the 0.25rem that would be the arithmetic top-up of `mb-2`:
+   these are adjacent siblings in a block formatting context, so their
+   adjoining margins COLLAPSE to `max(0.5rem, this)` instead of summing. At
+   0.25rem the rule is entirely inert (measured: still 8px); 0.75rem is what
+   actually restores 12px, and dropping the rule falls back to 8px. Pinned by
+   "two step rows in the list sit 12px apart" in
+   activity-step-row.browser.test.tsx — a flex gap here would not collapse,
+   which is exactly why the value is only meaningful next to that test. */
+.assistant-ui-panel .bs-step-list > * + * {
+  margin-block-start: 0.75rem;
+}
+
+/* …except the run-event rows, which at Developer detail are direct children
+   of this list too (verified, not assumed). They are quiet single-line rows
+   designed to read as ONE block — see `.bs-run-timeline` below — and they
+   carry no wrapper margin of their own, so the step rhythm would space them
+   out like cards. They take the 0.25rem `.bs-activity-body` used to give
+   them before its gap stopped separating anything. */
+.assistant-ui-panel .bs-step-list > * + .bs-run-timeline {
+  margin-block-start: 0.25rem;
+}
+
+.assistant-ui-panel .bs-step-row-line {
+  align-items: center;
+  display: flex;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+/*
+ * `width: 100%` is load-bearing and not in the original spec snippet: a
+ * <button> defaults to shrink-to-fit ("fit-content") sizing for `width: auto`
+ * even once `display` is overridden to `flex` — unlike a <div>, which fills
+ * its containing block — so without it an unclamped `.bs-step-row-target`
+ * grows the row itself instead of being clipped inside it (caught by the
+ * browser test's 480px-panel overflow assertion; `flex: 1 1 auto` alone only
+ * stretches a row that already sits inside a flex parent, which
+ * `.bs-step-list` is not).
+ *
+ * `box-sizing: border-box` is likewise load-bearing for the non-interactive
+ * form: a `<button>` gets `border-box` for free from the UA stylesheet, but
+ * the `div role="group"` form (no `bodyId`, nothing to expand) is a plain
+ * `<div>` — `content-box` by default — so `width: 100%` plus this rule's own
+ * padding pushes it `padding-left + padding-right` past its container
+ * (caught by the browser test asserting `.bs-step-list` never grows a
+ * horizontal scrollbar for the div form).
+ *
+ * `flex: 1 1 0%` (not `1 1 auto`) keeps the row from fighting a sibling
+ * control that shares `.bs-step-row-line` with it (Task 4's checkpoint
+ * button): with `auto`, the flex-basis falls back to the row's own
+ * `width: 100%`, which claims the line's full width and only leaves the
+ * sibling `flex-shrink`'s leftovers instead of its requested size.
+ */
+.assistant-ui-panel .bs-step-row {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0.375rem;
+  box-sizing: border-box;
+  color: inherit;
+  display: flex;
+  flex: 1 1 0%;
+  font: inherit;
+  gap: 0.5rem;
+  min-height: 2rem;
+  min-width: 0;
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+  width: 100%;
+}
+
+/* A sibling control sharing `.bs-step-row-line` with the row (e.g. Task 4's
+   checkpoint button) keeps its own requested size — the row's
+   `flex: 1 1 0%` is what yields the space, never the sibling shrinking. */
+.assistant-ui-panel .bs-step-row-line > :not(.bs-step-row) {
+  flex: 0 0 auto;
+}
+
+.assistant-ui-panel button.bs-step-row:hover {
+  background: hsl(var(--muted) / 0.35);
+}
+
+.assistant-ui-panel .bs-step-row-content {
+  align-items: baseline;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.assistant-ui-panel .bs-step-row-verb {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.assistant-ui-panel .bs-step-row-target {
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.6875rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-ui-panel .bs-step-row-meta,
+.assistant-ui-panel .bs-step-row-timing {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Settled durations ("1.2s") are short and bounded, so the meta/timing pair
+   used to share one `flex-shrink: 0`. The RUNNING label is not: "Receiving
+   input · 999.9 KB · 9m 59s" and longer arrive from tool progress, so the
+   timing slot must shrink and truncate rather than push the row past its list
+   or squeeze the target chip out (BST-849's rule, carried into the step row).
+
+   Owned here, not by the indicator's `max-w-[60%] shrink min-w-0` utilities:
+   those sit on the indicator INSIDE this box, where `60%` resolves against
+   this box's own width — it can never bound the box that contains it — and
+   `flex-shrink` is inert there because this box is a block container, not a
+   flex one. The percentage resolves against the row's content box, which IS
+   the flex container. `white-space: nowrap` keeps the label on the row's one
+   line (the row height is a scroll-anchoring contract) so `overflow: hidden`
+   truncates it horizontally instead of wrapping it — and that same
+   `overflow: hidden` is what zeroes this flex item's automatic minimum size,
+   so no `min-inline-size: 0` is needed (measured: adding one changes nothing).
+
+   `flex: 0 1 auto` and `max-inline-size` are SEPARATE guards, one test each in
+   activity-step-row.browser.test.tsx: shrinking only bounds the slot while
+   something else competes for the row ("…shrinks to 60% of the row and
+   truncates"), and the ceiling is what keeps a SHORT target legible when
+   nothing does ("…capped at 60% … when nothing else competes"). */
+.assistant-ui-panel .bs-step-row-timing {
+  flex: 0 1 auto;
+  max-inline-size: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Meta chips carry TOOL RESULT data (the result summary, the resolved root
+   name), so their length is not bounded at the call site. They do not shrink,
+   so an unclamped chip pushes the row past its list. 9rem is the `max-w-36`
+   the pre-BST-1681 card header carried. */
+.assistant-ui-panel .bs-step-row-meta {
+  flex-shrink: 0;
+  max-inline-size: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Approval depth remains a layout cue; color follows the durable owner id. */
+.assistant-ui-panel .bs-approval {
+  --bs-approval-accent: var(--agent-accent, hsl(var(--primary)));
+  --bs-approval-fill: color-mix(in oklab, var(--bs-approval-accent) 10%, hsl(var(--background)));
+  --bs-approval-edge: color-mix(in oklab, var(--bs-approval-accent) 35%, hsl(var(--border)));
+  --bs-approval-ink: color-mix(in oklab, var(--bs-approval-accent) 45%, hsl(var(--foreground)));
+  margin-inline-start: calc(var(--bs-approval-depth, 0) * 1.25rem);
+  min-width: 0;
+}
+
+.dark .assistant-ui-panel .bs-approval {
+  --bs-approval-fill: color-mix(in oklab, var(--bs-approval-accent) 14%, hsl(var(--background)));
+}
+
+.assistant-ui-panel .bs-approval-card {
+  background: var(--bs-approval-fill);
+  border-color: var(--bs-approval-edge);
+}
+
+.assistant-ui-panel .bs-approval-icon,
+.assistant-ui-panel .bs-approval-reason {
+  color: var(--bs-approval-ink);
+}
+
+.assistant-ui-panel .bs-approval-status {
+  background: color-mix(in oklab, var(--bs-approval-accent) 16%, hsl(var(--background)));
+  border-color: var(--bs-approval-edge);
+  color: hsl(var(--foreground));
+}
+
+.assistant-ui-panel .bs-approval-row {
+  background: var(--bs-approval-fill);
+  border: 1px solid var(--bs-approval-edge);
+  border-radius: 0.375rem;
+  margin-block: 0.25rem;
+}
+
+.assistant-ui-panel .bs-approval-row-line {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  box-sizing: border-box;
+  color: inherit;
+  display: flex;
+  font: inherit;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+  min-width: 0;
+  padding: 0.125rem 0.5rem;
+  text-align: left;
+  width: 100%;
+}
+
+.assistant-ui-panel .bs-approval-row-line:hover {
+  background: color-mix(in oklab, var(--bs-approval-accent) 16%, hsl(var(--background)));
+}
+
+.assistant-ui-panel .bs-approval-row-owner {
+  color: hsl(var(--foreground));
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.assistant-ui-panel .bs-approval-row-tool {
+  align-items: baseline;
+  display: flex;
+  flex: 1 1 auto;
+  font-size: 0.75rem;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.assistant-ui-panel .bs-approval-row-verb {
+  flex-shrink: 0;
+}
+
+.assistant-ui-panel .bs-approval-row-target {
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.6875rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-ui-panel .bs-approval-row-status {
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  color: hsl(var(--muted-foreground));
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  line-height: 1rem;
+  padding: 0 0.5rem;
+  white-space: nowrap;
+}
+
+/* A durable decision's recovery status, visible under the collapsed line
+   (safety information never hides behind the disclosure). Aligned with the
+   row line's inline padding. */
+.assistant-ui-panel .bs-approval-row-recovery {
+  padding: 0 0.5rem 0.25rem;
+}
+
+.assistant-ui-panel .bs-approval-row-body {
+  border-top: 1px dashed hsl(var(--border));
+  padding: 0 0.5rem;
+}
+
+/* The approvals strip at the composer: pending counts per category and the
+   one-click session grant that answers the whole category. */
+.assistant-ui-panel .bs-approval-strip {
+  align-items: center;
+  border-top: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  gap: 0.5rem 0.75rem;
+  padding: 0.25rem 0.75rem;
+}
+
+.assistant-ui-panel .bs-approval-strip-label {
+  color: hsl(var(--foreground));
+  font-weight: 500;
+}
+
+.assistant-ui-panel .bs-approval-strip-category {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.375rem;
+}
+
+.assistant-ui-panel .bs-approval-strip-grant {
+  align-items: center;
+  background: transparent;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.6875rem;
+  gap: 0.25rem;
+  line-height: 1.25rem;
+  padding: 0 0.5rem;
+}
+
+.assistant-ui-panel .bs-approval-strip-grant:hover:not(:disabled) {
+  background: hsl(var(--muted) / 0.35);
+}
+
+.assistant-ui-panel .bs-approval-strip-grant:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.assistant-ui-panel .bs-step-glyph,
+.assistant-ui-panel .bs-step-family-icon {
+  block-size: 1rem;
+  display: inline-flex;
+  flex-shrink: 0;
+  inline-size: 1rem;
+}
+
+/* Stylesheet-owned box for the row's chevron, same rationale as
+   `.bs-trace-phase-glyph` above: `size-3.5` alone is a Tailwind utility, and
+   the browser lane loads no Tailwind utilities, so the geometry a browser
+   test measures must be owned here. */
+.assistant-ui-panel .bs-step-row-chevron {
+  flex: 0 0 auto;
+  height: 0.875rem;
+  width: 0.875rem;
+}
+
+.assistant-ui-panel .bs-step-row[data-state="failed"] .bs-step-row-verb {
+  color: hsl(var(--destructive));
 }
 
 /**
@@ -820,6 +1447,17 @@
  */
 .aui-thread-viewport[data-thread-render-tier="virtual"] {
   overflow-anchor: none;
+  /* Native measurement corrections must be immediate. User jumps explicitly
+     request smooth motion through the virtualizer and honor reduced motion. */
+  scroll-behavior: auto;
+}
+
+/* The global reduced-motion duration also applies to elements whose default
+   transition-property is all. Virtualizer geometry is synchronous bookkeeping,
+   never an animation: even a 0.01ms transition defers the height/offset read. */
+.bs-virtual-thread,
+.bs-virtual-message {
+  transition-property: none;
 }
 
 /* The virtualizer's sizing container: rows are absolutely positioned inside it
@@ -990,6 +1628,30 @@
   -webkit-background-clip: text;
 }
 
+/*
+ * The activity trace's LIVE status label is the one element that carries a
+ * `.bs-trace-label*` entrance class and `.bs-thinking-shimmer` at the same
+ * time, and both rules declare the `animation` SHORTHAND at equal specificity
+ * — so the shimmer, declared later, replaced the entrance outright and the
+ * live label's crossfade never ran once (phase-2 defect, found in the Task 6
+ * review). These compound rules compose the two rather than letting one erase
+ * the other; `animation` takes a comma list, so each keyframe keeps its own
+ * duration, easing, fill and iteration count. Both shorthands are repeated
+ * verbatim from the single-class rules above — a shorthand cannot be merged,
+ * only restated — so a change to either must be mirrored here (pinned by "the
+ * live label composes its entrance with the shimmer" in
+ * activity-trace.browser.test.tsx).
+ */
+.assistant-ui-panel .bs-trace-label.bs-thinking-shimmer {
+  animation:
+    bs-trace-label-enter 250ms cubic-bezier(0.23, 1, 0.32, 1) both,
+    bs-thinking-shimmer 1.45s linear infinite;
+}
+
+.assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer {
+  animation: bs-thinking-shimmer 1.45s linear infinite;
+}
+
 .assistant-ui-panel .bs-streaming-thinking {
   margin-top: 0.125rem;
   min-height: 1.75rem;
@@ -999,9 +1661,17 @@
    while reasoning is collapsed), so aria-controls keeps a valid target. */
 
 @media (prefers-reduced-motion: reduce) {
+  /* The two compound selectors are listed explicitly: the trace's live status
+     label matches all three classes at once, and the compound rules above are
+     (0,3,0), so the plain `.bs-thinking-shimmer` entry in this same list —
+     (0,2,0) — cannot reach it however late the block is declared. Drop either
+     and exactly one element keeps shimmering under a reduced-motion
+     preference (pinned in assistant-ui-panel-architecture.test.ts). */
   .assistant-ui-panel .bs-thinking-pulse,
   .assistant-ui-panel .bs-thinking-core,
-  .assistant-ui-panel .bs-thinking-shimmer {
+  .assistant-ui-panel .bs-thinking-shimmer,
+  .assistant-ui-panel .bs-trace-label.bs-thinking-shimmer,
+  .assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer {
     animation: none;
   }
 

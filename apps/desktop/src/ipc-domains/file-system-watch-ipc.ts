@@ -11,7 +11,6 @@
  */
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
-import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type {
   FileSystemChange,
@@ -22,6 +21,7 @@ import type {
 import { ipcMain, type WebContents } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import { fileSystemWatchContract } from './file-system.contract';
 import { isMockFileSystemIpcPath, resolveFileSystemIpcPath } from './file-system-ipc';
 
 const logger = createLogger('FileSystemWatchIpc');
@@ -441,10 +441,12 @@ export function registerFileSystemWatchIpcHandlers({
   telemetry.duplicateRegistrations = 0;
   telemetry.setupLatencySamples = 0;
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
-    DESKTOP_IPC_CHANNELS.files.watch,
-    async (event, handle: DirectoryHandle): Promise<FileSystemWatchRegistration> => {
+    fileSystemWatchContract.watchDirectory.channel,
+    { roles: fileSystemWatchContract.watchDirectory.roles },
+    async (event, ...raw): Promise<FileSystemWatchRegistration> => {
+      const [handle] = fileSystemWatchContract.watchDirectory.parseArgs(raw);
       const owner = event.sender;
       const requestedPath = handle?.path;
       if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
@@ -496,11 +498,12 @@ export function registerFileSystemWatchIpcHandlers({
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
-    DESKTOP_IPC_CHANNELS.files.watchRetry,
-    (event, rawWatchId: unknown): FileSystemWatchRetryResult => {
-      const watchId = typeof rawWatchId === 'string' ? rawWatchId : '';
+    fileSystemWatchContract.retryWatch.channel,
+    { roles: fileSystemWatchContract.retryWatch.roles },
+    (event, ...raw): FileSystemWatchRetryResult => {
+      const [watchId] = fileSystemWatchContract.retryWatch.parseArgs(raw);
       const entry = liveWatchersById.get(watchId);
       // Unknown and non-owner produce IDENTICAL results — no ownership oracle.
       if (!entry || entry.ownerId !== event.sender.id) {
@@ -551,16 +554,25 @@ export function registerFileSystemWatchIpcHandlers({
     }
   );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.watchTelemetry, () => ({
-    activeWatchers: liveWatchersBySubscription.size,
-    ...telemetry,
-  }));
-
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
-    DESKTOP_IPC_CHANNELS.files.unwatch,
-    (event, rawWatchId: unknown): void => {
-      const watchId = typeof rawWatchId === 'string' ? rawWatchId : '';
+    fileSystemWatchContract.getWatcherTelemetry.channel,
+    { roles: fileSystemWatchContract.getWatcherTelemetry.roles },
+    (_event, ...raw) => {
+      fileSystemWatchContract.getWatcherTelemetry.parseArgs(raw);
+      return {
+        activeWatchers: liveWatchersBySubscription.size,
+        ...telemetry,
+      };
+    }
+  );
+
+  registry.registerAuthorizedInvoke(
+    'files',
+    fileSystemWatchContract.unwatchDirectory.channel,
+    { roles: fileSystemWatchContract.unwatchDirectory.roles },
+    (event, ...raw): void => {
+      const [watchId] = fileSystemWatchContract.unwatchDirectory.parseArgs(raw);
       const entry = liveWatchersById.get(watchId);
       if (!entry) {
         // Disposal races with the destroyed-owner reaper are normal; log only.

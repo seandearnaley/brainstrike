@@ -1,14 +1,14 @@
 import { useAuiState } from '@assistant-ui/react';
-import type { AssistantRunEventStatus } from '@brainstrike/assistant-contract';
 import { createContext, type ReactNode, use, useMemo } from 'react';
 import { shouldShowBackgroundActivity } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import type { AssistantRunEventDisplayStatus } from './assistant-run-event-derivation';
 import { deriveAssistantRunEventRows } from './assistant-run-event-derivation';
 import { useStableRecord } from './use-stable-record';
 
 interface AssistantRunEventDerivations {
   readonly renderPlanKeys: Record<string, string>;
-  readonly statuses: Record<string, AssistantRunEventStatus>;
+  readonly statuses: Record<string, AssistantRunEventDisplayStatus>;
 }
 
 const EMPTY_DERIVATIONS: AssistantRunEventDerivations = {
@@ -37,7 +37,7 @@ export function AssistantRunEventProvider({ children }: { readonly children: Rea
 
 export function useAssistantRunEventDerivation(data: unknown): {
   readonly renderPlanKey: string;
-  readonly status: AssistantRunEventStatus | undefined;
+  readonly status: AssistantRunEventDisplayStatus | undefined;
 } {
   const derivations = use(AssistantRunEventContext);
   const id =

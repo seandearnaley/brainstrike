@@ -3,6 +3,7 @@ import {
   buildNativeToolRiskMap,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   hasRegisteredSuspendResumeUi,
+  listSuspendedChildContinuation,
   listSuspendedMastraRuns,
   type RediscoveredToolApproval,
   type RediscoveredToolSuspend,
@@ -12,8 +13,18 @@ import {
   resolveRunPythonExecutionContext,
   type SuspendedRunsResponse,
 } from '@brainstrike/agent';
+import {
+  type DelegatedToolDecisionState,
+  getToolActionIdentityKey,
+} from '@brainstrike/assistant-contract';
 import { respondJson } from '@brainstrike/assistant-service/http';
+import { getDatabase } from '../db-main';
 import { getProviderAuthEngine } from '../provider-auth/provider-auth-runtime';
+import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
+import {
+  readDelegatedDecisionStates,
+  readPendingChildContinuations,
+} from './delegated-decision-discovery';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { getDesktopMastraMemory } from './mastra-memory';
 import {
@@ -268,6 +279,14 @@ export async function handleVerifyProviderRequest(
   }
 }
 
+function suspendedTime(decision: { suspendedAt: string }): number {
+  const timestamp = Date.parse(decision.suspendedAt);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error('Discovered decision has an invalid suspension timestamp.');
+  }
+  return timestamp;
+}
+
 /**
  * Restart-safe rediscovery of pending tool approvals for a thread. On reload the
  * live-stream approval notice is gone (it was never persisted), but the suspended
@@ -281,6 +300,42 @@ export async function handleVerifyProviderRequest(
  * `provider: 'ollama'` below is a keyless placeholder that satisfies runtime
  * config; it is never used to construct a model.
  */
+async function includeContinuationPauses(
+  database: Parameters<typeof readPendingChildContinuations>[0],
+  scope: Parameters<typeof readPendingChildContinuations>[1],
+  storage: Parameters<typeof listSuspendedChildContinuation>[1]['storage'],
+  original: Awaited<ReturnType<typeof listSuspendedMastraRuns>>
+): Promise<Awaited<ReturnType<typeof listSuspendedMastraRuns>>> {
+  // Root pauses need the same fail-loud validation even without child receipts.
+  for (const decision of [...original.approvals, ...original.suspends]) {
+    suspendedTime(decision);
+  }
+  const continuations = await readPendingChildContinuations(database, scope);
+  if (continuations.length === 0) {
+    return original;
+  }
+  const result = { approvals: [...original.approvals], suspends: [...original.suspends] };
+  const pendingResults = await Promise.all(
+    continuations.map((continuation) =>
+      listSuspendedChildContinuation(continuation, {
+        resolveInvocation: createDesktopDelegatedSuspensionResolver(database, scope),
+        storage,
+      })
+    )
+  );
+  for (const pending of pendingResults) {
+    // Validate singletons too; Array.sort never invokes their comparator.
+    for (const decision of [...pending.approvals, ...pending.suspends]) {
+      suspendedTime(decision);
+    }
+    result.approvals.push(...pending.approvals);
+    result.suspends.push(...pending.suspends);
+  }
+  result.approvals.sort((a, b) => suspendedTime(a) - suspendedTime(b));
+  result.suspends.sort((a, b) => suspendedTime(a) - suspendedTime(b));
+  return result;
+}
+
 export async function handleSuspendedRunsRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -313,9 +368,15 @@ export async function handleSuspendedRunsRequest(
       return;
     }
 
-    const discovery = await listSuspendedMastraRuns(
+    const rootDiscovery = await listSuspendedMastraRuns(
       { resourceId, threadId },
       {
+        backgroundTaskScope: { resourceId, threadId },
+        delegatedSuspensionDiscovery: async (parent) =>
+          createDesktopDelegatedSuspensionResolver(await getDatabase(), {
+            ownerResourceId: resourceId,
+            rootThreadId: threadId,
+          })(parent),
         memory: memoryResult.memory,
         // Keyless, provider-independent, model-free listing (see the doc comment
         // above). `listSuspendedMastraRuns` injects an inert listing-only model,
@@ -325,44 +386,12 @@ export async function handleSuspendedRunsRequest(
       }
     );
 
-    const riskByTool = buildNativeToolRiskMap();
-    const staleThresholdMs = resolveApprovalStaleMs();
-    const now = Date.now();
-    const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
-      // Discovery returns the ORIGINAL dotted tool name (the agent maps the
-      // stored sanitized id back — see listSuspendedMastraRuns), so this lookup
-      // hits for every known native tool.
-      const riskCategory = riskByTool[approval.toolName];
-      if (!riskCategory) {
-        // Honest degradation, surfaced loudly: without a risk category the
-        // rediscovered notice renders no reason line and no grant actions
-        // (never a fabricated category — no-silent-fallbacks).
-        logger.warn('Rediscovered approval has no resolvable risk category', {
-          code: 'assistant_suspended_approval_risk_unresolved',
-          runId: approval.runId,
-          toolName: approval.toolName,
-        });
-      }
-      // BST-1070: the live approval's executionContext is a transient stream
-      // field, so a rediscovered run_python approval RECOMPUTES it from the
-      // durable args — the same helper the live chunk uses, exactly where
-      // riskCategory is recomputed. Unparseable args yield no context, and the
-      // card falls to its fail-safe (no fact rows, grants suppressed).
-      const executionContext =
-        approval.toolName === RUN_PYTHON_TOOL_ID
-          ? resolveRunPythonExecutionContext(approval.args)
-          : undefined;
-      return {
-        runId: approval.runId,
-        stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
-        suspendedAt: approval.suspendedAt,
-        toolCallId: approval.toolCallId,
-        toolName: approval.toolName,
-        ...(approval.args === undefined ? {} : { args: approval.args }),
-        ...(riskCategory ? { policyDecision: 'ask' as const, riskCategory } : {}),
-        ...(executionContext === undefined ? {} : { executionContext }),
-      };
-    });
+    const discovery = await includeContinuationPauses(
+      await getDatabase(),
+      { ownerResourceId: resourceId, rootThreadId: threadId },
+      memoryResult.storage,
+      rootDiscovery
+    );
 
     // BST-1084: rediscovered suspend() pauses ride the same response. An
     // UNREGISTERED tool's pause is flagged resumeSupported:false and NEVER
@@ -391,7 +420,69 @@ export async function handleSuspendedRunsRequest(
         threadId,
       });
     }
+    const delegatedPauses = [...discovery.approvals, ...cappedSuspends].filter(
+      (pause) => pause.delegation !== undefined || pause.continuationId !== undefined
+    );
+    // A failed durable-state read must stay visible: an empty map would make
+    // an already-admitted decision appear actionable again.
+    const decisionStates = delegatedPauses.length
+      ? await readDelegatedDecisionStates(
+          await getDatabase(),
+          { ownerResourceId: resourceId, rootThreadId: threadId },
+          delegatedPauses
+        )
+      : new Map<string, DelegatedToolDecisionState>();
+    const riskByTool = buildNativeToolRiskMap();
+    const staleThresholdMs = resolveApprovalStaleMs();
+    const now = Date.now();
+    const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
+      const decisionState =
+        approval.delegation || approval.continuationId
+          ? decisionStates.get(getToolActionIdentityKey(approval))
+          : undefined;
+      // Discovery returns the ORIGINAL dotted tool name (the agent maps the
+      // stored sanitized id back — see listSuspendedMastraRuns), so this lookup
+      // hits for every known native tool.
+      const riskCategory = riskByTool[approval.toolName];
+      if (!riskCategory) {
+        // Honest degradation, surfaced loudly: without a risk category the
+        // rediscovered notice renders no reason line and no grant actions
+        // (never a fabricated category — no-silent-fallbacks).
+        logger.warn('Rediscovered approval has no resolvable risk category', {
+          code: 'assistant_suspended_approval_risk_unresolved',
+          runId: approval.runId,
+          toolName: approval.toolName,
+        });
+      }
+      // BST-1070: the live approval's executionContext is a transient stream
+      // field, so a rediscovered run_python approval RECOMPUTES it from the
+      // durable args — the same helper the live chunk uses, exactly where
+      // riskCategory is recomputed. Unparseable args yield no context, and the
+      // card falls to its fail-safe (no fact rows, grants suppressed).
+      const executionContext =
+        approval.toolName === RUN_PYTHON_TOOL_ID
+          ? resolveRunPythonExecutionContext(approval.args)
+          : undefined;
+      return {
+        ...(approval.delegation ? { delegation: approval.delegation } : {}),
+        ...(approval.continuationId ? { continuationId: approval.continuationId } : {}),
+        ...(decisionState === undefined ? {} : { decisionState }),
+        runId: approval.runId,
+        stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
+        suspendedAt: approval.suspendedAt,
+        toolCallId: approval.toolCallId,
+        toolName: approval.toolName,
+        ...(approval.args === undefined ? {} : { args: approval.args }),
+        ...(riskCategory ? { policyDecision: 'ask' as const, riskCategory } : {}),
+        ...(executionContext === undefined ? {} : { executionContext }),
+      };
+    });
+
     const suspends: RediscoveredToolSuspend[] = cappedSuspends.map((pause) => {
+      const decisionState =
+        pause.delegation || pause.continuationId
+          ? decisionStates.get(getToolActionIdentityKey(pause))
+          : undefined;
       const resumable = hasRegisteredSuspendResumeUi(pause.toolName);
       if (!resumable) {
         logger.warn('Rediscovered suspend pause has no registered resume UI in this build', {
@@ -401,6 +492,9 @@ export async function handleSuspendedRunsRequest(
         });
       }
       return {
+        ...(pause.delegation ? { delegation: pause.delegation } : {}),
+        ...(pause.continuationId ? { continuationId: pause.continuationId } : {}),
+        ...(decisionState === undefined ? {} : { decisionState }),
         runId: pause.runId,
         stale: now - Date.parse(pause.suspendedAt) > staleThresholdMs,
         suspendedAt: pause.suspendedAt,

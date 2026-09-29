@@ -66,6 +66,39 @@ const TARGETS = [
 // zero files. Well under the real figure (4189 files at time of writing).
 const MIN_LINTED_FILES = 500;
 
+export function parseCliArgs(argv) {
+  let repoRoot = DEFAULT_REPO_ROOT;
+  let repoRootSeen = false;
+  let writeBaseline = false;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === '--write-baseline') {
+      if (writeBaseline) {
+        throw new Error('verify-eslint-warning-baselines: duplicate --write-baseline');
+      }
+      writeBaseline = true;
+      continue;
+    }
+    if (argument === '--repo-root') {
+      if (repoRootSeen) {
+        throw new Error('verify-eslint-warning-baselines: duplicate --repo-root');
+      }
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) {
+        throw new Error('verify-eslint-warning-baselines: --repo-root requires a path');
+      }
+      repoRoot = path.resolve(value);
+      repoRootSeen = true;
+      index += 1;
+      continue;
+    }
+    throw new Error(`verify-eslint-warning-baselines: unsupported argument ${String(argument)}`);
+  }
+
+  return { repoRoot, writeBaseline };
+}
+
 function countWarningsByRule(results) {
   const counts = new Map();
   for (const result of results) {
@@ -116,6 +149,10 @@ function diffAgainstBaseline(counts, baseline) {
 
 export async function main({ repoRoot = DEFAULT_REPO_ROOT, writeBaseline = false } = {}) {
   const baselinePath = path.join(repoRoot, BASELINE_FILENAME);
+  // Read the verdict input before starting ESLint. Besides failing earlier on a
+  // malformed root, this gives the executable entrypoint test a deterministic
+  // proof that its explicit fixture root reached main().
+  const baseline = writeBaseline ? undefined : JSON.parse(readFileSync(baselinePath, 'utf8'));
   const eslint = new ESLint({ cwd: repoRoot });
   const results = await eslint.lintFiles(TARGETS);
 
@@ -136,9 +173,6 @@ export async function main({ repoRoot = DEFAULT_REPO_ROOT, writeBaseline = false
     console.log(`Wrote ${BASELINE_FILENAME} — ${counts.size} rules, ${total} warnings.`);
     return;
   }
-
-  // Missing/malformed baseline throws — a root without one cannot be verified.
-  const baseline = JSON.parse(readFileSync(baselinePath, 'utf8'));
 
   const errorCount = results.reduce((sum, result) => sum + result.errorCount, 0);
   if (errorCount > 0) {
@@ -163,5 +197,5 @@ export async function main({ repoRoot = DEFAULT_REPO_ROOT, writeBaseline = false
 const isDirectExecution =
   process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectExecution) {
-  await main({ writeBaseline: process.argv.includes('--write-baseline') });
+  await main(parseCliArgs(process.argv.slice(2)));
 }

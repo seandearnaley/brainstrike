@@ -1,7 +1,7 @@
 import { THREAD_DELETE_SIDECAR_TABLES } from '@brainstrike/assistant-contract';
 import { getResetTables, migrations } from '@brainstrike/db';
 import { describe, expect, it } from 'vitest';
-import { buildAssistantThreadRunsSchemaSql } from '../assistant-memory-repository';
+import { requiredAssistantMemoryRelations } from '../assistant-memory-repository';
 
 /**
  * Living-contract pins for `brainstrike_assistant_thread_workspaces`
@@ -26,18 +26,26 @@ function extractCreateTableBlock(sql: string, table: string): string {
 }
 
 describe('thread workspace persistence contract', () => {
-  it('migration 095 and the renderer bootstrap declare the SAME table shape', () => {
+  it('migration 095 is the sole declaration of the table shape', () => {
     const migration = migrations.find((candidate) => candidate.version === 95);
-    expect(migration, 'migration 095 registered in the numbered runner').toBeDefined();
-    const migrationBlock = extractCreateTableBlock(String(migration?.up ?? ''), TABLE);
-    const bootstrapBlock = extractCreateTableBlock(buildAssistantThreadRunsSchemaSql(), TABLE);
-    expect(bootstrapBlock).toBe(migrationBlock);
+    expect(migration, 'migration 095 registered in the migration manifest').toBeDefined();
+    expect(extractCreateTableBlock(String(migration?.up ?? ''), TABLE)).toBe(
+      `CREATE TABLE IF NOT EXISTS ${TABLE} ( thread_id text PRIMARY KEY, resource_id text NOT NULL, payload jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT NOW() );`
+    );
+  });
+
+  it('the repository PROBES for the table rather than creating it (BST-1651)', () => {
+    // Pre-BST-1651 this obligation read "mirror the migration byte-identically
+    // in the renderer bootstrap". The bootstrap is gone: a sidecar the
+    // thread-delete cascade references unconditionally must instead be part of
+    // the schema probe, so an un-migrated database fails by name up front.
+    expect(requiredAssistantMemoryRelations()).toContain(TABLE);
   });
 
   it('thread deletion cascades the workspace row via the shared sidecar list', () => {
     expect(THREAD_DELETE_SIDECAR_TABLES).toContainEqual({
       table: TABLE,
-      threadColumn: 'thread_id',
+      threadColumns: ['thread_id'],
     });
   });
 

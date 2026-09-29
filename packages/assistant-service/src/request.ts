@@ -26,6 +26,10 @@ import {
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/agent/hosted-web';
 import {
+  type AssistantChildFollowupAction,
+  readChildFollowupRunConfigAction,
+} from '@brainstrike/assistant-contract/child-followup';
+import {
   getProviderDefinition,
   isSupportedProvider,
   providerAuthType,
@@ -76,6 +80,7 @@ class InvalidEnabledNativeToolIdsError extends Error {
 interface PreparedAssistantPostRequest {
   apiKey: string;
   assistantMessageId?: string;
+  childFollowupAction?: AssistantChildFollowupAction;
   /**
    * The typed credential the request resolved (BST-1352). In the current
    * pipeline this is always an `api_key` credential when present — a stored
@@ -84,10 +89,29 @@ interface PreparedAssistantPostRequest {
    * `providerAuthInputFromCredential`).
    */
   credential?: ResolvedProviderCredential;
+  finalInputMessage?: AgentMessage;
+  inputParentMessageId?: string | null;
   messages: AgentMessage[];
+  pausedMessageId?: string;
   runtimeData: RuntimeData;
   toolApprovalAction?: AssistantToolApprovalAction;
   toolResumeAction?: AssistantToolResumeAction;
+}
+
+function optionalInputParentMessageId(value: string | null | undefined): {
+  inputParentMessageId?: string | null;
+} {
+  return value === undefined ? {} : { inputParentMessageId: value };
+}
+
+function optionalPausedMessageId(value: string | undefined): { pausedMessageId?: string } {
+  return value === undefined ? {} : { pausedMessageId: value };
+}
+
+function optionalFinalInputMessage(value: AgentMessage | null | undefined): {
+  finalInputMessage?: AgentMessage;
+} {
+  return value === null || value === undefined ? {} : { finalInputMessage: value };
 }
 
 /**
@@ -123,8 +147,8 @@ export interface PrepareAssistantPostRequestParams {
    * here — every hook throw (including one that happens to be a class this
    * module maps for its own parse phase) is rethrown to the caller wrapped in
    * AssistantFilterPayloadError, and the transport unwraps `cause` and owns
-   * the wire shape (NO SILENT FALLBACKS, in both directions). Desktop passes
-   * no hook and is byte-for-byte unchanged.
+   * the wire shape (NO SILENT FALLBACKS, in both directions). Desktop uses an
+   * identity hook to register the initializing thread before credential work.
    */
   readonly filterPayload?: (
     payload: ParsedAssistantRequestEnvelope
@@ -270,15 +294,18 @@ function convertAssistantMessages(
 function hasAssistantPromptOrAction(
   finalInputMessage: AgentMessage | null,
   toolApprovalAction: AssistantToolApprovalAction | undefined,
-  toolResumeAction: AssistantToolResumeAction | undefined
+  toolResumeAction: AssistantToolResumeAction | undefined,
+  childFollowupAction: AssistantChildFollowupAction | undefined
 ): boolean {
-  if (toolApprovalAction || toolResumeAction) {
+  if (toolApprovalAction || toolResumeAction || childFollowupAction) {
     return true;
   }
   return Boolean(finalInputMessage && hasAssistantPromptContent([finalInputMessage]));
 }
 
 interface ParsedToolContinuationActions {
+  readonly childFollowupAction: AssistantChildFollowupAction | undefined;
+  readonly childFollowupActionInvalid: boolean;
   readonly toolApprovalAction: AssistantToolApprovalAction | undefined;
   readonly toolApprovalActionInvalid: boolean;
   readonly toolResumeAction: AssistantToolResumeAction | undefined;
@@ -288,6 +315,17 @@ interface ParsedToolContinuationActions {
 function rejectToolContinuationInputError(
   actions: ParsedToolContinuationActions
 ): AssistantPostRejection | undefined {
+  if (actions.childFollowupActionInvalid) {
+    return {
+      payload: {
+        error: 'invalid_child_followup_action',
+        message:
+          'Child follow-up requires only its stable request ID, selected conversation and text.',
+      },
+      status: 400,
+    };
+  }
+
   if (actions.toolApprovalActionInvalid) {
     return {
       payload: {
@@ -310,7 +348,11 @@ function rejectToolContinuationInputError(
     };
   }
 
-  if (actions.toolApprovalAction && actions.toolResumeAction) {
+  if (
+    [actions.toolApprovalAction, actions.toolResumeAction, actions.childFollowupAction].filter(
+      Boolean
+    ).length > 1
+  ) {
     return {
       payload: {
         error: 'conflicting_tool_continuation_actions',
@@ -327,16 +369,24 @@ export async function prepareAssistantPostRequest(
   params: PrepareAssistantPostRequestParams
 ): Promise<PrepareAssistantPostRequestResult> {
   const { awsCredentialChain, filterPayload, logger, readBody, resolveProviderCredential } = params;
+  let childFollowupAction: AssistantChildFollowupAction | undefined;
+  let childFollowupActionInvalid = false;
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
   let assistantMessageId: string | undefined;
+  let inputParentMessageId: string | null | undefined;
+  let pausedMessageId: string | undefined;
   let toolApprovalAction: AssistantToolApprovalAction | undefined;
   let toolApprovalActionInvalid = false;
   let toolResumeAction: AssistantToolResumeAction | undefined;
   let toolResumeActionInvalid = false;
   try {
     const payload = await parseAssistantRequestPayload(readBody, filterPayload);
+    childFollowupAction = payload.childFollowupAction;
+    childFollowupActionInvalid = Boolean(payload.childFollowupActionInvalid);
     assistantMessageId = payload.assistantMessageId;
+    inputParentMessageId = payload.inputParentMessageId;
+    pausedMessageId = payload.pausedMessageId;
     rawMessages = payload.rawMessages;
     data = payload.data;
     toolApprovalAction = payload.toolApprovalAction;
@@ -359,6 +409,8 @@ export async function prepareAssistantPostRequest(
   const provider = resolveRequestedProvider(data);
 
   const continuationRejection = rejectToolContinuationInputError({
+    childFollowupAction,
+    childFollowupActionInvalid,
     toolApprovalAction,
     toolApprovalActionInvalid,
     toolResumeAction,
@@ -427,7 +479,14 @@ export async function prepareAssistantPostRequest(
     });
   }
 
-  if (!hasAssistantPromptOrAction(finalInputMessage, toolApprovalAction, toolResumeAction)) {
+  if (
+    !hasAssistantPromptOrAction(
+      finalInputMessage,
+      toolApprovalAction,
+      toolResumeAction,
+      childFollowupAction
+    )
+  ) {
     // Deliberately message-less on the wire (the pre-A4 hand-rolled write).
     return reject({ payload: { error: 'empty_prompt' }, status: 400 });
   }
@@ -436,7 +495,11 @@ export async function prepareAssistantPostRequest(
     ok: true,
     request: {
       apiKey: apiKey ?? '',
+      ...(childFollowupAction ? { childFollowupAction } : {}),
       ...(assistantMessageId ? { assistantMessageId } : {}),
+      ...optionalFinalInputMessage(finalInputMessage),
+      ...optionalInputParentMessageId(inputParentMessageId),
+      ...optionalPausedMessageId(pausedMessageId),
       ...(credential ? { credential } : {}),
       messages,
       runtimeData,
@@ -588,10 +651,19 @@ async function parseAssistantRequestPayload(
       throw new AssistantFilterPayloadError(error);
     }
   }
+  const childFollowupActionResult = readChildFollowupRunConfigAction(payload.runConfig);
   const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
   const toolResumeActionResult = readToolResumeRunConfigAction(payload.runConfig);
   const parsedPayload: AssistantRequestPayload = { ...payload };
   validateEnabledNativeToolIds(parsedPayload.data);
+
+  if (childFollowupActionResult) {
+    if ('invalid' in childFollowupActionResult) {
+      parsedPayload.childFollowupActionInvalid = true;
+    } else {
+      parsedPayload.childFollowupAction = childFollowupActionResult.action;
+    }
+  }
 
   if (toolApprovalActionResult) {
     if ('invalid' in toolApprovalActionResult) {

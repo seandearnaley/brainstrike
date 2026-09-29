@@ -14,36 +14,42 @@
  */
 
 import { render } from '@testing-library/react';
+import { createRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { TreeTable } from '../tree-table/tree-table';
-import type { TreeNode, TreeTableColumn } from '../tree-table/types';
+import type { TreeNode, TreeTableColumn, TreeTableHandle } from '../tree-table/types';
 
 interface CapturedVirtualizerOptions {
   count: number;
   getScrollElement: () => HTMLElement | null;
   scrollMargin?: number;
+  scrollPaddingStart?: number;
 }
 
 const capturedVirtualizerOptions = vi.hoisted(() => ({
   current: [] as CapturedVirtualizerOptions[],
 }));
 
+const scrollToOffsetSpy = vi.hoisted(() => ({ current: vi.fn() }));
+
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: vi.fn((options: CapturedVirtualizerOptions) => {
     capturedVirtualizerOptions.current.push(options);
     const count = options.count;
+    const items = Array.from({ length: count }, (_, i) => ({
+      end: (i + 1) * 40,
+      index: i,
+      key: `item-${i}`,
+      size: 40,
+      start: i * 40,
+    }));
     return {
       getTotalSize: () => count * 40,
-      getVirtualItems: () =>
-        Array.from({ length: count }, (_, i) => ({
-          end: (i + 1) * 40,
-          index: i,
-          key: `item-${i}`,
-          size: 40,
-          start: i * 40,
-        })),
+      getVirtualItems: () => items,
       measureElement: vi.fn(),
+      measurementsCache: items,
       scrollToIndex: vi.fn(),
+      scrollToOffset: scrollToOffsetSpy.current,
     };
   }),
 }));
@@ -191,5 +197,67 @@ describe('TreeTable shared-scroller mode', () => {
     // strip the viewport's own scrolling there.
     const viewport = findViewport(container);
     expect(viewport.className).toContain('overflow-auto');
+  });
+});
+
+describe('TreeTable shared-scroller reveal inset', () => {
+  // Rows are 40px (n0 0-40, n1 40-80, n2 80-120). The scroller sits at 50
+  // with a 300px window, so n2 starts 30px below the top edge: fully visible
+  // with no inset, but under a 44px in-scroller sticky header with one.
+  function renderRevealable(
+    scrollPaddingStart?: number,
+    viewport: { clientHeight: number; scrollTop: number } = { clientHeight: 300, scrollTop: 50 }
+  ) {
+    scrollToOffsetSpy.current = vi.fn();
+    const scrollParent = document.createElement('div');
+    Object.defineProperty(scrollParent, 'scrollTop', {
+      configurable: true,
+      value: viewport.scrollTop,
+    });
+    Object.defineProperty(scrollParent, 'clientHeight', {
+      configurable: true,
+      value: viewport.clientHeight,
+    });
+    const ref = createRef<TreeTableHandle>();
+    render(
+      <TreeTable
+        columns={COLUMNS}
+        expandedIds={new Set()}
+        nodes={NODES}
+        onToggleExpand={vi.fn()}
+        scrollParentRef={{ current: scrollParent }}
+        treeTableRef={ref}
+        windowingStrategy="virtual"
+        {...(scrollPaddingStart === undefined ? {} : { scrollPaddingStart })}
+      />
+    );
+    return ref;
+  }
+
+  it('scrolls a row that starts inside the inset band to sit just below the inset', () => {
+    const ref = renderRevealable(44);
+    ref.current?.revealNode('n2');
+    expect(scrollToOffsetSpy.current).toHaveBeenCalledWith(80 - 44, { behavior: 'auto' });
+  });
+
+  it('measures the bottom edge from the scroller window, not from the inset-shifted top', () => {
+    // Window 0-100 with a 44px inset: n2 (80-120) overhangs the bottom by 20.
+    const ref = renderRevealable(44, { clientHeight: 100, scrollTop: 0 });
+    ref.current?.revealNode('n2');
+    expect(scrollToOffsetSpy.current).toHaveBeenCalledWith(20, { behavior: 'auto' });
+  });
+
+  it('forwards the inset to the virtualizer so both scroll paths honour it', () => {
+    capturedVirtualizerOptions.current.length = 0;
+    renderRevealable(44);
+    expect(capturedVirtualizerOptions.current.at(-1)?.scrollPaddingStart).toBe(44);
+  });
+
+  it('keeps nearest-edge behaviour with no inset: a row below the top edge is left alone', () => {
+    const ref = renderRevealable();
+    ref.current?.revealNode('n2');
+    expect(scrollToOffsetSpy.current).not.toHaveBeenCalled();
+    ref.current?.revealNode('n0');
+    expect(scrollToOffsetSpy.current).toHaveBeenCalledWith(0, { behavior: 'auto' });
   });
 });

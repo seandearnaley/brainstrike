@@ -1,0 +1,209 @@
+import { createHash } from 'node:crypto';
+import {
+  assistantChildInputContents,
+  ChildInputNotDeliveredError,
+  normalizeAssistantChildInput,
+  serializeAssistantChildInput,
+} from '@brainstrike/assistant-contract';
+import { type Agent, createMessageSignal, signalToMastraDBMessage } from '@mastra/core/agent';
+import { z } from 'zod';
+import {
+  CHILD_INPUT_CONTEXT_KEY,
+  type PrepareChildInputContext,
+  validateChildInputContext,
+} from './child-input-context';
+import type {
+  DelegatedFollowupControl,
+  DelegatedFollowupInput,
+  DelegatedFollowupTarget,
+} from './delegated-conversation-binding';
+
+const receiptSchema = z.object({
+  payload: z.string().optional(),
+  runId: z.string(),
+  state: z.enum(['pending', 'delivered']),
+  text: z.string(),
+});
+
+async function assertFollowupAdmission(assertAdmission: () => Promise<void>): Promise<void> {
+  try {
+    await assertAdmission();
+  } catch (cause) {
+    throw new ChildInputNotDeliveredError('Child input admission was revoked; nothing was sent.', {
+      cause,
+    });
+  }
+}
+
+function matchesReceiptInput(
+  receipt: z.output<typeof receiptSchema>,
+  input: DelegatedFollowupInput
+): boolean {
+  if (receipt.payload !== undefined) {
+    return receipt.payload === serializeAssistantChildInput(input);
+  }
+  // Legacy receipts carried text only; omitted images never count as a match.
+  return receipt.text === input.text && !input.attachments?.length;
+}
+
+function normalizeActiveChildInput(rawInput: DelegatedFollowupInput) {
+  const input = normalizeAssistantChildInput(rawInput);
+  if (input.nextRun) {
+    throw new ChildInputNotDeliveredError(
+      'Run controls apply only when starting the next idle child run. Nothing was sent.'
+    );
+  }
+  return input;
+}
+
+async function deliver(
+  child: Agent,
+  target: DelegatedFollowupTarget,
+  rawInput: DelegatedFollowupInput,
+  assertAdmission: () => Promise<void>,
+  prepareContext?: PrepareChildInputContext
+): Promise<void> {
+  const input = normalizeActiveChildInput(rawInput);
+  const payload = serializeAssistantChildInput(input);
+  const memory = await child.getMemory();
+  const store = await memory?.storage.getStore('memory');
+  if (!(memory && store)) {
+    throw new Error('Child follow-up requires its native durable memory.');
+  }
+  const id = `child-input:${createHash('sha256')
+    .update(JSON.stringify([target.resourceId, target.threadId, input.id]))
+    .digest('hex')}`;
+  const previous = (await store.listMessagesById({ messageIds: [id] })).messages;
+  if (previous.length > 0) {
+    const saved = previous[0];
+    if (!saved || saved.threadId !== target.threadId || saved.resourceId !== target.resourceId) {
+      throw new Error('This child follow-up request belongs to a different conversation.');
+    }
+    const receipt = receiptSchema.parse(saved.content.metadata?.['brainstrikeFollowup']);
+    if (receipt.runId !== target.runId || !matchesReceiptInput(receipt, input)) {
+      throw new Error('This child follow-up request already has different content or ownership.');
+    }
+    if (receipt.state === 'delivered') {
+      return;
+    }
+    // A host crash can occur between native acceptance and receipt persistence.
+    // Do not replay that ambiguous request into an effect-capable child.
+    throw new Error(
+      'Child follow-up delivery was interrupted; it will not be replayed automatically.'
+    );
+  }
+  const running = child
+    .listActiveThreadRuns()
+    .some(
+      (run) =>
+        run.runId === target.runId &&
+        run.threadId === target.threadId &&
+        run.resourceId === target.resourceId
+    );
+  if (!running) {
+    throw new ChildInputNotDeliveredError(
+      'The selected child is no longer running; follow-up was not delivered.'
+    );
+  }
+  // Check after queued work and asynchronous receipt lookup, not at HTTP admission alone.
+  await assertFollowupAdmission(assertAdmission);
+  const context = prepareContext ? validateChildInputContext(await prepareContext()) : undefined;
+  await assertFollowupAdmission(assertAdmission);
+  const signal = createMessageSignal(
+    {
+      contents: assistantChildInputContents(input),
+      metadata: {
+        brainstrikeDelegatedInput: target.identity,
+        ...(context ? { [CHILD_INPUT_CONTEXT_KEY]: context } : {}),
+      },
+    },
+    { id }
+  );
+  const message = signalToMastraDBMessage(signal, target);
+  const metadata = {
+    ...message.content.metadata,
+    brainstrikeFollowup: { payload, runId: target.runId, state: 'pending', text: input.text },
+  };
+  await memory.saveMessages({
+    messages: [{ ...message, content: { ...message.content, metadata } }],
+  });
+  try {
+    await assertFollowupAdmission(assertAdmission);
+  } catch (error) {
+    // No signal was enqueued. Keep it out of future native memory recall.
+    try {
+      await store.deleteMessages([id]);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Child input was rejected but its memory cleanup failed.'
+      );
+    }
+    throw error;
+  }
+  const result = await child.sendSignal(signal, {
+    ifIdle: { behavior: 'discard' },
+    resourceId: target.resourceId,
+    runId: target.runId,
+    threadId: target.threadId,
+  }).accepted;
+  if (result.action !== 'deliver') {
+    const error = new ChildInputNotDeliveredError(
+      `The selected child did not accept the follow-up (${result.action}).`
+    );
+    try {
+      await store.deleteMessages([id]);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Child input was rejected but its memory cleanup failed.'
+      );
+    }
+    throw error;
+  }
+  await store.updateMessages({
+    messages: [
+      {
+        content: {
+          ...message.content,
+          metadata: {
+            ...metadata,
+            brainstrikeFollowup: { ...metadata.brainstrikeFollowup, state: 'delivered' },
+          },
+        },
+        id,
+      },
+    ],
+  });
+}
+
+/** Host authorization precedes serialized, durable input admission by this owner. */
+export function createDelegatedFollowupControl(
+  agents: Readonly<Record<string, Agent>>
+): DelegatedFollowupControl {
+  const queues = new Map<string, Promise<void>>();
+  return async (target, input, assertAdmission, prepareContext) => {
+    const child = agents[target.personaId];
+    if (!child) {
+      throw new Error('The selected child has no native persona execution owner.');
+    }
+    const key = JSON.stringify([target.resourceId, target.threadId]);
+    const previous = queues.get(key) ?? Promise.resolve();
+    const pending = previous.then(() =>
+      deliver(child, target, input, assertAdmission, prepareContext)
+    );
+    // Failed input must not permanently poison later explicit requests.
+    const settled = pending.then(
+      () => {},
+      () => {}
+    );
+    queues.set(key, settled);
+    try {
+      await pending;
+    } finally {
+      if (queues.get(key) === settled) {
+        queues.delete(key);
+      }
+    }
+  };
+}

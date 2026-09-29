@@ -1,16 +1,8 @@
 import type { LoggingPreferences } from '@brainstrike/logging';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
+import { DESKTOP_IPC_CHANNELS } from './desktop-ipc-channels';
 
-export const LOGGING_API_CHANNELS = {
-  durableRecord: 'logging:durable-record',
-  getBufferedLogs: 'logging:get-buffered-logs',
-  getPreferences: 'logging:get-preferences',
-  ingestBufferedRecord: 'logging:ingest-buffered-record',
-  openDestination: 'logging:open-destination',
-  preferencesUpdated: 'logging:preferences-updated',
-  selectDestination: 'logging:select-destination',
-  setPreferences: 'logging:set-preferences',
-} as const;
+export const LOGGING_API_CHANNELS = DESKTOP_IPC_CHANNELS.logging;
 
 const VALID_LOG_LEVELS = new Set<unknown>([
   LogLevel.TRACE,

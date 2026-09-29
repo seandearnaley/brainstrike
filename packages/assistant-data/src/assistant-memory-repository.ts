@@ -1,39 +1,41 @@
-import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
+import type {
+  AssistantUiThreadHistoryAdapter,
+  DelegatedConversationBaseline,
+  DelegatedToolActionIdentity,
+} from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
   ASSISTANT_EDIT_CHECKPOINT_OPS,
   type AssistantEditCheckpointCaptureStatus,
   type AssistantEditCheckpointOp,
   type AssistantEditCheckpointRecord,
+  CHILD_INPUT_DELIVERY_METADATA_KEY,
+  childInputDeliveryStateSchema,
+  getToolActionIdentityKey,
   isGuardedToolError,
+  NATIVE_MESSAGE_IDS_METADATA_KEY,
+  SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
+  type SuspendedRunDiscoveryError,
 } from '@brainstrike/assistant-contract';
 import {
   isApprovalActionMessage,
-  readActionMessageRunId,
+  readActionMessageHostRunId,
+  readActionMessagePausedOwnerId,
 } from '@brainstrike/assistant-contract/approval-action-message';
+import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/assistant-stream-session';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
-  ASSISTANT_COMPACTION_RANGES_TABLE,
-  ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
-  ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE,
-  CANVAS_VERSIONS_TABLE,
   DEFAULT_THREAD_TITLE,
-  MASTRA_MEMORY_SCHEMA_SQL,
+  DELEGATED_THREAD_DELETE_CTES,
   MASTRA_MEMORY_TABLES,
   MIND_OPS_TABLE,
   THREAD_DELETE_SIDECAR_TABLES,
   THREAD_TITLE_SOURCE_METADATA_KEY,
   THREAD_TITLE_SOURCE_OM,
-  TOKEN_ESTIMATE_CALIBRATION_TABLE,
-  TOOL_CALL_TELEMETRY_TABLE,
-  WORKSPACE_SNAPSHOTS_TABLE,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
-  ASSISTANT_RUN_EVENT_KINDS,
-  ASSISTANT_RUN_EVENT_STATUSES,
   type AssistantRunEvent,
-  type AssistantRunEventKind,
-  type AssistantRunEventStatus,
   sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/assistant-contract/run-events';
 import {
@@ -41,6 +43,8 @@ import {
   type AssistantRunUsageKind,
 } from '@brainstrike/assistant-contract/run-usage';
 import {
+  createDeclinedToolCallResult,
+  isDeclinedToolCallResult,
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
@@ -49,8 +53,26 @@ import {
   type RediscoveredToolSuspend,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+  type AssistantHistoryMessage,
+  type AssistantThreadMessageListOptions,
+  type AssistantThreadRunEventListOptions,
+  createDelegatedConversationRepository,
+  readAssistantHistoryMessages,
+  readAssistantHistoryRunEvents,
+  recordAssistantHistoryParent,
+} from '@brainstrike/db';
+
 import type { DbHandle } from '@brainstrike/db/react';
 import type { SuspendedRunDiscovery } from './assistant-suspended-approvals';
+
+export {
+  ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+  type AssistantHistoryMessage,
+  type AssistantThreadMessageListOptions,
+  type AssistantThreadRunEventListOptions,
+} from '@brainstrike/db';
 
 export interface AssistantMemoryThread {
   readonly createdAt: Date;
@@ -71,17 +93,15 @@ export const ASSISTANT_THREAD_ICON_IDS = [
   'plan',
 ] as const;
 
-export const ASSISTANT_THREAD_COLOR_IDS = [
-  'blue',
-  'emerald',
-  'amber',
-  'rose',
-  'violet',
-  'slate',
-] as const;
-
 export type AssistantThreadIconId = (typeof ASSISTANT_THREAD_ICON_IDS)[number];
-export type AssistantThreadColorId = (typeof ASSISTANT_THREAD_COLOR_IDS)[number];
+export { ASSISTANT_THREAD_COLOR_IDS } from './assistant-thread-palette.js';
+
+import {
+  ASSISTANT_THREAD_COLOR_IDS,
+  type AssistantThreadColorId,
+} from './assistant-thread-palette.js';
+
+export type { AssistantThreadColorId } from './assistant-thread-palette.js';
 
 // biome-ignore assist/source/useSortedInterfaceMembers: BST-1391 Task 6 explicitly places forge fields immediately before model.
 export interface AssistantThreadMetadata {
@@ -137,7 +157,12 @@ type MutableAssistantThreadMetadata = {
   -readonly [Key in keyof AssistantThreadMetadata]?: AssistantThreadMetadata[Key];
 };
 
-export type AssistantThreadRunStatus = 'cancelled' | 'completed' | 'failed' | 'running';
+export type AssistantThreadRunStatus =
+  | 'cancelling'
+  | 'cancelled'
+  | 'completed'
+  | 'failed'
+  | 'running';
 export type AssistantThreadRuntimeKind = 'browser' | 'gateway' | 'hosted' | 'local';
 
 export interface AssistantThreadRunRecord {
@@ -167,9 +192,25 @@ export interface AssistantThreadRunRecord {
 }
 
 export interface CreateAssistantThreadRunInput {
+  /** Resolve the original turn from the owned durable continuation before insertion. */
+  readonly childContinuation?: { readonly id: string; readonly nativeRunId: string };
   readonly completedAt?: Date | null;
+  /**
+   * The approval/resume decision this leg answers, when it answers one
+   * (BST-1749, migration 140). The GENERATION it belongs to is derived from
+   * durable state — a delegated pause through its invocation's host leg, a
+   * root-own pause through the native run the host mapped — so every leg of
+   * one generation carries the same ledger identity. A leg with no decision
+   * (an initial send, a regeneration) opens its own generation.
+   */
+  readonly decision?: {
+    readonly delegated: boolean;
+    readonly runId: string;
+    readonly toolCallId: string;
+  };
   readonly error?: string | null;
-  readonly id: string;
+  /** Minted only by app-shell's `createThreadRunId` (see `HostRunId`). */
+  readonly id: HostRunId;
   readonly model: string;
   readonly modelSettings?: Record<string, unknown>;
   readonly provider: string;
@@ -185,7 +226,7 @@ export interface CreateAssistantThreadRunInput {
 
 export interface CompleteAssistantThreadRunInput {
   readonly error?: string | null;
-  readonly status: Exclude<AssistantThreadRunStatus, 'running'>;
+  readonly status: Exclude<AssistantThreadRunStatus, 'running' | 'cancelling'>;
 }
 
 /**
@@ -621,6 +662,12 @@ export interface AssistantThreadRepository {
   deleteThread: (threadId: string) => Promise<void>;
   deleteThreads?: (threadIds: readonly string[]) => Promise<void>;
   getCrossRootUsage: (resourceId: string) => Promise<readonly CrossRootUsageRow[]>;
+  /** Read an edge even when its transient UI message has no Mastra row. */
+  getMessageParent?: (
+    messageId: string,
+    threadId: string,
+    resourceId: string
+  ) => Promise<string | null | undefined>;
   /** Task Ledger read model. Optional only for read-only/test repositories. */
   getRunLedger?: (
     resourceId: string,
@@ -631,7 +678,14 @@ export interface AssistantThreadRepository {
    * BST-1163 run↔turn link, read by the history adapter's suspended-edge
    * backfill (BST-1243). Optional only for read-only/test repositories.
    */
-  getThreadRunTurnMessageId?: (runId: string, threadId: string) => Promise<string | null>;
+  /**
+   * REQUIRED, not optional: the approval/suspend echo backfill anchors a
+   * suspended message on the host leg's turn and has no fallback, so a
+   * repository without this method would throw on every live decision. Keeping
+   * it required puts that gap in the compiler's hands instead of the user's.
+   */
+  getThreadRunTurnMessageId: (runId: string, threadId: string) => Promise<string | null>;
+  hasResolvedToolCallInGeneration?: (hostRunId: string, toolCallId: string) => Promise<boolean>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
     threadId: string,
@@ -651,6 +705,8 @@ export interface AssistantThreadRepository {
   recordRunOutcome?: (input: RecordRunOutcomeInput) => Promise<void>;
   recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
   renameThread: (threadId: string, title: string) => Promise<void>;
+  /** The first host owner and later legs in its scoped generation. */
+  sharesNativeRunGeneration?: (hostRunId: string, nativeRunId: string) => Promise<boolean>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
   updateThreadsMetadata?: (
     threadIds: readonly string[],
@@ -671,15 +727,6 @@ export interface BulkAssistantThreadRepository extends AssistantThreadRepository
   ) => Promise<void>;
 }
 
-interface AssistantHistoryMessage {
-  readonly content: unknown;
-  readonly createdAt: Date;
-  readonly id: string;
-  /** Undefined only for legacy rows written before durable branch topology. */
-  readonly parentId?: string | null;
-  readonly role: string;
-}
-
 export interface RecordAssistantMessageParentInput {
   readonly messageId: string;
   readonly parentId: string | null;
@@ -687,17 +734,83 @@ export interface RecordAssistantMessageParentInput {
   readonly threadId: string;
 }
 
-export interface AssistantThreadMessageListOptions {
-  readonly limitLatest?: number;
-}
-
-export interface AssistantThreadRunEventListOptions {
-  readonly limitLatestRuns?: number;
-}
-
-export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
-
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
+
+/**
+ * The generation ONE generation read names, from the rows it matched.
+ *
+ * Every predicate behind those reads is a primary key —
+ * `brainstrike_assistant_native_runs.native_run_id`, a continuation's `id`, an
+ * invocation's `(root_thread_id, parent_runtime_run_id, parent_tool_call_id)` —
+ * joined to its owner leg by `id`, so one row or none is the only possible
+ * shape. A second row means that assumption is wrong; taking `rows[0]` of an
+ * unordered result would pick a generation arbitrarily and give this leg a
+ * ledger no sibling leg of its turn shares. The read says so instead.
+ */
+export function readSoleGenerationRunId(
+  rows: readonly { readonly generationRunId: string | null }[]
+): string | null {
+  if (rows.length > 1) {
+    throw new Error(
+      `A generation read matched ${rows.length} rows; its predicate is a primary key and must match one row or none.`
+    );
+  }
+  const value = rows[0]?.generationRunId;
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/**
+ * The GENERATION a new leg belongs to (migration 140, BST-1749). An initial
+ * send or a regeneration opens its OWN; a leg that answers a decision inherits
+ * the generation of the leg whose paused run it continues — a child
+ * continuation through its receipt, a DELEGATED pause through its invocation's
+ * host leg, a ROOT-OWN pause through the native run the host mapped. NULL when
+ * nothing maps that run (a pause parked before migration 140, or a surface
+ * that maps no native runs at all): the background ledger throws there rather
+ * than guess an identity no other leg of the turn shares.
+ */
+async function resolveGenerationRunId(
+  database: Parameters<typeof createPgliteAssistantThreadRepository>[0],
+  input: CreateAssistantThreadRunInput
+): Promise<string | null> {
+  const readGeneration = async (sql: string, values: unknown[]): Promise<string | null> => {
+    const found = await database.query<{ generationRunId: string | null }>(
+      sql,
+      values as Parameters<typeof database.query>[1]
+    );
+    return readSoleGenerationRunId(found.rows);
+  };
+  if (input.childContinuation) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_delegated_continuations continuation
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = continuation.host_run_id
+        WHERE continuation.id = $1 AND continuation.owner_resource_id = $2
+          AND continuation.root_thread_id = $3`,
+      [input.childContinuation.id, input.resourceId, input.threadId]
+    );
+  }
+  if (input.decision?.delegated) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_delegated_invocations invocation
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = invocation.host_run_id
+        WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
+          AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4`,
+      [input.resourceId, input.threadId, input.decision.runId, input.decision.toolCallId]
+    );
+  }
+  if (input.decision) {
+    return await readGeneration(
+      `SELECT owner.generation_run_id AS "generationRunId"
+         FROM brainstrike_assistant_native_runs mapped
+         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = mapped.host_run_id
+        WHERE mapped.native_run_id = $1 AND owner.resource_id = $2 AND owner.thread_id = $3`,
+      [input.decision.runId, input.resourceId, input.threadId]
+    );
+  }
+  return input.id;
+}
 const LATEST_THREAD_RUNS_BY_RESOURCE_SQL = `SELECT DISTINCT ON (thread_id)
     id,
     resource_id,
@@ -720,632 +833,101 @@ const LATEST_THREAD_RUNS_BY_RESOURCE_SQL = `SELECT DISTINCT ON (thread_id)
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
+/** Workspace roots (migration 039); joined by the cross-root usage rollup. */
+const ROOTS_TABLE = 'roots';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
-const ASSISTANT_RUN_TREATMENTS_TABLE = 'brainstrike_assistant_run_treatments';
-const ASSISTANT_RUN_ERRORS_TABLE = 'brainstrike_assistant_run_errors';
-const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 /**
- * Built ON DEMAND, deliberately NOT as a module-scope constant.
+ * Every relation the repository reads or writes, and therefore every relation
+ * whose absence means this database was never migrated.
  *
- * This template interpolates two bindings imported from
- * `@brainstrike/assistant-contract/mastra-memory-schema`:
- * `MASTRA_MEMORY_SCHEMA_SQL` and `MASTRA_MEMORY_TABLES.threads`. Evaluating it
- * at module scope reads them during CHUNK INITIALIZATION, and the renderer's
- * bundle chunk graph does not guarantee the contract chunk has been evaluated by
- * that point. When it has not, `MASTRA_MEMORY_TABLES` is still `undefined` and
- * interpolating its `.threads` property throws "Cannot read properties of
- * undefined (reading 'threads')" while this module is evaluating — the renderer
- * dies at startup and the app never becomes ready.
+ * Read inside a function body, never at module scope: these are
+ * `mastra-memory-schema` constants, and a module-scope read of them is the
+ * BST-558 chunk-initialization hazard that
+ * `scripts/verify-mastra-schema-init-order.mjs` guards.
  *
- * Measured, not theorised (BST-558): adding one unrelated static import of that
- * same contract module to `packages/db/src/db-provider.tsx` reordered chunk init
- * and turned Web + Desktop E2E red where the preceding commit was green, while
- * type-check, lint and every unit suite stayed green throughout. The schema
- * module imports nothing, so there is no source cycle for any static analysis to
- * find — only the bundler's chunk graph decides this, and only a production
- * build exhibits it.
- *
- * Deferring the reads into a function body is the durable fix: by the time
- * `initialize()` calls this, every chunk has been evaluated, so NO import order
- * can leave the bindings undefined. Keep it a function — do not "optimize" it
- * back into a module-scope constant or a module-scope memo.
- *
- * Interpolating `MASTRA_MEMORY_SCHEMA_SQL` is the more insidious of the two
- * reads: an uninitialized binding there does not throw, it splices the literal
- * string "undefined" into the DDL.
+ * The thread-delete cascade references EVERY registered sidecar
+ * unconditionally, so the sidecar list is derived rather than restated — a
+ * sidecar added to the contract is probed the day it lands.
  */
-export function buildAssistantThreadRunsSchemaSql(): string {
-  return `
-${MASTRA_MEMORY_SCHEMA_SQL}
+export function requiredAssistantMemoryRelations(): readonly string[] {
+  return [
+    ...new Set([
+      MASTRA_MEMORY_TABLES.threads,
+      MASTRA_MEMORY_TABLES.messages,
+      MASTRA_MEMORY_TABLES.observationalMemory,
+      ASSISTANT_THREAD_RUNS_TABLE,
+      ASSISTANT_RUN_EVENTS_TABLE,
+      ASSISTANT_RUN_USAGE_TABLE,
+      ASSISTANT_RUN_OUTCOMES_TABLE,
+      ASSISTANT_EDIT_CHECKPOINTS_TABLE,
+      MIND_OPS_TABLE,
+      'brainstrike_delegated_conversations',
+      // `roots` is not assistant-owned (migration 039 creates it), but
+      // CROSS_ROOT_USAGE_AGGREGATION_SQL reads it through `LEFT JOIN roots`.
+      // Without it here, a handle carrying every assistant relation but no
+      // roots table passes the probe and then raises a raw missing-relation
+      // error from getCrossRootUsage() instead of the named one — the exact
+      // inconsistent failure this probe exists to remove.
+      ROOTS_TABLE,
+      ...THREAD_DELETE_SIDECAR_TABLES.map((sidecar) => sidecar.table),
+    ]),
+  ].sort();
+}
 
--- assistant-ui's branch graph is client-owned topology layered over Mastra's
--- durable message content. A parent row may be written before its Mastra
--- message row, so message_id/parent_id intentionally have no message FK.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_PARENTS_TABLE} (
-  message_id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  resource_id text NOT NULL,
-  parent_id text,
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  updated_at timestamptz NOT NULL DEFAULT NOW()
-);
+/**
+ * Raised when the assistant memory schema is not present. Migrations 117/118
+ * own that schema; nothing creates it at runtime any more.
+ */
+export class AssistantMemorySchemaMissingError extends Error {
+  readonly missingRelations: readonly string[];
 
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_parents_thread_idx
-  ON ${ASSISTANT_MESSAGE_PARENTS_TABLE} (thread_id, resource_id);
+  constructor(missingRelations: readonly string[]) {
+    super(
+      `Assistant memory schema is incomplete: ${missingRelations.length} required relation(s) absent ` +
+        `(${missingRelations.join(', ')}). This database was never migrated — run migrations before ` +
+        'creating the assistant thread repository.'
+    );
+    this.name = 'AssistantMemorySchemaMissingError';
+    this.missingRelations = missingRelations;
+  }
+}
 
--- Soft-rewind tombstones (BST-1115). Bootstrapped here AND created by
--- migration 080 — keep the shape byte-identical to 080. A tombstoned message
--- keeps its Mastra content row and is excluded by every Brainstrike-owned
--- read; the row is hard-deleted when the next user message finalizes the
--- rewind. message_id is the PK: a message is tombstoned at most once, which is
--- what makes deleting a rewind_id batch an exact redo. rewind_id is the redo
--- key and exists in both rewind modes; revert_id links the paired journal file
--- revert and is NULL for a conversation-only rewind.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (
-  message_id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  rewind_id text NOT NULL,
-  revert_id text,
-  tombstoned_at timestamptz NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_thread_idx
-  ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (thread_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_rewind_idx
-  ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (rewind_id);
-
--- Shadow-git snapshot ledger (BST-1164 W7). Bootstrapped here AND created by
--- migration 081 — keep the shape byte-identical to 081. Mirrored because the
--- thread-delete cascade CTEs below reference every sidecar table
--- unconditionally, so the relation must exist wherever this repository runs.
--- id is an app-side uuidv7 (migration 080's caller-supplied-text-PK
--- convention); run_id is nullable provenance (a turn is not a run); kind is
--- CHECK-constrained (migration 079's closed-vocabulary convention).
-CREATE TABLE IF NOT EXISTS ${WORKSPACE_SNAPSHOTS_TABLE} (
-  id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  run_id text,
-  root_id text NOT NULL,
-  root_path text NOT NULL,
-  commit_oid text NOT NULL,
-  kind text NOT NULL CHECK (kind IN ('turn-start', 'turn-end', 'pre-revert')),
-  created_at timestamptz NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_workspace_snapshots_thread_idx
-  ON ${WORKSPACE_SNAPSHOTS_TABLE} (thread_id, created_at);
-
-CREATE INDEX IF NOT EXISTS brainstrike_workspace_snapshots_root_idx
-  ON ${WORKSPACE_SNAPSHOTS_TABLE} (root_id);
-
--- Persisted Canvas document versions (BST-1173). Bootstrapped here AND
--- created by migration 082 — keep the shape byte-identical to 082. Mirrored
--- because the thread-delete cascade references every sidecar unconditionally.
--- ids are app-side uuidv7 values; creator is a closed vocabulary; the newest
--- version for one canvas is its current content.
-CREATE TABLE IF NOT EXISTS ${CANVAS_VERSIONS_TABLE} (
-  id text PRIMARY KEY,
-  canvas_id text NOT NULL,
-  thread_id text NOT NULL,
-  resource_id text NOT NULL,
-  title text NOT NULL,
-  html text NOT NULL,
-  version integer NOT NULL CHECK (version >= 1),
-  created_by text NOT NULL CHECK (created_by IN ('assistant', 'user')),
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  UNIQUE (canvas_id, version)
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_thread_idx
-  ON ${CANVAS_VERSIONS_TABLE} (thread_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_canvas_version_idx
-  ON ${CANVAS_VERSIONS_TABLE} (canvas_id, version DESC);
-
--- Privacy-safe per-tool model-output telemetry (BST-1190). Bootstrapped here
--- AND created by migrations 083 (table + thread/tool_time indexes), 085
--- (occurred_at index, BST-1198), and 092 (substrate-split columns,
--- BST-1247) — keep the shape byte-identical to all three.
--- Mirrored because the thread-delete cascade references every sidecar
--- unconditionally; only desktop main writes rows during normal operation.
-CREATE TABLE IF NOT EXISTS ${TOOL_CALL_TELEMETRY_TABLE} (
-  id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  run_id text NOT NULL,
-  tool_id text NOT NULL,
-  occurred_at timestamptz NOT NULL DEFAULT NOW(),
-  model_facing_chars integer NOT NULL CHECK (model_facing_chars >= 0),
-  truncated boolean NOT NULL DEFAULT false,
-  zero_match boolean,
-  is_pagination_followup boolean NOT NULL DEFAULT false,
-  -- Migration 092 (BST-1247): substrate degradation split out of truncated
-  -- so the waste lens can separate model behavior from engine degradation.
-  engine text,
-  scan_limited boolean NOT NULL DEFAULT false,
-  candidates_truncated boolean NOT NULL DEFAULT false
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_thread_idx
-  ON ${TOOL_CALL_TELEMETRY_TABLE} (thread_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_tool_time_idx
-  ON ${TOOL_CALL_TELEMETRY_TABLE} (tool_id, occurred_at DESC);
-
--- Migration 085 (BST-1198): occurred_at-leading index for the scheduled
--- retention sweep, which filters on occurred_at alone (no tool_id predicate).
-CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_occurred_at_idx
-  ON ${TOOL_CALL_TELEMETRY_TABLE} (occurred_at);
-
--- Estimator-vs-provider prompt-token reconciliation pairs (BST-1205).
--- Bootstrapped here AND created by migrations 086 + 089 + 091 — keep the shape
--- byte-identical. The numerator is the chars/4 backstop over model-visible tool
--- outputs plus tool definitions, each counted once. final_step_prompt_tokens is
--- the latest step prompt, which contains prior tool outputs once via Mastra's
--- resend behavior—not the cross-step accumulated total. Conversation/system
--- prompt text outside tool outputs/definitions is excluded from both. Only
--- completed runs with at least one measured tool output are written. The
--- nullable resolved-budget columns segment new samples by their actual run
--- tier. prompt_baseline_tokens records system instructions + task list + tool
--- definitions for the same run, so the next turn's compaction trigger can
--- account for prompt content unavailable at its pre-request seam. Historical/
--- bootstrap-upgrade rows remain NULL rather than guessed.
--- Mirrored because thread deletion references every sidecar unconditionally;
--- only desktop main writes rows during normal operation.
-CREATE TABLE IF NOT EXISTS ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (
-  id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  run_id text NOT NULL,
-  model text NOT NULL,
-  provider text NOT NULL,
-  estimated_prompt_tokens integer NOT NULL CHECK (estimated_prompt_tokens >= 0),
-  final_step_prompt_tokens integer NOT NULL CHECK (final_step_prompt_tokens >= 0),
-  step_count integer NOT NULL DEFAULT 1 CHECK (step_count >= 1),
-  model_visible_projection_count integer NOT NULL DEFAULT 0 CHECK (model_visible_projection_count >= 0),
-  occurred_at timestamptz NOT NULL DEFAULT NOW(),
-  resolved_domain_budget_tokens integer CHECK (resolved_domain_budget_tokens IS NULL OR resolved_domain_budget_tokens > 0),
-  resolved_transport_budget_tokens integer CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0),
-  prompt_baseline_tokens integer CHECK (prompt_baseline_tokens IS NULL OR prompt_baseline_tokens > 0)
-);
-
-ALTER TABLE ${TOKEN_ESTIMATE_CALIBRATION_TABLE}
-  ADD COLUMN IF NOT EXISTS resolved_domain_budget_tokens integer
-    CHECK (resolved_domain_budget_tokens IS NULL OR resolved_domain_budget_tokens > 0),
-  ADD COLUMN IF NOT EXISTS resolved_transport_budget_tokens integer
-    CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0),
-  ADD COLUMN IF NOT EXISTS prompt_baseline_tokens integer
-    CHECK (prompt_baseline_tokens IS NULL OR prompt_baseline_tokens > 0);
-
-CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_thread_idx
-  ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (thread_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_model_idx
-  ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (model, occurred_at DESC);
-
-CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_occurred_at_idx
-  ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (occurred_at);
-
--- Native-tool model-projection overlays (BST-1192/BST-1200). Bootstrapped
--- here AND created by migrations 084 + 087 — this renderer-executed bootstrap
--- covers a FRESH table (CREATE TABLE branch) with the final shape, and adds
--- the ONLY column an already-084-shaped table can be missing (ADD COLUMN IF
--- NOT EXISTS is additive, never destructive). It deliberately does NOT run
--- ALTER COLUMN superseded_by_tool_call_id DROP NOT NULL, nor ADD CONSTRAINT
--- brainstrike_tool_projection_rewrite_kind_superseder_check: this SQL string
--- executes through the desktop renderer's db:exec IPC channel, and
--- db-ipc.ts's assertRendererSql guard (DESTRUCTIVE_SCHEMA_SQL_PATTERN)
--- matches ANY 'ALTER TABLE ... DROP ...' statement (including DROP NOT
--- NULL) as destructive schema SQL and rejects it outright, which broke
--- thread loading (and therefore the whole assistant panel mount) for every
--- desktop user until this was caught by a hard E2E failure (BST-1200 PR
--- #2355 review; do NOT reintroduce a nested backtick in this comment block,
--- it prematurely terminates the enclosing TS template literal and breaks the
--- build). Desktop main's migration 087 (both runners) is already
--- authoritative for the nullable column and CHECK constraint on desktop:
--- Electron main's own PGlite connection runs migrations directly, with no
--- IPC boundary and no db-ipc.ts guard in the way. "only desktop main
--- writes rows during normal operation" (below) means web never inserts a
--- kind = 'prune' row, so an un-relaxed NOT NULL here is harmless on web:
--- the thread-delete cascade only needs the TABLE and the kind COLUMN to
--- exist, never the exact constraint topology.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE} (
-  tool_call_id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  rewrite_id text NOT NULL,
-  superseded_by_tool_call_id text,
-  kind text NOT NULL DEFAULT 'supersession'
-    CHECK (kind IN ('supersession', 'prune')),
-  marker_text text NOT NULL,
-  original_chars integer NOT NULL CHECK (original_chars >= 0),
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  CONSTRAINT brainstrike_tool_projection_rewrite_kind_superseder_check
-    CHECK (
-      (kind = 'supersession' AND superseded_by_tool_call_id IS NOT NULL)
-      OR (kind = 'prune' AND superseded_by_tool_call_id IS NULL)
-    )
-);
-
-ALTER TABLE ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE}
-  ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'supersession'
-  CHECK (kind IN ('supersession', 'prune'));
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_tool_projection_rewrites_thread_idx
-  ON ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE} (thread_id);
-
--- Durable conversation-compaction ranges (BST-1200 Milestone 2).
--- Bootstrapped here AND created by migration 088 — keep the shape
--- byte-identical. The exact ordered message-id set is stored because Mastra
--- message ids are opaque client strings / UUIDv4 values, not sortable range
--- keys. Mirrored because thread deletion references every sidecar
--- unconditionally; only desktop main writes rows during normal operation.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_COMPACTION_RANGES_TABLE} (
-  compaction_message_id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  compacted_message_ids jsonb NOT NULL,
-  kind text NOT NULL CHECK (kind IN ('agentic', 'deterministic')),
-  created_at timestamptz NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_compaction_ranges_thread_idx
-  ON ${ASSISTANT_COMPACTION_RANGES_TABLE} (thread_id);
-
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
-  id text PRIMARY KEY,
-  resource_id text NOT NULL,
-  thread_id text NOT NULL REFERENCES ${MASTRA_MEMORY_TABLES.threads}(id) ON DELETE CASCADE,
-  provider text NOT NULL,
-  model text NOT NULL,
-  model_settings jsonb,
-  provider_options jsonb,
-  runtime_kind text NOT NULL,
-  status text NOT NULL,
-  error text,
-  started_at timestamptz NOT NULL,
-  completed_at timestamptz,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL,
-  turn_message_id text
-);
-
--- Run↔turn link (BST-1163): the user message whose turn the run belongs to,
--- written at run creation. Nullable — pre-1163 rows stay NULL and readers
--- fall back to the completed_at timestamp rule. Upgrade path for existing
--- installs (this table is bootstrap-only; no numbered migration exists or
--- may be added — see assistant-persistence.md).
-ALTER TABLE ${ASSISTANT_THREAD_RUNS_TABLE}
-  ADD COLUMN IF NOT EXISTS turn_message_id text;
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_resource_idx
-  ON ${ASSISTANT_THREAD_RUNS_TABLE} (resource_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_thread_latest_idx
-  ON ${ASSISTANT_THREAD_RUNS_TABLE} (resource_id, thread_id, started_at DESC, id DESC);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_status_idx
-  ON ${ASSISTANT_THREAD_RUNS_TABLE} (status);
-
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_EVENTS_TABLE} (
-  id text PRIMARY KEY,
-  run_id text NOT NULL REFERENCES ${ASSISTANT_THREAD_RUNS_TABLE}(id) ON DELETE CASCADE,
-  resource_id text NOT NULL,
-  thread_id text NOT NULL REFERENCES ${MASTRA_MEMORY_TABLES.threads}(id) ON DELETE CASCADE,
-  sequence integer NOT NULL,
-  kind text NOT NULL,
-  status text NOT NULL,
-  label text NOT NULL,
-  detail text,
-  duration_ms integer,
-  metadata jsonb,
-  occurred_at timestamptz NOT NULL,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_thread_idx
-  ON ${ASSISTANT_RUN_EVENTS_TABLE} (thread_id, resource_id, sequence ASC, occurred_at ASC);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
-  ON ${ASSISTANT_RUN_EVENTS_TABLE} (run_id, sequence ASC, occurred_at ASC);
-
--- Threads-panel "needs you" projection (BST-1404). Both indexes above lead with
--- thread_id or run_id, so that query — which is resource-scoped and kind-scoped
--- — full-scanned the largest assistant table on BOTH sides of its anti-join, on
--- every run_events notify. These two partial indexes cover the two sides. They
--- live HERE and only here: this table is created solely by this bootstrap and
--- must never get a numbered migration (see docs/agents/assistant-persistence.md,
--- RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP), and IF NOT EXISTS re-runs on every
--- handle init, so existing installs pick them up — the same upgrade path as the
--- turn_message_id ADD COLUMN above.
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_pause_idx
-  ON ${ASSISTANT_RUN_EVENTS_TABLE} (resource_id, thread_id)
-  WHERE kind = 'tool.approval.requested';
-
--- The anti-join side. Keyed additionally on the extracted toolCallId, which is
--- the equality the NOT EXISTS pairs on; jsonb ->> is immutable, so it is
--- indexable as an expression. occurred_at trails it because the anti-join also
--- requires the answer to POSTDATE the pause: an answer kind can be emitted
--- before the pause it would otherwise resolve (Mastra gates inside
--- toolCallStep, and its foreach is sequential, so one leg can stream
--- tool.started for a call whose own gate — and pause row — comes a leg later).
--- Carrying the timestamp here keeps that comparison on the index rather than
--- sending every candidate row to a heap fetch. It replaced a trailing run_id,
--- which encoded the FALSE premise that a call's pre-pause start always shares
--- its pause's run; that holds only when a step gates exactly one call (BST-1440).
---
--- RENAMED, and the rename IS the upgrade mechanism. CREATE INDEX IF NOT EXISTS
--- keys off the NAME, not the definition: reusing the old
--- ..._approval_answer_idx name would silently no-op on every database created
--- before this change, leaving it on the run_id shape forever while the query
--- still returned correct rows and heap-filtered timestamps on every
--- run_events notify. A fresh-PGlite test cannot see that, because it never has
--- the old index to begin with. So the new shape gets a new name, and the old
--- one is dropped explicitly — cheap on every later init, since a DROP INDEX IF
--- EXISTS on an absent index is just a catalog check. The upgrade path itself is
--- covered in use-threads-awaiting-approval.integration.test.ts.
-DROP INDEX IF EXISTS brainstrike_assistant_run_events_approval_answer_idx;
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_answer_at_idx
-  ON ${ASSISTANT_RUN_EVENTS_TABLE} (resource_id, thread_id, (metadata->>'toolCallId'), occurred_at)
-  WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported');
-
--- Terminal provider forensics (Flight Recorder P3). Bootstrapped here and
--- created by migration 076; keep the table/index shape byte-identical to that
--- migration. There is intentionally no FK because the numbered runner has no
--- thread_runs parent. The canonical DB repository derives thread/resource from
--- the durable parent and throws if it is missing. One row per run is immutable
--- first-terminal-wins; no dishonest partial retry-attempt history is stored.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_ERRORS_TABLE} (
-  run_id              TEXT PRIMARY KEY,
-  thread_id           TEXT NOT NULL,
-  resource_id         TEXT NOT NULL,
-  code                TEXT NOT NULL,
-  message             TEXT,
-  cause_chain         JSONB,
-  http_status         INTEGER,
-  provider_request_id TEXT,
-  response_headers    JSONB,
-  occurred_at         TIMESTAMPTZ NOT NULL,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT bst_assistant_run_errors_run_check
-    CHECK (length(run_id) > 0),
-  CONSTRAINT bst_assistant_run_errors_thread_check
-    CHECK (length(thread_id) > 0),
-  CONSTRAINT bst_assistant_run_errors_resource_check
-    CHECK (length(resource_id) > 0),
-  CONSTRAINT bst_assistant_run_errors_code_check
-    CHECK (length(code) > 0),
-  CONSTRAINT bst_assistant_run_errors_cause_chain_check
-    CHECK (cause_chain IS NULL OR jsonb_typeof(cause_chain) = 'array'),
-  CONSTRAINT bst_assistant_run_errors_http_status_check
-    CHECK (http_status IS NULL OR http_status BETWEEN 100 AND 599),
-  CONSTRAINT bst_assistant_run_errors_response_headers_check
-    CHECK (response_headers IS NULL OR jsonb_typeof(response_headers) = 'object')
-);
-
-CREATE INDEX IF NOT EXISTS bst_assistant_run_errors_thread_idx
-  ON ${ASSISTANT_RUN_ERRORS_TABLE} (thread_id, occurred_at DESC);
-
-CREATE INDEX IF NOT EXISTS bst_assistant_run_errors_resource_idx
-  ON ${ASSISTANT_RUN_ERRORS_TABLE} (resource_id, occurred_at DESC);
-
--- Durable per-thread token usage (Phase 5.1). model/provider are PER ROW so
--- cost is attributable per model when a thread switches models mid-run.
--- Bootstrapped here (alongside the runs table) AND created by migration 046 so
--- both the test-only numbered runner and the real app converge on one shape.
--- No FK to mastra_threads: usage may be recorded for non-memory-backed turns,
--- and the row is a billing fact that should outlive a thread deletion cascade.
--- root_id (Phase 5.2, nullable) groups usage by workspace ROOT for cross-root
--- cost aggregation. Captured at request start (focus can change mid-run);
--- NULL is an honest "unattributed" bucket, never a fake root. This bootstrap,
--- migration 046 (table), and migration 047 (ALTER + index) must converge on
--- one shape — keep the column + the root index byte-identical to 047.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
-  id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  run_id text NOT NULL,
-  resource_id text NOT NULL,
-  model text NOT NULL,
-  provider text NOT NULL,
-  input_tokens integer NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
-  output_tokens integer NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
-  billed_cost_usd numeric(24, 12) CHECK (billed_cost_usd >= 0),
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  root_id text,
-  cache_read_input_tokens integer CHECK (cache_read_input_tokens >= 0),
-  cache_creation_input_tokens integer CHECK (cache_creation_input_tokens >= 0)
-);
-
-ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-  ADD COLUMN IF NOT EXISTS billed_cost_usd numeric(24, 12) CHECK (billed_cost_usd >= 0);
-
--- Anthropic prompt-cache token classes (BST-587): keep byte-identical to
--- migration 068. input_tokens remains the TOTAL the model saw.
-ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-  ADD COLUMN IF NOT EXISTS cache_read_input_tokens integer CHECK (cache_read_input_tokens >= 0);
-ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-  ADD COLUMN IF NOT EXISTS cache_creation_input_tokens integer CHECK (cache_creation_input_tokens >= 0);
-
--- Run-kind attribution (BST-953/BST-1200): keep the accepted values aligned
--- with migration 090 while preserving the renderer bootstrap's add-only rule.
--- 'chat' = parent assistant turn; 'subagent' = persona delegation child;
--- 'compaction-summary' = pre-request auxiliary summarizer call;
--- 'om-observation'/'om-reflection' = observational-memory background cycles.
-ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-  ADD COLUMN IF NOT EXISTS run_kind text NOT NULL DEFAULT 'chat'
-  CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
-
--- Desktop main migration 090 owns widening an existing pre-090 CHECK. This
--- renderer-reachable bootstrap may only install the final constraint when it
--- is absent; emitting DROP CONSTRAINT here is rejected by db:exec's
--- destructive-schema guard and prevents the assistant panel from mounting.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'brainstrike_assistant_run_usage_run_kind_check'
-      AND conrelid = '${ASSISTANT_RUN_USAGE_TABLE}'::regclass
-  ) THEN
-    ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-      ADD CONSTRAINT brainstrike_assistant_run_usage_run_kind_check
-      CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
-  END IF;
-END
-$$;
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
-  ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_root_idx
-  ON ${ASSISTANT_RUN_USAGE_TABLE} (resource_id, root_id);
-
--- Per-turn edit checkpoint journal (undo of agent file edits). The renderer
--- reads this table directly (Path A, like run_events), so it is bootstrapped
--- here AND created by migration 051 — keep the shape byte-identical to 051.
--- NO FK to thread_runs/mastra_threads: the numbered migration runner (tests)
--- and drizzle path run on a bare PGlite without those parent tables, so an FK
--- REFERENCES would break the migration suite. Full BEFORE-content is stored
--- (capped/binary-refused via capture_status); after_hash/after_existed are for
--- conflict detection only. Factory reset purges the table (db-ipc clearAll).
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (
-  id             text PRIMARY KEY,
-  run_id         text NOT NULL,
-  resource_id    text NOT NULL,
-  thread_id      text NOT NULL,
-  tool_call_id   text,
-  tool_name      text NOT NULL,
-  op             text NOT NULL CHECK (op IN ('write','string_replace','delete','rename')),
-  root_id        text NOT NULL,
-  path           text NOT NULL,
-  from_path      text,
-  before_existed boolean NOT NULL,
-  before_hash    text,
-  before_content text,
-  before_size    integer,
-  after_hash     text,
-  after_existed  boolean NOT NULL,
-  capture_status text NOT NULL CHECK (capture_status IN
-                   ('ok','created','skipped_binary','skipped_too_large','expired','rename')),
-  reverted_at    timestamptz,
-  occurred_at    timestamptz NOT NULL,
-  created_at     timestamptz NOT NULL,
-  updated_at     timestamptz NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_thread_idx
-  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, resource_id, occurred_at ASC, id ASC);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_run_idx
-  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (run_id, occurred_at ASC, id ASC);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_revert_idx
-  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, reverted_at);
-
--- Per-run outcome labels (Task Ledger, Phase 1). At most one verdict per run
--- (upsert on run_id); 'source' preserves label provenance (user verdict,
--- edit-checkpoint revert derivation, or lifecycle-hook report). Bootstrapped
--- here AND created by migration 062 — keep the shape byte-identical to 062.
--- NO FK to thread_runs (migration runners execute on a bare PGlite without the
--- parent); like run_usage, outcome rows are analytic facts that outlive thread
--- deletion. Factory reset purges the table (db-ipc.ts OptionalRelationTable).
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_OUTCOMES_TABLE} (
-  run_id      text PRIMARY KEY,
-  thread_id   text NOT NULL,
-  resource_id text NOT NULL,
-  verdict     text NOT NULL CHECK (verdict IN ('succeeded','failed','mixed')),
-  source      text NOT NULL CHECK (source IN ('user','edit_revert','hook')),
-  detail      text,
-  labeled_at  timestamptz NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT NOW(),
-  updated_at  timestamptz NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_thread_idx
-  ON ${ASSISTANT_RUN_OUTCOMES_TABLE} (thread_id, resource_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_resource_idx
-  ON ${ASSISTANT_RUN_OUTCOMES_TABLE} (resource_id, labeled_at DESC);
-
--- Per-run experiment treatment record (BST-1250, recursive self-improvement
--- phase 2A). One row per hosted run, written by desktop main at prompt
--- assembly (injection_status 'continuation' for approval/resume legs, which
--- never reach it) — the ONE seam that knows whether self-improvement signal
--- injection actually happened and what exact text was injected
--- (signal_content_hash = SHA-256 of the injected system message). Without it
--- treatment could only be inferred from date windows or the CURRENT
--- preference value, both unsound. experiment_id/variant stay NULL for
--- un-enrolled runs. Bootstrapped here AND created by migration 093 — keep
--- the shape byte-identical to 093. NO FK (the numbered runner executes on a
--- bare PGlite without the run/thread parents); retained on thread delete
--- like run_outcomes (experiment evidence), cleared on factory reset via the
--- db reset registry.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_TREATMENTS_TABLE} (
-  run_id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  resource_id text NOT NULL,
-  experiment_id text,
-  variant text,
-  injection_status text NOT NULL CHECK (
-    injection_status IN ('continuation', 'injected', 'no_waste', 'preference_malformed', 'preference_off', 'query_failed')
-  ),
-  signal_injected boolean NOT NULL,
-  signal_content_hash text,
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  CONSTRAINT brainstrike_assistant_run_treatments_injected_consistency
-    CHECK (signal_injected = (injection_status = 'injected'))
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_treatments_created_at_idx
-  ON ${ASSISTANT_RUN_TREATMENTS_TABLE} (created_at);
-
--- Thread placements are Brainstrike presentation state (migrations 054+056).
--- Bootstrapped here because the thread-delete cascade now owns the placements
--- stage on EVERY path (BST-993) and this repository runs against a bare
--- PGlite in the migration-less harness — keep the shape byte-identical to
--- 054 with 056's flat_rank addition (056's color column is on GROUPS, not
--- placements — review #2167 caught the phantom column).
-CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_placements (
-  thread_id   text PRIMARY KEY,
-  resource_id text NOT NULL,
-  group_id    text,
-  rank        text NOT NULL,
-  updated_at  timestamptz NOT NULL DEFAULT NOW(),
-  flat_rank   text
-);
-
-CREATE INDEX IF NOT EXISTS idx_assistant_thread_placements_resource_group
-  ON brainstrike_assistant_thread_placements (resource_id, group_id);
-
--- Per-thread workspace snapshots (BST-1268, migration 094). Bootstrapped here
--- because the thread-delete cascade references every registered sidecar
--- unconditionally and this repository runs against a bare PGlite in the
--- migration-less harness — keep the shape byte-identical to 094.
-CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_workspaces (
-  thread_id   text PRIMARY KEY,
-  resource_id text NOT NULL,
-  payload     jsonb NOT NULL,
-  updated_at  timestamptz NOT NULL DEFAULT NOW()
-);
-
--- Sync-the-mind op-log seam (BST-993). Bootstrapped here AND created by
--- migration 079 — keep the shape byte-identical to 079. Delete ops only;
--- widening the vocabulary is a conscious migration, never a drift channel.
-CREATE TABLE IF NOT EXISTS ${MIND_OPS_TABLE} (
-  seq BIGSERIAL PRIMARY KEY,
-  entity_kind TEXT NOT NULL CHECK (entity_kind IN ('thread', 'prompt_item')),
-  entity_id TEXT NOT NULL,
-  op TEXT NOT NULL CHECK (op = 'delete'),
-  resource_id TEXT,
-  occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_mind_ops_entity_idx
-  ON ${MIND_OPS_TABLE} (entity_kind, entity_id);
-`;
+/**
+ * The schema check, and the reason it is a PROBE rather than a bootstrap.
+ *
+ * This repository used to `exec` a ~590-line `CREATE TABLE IF NOT EXISTS`
+ * mirror of migrations 046-095 on first use per handle. On a migrated database
+ * the `IF NOT EXISTS` never fired, which meant any divergence between the
+ * mirror and the migrations was UNOBSERVABLE until a user hit a column the two
+ * had shaped differently — a silent corruption with nothing pointing at its
+ * cause. Migrations 117 (Mastra's memory schema) and 118 (the run header and
+ * its event timeline) removed the last reason that mirror existed.
+ *
+ * `to_regclass` returns NULL for an absent relation instead of raising 42P01,
+ * so one statement answers for the whole set and names exactly what is missing.
+ * There is deliberately NO create-if-absent branch: a missing relation means
+ * migrations did not run, and quietly creating it is precisely how the
+ * divergence above was manufactured. The relation names are module constants
+ * from `@brainstrike/assistant-contract`, never caller input, so inlining them
+ * as literals carries no injection surface.
+ */
+async function assertAssistantMemorySchema(database: DbHandle): Promise<void> {
+  const relations = requiredAssistantMemoryRelations();
+  const relationValues = relations.map((relation) => `('${relation}')`).join(', ');
+  const result = await database.query<{ relation: string }>(
+    `SELECT required.relation
+       FROM (VALUES ${relationValues}) AS required(relation)
+      WHERE to_regclass('public.' || required.relation) IS NULL
+      ORDER BY required.relation`
+  );
+  if (result.rows.length === 0) {
+    return;
+  }
+  throw new AssistantMemorySchemaMissingError(result.rows.map((row) => row.relation));
 }
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, BulkAssistantThreadRepository>();
-const assistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>();
+const assistantThreadSchemaProbePromises = new WeakMap<DbHandle, Promise<void>>();
 const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
 const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
 const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
@@ -1368,14 +950,6 @@ const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
   'secondaryRootIds',
   'source',
 ]);
-
-function assertMemoryDatabase(database: DbHandle): asserts database is DbHandle & {
-  exec: NonNullable<DbHandle['exec']>;
-} {
-  if (typeof database.exec !== 'function') {
-    throw new Error('Assistant memory requires a database handle with exec support.');
-  }
-}
 
 function createThreadId(): string {
   return `thread-${crypto.randomUUID()}`;
@@ -1459,30 +1033,6 @@ function requireNonEmptyTopologyId(value: unknown, fieldName: string): string {
     throw new Error(`Assistant message topology ${fieldName} must be a non-empty string.`);
   }
   return value;
-}
-
-function mapAssistantHistoryMessageRow(row: Record<string, unknown>): AssistantHistoryMessage {
-  const parentMappingMessageId = row['parentMappingMessageId'];
-  if (parentMappingMessageId !== null && parentMappingMessageId !== undefined) {
-    requireNonEmptyTopologyId(parentMappingMessageId, 'parentMappingMessageId');
-  }
-  const parentId = row['parentId'];
-  if (parentMappingMessageId !== null && parentMappingMessageId !== undefined) {
-    if (parentId !== null) {
-      requireNonEmptyTopologyId(parentId, 'parentId');
-    }
-  } else if (parentId !== null && parentId !== undefined) {
-    throw new Error('Assistant message parent exists without a mapping row.');
-  }
-  return {
-    content: parseJson(row['content']),
-    createdAt: normalizeDate(row['createdAt']),
-    id: requireString(row['id'], 'id'),
-    ...(parentMappingMessageId === null || parentMappingMessageId === undefined
-      ? {}
-      : { parentId: parentId === null ? null : (parentId as string) }),
-    role: requireString(row['role'], 'role'),
-  };
 }
 
 /**
@@ -1927,7 +1477,13 @@ function assertAllBulkThreadsFound(row: Record<string, unknown> | undefined): vo
 }
 
 function requireRunStatus(value: unknown): AssistantThreadRunStatus {
-  if (value === 'cancelled' || value === 'completed' || value === 'failed' || value === 'running') {
+  if (
+    value === 'cancelling' ||
+    value === 'cancelled' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'running'
+  ) {
     return value;
   }
   throw new Error('Invalid assistant thread run row: status is not valid.');
@@ -1972,60 +1528,6 @@ function boundedNullableString(value: unknown, maxChars: number): string | null 
   // surrogate. `[...text]` iterates code points.
   const codePoints = [...text];
   return codePoints.length <= maxChars ? text : codePoints.slice(0, maxChars).join('');
-}
-
-const ASSISTANT_RUN_EVENT_KIND_SET = new Set<AssistantRunEventKind>(ASSISTANT_RUN_EVENT_KINDS);
-
-const ASSISTANT_RUN_EVENT_STATUS_SET = new Set<AssistantRunEventStatus>(
-  ASSISTANT_RUN_EVENT_STATUSES
-);
-
-function requireRunEventKind(value: unknown): AssistantRunEventKind {
-  if (
-    typeof value === 'string' &&
-    ASSISTANT_RUN_EVENT_KIND_SET.has(value as AssistantRunEventKind)
-  ) {
-    return value as AssistantRunEventKind;
-  }
-  throw new Error('Invalid assistant run event row: kind is not valid.');
-}
-
-function requireRunEventStatus(value: unknown): AssistantRunEventStatus {
-  if (
-    typeof value === 'string' &&
-    ASSISTANT_RUN_EVENT_STATUS_SET.has(value as AssistantRunEventStatus)
-  ) {
-    return value as AssistantRunEventStatus;
-  }
-  throw new Error('Invalid assistant run event row: status is not valid.');
-}
-
-function isFiniteInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value);
-}
-
-function toThreadRunEvent(row: Record<string, unknown>): AssistantRunEvent {
-  const metadata = optionalJsonRecord(row['metadata']);
-  const sanitizedMetadata = sanitizeAssistantRunEventMetadata(metadata);
-  const detail = nullableString(row['detail']);
-  const durationRaw = getRowValue(row, 'durationMs', 'duration_ms');
-  const durationMs = isFiniteInteger(durationRaw) ? durationRaw : undefined;
-  const event: AssistantRunEvent = {
-    id: requireString(row['id'], 'id'),
-    kind: requireRunEventKind(row['kind']),
-    label: requireString(row['label'], 'label'),
-    runId: requireString(getRowValue(row, 'runId', 'run_id'), 'runId'),
-    sequence: isFiniteInteger(row['sequence']) ? row['sequence'] : Number(row['sequence']),
-    status: requireRunEventStatus(row['status']),
-    timestamp: normalizeDate(getRowValue(row, 'timestamp', 'occurred_at')).toISOString(),
-    ...(detail ? { detail } : {}),
-    ...(durationMs === undefined ? {} : { durationMs }),
-    ...(sanitizedMetadata ? { metadata: sanitizedMetadata } : {}),
-  };
-  if (!Number.isSafeInteger(event.sequence)) {
-    throw new Error('Invalid assistant run event row: sequence is not valid.');
-  }
-  return event;
 }
 
 function requireCheckpointOp(value: unknown): AssistantEditCheckpointOp {
@@ -2294,6 +1796,16 @@ function toHistoryReasoningPart(
  * `role: 'tool'` rows in this dialect (see the live-loop proof in
  * packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts).
  */
+function readNativeDeclinedResult(invocation: Record<string, unknown>) {
+  if (isDeclinedToolCallResult(invocation['result'])) {
+    return invocation['result'];
+  }
+  const approval = invocation['approval'];
+  const reason =
+    isRecord(approval) && typeof approval['reason'] === 'string' ? approval['reason'] : undefined;
+  return createDeclinedToolCallResult(reason);
+}
+
 function toHistoryToolCallPartFromInvocation(
   record: Record<string, unknown>
 ): AssistantHistoryToolCallPart | undefined {
@@ -2319,6 +1831,16 @@ function toHistoryToolCallPartFromInvocation(
   const args = (
     inv['args'] && typeof inv['args'] === 'object' && !Array.isArray(inv['args']) ? inv['args'] : {}
   ) as AssistantHistoryToolCallPart['args'];
+  if (state === 'output-denied') {
+    return {
+      args,
+      argsText: stringifyArgsText(args),
+      result: readNativeDeclinedResult(inv),
+      toolCallId,
+      toolName: denormalizeNativeToolName(toolName),
+      type: 'tool-call',
+    };
+  }
   const hasResult = Object.hasOwn(inv, 'result');
   const errorText = typeof inv['errorText'] === 'string' ? inv['errorText'] : undefined;
   const isError =
@@ -2555,6 +2077,21 @@ function applyToolEventTimes(
   });
 }
 
+/** Scoped lifecycle events cannot precede their own persisted tool part. */
+function nativeToolEventPosition(
+  event: AssistantRunEvent,
+  toolPositions: ReadonlyMap<string, number>
+): number | undefined {
+  if (
+    !['tool.started', 'tool.completed', 'tool.failed'].includes(event.kind) ||
+    typeof event.metadata?.['nativeMessageId'] !== 'string'
+  ) {
+    return;
+  }
+  const toolCallId = event.metadata?.['toolCallId'];
+  return typeof toolCallId === 'string' ? toolPositions.get(toolCallId) : undefined;
+}
+
 /**
  * Interleave run events with content parts in live order: each event is
  * emitted before the first content part produced after it. Parts without a
@@ -2570,14 +2107,34 @@ function weaveRunEventsIntoContent(
     return parts.map((timed) => timed.part);
   }
   const woven: Array<AssistantHydratedContentPart | AssistantRunEventDataPart> = [];
+  const toolPositions = new Map(
+    parts.flatMap((timed, index) =>
+      timed.part.type === 'tool-call' ? [[timed.part.toolCallId, index] as const] : []
+    )
+  );
   let eventIndex = 0;
   let lastAt = groupStartMs;
-  for (const timed of parts) {
+  for (const [partIndex, timed] of parts.entries()) {
     const at = timed.at ?? lastAt;
     lastAt = at;
     while (eventIndex < eventParts.length) {
       const eventPart = eventParts[eventIndex];
-      if (!eventPart || runEventTimeMs(eventPart) > at) {
+      if (!eventPart) {
+        break;
+      }
+      // Scoped child streams publish tool.started after the tool part. Native
+      // message/tool identity preserves that boundary when millisecond clocks tie.
+      // A cancelled call may have no saved part; retain its journal event normally.
+      const toolPosition = nativeToolEventPosition(eventPart.data, toolPositions);
+      if (toolPosition !== undefined && toolPosition >= partIndex) {
+        break;
+      }
+      // A terminal may follow text streamed while its tool was running. Its
+      // tool boundary is a lower bound; only tool.started overrides event time.
+      if (
+        (toolPosition === undefined || eventPart.data.kind !== 'tool.started') &&
+        runEventTimeMs(eventPart) > at
+      ) {
         break;
       }
       woven.push(eventPart);
@@ -2640,7 +2197,10 @@ function appendAssistantGroupMessage(args: {
       createdAt: firstRow.createdAt,
       id: messageId,
       metadata: {
-        custom: readHistoryCustomMetadata(lastRow.content),
+        custom: {
+          ...readHistoryCustomMetadata(lastRow.content),
+          [NATIVE_MESSAGE_IDS_METADATA_KEY]: args.group.rows.map((row) => row.id),
+        },
         steps: [],
         // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
         unstable_annotations: [],
@@ -2734,12 +2294,33 @@ function toUserHistoryAttachments(
   return attachments;
 }
 
+function readChildInputReceipt(message: AssistantHistoryMessage): Record<string, unknown> {
+  if (!(isNativeUserSignal(message) && isRecord(message.content))) {
+    return {};
+  }
+  const metadata = message.content['metadata'];
+  if (!isRecord(metadata) || metadata['brainstrikeFollowup'] === undefined) {
+    return {};
+  }
+  const receipt = metadata['brainstrikeFollowup'];
+  if (!isRecord(receipt)) {
+    throw new Error('Child input has an invalid delivery receipt.');
+  }
+  return {
+    [CHILD_INPUT_DELIVERY_METADATA_KEY]: childInputDeliveryStateSchema.parse(receipt['state']),
+  };
+}
+
 function appendUserHistoryMessage(args: {
   message: AssistantHistoryMessage;
   parentId: string | null;
   repositoryMessages: AssistantHistoryRepositoryMessages;
 }): boolean {
-  const content = toTextHistoryContentParts(args.message.content);
+  const content = toTextHistoryContentParts(
+    isNativeUserSignal(args.message)
+      ? readContentPartArray(args.message.content)
+      : args.message.content
+  );
   const attachments = toUserHistoryAttachments(args.message.id, args.message.content);
   // An image-only user message has no text part but must survive hydration.
   if (content.length === 0 && attachments.length === 0) {
@@ -2752,7 +2333,7 @@ function appendUserHistoryMessage(args: {
       content,
       createdAt: args.message.createdAt,
       id: args.message.id,
-      metadata: { custom: {} },
+      metadata: { custom: readChildInputReceipt(args.message) },
       role: 'user',
     },
     parentId: args.parentId,
@@ -2783,6 +2364,18 @@ function appendSystemHistoryMessage(args: {
   return true;
 }
 
+function isNativeUserSignal(message: AssistantHistoryMessage): boolean {
+  if (message.role !== 'signal' || !isRecord(message.content)) {
+    return false;
+  }
+  const metadata = message.content['metadata'];
+  if (!isRecord(metadata)) {
+    return false;
+  }
+  const signal = metadata['signal'];
+  return isRecord(signal) && signal['type'] === 'user';
+}
+
 /**
  * Partition the row stream into units: user/system rows stand alone;
  * assistant snapshot rows with one topology identity collapse into one group
@@ -2810,6 +2403,7 @@ function buildHistoryUnits(
       return;
     }
     units.push({ kind: 'assistant-group', parts: openGroup.parts, rows: openGroup.rows });
+    seenToolCallsById.clear();
     openGroup = null;
   };
 
@@ -2840,15 +2434,80 @@ function buildHistoryUnits(
       );
       continue;
     }
-    if (message.role === 'user' || message.role === 'system') {
+    const role = isNativeUserSignal(message) ? 'user' : message.role;
+    if (role === 'user' || role === 'system') {
       closeOpenGroup();
-      units.push({ kind: message.role, message });
+      units.push({ kind: role, message });
     }
     // Other roles (legacy 'tool' rows) are folded into tool results and never
     // rendered — they intentionally do not split an assistant group.
   }
   closeOpenGroup();
   return units;
+}
+
+function assignNativeMessageRunEvent(
+  event: AssistantRunEvent,
+  groups: ReadonlyMap<string, AssistantHistoryRowGroup>,
+  assignments: Map<AssistantHistoryUnit, AssistantRunEventDataPart[]>
+): boolean {
+  const nativeMessageId = event.metadata?.['nativeMessageId'];
+  if (typeof nativeMessageId !== 'string') {
+    return false;
+  }
+  // Multiple host resume legs can belong to one native assistant message.
+  // An id outside the loaded window must never land on an unrelated turn.
+  const group = groups.get(nativeMessageId);
+  if (group) {
+    const parts = assignments.get(group) ?? [];
+    parts.push(...toRunEventDataParts([event]));
+    assignments.set(group, parts);
+  }
+  return true;
+}
+
+/** Background notices can split a turn into multiple topology-bearing messages.
+ * Bind delegated events to the actual call within the persisted owning user turn. */
+function assignDelegatedInvocationRunEvent(
+  event: AssistantRunEvent,
+  units: readonly AssistantHistoryUnit[],
+  assignments: Map<AssistantHistoryUnit, AssistantRunEventDataPart[]>
+): boolean {
+  const turnMessageId = event.metadata?.['originatingTurnMessageId'];
+  const toolCallId = event.metadata?.['parentToolCallId'];
+  if (
+    !event.kind.startsWith('subagent.') ||
+    typeof turnMessageId !== 'string' ||
+    typeof toolCallId !== 'string'
+  ) {
+    return false;
+  }
+  let insideTurn = false;
+  const matches: AssistantHistoryRowGroup[] = [];
+  for (const unit of units) {
+    if (unit.kind === 'user') {
+      insideTurn = unit.message.id === turnMessageId;
+      continue;
+    }
+    if (
+      unit.kind === 'assistant-group' &&
+      (insideTurn || unit.rows.some((row) => row.parentId === turnMessageId)) &&
+      unit.parts.some(({ part }) => part.type === 'tool-call' && part.toolCallId === toolCallId)
+    ) {
+      matches.push(unit);
+    }
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      'Delegated history event has ambiguous call ownership within its original turn.'
+    );
+  }
+  const target = matches[0];
+  if (target) {
+    assignments.set(target, [...(assignments.get(target) ?? []), ...toRunEventDataParts([event])]);
+  }
+  // A call outside the retained history window must not attach to another turn.
+  return true;
 }
 
 /**
@@ -2871,7 +2530,16 @@ function assignRunEventsToGroups(
   }
 
   const eventsByRunId = new Map<string, AssistantRunEvent[]>();
+  const groupsByNativeMessageId = new Map(
+    assistantGroups.flatMap((group) => group.rows.map((row) => [row.id, group] as const))
+  );
   for (const event of runEvents) {
+    if (
+      assignNativeMessageRunEvent(event, groupsByNativeMessageId, assignments) ||
+      assignDelegatedInvocationRunEvent(event, units, assignments)
+    ) {
+      continue;
+    }
     const runId = event.runId;
     if (!runId) {
       continue;
@@ -2914,7 +2582,10 @@ function assignRunEventsToGroups(
     if (!candidate) {
       continue;
     }
-    assignments.set(candidate, toRunEventDataParts(run.events));
+    assignments.set(candidate, [
+      ...(assignments.get(candidate) ?? []),
+      ...toRunEventDataParts(run.events),
+    ]);
     unassignedGroups.delete(candidate);
   }
   return assignments;
@@ -3020,6 +2691,21 @@ function orderHistoryGraphForImport(
   return orderedMessages;
 }
 
+/** Replay the host's pre-effect rows through the ordinary history mapper. */
+export function restoreDelegatedConversationHistory(
+  baseline: DelegatedConversationBaseline
+): Awaited<ReturnType<AssistantUiThreadHistoryAdapter['load']>> {
+  const history = toHistoryRepository(
+    baseline.messages.map(({ parentId, ...message }) => ({
+      ...message,
+      createdAt: normalizeDate(message.createdAt),
+      ...(parentId === undefined ? {} : { parentId }),
+    })),
+    baseline.runEvents
+  );
+  return baseline.headId === undefined ? history : { ...history, headId: baseline.headId };
+}
+
 function toHistoryRepository(
   messages: readonly AssistantHistoryMessage[],
   runEvents: readonly AssistantRunEvent[] = []
@@ -3071,13 +2757,150 @@ function toHistoryRepository(
   };
 }
 
+function hasHostPauseEvidence(input: {
+  readonly events: readonly AssistantRunEvent[];
+  readonly hostRunId: string;
+  readonly pauseKind: 'approval' | 'suspend';
+  readonly toolCallId: string;
+}): boolean {
+  // Typed suspend has no durable pause event; its unresolved tool start is
+  // the host-side evidence before native snapshot authorization.
+  const expectedKind = input.pauseKind === 'approval' ? 'tool.approval.requested' : 'tool.started';
+  return input.events.some(
+    (event) =>
+      event.runId === input.hostRunId &&
+      event.kind === expectedKind &&
+      event.metadata?.['toolCallId'] === input.toolCallId
+  );
+}
+
+/**
+ * Capture the paused assistant exactly as persisted before a continuation can
+ * add a new Mastra snapshot to its hydration group. A tool-call identity must
+ * select one durable message; chronology is never used to choose an owner.
+ */
+export async function readPausedActionReplayPrefix(input: {
+  readonly repository: AssistantThreadRepository;
+  readonly resourceId: string;
+  readonly threadId: string;
+  readonly toolCallId: string;
+  readonly nativeRunId: string;
+  readonly pauseKind: 'approval' | 'suspend';
+  readonly delegation?: DelegatedToolActionIdentity;
+  readonly pausedMessageId?: string;
+  readonly hostRunId?: string | undefined;
+}): Promise<NonNullable<AssistantDiscoveredRun['actionReplay']>> {
+  const { repository, resourceId, threadId, toolCallId, pausedMessageId, nativeRunId, delegation } =
+    input;
+  const rows = await repository.listMessages(threadId, resourceId);
+  const runEvents = await repository.listThreadRunEvents(threadId, resourceId);
+  const history = toHistoryRepository(rows, runEvents);
+  const candidates = history.messages.filter(
+    (item) =>
+      item.message.role === 'assistant' &&
+      item.message.content.some(
+        (part) => part.type === 'tool-call' && part.toolCallId === toolCallId
+      )
+  );
+  const syntheticIdentity = delegation
+    ? getToolActionIdentityKey({ delegation, runId: nativeRunId, toolCallId })
+    : `${nativeRunId}:${toolCallId}`;
+  const syntheticApprovalId = `suspended-approval:${syntheticIdentity}`;
+  const syntheticPauseId = `suspended-pause:${syntheticIdentity}`;
+  const syntheticPauseMessageId =
+    input.pauseKind === 'approval' ? syntheticApprovalId : syntheticPauseId;
+  // A durable paused ID is an exact owner selector even when another native run
+  // reused the same tool call ID. A synthetic notice identifies the action, not
+  // the durable owner, and therefore still requires unique tool ownership.
+  const hasDurablePausedId = pausedMessageId && pausedMessageId !== syntheticPauseMessageId;
+  let matchingCandidates = hasDurablePausedId
+    ? candidates.filter((item) => item.message.id === pausedMessageId)
+    : candidates;
+  if (
+    hasDurablePausedId &&
+    matchingCandidates.length === 0 &&
+    candidates.length === 1 &&
+    !rows.some((row) => row.id === pausedMessageId)
+  ) {
+    const candidate = candidates[0];
+    const hostRunId = input.hostRunId;
+    if (
+      candidate &&
+      hostRunId &&
+      repository.getMessageParent &&
+      repository.sharesNativeRunGeneration &&
+      repository.hasResolvedToolCallInGeneration
+    ) {
+      const [transientParent, turnMessageId, sharesNativeRunGeneration, hasTerminal] =
+        await Promise.all([
+          repository.getMessageParent(pausedMessageId, threadId, resourceId),
+          repository.getThreadRunTurnMessageId(hostRunId, threadId),
+          repository.sharesNativeRunGeneration(hostRunId, nativeRunId),
+          repository.hasResolvedToolCallInGeneration(hostRunId, toolCallId),
+        ]);
+      const hasExactHostPause = hasHostPauseEvidence({
+        events: runEvents,
+        hostRunId,
+        pauseKind: input.pauseKind,
+        toolCallId,
+      });
+      if (
+        sharesNativeRunGeneration &&
+        transientParent !== undefined &&
+        transientParent !== null &&
+        transientParent === candidate.parentId &&
+        turnMessageId === transientParent &&
+        hasExactHostPause &&
+        !hasTerminal
+      ) {
+        matchingCandidates = [candidate];
+      }
+    }
+  }
+  if (matchingCandidates.length !== 1) {
+    if (hasDurablePausedId && matchingCandidates.length === 0) {
+      throw new Error(
+        'Approval action paused assistant ID disagrees with persisted tool ownership.'
+      );
+    }
+    throw new Error(
+      `Approval action tool call ${toolCallId} has no unique durable assistant owner.`
+    );
+  }
+  const candidate = matchingCandidates[0];
+  if (candidate?.message.role !== 'assistant') {
+    throw new Error('Approval action paused assistant owner disappeared.');
+  }
+  const prefixContent = candidate.message.content.filter(
+    (part) =>
+      part.type === 'text' ||
+      part.type === 'reasoning' ||
+      part.type === 'tool-call' ||
+      part.type === 'data'
+  );
+  if (prefixContent.length !== candidate.message.content.length) {
+    throw new Error('Approval action prefix contains an unsupported persisted part.');
+  }
+  return {
+    pausedMessageId: candidate.message.id,
+    pausedParentMessageId: candidate.parentId,
+    prefixContent,
+    syntheticPauseMessageId,
+  };
+}
+
 /**
  * Synthetic rediscovered-pause message id prefixes. These ids exist only in
  * the hydrated UI thread (never as Mastra rows), so the topology adapter must
  * treat them as transient parents (BST-1243) — keep the prefix list and the
- * id construction in `appendSuspendedPauseMessages` in lockstep.
+ * id construction in `appendSuspendedPauseMessages` and
+ * `appendSuspendedDiscoveryError` in lockstep.
  */
-const SUSPENDED_PAUSE_MESSAGE_ID_PREFIXES = ['suspended-approval', 'suspended-pause'] as const;
+const SUSPENDED_PAUSE_MESSAGE_ID_PREFIXES = [
+  'suspended-approval',
+  'suspended-pause',
+  SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
+] as const;
 type SuspendedPauseMessageIdPrefix = (typeof SUSPENDED_PAUSE_MESSAGE_ID_PREFIXES)[number];
 
 function isSuspendedPauseMessageId(messageId: string): boolean {
@@ -3139,7 +2962,10 @@ function appendSuspendedPauseMessages(
   let parentId: string | null = result.headId ?? null;
   let headId: string | null = result.headId ?? null;
   for (const source of sources) {
-    const id = `${source.idPrefix}:${source.runId}:${source.toolCallId}`;
+    const identity = source.data.delegation
+      ? getToolActionIdentityKey(source.data)
+      : `${source.runId}:${source.toolCallId}`;
+    const id = `${source.idPrefix}:${identity}`;
     messages.push({
       message: {
         content: [{ data: source.data, name: source.dataName, type: 'data' }],
@@ -3166,27 +2992,70 @@ function appendSuspendedPauseMessages(
   return { headId, messages };
 }
 
+/** A transient data notice preserves history without inventing a failed model run. */
+function appendSuspendedDiscoveryError(
+  result: AssistantHistoryLoadResult,
+  error: SuspendedRunDiscoveryError | undefined,
+  threadId: string
+): AssistantHistoryLoadResult {
+  if (!error) {
+    return result;
+  }
+  const id = `${SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME}:${threadId}`;
+  return {
+    headId: id,
+    messages: [
+      ...result.messages,
+      {
+        message: {
+          content: [{ data: error, name: SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME, type: 'data' }],
+          createdAt: new Date(),
+          id,
+          metadata: {
+            custom: {},
+            steps: [],
+            // biome-ignore lint/style/useNamingConvention: assistant-ui metadata keys.
+            unstable_annotations: [],
+            // biome-ignore lint/style/useNamingConvention: assistant-ui metadata keys.
+            unstable_data: [],
+            // biome-ignore lint/style/useNamingConvention: assistant-ui metadata keys.
+            unstable_state: null,
+          },
+          role: 'assistant',
+          status: { reason: 'stop', type: 'complete' },
+        },
+        parentId: result.headId ?? null,
+      },
+    ],
+  };
+}
+
 export function createPgliteAssistantThreadRepository(
   database: DbHandle
 ): BulkAssistantThreadRepository {
-  assertMemoryDatabase(database);
   const cachedRepository = assistantThreadRepositoryCache.get(database);
   if (cachedRepository) {
     return cachedRepository;
   }
+  /**
+   * One probe per database handle, memoized like the bootstrap it replaced. A
+   * FAILED probe drops its promise so the next call re-probes: the handle may
+   * legitimately become migrated (the browser first-run bootstrap and desktop
+   * main both migrate before handing a handle out, but a test — or a future
+   * caller that races init — can hold one that is not migrated yet). Caching
+   * the negative answer would be the same "decide once, hide forever" mistake
+   * the sidecar-presence latch in `PgliteMemoryStore` avoids.
+   */
   const initialize = async (): Promise<void> => {
-    let initPromise = assistantThreadSchemaInitPromises.get(database);
-    if (!initPromise) {
-      initPromise = database
-        .exec(buildAssistantThreadRunsSchemaSql())
-        .then(() => undefined)
-        .catch((error: unknown) => {
-          assistantThreadSchemaInitPromises.delete(database);
-          throw error;
-        });
-      assistantThreadSchemaInitPromises.set(database, initPromise);
+    let probePromise = assistantThreadSchemaProbePromises.get(database);
+    if (!probePromise) {
+      probePromise = assertAssistantMemorySchema(database).catch((error: unknown) => {
+        assistantThreadSchemaProbePromises.delete(database);
+        throw error;
+      });
+      assistantThreadSchemaProbePromises.set(database, probePromise);
     }
-    await initPromise;
+    await probePromise;
   };
 
   const listLatestThreadRuns = async (
@@ -3258,49 +3127,7 @@ export function createPgliteAssistantThreadRepository(
     options?: AssistantThreadRunEventListOptions
   ): Promise<readonly AssistantRunEvent[]> => {
     await initialize();
-    const limitLatestRuns =
-      typeof options?.limitLatestRuns === 'number' && Number.isSafeInteger(options.limitLatestRuns)
-        ? options.limitLatestRuns
-        : undefined;
-    if (limitLatestRuns !== undefined && limitLatestRuns < 1) {
-      throw new Error('Assistant run event history limit must be a positive safe integer.');
-    }
-    const params: unknown[] = [threadId, resourceId];
-    const boundedRunFilter =
-      limitLatestRuns === undefined
-        ? ''
-        : `AND run.id IN (
-            SELECT recent_run.id
-            FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS recent_run
-            WHERE recent_run.thread_id = $1 AND recent_run.resource_id = $2
-            ORDER BY recent_run.started_at DESC, recent_run.created_at DESC, recent_run.id DESC
-            LIMIT $3
-          )`;
-    if (limitLatestRuns !== undefined) {
-      params.push(limitLatestRuns);
-    }
-    const result = await database.query<Record<string, unknown>>(
-      `SELECT
-          event.id,
-          event.run_id,
-          event.sequence,
-          event.kind,
-          event.status,
-          event.label,
-          event.detail,
-          event.duration_ms,
-          event.metadata,
-          event.occurred_at
-       FROM ${ASSISTANT_RUN_EVENTS_TABLE} AS event
-       INNER JOIN ${ASSISTANT_THREAD_RUNS_TABLE} AS run ON run.id = event.run_id
-       WHERE event.thread_id = $1
-          AND event.resource_id = $2
-          ${boundedRunFilter}
-       ORDER BY run.started_at ASC, run.created_at ASC, run.id ASC,
-                event.sequence ASC, event.occurred_at ASC, event.id ASC`,
-      params
-    );
-    return result.rows.map(toThreadRunEvent);
+    return readAssistantHistoryRunEvents(database, threadId, resourceId, options);
   };
 
   const repository: BulkAssistantThreadRepository = {
@@ -3379,7 +3206,7 @@ export function createPgliteAssistantThreadRepository(
       await database.query(
         `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
          SET status = $2, error = $3, completed_at = $4, updated_at = $5
-         WHERE id = $1`,
+         WHERE id = $1 AND status NOT IN ('cancelling', 'cancelled')`,
         [runId, input.status, input.error ?? null, new Date(), new Date()]
       );
     },
@@ -3417,6 +3244,24 @@ export function createPgliteAssistantThreadRepository(
     },
     async createThreadRun(input: CreateAssistantThreadRunInput): Promise<AssistantThreadRunRecord> {
       await initialize();
+      let turnMessageId = input.turnMessageId ?? null;
+      if (input.childContinuation) {
+        const receipt = await createDelegatedConversationRepository(database).getContinuation(
+          { ownerResourceId: input.resourceId, rootThreadId: input.threadId },
+          input.childContinuation.id
+        );
+        if (
+          !receipt ||
+          receipt.nativeRunId !== input.childContinuation.nativeRunId ||
+          !['awaiting-approval', 'awaiting-input'].includes(receipt.state)
+        ) {
+          throw new Error(
+            'Child continuation decision is no longer pending or does not belong to this root.'
+          );
+        }
+        turnMessageId = receipt.turnMessageId;
+      }
+      const generationRunId = await resolveGenerationRunId(database, input);
       const now = new Date();
       const startedAt = input.startedAt ?? now;
       const completedAt = input.completedAt ?? null;
@@ -3432,7 +3277,7 @@ export function createPgliteAssistantThreadRepository(
         startedAt,
         status: input.status ?? 'running',
         threadId: input.threadId,
-        turnMessageId: input.turnMessageId ?? null,
+        turnMessageId,
         updatedAt: now,
         ...(input.modelSettings ? { modelSettings: { ...input.modelSettings } } : {}),
         ...(input.providerOptions ? { providerOptions: { ...input.providerOptions } } : {}),
@@ -3454,9 +3299,10 @@ export function createPgliteAssistantThreadRepository(
             completed_at,
             created_at,
             updated_at,
-            turn_message_id
+            turn_message_id,
+            generation_run_id
           )
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)`,
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           record.id,
           record.resourceId,
@@ -3473,6 +3319,7 @@ export function createPgliteAssistantThreadRepository(
           record.createdAt,
           record.updatedAt,
           record.turnMessageId,
+          generationRunId,
         ]
       );
       return record;
@@ -3486,30 +3333,33 @@ export function createPgliteAssistantThreadRepository(
       // clearThreadPlacement round trip; the CTE now owns the full cascade
       // (placements without a live thread were already inert by contract).
       const sidecarStages = THREAD_DELETE_SIDECAR_TABLES.map(
-        ({ table, threadColumn }) => `deleted_${table} AS (
+        ({ table, threadColumns }) => `deleted_${table} AS (
             DELETE FROM ${table}
-            WHERE ${threadColumn} = $1
-            RETURNING ${threadColumn}
+            WHERE (${threadColumns.map((column) => `${column} IN (SELECT id FROM deletion_threads)`).join(' OR ')})
+            RETURNING 1
           )`
       ).join(',\n          ');
       const sidecarCounts = THREAD_DELETE_SIDECAR_TABLES.map(
         ({ table }) => `(SELECT count(*) FROM deleted_${table}) AS "deleted_${table}_count"`
       ).join(',\n          ');
-      await database.query(
-        `WITH deleted_observational_memory AS (
+      const result = await database.query<{ allAuthorized: boolean }>(
+        `WITH RECURSIVE requested(id) AS (VALUES ($1::text)),
+          ${DELEGATED_THREAD_DELETE_CTES},
+          deleted_observational_memory AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
-            WHERE "threadId" = $1 OR "lookupKey" = $2
+            WHERE "threadId" IN (SELECT id FROM deletion_threads)
+              OR "lookupKey" IN (SELECT 'thread:' || id FROM deletion_threads)
             RETURNING id
           ),
           deleted_messages AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.messages}
-            WHERE thread_id = $1
+            WHERE thread_id IN (SELECT id FROM deletion_threads)
             RETURNING id
           ),
           ${sidecarStages},
           deleted_thread AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
-            WHERE id = $1
+            WHERE id IN (SELECT id FROM deletion_threads)
             RETURNING id, "resourceId"
           ),
           inserted_mind_ops AS (
@@ -3518,21 +3368,28 @@ export function createPgliteAssistantThreadRepository(
             RETURNING seq
           )
          SELECT
+          (SELECT all_authorized FROM deletion_scope_validation) AS "allAuthorized",
           (SELECT count(*) FROM deleted_observational_memory) AS deleted_observational_memory_count,
           (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
           ${sidecarCounts},
           (SELECT count(*) FROM deleted_thread) AS deleted_thread_count,
           (SELECT count(*) FROM inserted_mind_ops) AS inserted_mind_op_count`,
-        [threadId, `thread:${threadId}`]
+        [threadId]
       );
+      if (result.rows[0]?.allAuthorized !== true) {
+        throw new Error('Delegated branch deletion requires unchanged native ownership.', {
+          cause: { operation: 'delete-delegated-branch', requestedThreadIds: [threadId] },
+        });
+      }
     },
     async deleteThreads(threadIds: readonly string[]): Promise<void> {
       requireAssistantThreadIds(threadIds);
       await initialize();
       const result = await database.query<Record<string, unknown>>(
-        `WITH requested(id) AS (
+        `WITH RECURSIVE requested(id) AS (
             VALUES ${threadIdValuesSql(threadIds)}
           ),
+          ${DELEGATED_THREAD_DELETE_CTES},
           validation AS (
             SELECT COUNT(threads.id) = ${threadIds.length} AS all_found
             FROM requested
@@ -3542,29 +3399,29 @@ export function createPgliteAssistantThreadRepository(
             DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
             WHERE (SELECT all_found FROM validation)
               AND (
-                "threadId" IN (SELECT id FROM requested)
-                OR "lookupKey" IN (SELECT 'thread:' || id FROM requested)
+                "threadId" IN (SELECT id FROM deletion_threads)
+                OR "lookupKey" IN (SELECT 'thread:' || id FROM deletion_threads)
               )
             RETURNING id
           ),
           deleted_messages AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.messages}
             WHERE (SELECT all_found FROM validation)
-              AND thread_id IN (SELECT id FROM requested)
+              AND thread_id IN (SELECT id FROM deletion_threads)
             RETURNING id
           ),
           ${THREAD_DELETE_SIDECAR_TABLES.map(
-            ({ table, threadColumn }) => `deleted_${table} AS (
+            ({ table, threadColumns }) => `deleted_${table} AS (
             DELETE FROM ${table}
             WHERE (SELECT all_found FROM validation)
-              AND ${threadColumn} IN (SELECT id FROM requested)
-            RETURNING ${threadColumn}
+              AND (${threadColumns.map((column) => `${column} IN (SELECT id FROM deletion_threads)`).join(' OR ')})
+            RETURNING 1
           )`
           ).join(',\n          ')},
           deleted_threads AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE (SELECT all_found FROM validation)
-              AND id IN (SELECT id FROM requested)
+              AND id IN (SELECT id FROM deletion_threads)
             RETURNING id, "resourceId"
           ),
           inserted_mind_ops AS (
@@ -3574,6 +3431,7 @@ export function createPgliteAssistantThreadRepository(
           )
          SELECT
           (SELECT all_found FROM validation) AS "allFound",
+          (SELECT all_authorized FROM deletion_scope_validation) AS "allAuthorized",
           (SELECT count(*) FROM deleted_observational_memory) AS "deletedObservationalMemoryCount",
           (SELECT count(*) FROM deleted_messages) AS "deletedMessageCount",
           ${THREAD_DELETE_SIDECAR_TABLES.map(
@@ -3584,6 +3442,11 @@ export function createPgliteAssistantThreadRepository(
         [...threadIds]
       );
       assertAllBulkThreadsFound(result.rows[0]);
+      if (result.rows[0]?.['allAuthorized'] !== true) {
+        throw new Error('Delegated branch deletion requires unchanged native ownership.', {
+          cause: { operation: 'delete-delegated-branch', requestedThreadIds: [...threadIds] },
+        });
+      }
     },
     async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {
       await initialize();
@@ -3596,6 +3459,19 @@ export function createPgliteAssistantThreadRepository(
         [resourceId]
       );
       return result.rows.map(mapCrossRootUsageRow);
+    },
+    async getMessageParent(messageId, threadId, resourceId) {
+      requireString(messageId, 'messageId');
+      requireString(threadId, 'threadId');
+      requireString(resourceId, 'resourceId');
+      await initialize();
+      const result = await database.query<{ parentId: string | null }>(
+        `SELECT parent_id AS "parentId"
+         FROM brainstrike_assistant_message_parents
+         WHERE message_id = $1 AND thread_id = $2 AND resource_id = $3`,
+        [messageId, threadId, resourceId]
+      );
+      return result.rows[0]?.parentId;
     },
     async getRunLedger(
       resourceId: string,
@@ -3707,60 +3583,33 @@ export function createPgliteAssistantThreadRepository(
       const value = result.rows[0]?.turnMessageId;
       return typeof value === 'string' && value.length > 0 ? value : null;
     },
-    listLatestThreadRuns,
-    async listMessages(
-      threadId: string,
-      resourceId: string,
-      options?: AssistantThreadMessageListOptions
-    ): Promise<readonly AssistantHistoryMessage[]> {
+    async hasResolvedToolCallInGeneration(hostRunId, toolCallId) {
+      requireString(hostRunId, 'hostRunId');
+      requireString(toolCallId, 'toolCallId');
       await initialize();
-      const limitLatest =
-        typeof options?.limitLatest === 'number' && Number.isSafeInteger(options.limitLatest)
-          ? options.limitLatest
-          : undefined;
-      if (limitLatest !== undefined && limitLatest < 1) {
-        throw new Error('Assistant message history limit must be a positive safe integer.');
-      }
-      const params: unknown[] = [threadId, resourceId];
-      const limitClause =
-        limitLatest === undefined
-          ? ''
-          : `-- id is a deterministic tie-breaker for same-timestamp rows;
-               -- insertion-order ties need a future monotonic schema column.
-               ORDER BY "createdAt" DESC, id DESC
-               LIMIT $3`;
-      // Soft-rewind exclusion (BST-1115) sits INSIDE the windowing subquery, so
-      // it applies before `limitLatest` — the hydration window is the latest N
-      // VISIBLE messages, not N rows of which some are then dropped. Reload
-      // hydration is this query, which is why a tombstoned message stays gone
-      // across a restart without any renderer-side memory of the rewind.
-      const sql = `SELECT
-          recent_messages.id,
-          recent_messages.role,
-          recent_messages.content,
-          recent_messages."createdAt",
-          message_parents.message_id AS "parentMappingMessageId",
-          message_parents.parent_id AS "parentId"
-        FROM (
-          SELECT id, role, content, "createdAt"
-          FROM ${MASTRA_MEMORY_TABLES.messages}
-          WHERE thread_id = $1 AND "resourceId" = $2
-            AND NOT EXISTS (
-              SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
-              WHERE tombstones.message_id = ${MASTRA_MEMORY_TABLES.messages}.id
-            )
-          ${limitClause}
-        ) AS recent_messages
-        LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents
-          ON message_parents.message_id = recent_messages.id
-          AND message_parents.thread_id = $1
-          AND message_parents.resource_id = $2
-        ORDER BY recent_messages."createdAt" ASC, recent_messages.id ASC`;
-      if (limitLatest !== undefined) {
-        params.push(limitLatest);
-      }
-      const result = await database.query<Record<string, unknown>>(sql, params);
-      return result.rows.map(mapAssistantHistoryMessageRow);
+      const result = await database.query<{ resolved: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM brainstrike_assistant_run_events terminal
+           JOIN brainstrike_assistant_thread_runs terminal_run ON terminal_run.id = terminal.run_id
+           JOIN brainstrike_assistant_thread_runs paused_run ON paused_run.id = $1
+           WHERE terminal_run.thread_id = paused_run.thread_id
+             AND terminal_run.resource_id = paused_run.resource_id
+             AND (
+               terminal.run_id = paused_run.id OR
+               (paused_run.generation_run_id IS NOT NULL AND
+                terminal_run.generation_run_id = paused_run.generation_run_id)
+             )
+             AND terminal.metadata->>'toolCallId' = $2
+             AND terminal.kind IN ('tool.completed', 'tool.failed')
+         ) AS resolved`,
+        [hostRunId, toolCallId]
+      );
+      return result.rows[0]?.resolved === true;
+    },
+    listLatestThreadRuns,
+    async listMessages(threadId, resourceId, options) {
+      await initialize();
+      return readAssistantHistoryMessages(database, threadId, resourceId, options);
     },
     listThreadCheckpoints,
     listThreadRunEvents,
@@ -3818,22 +3667,7 @@ export function createPgliteAssistantThreadRepository(
       const parentId =
         input.parentId === null ? null : requireNonEmptyTopologyId(input.parentId, 'parentId');
       await initialize();
-      const now = new Date();
-      const result = await database.query(
-        `INSERT INTO ${ASSISTANT_MESSAGE_PARENTS_TABLE}
-          (message_id, thread_id, resource_id, parent_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $5)
-         ON CONFLICT (message_id) DO UPDATE
-           SET updated_at = EXCLUDED.updated_at
-           WHERE ${ASSISTANT_MESSAGE_PARENTS_TABLE}.thread_id = EXCLUDED.thread_id
-             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.resource_id = EXCLUDED.resource_id
-             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.parent_id IS NOT DISTINCT FROM EXCLUDED.parent_id
-         RETURNING message_id`,
-        [messageId, threadId, resourceId, parentId, now]
-      );
-      if (result.rows.length !== 1) {
-        throw new Error(`Assistant message ${messageId} has conflicting branch topology.`);
-      }
+      await recordAssistantHistoryParent(database, { messageId, parentId, resourceId, threadId });
     },
     async recordRunOutcome(input: RecordRunOutcomeInput): Promise<void> {
       requireString(input.runId, 'runId');
@@ -3945,6 +3779,29 @@ export function createPgliteAssistantThreadRepository(
         [threadId, normalizedTitle, THREAD_TITLE_SOURCE_METADATA_KEY, new Date()]
       );
     },
+    async sharesNativeRunGeneration(hostRunId, nativeRunId) {
+      requireString(hostRunId, 'hostRunId');
+      requireString(nativeRunId, 'nativeRunId');
+      await initialize();
+      const result = await database.query<{ owns: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM brainstrike_assistant_thread_runs host
+           JOIN brainstrike_assistant_native_runs mapped ON mapped.native_run_id = $2
+           JOIN brainstrike_assistant_thread_runs owner ON owner.id = mapped.host_run_id
+           WHERE host.id = $1
+             AND host.thread_id = owner.thread_id
+             AND host.resource_id = owner.resource_id
+             AND (
+               -- Legacy null-generation rows can still prove their exact first owner.
+               mapped.host_run_id = host.id OR
+               (host.generation_run_id IS NOT NULL AND
+                host.generation_run_id = owner.generation_run_id)
+             )
+         ) AS owns`,
+        [hostRunId, nativeRunId]
+      );
+      return result.rows[0]?.owns === true;
+    },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
       assertPersistableThreadMetadata(metadata);
       const normalized = normalizeThreadMetadataForPersistence(metadata);
@@ -4009,11 +3866,49 @@ export function createPgliteAssistantThreadRepository(
   return repository;
 }
 
+async function loadHistoryThroughSearchTarget(
+  repository: AssistantThreadRepository,
+  threadId: string,
+  resourceId: string,
+  targetMessageId?: string,
+  signal?: AbortSignal
+): Promise<readonly AssistantHistoryMessage[]> {
+  signal?.throwIfAborted();
+  let messages = await repository.listMessages(threadId, resourceId, {
+    limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    ...(targetMessageId ? { targetMessageId } : {}),
+  });
+  if (!targetMessageId) {
+    return messages;
+  }
+  // Explicit search navigation pages backwards; ordinary hydration remains bounded.
+  while (!messages.some((message) => message.id === targetMessageId)) {
+    signal?.throwIfAborted();
+    const first = messages[0];
+    if (!first) {
+      throw new Error('The selected message is no longer available in this conversation.');
+    }
+    const older = await repository.listMessages(threadId, resourceId, {
+      beforeMessageId: first.id,
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+      ...(targetMessageId ? { targetMessageId } : {}),
+    });
+    if (older.length === 0) {
+      throw new Error('The selected message is no longer available in this conversation.');
+    }
+    messages = [...older, ...messages];
+  }
+  signal?.throwIfAborted();
+  return messages;
+}
+
 export function createAssistantThreadHistoryAdapter({
   discoverSuspendedRuns,
   repository,
   resourceId,
   threadId,
+  targetMessageId,
+  signal,
 }: {
   /**
    * Desktop-only capability: rediscover approvals AND suspend() pauses
@@ -4022,23 +3917,27 @@ export function createAssistantThreadHistoryAdapter({
    * where its absence means "no suspended pauses" and hydration is
    * byte-identical to today.
    */
+  /** Explicit search navigation only; ordinary hydration retains its 80-row bound. */
+  readonly targetMessageId?: string;
+  readonly signal?: AbortSignal;
   readonly discoverSuspendedRuns?: SuspendedRunDiscovery;
   readonly repository: AssistantThreadRepository;
   readonly resourceId: string;
   readonly threadId: string;
 }): AssistantUiThreadHistoryAdapter {
-  // DURABLE-PARENT INVARIANT (BST-1243): every persisted edge must reference a
-  // durable (Mastra-persisted) message id or null. Approval/suspend flows
-  // append UI-transient messages — the action echo, the post-resume leg, and
-  // the synthetic rediscovered-pause notices — that Mastra deliberately never
-  // persists; persisting their edges (or chaining a real message onto their
-  // ids) dangles the graph, and reload hydration re-roots the child into a
-  // phantom root carousel sibling. The maps below alias each transient id to
-  // its nearest durable ancestor so persisted topology skips them entirely.
+  // DURABLE-PARENT INVARIANT (BST-1243): every persisted edge must point to a
+  // Mastra-persisted parent id or null. Action echoes, ordinary resume legs,
+  // and rediscovered notices have no Mastra rows; alias them to their nearest
+  // durable ancestor so subsequent messages cannot dangle on transient ids.
+  // The narrow exception is a resumed assistant that owns a NEW pause: its
+  // action echo records a proof edge from that UI id to the exact host turn,
+  // allowing replay to verify the later Mastra tool owner without splitting
+  // the hydrated continuation group.
   const transientParentByAliasId = new Map<string, string | null>();
+  const transientResumeMessageIds = new Set<string>();
+  let topologyEpoch = 0;
   const hydratedParentById = new Map<string, string | null>();
   const persistedEdgeIds = new Set<string>();
-  let durableTailId: string | null = null;
 
   const resolveDurableParentId = (parentId: string | null): string | null => {
     let current = parentId;
@@ -4057,41 +3956,122 @@ export function createAssistantThreadHistoryAdapter({
     if (!repository.recordMessageParent) {
       throw new Error('Assistant history repository cannot persist message branch topology.');
     }
+    const epoch = topologyEpoch;
     await repository.recordMessageParent({ messageId, parentId, resourceId, threadId });
-    persistedEdgeIds.add(messageId);
+    if (epoch === topologyEpoch) {
+      persistedEdgeIds.add(messageId);
+    }
   };
 
   // The echo is transport bookkeeping with no durable row — never an edge.
   // Its parent is the SUSPENDED assistant message, whose own runEnd append
-  // never fires (suspension interrupts it), so backfill that durable edge
-  // here; otherwise the reload group keys to a snapshot row id and every
-  // descendant edge dangles. The backfill parent, in order of authority: the
-  // hydrated graph parent when the suspended message was loaded; else the
-  // suspending run's durable turn anchor (BST-1163 `turn_message_id`, stamped
-  // identically on every leg of the turn — exact even when other sends landed
-  // during the suspension or the suspended run was a regeneration branched
-  // from an older prompt); else the live session tail as a legacy last resort
-  // (runs predating the turn link). The repository upsert stays loud on
-  // conflicting topology.
+  // never fires (assistant-ui writes a `requires-action` message only through a
+  // history `update`, which this adapter deliberately does not expose), so
+  // backfill that durable edge here; otherwise the reload group keys to a
+  // snapshot row id and every descendant edge dangles.
+  //
+  // The backfill parent, in order of authority: the hydrated graph parent when
+  // the suspended message was loaded; else the DURABLE HOST LEG the pause named
+  // (`hostRunId`) and its `turn_message_id` (BST-1163 — every leg of a turn
+  // stamps the same link, so this stays exact when other sends land during the
+  // suspension and when the suspended run is a regeneration branched from an
+  // older prompt).
+  //
+  // NEVER the marker's `runId`, and never the session tail. `runId` is the
+  // NATIVE Mastra run the resume routes address: Mastra mints it
+  // (`options?.runId || generateId()`), no leg passes the host id in, and one
+  // host leg can hold several native runs (a background wake-up mints another),
+  // so it never matched a `thread_runs` row — the lookup missed on EVERY live
+  // backfill and the tail silently answered instead, guessing wrong whenever
+  // the tail was not the suspended message's own turn. A live pause always
+  // names its host leg; anything else is a producer defect and throws.
+  const recordResumedPauseEdge = async (
+    message: unknown,
+    pausedMessageId: string | null,
+    resolvedParentId: string | null
+  ): Promise<boolean> => {
+    if (!(pausedMessageId && transientResumeMessageIds.has(pausedMessageId))) {
+      return false;
+    }
+    const epoch = topologyEpoch;
+    const assertCurrent = (): void => {
+      if (
+        epoch !== topologyEpoch ||
+        !transientResumeMessageIds.has(pausedMessageId) ||
+        transientParentByAliasId.get(pausedMessageId) !== resolvedParentId
+      ) {
+        throw new Error('Assistant resumed pause changed while its parent was loading.');
+      }
+    };
+    const hostRunId = readActionMessageHostRunId(message);
+    if (!hostRunId) {
+      throw new Error('Assistant history cannot anchor a resumed pause without its host leg.');
+    }
+    const turnMessageId = await repository.getThreadRunTurnMessageId(hostRunId, threadId);
+    const resolvedParent =
+      resolvedParentId && repository.getMessageParent
+        ? await repository.getMessageParent(resolvedParentId, threadId, resourceId)
+        : undefined;
+    assertCurrent();
+    if (
+      !(turnMessageId && (resolvedParentId === turnMessageId || resolvedParent === turnMessageId))
+    ) {
+      throw new Error('Assistant resumed pause disagrees with its durable host turn.');
+    }
+    if (persistedEdgeIds.has(pausedMessageId)) {
+      const existingParent = await repository.getMessageParent?.(
+        pausedMessageId,
+        threadId,
+        resourceId
+      );
+      assertCurrent();
+      if (existingParent !== turnMessageId) {
+        throw new Error('Assistant resumed pause has a conflicting persisted parent.');
+      }
+    } else {
+      await recordParentEdge(pausedMessageId, turnMessageId);
+      assertCurrent();
+    }
+    return true;
+  };
+
   const recordActionEchoAppend = async (
     message: unknown,
+    pausedMessageId: string | null,
     resolvedParentId: string | null
   ): Promise<void> => {
+    if (await recordResumedPauseEdge(message, pausedMessageId, resolvedParentId)) {
+      return;
+    }
     if (resolvedParentId === null || persistedEdgeIds.has(resolvedParentId)) {
       return;
     }
-    let suspendedParentId: string | null;
     if (hydratedParentById.has(resolvedParentId)) {
-      suspendedParentId = hydratedParentById.get(resolvedParentId) ?? null;
-    } else {
-      const actionRunId = readActionMessageRunId(message);
-      const turnMessageId =
-        actionRunId !== undefined && repository.getThreadRunTurnMessageId
-          ? await repository.getThreadRunTurnMessageId(actionRunId, threadId)
-          : null;
-      suspendedParentId = turnMessageId ?? durableTailId;
+      await recordParentEdge(resolvedParentId, hydratedParentById.get(resolvedParentId) ?? null);
+      return;
     }
-    await recordParentEdge(resolvedParentId, suspendedParentId);
+    const hostRunId = readActionMessageHostRunId(message);
+    if (!hostRunId) {
+      throw new Error(
+        `Assistant history cannot anchor suspended message ${resolvedParentId}: its pause named no durable host leg.`
+      );
+    }
+    const turnMessageId = await repository.getThreadRunTurnMessageId(hostRunId, threadId);
+    // An approval on a still-streaming leg aborts that leg, and its terminal
+    // runEnd append can persist the suspended message's own edge while this
+    // lookup is pending. That edge is authoritative, so session state read
+    // across the await is re-validated, never trusted (PR #3201).
+    if (persistedEdgeIds.has(resolvedParentId)) {
+      return;
+    }
+    // Truthiness, matching the `!hostRunId` guard above: a blank or absent
+    // anchor is as unusable as a missing one and must never reach an edge.
+    if (!turnMessageId) {
+      throw new Error(
+        `Assistant history cannot anchor suspended message ${resolvedParentId}: host leg ${hostRunId} records no turn message.`
+      );
+    }
+    await recordParentEdge(resolvedParentId, turnMessageId);
   };
 
   return {
@@ -4104,8 +4084,16 @@ export function createAssistantThreadHistoryAdapter({
       }
       const resolvedParentId = resolveDurableParentId(item.parentId);
       if (isApprovalActionMessage(item.message)) {
+        const appendEpoch = topologyEpoch;
+        // assistant-ui keeps the optimistic echo even when the async history
+        // write rejects. Its descendants still need the durable parent alias.
         transientParentByAliasId.set(item.message.id, resolvedParentId);
-        await recordActionEchoAppend(item.message, resolvedParentId);
+        const pausedOwnerId = readActionMessagePausedOwnerId(item.message) ?? item.parentId;
+        const resolvedPausedOwnerId = resolveDurableParentId(pausedOwnerId);
+        await recordActionEchoAppend(item.message, pausedOwnerId, resolvedPausedOwnerId);
+        if (appendEpoch !== topologyEpoch) {
+          throw new Error('Assistant approval action changed while its parent was loading.');
+        }
         return;
       }
       if (
@@ -4127,20 +4115,18 @@ export function createAssistantThreadHistoryAdapter({
         // "regeneration taken from a post-approval response" case in
         // assistant-approval-topology.integration.test.ts.
         transientParentByAliasId.set(item.message.id, resolvedParentId);
+        transientResumeMessageIds.add(item.message.id);
         return;
       }
       await recordParentEdge(item.message.id, resolvedParentId);
-      durableTailId = item.message.id;
     },
     async load() {
-      // Discovery is a bounded, best-effort HTTP round-trip (see
-      // assistant-suspended-approvals.ts) and the rare case, so it runs
-      // CONCURRENTLY with the history queries instead of gating them: thread
-      // render waits at most max(history, discovery-timeout), never their sum.
+      topologyEpoch += 1;
+      // Discovery and history run concurrently. The discovery fetch has a
+      // deadline and explicit recovery errors (assistant-suspended-approvals.ts);
+      // endpoint/auth resolution retains its bridge-owned lifecycle.
       const [messages, runEvents, discovery] = await Promise.all([
-        repository.listMessages(threadId, resourceId, {
-          limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
-        }),
+        loadHistoryThroughSearchTarget(repository, threadId, resourceId, targetMessageId, signal),
         repository.listThreadRunEvents(threadId, resourceId, {
           limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
         }),
@@ -4150,6 +4136,7 @@ export function createAssistantThreadHistoryAdapter({
       ]);
       // Reseed session topology state from hydration (a re-load replaces it).
       transientParentByAliasId.clear();
+      transientResumeMessageIds.clear();
       hydratedParentById.clear();
       persistedEdgeIds.clear();
       for (const message of messages) {
@@ -4161,8 +4148,11 @@ export function createAssistantThreadHistoryAdapter({
       for (const hydrated of base.messages) {
         hydratedParentById.set(hydrated.message.id, hydrated.parentId);
       }
-      durableTailId = base.headId ?? null;
-      const result = appendSuspendedPauseMessages(base, discovery.approvals, discovery.suspends);
+      const result = appendSuspendedDiscoveryError(
+        appendSuspendedPauseMessages(base, discovery.approvals, discovery.suspends),
+        'error' in discovery ? discovery.error : undefined,
+        threadId
+      );
       // Synthetic pause notices chain onto the durable head (and each other);
       // alias them in order so an approve from a rediscovered notice resolves
       // through to the durable graph.

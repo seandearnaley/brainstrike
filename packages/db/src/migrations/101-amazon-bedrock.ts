@@ -19,6 +19,7 @@ export const migration101AmazonBedrock: Migration = {
     DELETE FROM models WHERE provider_id = 'bedrock';
     DELETE FROM providers WHERE id = 'bedrock';
   `,
+  ledgerKey: 'custom-101-amazon-bedrock',
   name: 'amazon_bedrock',
   up: `
     INSERT INTO providers (id, name, sort_order, is_enabled) VALUES

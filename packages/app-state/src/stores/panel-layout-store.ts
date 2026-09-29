@@ -4,8 +4,7 @@
  * Canonical source of truth for the app-wide agent shell layout and root tab state.
  * - sizes: [left, right, console] as percentages (0..100), normalized on write
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
- * - activeTab: 'explorer' | 'settings' | 'git' | 'terminal'
- * - settingsOpen: session-only visibility for the modal settings surface
+ * - activeTab: 'explorer' | 'settings' | 'git' | 'notes' | 'browser'
  *
  * Persistence: uses `@brainstrike/storage` adapters; persisted subset only.
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
@@ -34,25 +33,21 @@ import {
  */
 export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'notes' | 'browser';
 
-/**
- * The subset of the store the visible-surface rule reads. Kept structural so
- * the selector can be called both as a zustand selector
- * (`usePanelLayoutStore(selectVisibleSurface)`) and as a plain function on
- * values a component has already subscribed to.
- */
-export type VisibleSurfaceState = Pick<PanelLayoutStoreState, 'activeTab' | 'settingsOpen'>;
-
 export interface PanelLayoutStoreState {
   // Root tabs
   activeTab: PanelTab;
+  /**
+   * Navigate to the Settings shell route. Settings is a full nav-rail tab
+   * like git/notes/browser (BST-1668 — the #1626 modal is gone), so this is
+   * `setActiveTab('settings')` under a name every entry point (profile menu,
+   * ⌘K, status items, tool menus) can share without knowing the tab id.
+   */
   openSettings: () => void;
   setActiveTab: (tab: PanelTab) => void;
-  setSettingsOpen: (open: boolean) => void;
 
   // Actions
   setSizes: (sizes: number[]) => void;
   setState: (next: Partial<PanelLayoutStoreState>) => void;
-  settingsOpen: boolean;
   showConsole: boolean;
   showLeftPanel: boolean;
   showRightPanel: boolean;
@@ -61,25 +56,6 @@ export interface PanelLayoutStoreState {
   toggleConsole: () => void;
   toggleLeft: () => void;
   toggleRight: () => void;
-}
-
-/**
- * The surface the user is actually looking at, and the ONE definition of the
- * settings-overlay precedence rule (BST-1281).
- *
- * Settings is a modal dialog layered over whichever tab is underneath it, so an
- * open dialog wins. `activeTab === 'settings'` is the same surface reached from
- * the nav rail — `setActiveTab` sets `settingsOpen` alongside it — but it is
- * checked explicitly because `setState` can write `activeTab` on its own, and a
- * consumer that only looked at `settingsOpen` would then disagree with the
- * dialog on screen.
- *
- * Consumers: `RootLayoutContent` (settings dialog `open` prop + long-task
- * telemetry route) and `useDocumentTitle` (document title/description). Change
- * the rule here and every consumer moves with it.
- */
-export function selectVisibleSurface(state: VisibleSurfaceState): PanelTab {
-  return state.settingsOpen || state.activeTab === 'settings' ? 'settings' : state.activeTab;
 }
 
 /**
@@ -98,11 +74,9 @@ const DEFAULT_STATE: Omit<
   | 'toggleConsole'
   | 'openSettings'
   | 'setActiveTab'
-  | 'setSettingsOpen'
   | 'setState'
 > = {
   activeTab: 'explorer',
-  settingsOpen: false,
   showConsole: false,
   showLeftPanel: true,
   showRightPanel: true,
@@ -128,11 +102,9 @@ const creator: StateCreator<PanelLayoutStoreState, [['zustand/persist', unknown]
 ) => ({
   ...DEFAULT_STATE,
 
-  openSettings: () => set({ settingsOpen: true }),
+  openSettings: () => set({ activeTab: 'settings' }),
 
-  setActiveTab: (tab: PanelTab) => set({ activeTab: tab, settingsOpen: tab === 'settings' }),
-
-  setSettingsOpen: (open: boolean) => set({ settingsOpen: open }),
+  setActiveTab: (tab: PanelTab) => set({ activeTab: tab }),
 
   setSizes: (sizes: number[]) => set({ sizes: resolveNextSizes(sizes, get().sizes, SIZE_RULES) }),
 

@@ -42,6 +42,23 @@ export const DESKTOP_IPC_CHANNELS = {
     resolveView: 'changes:resolveView',
     rewindPreview: 'changes:rewindPreview',
   },
+  // Hidden chunking host (renderer-only inference, docs/agents/local-inference.md).
+  // `request`/`progress`/`status` are one-way main→host pushes; `report*` are
+  // host→main sends. Pinned equal to the @brainstrike/worker-runtime
+  // descriptor in chunking-host-shared.ts by desktop-ipc-channel-contract.test.ts.
+  chunkingHost: {
+    chunkBatch: 'chunking-host:chunk-batch',
+    chunkFile: 'chunking-host:chunk-file',
+    ensureStarted: 'chunking-host:ensure-started',
+    getStatus: 'chunking-host:get-status',
+    progress: 'chunking-host:progress',
+    reportResponse: 'chunking-host:report-response',
+    reportStatus: 'chunking-host:report-status',
+    request: 'chunking-host:request',
+    reset: 'chunking-host:reset',
+    status: 'chunking-host:status',
+    stop: 'chunking-host:stop',
+  },
   clipboard: {
     writeText: 'clipboard:write-text',
   },
@@ -67,6 +84,8 @@ export const DESKTOP_IPC_CHANNELS = {
     exec: 'db:exec',
     getUserDataPath: 'db:getUserDataPath',
     insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
+    integrityChanged: 'db:integrity:changed',
+    integrityState: 'db:integrity:state',
     invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
     liveQueryRefresh: 'db:live-query:refresh',
     liveQueryStart: 'db:live-query:start',
@@ -81,6 +100,26 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
+    readMainLogWindow: 'desktop-diagnostics:read-main-log-window',
+    readProcessCounters: 'desktop-diagnostics:read-process-counters',
+  },
+  // Hidden embedding host; same pinning as chunkingHost (embedding-host-shared.ts).
+  embeddingHost: {
+    backfillProgress: 'embedding-host:backfill-progress',
+    cancelAllBackfills: 'embedding-host:cancel-all-backfills',
+    cancelBackfill: 'embedding-host:cancel-backfill',
+    command: 'embedding-host:command',
+    enqueueBackfill: 'embedding-host:enqueue-backfill',
+    ensureStarted: 'embedding-host:ensure-started',
+    getBackfillsInFlight: 'embedding-host:get-backfills-in-flight',
+    getStatus: 'embedding-host:get-status',
+    queryEmbedding: 'embedding-host:query-embedding',
+    queryEmbeddingRequest: 'embedding-host:query-embedding-request',
+    reportQueryEmbeddingResponse: 'embedding-host:report-query-embedding-response',
+    reportStatus: 'embedding-host:report-status',
+    reset: 'embedding-host:reset',
+    status: 'embedding-host:status',
+    stop: 'embedding-host:stop',
   },
   fileExports: {
     saveToDownloads: 'file-exports:save-to-downloads',
@@ -136,6 +175,35 @@ export const DESKTOP_IPC_CHANNELS = {
   hooks: {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
     resolveTrustedRootIds: 'hooks:resolve-trusted-root-ids',
+  },
+  // Hidden local-LLM host; same pinning as chunkingHost (llm-host-shared.ts).
+  llmHost: {
+    cancel: 'llm-host:cancel',
+    ensureStarted: 'llm-host:ensure-started',
+    generate: 'llm-host:generate',
+    getStatus: 'llm-host:get-status',
+    progress: 'llm-host:progress',
+    reportProgress: 'llm-host:report-progress',
+    reportResponse: 'llm-host:report-response',
+    reportStatus: 'llm-host:report-status',
+    request: 'llm-host:request',
+    reset: 'llm-host:reset',
+    status: 'llm-host:status',
+    stop: 'llm-host:stop',
+    warmup: 'llm-host:warmup',
+  },
+  // Logging settings/ingest surface; `platform/logging-api-contract.ts`
+  // re-exports this group as LOGGING_API_CHANNELS (its validators need
+  // @brainstrike/logging, which a preload cannot require).
+  logging: {
+    durableRecord: 'logging:durable-record',
+    getBufferedLogs: 'logging:get-buffered-logs',
+    getPreferences: 'logging:get-preferences',
+    ingestBufferedRecord: 'logging:ingest-buffered-record',
+    openDestination: 'logging:open-destination',
+    preferencesUpdated: 'logging:preferences-updated',
+    selectDestination: 'logging:select-destination',
+    setPreferences: 'logging:set-preferences',
   },
   mcp: {
     appsExecute: 'mcp:apps:execute',
@@ -283,6 +351,15 @@ export const DESKTOP_IPC_CHANNELS = {
     clear: 'vector-preferences:clear',
     read: 'vector-preferences:read',
     write: 'vector-preferences:write',
+  },
+  // Native focus of the host BrowserWindow (BST-1864). `isFocused` is the ONLY
+  // invoke: the value for the asking window, served on request so a renderer
+  // that (re)loads after a focus change still reads the truth. `changed` is a
+  // one-way main→renderer push (`focus`/`blur` of that window) — NOT an
+  // ipcMain.handle channel, never registered on the invoke registry.
+  windowFocus: {
+    changed: 'window-focus:changed',
+    isFocused: 'window-focus:is-focused',
   },
   workspace: {
     // One-way main→replacement-renderer challenge. Main publishes a fresh

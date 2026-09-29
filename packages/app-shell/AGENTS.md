@@ -90,7 +90,17 @@ All slices are compact, selector-first, and **SSR/test-safe** via `createJSONSto
 The shell surfaces vector status/queue controls in the database tab and a compact **Queue** summary in the status bar. The heavy lifting lives in sibling packages, but there are app-shell specific UX expectations:
 
 * **Devices:** we heuristically detect the best device (WebGPU when available) and let users override to WASM/CPU. WebGPU drastically improves on-device inference latency; fall back to WASM where unsupported. ([ONNX Runtime][7])
-* **Backfilling:** when an embedding set becomes active **and** coverage is partial, the shell attempts an auto-backfill (enqueue jobs) if the local worker is running.
+* **Backfilling:** when an embedding set becomes active **and** coverage is partial, the shell attempts an auto-backfill (enqueue jobs) if the local worker is running. The enqueued `source: 'background-indexing'` run belongs to the host runtime, not to the React tree that asked for it: provider teardown calls `WorkspaceCollectionSyncService.detach()` (release local work + progress subscription), and only a deliberate stop — manual pause, indexing disabled, restart-active — calls `cancel()`. Detaching drops tracking, not authority: `cancel()` and the disabled `sync()` path enumerate `getBackfillsInFlight()` and cancel every `background-indexing-backfill:` run, so a pause or disable stops a detached run no instance is tracking. That sweep lives in `background-indexing/workspace-collection-sync-cancel.ts` and is failure-isolated — every enumerated run is attempted, failures surface aggregated — and the renderer loop and the backfill hold separate abort controllers, because on web the `enqueueBackfill` promise IS the run and `detach()` must not abort it. Because `cancelBackfill` takes only an embedding-set id, a pass whose enqueue resolves late asks `classifyEnqueueContinuation` whether a LATER pass owns THAT SET — not whether it is still the current pass. A replacement on the same set re-adopts the run and must not be cancelled; a replacement on a different set leaves this run orphaned past its own sweep, so it still must be. `currentSyncCollectionId` is the token: assigned before the pass's first await and cleared by every stop, it is the only one armed early enough to cover a replacement that is still scanning. See `docs/agents/local-inference.md`.
+* **Renderer coordination:** `WorkspaceIndexingCoordinator` owns sync trigger
+  coalescing, generation invalidation, sequential root iteration, cancel and
+  detach outside React. The provider supplies current inputs and wires stores,
+  capabilities and browser events. Async target resolution checks its generation
+  before root reconciliation or status publication, and restart waits for the
+  cancellation sweep before starting its replacement; an aggregated sweep error
+  is reported but does not drop the requested replacement. Pause state is read
+  from the arbiter boolean, not inferred from display labels. Keep lifecycle policy in direct coordinator
+  tests; keep mounted provider tests for subscription and teardown wiring.
+* **Coverage audit:** two layers, deliberately not merged. `background-indexing/workspace-index-coverage-audit.ts` holds the pure primitives (expected files, missing-file resolution, gap classification); `workspace-index-coverage-audit-runner.ts` holds the orchestration (target assembly, unverifiable outcomes, messages/status patches, recovery-attempt keying). Neither uses React; the provider only starts an audit. Paired tests, one per layer, keep the boundary honest: `__tests__/workspace-index-coverage-audit.test.ts` (primitives), `__tests__/workspace-index-coverage-audit-runner.test.ts` (orchestration — drives the runner directly, no React and no PGlite), and `__tests__/workspace-root-handles.test.ts` for the mounted-root helpers the audit keys on. `__tests__/workspace-collection-sync-provider.test.tsx` keeps the mounted integration on top of them. An `unresolved-root` or `truncated-root` outcome is **unverifiable**, neither covered nor a gap: it must never mark the audit verified and must never arm a recovery sync, and — like a failed audit — it must publish `unindexableFileCount: null`. The status store shallow-merges patches and renders that count beside `lastError`, so omitting the key would leave the previous audit's number on screen next to "coverage cannot be verified". Only the in-progress `waiting` patch may omit it.
 * **Queue semantics:** The shell emits `brainstrike:queue-drained` when the embeddings queue becomes idle and `brainstrike:queue-progress` for live pending/processed/failed counts. Keep those contracts stable for dashboards listening in the renderer.
 * **Throughput/latency:** we display jobs/min and P50/P95; avoid blocking the main thread—long operations must stream progress.
 
@@ -127,6 +137,28 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 ## Shell contracts (for host apps & tools)
 
 * **Assistant:** `AssistantChatPanel` calls `GET {assistantBase}/assistant/status -> {enabled:boolean,provider?:SupportedProvider,model?:string,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing; provider and model are an atomic validated pair when present.
+* **Assistant links (BST-1665):** thread markdown must never rely on the anchor
+  default. Electron's `will-navigate` fence denies an off-page anchor click
+  outright (dead link), and on web the same anchor navigates the SPA away and
+  destroys the live thread. `AssistantChatPanel` therefore provides
+  `AssistantLinkCapabilitiesProvider` (from the narrow
+  `@brainstrike/assistant-ui/assistant-link-capabilities-provider` subpath (the hook lives alongside it at `.../assistant-link-capabilities`) — importing it
+  from the root barrel would pull the lazy panel graph into the eager chunk),
+  and `MarkdownLink` routes every off-page activation to `openLink`.
+  Ownership split: `packages/assistant-ui` decides only THAT a link was
+  activated; this package decides WHERE it goes and owns the protocol allowlist
+  plus the single visible failure toast. The seam is named `openLink`, not
+  `openExternalLink`, because the destination is the host's to choose — when the
+  in-app browser pane ships, `use-assistant-link-capabilities.ts` is the only
+  file that changes.
+  Two invariants worth keeping: same-document (`#fragment`) hrefs keep the
+  anchor default, because `will-navigate` is explicitly not emitted for in-page
+  navigation and hijacking them breaks working scroll; and `openLink` must never
+  reject, since a rejection escapes the toast and reproduces the original dead
+  click. Paired tests: `src/__tests__/use-assistant-link-capabilities.test.ts`,
+  `src/__tests__/assistant-chat-panel-link-wiring.test.tsx`,
+  `src/__tests__/assistant-chat-panel-eager-import.test.ts` (pins the narrow
+  import), and `packages/assistant-ui/src/__tests__/markdown-link.test.tsx`.
 * **Threads:** `ThreadsPanel` is a database-backed thread and group surface. It
   uses the `@brainstrike/assistant-data` repositories/stores plus
   `ThreadSearchRepository` from `@brainstrike/db`; persistence, hydration, and
@@ -134,6 +166,11 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 * **Vector status surfaces:** host `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `DatabasePanel` into DB-facing views.
 * **Search panel (optional):** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.
 * **Database tab:** lazy-loaded chunk that initializes PGlite when the database tab is opened or preloaded by the host app.
+
+Background managed-cache imports consume the `baseImportRunner` callback's
+selected content map rather than closing over the earlier processor output.
+Empty content is valid; a missing descriptor remains an explicit per-file error.
+Paired tests: `src/background-indexing/__tests__/workspace-collection-sync-import.test.ts`.
 
 ## CSV export expectations
 

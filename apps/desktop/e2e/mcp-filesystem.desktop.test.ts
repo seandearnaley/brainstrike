@@ -27,7 +27,7 @@ test.describe('Assistant chat (desktop)', () => {
     const chatPanel = window.getByTestId('chat-panel');
     await expect(chatPanel).toBeVisible({ timeout: 25_000 });
 
-    const input = window.locator('#assistant-input');
+    const input = window.getByRole('textbox', { name: 'Message input' });
     await expect(input).toBeVisible({ timeout: 5000 });
     await expect(input).toBeEnabled({ timeout: 15_000 });
     await input.fill('list files');

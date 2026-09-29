@@ -14,6 +14,11 @@ import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import { createAssistantCheckpointHandlers } from './assistant-checkpoint-handlers';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 export interface AssistantCheckpointIpcOptions {
   /** Lazy: the ONE snapshot service is constructed at app-ready, after IPC
    * registration (same posture as the changes handlers). */
@@ -34,19 +39,22 @@ export function registerAssistantCheckpointIpcHandlers(
     undoRun: undoCheckpointRun,
   });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'assistantCheckpoint',
     DESKTOP_IPC_CHANNELS.assistantCheckpoint.availability,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, payload: unknown) => handlers.availability(payload)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'assistantCheckpoint',
     DESKTOP_IPC_CHANNELS.assistantCheckpoint.revertEntry,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, payload: unknown) => handlers.revertEntry(payload)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'assistantCheckpoint',
     DESKTOP_IPC_CHANNELS.assistantCheckpoint.revertRun,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, payload: unknown) => handlers.revertRun(payload)
   );
 

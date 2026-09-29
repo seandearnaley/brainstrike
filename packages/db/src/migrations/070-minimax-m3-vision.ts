@@ -12,6 +12,7 @@ export const migration070MinimaxM3Vision: Migration = {
     SET capabilities = capabilities || '{"vision":false}'::jsonb
     WHERE id = 'minimax/minimax-m3' AND capabilities->>'type' = 'llm';
   `,
+  ledgerKey: 'custom-070-minimax-m3-vision',
   name: 'minimax_m3_vision',
   up: `
     UPDATE models

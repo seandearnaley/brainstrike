@@ -29,7 +29,7 @@ import type {
 // implementation. Interim placement — R04 (BST-984) moves this module into the
 // data layer and the export moves with it.
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
-import { wasmLoader } from '@brainstrike/db';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -117,6 +117,7 @@ describe('durable run usage live Mastra loop (real agent → real repo → real 
   it('persists provider usage from a real turn and aggregates it per model', async () => {
     const dataDir = `memory://run-usage-live-loop-${Date.now()}`;
     const db = await wasmLoader.createPGlite(dataDir);
+    await migrate(db);
     try {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       const threadId = 'thread-usage-live';

@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 import './assistant-tool-approval-notice.browser.css';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({

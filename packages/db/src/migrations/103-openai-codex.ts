@@ -15,8 +15,9 @@ import type { Migration } from './migration-runner';
  * constraint 8). "Pro" reasoning routes and gpt-5.6 are excluded.
  *
  * Rows ship `is_enabled = false` like the openrouter and bedrock seeds;
- * enablement comes from `useOpenAiCodexDefaults` the first time a connected
- * subscription credential is present. `is_enabled = models.is_enabled` on
+ * enablement comes from `useProviderModelDefaults`, selected via
+ * `PROVIDER_MODEL_DEFAULT_POLICIES` as a `seed` policy, the first time a
+ * connected subscription credential is present. `is_enabled = models.is_enabled` on
  * conflict preserves the USER's toggle on re-run — never
  * `EXCLUDED.is_enabled`, which would clobber it.
  */
@@ -25,6 +26,7 @@ export const migration103OpenAiCodex: Migration = {
     DELETE FROM models WHERE provider_id = 'openai-codex';
     DELETE FROM providers WHERE id = 'openai-codex';
   `,
+  ledgerKey: 'custom-103-openai-codex',
   name: 'openai_codex',
   up: `
     INSERT INTO providers (id, name, sort_order, is_enabled) VALUES

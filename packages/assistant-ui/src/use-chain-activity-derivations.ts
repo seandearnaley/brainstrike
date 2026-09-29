@@ -1,8 +1,11 @@
-import type { ManageTaskListResult } from '@brainstrike/assistant-contract';
+import {
+  type ManageTaskListResult,
+  readAssistantRunEventDataPart,
+} from '@brainstrike/assistant-contract';
 import { useMemo } from 'react';
 import { deriveTaskListFromParts } from './derive-task-list';
 import { createShellOutputAccumulator, type ShellOutputAccumulation } from './shell-output-parts';
-import { runEventsSpanMs, summarizeToolActivity, type ToolActivitySummary } from './tool-activity';
+import { isToolCallPart, runEventsSpanMs } from './tool-activity';
 import { collectToolDurations } from './tool-durations';
 import { useStableRecord } from './use-stable-record';
 
@@ -10,12 +13,11 @@ export interface ChainActivityDerivations {
   readonly activityFallbackMs: number | undefined;
   readonly shellOutputs: Record<string, ShellOutputAccumulation>;
   readonly taskList: ManageTaskListResult | null;
-  readonly toolActivity: ToolActivitySummary;
   readonly toolDurations: Record<string, number>;
 }
 
 /**
- * The chain-of-thought's per-turn derivations from `message.parts`, with the
+ * Group-local elapsed time, plus message-wide call-id lookups with the
  * context-value stability this hot path needs: `messageParts` gets a new
  * identity on EVERY streamed chunk, so raw per-chunk recomputations would hand
  * ToolDurationProvider/ShellOutputProvider fresh objects each chunk and
@@ -30,10 +32,19 @@ export interface ChainActivityDerivations {
  */
 export function useChainActivityDerivations(
   messageParts: readonly unknown[],
-  messageId: string
+  messageId: string,
+  groupParts: readonly unknown[]
 ): ChainActivityDerivations {
-  const toolActivity = useMemo(() => summarizeToolActivity(messageParts), [messageParts]);
-  const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
+  const activityFallbackMs = useMemo(() => {
+    const ids = collectGroupToolCallIds(groupParts);
+    return runEventsSpanMs(
+      messageParts.filter((part) => {
+        const event = readAssistantRunEventDataPart(part);
+        const id = event?.metadata?.['toolCallId'];
+        return typeof id === 'string' && ids.has(id);
+      })
+    );
+  }, [messageParts, groupParts]);
   const toolDurations = useStableRecord(
     useMemo(() => collectToolDurations(messageParts), [messageParts])
   );
@@ -44,5 +55,27 @@ export function useChainActivityDerivations(
   );
   const taskList = useMemo(() => deriveTaskListFromParts(messageParts), [messageParts]);
 
-  return { activityFallbackMs, shellOutputs, taskList, toolActivity, toolDurations };
+  return { activityFallbackMs, shellOutputs, taskList, toolDurations };
+}
+
+/**
+ * Current-group tool-call ids in a single pass, replacing the previous
+ * `filter(isToolCallPart).map(...)` chain (two intermediate arrays per
+ * streamed chunk). Only string ids are collected: `useChainActivityDerivations`
+ * probes the set with string ids only (guarded by `typeof id === 'string'`),
+ * and `Set` membership uses SameValueZero with no coercion, so a non-string
+ * entry could never have matched — dropping such entries changes no lookup.
+ */
+export function collectGroupToolCallIds(groupParts: readonly unknown[]): Set<string> {
+  const ids = new Set<string>();
+  for (const part of groupParts) {
+    if (!isToolCallPart(part)) {
+      continue;
+    }
+    const toolCallId = part['toolCallId'];
+    if (typeof toolCallId === 'string') {
+      ids.add(toolCallId);
+    }
+  }
+  return ids;
 }

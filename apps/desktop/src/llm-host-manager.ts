@@ -17,6 +17,7 @@ import {
   type LlmHostStatusReport,
   type LlmHostWarmupRequestPayload,
 } from './llm-host-shared';
+import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 import {
   createRuntimeHostPlatformStatus,
   type RuntimeHostControlState,
@@ -32,10 +33,15 @@ const LLM_HOST_WARMUP_TIMEOUT_MS = 20 * 60_000;
 const LLM_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 const PRE_CANCELLED_REQUEST_TTL_MS = LLM_HOST_GENERATE_TIMEOUT_MS;
 
-function getMonotonicNow(): number {
-  return typeof performance !== 'undefined' && typeof performance.now === 'function'
-    ? performance.now()
-    : Date.now();
+/**
+ * One request's binding to its client's lifetime: `signal` fires when the
+ * client goes away (WebContents destroyed, main-process AbortSignal aborted)
+ * carrying the Error the request rejects with; `release` detaches whatever
+ * listener produced it and must run once the request settles.
+ */
+interface LlmHostRequestTeardown {
+  readonly release: () => void;
+  readonly signal: AbortSignal | undefined;
 }
 
 /**
@@ -48,13 +54,17 @@ interface LlmHostRequestClient {
   forwardProgress: (report: LlmHostProgressReport) => void;
   /** Scope prefix for request ids (WebContents id, or 'main'). */
   readonly scopeId: string;
-  /** Subscribe to client teardown; returns cleanup, or null when not removable. */
-  subscribeTeardown: (handler: () => void) => (() => void) | null;
-  teardownMessage: (requestId: string) => string;
+  /** Bind one request to this client's lifetime. */
+  teardown: (requestId: string) => LlmHostRequestTeardown;
 }
 
 /** Reserved scope for main-process callers; WebContents ids are numeric, so 'main' cannot collide. */
 const MAIN_CLIENT_SCOPE_ID = 'main';
+
+const NO_TEARDOWN: LlmHostRequestTeardown = {
+  release: () => undefined,
+  signal: undefined,
+};
 
 function clientFromWebContents(requester: WebContents): LlmHostRequestClient {
   return {
@@ -62,18 +72,24 @@ function clientFromWebContents(requester: WebContents): LlmHostRequestClient {
       requester.send(LLM_HOST_PROGRESS_EVENT, report);
     },
     scopeId: String(requester.id),
-    subscribeTeardown: (handler) => {
+    teardown: (requestId) => {
       if (typeof requester.once !== 'function') {
-        return null;
+        return NO_TEARDOWN;
       }
+      const controller = new AbortController();
+      const handler = (): void => {
+        controller.abort(createRequestFailure(`Llm host requester ${requestId} was destroyed.`));
+      };
       requester.once('destroyed', handler);
-      return typeof requester.removeListener === 'function'
-        ? () => {
+      return {
+        release: () => {
+          if (typeof requester.removeListener === 'function') {
             requester.removeListener('destroyed', handler);
           }
-        : null;
+        },
+        signal: controller.signal,
+      };
     },
-    teardownMessage: (requestId) => `Llm host requester ${requestId} was destroyed.`,
   };
 }
 
@@ -117,35 +133,44 @@ function clientForMain(options: LlmHostMainRequestOptions): LlmHostRequestClient
       }
     },
     scopeId: MAIN_CLIENT_SCOPE_ID,
-    subscribeTeardown: (handler) => {
+    teardown: (requestId) => {
       const signal = options.signal;
       if (!signal) {
-        return null;
+        return NO_TEARDOWN;
       }
-      signal.addEventListener('abort', handler, { once: true });
-      return () => {
-        signal.removeEventListener('abort', handler);
+      // Chained rather than passed through: a bare `abort()` carries a generic
+      // DOMException, and the request must reject with the manager's message.
+      const controller = new AbortController();
+      const handler = (): void => {
+        controller.abort(createRequestFailure(`Llm host request ${requestId} was aborted.`));
+      };
+      if (signal.aborted) {
+        // `addEventListener` never fires for a signal that is already aborted.
+        // `assertMainRequestNotAborted` rejects the common case before
+        // dispatch, so this closes the window between that check and this
+        // registration: without it the derived signal would start un-aborted
+        // and the request would run to the generate timeout.
+        handler();
+      } else {
+        signal.addEventListener('abort', handler, { once: true });
+      }
+      return {
+        release: () => {
+          signal.removeEventListener('abort', handler);
+        },
+        signal: controller.signal,
       };
     },
-    teardownMessage: (requestId) => `Llm host request ${requestId} was aborted.`,
   };
 }
 
-interface PendingLlmRequest {
-  cleanupRequesterListener?: () => void;
-  client: LlmHostRequestClient;
-  deadlineAt: number;
-  reject: (error: Error) => void;
-  requestId: string;
-  resolve: (result: unknown) => void;
+interface PreCancelledRequestCleanup {
+  release: () => void;
   timeoutId: ReturnType<typeof setTimeout>;
-  timeoutMs: number;
 }
 
-interface PreCancelledRequestCleanup {
-  cleanupRequesterListener?: () => void;
-  timeoutId: ReturnType<typeof setTimeout>;
-}
+/** Abandoned ids retained while their host answer may still arrive. */
+const MAX_ABANDONED_REQUEST_IDS = 64;
 
 function createRequestFailure(message: string, code?: string): Error {
   const error = new Error(message);
@@ -160,11 +185,67 @@ export class LlmHostManager {
   private readonly lifecycle: RendererHostLifecycle<LlmHostStatus>;
   private readonly preCancelledRequestCleanups = new Map<string, PreCancelledRequestCleanup>();
   private readonly preCancelledRequestIds = new Set<string>();
-  private readonly pendingRequests = new Map<string, PendingLlmRequest>();
+  /**
+   * Ids this manager abandoned (abort or timeout) whose host answer may still
+   * be in flight. Bounded and oldest-evicted: a late report that never arrives
+   * must not retain an id forever.
+   */
+  private readonly abandonedRequestIds = new Set<string>();
+  private readonly requests: HostRequestChannel<LlmHostRequest, LlmHostResponseReport>;
   private controlState: RuntimeHostControlState | null = null;
   private engineResetInFlight = false;
 
   constructor() {
+    this.requests = createHostRequestChannel<LlmHostRequest, LlmHostResponseReport>({
+      isProgress: (report) => report.type === 'progress',
+      onAbort: (_request, { reason, requestId }) => {
+        this.rememberAbandonedRequest(requestId);
+        this.tryCancelHostRequest(requestId, undefined, 'requester destruction');
+        return reason instanceof Error
+          ? reason
+          : createRequestFailure(`Llm host request ${requestId} was aborted.`);
+      },
+      onLateResponse: (requestId) => {
+        // A terminal report for a request this manager itself abandoned is the
+        // host answering a cancel that was already in flight — expected, and
+        // routine when a user presses stop. Only an id we never abandoned is
+        // an actual correlation fault.
+        if (this.abandonedRequestIds.delete(requestId)) {
+          logger.debug('Llm host answered an abandoned request', { requestId });
+          return;
+        }
+        logger.warn('Llm host response arrived for a request that is no longer pending', {
+          requestId,
+        });
+      },
+      onTimeout: (_request, { progressCount, requestId }) => {
+        this.rememberAbandonedRequest(requestId);
+        // The timeout is an INACTIVITY window, not a wall-clock ceiling: each
+        // progress report (download %, text/reasoning snapshots) proves the
+        // host is alive and re-arms the deadline. A wedged host goes silent
+        // and still times out one window after its last report — and the
+        // host is told to stop the work it may still be doing.
+        this.tryCancelHostRequest(
+          requestId,
+          undefined,
+          progressCount > 0 ? 'inactivity-timeout' : 'timeout'
+        );
+        return {
+          error: createRequestFailure(`Llm host request ${requestId} timed out.`),
+          policy: 'abandon',
+        };
+      },
+      requestId: (request) => request.requestId,
+      responseId: (report) => report.requestId,
+      role: 'Llm host',
+      send: (request) => {
+        this.requireHostWindow().webContents.send(LLM_HOST_REQUEST_EVENT, request);
+      },
+      timeoutMs: (request) =>
+        request.payload.kind === 'warmup'
+          ? LLM_HOST_WARMUP_TIMEOUT_MS
+          : LLM_HOST_GENERATE_TIMEOUT_MS,
+    });
     this.lifecycle = new RendererHostLifecycle<LlmHostStatus>({
       createStatus: LLM_HOST_STATUS_ADAPTER.createStatus,
       createStoppedStatus: createStoppedLlmHostStatus,
@@ -214,7 +295,7 @@ export class LlmHostManager {
         : this.controlState
           ? { controlState: this.controlState }
           : {}),
-      pendingRequestCount: this.pendingRequests.size,
+      pendingRequestCount: this.requests.size(),
     });
   }
 
@@ -302,17 +383,18 @@ export class LlmHostManager {
 
   /**
    * Clear all pre-cancelled request bookkeeping: the TTL timers and the
-   * requester `'destroyed'` listeners. `stop()`/`rejectPendingRequests` only
-   * drain `pendingRequests`, so without this a `dispose()` leaks every
+   * requester teardown listeners. `stop()`/`rejectPendingRequests` only
+   * drain the request channel, so without this a `dispose()` leaks every
    * outstanding pre-cancelled cleanup timer (and its listener).
    */
   private clearAllPreCancelledRequests(): void {
     for (const cleanup of this.preCancelledRequestCleanups.values()) {
       clearTimeout(cleanup.timeoutId);
-      cleanup.cleanupRequesterListener?.();
+      cleanup.release();
     }
     this.preCancelledRequestCleanups.clear();
     this.preCancelledRequestIds.clear();
+    this.abandonedRequestIds.clear();
   }
 
   acceptStatusReport(senderId: number, report: LlmHostStatusReport): void {
@@ -335,50 +417,7 @@ export class LlmHostManager {
     if (!window || window.isDestroyed() || window.webContents.id !== senderId) {
       return;
     }
-
-    const pending = this.pendingRequests.get(report.requestId);
-    if (!pending) {
-      return;
-    }
-    if (report.type === 'progress') {
-      this.refreshPendingRequestTimeout(pending);
-      try {
-        pending.client.forwardProgress(report);
-      } catch (error) {
-        logger.warn('Failed to forward llm host progress event', {
-          error: error instanceof Error ? error.message : String(error),
-          requestId: report.requestId,
-        });
-      }
-      return;
-    }
-    clearTimeout(pending.timeoutId);
-    pending.cleanupRequesterListener?.();
-    this.pendingRequests.delete(report.requestId);
-
-    if (report.type === 'error') {
-      logger.error('Llm host reported request failure', {
-        error: report.payload.errorMessage,
-        requestId: report.requestId,
-        runtimeId: report.runtimeId,
-        ...(report.payload.errorStack ? { stack: report.payload.errorStack } : {}),
-        ...(report.payload.errorDetails ? { errorDetails: report.payload.errorDetails } : {}),
-      });
-      const enrichedMessage =
-        report.payload.errorDetails?.stage && report.payload.errorDetails.stage.length > 0
-          ? `${report.payload.errorMessage} (stage: ${report.payload.errorDetails.stage})`
-          : report.payload.errorMessage;
-      pending.reject(createRequestFailure(enrichedMessage, report.payload.code));
-      // A persistent engine fault means the renderer already disposed the ORT
-      // session but the WebGPU device stays wedged (GPU-memory exhaustion +
-      // transformers.js#860 tensor leak). Escalate to a host-window reset so the
-      // NEXT generation runs on a fresh device instead of failing forever.
-      if (report.payload.errorDetails?.engineReset) {
-        this.scheduleHostResetAfterEngineFault(report.requestId);
-      }
-      return;
-    }
-    pending.resolve(report.payload.result);
+    this.requests.accept(report);
   }
 
   async warmup(requester: WebContents, modelId: string): Promise<void> {
@@ -488,7 +527,7 @@ export class LlmHostManager {
     client: LlmHostRequestClient,
     payload: LlmHostGenerateRequestPayload | LlmHostWarmupRequestPayload
   ): Promise<unknown> {
-    const hostWindow = await this.assertReadyForRequests();
+    await this.assertReadyForRequests();
     const requestId = this.createHostRequestId(client, payload);
     if (this.clearPreCancelledRequest(requestId)) {
       logger.warn('Rejecting llm host request because it was pre-cancelled', {
@@ -496,88 +535,76 @@ export class LlmHostManager {
       });
       throw createRequestFailure(`Llm host request ${requestId} was cancelled before dispatch.`);
     }
-    return await new Promise<unknown>((resolve, reject) => {
-      if (this.pendingRequests.has(requestId)) {
-        reject(createRequestFailure(`Duplicate llm host requestId ${requestId}.`));
-        return;
+
+    // The host-side payload validators REQUIRE clientRequestId; callers that
+    // rely on the manager-generated id (main-process clients, the legacy
+    // modelId-only warmup) must have the unscoped id stamped back in, or the
+    // host rejects the request and the pending entry waits out its timeout.
+    const payloadWithClientRequestId: LlmHostGenerateRequestPayload | LlmHostWarmupRequestPayload =
+      payload.clientRequestId && payload.clientRequestId.trim().length > 0
+        ? payload
+        : { ...payload, clientRequestId: requestId.slice(requestId.indexOf(':') + 1) };
+
+    const request: LlmHostRequest = {
+      channel: 'llm',
+      payload: payloadWithClientRequestId,
+      requestId,
+      runtimeId: this.getStatus().runtimeId,
+      type: 'request',
+    };
+
+    const teardown = client.teardown(requestId);
+    try {
+      const report = await this.requests.request(request, {
+        onProgress: (progress) => {
+          if (progress.type !== 'progress') {
+            return;
+          }
+          try {
+            client.forwardProgress(progress);
+          } catch (error) {
+            logger.warn('Failed to forward llm host progress event', {
+              error: error instanceof Error ? error.message : String(error),
+              requestId,
+            });
+          }
+        },
+        signal: teardown.signal,
+      });
+      return this.interpretResponse(report);
+    } finally {
+      teardown.release();
+    }
+  }
+
+  private interpretResponse(report: LlmHostResponseReport): unknown {
+    if (report.type === 'error') {
+      logger.error('Llm host reported request failure', {
+        error: report.payload.errorMessage,
+        requestId: report.requestId,
+        runtimeId: report.runtimeId,
+        ...(report.payload.errorStack ? { stack: report.payload.errorStack } : {}),
+        ...(report.payload.errorDetails ? { errorDetails: report.payload.errorDetails } : {}),
+      });
+      const enrichedMessage =
+        report.payload.errorDetails?.stage && report.payload.errorDetails.stage.length > 0
+          ? `${report.payload.errorMessage} (stage: ${report.payload.errorDetails.stage})`
+          : report.payload.errorMessage;
+      // A persistent engine fault means the renderer already disposed the ORT
+      // session but the WebGPU device stays wedged (GPU-memory exhaustion +
+      // transformers.js#860 tensor leak). Escalate to a host-window reset so the
+      // NEXT generation runs on a fresh device instead of failing forever.
+      if (report.payload.errorDetails?.engineReset) {
+        this.scheduleHostResetAfterEngineFault(report.requestId);
       }
-
-      const cancelPendingRequest = (message: string): void => {
-        const activePending = this.pendingRequests.get(requestId);
-        if (!activePending) {
-          return;
-        }
-        clearTimeout(activePending.timeoutId);
-        activePending.cleanupRequesterListener?.();
-        this.pendingRequests.delete(requestId);
-        reject(createRequestFailure(message));
-        this.tryCancelHostRequest(requestId, hostWindow, 'requester destruction');
-      };
-
-      const teardownHandler = (): void => {
-        cancelPendingRequest(client.teardownMessage(requestId));
-      };
-
-      const timeoutMs =
-        payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS;
-      const deadlineAt = getMonotonicNow() + timeoutMs;
-
-      const pending: PendingLlmRequest = {
-        client,
-        deadlineAt,
-        reject,
-        requestId,
-        resolve,
-        timeoutId: setTimeout(
-          () => {
-            pending.cleanupRequesterListener?.();
-            this.pendingRequests.delete(requestId);
-            this.tryCancelHostRequest(requestId, hostWindow, 'timeout');
-            reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
-          },
-          Math.max(0, deadlineAt - getMonotonicNow())
-        ),
-        timeoutMs,
-      };
-      const cleanupRequesterListener = client.subscribeTeardown(teardownHandler);
-      if (cleanupRequesterListener) {
-        pending.cleanupRequesterListener = cleanupRequesterListener;
-      }
-      this.pendingRequests.set(requestId, pending);
-
-      // The host-side payload validators REQUIRE clientRequestId; callers that
-      // rely on the manager-generated id (main-process clients, the legacy
-      // modelId-only warmup) must have the unscoped id stamped back in, or the
-      // host rejects the request and the pending entry waits out its timeout.
-      const payloadWithClientRequestId:
-        | LlmHostGenerateRequestPayload
-        | LlmHostWarmupRequestPayload =
-        payload.clientRequestId && payload.clientRequestId.trim().length > 0
-          ? payload
-          : { ...payload, clientRequestId: requestId.slice(requestId.indexOf(':') + 1) };
-
-      const request: LlmHostRequest = {
-        channel: 'llm',
-        payload: payloadWithClientRequestId,
-        requestId,
-        runtimeId: this.getStatus().runtimeId,
-        type: 'request',
-      };
-
-      try {
-        hostWindow.webContents.send(LLM_HOST_REQUEST_EVENT, request);
-      } catch (error) {
-        clearTimeout(pending.timeoutId);
-        this.pendingRequests.delete(requestId);
-        reject(
-          createRequestFailure(
-            error instanceof Error
-              ? `Llm host request ${requestId} could not be sent: ${error.message}`
-              : `Llm host request ${requestId} could not be sent.`
-          )
-        );
-      }
-    });
+      throw createRequestFailure(enrichedMessage, report.payload.code);
+    }
+    if (report.type === 'result') {
+      return report.payload.result;
+    }
+    throw createRequestFailure(
+      `Unexpected llm host response (type=${report.type}, channel=${report.channel}).`
+    );
   }
 
   private createHostRequestId(
@@ -617,27 +644,22 @@ export class LlmHostManager {
     return `${requesterPrefix}${trimmedRequestId}`;
   }
 
-  private refreshPendingRequestTimeout(pending: PendingLlmRequest): void {
-    clearTimeout(pending.timeoutId);
-    // The timeout is an INACTIVITY window, not a wall-clock ceiling: each
-    // progress report (download %, text/reasoning snapshots) proves the host
-    // is alive and extends the deadline by the full window. Long local
-    // generations stream progress continuously; a wedged host goes silent
-    // and still times out one window after its last report.
-    pending.deadlineAt = getMonotonicNow() + pending.timeoutMs;
-    pending.timeoutId = setTimeout(() => {
-      pending.cleanupRequesterListener?.();
-      this.pendingRequests.delete(pending.requestId);
-      this.tryCancelHostRequest(pending.requestId, undefined, 'inactivity-timeout');
-      pending.reject(createRequestFailure(`Llm host request ${pending.requestId} timed out.`));
-    }, pending.timeoutMs);
+  private rememberAbandonedRequest(requestId: string): void {
+    this.abandonedRequestIds.add(requestId);
+    while (this.abandonedRequestIds.size > MAX_ABANDONED_REQUEST_IDS) {
+      const oldest = this.abandonedRequestIds.values().next();
+      if (oldest.done) {
+        return;
+      }
+      this.abandonedRequestIds.delete(oldest.value);
+    }
   }
 
   private clearPreCancelledRequest(requestId: string): boolean {
     const cleanup = this.preCancelledRequestCleanups.get(requestId);
     if (cleanup) {
       clearTimeout(cleanup.timeoutId);
-      cleanup.cleanupRequesterListener?.();
+      cleanup.release();
       this.preCancelledRequestCleanups.delete(requestId);
     }
     return this.preCancelledRequestIds.delete(requestId);
@@ -647,19 +669,24 @@ export class LlmHostManager {
     const existingCleanup = this.preCancelledRequestCleanups.get(requestId);
     if (existingCleanup) {
       clearTimeout(existingCleanup.timeoutId);
-      existingCleanup.cleanupRequesterListener?.();
+      existingCleanup.release();
     }
 
     this.preCancelledRequestIds.add(requestId);
-    const cleanupRequesterListener = client.subscribeTeardown(() => {
-      this.clearPreCancelledRequest(requestId);
-    });
+    const teardown = client.teardown(requestId);
+    teardown.signal?.addEventListener(
+      'abort',
+      () => {
+        this.clearPreCancelledRequest(requestId);
+      },
+      { once: true }
+    );
     const timeoutId = setTimeout(() => {
       this.clearPreCancelledRequest(requestId);
     }, PRE_CANCELLED_REQUEST_TTL_MS);
     this.preCancelledRequestCleanups.set(requestId, {
+      release: teardown.release,
       timeoutId,
-      ...(cleanupRequesterListener ? { cleanupRequesterListener } : {}),
     });
   }
 
@@ -699,14 +726,17 @@ export class LlmHostManager {
     }
   }
 
-  private async assertReadyForRequests(): Promise<BrowserWindow> {
+  private async assertReadyForRequests(): Promise<void> {
     const status = await this.ensureStarted({ waitForRunning: true });
     if (status.state !== 'running') {
       throw createRequestFailure(
         status.lastError ?? 'Llm host is not running and cannot accept requests.'
       );
     }
+    this.requireHostWindow();
+  }
 
+  private requireHostWindow(): BrowserWindow {
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       throw createRequestFailure('Llm host window is unavailable.');
@@ -715,11 +745,8 @@ export class LlmHostManager {
   }
 
   private rejectPendingRequests(message: string): void {
-    for (const [requestId, pending] of this.pendingRequests.entries()) {
-      clearTimeout(pending.timeoutId);
-      pending.cleanupRequesterListener?.();
-      pending.reject(createRequestFailure(`${message} (request ${requestId})`));
-      this.pendingRequests.delete(requestId);
-    }
+    this.requests.rejectAll((requestId) =>
+      createRequestFailure(`${message} (request ${requestId})`)
+    );
   }
 }

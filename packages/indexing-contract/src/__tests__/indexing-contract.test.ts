@@ -85,6 +85,9 @@ describe('@brainstrike/indexing-contract', () => {
 
     expect(presets.some((preset) => preset.id === 'balanced' && preset.isDefault)).toBe(true);
     expect(getChunkingPreset('codebase').strategy).toBe('auto');
+    expect(getChunkingPreset('docs').tradeoff).toBe(
+      'Non-markdown files won’t benefit from the heading-family bias.'
+    );
     expect(() => getChunkingPreset('missing' as never)).toThrow(/Unknown chunking preset/);
     expect(
       getChunkingRoutePreview('json').every((preview) => preview.resolvedStrategy === 'json')

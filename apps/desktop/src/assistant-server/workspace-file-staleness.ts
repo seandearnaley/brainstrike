@@ -94,6 +94,7 @@ export async function assertRenameSourceUnchangedSinceObserved(args: {
   requestedFromPath: string;
   runtimeData: RuntimeData | undefined;
   targetAbsolutePath: string;
+  threadScope?: string;
 }): Promise<void> {
   let compareKey = args.fromMutationPath;
   let sourceMtimeMs: number | undefined = args.fromStats.mtimeMs;
@@ -108,7 +109,7 @@ export async function assertRenameSourceUnchangedSinceObserved(args: {
       sourceMtimeMs = undefined;
     }
   }
-  const known = getKnownFileMtime(readStateScope(args.runtimeData), compareKey);
+  const known = getKnownFileMtime(args.threadScope ?? readStateScope(args.runtimeData), compareKey);
   if (known !== undefined && sourceMtimeMs !== undefined && known !== sourceMtimeMs) {
     throw buildStaleFileError(args.requestedFromPath);
   }

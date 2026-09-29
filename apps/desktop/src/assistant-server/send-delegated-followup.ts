@@ -1,0 +1,76 @@
+import type http from 'node:http';
+import {
+  assistantChildInputSchema,
+  ChildInputNotDeliveredError,
+} from '@brainstrike/assistant-contract';
+import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
+import { respondJson } from '@brainstrike/assistant-service/http';
+import { DelegatedConversationIdentityError } from '@brainstrike/db';
+import { z } from 'zod';
+import { sendDesktopDelegatedFollowup } from './delegated-followup-controls';
+import { readRequestBody } from './http';
+import { desktopAssistantServerLogger as logger } from './logger';
+
+const id = z.string().trim().min(1).max(512);
+const inputSchema = assistantChildInputSchema.safeExtend({
+  hostRunId: id,
+  ownerResourceId: id,
+  rootThreadId: id,
+  threadId: id,
+});
+
+export async function handleDelegatedFollowupRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<void> {
+  let input: z.infer<typeof inputSchema>;
+  try {
+    input = inputSchema.parse(
+      JSON.parse(
+        await readRequestBody(req, { maxBodyBytes: DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES })
+      )
+    );
+  } catch {
+    respondJson(res, 400, {
+      error: 'invalid_child_input',
+      message: 'Child input requires valid text or images and its exact conversation owner.',
+    });
+    return;
+  }
+  try {
+    await sendDesktopDelegatedFollowup(
+      input.hostRunId,
+      { ownerResourceId: input.ownerResourceId, rootThreadId: input.rootThreadId },
+      input.threadId,
+      {
+        ...(input.attachments ? { attachments: input.attachments } : {}),
+        id: input.id,
+        text: input.text,
+      }
+    );
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify({ accepted: true, id: input.id, threadId: input.threadId }));
+  } catch (error) {
+    if (error instanceof ChildInputNotDeliveredError) {
+      respondJson(res, 409, {
+        error: 'child_input_not_delivered',
+        message: 'Nothing was sent. This child is no longer accepting input.',
+      });
+      return;
+    }
+    if (error instanceof DelegatedConversationIdentityError) {
+      respondJson(res, 404, {
+        error: 'child_input_unavailable',
+        message: 'This child is no longer accepting input in the selected conversation.',
+      });
+      return;
+    }
+    logger.error('Child input delivery did not complete', { error, threadId: input.threadId });
+    respondJson(res, 503, {
+      error: 'child_input_incomplete',
+      message:
+        'Child input delivery was not confirmed. Inspect the child conversation before sending again. Discard the draft to compose a new input; this request will not replay automatically.',
+    });
+  }
+}

@@ -15,8 +15,9 @@
  * the merged key set the panel would hand the indexer.
  */
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { composeWrappers, createFileNode, makeRenderWithProviders } from '@brainstrike/test-utils';
+import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect } from 'react';

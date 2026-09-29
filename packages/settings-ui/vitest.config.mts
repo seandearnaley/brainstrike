@@ -37,12 +37,13 @@ export default defineConfig({
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
-    // Hook-free: applies TEST_TIMEOUT_MULTIPLIER to @testing-library/dom's
-    // waitFor/findBy budget and nothing else (BST-1299). This lane opts out
-    // of the shared vitest.setup (which registers beforeEach/afterEach
-    // hooks), but its suites still use waitFor and would otherwise sit on
-    // the library's unscalable 1s default.
-    setupFiles: ['@brainstrike/test-utils/vitest.timeouts.setup'],
+    // The timeout-only setup scales waitFor/findBy without shared cleanup
+    // hooks (BST-1299). The watchdog loads first to capture real timers and
+    // name a blocked PGlite worker, including in full-suite coverage.
+    setupFiles: [
+      '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
+      '@brainstrike/test-utils/vitest.timeouts.setup',
+    ],
     testTimeout: 15_000,
   },
 });

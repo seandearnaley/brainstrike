@@ -2,7 +2,7 @@ import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import { createPgliteAssistantThreadRepository } from '../assistant-memory-repository';
 import { DAILY_SPEND_AGGREGATION_SQL, mapDailySpendUsageRow } from '../cost-tracking/daily-spend';
-import { createTestPGlite } from './helpers/test-pglite';
+import { createMigratedTestPGlite } from './helpers/test-pglite';
 
 let pgliteDataDirCounter = 0;
 
@@ -28,7 +28,7 @@ describe('daily spend aggregation (real PGlite)', () => {
     // PGlite's live extension, whose format() rewrite breaks on repeated bind
     // parameters — same regression class pinned for RUN_LEDGER_AGGREGATION_SQL.
     pgliteDataDir = createPgliteTestDataDir('assistant-daily-spend-live');
-    const db = await createTestPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -113,7 +113,7 @@ describe('daily spend aggregation (real PGlite)', () => {
 
   it('persists Anthropic cache token classes and surfaces them in the aggregation', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-daily-spend-cache');
-    const db = await createTestPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 

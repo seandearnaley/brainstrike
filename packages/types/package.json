@@ -17,6 +17,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./agent-color": {
+      "types": "./dist/agent-color.d.ts",
+      "default": "./dist/agent-color.js"
     }
   },
   "license": "ISC",

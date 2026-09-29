@@ -5,9 +5,11 @@
  * Provides efficient batch queries and aggregations.
  */
 
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
 import { validateRelativeFilePath } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
+import { Duration, Effect, Schedule } from 'effect';
 import type {
   TokenCacheEntry,
   TokenCacheLookupTelemetryRecord,
@@ -21,6 +23,7 @@ const logger = createLogger('TokenCacheStore');
 const TOKEN_CACHE_FILE_PATH_LABEL = 'Token cache file path';
 const DEFAULT_TRANSACTION_RETRY_MAX_ATTEMPTS = 3;
 const DEFAULT_TRANSACTION_RETRY_BASE_DELAY_MS = 25;
+const MAX_NATIVE_TIMER_DELAY_MS = 2_147_483_647;
 const TRANSIENT_TRANSACTION_ERROR_CODES = new Set([
   '40001',
   '40P01',
@@ -90,15 +93,6 @@ function isTransientTransactionError(error: unknown): boolean {
   return TRANSIENT_TRANSACTION_MESSAGE_PATTERNS.some((pattern) => message.includes(pattern));
 }
 
-async function waitForRetry(delayMs: number): Promise<void> {
-  if (delayMs <= 0) {
-    return;
-  }
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, delayMs);
-  });
-}
-
 /**
  * Convert database row to TokenCacheEntry
  */
@@ -143,6 +137,13 @@ export class TokenCacheStore {
       options.transactionRetryMaxAttempts,
       DEFAULT_TRANSACTION_RETRY_MAX_ATTEMPTS
     );
+    if (
+      this.transactionRetryMaxAttempts > 1 &&
+      this.transactionRetryBaseDelayMs * 2 ** (this.transactionRetryMaxAttempts - 2) >
+        MAX_NATIVE_TIMER_DELAY_MS
+    ) {
+      throw new RangeError('Token cache transaction retry delay exceeds the native timer range');
+    }
     this.telemetry = options.telemetry ?? null;
   }
 
@@ -386,28 +387,33 @@ export class TokenCacheStore {
   private async runBatchTransactionWithRetry(
     entries: readonly ValidatedTokenCacheEntry[]
   ): Promise<void> {
-    for (let attempt = 1; attempt <= this.transactionRetryMaxAttempts; attempt += 1) {
-      try {
-        await this.runBatchTransaction(entries);
-        return;
-      } catch (error) {
-        const canRetry =
-          attempt < this.transactionRetryMaxAttempts && isTransientTransactionError(error);
-        if (!canRetry) {
-          throw error;
-        }
-
-        const retryDelayMs = this.transactionRetryBaseDelayMs * 2 ** (attempt - 1);
-        logger.warn('Retrying token cache batch transaction after transient failure', {
-          attempt,
-          code: getErrorCode(error),
-          delayMs: retryDelayMs,
-          maxAttempts: this.transactionRetryMaxAttempts,
-          reason: getErrorMessage(error),
-        });
-        await waitForRetry(retryDelayMs);
-      }
-    }
+    const exponential: Schedule.Schedule<Duration.Duration, { readonly original: unknown }> =
+      Schedule.exponential(this.transactionRetryBaseDelayMs);
+    const retrySchedule = exponential.pipe(
+      Schedule.upTo({ times: this.transactionRetryMaxAttempts - 1 }),
+      Schedule.while(({ input }) => isTransientTransactionError(input.original)),
+      Schedule.tap(({ attempt, duration, input }) =>
+        Effect.sync(() => {
+          const retryDelayMs = Duration.toMillis(duration);
+          logger.warn('Retrying token cache batch transaction after transient failure', {
+            attempt,
+            code: getErrorCode(input.original),
+            delayMs: retryDelayMs,
+            maxAttempts: this.transactionRetryMaxAttempts,
+            reason: getErrorMessage(input.original),
+          });
+        })
+      )
+    );
+    await runAtPromiseBoundary(
+      Effect.retry(
+        Effect.tryPromise({
+          catch: (original) => ({ original }),
+          try: () => this.runBatchTransaction(entries),
+        }),
+        retrySchedule
+      ).pipe(Effect.mapError(({ original }) => original))
+    );
   }
 
   /**

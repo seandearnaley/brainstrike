@@ -23,6 +23,7 @@ import {
   rootRegistrationSeq,
 } from '../roots/root-registration-events';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
+import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
 import { useQuickOpenStore } from '../stores/quick-open-store';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
@@ -110,8 +111,9 @@ describe('register-factory-reset-session-stores', () => {
     });
     useAssistantThreadGroupsStore.getState().toggleGroupCollapsed('group-1');
     useTerminalTargetStore.getState().openTerminalAt({ cwd: '/wt', rootId: 'r-1' });
-    useCommandPaletteStore.getState().open();
+    useCommandPaletteStore.getState().open({ tabScope: 'assistant-threads' });
     useQuickOpenStore.getState().open();
+    useOnScreenThreadStore.getState().setOnScreenThreadId('thread-1');
     useWorktreeCheckoutIntentStore.getState().publish({
       branch: 'codex/reset-me',
       path: '/wt',
@@ -161,8 +163,10 @@ describe('register-factory-reset-session-stores', () => {
     expect(useCommandPaletteStore.getState()).toMatchObject({
       isOpen: false,
       openTarget: null,
+      tabScope: null,
     });
     expect(useQuickOpenStore.getState().isOpen).toBe(false);
+    expect(useOnScreenThreadStore.getState().onScreenThreadId).toBeNull();
     expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
     expect(useBrowserTabsStore.getState().tabs).toEqual([]);
   });

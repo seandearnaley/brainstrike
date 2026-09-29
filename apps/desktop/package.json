@@ -50,7 +50,8 @@
       "executableName": "brainstrike-desktop",
       "target": "AppImage",
       "icon": "build/icons"
-    }
+    },
+    "allowMissingDependencies": false
   },
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
@@ -62,6 +63,7 @@
     "@brainstrike/assistant-ui": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
+    "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
@@ -92,6 +94,7 @@
     "@fontsource-variable/geist-mono": "catalog:",
     "@modelcontextprotocol/client": "catalog:",
     "@typescript/old": "catalog:",
+    "effect": "catalog:",
     "electron-store": "^11.0.2",
     "jsonc-parser": "^3.3.1",
     "lucide-react": "catalog:",
@@ -102,25 +105,22 @@
     "strip-ansi": "7.2.0",
     "tree-kill": "1.2.2",
     "typescript": "catalog:",
-    "typescript-language-server": "^5.3.0",
-    "vscode-jsonrpc": "^9.0.1",
-    "vscode-languageserver-protocol": "^3.18.2",
+    "typescript-language-server": "^6.0.0",
+    "vscode-jsonrpc": "^9.0.2",
+    "vscode-languageserver-protocol": "^3.18.3",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
-    "@assistant-ui/react-data-stream": "catalog:",
     "@assistant-ui/react-markdown": "catalog:",
     "@assistant-ui/styles": "catalog:",
-    "@babel/core": "catalog:",
-    "@babel/plugin-transform-runtime": "catalog:",
-    "@babel/runtime": "catalog:",
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/e2e-test-utils": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@brainstrike/windows-job-native": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@playwright/test": "catalog:",
     "@radix-ui/react-accordion": "catalog:",
     "@radix-ui/react-checkbox": "catalog:",
@@ -128,7 +128,6 @@
     "@radix-ui/react-scroll-area": "catalog:",
     "@radix-ui/react-tabs": "catalog:",
     "@radix-ui/react-toast": "catalog:",
-    "@rolldown/plugin-babel": "catalog:",
     "@shikijs/langs": "catalog:",
     "@shikijs/themes": "catalog:",
     "@tailwindcss/typography": "catalog:",
@@ -140,15 +139,17 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "assistant-stream": "catalog:",
     "concurrently": "catalog:",
     "electron": "catalog:",
-    "electron-builder": "^26.15.3",
-    "electron-builder-squirrel-windows": "^26.15.3",
+    "electron-builder": "26.17.0",
+    "electron-builder-squirrel-windows": "26.17.0",
     "esbuild": "catalog:",
     "idb": "catalog:",
     "jsdom": "catalog:",
     "jszip": "catalog:",
     "minimatch": "catalog:",
+    "oxc-transform-react": "catalog:",
     "pino": "catalog:",
     "playwright": "catalog:",
     "react-hotkeys-hook": "catalog:",
@@ -170,7 +171,7 @@
     "zustand": "catalog:"
   },
   "engines": {
-    "node": ">=24.15.0 <25"
+    "node": ">=26.8.2 <27"
   },
   "main": "dist/main.js",
   "private": true,
@@ -210,15 +211,19 @@
     "test:e2e:lane:packaged-mcp-tasks": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/mcp-task-restart.packaged.desktop.test.ts --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=360000",
     "test:e2e:lane:packaged-mcp-core": "node ../../scripts/run-env.mjs NO_COLOR= LOG_LEVEL=info -- xvfb-maybe pnpm exec playwright test e2e/mcp-packaged-core.desktop.test.ts --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=480000",
     "test:e2e:lane:packaged-mcp-apps": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/mcp-apps-production-lifecycle.desktop.test.ts --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=360000",
-    "test:e2e:lane:smoke": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/add-root-ui.smoke.desktop.test.ts e2e/agent-devtools.desktop.test.ts e2e/app-launch.test.ts e2e/assistant-panel.desktop.test.ts e2e/background-indexing-pause.desktop.test.ts e2e/file-system.test.ts e2e/forge-pr.desktop.test.ts e2e/git-panel.desktop.test.ts e2e/local-runtime-probe.desktop.test.ts e2e/secrets-settings.test.ts e2e/terminal-panel.desktop.test.ts e2e/threads-panel-folders.desktop.test.ts e2e/tools-settings.desktop.test.ts e2e/workspace-bar.desktop.test.ts e2e/worktree-map.desktop.test.ts e2e/worktree-mode.desktop.test.ts --project=smoke --workers=1 --retries=0 --max-failures=1 --global-timeout=300000 --grep=\"@smoke\"",
+    "test:e2e:lane:smoke": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/add-root-ui.smoke.desktop.test.ts e2e/agent-devtools.desktop.test.ts e2e/app-launch.test.ts e2e/assistant-panel.desktop.test.ts e2e/background-indexing-pause.desktop.test.ts e2e/file-system.test.ts e2e/forge-pr.desktop.test.ts e2e/git-panel.desktop.test.ts e2e/local-runtime-probe.desktop.test.ts e2e/secrets-settings.test.ts e2e/subagent-persona-availability.desktop.test.ts e2e/terminal-panel.desktop.test.ts e2e/threads-panel-folders.desktop.test.ts e2e/tools-settings.desktop.test.ts e2e/workspace-bar.desktop.test.ts e2e/worktree-map.desktop.test.ts e2e/worktree-mode.desktop.test.ts --project=smoke --workers=1 --retries=0 --max-failures=1 --global-timeout=900000 --grep=\"@smoke\"",
+    "test:e2e:lane:smoke-delegated": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/delegated-child-control.desktop.test.ts e2e/delegated-child-interactive.desktop.test.ts e2e/delegated-worker-write.desktop.test.ts e2e/delegated-workspace-reload.desktop.test.ts e2e/parent-approval-with-parked-workers.desktop.test.ts e2e/workers-after-canvas-approval.desktop.test.ts --project=smoke --workers=1 --retries=0 --max-failures=1 --global-timeout=900000 --grep=\"@smoke\"",
     "test:e2e:lane:tools-settings-nightly": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/tools-settings.desktop.test.ts --project=smoke --workers=1 --retries=0 --max-failures=1 --global-timeout=120000 --grep=\"@smoke\"",
     "test:e2e:main": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --grep-invert=\"Database Persistence\"",
     "test:e2e:mcp-packaged": "pnpm --filter @brainstrike/mcp-test-lab build && pnpm run pack && pnpm run test:e2e:lane:packaged-mcp-core",
     "test:e2e:persistence": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --grep=\"Database Persistence\" --workers=1",
     "test:e2e:ui": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --ui",
-    "type-check": "pnpm type-check:main && pnpm type-check:test && pnpm type-check:e2e",
+    "type-check": "pnpm type-check:main && pnpm type-check:test && pnpm type-check:e2e && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "type-check:e2e": "tsc --noEmit --project tsconfig.e2e.json",
     "type-check:main": "tsc --noEmit && tsc --noEmit --project tsconfig.main.json",
     "type-check:test": "node ../../scripts/verify-test-tsconfig-program.mjs --project tsconfig.test.json --min-test-files 400"
+  },
+  "config": {
+    "nodeRuntimeMajor": 24
   }
 }

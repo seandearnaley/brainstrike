@@ -27,6 +27,7 @@ export const migration021RenameTransformersToLocal: Migration = {
     UPDATE models SET is_enabled = true WHERE id = 'onnx-community/functiongemma-270m-it-ONNX';
     UPDATE models SET is_enabled = false WHERE id = 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX';
   `,
+  ledgerKey: 'custom-021-rename-transformers-to-local',
   name: 'rename_transformers_to_local',
   up: `
     -- Step 1: Insert new 'local' provider (copy from 'transformers' if it exists)

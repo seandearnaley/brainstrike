@@ -3,22 +3,19 @@ import { readMainSourceSections } from './main-source-test-helpers';
 
 describe('command session manager lifecycle wiring', () => {
   it('configures the manager and reaps it during shutdown and factory reset', () => {
-    const { assistantShutdownBlock, source } = readMainSourceSections();
+    const { source, stepBody } = readMainSourceSections();
 
     expect(source).toContain(
       'configureDesktopCommandSessionManager({ resolver: createDatabaseRootResolver(getDatabase) });'
     );
-    const assistantStep = assistantShutdownBlock.indexOf("runShutdownStep('assistant-server'");
-    const settlement = assistantShutdownBlock.indexOf('Promise.allSettled([');
-    const commandSessionReaper = assistantShutdownBlock.indexOf(
+    const assistantStep = stepBody('assistant-server');
+    const settlement = assistantStep.indexOf('Promise.allSettled([');
+    const commandSessionReaper = assistantStep.indexOf(
       'Promise.resolve().then(disposeDesktopCommandSessions)'
     );
-    expect(assistantStep).toBeGreaterThanOrEqual(0);
-    expect(settlement).toBeGreaterThan(assistantStep);
+    expect(settlement).toBeGreaterThan(0);
     expect(commandSessionReaper).toBeGreaterThan(settlement);
-    expect(assistantShutdownBlock).toContain(
-      "runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown)"
-    );
+    expect(stepBody('mcp-runtime')).toContain('() => cleanupMcpRuntimeForShutdown()');
     expect(source).toMatch(/name:\s*'command-sessions',\s*stop:\s*disposeDesktopCommandSessions/);
   });
 });

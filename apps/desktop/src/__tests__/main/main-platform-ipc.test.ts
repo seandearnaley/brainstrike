@@ -5,6 +5,7 @@ import {
   resetAssistantAuthOriginsForTest,
   resolveAssistantAuthOriginRole,
 } from '../../provider-auth/assistant-auth-origin';
+import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 
 const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
   getWindowRoleByWebContentsIdMock: vi.fn(),
@@ -39,7 +40,10 @@ vi.mock('../../window-role', () => ({
 }));
 
 function createInvokeEvent(senderId = 7201): IpcMainInvokeEvent {
-  return { sender: { id: senderId } } as IpcMainInvokeEvent;
+  return {
+    sender: { id: senderId },
+    senderFrame: createAllowlistedSenderFrame(),
+  } as unknown as IpcMainInvokeEvent;
 }
 
 describe('main platform IPC', () => {
@@ -152,7 +156,10 @@ describe('main platform IPC', () => {
     });
 
     const once = vi.fn();
-    const event = { sender: { id: 7301, once } } as unknown as IpcMainInvokeEvent;
+    const event = {
+      sender: { id: 7301, once },
+      senderFrame: createAllowlistedSenderFrame(),
+    } as unknown as IpcMainInvokeEvent;
     const handler = handlers.get('assistant:get-auth');
 
     await handler?.(event);
@@ -181,8 +188,14 @@ describe('main platform IPC', () => {
     const onceB = vi.fn();
     const handler = handlers.get('assistant:get-auth');
 
-    await handler?.({ sender: { id: 7301, once: onceA } } as unknown as IpcMainInvokeEvent);
-    await handler?.({ sender: { id: 7302, once: onceB } } as unknown as IpcMainInvokeEvent);
+    await handler?.({
+      sender: { id: 7301, once: onceA },
+      senderFrame: createAllowlistedSenderFrame(),
+    } as unknown as IpcMainInvokeEvent);
+    await handler?.({
+      sender: { id: 7302, once: onceB },
+      senderFrame: createAllowlistedSenderFrame(),
+    } as unknown as IpcMainInvokeEvent);
 
     expect(onceA).toHaveBeenCalledTimes(1);
     expect(onceB).toHaveBeenCalledTimes(1);

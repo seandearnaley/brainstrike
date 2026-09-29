@@ -16,6 +16,7 @@ export const migration038PgTrgmGrepIndex: Migration = {
 
     DROP EXTENSION IF EXISTS pg_trgm;
   `,
+  ledgerKey: 'custom-038-pg-trgm-grep-index',
   name: 'pg_trgm_grep_index',
   up: `
     CREATE EXTENSION IF NOT EXISTS pg_trgm;

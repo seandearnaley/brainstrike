@@ -2,12 +2,16 @@ import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import {
   McpContentApplicationError,
   type McpContentApplicationRequest,
-  type McpContentApplicationResult,
 } from '@brainstrike/assistant-service/mcp-content-application-port';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
-import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import {
+  type McpContentIpcFailure,
+  type McpContentIpcResponse,
+  mcpContentContract,
+} from '../ipc-domains/mcp.contract';
+import { type DesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
+import type { Handlers } from '../platform/ipc-contract';
 import { getDesktopMcpContentPort } from './content-port';
 import type { DesktopMcpHostRuntime } from './host-runtime';
 
@@ -32,15 +36,6 @@ const logger = createLogger('DesktopMcpContentIpc');
  * main-process stack, so failures travel as data and the preload turns them
  * back into a clean Error carrying only this fixed taxonomy.
  */
-export interface McpContentIpcFailure {
-  readonly category: McpContentApplicationError['category'];
-  readonly code: string;
-  readonly message: string;
-}
-export type McpContentIpcResponse =
-  | { readonly error: McpContentIpcFailure; readonly ok: false }
-  | { readonly ok: true; readonly result: McpContentApplicationResult };
-
 const MCP_CONTENT_GENERIC_FAILURE: McpContentIpcFailure = {
   category: 'host',
   code: 'mcp_content_request_failed',
@@ -136,49 +131,13 @@ async function runMcpContentRequest(
  * same fail-closed `visible-ui` sender policy as secrets: hidden inference
  * hosts and untracked senders are rejected before any payload is parsed.
  */
-const MCP_CONTENT_SENDER_POLICY = { roles: ['visible-ui'] } as const;
-
 export function registerMcpContentIpc(
   registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>,
   runtime: Pick<DesktopMcpHostRuntime, 'host'>,
   lifecycle: McpContentLifecycleGate
 ): void {
-  registry.registerAuthorizedInvoke(
-    'mcp',
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentReadResource,
-    MCP_CONTENT_SENDER_POLICY,
-    async (_event, request: unknown) =>
-      await runMcpContentRequest(runtime, lifecycle, () => {
-        const parsed = McpContentReadResourceRequestSchema.parse(request);
-        return {
-          authority: parseMcpContentAuthority(parsed.authority),
-          type: 'resources/read',
-          uri: parsed.uri,
-        };
-      })
-  );
-
-  registry.registerAuthorizedInvoke(
-    'mcp',
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentGetPrompt,
-    MCP_CONTENT_SENDER_POLICY,
-    async (_event, request: unknown) =>
-      await runMcpContentRequest(runtime, lifecycle, () => {
-        const parsed = McpContentGetPromptRequestSchema.parse(request);
-        return {
-          ...(parsed.arguments && { arguments: parsed.arguments }),
-          authority: parseMcpContentAuthority(parsed.authority),
-          name: parsed.name,
-          type: 'prompts/get',
-        };
-      })
-  );
-
-  registry.registerAuthorizedInvoke(
-    'mcp',
-    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentComplete,
-    MCP_CONTENT_SENDER_POLICY,
-    async (_event, request: unknown) =>
+  const handlers: Handlers<typeof mcpContentContract> = {
+    complete: async (request) =>
       await runMcpContentRequest(runtime, lifecycle, () => {
         const parsed = McpContentCompleteRequestSchema.parse(request);
         return {
@@ -188,6 +147,26 @@ export function registerMcpContentIpc(
           ref: parsed.ref,
           type: 'completion/complete',
         };
-      })
-  );
+      }),
+    getPrompt: async (request) =>
+      await runMcpContentRequest(runtime, lifecycle, () => {
+        const parsed = McpContentGetPromptRequestSchema.parse(request);
+        return {
+          ...(parsed.arguments && { arguments: parsed.arguments }),
+          authority: parseMcpContentAuthority(parsed.authority),
+          name: parsed.name,
+          type: 'prompts/get',
+        };
+      }),
+    readResource: async (request) =>
+      await runMcpContentRequest(runtime, lifecycle, () => {
+        const parsed = McpContentReadResourceRequestSchema.parse(request);
+        return {
+          authority: parseMcpContentAuthority(parsed.authority),
+          type: 'resources/read',
+          uri: parsed.uri,
+        };
+      }),
+  };
+  registerDomain(registry, 'mcp', mcpContentContract, handlers);
 }

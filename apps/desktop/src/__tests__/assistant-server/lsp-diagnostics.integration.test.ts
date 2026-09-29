@@ -111,23 +111,59 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
 
   it('keeps the bundled TS6 server clean on the TS7-checked WebGPU surface', async () => {
     // BST-1011 deliberately keeps the LSP on the classic TS6 server while CI
-    // type-checks with native TS7. This real-workspace control prevents the
-    // device-detection WebGPU declarations from becoming LSP-only false
-    // positives that the native checker cannot see.
+    // type-checks with native TS7. Use the exact source and package compiler
+    // options, but make this a one-file project: loading all of embeddings'
+    // project references can outlast two edit deadlines on a busy CI runner.
     const repoRoot = path.resolve(import.meta.dirname, '../../../../..');
-    const absolutePath = path.join(repoRoot, 'packages/embeddings/src/device-detection.ts');
-    const content = await fsPromises.readFile(absolutePath, 'utf8');
+    const embeddingsRoot = path.join(repoRoot, 'packages/embeddings');
+    const sourcePath = path.join(embeddingsRoot, 'src/device-detection.ts');
+    const content = await fsPromises.readFile(sourcePath, 'utf8');
+    const fixtureRoot = await fsPromises.mkdtemp(path.join(embeddingsRoot, '.lsp-webgpu-'));
+    try {
+      const absolutePath = path.join(fixtureRoot, 'device-detection.ts');
+      await fsPromises.writeFile(absolutePath, content, 'utf8');
+      await fsPromises.writeFile(
+        path.join(fixtureRoot, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            outDir: './dist',
+            rootDir: '.',
+            tsBuildInfoFile: './.tsbuildinfo',
+          },
+          extends: '../tsconfig.json',
+          files: ['device-detection.ts'],
+          include: [],
+        }),
+        'utf8'
+      );
+      const args = {
+        absolutePath,
+        content,
+        rootId: 'brainstrike-webgpu-compat',
+        rootPath: fixtureRoot,
+      };
 
-    const result = await getEditDiagnostics({
-      absolutePath,
-      content,
-      rootId: 'brainstrike-webgpu-compat',
-      rootPath: repoRoot,
-    });
+      const clean = await getEditDiagnostics(args);
+      expect(clean.available, clean.message ?? clean.reason).toBe(true);
+      expect(clean.diagnostics ?? []).toEqual([]);
 
-    expect(result.available, result.message ?? result.reason).toBe(true);
-    expect(result.diagnostics ?? []).toEqual([]);
-  }, 30_000);
+      const conflictingContent = `${content}\ndeclare global { interface GPUAdapter { readonly isFallbackAdapter?: string; } }\n`;
+      const conflict = await getEditDiagnostics({ ...args, content: conflictingContent });
+      expect(conflict.available, conflict.message ?? conflict.reason).toBe(true);
+      expect(
+        conflict.diagnostics?.some(
+          (diagnostic) =>
+            diagnostic.severity === 'error' && /isFallbackAdapter/u.test(diagnostic.message)
+        )
+      ).toBe(true);
+
+      const restored = await getEditDiagnostics(args);
+      expect(restored.available, restored.message ?? restored.reason).toBe(true);
+      expect(restored.diagnostics ?? []).toEqual([]);
+    } finally {
+      await fsPromises.rm(fixtureRoot, { force: true, recursive: true });
+    }
+  }, 45_000);
 
   it('omits diagnostics for an unsupported language (no note spam)', async () => {
     const root = await makeRoot();

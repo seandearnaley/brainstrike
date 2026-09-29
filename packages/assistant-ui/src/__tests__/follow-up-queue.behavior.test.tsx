@@ -22,7 +22,11 @@ import {
   QueueFollowUpButton,
   SteerRunButton,
 } from '../follow-up-queue';
-import { resetFollowUpQueueStore } from '../follow-up-queue-store';
+import {
+  followUpQueueKey,
+  resetFollowUpQueueStore,
+  useFollowUpQueueStore,
+} from '../follow-up-queue-store';
 import { ThreadScrollFollowProvider } from '../thread-scroll-follow';
 
 /** A controllable adapter: each run() blocks until its release() is called, so
@@ -54,18 +58,22 @@ function Harness({
   adapter,
   threadKey,
   bridgeMounted = true,
+  isReattaching = false,
   onSteerRequest,
 }: {
   adapter: ChatModelAdapter;
   threadKey: string;
   bridgeMounted?: boolean;
+  isReattaching?: boolean;
   onSteerRequest?: () => Promise<boolean>;
 }) {
   const runtime = useLocalRuntime(adapter);
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadScrollFollowProvider>
-        {bridgeMounted ? <FollowUpQueueBridge threadKey={threadKey} /> : null}
+        {bridgeMounted ? (
+          <FollowUpQueueBridge isReattaching={isReattaching} threadKey={threadKey} />
+        ) : null}
         <FollowUpQueueChips threadKey={threadKey} />
         <ComposerPrimitive.Root>
           <ComposerPrimitive.Input aria-label="Message input" />
@@ -191,6 +199,58 @@ describe('follow-up queue behavior (real local runtime)', () => {
       expect(screen.queryByTestId('assistant-follow-up-chip')).not.toBeInTheDocument();
     });
     // Let the follow-up run finish too so nothing leaks across tests.
+    release();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    });
+  });
+
+  it('keeps a queued message while the host stream is reattaching after renderer idle', async () => {
+    const user = userEvent.setup();
+    const { adapter, release, runInputs } = createControllableAdapter();
+    const view = render(<Harness adapter={adapter} isReattaching threadKey="t-reattach" />);
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'first message');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByTestId('assistant-queue-follow-up');
+    await user.type(input, 'queued follow-up');
+    await user.click(screen.getByTestId('assistant-queue-follow-up'));
+    release();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument());
+    expect(runInputs).toEqual(['first message']);
+    expect(screen.getByTestId('assistant-follow-up-chip')).toHaveTextContent('queued follow-up');
+    view.rerender(<Harness adapter={adapter} threadKey="t-reattach" />);
+    await waitFor(() => expect(runInputs).toEqual(['first message', 'queued follow-up']));
+    release();
+  });
+
+  it('dispatches a queued DECISION message with its run config when the run ends', async () => {
+    const user = userEvent.setup();
+    const { adapter, release, runInputs } = createControllableAdapter();
+    render(<Harness adapter={adapter} threadKey="t-decision" />);
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'first message');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByTestId('assistant-queue-follow-up');
+    // A card's decision during the run lands here (decision-dispatch.ts).
+    useFollowUpQueueStore.getState().enqueueMessage(followUpQueueKey('t-decision'), {
+      identityKey: '["run","call"]',
+      message: {
+        content: [{ text: 'Approved brainstrike.grepSearch.', type: 'text' }],
+        role: 'user',
+        runConfig: { custom: { brainstrikeToolApproval: { action: 'approve' } } },
+        startRun: true,
+      },
+      text: 'Approved brainstrike.grepSearch.',
+    });
+    expect(await screen.findByTestId('assistant-follow-up-chip')).toHaveTextContent(
+      'Approved brainstrike.grepSearch.'
+    );
+    expect(runInputs).toEqual(['first message']);
+    release();
+    await waitFor(() => {
+      expect(runInputs).toEqual(['first message', 'Approved brainstrike.grepSearch.']);
+    });
     release();
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();

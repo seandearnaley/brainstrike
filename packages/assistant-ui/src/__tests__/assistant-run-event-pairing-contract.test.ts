@@ -126,6 +126,20 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     ['tool.approval.requested', ['tool.completed', 'tool.failed', 'tool.resume.unsupported']],
   ] as const;
   const NEVER_RUNNING = [
+    // BST-1737's swallowed-compaction breadcrumb. Emitted `status: 'failed'`
+    // (`compactionFailureChunk` in
+    // packages/assistant-service/src/stream-init-compaction.ts), never
+    // `'running'`: the pass has already finished — by throwing — when the row is
+    // minted, so there is no span to close out. A standalone breadcrumb that
+    // stays VISIBLE rather than paired; pinned by 'forces a swallowed
+    // compaction failure to stay visible (BST-1737)' in
+    // assistant-run-timeline.test.tsx and by the emitter's own status
+    // assertion in stream-init-compaction.test.ts.
+    'compaction.failed',
+    // A child's durable budget forced its reserved summary. Emitted `status:
+    // 'info'` by the delegated stream projection (`projectSynthesisOutcome`),
+    // never `'running'`: a standalone breadcrumb, no span, no pair.
+    'delegation.budget.exhausted',
     'hook.blocked',
     'hook.notice',
     'memory.configured',
@@ -144,6 +158,12 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     // VISIBLE rather than paired — pinned by 'forces a skipped MCP server to
     // stay visible (BST-1602)' in assistant-run-timeline.test.tsx.
     'mcp.tools.unavailable',
+    // The resolved permission gate (debug pack, 2026-09-15). Emitted `status:
+    // 'completed'` (`makePermissionGateResolvedChunks` in
+    // packages/agent/src/mastra/permission-gate-run-events.ts), never
+    // `'running'`: the gate has already decided when the row is minted. The
+    // emitted status is asserted by permission-gate-run-events.spec.ts.
+    'permission.gate.resolved',
     // BST-1391's forge PR events. `use-forge-run-events.ts` emits these with
     // `status: 'info' | 'completed' | 'failed'` (see `describe()`), NEVER
     // `'running'` — a PR observation is a standalone breadcrumb appended out
@@ -151,6 +171,15 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'pr.checks',
     'pr.merged',
     'pr.opened',
+    // BST-1701's provider call warning. Emitted `status: 'failed'`
+    // (`makeProviderCallWarningChunks` in
+    // packages/agent/src/mastra/provider-warning-run-events.ts), never
+    // `'running'`: by the time the adapter reports what it dropped, the
+    // decision is already made and nothing is in flight. A standalone
+    // breadcrumb that stays VISIBLE rather than paired - pinned by 'forces a
+    // dropped provider setting to stay visible (BST-1701)' in
+    // assistant-run-timeline.test.tsx.
+    'provider.request.warned',
     'run.cancelled',
     // BST-1345's saturation-retry breadcrumb: `run-critical-database.ts` emits
     // it with `status: 'info'` (one retry notice), never `'running'`.
@@ -181,11 +210,25 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'worktree.created',
     'worktree.setup',
   ] as const;
+  // A kind emitted `status: 'running'` that is closed by a LATER ROW OF ITS
+  // OWN KIND (same `metadata.ledgerId`), which the render plan shows in its
+  // place — no terminal list: the newest row carries its own status.
+  const SELF_SUPERSEDING = ['delegation.ledger'] as const;
 
   it('tables exactly the non-.started kinds the contract declares', () => {
     expect([...NON_STARTED_KINDS].sort()).toEqual(
-      [...RUNNING_WITH_EXPLICIT_TERMINALS.map(([kind]) => kind), ...NEVER_RUNNING].sort()
+      [
+        ...RUNNING_WITH_EXPLICIT_TERMINALS.map(([kind]) => kind),
+        ...NEVER_RUNNING,
+        ...SELF_SUPERSEDING,
+      ].sort()
     );
+  });
+
+  it('gives a self-superseding kind no terminal list; the newest row carries its own status', () => {
+    for (const kind of SELF_SUPERSEDING) {
+      expect(getTerminalKinds(kind)).toEqual([]);
+    }
   });
 
   it.each(RUNNING_WITH_EXPLICIT_TERMINALS)(

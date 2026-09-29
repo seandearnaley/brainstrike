@@ -34,23 +34,27 @@
  * wrapper writes on the leg where `execute` runs, and the stream mapper on that
  * same leg reads it — so a resumed call reports the time it actually spent
  * working, not the time a human spent deciding.
+ * Within that runtime, measurements are keyed by native thread and tool-call
+ * identity. Concurrent children may reuse the same provider-generated call id.
+ * The execution context supplies the producer's thread; durable invocation
+ * authorization supplies the child mapper's thread, including resume legs.
  */
 export interface ToolExecutionDurations {
   /** Elapsed ms for a completed call, or `undefined` if none was recorded. */
-  read(toolCallId: string): number | undefined;
-  record(toolCallId: string, durationMs: number): void;
+  read(toolCallId: string, threadId?: string): number | undefined;
+  record(toolCallId: string, durationMs: number, threadId?: string): void;
 }
 
 export function createToolExecutionDurations(): ToolExecutionDurations {
   const byToolCallId = new Map<string, number>();
   return {
-    read(toolCallId) {
-      return byToolCallId.get(toolCallId);
+    read(toolCallId, threadId) {
+      return byToolCallId.get(JSON.stringify([threadId ?? null, toolCallId]));
     },
-    record(toolCallId, durationMs) {
+    record(toolCallId, durationMs, threadId) {
       // A retried/duplicated call id keeps the LATEST measurement: the terminal
       // event a consumer is about to label belongs to the most recent execution.
-      byToolCallId.set(toolCallId, durationMs);
+      byToolCallId.set(JSON.stringify([threadId ?? null, toolCallId]), durationMs);
     },
   };
 }

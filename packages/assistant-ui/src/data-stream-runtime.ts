@@ -10,12 +10,23 @@ import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   type AssistantActiveRunSession,
   AssistantAttachmentValidationError,
+  type AssistantDiscoveredRun,
   dataUrlByteLength,
+  isMatchingToolAction,
   type RuntimeTransportImageElision,
+  SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract/run-events';
 import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
+import {
+  readToolApprovalRunConfigAction,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-approval';
+import {
+  readToolResumeRunConfigAction,
+  TOOL_SUSPEND_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { createAssistantRequestEnvelope } from '@brainstrike/assistant-wire';
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
@@ -34,6 +45,7 @@ import {
 import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  ACTION_PAUSED_OWNER_MESSAGE_ID_KEY,
   excludeApprovalActionMessages,
   isActionRunConfig,
   isApprovalActionMessage,
@@ -43,7 +55,13 @@ import {
   remapAssistantReplayHistoryItem,
   useAssistantRunReattachment,
 } from './assistant-run-reattachment';
+import { deferMessageFinishUntilFlush } from './defer-message-finish';
+import {
+  createDelegatedConversationTap,
+  type DelegatedConversationUpdate,
+} from './delegated-conversation-receiver';
 import { insulateAssistantStreamPipeline } from './stream-insulation';
+import { resolveTurnAnchorMessageId } from './turn-anchor';
 
 export { excludeApprovalActionMessages, isApprovalActionMessage };
 
@@ -51,6 +69,139 @@ type HeadersValue = Headers | Record<string, string>;
 const logger = createLogger('BrainstrikeDataStreamRuntime');
 const MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS = 4000;
 export const DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS = 30_000;
+
+/** The action's topology write failed before any host request was prepared. */
+export class AssistantActionHistoryWriteError extends Error {
+  override readonly name = 'AssistantActionHistoryWriteError';
+}
+
+function preAdmissionErrorCode(error: unknown): string | undefined {
+  if (error instanceof AssistantActionHistoryWriteError) {
+    return 'assistant_action_history_failed';
+  }
+  if (error instanceof AssistantRunAdmissionRejectedError) {
+    return 'assistant_admission_rejected';
+  }
+  return undefined;
+}
+
+/** Await the exact optimistic action echo's topology write before sending it. */
+export class AssistantActionHistoryBarrier {
+  private readonly writes = new Map<string, Promise<void>>();
+  private invalidation = new AbortController();
+  private active = true;
+  private generation = 0;
+
+  captureGeneration(): number {
+    return this.generation;
+  }
+
+  record(messageId: string, write: Promise<void>): void {
+    if (!this.active || this.writes.has(messageId)) {
+      this.invalidate();
+      return;
+    }
+    this.writes.set(messageId, write);
+  }
+
+  async wait(messageId: string, signal: AbortSignal): Promise<void> {
+    const generation = this.generation;
+    const write = this.writes.get(messageId);
+    if (!(this.active && write)) {
+      throw new AssistantActionHistoryWriteError('Assistant action history has no matching write.');
+    }
+    this.writes.delete(messageId);
+    await runAbortableRequestWarmup(
+      () => write,
+      AbortSignal.any([signal, this.invalidation.signal])
+    );
+    this.assertCurrent(signal, generation);
+  }
+
+  assertCurrent(signal: AbortSignal, generation: number): void {
+    signal.throwIfAborted();
+    if (!(this.active && this.generation === generation)) {
+      throw new AssistantActionHistoryWriteError(
+        'Assistant action history changed before request admission.'
+      );
+    }
+  }
+
+  invalidate(): void {
+    this.active = false;
+    this.generation += 1;
+    this.writes.clear();
+    this.invalidation.abort(
+      new AssistantActionHistoryWriteError(
+        'Assistant action history changed before request admission.'
+      )
+    );
+  }
+
+  reopen(): void {
+    if (this.active) {
+      return;
+    }
+    this.invalidation = new AbortController();
+    this.active = true;
+  }
+}
+
+async function awaitActionHistoryWrite(
+  barrier: AssistantActionHistoryBarrier | undefined,
+  messages: readonly ThreadMessage[],
+  runConfig: unknown,
+  signal: AbortSignal
+): Promise<void> {
+  if (!(barrier && isActionRunConfig(runConfig))) {
+    return;
+  }
+  const actionMessageId = messages.at(-1)?.id;
+  if (!actionMessageId) {
+    throw new AssistantActionHistoryWriteError('Assistant action has no matching history message.');
+  }
+  await barrier.wait(actionMessageId, signal);
+}
+
+function assertActionHistoryCurrent(
+  barrier: AssistantActionHistoryBarrier | undefined,
+  generation: number | undefined,
+  signal: AbortSignal
+): void {
+  if (generation !== undefined) {
+    barrier?.assertCurrent(signal, generation);
+  }
+}
+
+function boundActionHistoryWrite(write: Promise<void>, timeoutMs: number): Promise<void> {
+  const deadlineMs = requireRequestPreparationTimeoutMs(timeoutMs);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new AssistantActionHistoryWriteError(
+            `Assistant action history write timed out after ${deadlineMs}ms.`
+          )
+        ),
+      deadlineMs
+    );
+    void write.then(
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      () => {
+        clearTimeout(timer);
+        reject(new AssistantActionHistoryWriteError('Assistant action history write failed.'));
+      }
+    );
+  });
+}
+
+/** The host proved this request failed before admitting a stream leg. */
+export class AssistantRunAdmissionRejectedError extends Error {
+  override readonly name = 'AssistantRunAdmissionRejectedError';
+}
 
 export interface AssistantUsage {
   readonly billedCostUsd?: number;
@@ -66,8 +217,16 @@ export interface AssistantUsage {
   readonly outputTokens: number;
 }
 
+/** What an explicit Stop cancelled, as the thread showed it at abort time. */
+export interface CancelledAssistantRun {
+  readonly messages: readonly ThreadMessage[];
+}
+
 export type BrainstrikeDataStreamRuntimeOptions = {
+  /** Internal, per-history barrier for action echo writes. */
+  actionHistoryBarrier?: AssistantActionHistoryBarrier;
   activeRunSession?: AssistantActiveRunSession;
+  discoveredRun?: AssistantDiscoveredRun;
   api: string;
   body?:
     | ((
@@ -83,12 +242,20 @@ export type BrainstrikeDataStreamRuntimeOptions = {
    * Hook failures are logged and must never break the stream.
    */
   onActivity?: () => void;
-  onCancel?: () => void;
+  /**
+   * An explicit Stop (never a detach). Receives the messages the run was
+   * cancelling — the prior messages plus the live assistant message at abort
+   * time — so the run session can tell whether a pause notice in them may have
+   * been cancelled with the turn.
+   */
+  onCancel?: (cancelled: CancelledAssistantRun) => void;
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
   /** Reports replay-only failures so the active session can schedule a bounded retry. */
-  onReplayError?: (error: Error) => void;
-  onResponse?: (response: Response) => Promise<void> | void;
+  onReplayError?: (error: Error, eventId: string) => void;
+  onResponse?: (response: Response, parentMessageId?: string | null) => Promise<void> | void;
+  /** Resolve a transient pause notice through the current exported thread graph. */
+  resolveInputParentMessageId?: (parentId: string | null) => string | null;
   /**
    * Visible local-model warmup that runs before the bounded request-input
    * phase. It has no absolute deadline because it may download model files,
@@ -124,6 +291,8 @@ export type BrainstrikeDataStreamRuntimeOptions = {
    * and refreshes its thread-total readout; it must never write usage rows.
    */
   onChildRunUsage?: (data: unknown) => void;
+  /** Full ephemeral child snapshots, keyed by native invocation across replay. */
+  onDelegatedConversation?: ((update: DelegatedConversationUpdate) => void) | undefined;
   /**
    * Called with each `run.step.finished` run event's billed step usage while
    * the run streams (BST-953 live tick). Steps ACCUMULATE — the consumer sums
@@ -160,12 +329,20 @@ function requireRequestPreparationTimeoutMs(timeoutMs: number): number {
   return timeoutMs;
 }
 
+function resolveRequestPreparationTimeoutMs(timeoutMs: number | undefined): number {
+  return requireRequestPreparationTimeoutMs(
+    timeoutMs === undefined ? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS : timeoutMs
+  );
+}
+
 function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('The assistant request was aborted.', 'AbortError');
 }
 
 /** Per-run context handed to a function-form `body` provider. */
 export interface PrepareRequestBodyContext {
+  /** Forwarded unchanged so durable run admission can resolve child continuation turns. */
+  readonly runConfig?: unknown;
   /**
    * The id of the turn's triggering user message — the last REAL user message
    * in the thread, with approval/suspend action echoes excluded (they are UI
@@ -177,21 +354,10 @@ export interface PrepareRequestBodyContext {
   readonly turnAnchorMessageId: string | null;
 }
 
-/**
- * The turn anchor for a run leg — see
- * {@link PrepareRequestBodyContext.turnAnchorMessageId}. Mirrors the desktop
- * server's `resolveTurnAnchorMessageId` (snapshot-turn-boundaries.ts) with the
- * renderer-side extra of skipping action echoes, which never reach the server.
- */
-export function resolveTurnAnchorMessageId(messages: readonly ThreadMessage[]): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const candidate = messages[index];
-    if (candidate?.role === 'user' && !isApprovalActionMessage(candidate)) {
-      return candidate.id;
-    }
-  }
-  return null;
-}
+// The turn anchor lives in `turn-anchor.ts` — see
+// {@link PrepareRequestBodyContext.turnAnchorMessageId}. Re-exported here
+// because this module was its original home.
+export { resolveTurnAnchorMessageId };
 
 const NO_BODY_CONTEXT: PrepareRequestBodyContext = { turnAnchorMessageId: null };
 
@@ -901,6 +1067,101 @@ function resolveOutboundTransportMessages(
   return excludeApprovalActionMessages(messages);
 }
 
+function isSyntheticPauseMessageId(id: string): boolean {
+  return (
+    id.startsWith('suspended-approval:') ||
+    id.startsWith('suspended-pause:') ||
+    id.startsWith(`${SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME}:`)
+  );
+}
+
+export function resolveDurableInputParentMessageId(
+  parentId: string | null,
+  messages: readonly {
+    readonly message: { readonly id: string };
+    readonly parentId: string | null;
+  }[]
+): string | null {
+  let current = parentId;
+  const visited = new Set<string>();
+  const parentsById = new Map<string, string | null>();
+  for (const item of messages) {
+    if (!parentsById.has(item.message.id)) {
+      parentsById.set(item.message.id, item.parentId);
+    }
+  }
+  while (current && isSyntheticPauseMessageId(current)) {
+    if (visited.has(current)) {
+      throw new Error('Assistant synthetic pause ancestry contains a cycle.');
+    }
+    visited.add(current);
+    const parent = parentsById.get(current);
+    if (parent === undefined) {
+      throw new Error(`Assistant synthetic pause '${current}' has no exported parent edge.`);
+    }
+    current = parent;
+  }
+  return current;
+}
+
+function findPausedMessageId(
+  messages: readonly ThreadMessage[],
+  runConfig: unknown
+): string | null | undefined {
+  const approval = readToolApprovalRunConfigAction(runConfig);
+  const resume = readToolResumeRunConfigAction(runConfig);
+  const approvalAction = approval && 'action' in approval ? approval.action : undefined;
+  const resumeAction = resume && 'action' in resume ? resume.action : undefined;
+  const action = approvalAction ?? resumeAction;
+  const dataName = approvalAction ? TOOL_APPROVAL_DATA_NAME : TOOL_SUSPEND_DATA_NAME;
+  if (!action) {
+    return;
+  }
+  const owners = messages.filter(
+    (message) =>
+      message.role === 'assistant' &&
+      message.content.some(
+        (part) =>
+          part.type === 'data' && part.name === dataName && isMatchingToolAction(part.data, action)
+      )
+  );
+  if (owners.length !== 1 || !owners[0]?.id.trim()) {
+    return null;
+  }
+  return owners[0].id;
+}
+
+function requirePausedMessageId(messages: readonly ThreadMessage[], runConfig: unknown): string {
+  const ownerId = findPausedMessageId(messages, runConfig);
+  if (ownerId === undefined) {
+    throw new Error('Assistant action has no valid paused tool identity.');
+  }
+  if (ownerId === null) {
+    throw new Error('Assistant action has no unique owning paused assistant message.');
+  }
+  return ownerId;
+}
+
+class AssistantHistoryRuntimeBinding {
+  private runtime: ReturnType<typeof useLocalRuntime> | null = null;
+
+  bind(runtime: ReturnType<typeof useLocalRuntime>): () => void {
+    this.runtime = runtime;
+    return () => {
+      if (this.runtime === runtime) {
+        this.runtime = null;
+      }
+    };
+  }
+
+  resolveOwner(runConfig: unknown): string | null {
+    if (!this.runtime) {
+      return null;
+    }
+    return findPausedMessageId(this.runtime.thread.getState().messages, runConfig) ?? null;
+  }
+}
+
 /**
  * Pass-through tap that intercepts "message-finish" chunks to surface provider
  * token usage. The DataStreamDecoder outputs AssistantStreamChunk
@@ -1065,40 +1326,6 @@ function throwIfRunAbortedBeforeTerminalCompletion(
 }
 
 /**
- * assistant-stream's decoder emits `message-finish` before it flushes the
- * active implicit text/reasoning part. The accumulator therefore exposes a
- * completed message while inner part streams are still draining. If the user
- * immediately sends the next turn, assistant-ui aborts that visually complete
- * run and a late append can target an already-closed text controller.
- *
- * Buffer the one terminal message marker until decoder EOF so every part-finish
- * reaches the accumulator before the UI observes completion.
- */
-function deferMessageFinishUntilFlush(
-  onTerminalFinishFlushed?: () => void
-): TransformStream<AssistantStreamChunk, AssistantStreamChunk> {
-  let pendingFinish: AssistantStreamChunk | undefined;
-  return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
-    flush(controller) {
-      if (pendingFinish) {
-        controller.enqueue(pendingFinish);
-        onTerminalFinishFlushed?.();
-      }
-    },
-    transform(chunk, controller) {
-      if (chunk.type === 'message-finish') {
-        if (pendingFinish) {
-          throw new Error('Assistant data stream emitted more than one message-finish chunk.');
-        }
-        pendingFinish = chunk;
-        return;
-      }
-      controller.enqueue(chunk);
-    },
-  });
-}
-
-/**
  * Decode the response body and insert the optional pass-through taps (provider
  * usage, run-start context breakdown). Each tap is only piped when its consumer
  * is wired — the common no-consumer path keeps the original decoder →
@@ -1215,58 +1442,113 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       context,
       unstable_getMessage,
     }: Pick<ChatModelRunOptions, 'abortSignal' | 'context' | 'unstable_getMessage'>,
-    notifyResponse: boolean
+    notifyResponse: boolean,
+    releaseCancelHandler?: () => void,
+    replayParentMessageId?: string | null
   ) {
     let terminalFinishFlushed = false;
     if (!response.ok) {
-      throw new Error(
-        `Status ${response.status}: ${await readBoundedHttpErrorResponseText(response)}`
-      );
+      const detail = await readBoundedHttpErrorResponseText(response);
+      const message = `Status ${response.status}: ${detail}`;
+      if (response.status === 500) {
+        let payload: unknown;
+        try {
+          payload = JSON.parse(detail);
+        } catch {
+          // Non-JSON responses retain the ordinary ambiguous failure path.
+        }
+        if (
+          payload &&
+          typeof payload === 'object' &&
+          !Array.isArray(payload) &&
+          (payload as Record<string, unknown>)['error'] === 'assistant_admission_rejected'
+        ) {
+          throw new AssistantRunAdmissionRejectedError(message);
+        }
+      }
+      throw new Error(message);
     }
     if (!response.body) {
       throw new Error('Response body is null');
     }
     if (notifyResponse) {
-      await this.options.onResponse?.(response);
+      await this.options.onResponse?.(response, replayParentMessageId);
     }
 
+    const markTerminalFlushed = (): void => {
+      terminalFinishFlushed = true;
+      releaseCancelHandler?.();
+    };
+    const delegatedReceiver = this.options.onDelegatedConversation
+      ? createDelegatedConversationTap(
+          (update) => this.options.onDelegatedConversation?.(update),
+          abortSignal,
+          markTerminalFlushed
+        )
+      : undefined;
     const stream = insulateAssistantStreamPipeline({
       abortSignal,
       body: response.body,
-      buildPipeline: (source) =>
-        buildDecodedTapPipeline(source, this.abortGatedTapOptions(abortSignal), () => {
-          terminalFinishFlushed = true;
-        })
+      buildPipeline: (source) => {
+        const decoded = buildDecodedTapPipeline(
+          source,
+          this.abortGatedTapOptions(abortSignal),
+          delegatedReceiver ? undefined : markTerminalFlushed
+        );
+        const conversations = delegatedReceiver ? decoded.pipeThrough(delegatedReceiver) : decoded;
+        return conversations
           .pipeThrough(
             unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
               throw new Error('Tool interrupt is not supported in data stream runtime');
             })
           )
-          .pipeThrough(new AssistantMessageAccumulator()),
+          .pipeThrough(new AssistantMessageAccumulator());
+      },
     });
 
+    let failed = false;
     try {
       for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
         this.notifyActivity();
         yield accumulatedMessage;
       }
+    } catch (error) {
+      failed = true;
+      throw error;
     } finally {
       await stream.cancel(abortSignal.reason).catch(() => undefined);
+      if (failed || (abortSignal.aborted && !terminalFinishFlushed)) {
+        await delegatedReceiver?.settleAfterFailure();
+      } else {
+        await delegatedReceiver?.settle();
+      }
     }
     throwIfRunAbortedBeforeTerminalCompletion(abortSignal, terminalFinishFlushed);
     this.options.onFinish?.(unstable_getMessage());
   }
 
-  private registerCancelHandler(abortSignal: AbortSignal): void {
-    abortSignal.addEventListener(
-      'abort',
-      () => {
-        if (!(abortSignal.reason as { detach?: unknown } | undefined)?.detach) {
-          this.options.onCancel?.();
-        }
-      },
-      { once: true }
-    );
+  private registerCancelHandler(
+    abortSignal: AbortSignal,
+    readCancelledMessages: () => readonly ThreadMessage[]
+  ): () => void {
+    const onAbort = (): void => {
+      if ((abortSignal.reason as { detach?: unknown } | undefined)?.detach) {
+        return;
+      }
+      // Reading the live message can throw (a runtime torn down under the
+      // abort). The cancel path itself must still run: this file's rule is
+      // that hook failures never break the stream, and an empty set only
+      // means "nothing here looks stale", which is the safe direction.
+      let messages: readonly ThreadMessage[] = [];
+      try {
+        messages = readCancelledMessages();
+      } catch (error: unknown) {
+        logger.warn('Could not read the cancelled thread for the Stop notice', { error });
+      }
+      this.options.onCancel?.({ messages });
+    };
+    abortSignal.addEventListener('abort', onAbort, { once: true });
+    return () => abortSignal.removeEventListener('abort', onAbort);
   }
 
   async *resume(
@@ -1280,7 +1562,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     }
   ) {
     const { abortSignal } = runOptions;
-    this.registerCancelHandler(abortSignal);
+    const releaseCancelHandler = this.registerCancelHandler(abortSignal, () => [
+      ...runOptions.messages,
+      runOptions.unstable_getMessage(),
+    ]);
     try {
       const requestPreparationTimeoutMs =
         this.options.requestPreparationTimeoutMs === undefined
@@ -1304,12 +1589,14 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
           `Status 404: ${await readBoundedHttpErrorResponseText(response)}`
         );
       }
-      yield* this.consumeResponse(response, runOptions, false);
+      yield* this.consumeResponse(response, runOptions, false, releaseCancelHandler);
     } catch (error: unknown) {
       const replayError = error instanceof Error ? error : new Error(String(error));
-      this.options.onReplayError?.(replayError);
+      this.options.onReplayError?.(replayError, eventId);
       this.reportError(error);
       throw error;
+    } finally {
+      releaseCancelHandler();
     }
   }
 
@@ -1321,14 +1608,20 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     unstable_assistantMessageId,
     unstable_getMessage,
   }: ChatModelRunOptions) {
-    this.registerCancelHandler(abortSignal);
+    const releaseCancelHandler = this.registerCancelHandler(abortSignal, () => [
+      ...messages,
+      unstable_getMessage(),
+    ]);
+    const actionHistoryBarrier = this.options.actionHistoryBarrier;
+    const actionHistoryGeneration = actionHistoryBarrier?.captureGeneration();
 
     try {
-      const requestPreparationTimeoutMs =
-        this.options.requestPreparationTimeoutMs === undefined
-          ? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS
-          : this.options.requestPreparationTimeoutMs;
-      requireRequestPreparationTimeoutMs(requestPreparationTimeoutMs);
+      if (isActionRunConfig(runConfig)) {
+        await awaitActionHistoryWrite(actionHistoryBarrier, messages, runConfig, abortSignal);
+      }
+      const requestPreparationTimeoutMs = resolveRequestPreparationTimeoutMs(
+        this.options.requestPreparationTimeoutMs
+      );
       if (this.options.prepareRequestWarmup) {
         await runAbortableRequestWarmup(this.options.prepareRequestWarmup, abortSignal);
       }
@@ -1336,7 +1629,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         this.options,
         abortSignal,
         requestPreparationTimeoutMs,
-        { turnAnchorMessageId: resolveTurnAnchorMessageId(messages) }
+        { runConfig, turnAnchorMessageId: resolveTurnAnchorMessageId(messages) }
       );
       const bodyValue = rawBodyValue as Record<string, unknown> | undefined;
       assertSupportedAssistantUiRequestContext(
@@ -1344,6 +1637,14 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         unstable_getMessage().metadata.unstable_state
       );
       const outboundMessages = resolveOutboundTransportMessages(messages, runConfig);
+      const rawInputParentMessageId = outboundMessages.at(-2)?.id ?? null;
+      let inputParentMessageId = rawInputParentMessageId;
+      if (rawInputParentMessageId && isSyntheticPauseMessageId(rawInputParentMessageId)) {
+        if (!this.options.resolveInputParentMessageId) {
+          throw new Error('Assistant synthetic pause parent requires an exported thread graph.');
+        }
+        inputParentMessageId = this.options.resolveInputParentMessageId(rawInputParentMessageId);
+      }
       const transportMessages = selectTransportMessagesForMastraMemory(outboundMessages, bodyValue);
       const compactedBodyValue = withTransportCompactionMetadata(
         bodyValue,
@@ -1361,7 +1662,11 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       const requestBody = createAssistantRequestEnvelope({
         ...(unstable_assistantMessageId ? { assistantMessageId: unstable_assistantMessageId } : {}),
         ...(Object.hasOwn(bodyData, 'data') ? { data: bodyData['data'] } : {}),
+        inputParentMessageId,
         messages: imageBound.messages,
+        ...(isActionRunConfig(runConfig)
+          ? { pausedMessageId: requirePausedMessageId(messages, runConfig) }
+          : {}),
         ...(runConfig === undefined ? {} : { runConfig }),
       });
       const serializedRequestBody = JSON.stringify(requestBody);
@@ -1369,6 +1674,8 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       if (requestBodyLimitBytes !== undefined) {
         assertSerializedRequestBodyWithinLimit(serializedRequestBody, requestBodyLimitBytes);
       }
+
+      assertActionHistoryCurrent(actionHistoryBarrier, actionHistoryGeneration, abortSignal);
 
       const response = await fetch(this.options.api, {
         body: serializedRequestBody,
@@ -1386,17 +1693,39 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
           // biome-ignore lint/style/useNamingConvention: assistant-ui runtime field.
           unstable_getMessage,
         },
-        true
+        true,
+        releaseCancelHandler,
+        isActionRunConfig(runConfig) ? undefined : (outboundMessages.at(-1)?.id ?? null)
       );
     } catch (error: unknown) {
       throwIfRunAbortedBeforeTerminalCompletion(abortSignal, false);
       this.reportError(error);
+      const preAdmissionCode = preAdmissionErrorCode(error);
+      if (preAdmissionCode && error instanceof Error) {
+        // These pre-admission failures are definitive. Publish a visible
+        // incomplete result without rejecting assistant-ui's fire-and-forget
+        // append promise.
+        yield {
+          status: {
+            error: {
+              code: preAdmissionCode,
+              message: error.message,
+            },
+            reason: 'error' as const,
+            type: 'incomplete' as const,
+          },
+        };
+        return;
+      }
       throw error;
+    } finally {
+      releaseCancelHandler();
     }
   }
 }
 
 function createRuntimeRequestOptionsSnapshot(input: {
+  readonly actionHistoryBarrier: BrainstrikeDataStreamRuntimeOptions['actionHistoryBarrier'];
   readonly api: string;
   readonly body: BrainstrikeDataStreamRuntimeOptions['body'];
   readonly credentials: BrainstrikeDataStreamRuntimeOptions['credentials'];
@@ -1404,10 +1733,12 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onActivity: BrainstrikeDataStreamRuntimeOptions['onActivity'];
   readonly onCancel: BrainstrikeDataStreamRuntimeOptions['onCancel'];
   readonly onContextBreakdown: BrainstrikeDataStreamRuntimeOptions['onContextBreakdown'];
+  readonly onDelegatedConversation: BrainstrikeDataStreamRuntimeOptions['onDelegatedConversation'];
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
   readonly onReplayError: BrainstrikeDataStreamRuntimeOptions['onReplayError'];
   readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
+  readonly resolveInputParentMessageId: BrainstrikeDataStreamRuntimeOptions['resolveInputParentMessageId'];
   readonly prepareRequestWarmup: BrainstrikeDataStreamRuntimeOptions['prepareRequestWarmup'];
   readonly requestBodyLimitBytes: BrainstrikeDataStreamRuntimeOptions['requestBodyLimitBytes'];
   readonly requestPreparationTimeoutMs: BrainstrikeDataStreamRuntimeOptions['requestPreparationTimeoutMs'];
@@ -1415,6 +1746,9 @@ function createRuntimeRequestOptionsSnapshot(input: {
 }): BrainstrikeDataStreamRuntimeOptions {
   return {
     api: input.api,
+    ...(input.actionHistoryBarrier === undefined
+      ? {}
+      : { actionHistoryBarrier: input.actionHistoryBarrier }),
     ...(input.body === undefined ? {} : { body: input.body }),
     ...(input.credentials === undefined ? {} : { credentials: input.credentials }),
     ...(input.headers === undefined ? {} : { headers: input.headers }),
@@ -1423,10 +1757,16 @@ function createRuntimeRequestOptionsSnapshot(input: {
     ...(input.onContextBreakdown === undefined
       ? {}
       : { onContextBreakdown: input.onContextBreakdown }),
+    ...(input.onDelegatedConversation === undefined
+      ? {}
+      : { onDelegatedConversation: input.onDelegatedConversation }),
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
     ...(input.onReplayError === undefined ? {} : { onReplayError: input.onReplayError }),
     ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
+    ...(input.resolveInputParentMessageId === undefined
+      ? {}
+      : { resolveInputParentMessageId: input.resolveInputParentMessageId }),
     ...(input.prepareRequestWarmup === undefined
       ? {}
       : { prepareRequestWarmup: input.prepareRequestWarmup }),
@@ -1443,6 +1783,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
 export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRuntimeOptions) {
   const {
     activeRunSession,
+    discoveredRun,
     adapters,
     api,
     body,
@@ -1452,10 +1793,12 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onActivity,
     onCancel,
     onContextBreakdown,
+    onDelegatedConversation,
     onError,
     onFinish,
     onReplayError,
     onResponse,
+    resolveInputParentMessageId,
     prepareRequestWarmup,
     replayRetryToken = 0,
     requestBodyLimitBytes,
@@ -1464,7 +1807,16 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onUsage,
     unstable_humanToolNames,
   } = options;
+  const actionHistoryBarrier = useMemo(
+    () => (adapters?.history ? new AssistantActionHistoryBarrier() : undefined),
+    [adapters?.history]
+  );
+  useLayoutEffect(() => {
+    actionHistoryBarrier?.reopen();
+    return () => actionHistoryBarrier?.invalidate();
+  }, [actionHistoryBarrier]);
   const requestOptions = createRuntimeRequestOptionsSnapshot({
+    actionHistoryBarrier,
     api,
     body,
     credentials,
@@ -1472,6 +1824,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onActivity,
     onCancel,
     onContextBreakdown,
+    onDelegatedConversation,
     onError,
     onFinish,
     onReplayError,
@@ -1480,12 +1833,9 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     prepareRequestWarmup,
     requestBodyLimitBytes,
     requestPreparationTimeoutMs,
+    resolveInputParentMessageId,
   });
   const optionsRef = useRef<BrainstrikeDataStreamRuntimeOptions>(requestOptions);
-  // Latest-ref sync in an unconditional layout effect, not during render —
-  // React Doctor `no-ref-current-in-render`. Layout, not passive: descendant
-  // passive effects (for example FollowUpQueueBridge's queued-send dispatch)
-  // can start a run in the same commit that changed these options.
   useLayoutEffect(() => {
     optionsRef.current = requestOptions;
   });
@@ -1498,6 +1848,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
   const [replayIdentity] = useState<AssistantReplayMessageIdentityRef>(() => ({
     current: null,
   }));
+  const [historyRuntime] = useState(() => new AssistantHistoryRuntimeBinding());
   const replayAwareAdapters = useMemo(() => {
     const history = adapters?.history;
     if (!history) {
@@ -1509,17 +1860,63 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
         ...history,
         append: async (item) => {
           const identity = replayIdentity.current;
-          await history.append(remapAssistantReplayHistoryItem(item, identity));
+          const write = Promise.resolve().then(() => {
+            if (!isActionRunConfig(item.runConfig)) {
+              return history.append(remapAssistantReplayHistoryItem(item, identity));
+            }
+            if (item.message.role !== 'user') {
+              throw new AssistantActionHistoryWriteError(
+                'Assistant action echo is not a user message.'
+              );
+            }
+            const actionItem = {
+              ...item,
+              message: {
+                ...item.message,
+                metadata: {
+                  ...item.message.metadata,
+                  custom: {
+                    ...item.message.metadata.custom,
+                    [ACTION_PAUSED_OWNER_MESSAGE_ID_KEY]: historyRuntime.resolveOwner(
+                      item.runConfig
+                    ),
+                  },
+                },
+              },
+            };
+            return history.append(remapAssistantReplayHistoryItem(actionItem, identity));
+          });
+          if (isActionRunConfig(item.runConfig)) {
+            const trackedWrite = boundActionHistoryWrite(
+              write,
+              requestPreparationTimeoutMs ?? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS
+            );
+            actionHistoryBarrier?.record(item.message.id, trackedWrite);
+            // The run consumes the same recorded rejection as a visible
+            // pre-admission error. assistant-ui starts append and run in
+            // parallel and otherwise leaves a fire-and-forget rejection.
+            await trackedWrite.catch(() => undefined);
+            return;
+          }
+          await write;
         },
       },
     };
-  }, [adapters, replayIdentity]);
+  }, [actionHistoryBarrier, adapters, historyRuntime, replayIdentity, requestPreparationTimeoutMs]);
 
   const runtime = useLocalRuntime(chatModelAdapter, {
     ...(replayAwareAdapters ? { adapters: replayAwareAdapters } : {}),
     ...(maxSteps ? { maxSteps } : {}),
     // biome-ignore lint/style/useNamingConvention: assistant-ui LocalRuntimeOptions field.
     ...(unstable_humanToolNames ? { unstable_humanToolNames } : {}),
+  });
+  useLayoutEffect(() => historyRuntime.bind(runtime), [historyRuntime, runtime]);
+  // Publish the current graph resolver before descendant passive effects can send.
+  useLayoutEffect(() => {
+    optionsRef.current.resolveInputParentMessageId =
+      resolveInputParentMessageId ??
+      ((parentId) =>
+        resolveDurableInputParentMessageId(parentId, runtime.thread.export().messages));
   });
   const replayStream = useCallback<NonNullable<CreateResumeRunConfig['stream']>>(
     (runOptions) => {
@@ -1534,6 +1931,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     [activeRunSession, chatModelAdapter, resumeApi]
   );
   useAssistantRunReattachment({
+    discoveredRun,
     identityRef: replayIdentity,
     record: activeRunSession,
     replayRetryToken,

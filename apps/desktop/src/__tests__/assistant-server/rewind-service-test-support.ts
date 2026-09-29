@@ -3,11 +3,18 @@
  * engine BST-1164 W7 T3).
  *
  * REAL PGlite + REAL filesystem + REAL shadow git (the production
- * `execFileSnapshotGitRunner`). `mastra_messages` and
- * `brainstrike_assistant_thread_runs` are renderer-lazy bootstrap-only DDL
- * (never numbered migrations), so they are created here to the same shape the
- * app-shell repository bootstraps — the migration runner alone would leave a
- * rewind with no messages and no runs to anchor on.
+ * `execFileSnapshotGitRunner`). Every relation here comes from the migration
+ * chain: `mastra_messages` and `mastra_threads` from 117, the run header from
+ * 118. This fixture used to stand up its own copy of the run table because
+ * that DDL was renderer-lazy bootstrap-only — a THIRD schema authority behind
+ * the repository mirror BST-1651 retired, and one whose copy silently dropped
+ * the `thread_id` foreign key the real table has carried since it shipped. So
+ * a rewind fixture could anchor runs on a thread that did not exist, which
+ * production has never allowed.
+ *
+ * Runs therefore need a `mastra_threads` parent now. `createRewindFixture`
+ * seeds `THREAD_ID`; a test using any other thread must `insertThread` it
+ * first, exactly as the app must create the thread before it can run on it.
  *
  * Turn boundaries are seeded the way T2's run lifecycle records them: a
  * `turn-start` snapshot of every root's CURRENT disk state, committed to the
@@ -23,7 +30,6 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { MASTRA_MEMORY_SCHEMA_SQL } from '@brainstrike/assistant-contract';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import type { CheckpointReindexAction } from '../../assistant-server/checkpoint-reindex-deps';
@@ -43,26 +49,6 @@ const execFileAsync = promisify(execFile);
 
 export const THREAD_ID = 'thread-rewind';
 export const RESOURCE_ID = 'workspace-rewind';
-
-/** Same columns the app-shell bootstrap creates, minus the FK to
- * `mastra_threads` (irrelevant to rewind and it keeps fixtures small). */
-const RUNS_DDL = `
-CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_runs (
-  id text PRIMARY KEY,
-  resource_id text NOT NULL,
-  thread_id text NOT NULL,
-  provider text NOT NULL,
-  model text NOT NULL,
-  runtime_kind text NOT NULL,
-  status text NOT NULL,
-  error text,
-  started_at timestamptz NOT NULL,
-  completed_at timestamptz,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL,
-  turn_message_id text
-);
-`;
 
 export interface RewindFixture {
   readonly db: PGlite;
@@ -89,9 +75,18 @@ export async function cleanupTempDirs(): Promise<void> {
   );
 }
 
+/** The Mastra thread row every run and message in this fixture hangs off. */
+export async function insertThread(db: PGlite, threadId: string): Promise<void> {
+  await db.query(
+    `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, NOW(), NOW())`,
+    [threadId, RESOURCE_ID, `Thread ${threadId}`]
+  );
+}
+
 /**
- * Fresh in-memory database with the migration schema, the bootstrap-only
- * tables, and one `roots` row per supplied root.
+ * Fresh in-memory database with the migrated schema, the fixture's thread, and
+ * one `roots` row per supplied root.
  */
 export async function createRewindFixture(
   roots: Readonly<Record<string, string>>,
@@ -99,8 +94,7 @@ export async function createRewindFixture(
 ): Promise<RewindFixture> {
   const db = await wasmLoader.createPGlite(`memory://${databaseName}`);
   await migrate(db);
-  await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
-  await db.exec(RUNS_DDL);
+  await insertThread(db, THREAD_ID);
   let created = 0;
   for (const [rootId, rootPath] of Object.entries(roots)) {
     created += 1;

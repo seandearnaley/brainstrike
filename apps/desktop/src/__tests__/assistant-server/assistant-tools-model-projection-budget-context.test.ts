@@ -153,5 +153,15 @@ describe('desktop projector per-call budget context', () => {
     expect(JSON.stringify(floor).length).toBeLessThanOrEqual(
       floorBudget.domainModelResultCharBudget
     );
+    const renamed = { ...artifactTool, id: 'brainstrike_readToolOutputArtifact_collision' };
+    const projected = applyToolModelOutputProjections(
+      { [renamed.id]: renamed },
+      new Map([[renamed.id, NATIVE_TOOL_ID.readToolOutputArtifact]]),
+      undefined,
+      floorBudget
+    );
+    expect(requireProjection(projected[renamed.id])(raw)).toMatchObject({
+      value: { next: { tool: renamed.id } },
+    });
   });
 });

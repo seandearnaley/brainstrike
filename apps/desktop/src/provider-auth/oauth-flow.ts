@@ -6,7 +6,7 @@ import type {
 import type { SecretsService } from '../secrets';
 import { pollDeviceFlow, startDeviceFlow } from './device-flow';
 import { ProviderAuthFlowCancelledError, ProviderAuthFlowError } from './errors';
-import { guardedFetch } from './fetch-guards';
+import { guardedFetchText } from './fetch-guards';
 import { type LoopbackServerHandle, startLoopbackServer } from './loopback-server';
 import { computeS256Challenge, createPkceVerifier, createState } from './pkce';
 
@@ -101,7 +101,7 @@ export async function exchangeAuthorizationCode(
   options: ExchangeAuthorizationCodeOptions
 ): Promise<OAuthTokenGrant> {
   const { code, codeVerifier, descriptor, fetchFn, redirectUri } = options;
-  const response = await guardedFetch({
+  const { response, text } = await guardedFetchText({
     ...(options.cancelSignal ? { cancelSignal: options.cancelSignal } : {}),
     fetchFn,
     init: {
@@ -128,7 +128,6 @@ export async function exchangeAuthorizationCode(
     ...(options.fetchTimeoutMs === undefined ? {} : { timeoutMs: options.fetchTimeoutMs }),
     url: descriptor.tokenUrl,
   });
-  const text = await response.text();
   let body: unknown;
   try {
     body = JSON.parse(text) as unknown;

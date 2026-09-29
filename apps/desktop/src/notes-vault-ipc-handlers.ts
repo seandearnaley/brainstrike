@@ -52,8 +52,9 @@ import type {
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
 import { isWithinRoot } from './assistant-server/workspace-path';
+import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
 import {
   ensureContainedDirectory,
   resolveWorkspaceWritePath,
@@ -1060,65 +1061,37 @@ export function resetNotesVaultIpcStateForTest(): void {
 export function registerNotesVaultIpcHandlers(handlers: NotesVaultIpcHandlers): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('notesVault', DESKTOP_IPC_CHANNELS.notesVault.ensureDefaultVault, () =>
-    handlers.ensureDefaultVault()
-  );
-  registry.registerInvoke('notesVault', DESKTOP_IPC_CHANNELS.notesVault.pickDirectory, () =>
-    handlers.pickDirectory()
-  );
-  registry.registerInvoke(
+  const {
+    onChanged: _onChanged,
+    unwatch: _unwatch,
+    watch: _watch,
+    ...requestContract
+  } = notesVaultContract;
+  registerDomain(registry, 'notesVault', requestContract, {
+    createDirectory: handlers.createDirectory,
+    deleteEntry: handlers.deleteEntry,
+    ensureDefaultVault: handlers.ensureDefaultVault,
+    listDirectory: handlers.listDirectory,
+    pickDirectory: handlers.pickDirectory,
+    readFile: handlers.readFile,
+    registerRoot: handlers.registerRoot,
+    rename: handlers.rename,
+    statEntry: handlers.statEntry,
+    writeFile: handlers.writeFile,
+  });
+  registry.registerAuthorizedInvoke(
     'notesVault',
-    DESKTOP_IPC_CHANNELS.notesVault.registerRoot,
-    (_event, requestedPath: unknown) => handlers.registerRoot(requestedPath)
+    notesVaultContract.watch.channel,
+    { roles: notesVaultContract.watch.roles },
+    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) =>
+      handlers.watch(event.sender, ...notesVaultContract.watch.parseArgs(raw))
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'notesVault',
-    DESKTOP_IPC_CHANNELS.notesVault.listDirectory,
-    (_event, requestedPath: unknown) => handlers.listDirectory(requestedPath)
-  );
-  registry.registerInvoke(
-    'notesVault',
-    DESKTOP_IPC_CHANNELS.notesVault.statEntry,
-    (_event, requestedPath: unknown) => handlers.statEntry(requestedPath)
-  );
-  registry.registerInvoke(
-    'notesVault',
-    DESKTOP_IPC_CHANNELS.notesVault.readFile,
-    (_event, requestedPath: unknown) => handlers.readFile(requestedPath)
-  );
-  registry.registerInvoke(
-    'notesVault',
-    DESKTOP_IPC_CHANNELS.notesVault.writeFile,
-    (_event, requestedPath: unknown, content: unknown) => handlers.writeFile(requestedPath, content)
-  );
-  registry.registerInvoke(
-    'notesVault',
-    DESKTOP_IPC_CHANNELS.notesVault.createDirectory,
-    (_event, requestedPath: unknown) => handlers.createDirectory(requestedPath)
-  );
-  registry.registerInvoke(
-    'notesVault',
-    DESKTOP_IPC_CHANNELS.notesVault.deleteEntry,
-    (_event, requestedPath: unknown, rawOptions: unknown) =>
-      handlers.deleteEntry(requestedPath, rawOptions)
-  );
-  registry.registerInvoke(
-    'notesVault',
-    DESKTOP_IPC_CHANNELS.notesVault.rename,
-    (_event, fromRequested: unknown, toRequested: unknown) =>
-      handlers.rename(fromRequested, toRequested)
-  );
-  registry.registerInvoke(
-    'notesVault',
-    DESKTOP_IPC_CHANNELS.notesVault.watch,
-    (event: IpcMainInvokeEvent, requestedPath: unknown) =>
-      handlers.watch(event.sender, requestedPath)
-  );
-  registry.registerInvoke(
-    'notesVault',
-    DESKTOP_IPC_CHANNELS.notesVault.unwatch,
-    (event: IpcMainInvokeEvent, rawWatchId: unknown) =>
-      handlers.unwatch(rawWatchId, event.sender.id)
+    notesVaultContract.unwatch.channel,
+    { roles: notesVaultContract.unwatch.roles },
+    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) =>
+      handlers.unwatch(...notesVaultContract.unwatch.parseArgs(raw), event.sender.id)
   );
 
   return () => {

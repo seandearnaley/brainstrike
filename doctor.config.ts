@@ -1,18 +1,11 @@
 /**
  * React Doctor configuration.
  *
- * React Doctor runs TWO passes:
- *   1. lint     — ~250 React/JS rules (Security, Bugs, Performance, Accessibility,
- *                 Maintainability) via the bundled oxlint + react-hooks engines.
- *   2. deadCode — the `deslop` engine (unused files / exports / types / circular deps,
- *                 and — disabled below — unused dependencies).
- *
- * Relationship to knip.jsonc:
- *   `deslop` is NOT knip. It does NOT honor knip's `ignoreDependencies` and has no
- *   per-dependency allowlist. Our dependency false-positives (CSS @imports, lazy
- *   prebundles, dynamic requires, peer deps) are curated in knip.jsonc and remain owned
- *   by `pnpm knip`. We therefore DISABLE deslop's two dependency rules here. See
- *   docs/react-doctor-migration-2026-06-15.md and the REACT DOCTOR section in docs/agents/ci-quality.md.
+ * React Doctor owns React/JS lint. Knip owns file/dependency graph analysis
+ * through knip.jsonc and .github/workflows/knip.yml (weekly/manual audit).
+ * React Doctor 0.9.13 removed deslop; native graph rules are opt-in and do not
+ * run under CI's changed scope. Keep one dependency auditor with the curated
+ * CSS, dynamic-load and build-config exceptions in knip.jsonc.
  *
  * Telemetry: disabled (local-first / privacy). `noScore`/`share` cover local runs;
  * CI additionally sets REACT_DOCTOR_NO_TELEMETRY=1 (the marketplace Action has no flag).
@@ -51,7 +44,7 @@ export default {
     // biome-ignore lint/style/useNamingConvention: react-doctor category keys are PascalCase
     Security: 'off' as const,
   },
-  deadCode: true,
+  deadCode: false,
 
   ignore: {
     // `overrides` is the narrow, documented suppression tool (per file + rule).
@@ -87,17 +80,7 @@ export default {
   noScore: true,
 
   rules: {
-    // Owned by knip (which has the curated ignoreDependencies allowlist). deslop cannot
-    // express per-dependency ignores, so leaving these on produces ~59 false positives.
-    'deslop/unused-dependency': 'off' as const,
-    'deslop/unused-dev-dependency': 'off' as const,
-    // Mirror knip.jsonc's `rules.exports: "off"` — the project deliberately disabled
-    // unused-export checking due to false positives. deslop's version is strictly more
-    // FP-prone: it scans each package in isolation WITHOUT entry-point config, so every
-    // cross-package public-API export looks "unused", and it flagged knip-ignored
-    // scripts/. Left active: deslop's higher-signal unused-file + circular-dependency.
-    'deslop/unused-export': 'off' as const,
-    'deslop/unused-type': 'off' as const,
+    'react-doctor/circular-dependency': 'off' as const,
     // Manual memoization is INTENTIONAL in this repo. We run the React Compiler, but
     // deliberately keep manual useMemo/useCallback/React.memo where it guards non-React
     // expensive work, external-store identity, or referential stability for consumers
@@ -106,6 +89,12 @@ export default {
     // of working code. Disabled per team decision. (react-hooks-js/preserve-manual-
     // memoization stays ON — it protects memo the compiler still needs.)
     'react-doctor/react-compiler-no-manual-memoization': 'off' as const,
+    // Knip owns graph analysis. Use native ids, not the removed deslop aliases.
+    'react-doctor/unused-dependency': 'off' as const,
+    'react-doctor/unused-dev-dependency': 'off' as const,
+    'react-doctor/unused-export': 'off' as const,
+    'react-doctor/unused-file': 'off' as const,
+    'react-doctor/unused-type': 'off' as const,
   },
   share: false,
 };

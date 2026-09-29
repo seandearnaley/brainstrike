@@ -8,6 +8,7 @@
     "minimatch": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/file-tree-test-fixtures": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@stryker-mutator/api": "catalog:",
     "@stryker-mutator/core": "catalog:",
@@ -117,6 +118,10 @@
     "./crypto": {
       "types": "./dist/crypto.d.ts",
       "default": "./dist/crypto.js"
+    },
+    "./window-focus-bridge": {
+      "types": "./dist/window-focus-bridge.d.ts",
+      "default": "./dist/window-focus-bridge.js"
     }
   },
   "files": [

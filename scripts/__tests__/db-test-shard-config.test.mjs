@@ -29,7 +29,7 @@ test('the DB config applies the shard at Vitest runner scope', async () => {
   const previousShard = process.env['DB_TEST_SHARD'];
   process.env['DB_TEST_SHARD'] = '1/2';
   try {
-    const { vitestConfig } = await resolveConfig({
+    const { test: vitestConfig } = await resolveConfig({
       config: path.join(repoRoot, 'packages/db/vitest.config.mts'),
     });
     assertResolvedShard(vitestConfig, { count: 2, index: 1 });

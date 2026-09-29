@@ -5,7 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { findWorkspaceSrcAliasViolations } from '../verify-workspace-src-aliases.mjs';
+import {
+  findWorkspaceSrcAliasViolations,
+  loadConfigProjects,
+  resolveThroughAliases,
+} from '../verify-workspace-src-aliases.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -142,7 +146,7 @@ test('BLIND SPOT: a second runnable config (mutation lane) is checked too', asyn
   );
 });
 
-test('BLIND SPOT: each inline project is checked separately (no inheritance)', async () => {
+test('BLIND SPOT: project-local aliases do not leak to peer projects', async () => {
   const packagesRoot = await writeFixture({
     'alpha/src/index.ts': "import { thing } from '@brainstrike/beta';\nexport const x = thing;\n",
   });
@@ -377,5 +381,63 @@ test('CLASSIFIER: CJS require(...) is a runtime import', async () => {
   assert.deepEqual(
     violations.map((v) => v.specifier),
     ['@brainstrike/beta']
+  );
+});
+
+test('Vitest 5 inline projects inherit root aliases unless extends is false', async () => {
+  const packagesRoot = await writeFixture({
+    'alpha/src/index.ts': "import { thing } from '@brainstrike/beta'; export const x = thing;",
+  });
+  const configPath = path.join(packagesRoot, 'alpha/vitest.config.mjs');
+  const target = JSON.stringify(path.join(packagesRoot, 'beta/src/index.ts'));
+  await writeFile(
+    configPath,
+    `export default {
+    resolve: { alias: { '@brainstrike/beta': ${target} } },
+    test: { projects: [{ test: { name: 'inherits' } }, { extends: false, test: { name: 'isolated' } }] }
+  };`
+  );
+  const violations = await findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot });
+  assert.deepEqual(
+    violations.map(({ project }) => project),
+    ['isolated']
+  );
+});
+
+test('Vitest 5 object aliases retain root prefix order when projects add subpaths', async () => {
+  const packagesRoot = await writeFixture();
+  const configPath = path.join(packagesRoot, 'alpha/vitest.config.mjs');
+  await writeFile(
+    configPath,
+    `export default {
+    resolve: { alias: { '@brainstrike/beta': '/root-prefix' } },
+    test: { projects: [{ resolve: { alias: { '@brainstrike/beta/sub': '/project-subpath' } }, test: { name: 'unit' } }] }
+  };`
+  );
+  const [project] = await loadConfigProjects(configPath);
+  assert.equal(
+    resolveThroughAliases('@brainstrike/beta/sub', project.aliasEntries),
+    '/root-prefix/sub'
+  );
+});
+
+test('inline projects extending a config file use that files aliases instead of the root', async () => {
+  const packagesRoot = await writeFixture();
+  const configPath = path.join(packagesRoot, 'alpha/vitest.config.mjs');
+  await writeFile(
+    path.join(packagesRoot, 'alpha/other.mjs'),
+    "export default { resolve: { alias: { '@brainstrike/beta': '/external-source' } } };"
+  );
+  await writeFile(
+    configPath,
+    `export default {
+    resolve: { alias: { '@brainstrike/beta': '/root-source' } },
+    test: { projects: [{ extends: './other.mjs', test: { name: 'unit' } }] }
+  };`
+  );
+  const [project] = await loadConfigProjects(configPath);
+  assert.equal(
+    resolveThroughAliases('@brainstrike/beta', project.aliasEntries),
+    '/external-source'
   );
 });

@@ -10,7 +10,15 @@ export type ThreadSearchStatus = 'idle' | 'searching' | 'results' | 'error';
  * never clobber or resurrect state. Session-only; registered with factory
  * reset in `register-factory-reset-session-stores.ts`.
  */
+export interface ThreadSearchNavigationTarget {
+  readonly messageId: string;
+  readonly ownerResourceId: string;
+  readonly requestId: number;
+  readonly threadId: string;
+}
+
 interface ThreadSearchState {
+  beginNavigation: () => number;
   /** Starts a run: bumps `generation` and returns it for async completion tagging. */
   beginSearch: () => number;
   /**
@@ -30,7 +38,11 @@ interface ThreadSearchState {
   error: string | null;
   /** No-op unless `generation` still matches the current run. */
   failSearch: (message: string, generation: number) => void;
+  finishNavigation: (requestId: number, error?: string) => void;
   generation: number;
+  navigationError: string | null;
+  navigationRevision: number;
+  navigationTarget: ThreadSearchNavigationTarget | null;
   query: string;
   recordCoverage: (coverage: ThreadSearchCoverage) => void;
   reset: () => void;
@@ -47,6 +59,7 @@ interface ThreadSearchState {
    * downgrade).
    */
   semantic: ThreadSearchSemanticState;
+  setNavigationTarget: (target: ThreadSearchNavigationTarget) => void;
   setQuery: (query: string) => void;
   status: ThreadSearchStatus;
 }
@@ -62,12 +75,18 @@ const initialState = {
   coverage: null,
   error: null,
   generation: 0,
+  navigationError: null,
+  navigationRevision: 0,
+  navigationTarget: null,
   query: '',
   results: null,
   semantic: SEMANTIC_UNUSED,
   status: 'idle' as const,
 } satisfies Omit<
   ThreadSearchState,
+  | 'beginNavigation'
+  | 'setNavigationTarget'
+  | 'finishNavigation'
   | 'beginSearch'
   | 'clearResults'
   | 'clearSearch'
@@ -80,6 +99,11 @@ const initialState = {
 
 export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
   ...initialState,
+  beginNavigation: () => {
+    const navigationRevision = get().navigationRevision + 1;
+    set({ navigationError: null, navigationRevision, navigationTarget: null });
+    return navigationRevision;
+  },
   beginSearch: () => {
     const generation = get().generation + 1;
     set({ error: null, generation, status: 'searching' });
@@ -89,6 +113,9 @@ export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
     set((state) => ({
       error: null,
       generation: state.generation + 1,
+      navigationError: null,
+      navigationRevision: state.navigationRevision + 1,
+      navigationTarget: null,
       results: null,
       semantic: SEMANTIC_UNUSED,
       status: 'idle',
@@ -97,6 +124,9 @@ export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
     set((state) => ({
       error: null,
       generation: state.generation + 1,
+      navigationError: null,
+      navigationRevision: state.navigationRevision + 1,
+      navigationTarget: null,
       query: '',
       results: null,
       semantic: SEMANTIC_UNUSED,
@@ -104,13 +134,28 @@ export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
     })),
   failSearch: (message, generation) =>
     set((state) => (state.generation === generation ? { error: message, status: 'error' } : {})),
+  finishNavigation: (requestId, error) =>
+    set((state) =>
+      state.navigationRevision === requestId
+        ? { navigationError: error ?? null, navigationTarget: null }
+        : {}
+    ),
   recordCoverage: (coverage) => set({ coverage }),
   // Keep `generation` monotonic across resets so a run started before the
   // reset can never match a run started after it.
-  reset: () => set((state) => ({ ...initialState, generation: state.generation + 1 })),
+  reset: () =>
+    set((state) => ({
+      ...initialState,
+      generation: state.generation + 1,
+      navigationRevision: state.navigationRevision + 1,
+    })),
   resolveResults: (results, semantic, generation) =>
     set((state) =>
       state.generation === generation ? { results: [...results], semantic, status: 'results' } : {}
+    ),
+  setNavigationTarget: (target) =>
+    set((state) =>
+      state.navigationRevision === target.requestId ? { navigationTarget: target } : {}
     ),
   setQuery: (query) => set({ query }),
 }));

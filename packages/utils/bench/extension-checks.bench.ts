@@ -1,4 +1,4 @@
-import { bench, describe } from 'vitest';
+import { describe, test } from 'vitest';
 import {
   getFileExtension,
   isBinaryExtension,
@@ -39,61 +39,87 @@ const extensionInputs = {
 };
 
 describe('getFileExtension', () => {
-  bench('simple filename', () => {
-    getFileExtension(extensionInputs.simple);
+  test('simple filename', async ({ bench }) => {
+    await bench('simple filename', () => {
+      getFileExtension(extensionInputs.simple);
+    }).run();
   });
 
-  bench('long path', () => {
-    getFileExtension(extensionInputs.long);
+  test('long path', async ({ bench }) => {
+    await bench('long path', () => {
+      getFileExtension(extensionInputs.long);
+    }).run();
   });
 
-  bench('hidden file (no extension)', () => {
-    getFileExtension(extensionInputs.hidden);
+  test('hidden file (no extension)', async ({ bench }) => {
+    await bench('hidden file (no extension)', () => {
+      getFileExtension(extensionInputs.hidden);
+    }).run();
   });
 
-  bench('hidden file with extension', () => {
-    getFileExtension(extensionInputs.hiddenWithExt);
+  test('hidden file with extension', async ({ bench }) => {
+    await bench('hidden file with extension', () => {
+      getFileExtension(extensionInputs.hiddenWithExt);
+    }).run();
   });
 
-  bench('no extension', () => {
-    getFileExtension(extensionInputs.noExt);
+  test('no extension', async ({ bench }) => {
+    await bench('no extension', () => {
+      getFileExtension(extensionInputs.noExt);
+    }).run();
   });
 
-  bench('multi-dot filename', () => {
-    getFileExtension(extensionInputs.multiDot);
+  test('multi-dot filename', async ({ bench }) => {
+    await bench('multi-dot filename', () => {
+      getFileExtension(extensionInputs.multiDot);
+    }).run();
   });
 
-  bench('Windows path', () => {
-    getFileExtension(extensionInputs.windows);
+  test('Windows path', async ({ bench }) => {
+    await bench('Windows path', () => {
+      getFileExtension(extensionInputs.windows);
+    }).run();
   });
 });
 
 describe('isTextExtension', () => {
-  bench('normalized extensions', () => {
-    runExtensionChecks(normalizedTextExtensions, isTextExtension);
+  test('normalized extensions', async ({ bench }) => {
+    await bench('normalized extensions', () => {
+      runExtensionChecks(normalizedTextExtensions, isTextExtension);
+    }).run();
   });
 
-  bench('unnormalized extensions', () => {
-    runExtensionChecks(unnormalizedTextExtensions, isTextExtension);
+  test('unnormalized extensions', async ({ bench }) => {
+    await bench('unnormalized extensions', () => {
+      runExtensionChecks(unnormalizedTextExtensions, isTextExtension);
+    }).run();
   });
 });
 
 describe('isBinaryExtension', () => {
-  bench('normalized extensions', () => {
-    runExtensionChecks(normalizedBinaryExtensions, isBinaryExtension);
+  test('normalized extensions', async ({ bench }) => {
+    await bench('normalized extensions', () => {
+      runExtensionChecks(normalizedBinaryExtensions, isBinaryExtension);
+    }).run();
   });
 
-  bench('unnormalized extensions', () => {
-    runExtensionChecks(unnormalizedBinaryExtensions, isBinaryExtension);
+  test('unnormalized extensions', async ({ bench }) => {
+    await bench('unnormalized extensions', () => {
+      runExtensionChecks(unnormalizedBinaryExtensions, isBinaryExtension);
+    }).run();
   });
 });
 
 describe('file wrappers', () => {
-  bench('isTextFile', () => {
-    runExtensionChecks(textFileNames, isTextFile);
+  test('isTextFile', async ({ bench }) => {
+    await bench('isTextFile', () => {
+      runExtensionChecks(textFileNames, isTextFile);
+    }).run();
   });
 
-  bench('isBinaryFile', () => {
-    runExtensionChecks(binaryFileNames, isBinaryFile);
+  test('isBinaryFile', async ({ bench }) => {
+    await bench('isBinaryFile', () => {
+      runExtensionChecks(binaryFileNames, isBinaryFile);
+    }).run();
   });
 });

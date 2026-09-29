@@ -1,10 +1,11 @@
 /**
- * Mastra agent streaming (BST-742): the stream entry points
+ * Mastra agent streaming (BST-742): the public stream entry points
  * (`streamMastraAgent`, `streamMastraToolApprovalAction`,
- * `streamMastraToolResumeAction`, `listSuspendedMastraRuns`), the R6 stream-part
- * dispatch, and the tool-loop option machinery they share. Runtime ASSEMBLY
- * (the factory + tool pipeline) lives in `agent-runtime.ts` /
- * `runtime-assembly/`; this module depends on it, never the reverse.
+ * `streamMastraToolResumeAction`), the R6 stream-part dispatch
+ * (`processMastraStreamPart`), and the per-attempt chunk generator
+ * (`streamAttemptChunks`). Runtime ASSEMBLY (the factory + tool pipeline)
+ * lives in `agent-runtime.ts` / `runtime-assembly/`; this module depends on
+ * it, never the reverse.
  *
  * The mapping concerns the dispatch delegates to (BST-986): run-event minting in
  * `stream-run-event-chunks.ts`, tool-lifecycle state + tool/delegation mapping in
@@ -16,80 +17,90 @@
  * disposition inventory, `processMastraStreamPart`, and
  * `warnForUnrecognizedMastraStreamPart`.
  *
+ * BST-1649 split four concerns out of what was one 3,731-line file:
+ * thread-title generation (`thread-title-generation.ts`, called from
+ * `streamAttemptChunks` via `ensureMastraThreadTitleGeneration`), the
+ * stream-option builders (`runtime-assembly/stream-options.ts`), the
+ * turn/attempt model + three attempt-leg factories (`turn-attempts.ts` /
+ * `attempt-legs.ts`, whose entry points this module imports and which import
+ * `streamAttemptChunks` back — see `turn-attempts.ts`'s module doc), and
+ * suspended-run discovery (`suspended-run-discovery.ts`, including
+ * `listSuspendedMastraRuns`).
+ *
  * See docs/agents/assistant-runtime.md and docs/agents/mastra-boundary.md R6.
  */
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import {
-  getLlmModelDefinition,
-  listProviderLlmModels,
-  resolveOpenRouterCodingMaxOutputTokens,
-  resolveOpenRouterOutputWindow,
-  resolveOpenRouterReasoningActive,
+  AdmittedChildConfigurationError,
+  readAssistantChildSignalContents,
+  readAssistantRunEvent,
 } from '@brainstrike/assistant-contract';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
-import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
-import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  type AssistantToolApprovalAction,
+  isAssistantToolApprovalAnswered,
+} from '@brainstrike/assistant-contract/tool-approval';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
-import type {
-  Agent,
-  AgentMemoryOption,
-  DelegationConfig,
-  MastraDBMessage,
-} from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
-import { SkillsProcessor } from '@mastra/core/processors';
-import { RequestContext } from '@mastra/core/request-context';
 import type { ChunkType } from '@mastra/core/stream';
-import { canOverwriteThreadTitle } from '../pglite-mastra-memory/thread-title-policy';
-import { attachThreadTitleSaveAbortSignal } from '../pglite-mastra-memory/thread-title-save-cancellation';
-import {
-  extractProviderRunError,
-  isContextOverflowProviderErrorCode,
-} from '../provider-error-metadata';
+import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from '../providers/native-web-search';
-import {
-  type ModelProviderOptions,
-  wrapModelWithCallTransform,
-} from '../providers/prompt-transform-proxy';
 import { getDefaultModel } from '../providers/provider-factory';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
-import { type StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
 import {
-  ToolCallInputStreamingTimeoutError,
-  withToolCallInputTimeout,
-} from '../stream/with-tool-call-input-timeout';
-import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
+  type HeldWorkWatch,
+  type StreamInactivityOptions,
+  type StreamStalledError,
+  withInactivityTimeout,
+} from '../stream/with-inactivity-timeout';
+import { withToolCallInputTimeout } from '../stream/with-tool-call-input-timeout';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
   AgentMessage,
+  ConversationStreamChunk,
   RuntimeData,
   StreamChunk,
   StreamChunkTool,
+  StreamChunkToolApprovalAnswered,
   StreamIterator,
 } from '../types';
+import type { AbortedTurnPersistence } from './aborted-turn-persistence';
 import {
-  type AbortedTurnPersistence,
-  attachAbortedTurnMessageList,
-  createAbortedTurnPersistence,
-} from './aborted-turn-persistence';
-import {
-  convertMessagesToMastra,
   createMastraAgentRuntime,
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
 } from './agent-runtime';
-import { buildBedrockMessageHygieneInputProcessor } from './bedrock-message-hygiene';
-import { buildCompactionOverlayInputProcessor } from './compaction-overlay-processor';
-import { buildProviderHistoryCompatInputProcessor } from './error-processors';
-import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
+import {
+  createStreamIteratorFromRuntime,
+  createToolApprovalIteratorFromRuntime,
+  createToolResumeIteratorFromRuntime,
+  readResumedApprovalToolCall,
+  validateToolApprovalAction,
+  validateToolResumeAction,
+} from './attempt-legs';
+import { describeChildExecutionEnd } from './background-child-watchdog';
+import { readTaskEvent } from './background-idle-loop';
+import { projectBackgroundStream } from './background-stream';
+import {
+  createChildContinuationDecisionStream,
+  createChildFollowupStream,
+} from './child-continuation';
+import { readChildContinuationUserMessage } from './child-continuation-user-message';
+import { withDelegatedPersonaSnapshots } from './delegated-persona-snapshots';
+import type { DelegatedRunIdentity } from './delegated-run-publication';
+import { DELEGATED_STEP_USAGE_PART } from './delegated-step-usage';
+import { createDelegatedStreamProjection } from './delegated-stream-projection';
+import { DELEGATED_SYNTHESIS_PART } from './delegated-synthesis-outcomes';
+import { captureDelegatedSystemContext } from './delegated-system-context';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import {
   asMastraStreamPart,
@@ -104,15 +115,17 @@ import {
   resolveTripwire,
   truncateStreamDetail,
 } from './mastra-chunk-decoding';
-import { makeMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
+import {
+  createMastraStreamPartRouter,
+  hasExecutionGuardBehindToolCall,
+  resolveMastraProducerOptions,
+} from './mastra-watchdog-options';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
-import { buildOpenAIDuplicateItemCompatInputProcessor } from './openai-duplicate-item-compat';
-import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './openai-tool-search-history-compat';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
-import { ProjectionAwareTokenLimiter } from './projection-aware-token-limiter';
-import type { ProjectionSafeToolCallFilter } from './projection-safe-tool-call-filter';
-import { computePromptBreakdown } from './prompt-breakdown';
-import { createAssistantMessageIdGenerator } from './runtime-assembly/assistant-message-id';
+import { buildRootLegPromptManifest } from './prompt-manifest-root-leg';
+import { drainProviderCallWarningChunks } from './provider-warning-run-events';
+import { withRootPauseNotices } from './root-pause-notices';
+import { assertNoUnsupportedDirectStreamOptions } from './runtime-assembly/stream-options';
 import {
   accumulateSteppedUsage,
   readOpenRouterBilledCost,
@@ -123,35 +136,33 @@ import {
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
 import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
+import { makeRunEventChunk, makeToolCallsFinishChunk } from './stream-run-event-chunks';
 import {
-  makeErrorFinishChunk,
-  makeRunDetailEventChunk,
-  makeRunEventChunk,
-  makeRunFailedChunk,
-  makeSyntheticFinishChunk,
-} from './stream-run-event-chunks';
+  drainDelegationUsageChunks,
+  drainTokenEstimateCalibrationChunk,
+  drainToolCallTelemetryChunks,
+  logStreamOutcome,
+  logTokenDiagnostics,
+  makeMissingFinishStreamChunks,
+} from './stream-telemetry-drains';
 import {
   EmptyModelResponseError,
   isStreamWatchdogError,
+  makeDelegatedStreamTermination,
   makeProviderErrorTermination,
-  makeStreamWatchdogTermination,
   makeTripwireTermination,
 } from './stream-termination';
-import {
-  createDelegationConfig,
-  createDelegationLifecycleTracker,
-  createDelegationOutcomeCapture,
-  type DelegationOutcomeCapture,
-} from './subagent-delegation';
+import { ensureMastraThreadTitleGeneration } from './thread-title-generation';
 import { makeApprovalRequiredChunks, makeToolSuspendRequiredChunks } from './tool-approval-chunks';
+import { readMastraStreamPartString, readMastraStreamPartValue } from './tool-event-mapper';
 import {
   COMPLETED_FINISH_REASONS,
-  createDelegationUsageCapture,
   type DelegationUsageCapture,
   makeCancelledDelegationRunEventChunks,
   makeFinishChunk,
   makeLifecycleStepMetadata,
   makePendingToolOutputRunEventChunks,
+  makeStepFinishedMetadata,
   makeTerminalRunEvent,
   makeToolLifecycleRunEventChunk,
   mapDelegationToolOutput,
@@ -162,18 +173,13 @@ import {
   resolveDelegationPersona,
   type ToolLifecycleState,
 } from './tool-lifecycle-processors';
-import { buildToolProjectionRewriteInputProcessor } from './tool-projection-rewrite-processor';
-import type { BrainstrikeToolSearchProcessor } from './tool-search-runtime';
+import {
+  createTurnAttemptLifecycleState,
+  type StreamAbortContext,
+  settleStreamCleanup,
+} from './turn-attempts';
 
 const logger = createLogger('MastraAgent');
-const MASTRA_THREAD_TITLE_LIFECYCLE_TIMEOUT_MS = 30_000;
-
-class MastraThreadTitleTimeoutError extends Error {
-  constructor() {
-    super('Mastra thread title generation exceeded its lifecycle budget.');
-    this.name = 'MastraThreadTitleTimeoutError';
-  }
-}
 
 type DynamicMastraChunkType =
   | `agent-execution-event-${string}`
@@ -181,13 +187,16 @@ type DynamicMastraChunkType =
   | `workflow-execution-event-${string}`;
 type MastraChunkTypeMustStayLiteral = string extends ChunkType['type'] ? never : unknown;
 type StaticMastraChunkType = Exclude<ChunkType['type'], DynamicMastraChunkType>;
-type MastraStaticChunkDisposition = 'ignored' | 'mapped';
+type MastraStaticChunkDisposition = 'ignored' | 'mapped' | 'normalized';
 
 /**
  * A complete disposition inventory for Mastra's exported static chunk union.
  * `satisfies` makes a newly-added literal chunk type a type-check failure at
  * upgrade time. `ignored` is a deliberate no-output decision; `mapped` means
- * the switch below must consume the type. Dynamic chunk families remain
+ * the switch below must consume the type. `normalized` must be consumed by
+ * the native background transport adapter before this dispatch; an escaped
+ * normalized part receives the same coded diagnostic as an unmapped part.
+ * Dynamic chunk families remain
  * observable at runtime because an unhandled member has no disposition.
  */
 const MASTRA_STATIC_CHUNK_DISPOSITIONS = {
@@ -197,15 +206,16 @@ const MASTRA_STATIC_CHUNK_DISPOSITIONS = {
   'agent-execution-end': 'ignored',
   'agent-execution-start': 'ignored',
   'agent-execution-suspended': 'ignored',
-  'background-task-cancelled': 'ignored',
-  'background-task-completed': 'ignored',
-  'background-task-failed': 'ignored',
-  'background-task-output': 'ignored',
+  'background-task-cancelled': 'normalized',
+  'background-task-completed': 'normalized',
+  'background-task-failed': 'normalized',
+  'background-task-output': 'normalized',
   'background-task-progress': 'ignored',
-  'background-task-resumed': 'ignored',
-  'background-task-running': 'ignored',
-  'background-task-started': 'ignored',
-  'background-task-suspended': 'ignored',
+  'background-task-resumed': 'normalized',
+  'background-task-running': 'normalized',
+  'background-task-started': 'normalized',
+  'background-task-suspended': 'normalized',
+  custom: 'ignored',
   error: 'mapped',
   file: 'ignored',
   finish: 'mapped',
@@ -222,6 +232,7 @@ const MASTRA_STATIC_CHUNK_DISPOSITIONS = {
   raw: 'ignored',
   'reasoning-delta': 'mapped',
   'reasoning-end': 'ignored',
+  'reasoning-file': 'ignored',
   'reasoning-signature': 'ignored',
   'reasoning-start': 'ignored',
   'redacted-reasoning': 'ignored',
@@ -452,7 +463,20 @@ function absorbEmptyAttemptSpend(part: unknown, lifecycleState: ToolLifecycleSta
   lifecycleState.sawStepWithoutBilledCost = true;
 }
 
-async function processMastraStreamPart(
+/**
+ * A host-owned run event published into the running leg (the background
+ * ledger row, `background-ledger.ts`). Mastra never emits this type; a
+ * malformed one is refused rather than forwarded.
+ */
+function mapHostRunEventPart(rawEvent: unknown): ProcessStreamPartResult {
+  const event = readAssistantRunEvent(rawEvent);
+  if (!event) {
+    throw new Error('A host run-event chunk is malformed.');
+  }
+  return { chunks: [{ event, type: 'run-event' }], finished: false };
+}
+
+export async function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
   lifecycleState: ToolLifecycleState,
@@ -475,6 +499,52 @@ async function processMastraStreamPart(
   }
 
   switch (p.type) {
+    // The delegated projection has already validated and metered this published child.
+    case DELEGATED_STEP_USAGE_PART:
+    // ...and turned this reserved-synthesis outcome into the owner child's
+    // `delegation.budget.exhausted` run event; the root stream carries nothing.
+    case DELEGATED_SYNTHESIS_PART:
+      return { chunks: [], finished: false };
+    // A background child's task is parked in storage; its withheld card is
+    // released by `releaseParkedNotices` on this same part. Its resume drops
+    // the held pause terminal (`dropHeldPauseFinish`).
+    case 'background-task-suspended':
+    case 'background-task-resumed':
+      return { chunks: [], finished: false };
+    // The host's own answer to a card, published into the running leg by a
+    // live decision (`live-decisions.ts`); the same chunk an approval leg
+    // yields ahead of its resumed children.
+    case 'tool-approval-answered': {
+      const { type: _type, ...answered } = p as { type: string } & Record<string, unknown>;
+      if (!isAssistantToolApprovalAnswered(answered)) {
+        throw new Error('A live tool-approval-answered chunk is malformed.');
+      }
+      return { chunks: [{ ...answered, type: 'tool-approval-answered' }], finished: false };
+    }
+    case 'run-event':
+      return mapHostRunEventPart((p as { event?: unknown }).event);
+    case 'data-signal':
+      // Native notifications are persisted as model context. Their actual model
+      // response follows on this stream; they are not an extra user/assistant row.
+      return { chunks: [], finished: false };
+    case 'data-user-message': {
+      const data = readMastraStreamPartValue(p, 'data');
+      const continuation = readChildContinuationUserMessage(data);
+      if (!continuation) {
+        return { chunks: [], finished: false };
+      }
+      return {
+        chunks: [
+          {
+            createdAt: continuation.createdAt,
+            id: continuation.id,
+            ...readAssistantChildSignalContents(continuation.contents),
+            type: 'child-user-message',
+          },
+        ],
+        finished: false,
+      };
+    }
     case 'start':
       return {
         chunks: [
@@ -529,7 +599,7 @@ async function processMastraStreamPart(
         'run.step.finished',
         'completed',
         'Generation step completed',
-        makeLifecycleStepMetadata(part, lifecycleState)
+        makeStepFinishedMetadata(part, lifecycleState)
       );
       if (lifecycleState.steering?.stopRequested()) {
         // NOTE: an OpenRouter run whose boundary step omitted its billed cost
@@ -656,8 +726,11 @@ async function processMastraStreamPart(
     case 'tool-call-input-streaming-end':
       return mapGenericToolEvent(part, toolNames, lifecycleState, p.type, sanitizedNameMap);
     case 'tool-call-approval':
-      // Stop at the first approval pause and surface resumable metadata. Later
-      // stream parts are only valid after an explicit approve/decline action.
+      // The pause is the terminal of its OWNER's leg: a child's pause finishes
+      // that child's projected stream. The ROOT loop (`streamAttemptChunks`)
+      // surfaces the notice and keeps reading, because Mastra's foreach runs
+      // the step's remaining calls after one suspends; the leg ends once, at
+      // native close.
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
@@ -667,8 +740,8 @@ async function processMastraStreamPart(
       };
     case 'tool-call-suspended':
       // A suspending tool (submitPlan/askUser) paused via suspend(). Surface the
-      // resumable suspend metadata and STOP at the pause; later stream parts are
-      // only valid after an explicit resume (streamMastraToolResumeAction).
+      // resumable suspend metadata; the root loop reads on to native close, the
+      // same as an approval pause (an explicit resume answers it later).
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
@@ -825,7 +898,7 @@ interface RuntimeInitializationResult {
   sanitizedNameMap?: Map<string, string>;
 }
 
-async function initializeMastraRuntime(
+export async function initializeMastraRuntime(
   options: MastraAgentRuntimeOptions,
   runtimeResolution: ResolvedRuntimeConfiguration
 ): Promise<RuntimeInitializationResult> {
@@ -857,7 +930,7 @@ async function initializeMastraRuntime(
       code: 'mastra_agent_runtime_init_failed',
       error: err instanceof Error ? err.message : String(err),
     });
-    if (isMastraAgentError(err)) {
+    if (err instanceof AdmittedChildConfigurationError || isMastraAgentError(err)) {
       throw err;
     }
     const errorDetail = err instanceof Error ? err.message : undefined;
@@ -868,17 +941,11 @@ async function initializeMastraRuntime(
   }
 }
 
-interface StreamIterationParams {
-  memory?: MastraMemory;
-  messages: AgentMessage[];
-  requireToolApproval?: boolean;
-  runtime: MastraAgentRuntime;
-  runtimeData?: RuntimeData;
-  sanitizedNameMap?: Map<string, string>;
-}
-
 interface StreamGeneratorParams {
   abortedTurnPersistence: AbortedTurnPersistence | undefined;
+  /** Parked sibling approvals this leg answered under a session grant. */
+  answeredApprovals?: readonly StreamChunkToolApprovalAnswered[];
+  completeNativeStream: () => Promise<unknown>;
   /** Child-usage bridge for this leg's delegation config (personas enabled only). */
   delegationUsage?: DelegationUsageCapture;
   /**
@@ -894,7 +961,15 @@ interface StreamGeneratorParams {
    * honestly omit it rather than re-emitting a partial figure).
    */
   promptBreakdown?: AssistantContextBreakdown;
+  /**
+   * Mastra's synchronous run status, read at native close. `suspended` there
+   * means the run is parked on the user even when this leg raised no pause of
+   * its own (a resumed leg whose sibling calls stay suspended), so the leg ends
+   * as a `tool-calls` pause rather than a missing finish.
+   */
+  readNativeStatus: () => string | undefined;
   resumedApprovalToolCall?: ResumedApprovalToolCall;
+  resumedDelegatedToolCalls?: readonly NonNullable<ResumedApprovalToolCall['delegatedLeaf']>[];
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   sanitizedNameMap?: Map<string, string>;
@@ -903,113 +978,21 @@ interface StreamGeneratorParams {
   titleMessages?: AgentMessage[];
 }
 
-interface StreamAbortContext {
-  abort: (reason: Error) => void;
-  dispose: () => void;
-  signal: AbortSignal;
-}
-
-function createStreamAbortContext(externalSignal: AbortSignal | undefined): StreamAbortContext {
-  const controller = new AbortController();
-  const forwardExternalAbort = (): void => {
-    controller.abort(externalSignal?.reason);
-  };
-
-  if (externalSignal?.aborted) {
-    forwardExternalAbort();
-  } else {
-    externalSignal?.addEventListener('abort', forwardExternalAbort, { once: true });
-  }
-
-  return {
-    abort: (reason) => {
-      if (!controller.signal.aborted) {
-        controller.abort(reason);
-      }
-    },
-    dispose: () => {
-      externalSignal?.removeEventListener('abort', forwardExternalAbort);
-    },
-    signal: controller.signal,
-  };
-}
-
-interface StreamResultLike {
-  fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
-}
-
-function createRuntimeAbortedTurnPersistence({
-  memory,
-  memoryOption,
-  runtimeData,
-  streamAbortContext,
-}: {
-  memory: MastraMemory | undefined;
-  memoryOption: AgentMemoryOption | undefined;
-  runtimeData: RuntimeData | undefined;
-  streamAbortContext: StreamAbortContext;
-}): AbortedTurnPersistence | undefined {
-  if (!(memoryOption && memory && runtimeData)) {
-    return;
-  }
-  if (memory.getMergedThreadConfig(memoryOption.options).readOnly) {
-    return;
-  }
-  return createAbortedTurnPersistence({
-    assistantMessageId: runtimeData.assistantMessageId ?? generateUUID(),
-    memory,
-    runtimeData,
-    shouldPersist: () =>
-      Boolean(runtimeData.signal?.aborted) ||
-      isStreamWatchdogError(streamAbortContext.signal.reason),
-  });
-}
-
-async function finalizeAbortedTurn(
-  abortedTurnPersistence: AbortedTurnPersistence | undefined
-): Promise<void> {
-  try {
-    await abortedTurnPersistence?.finalize();
-  } catch (error) {
-    logger.error(
-      {
-        code: 'mastra_agent_aborted_turn_persist_failed',
-        error: error instanceof Error ? error.message : String(error),
-      },
-      'failed to persist aborted Mastra turn'
-    );
-  }
-}
-
-// Derived from Agent.stream's 2-arg overload (introduced in @mastra/core 1.25 -- the
-// 1-arg overload now refuses `undefined` as the second arg, so callers must either
-// omit the second arg or pass real options). If a future Mastra bump exposes a
-// stable public StreamOptions type, prefer importing that directly over deriving it
-// from Parameters<>; the `as AgentStreamOptions` cast at the call sites is what
-// keeps this file from reaching across the overload boundary.
-type AgentStreamOptions = Exclude<
-  Extract<Parameters<Agent['stream']>, [unknown, unknown]>[1],
-  undefined
->;
-type AgentToolApprovalOptions = Parameters<Agent['approveToolCall']>[0];
-
-interface ToolApprovalIterationParams {
-  action: AssistantToolApprovalAction;
-  memory?: MastraMemory;
-  requireToolApproval?: boolean;
-  runtime: MastraAgentRuntime;
-  runtimeData?: RuntimeData;
-  sanitizedNameMap?: Map<string, string>;
-}
-
-interface ResumedToolCallStart {
+export interface ResumedToolCallStart {
   args: unknown;
   displayToolName: string;
   registeredToolName: string;
   toolCallId: string;
 }
 
-interface ResumedApprovalToolCall extends ResumedToolCallStart {
+export interface ResumedApprovalToolCall extends ResumedToolCallStart {
+  /** Actual approved tool, which may be inside the displayed delegation call. */
+  readonly approvedToolName: string;
+  /** Host-authorized ancestry and native suspended leaf, replayed before custom tool output. */
+  readonly delegatedLeaf?: {
+    readonly path: readonly DelegatedRunIdentity[];
+    readonly toolCall: ResumedToolCallStart;
+  };
   /**
    * The suspended step's OTHER pending calls (2026-08-24 field failure).
    * Mastra resume legs never replay the step's `tool-call` parts, and the
@@ -1098,365 +1081,518 @@ function* makeResumedStartChunks(
 }
 
 /**
- * Per-call approval decision, matching Mastra's `RequireToolApproval` union
- * (`boolean | (ctx) => boolean`). The function form gates approval per tool call;
- * the resume leg uses it to exempt Mastra-internal tools (see
- * {@link resolveResumeApprovalGate}).
+ * The ids of every call that will EXECUTE on a resume leg (BST-1777 final
+ * review, I1) — the approved call itself, plus its siblings (the suspended
+ * step's other pending, non-gated work; see {@link ResumedApprovalToolCall}).
+ * Mastra never replays the step's `tool-call` part on a resume leg, so
+ * without this the watchdog has no `started` boundary to observe and measures
+ * the whole execution against the provider's own silence budget instead of
+ * the tool-executing backstop.
+ *
+ * Filtered through the SAME allow-list rule as
+ * {@link createMastraToolExecutionPartKindReader} (a call this excludes rides
+ * the ordinary provider windows and stays recoverable, which is correct for
+ * it): a resumed call can never be provider-executed (a provider-executed
+ * tool has no local `execute` and therefore no suspend point to resume
+ * from), so this is really just the guarded-name membership check —
+ * `registeredToolName` must be a key of `guardedToolNames`.
  */
-type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
-
-interface BrainstrikeAgentStreamOptions {
-  abortSignal?: AbortSignal;
-  delegation?: DelegationConfig;
-  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
-  experimental_generateMessageId?: () => string;
-  inputProcessors?: unknown[];
-  maxSteps?: number;
-  memory?: AgentMemoryOption;
-  modelSettings?: RuntimeData['modelSettings'];
-  providerOptions?: RuntimeData['providerOptions'];
-  requireToolApproval?: ApprovalGate;
-}
-
-/**
- * Default OpenRouter output window when the client sent no explicit
- * `modelSettings.maxOutputTokens` (BST-1170). Reasoning tokens are output
- * tokens on OpenRouter, so the window is sized for the reasoning state the
- * request actually carries: an active-reasoning request on a catalogued model
- * with a vendor-documented completion window reserves that window; everything
- * else keeps the coding ceiling. Undeclared routes have no recorded facts and
- * keep the ceiling — the base contract, not a per-model guess.
- */
-function resolveOpenRouterBackstopMaxOutputTokens(runtimeData: RuntimeData): number {
-  const modelId = runtimeData.model?.trim() || getDefaultModel('openrouter');
-  const definition = listProviderLlmModels('openrouter').find(({ id }) => id === modelId);
-  if (!definition) {
-    return resolveOpenRouterCodingMaxOutputTokens();
-  }
-  const reasoning = runtimeData.providerOptions?.openrouter?.reasoning;
-  const explicitEffort = reasoning?.enabled === false ? 'none' : reasoning?.effort;
-  return resolveOpenRouterOutputWindow(
-    definition,
-    resolveOpenRouterReasoningActive(definition, explicitEffort)
-  );
-}
-
-function buildModelSettingsOption(
-  runtimeData: RuntimeData | undefined
-): Pick<BrainstrikeAgentStreamOptions, 'modelSettings'> {
-  let modelSettings = runtimeData?.modelSettings;
-  if (runtimeData?.provider === 'openrouter') {
-    modelSettings = {
-      maxOutputTokens: resolveOpenRouterBackstopMaxOutputTokens(runtimeData),
-      ...modelSettings,
-    };
-  } else if (runtimeData?.provider === 'local') {
-    const modelId = runtimeData.model?.trim() || getDefaultModel('local');
-    const definition = getLlmModelDefinition('local', modelId);
-    if (definition.maxOutputTokens === undefined) {
-      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-        context: { model: modelId, provider: 'local' },
-        detail: `Local model ${modelId} has no maxOutputTokens registry budget`,
-      });
-    }
-    modelSettings = {
-      maxOutputTokens: definition.maxOutputTokens,
-      ...modelSettings,
-    };
-  }
-  return modelSettings ? { modelSettings } : {};
-}
-
-/**
- * Keep Brainstrike's local-server transport settings out of Mastra generation
- * options. Mastra namespaces compatible-provider options by the model id's
- * first segment, so forwarding `providerOptions.ollama` or `.lmstudio` would
- * serialize `baseUrl` and `apiToken` into the chat-completions request body.
- */
-function buildGenerationProviderOptionsOption(
-  runtimeData: RuntimeData | undefined
-): Pick<BrainstrikeAgentStreamOptions, 'providerOptions'> {
-  const providerOptions = runtimeData?.providerOptions;
-  if (!providerOptions) {
-    return {};
-  }
-  if (providerOptions.ollama === undefined && providerOptions.lmstudio === undefined) {
-    return { providerOptions };
-  }
-
-  const generationProviderOptions = Object.fromEntries(
-    Object.entries(providerOptions).filter(
-      ([namespace]) => namespace !== 'ollama' && namespace !== 'lmstudio'
+function collectResumedGuardedToolCallIds(
+  resumed: ResumedApprovalToolCall,
+  guardedToolNames: ReadonlySet<string>
+): readonly string[] {
+  const calls: readonly ResumedToolCallStart[] = [resumed, ...resumed.siblings];
+  return calls
+    .filter((call) =>
+      hasExecutionGuardBehindToolCall(call.registeredToolName, false, guardedToolNames)
     )
-  ) as NonNullable<RuntimeData['providerOptions']>;
-  if (Object.keys(generationProviderOptions).length === 0) {
-    return {};
-  }
-  return { providerOptions: generationProviderOptions };
+    .map((call) => call.toolCallId);
 }
 
-function buildAssistantStreamMessageIdOption(runtimeData: RuntimeData | undefined): {
-  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
-  experimental_generateMessageId?: () => string;
+/**
+ * The Mastra-specific `withInactivityTimeout` options for one leg, including
+ * this leg's seed (absent on a fresh turn) — split out so
+ * `streamAttemptChunks` calls this once rather than carrying the branch
+ * itself (`exactOptionalPropertyTypes` forbids an explicit `undefined` on
+ * `initialToolCallIds`, so the branch has to live in a function that can omit
+ * the key entirely).
+ *
+ * @internal exported for tests
+ */
+export function resolveMastraInactivityOptions(
+  resumedApprovalToolCall: ResumedApprovalToolCall | undefined,
+  guardedToolNames: ReadonlySet<string>,
+  onTimeout: (error: StreamStalledError) => void,
+  heldWork: HeldWorkWatch | undefined
+): StreamInactivityOptions<unknown> {
+  return {
+    ...resolveMastraProducerOptions(guardedToolNames),
+    ...(heldWork ? { heldWork } : {}),
+    ...(resumedApprovalToolCall
+      ? {
+          initialToolCallIds: collectResumedGuardedToolCallIds(
+            resumedApprovalToolCall,
+            guardedToolNames
+          ),
+        }
+      : {}),
+    onTimeout,
+    routePart: createMastraStreamPartRouter(),
+  };
+}
+
+/**
+ * The child's ONE failed terminal when its execution ended on its own: its
+ * native deadline, or its own watchdog judging it stalled (with the stall's
+ * breadcrumb). Selected Stop is a cancellation and never reaches here.
+ */
+function makeExecutionEndTermination(state: ToolLifecycleState, reason: unknown): StreamChunk[] {
+  const { detail, metadata } = describeChildExecutionEnd(reason);
+  return makeDelegatedStreamTermination(state, false, detail, metadata);
+}
+
+export function createAttemptDelegatedProjection({
+  delegationUsage,
+  runtime,
+  runtimeData,
+  lifecycleState,
+  sanitizedNameMap,
+}: {
+  delegationUsage?: DelegationUsageCapture | undefined;
+  runtime: Pick<
+    MastraAgentRuntime,
+    | 'conversationBinding'
+    | 'personasById'
+    | 'delegationToolPersonas'
+    | 'askTools'
+    | 'delegatedExecutionOptions'
+  >;
+  runtimeData: RuntimeData | undefined;
+  lifecycleState: ToolLifecycleState;
+  sanitizedNameMap: Map<string, string> | undefined;
+}): {
+  decorate(chunk: StreamChunk): StreamChunk;
+  preparePart(part: unknown): unknown;
+  project(part: unknown, toolNames: Map<string, string>): Promise<StreamChunk[]>;
+  seedResumedToolCall(
+    resume: NonNullable<ResumedApprovalToolCall['delegatedLeaf']>
+  ): Promise<StreamChunk[]>;
+  settle(): StreamChunk[];
 } {
-  const assistantMessageId = runtimeData?.assistantMessageId;
-  if (!assistantMessageId) {
-    return {};
-  }
-  return {
-    // The stream and persistence paths each consume their own one-shot
-    // generator. Sharing one would make whichever Mastra path runs first force
-    // the other to a UUID, breaking visible/persisted identity alignment.
-    // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
-    experimental_generateMessageId: createAssistantMessageIdGenerator(assistantMessageId).generate,
-  };
-}
-
-/**
- * Matches the maximum user-selectable loop limit. The settings UI labels an
- * unset value as the default, so the runtime must not substitute a smaller
- * hidden cap that ends real coding tasks after only a handful of tool calls.
- */
-const DEFAULT_AGENT_MAX_STEPS = 100;
-const UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS = [
-  'activeTools',
-  'clientTools',
-  'inputProcessors',
-  'outputProcessors',
-  'prepareStep',
-  'structuredOutput',
-  'toolChoice',
-  'toolsets',
-] as const;
-
-function assertNoUnsupportedDirectStreamOptions(options: MastraAgentRuntimeOptions): void {
-  const providedUnsupportedKeys = UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS.filter((key) =>
-    Object.hasOwn(options, key)
-  );
-  if (providedUnsupportedKeys.length === 0) {
-    return;
-  }
-
-  throw createMastraAgentError('mastra_agent_unsupported_stream_option', {
-    context: { unsupportedOptions: providedUnsupportedKeys },
-    detail: `Unsupported Mastra stream option(s): ${providedUnsupportedKeys.join(', ')}`,
+  const delegatedProjection = createDelegatedStreamProjection({
+    authorize: runtime.conversationBinding?.bindRun,
+    createState: (personaId, threadId, identity) => {
+      const provider =
+        runtime.personasById.get(personaId)?.model?.provider ?? runtimeData?.provider;
+      // Children own their execution scope and must not consume parent steering.
+      const childState = createTurnAttemptLifecycleState(
+        { ...(provider ? { provider } : {}), memory: { threadId } },
+        undefined,
+        lifecycleState.toolExecutionDurations
+      );
+      if (lifecycleState.delegationOutcomes) {
+        childState.delegationOutcomes = lifecycleState.delegationOutcomes;
+      }
+      // A `length` finish on this child's reserved synthesis is a truncated
+      // completion only when the budget processor recorded it here.
+      const synthesisOutcomes = runtime.delegatedExecutionOptions?.synthesisOutcomes;
+      if (synthesisOutcomes) {
+        childState.synthesisOutcomes = synthesisOutcomes;
+      }
+      return {
+        ...childState,
+        cancellationSignal: runtime.conversationBinding?.getInvocationAbortSignal?.(identity),
+        get executionSignal() {
+          return runtime.conversationBinding?.getExecutionAbortSignal?.(identity);
+        },
+      };
+    },
+    isActiveToolCall: (state, toolCallId) =>
+      state.activeToolEvents?.has(toolCallId) === true &&
+      !state.terminalToolCallStates.has(toolCallId),
+    mapPart: async (childPart, state, childToolNames) => {
+      const executionSignal = state.executionSignal;
+      const result =
+        state.cancellationSignal?.aborted || runtimeData?.signal?.aborted
+          ? { chunks: makeDelegatedStreamTermination(state, true), finished: true }
+          : executionSignal?.aborted
+            ? { chunks: makeExecutionEndTermination(state, executionSignal.reason), finished: true }
+            : await processMastraStreamPart(
+                childPart,
+                childToolNames,
+                state,
+                sanitizedNameMap,
+                runtime.askTools,
+                runtime.delegationToolPersonas
+              );
+      return {
+        chunks: result.chunks.map((chunk) => {
+          if (
+            chunk.type === 'delegated-conversation-chunk' ||
+            chunk.type === 'child-continuation-chunk'
+          ) {
+            throw new Error('Child projection cannot contain an already-scoped chunk.');
+          }
+          return chunk;
+        }),
+        finished: result.finished,
+      };
+    },
+    onUsage: delegationUsage?.onPublishedChildUsage,
+    personas: runtime.delegationToolPersonas,
   });
-}
-
-function resolvePositiveIntegerOption(value: unknown, fieldName: string): number | undefined {
-  if (value === undefined || value === null) {
-    return;
-  }
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
-    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-      context: { fieldName, value },
-      detail: `${fieldName} must be a positive finite number`,
-    });
-  }
-  return Math.floor(value);
-}
-
-function buildToolLoopOptions(
-  runtimeData: RuntimeData | undefined,
-  toolSearchProcessor: BrainstrikeToolSearchProcessor | undefined,
-  toolHistoryFilter: ProjectionSafeToolCallFilter | undefined
-): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps'> {
-  const agentLoop = runtimeData?.agentLoop;
-  const maxSteps = resolvePositiveIntegerOption(agentLoop?.maxSteps, 'agentLoop.maxSteps');
-  const inputTokenLimit = resolvePositiveIntegerOption(
-    agentLoop?.inputTokenLimit,
-    'agentLoop.inputTokenLimit'
-  );
-  // ProviderHistoryCompat's PREEMPTIVE `processLLMRequest` rules (strip
-  // foreign/unsupported reasoning before a provider that would reject it — the
-  // only place cross-provider reasoning incompatibility is handled) fire ONLY
-  // from `inputProcessors`, never `errorProcessors` (verified against the
-  // compiled loop). It rides the SAME per-call array as the TokenLimiter so the
-  // per-call replacement doesn't drop either; their hooks are disjoint stages,
-  // so token trimming is unaffected. Excluded for the local provider.
-  const historyCompat = buildProviderHistoryCompatInputProcessor(runtimeData?.provider ?? '');
-  const openAIToolSearchHistoryCompat = buildOpenAIToolSearchHistoryCompatInputProcessor(
-    runtimeData?.provider ?? ''
-  );
-  // BST-1354: Converse-API shape rules (no empty text/reasoning blocks,
-  // constrained tool-call ids) applied to the REPLAYED prompt only. Runs after
-  // the history-compat rewrites so it also cleans whatever they produced.
-  const bedrockMessageHygiene = buildBedrockMessageHygieneInputProcessor(
-    runtimeData?.provider ?? ''
-  );
-  // Mastra's sealed-boundary re-key can leave the same assistant response
-  // persisted under two message ids; OpenAI rejects any request that carries
-  // an item id twice (BST-1095). Runs LAST among the compat processors so it
-  // sees the item references the earlier rewrites produced.
-  const openAIDuplicateItemCompat = buildOpenAIDuplicateItemCompatInputProcessor(
-    runtimeData?.provider ?? ''
-  );
-  const toolProjectionRewrite = buildToolProjectionRewriteInputProcessor(
-    runtimeData?.toolProjectionRewriteLookup,
-    runtimeData?.memory?.threadId
-  );
-  const compactionOverlay = buildCompactionOverlayInputProcessor(
-    runtimeData?.compactionOverlayLookup,
-    runtimeData?.memory?.threadId
-  );
-  const tokenLimiter = inputTokenLimit
-    ? new ProjectionAwareTokenLimiter({
-        limit: inputTokenLimit,
-        strategy: 'truncate',
-        trimMode: 'contiguous',
+  const settle = () =>
+    delegatedProjection?.finalize((state) =>
+      (state.cancellationSignal?.aborted || runtimeData?.signal?.aborted
+        ? makeDelegatedStreamTermination(state, true)
+        : state.executionSignal?.aborted
+          ? makeExecutionEndTermination(state, state.executionSignal.reason)
+          : makeDelegatedStreamTermination(state, false)
+      ).map((chunk) => {
+        if (
+          chunk.type === 'delegated-conversation-chunk' ||
+          chunk.type === 'child-continuation-chunk'
+        ) {
+          throw new Error('A child terminal cannot contain an already-scoped chunk.');
+        }
+        return chunk;
       })
-    : undefined;
-  // Agent Skills metadata injection (progressive disclosure level 1): Mastra's
-  // own SkillsProcessor puts the <available_skills> block into the system
-  // message each input step. It rides the SAME per-call inputProcessors array
-  // as the TokenLimiter (per-call options REPLACE the Agent-config array, so it
-  // cannot live on the Agent config) and runs FIRST so the limiter counts the
-  // injected block. Excluded for the built-in local provider — mirrors the
-  // tool-map gate in createMastraAgentRuntime.
-  const skillsProcessor =
-    runtimeData?.workspaceSkills && runtimeData.provider !== 'local'
-      ? new SkillsProcessor({ skills: runtimeData.workspaceSkills })
-      : undefined;
-  const inputProcessors: unknown[] = [
-    skillsProcessor,
-    toolSearchProcessor,
-    toolHistoryFilter,
-    toolProjectionRewrite,
-    // Adjacent for readability only: processInputStep always runs before the
-    // rewrite processor's processLLMRequest, independent of array position.
-    compactionOverlay,
-    historyCompat,
-    openAIToolSearchHistoryCompat,
-    openAIDuplicateItemCompat,
-    bedrockMessageHygiene,
-    tokenLimiter,
-  ].filter((processor): processor is NonNullable<typeof processor> => processor !== undefined);
+    ) ?? [];
 
   return {
-    maxSteps: maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-    ...(inputProcessors.length > 0 ? { inputProcessors } : {}),
+    decorate: (chunk) =>
+      chunk.type === 'delegated-conversation-chunk' || chunk.type === 'child-continuation-chunk'
+        ? chunk
+        : (delegatedProjection?.decorate(chunk) ?? chunk),
+    preparePart: (part) => delegatedProjection?.preparePart(part) ?? part,
+    project: async (part, toolNames) => (await delegatedProjection?.project(part, toolNames)) ?? [],
+    seedResumedToolCall: async (resume) => {
+      if (!delegatedProjection) {
+        throw new Error('Delegated resume has no host-owned conversation binding.');
+      }
+      return await delegatedProjection.seedResumedToolCall(resume);
+    },
+    settle,
   };
 }
 
 /**
- * Name a raw Mastra part for the stall diagnostic. Knowing WHAT the provider
- * last sent before going quiet (`reasoning-delta` vs `tool-call-delta` vs
- * `step-start`) is the difference between diagnosing a stall from a debug
- * bundle and reconstructing it by inference (BST-1408).
+ * A resumable pause maps to its notice chunks plus a `tool-calls` finish. The
+ * finish belongs to the LEG, not to the pause: one leg can carry several pauses
+ * (a parallel delegation step pauses each child that hits its gate) and ends
+ * once, at native close. A resumable pause therefore resolves to its notice
+ * chunks alone with `finished: false`; every other part, including a malformed
+ * pause that terminates the leg with its own error chunks, passes unchanged.
  */
-function describeMastraStreamPartType(part: unknown): string | undefined {
-  if (typeof part !== 'object' || part === null) {
-    return;
+function resolveLegPart(
+  part: unknown,
+  mapped: { readonly chunks: readonly StreamChunk[]; readonly finished: boolean }
+): {
+  readonly chunks: readonly StreamChunk[];
+  readonly finished: boolean;
+  readonly paused: boolean;
+} {
+  const type = asMastraStreamPart(part).type;
+  const last = mapped.chunks.at(-1);
+  if (
+    !(mapped.finished && (type === 'tool-call-approval' || type === 'tool-call-suspended')) ||
+    last?.type !== 'message-finish' ||
+    last.finishReason !== 'tool-calls'
+  ) {
+    return { ...mapped, paused: false };
   }
-  const type = (part as { type?: unknown }).type;
-  // Bounded through the shared diagnostic formatter: the value is provider
-  // data, and a stall breadcrumb must not carry an unbounded string.
-  return typeof type === 'string' ? formatDiagnosticChunkType(type) : undefined;
+  return { chunks: mapped.chunks.slice(0, -1), finished: false, paused: true };
+}
+
+/** Which projected child a scoped chunk belongs to. */
+function scopedOwnerKey(chunk: StreamChunk): string | undefined {
+  switch (chunk.type) {
+    case 'delegated-conversation-chunk':
+      return JSON.stringify([chunk.identity.parentRuntimeRunId, chunk.identity.parentToolCallId]);
+    case 'child-continuation-chunk':
+      return chunk.continuationId;
+    default:
+      return;
+  }
 }
 
 /**
- * Mastra part types the FRAMEWORK emits at stream/step open, before the
- * provider is asked for anything.
+ * Chunks that EXPOSE a decision: the pause notice, its durable "awaiting your
+ * approval" row, and — for a paused CHILD's projected stream — the `tool-calls`
+ * finish that closes that child's leg behind the notice. A decision the user
+ * can act on must find a durable snapshot behind it, so these are withheld
+ * until the leg ends and its native completion join has succeeded
+ * (`docs/agents/assistant-runtime.md`, "Native suspension completion"). The
+ * root's own `tool-calls` finish never reaches this predicate: the leg strips
+ * it (`resolveLegPart`) and emits one at native close.
  *
- * Measured through the real loop (review of #2586): `start` lands at t+0ms and
- * `step-start` ~7ms later, while the provider's first real part follows
- * hundreds of milliseconds afterwards — and a fresh `step-start` opens every
- * subsequent step too. Counting these as "the provider started" would end the
- * wide first-output window within milliseconds and measure every real
- * time-to-first-token against the tight inter-output one, which is precisely
- * the failure this split exists to prevent.
+ * Provenance comes from the stream itself: the pause builder emits a child's
+ * notice and its `tool-calls` finish together, so a scoped finish is withheld
+ * only for a child whose notice this leg already withheld (`pausedOwners`). A
+ * child that legitimately ends on `tool-calls` without pausing (step cap with
+ * pending calls) keeps its finish live.
  *
- * Deliberately a CLOSED list of scaffolding rather than an allowlist of output
- * kinds: a Mastra release that adds a new provider part type must default to
- * "this is output" (tightening the window on a part we know arrived from the
- * provider), never to "this is free" (silently widening it forever).
+ * Scoped chunks never nest here: a child leg withholds its own children's
+ * notices inside its own loop, and the continuation layer wraps chunks only
+ * AFTER that loop published them (`mapPart` rejects an already-scoped chunk).
  */
-const MASTRA_SCAFFOLDING_PART_TYPES: ReadonlySet<string> = new Set(['start', 'step-start']);
-
-function isMastraProviderOutputPart(part: unknown): boolean {
-  const type = describeMastraStreamPartType(part);
-  return type === undefined || !MASTRA_SCAFFOLDING_PART_TYPES.has(type);
+function isPauseNoticeChunk(chunk: StreamChunk, pausedOwners: Set<string>): boolean {
+  const owner = scopedOwnerKey(chunk);
+  const inner = owner === undefined ? chunk : (chunk as { chunk: ConversationStreamChunk }).chunk;
+  switch (inner.type) {
+    case 'tool-approval-required':
+    case 'tool-suspend-required':
+      if (owner !== undefined) {
+        pausedOwners.add(owner);
+      }
+      return true;
+    case 'run-event':
+      return inner.event.kind === 'tool.approval.requested';
+    case 'message-finish':
+      return owner !== undefined && inner.finishReason === 'tool-calls' && pausedOwners.has(owner);
+    default:
+      return false;
+  }
 }
 
 /**
- * Mastra part types that carry REASONING rather than an answer.
- *
- * These are unambiguously provider output — they must never be mistaken for
- * framework scaffolding — but they are the model THINKING, so the silence
- * around them is measured against the wide reasoning window instead of the
- * tight inter-output one (see `StreamStallPhase` in
- * ../stream/with-inactivity-timeout.ts).
- *
- * CONTENT vs MARKER is load-bearing. A thinking delta ENTERS the reasoning
- * phase; block bookkeeping only PRESERVES the phase already in effect.
- * Providers exist that emit `text-start` BEFORE `reasoning-end`, so treating
- * the end marker as content would widen the window back out exactly as the
- * answer began. Preserving keeps a not-yet-answering stream wide (the gap
- * between `reasoning-end` and the first `text-delta` is still "has it begun
- * answering?") and an already-answering stream tight.
- *
- * Typed as `StaticMastraChunkType`, the union DERIVED FROM MASTRA'S OWN
- * `ChunkType['type']` that `MASTRA_STATIC_CHUNK_DISPOSITIONS` is checked
- * against. A Mastra release that renames one of these fails to compile here
- * rather than silently dropping a type out of the set and re-arming the tight
- * window against high-effort reasoning — the exact regression this prevents.
+ * Publish every chunk except the decision-exposing ones, which land in `held`
+ * for the leg's exit path. `pausedOwners` carries pause provenance across
+ * calls within one leg; see {@link isPauseNoticeChunk}.
  */
-const MASTRA_REASONING_PART_KINDS = {
-  'reasoning-delta': 'content',
-  'reasoning-end': 'marker',
-  'reasoning-signature': 'marker',
-  'reasoning-start': 'content',
-  'redacted-reasoning': 'content',
-} as const satisfies Partial<Record<StaticMastraChunkType, 'content' | 'marker'>>;
-
-function readMastraReasoningPartKind(part: unknown): 'content' | 'marker' | undefined {
-  const type = describeMastraStreamPartType(part);
-  if (type === undefined || !Object.hasOwn(MASTRA_REASONING_PART_KINDS, type)) {
-    return;
+export function* withholdPauseNotices(
+  chunks: Iterable<StreamChunk>,
+  held: StreamChunk[],
+  pausedOwners: Set<string>,
+  backgroundOwners: ReadonlySet<string> = new Set(),
+  parked: Map<string, StreamChunk[]> = new Map()
+): Generator<StreamChunk> {
+  for (const chunk of chunks) {
+    if (!isPauseNoticeChunk(chunk, pausedOwners)) {
+      yield chunk;
+      continue;
+    }
+    const owner = scopedOwnerKey(chunk);
+    // A BACKGROUND child's pause parks its own task and suspends nothing in
+    // this run, so its notice needs no completion join: it publishes as soon
+    // as its task is durably parked (`releaseParkedNotices`), as Claude Code
+    // surfaces a background subagent's prompt in the main session at once
+    // (settled 2026-09-14: thread-4f14436f held three cards for 77 s until
+    // the last sibling returned). Not one tick earlier: the child's pause
+    // chunk streams BEFORE the task's storage row is suspended, and a decision
+    // delivered into the leg in that window finds nothing to resume.
+    if (owner !== undefined && backgroundOwners.has(owner)) {
+      const notices = parked.get(owner) ?? [];
+      notices.push(chunk);
+      parked.set(owner, notices);
+      continue;
+    }
+    held.push(chunk);
   }
-  return MASTRA_REASONING_PART_KINDS[type as keyof typeof MASTRA_REASONING_PART_KINDS];
 }
 
-const resolveFullStream = (
-  result: unknown
-): NodeReadableStream<unknown> | ReadableStream<unknown> | undefined => {
-  if (!result || typeof result !== 'object') {
+/** The `[runId, toolCallId]` owner key of a background lifecycle part, if any. */
+function readLifecycleOwnerKey(part: unknown, type: string): string | undefined {
+  const event = readTaskEvent(part);
+  if (event?.type !== type) {
     return;
   }
-  return (result as StreamResultLike).fullStream;
-};
-
-function resolveMemoryOption(
-  runtimeData: RuntimeData | undefined,
-  memory: MastraMemory | undefined
-): AgentMemoryOption | undefined {
-  const memoryContext = runtimeData?.memory;
-  if (!memoryContext) {
-    return;
-  }
-  if (!memory) {
-    throw createMastraAgentError('mastra_agent_memory_unavailable', {
-      detail: 'runtime memory context was provided but no Mastra memory instance is configured',
-    });
-  }
-  if (!memoryContext.threadId.trim()) {
-    throw createMastraAgentError('mastra_agent_memory_unavailable', {
-      detail: 'memory.threadId is required',
-    });
-  }
-  if (!memoryContext.resourceId.trim()) {
-    throw createMastraAgentError('mastra_agent_memory_unavailable', {
-      detail: 'memory.resourceId is required',
-    });
-  }
-  return {
-    resource: memoryContext.resourceId,
-    thread: memoryContext.threadId,
-    ...(memoryContext.memoryOptions ? { options: memoryContext.memoryOptions } : {}),
-  };
+  const runId = readMastraStreamPartString(part, 'runId');
+  const toolCallId = typeof event.payload.toolCallId === 'string' ? event.payload.toolCallId : '';
+  return runId && toolCallId ? JSON.stringify([runId, toolCallId]) : undefined;
 }
 
-async function* streamAttemptChunks({
+function isChildPauseFinish(chunk: StreamChunk): boolean {
+  return chunk.type === 'delegated-conversation-chunk' && chunk.chunk.type === 'message-finish';
+}
+
+/**
+ * Publish a background child's parked notices, with the ROOT card behind
+ * them, the moment the native `background-task-suspended` part for that
+ * child arrives — the task is now in storage as suspended and a decision on
+ * the card can be applied (live or on a new leg).
+ *
+ * The child's pause FINISH is not published with them: it is the child
+ * view's terminal frame (the receiver closes the child on it and rejects
+ * every later frame), and a parked child is not finished. Its parallel
+ * allowed calls still return after the pause, and a live decision resumes
+ * it in this very leg — either emits child frames after that terminal, and
+ * the renderer tore the whole stream down on the first one (thread-834924c1,
+ * 2026-09-14: the pause at :16, a sibling read returned at :26, the client
+ * aborted, the host recorded the run finished, every child died with
+ * `delegation-root-not-running`). The finish is HELD for the leg's end
+ * (`held`), where a still-parked child receives it behind everything else,
+ * and dropped when the child resumes (`dropHeldPauseFinish`).
+ */
+export function* releaseParkedNotices(
+  part: unknown,
+  parked: Map<string, StreamChunk[]>,
+  held: StreamChunk[]
+): Generator<StreamChunk> {
+  const owner = readLifecycleOwnerKey(part, 'background-task-suspended');
+  const notices = owner === undefined ? undefined : parked.get(owner);
+  if (!(owner && notices)) {
+    return;
+  }
+  parked.delete(owner);
+  held.push(...notices.filter(isChildPauseFinish));
+  yield* withRootPauseNotices(notices.filter((chunk) => !isChildPauseFinish(chunk)));
+}
+
+/** A resumed child continues in this leg: its held pause terminal must never publish. */
+export function dropHeldPauseFinish(part: unknown, held: StreamChunk[]): void {
+  const owner = readLifecycleOwnerKey(part, 'background-task-resumed');
+  if (owner === undefined) {
+    return;
+  }
+  for (let index = held.length - 1; index >= 0; index -= 1) {
+    const chunk = held[index];
+    if (chunk && isChildPauseFinish(chunk) && scopedOwnerKey(chunk) === owner) {
+      held.splice(index, 1);
+    }
+  }
+}
+
+/** Parked notices whose suspension part never arrived publish with the held ones at the leg's seam. */
+function flushParkedNotices(parked: Map<string, StreamChunk[]>, held: StreamChunk[]): void {
+  for (const notices of parked.values()) {
+    held.push(...notices);
+  }
+  parked.clear();
+}
+
+/**
+ * The native stream closed without a terminal part the loop acted on. Mastra
+ * closes a suspended run's stream with no finish part once its foreach
+ * settles, and a resumed leg whose sibling calls stay suspended closes the
+ * same way while raising no pause part of its own (the leg that raised them
+ * already surfaced the notices) — its native status is still `suspended`.
+ * Either way the run is parked on the user, so the leg ends as the pause it
+ * is, never as a missing finish. Otherwise settle an aborted run's delegations
+ * or finalize a genuinely missing finish. Returns the title task the caller
+ * still awaits.
+ */
+async function* concludeClosedStream(params: {
+  abortedTurnPersistence: AbortedTurnPersistence | undefined;
+  calibrationState: { emitted: boolean };
+  completeNativeStream: () => Promise<unknown>;
+  delegatedProjection: ReturnType<typeof createAttemptDelegatedProjection>;
+  delegationUsage: DelegationUsageCapture | undefined;
+  /** Drained (`splice(0)`) wherever published, so no exit can repeat a notice. */
+  heldPauseNotices: StreamChunk[];
+  lifecycleState: ToolLifecycleState;
+  memory: MastraMemory | undefined;
+  pausePart: unknown;
+  promptBreakdown: AssistantContextBreakdown | undefined;
+  readNativeStatus: () => string | undefined;
+  runtime: MastraAgentRuntime;
+  runtimeData: RuntimeData | undefined;
+  titleGenerationTask: Promise<void> | undefined;
+  titleMessages: AgentMessage[] | undefined;
+  toolCallTelemetryState: { emitted: boolean };
+  // An async generator awaits a returned promise, so the title task travels
+  // wrapped: the caller joins it in its own `finally`, not here.
+}): AsyncGenerator<StreamChunk, { titleGenerationTask: Promise<void> | undefined }> {
+  const { delegatedProjection, delegationUsage, lifecycleState, runtime, runtimeData } = params;
+  const aborted = Boolean(runtimeData?.signal?.aborted);
+  // A stream that ended without a finish (or was aborted) may still have
+  // recorded a warning after its last part - or produced no part at all.
+  yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+  yield* drainDelegationUsageChunks(delegationUsage);
+  if (!aborted && (params.pausePart !== undefined || params.readNativeStatus() === 'suspended')) {
+    yield* drainTokenEstimateCalibrationChunk(
+      true,
+      runtime,
+      runtimeData,
+      lifecycleState,
+      params.calibrationState,
+      params.promptBreakdown
+    );
+    yield* drainToolCallTelemetryChunks(true, runtime, params.toolCallTelemetryState);
+    // Only a pause raised in THIS leg joins snapshot storage through the
+    // native full output: Mastra rejects that read for a leg that closes on
+    // its siblings' suspension (the suspend payload it awaits was resolved by
+    // an earlier leg's stream). The turn layer settles the closed stream.
+    if (params.pausePart !== undefined) {
+      try {
+        await completeNativeTerminal(params.pausePart, params.completeNativeStream);
+      } catch (error) {
+        // A failed snapshot write fails the stream instead of exposing an
+        // unresumable decision: discard the notices before the failure path
+        // publishes whatever it still holds.
+        params.heldPauseNotices.length = 0;
+        throw error;
+      }
+    }
+    yield* delegatedProjection.settle();
+    yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+    yield* withRootPauseNotices(params.heldPauseNotices.splice(0));
+    yield makeToolCallsFinishChunk();
+    params.abortedTurnPersistence?.markNormalFinish();
+    runtime.assertAssistantMessageIdPersisted?.();
+    return { titleGenerationTask: params.titleGenerationTask };
+  }
+  yield* delegatedProjection.settle();
+  yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+  // Aborted mid-run: settle any orphaned delegations (a cancelled parent must
+  // never leave a forever-"running" subagent.started). Otherwise finalize a
+  // missing-finish stream with pending tool output + a synthetic finish.
+  const titleGenerationTask = ensureMastraThreadTitleGeneration({
+    eligible: !aborted,
+    memory: params.memory,
+    messages: params.titleMessages,
+    runtime,
+    runtimeData,
+    task: params.titleGenerationTask,
+  });
+  const endChunks = aborted
+    ? makeCancelledDelegationRunEventChunks(lifecycleState)
+    : makeMissingFinishStreamChunks(lifecycleState);
+  // No completion join exists on a missing finish; the notices stream as they
+  // did before they were withheld, ahead of the synthetic ending. An explicit
+  // root Stop cancels paused work (`background-stop.ts`), so a decision that
+  // surfaced before the Stop is unresumable and its notice — and the durable
+  // "awaiting your approval" row that would flag the thread — must not appear.
+  if (!aborted) {
+    yield* withRootPauseNotices(params.heldPauseNotices.splice(0));
+  }
+  yield* drainToolCallTelemetryChunks(true, runtime, params.toolCallTelemetryState);
+  yield* endChunks;
+  return { titleGenerationTask };
+}
+
+async function completeNativeTerminal(
+  part: unknown,
+  complete: () => Promise<unknown>
+): Promise<void> {
+  // Only native terminal parts join snapshot storage. A synthetic steered
+  // step-finish must abort immediately, without consuming later native work;
+  // provider error parts already carry their mapped terminal outcome.
+  switch (asMastraStreamPart(part).type) {
+    case 'finish':
+    case 'tool-call-approval':
+    case 'tool-call-suspended':
+      await complete();
+      return;
+    default:
+      return;
+  }
+}
+
+async function* resumedDelegatedStartChunks(
+  projection: ReturnType<typeof createAttemptDelegatedProjection>,
+  approval: ResumedApprovalToolCall | undefined,
+  additional: readonly NonNullable<ResumedApprovalToolCall['delegatedLeaf']>[] | undefined
+): AsyncGenerator<StreamChunk> {
+  for (const leaf of [
+    ...(approval?.delegatedLeaf ? [approval.delegatedLeaf] : []),
+    ...(additional ?? []),
+  ]) {
+    yield* await projection.seedResumedToolCall(leaf);
+  }
+}
+
+export async function* streamAttemptChunks({
   abortedTurnPersistence,
   delegationUsage,
   lifecycleState,
@@ -1468,12 +1604,30 @@ async function* streamAttemptChunks({
   streamAbortContext,
   sanitizedNameMap,
   resumedApprovalToolCall,
+  resumedDelegatedToolCalls,
+  answeredApprovals,
   titleMessages,
+  completeNativeStream,
+  readNativeStatus,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   let titleGenerationTask: Promise<void> | undefined;
+  let streamFailure: unknown;
+  let pausePart: unknown;
+  const heldPauseNotices: StreamChunk[] = [];
+  const pausedOwners = new Set<string>();
+  const backgroundOwners = new Set<string>();
+  const parkedNotices = new Map<string, StreamChunk[]>();
   const calibrationState = { emitted: false };
   const toolCallTelemetryState = { emitted: false };
   const toolNames = new Map<string, string>();
+
+  const delegatedProjection = createAttemptDelegatedProjection({
+    delegationUsage,
+    lifecycleState,
+    runtime,
+    runtimeData,
+    sanitizedNameMap,
+  });
 
   try {
     // Run-start prompt breakdown (transient, display-only). Emitted BEFORE the
@@ -1485,6 +1639,14 @@ async function* streamAttemptChunks({
     if (resumedApprovalToolCall) {
       yield* makeResumedStartChunks(resumedApprovalToolCall, toolNames, lifecycleState);
     }
+    // Publish the accepted decision and its grant-answered siblings before
+    // their resumed child starts. Never rely on a transient UI action echo.
+    yield* answeredApprovals ?? [];
+    yield* resumedDelegatedStartChunks(
+      delegatedProjection,
+      resumedApprovalToolCall,
+      resumedDelegatedToolCalls
+    );
     const rawSource = readableStreamIterator(stream, streamAbortContext.signal);
     const toolInputBoundedSource = withToolCallInputTimeout(
       rawSource,
@@ -1497,24 +1659,61 @@ async function* streamAttemptChunks({
         firstOutputMs: runtime.resilienceConfig.streamFirstOutputMs,
         interOutputMs: runtime.resilienceConfig.streamInactivityMs,
         reasoningGapMs: runtime.resilienceConfig.streamReasoningGapMs,
+        toolExecutingMs: runtime.resilienceConfig.toolExecutingMs,
       },
-      {
-        countsAsProviderOutput: isMastraProviderOutputPart,
-        describePart: describeMastraStreamPartType,
-        onTimeout: (error) => streamAbortContext.abort(error),
-        reasoningPartKind: readMastraReasoningPartKind,
-      }
+      resolveMastraInactivityOptions(
+        resumedApprovalToolCall,
+        new Set(runtime.toolNameMap.keys()),
+        (error) => streamAbortContext.abort(error),
+        runtime.backgroundChildWatchdogs
+      )
     );
-    for await (const part of source) {
-      const { chunks, finished } = await processMastraStreamPart(
-        part,
-        toolNames,
-        lifecycleState,
-        sanitizedNameMap,
-        runtime.askTools,
-        runtime.delegationToolPersonas,
-        runtimeData
+    const projectedSource = projectBackgroundStream(
+      source,
+      Boolean(runtime.backgroundTaskManager),
+      backgroundOwners
+    );
+    for await (const part of projectedSource) {
+      // BST-1701. The provider's own report about the request it just served
+      // (a dropped `temperature`, a deprecated setting) is recorded UNDER
+      // Mastra by the model observer, because Mastra drops the adapter's
+      // `stream-start` part and never carries `warnings` onto this stream.
+      // Drained here, per part, so the row lands as soon as the adapter opens
+      // its stream - ahead of the first token, and never after the finish
+      // chunk that stops the consumer from pulling.
+      yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+      yield* withholdPauseNotices(
+        await delegatedProjection.project(part, toolNames),
+        heldPauseNotices,
+        pausedOwners,
+        backgroundOwners,
+        parkedNotices
       );
+      yield* releaseParkedNotices(part, parkedNotices, heldPauseNotices);
+      dropHeldPauseFinish(part, heldPauseNotices);
+      const { chunks, finished, paused } = resolveLegPart(
+        part,
+        await processMastraStreamPart(
+          delegatedProjection.preparePart(part),
+          toolNames,
+          lifecycleState,
+          sanitizedNameMap,
+          runtime.askTools,
+          runtime.delegationToolPersonas,
+          runtimeData
+        )
+      );
+      if (paused) {
+        // A pause does not end the native stream. Mastra's foreach kills only
+        // its QUEUED calls when one suspends; the calls already running carry
+        // on, so a parallel delegation step pauses several children in ONE
+        // leg. Its notice is withheld below until native close, where the leg
+        // ends once behind its completion join and its finish belongs.
+        // Returning here lost every later sibling's binding and pause
+        // (thread-f6be9761, 2026-09-14). The join keys on the part's type
+        // alone, so the FIRST pause pins it, whatever order siblings arrive in.
+        pausePart ??= part;
+      }
       // Start the canonical Mastra title request BEFORE yielding the terminal
       // finish. Downstream stops pulling at that chunk; the finally block still
       // awaits this detached task before shutting the per-run Mastra instance
@@ -1527,10 +1726,10 @@ async function* streamAttemptChunks({
         runtimeData,
         task: titleGenerationTask,
       });
-      // Drain completed-delegation usage BEFORE the part's own chunks: the
-      // completion callback fired before Mastra emitted this part, so the
-      // child's usage must not land after a finishing part closes the stream.
-      yield* drainDelegationUsageChunks(delegationUsage);
+      // Bound usage waits for its parent terminal, after child publication
+      // authorized the native run. Fast producers can queue completion while
+      // this consumer is still reading earlier parts. Drain before finish closes it.
+      yield* drainDelegationUsageChunks(delegationUsage, part);
       yield* drainTokenEstimateCalibrationChunk(
         finished,
         runtime,
@@ -1540,36 +1739,67 @@ async function* streamAttemptChunks({
         promptBreakdown
       );
       yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
-      for (const chunk of chunks) {
-        yield chunk;
+      if (finished) {
+        await completeNativeTerminal(part, completeNativeStream);
+        yield* delegatedProjection.settle();
+        // Publishing child terminal chunks yields to the consumer. Flush warnings
+        // recorded during publication before downstream stops at the finish.
+        yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+        // A background child's pause parks that task, not this run: its
+        // withheld notice publishes behind the run's own completion join.
+        flushParkedNotices(parkedNotices, heldPauseNotices);
+        yield* withRootPauseNotices(heldPauseNotices.splice(0));
       }
+      yield* withholdPauseNotices(
+        chunks.map((chunk) => delegatedProjection.decorate(chunk)),
+        heldPauseNotices,
+        pausedOwners,
+        backgroundOwners,
+        parkedNotices
+      );
       if (finished) {
         abortedTurnPersistence?.markNormalFinish();
         runtime.assertAssistantMessageIdPersisted?.();
         return;
       }
     }
-    yield* drainDelegationUsageChunks(delegationUsage);
-    // Aborted mid-run: settle any orphaned delegations (a cancelled parent must
-    // never leave a forever-"running" subagent.started). Otherwise finalize a
-    // missing-finish stream with pending tool output + a synthetic finish.
-    const aborted = Boolean(runtimeData?.signal?.aborted);
-    titleGenerationTask = ensureMastraThreadTitleGeneration({
-      eligible: !aborted,
+    flushParkedNotices(parkedNotices, heldPauseNotices);
+    ({ titleGenerationTask } = yield* concludeClosedStream({
+      abortedTurnPersistence,
+      calibrationState,
+      completeNativeStream,
+      delegatedProjection,
+      delegationUsage,
+      heldPauseNotices,
+      lifecycleState,
       memory,
-      messages: titleMessages,
+      pausePart,
+      promptBreakdown,
+      readNativeStatus,
       runtime,
       runtimeData,
-      task: titleGenerationTask,
-    });
-    const endChunks = aborted
-      ? makeCancelledDelegationRunEventChunks(lifecycleState)
-      : makeMissingFinishStreamChunks(lifecycleState);
-    yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
-    for (const chunk of endChunks) {
-      yield chunk;
-    }
+      titleGenerationTask,
+      titleMessages,
+      toolCallTelemetryState,
+    }));
   } catch (error) {
+    streamFailure = error;
+    yield* drainDelegationUsageChunks(delegationUsage);
+    // The provider can report stream-start warnings and then fail before
+    // Mastra yields any mapped part. Preserve those facts before propagating
+    // the original stream failure, including cancellation/watchdog paths.
+    yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+    yield* delegatedProjection.settle();
+    yield* drainProviderCallWarningChunks(runtime.providerCallWarnings);
+    // A failure elsewhere in the leg (a sibling's stream or projection) leaves
+    // a pause that already reached Mastra parked and durable. Publish it so the
+    // thread is not stuck waiting for reload rediscovery; only a rejected
+    // completion join discards (it clears the array before throwing) and only
+    // a Stop cancels the paused work.
+    if (!runtimeData?.signal?.aborted) {
+      flushParkedNotices(parkedNotices, heldPauseNotices);
+      yield* withRootPauseNotices(heldPauseNotices.splice(0));
+    }
     // Best-effort telemetry must not be lost on an ordinary stream/projector
     // failure after earlier tool calls already completed — drain whatever was
     // accumulated before propagating the failure (review fix). Since BST-1409
@@ -1586,1517 +1816,18 @@ async function* streamAttemptChunks({
     }
     throw error;
   } finally {
-    if (titleGenerationTask) {
-      await titleGenerationTask;
-    }
-    streamAbortContext.abort(new Error('Mastra stream consumption ended.'));
-    streamAbortContext.dispose();
-    logTokenDiagnostics(runtime, runtimeData, lifecycleState);
-    logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
+    await settleStreamCleanup(
+      [titleGenerationTask, streamAbortContext.dispose()],
+      streamFailure,
+      () => {
+        logTokenDiagnostics(runtime, runtimeData, lifecycleState);
+        logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
+      }
+    );
     // NOTE: `runtime.dispose()` is deliberately NOT here. The runtime outlives
     // a single attempt so a recovered turn can stream again on it; the turn
     // layer disposes exactly once (BST-1409).
   }
-}
-
-/**
- * Build a {@link ToolLifecycleState} for ONE attempt.
- *
- * The split is deliberate and not uniform (review of #2590):
- *
- * - LATENCY and in-flight lifecycle are per attempt. `streamStartedAtMs`,
- *   `firstTextLatencyMs`, the delegation tracker, and the tool-call maps all
- *   describe one provider call; carrying them would mis-time latency and would
- *   re-settle tools the replaced attempt already settled.
- * - BILLING is per TURN. A recovered turn really did spend the stalled
- *   attempt's tokens, and the `message-finish` this state produces is what the
- *   run ledger and spend analytics persist. Starting the continuation at zero
- *   made every recovered turn under-report, so `carried` seeds those
- *   accumulators from the attempt being replaced.
- */
-function createTurnAttemptLifecycleState(
-  runtimeData: RuntimeData | undefined,
-  delegationOutcomes: DelegationOutcomeCapture | undefined,
-  toolExecutionDurations: ToolExecutionDurations | undefined,
-  carried?: ToolLifecycleState
-): ToolLifecycleState {
-  return {
-    ...(delegationOutcomes ? { delegationOutcomes } : {}),
-    // Prior attempts' totals, added back at the finish. `stepped*` is the
-    // replaced attempt's own cumulative sum, so accumulating it here makes this
-    // the turn's running total across every attempt so far.
-    carriedCompletionTokens:
-      (carried?.carriedCompletionTokens ?? 0) + (carried?.steppedCompletionTokens ?? 0),
-    carriedPromptTokens: (carried?.carriedPromptTokens ?? 0) + (carried?.steppedPromptTokens ?? 0),
-    delegationLifecycle: createDelegationLifecycleTracker(),
-    // Carried so the terminal tool run event can state the time `execute`
-    // actually ran — the only honest number for an approval-gated call.
-    ...(toolExecutionDurations ? { toolExecutionDurations } : {}),
-    includeCacheTokenClasses: runtimeData?.provider === 'anthropic',
-    outputOnlyToolEvents: new Map(),
-    requiresBilledCost: runtimeData?.provider === 'openrouter',
-    ...(runtimeData?.steering ? { steering: runtimeData.steering } : {}),
-    // Carried like the billing flags below: a continuation of a turn that
-    // already produced output must not re-classify that turn as empty at its
-    // own finish.
-    sawModelContribution: carried?.sawModelContribution ?? false,
-    // Billing observations carry: `sawStepBilledCost` in particular gates the
-    // OpenRouter "a step omitted its billed cost" throw, and a continuation
-    // that forgot the earlier attempt's billed steps would resolve the turn's
-    // cost from the final step alone.
-    sawStepBilledCost: carried?.sawStepBilledCost ?? false,
-    sawStepWithoutBilledCost: carried?.sawStepWithoutBilledCost ?? false,
-    // PER ATTEMPT, unlike the billing fields above: the steered finish reports
-    // these directly as Mastra's cross-step sum for ONE stream, and the turn's
-    // multi-attempt total rides `carried*` instead.
-    startedToolCallIds: new Set(),
-    stepBilledCostUsd: carried?.stepBilledCostUsd ?? 0,
-    stepCount: carried?.stepCount ?? 0,
-    steppedCompletionTokens: 0,
-    steppedPromptTokens: 0,
-    streamStartedAtMs: Date.now(),
-    terminalToolCallStates: new Map(),
-    warnedUnknownChunkTypes: new Set(),
-  };
-}
-
-/** One provider attempt within a turn, plus what a continuation would need. */
-interface TurnAttempt {
-  readonly abortedTurnPersistence: AbortedTurnPersistence | undefined;
-  readonly chunks: AsyncIterableIterator<StreamChunk>;
-  readonly lifecycleState: ToolLifecycleState;
-  /**
-   * The assistant/tool messages this attempt produced, or `undefined` when they
-   * could not be read.
-   *
-   * The distinction is SAFETY-CRITICAL, not cosmetic. `[]` means the attempt
-   * genuinely produced nothing — a stall before the first step — so continuing
-   * from the original request alone is correct and re-runs nothing.
-   * `undefined` means we could not tell, and continuing would re-send the user
-   * request as if the turn had never started: every completed tool would run a
-   * second time. A turn that cannot prove what it produced must not resume.
-   */
-  readProducedMessages(): readonly MastraDBMessage[] | undefined;
-}
-
-/**
- * Read the assistant/tool messages an attempt produced, from Mastra's own
- * message list on the stream result.
- *
- * Mastra's `mastra_messages` is NOT a usable source here: an aborted stream
- * persists nothing at all (BST-1415, measured — not even the user's message),
- * so the in-memory list is the only record of what the attempt did.
- *
- * Narrowed rather than asserted, and `undefined` on ANY shape surprise: see
- * {@link TurnAttempt.readProducedMessages} for why a wrong answer here would
- * re-execute tools.
- */
-function readAttemptProducedMessages(
-  streamResult: unknown
-): readonly MastraDBMessage[] | undefined {
-  if (typeof streamResult !== 'object' || streamResult === null) {
-    return;
-  }
-  const messageList = (streamResult as { messageList?: unknown }).messageList;
-  if (typeof messageList !== 'object' || messageList === null) {
-    return;
-  }
-  const response = (messageList as { get?: { response?: unknown } }).get?.response;
-  if (typeof response !== 'object' || response === null) {
-    return;
-  }
-  const db = (response as { db?: unknown }).db;
-  if (typeof db !== 'function') {
-    return;
-  }
-  const produced = (db as () => unknown).call(response);
-  return Array.isArray(produced) ? (produced as MastraDBMessage[]) : undefined;
-}
-
-/**
- * Run ONE turn across up to `maxAttempts` provider attempts, and dispose the
- * runtime exactly once when it ends (BST-1409).
- *
- * A stall ends an ATTEMPT. It ends the TURN only when the budget is spent, the
- * user cancelled, or the attempt cannot prove what it produced. Everything the
- * earlier attempts streamed has already been yielded to the consumer and stays
- * yielded — recovery never rewinds the visible transcript, it only continues it.
- *
- * Recovery is scoped to `StreamStalledError`. A
- * `ToolCallInputStreamingTimeoutError` means the model never finished writing a
- * tool call's arguments, which is a generation fault rather than a silent
- * transport, and re-sending the same prompt has no reason to change it.
- */
-async function* runTurnAttempts(params: {
-  /**
-   * Built by the caller BEFORE the generator is returned, so a construction
-   * failure still rejects the promise `streamMastraAgent` returns. A run
-   * rejected before any stream part must surface as a transport rejection the
-   * renderer renders as an error block, not as a mid-stream throw
-   * (docs/agents/assistant-runtime.md, renderer safety net).
-   */
-  firstAttempt: TurnAttempt;
-  makeContinuation: (input: {
-    attempt: number;
-    carriedLifecycleState: ToolLifecycleState;
-    continuationMessages: readonly MastraDBMessage[] | undefined;
-  }) => Promise<TurnAttempt>;
-  maxAttempts: number;
-  /**
-   * Chunks yielded before the turn, from INSIDE this generator's disposal
-   * `try`. REQUIRED so every call site states its scope explicitly; the resume
-   * legs pass `[]`.
-   *
-   * They cannot live in a wrapper around this generator. A wrapper cancelled
-   * mid-prelude would never delegate here, so this body — and the `finally`
-   * that calls `runtime.dispose()` — would never run, while `firstAttempt` is
-   * ALREADY a live stream (it is awaited eagerly by the caller). `.return()` on
-   * an unstarted generator does not run its body, so wrapper-side cleanup
-   * cannot fix it either (PR #2938 review).
-   */
-  preludeChunks: readonly StreamChunk[];
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-}): AsyncIterableIterator<StreamChunk> {
-  const { firstAttempt, makeContinuation, maxAttempts, preludeChunks, runtime, runtimeData } =
-    params;
-  let activeAttempt: TurnAttempt | undefined = firstAttempt;
-  let lastStalledAttempt: TurnAttempt | undefined;
-  try {
-    // First, and inside the `finally` above's scope — see `preludeChunks`.
-    for (const chunk of preludeChunks) {
-      yield chunk;
-    }
-    let continuationMessages: readonly MastraDBMessage[] | undefined;
-    let carriedLifecycleState: ToolLifecycleState | undefined;
-    let pending: TurnAttempt | undefined = firstAttempt;
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      let current: TurnAttempt;
-      if (pending) {
-        current = pending;
-        pending = undefined;
-      } else {
-        try {
-          current = await makeContinuation({
-            attempt,
-            carriedLifecycleState: carriedLifecycleState as ToolLifecycleState,
-            continuationMessages,
-          });
-        } catch (error) {
-          // Every other terminal path in this function yields the visible
-          // text + durable `run.failed` + error-finish triple. A continuation
-          // failure throwing mid-stream instead would end the turn with no
-          // `run.failed` row and no `thread_runs.error` — the one ending whose
-          // cause is invisible in the durable timeline.
-          await finalizeAbortedTurn(lastStalledAttempt?.abortedTurnPersistence);
-          yield* makeContinuationFailureTermination(error, runtimeData);
-          return;
-        }
-      }
-      activeAttempt = current;
-      let stall: EmptyModelResponseError | StreamStalledError | undefined;
-      try {
-        // A continuation is a fresh `agent.stream`, so Mastra emits its own
-        // `start` part and the mapper turns it into a SECOND `run.started`.
-        // One turn starts once: the duplicate is dropped here, and `run.resumed`
-        // (emitted immediately before) is what says a new attempt began. Left
-        // in, the timeline shows two "Assistant run started" rows for one turn
-        // and every started/finished aggregation double-counts recovered runs
-        // (review of #2590).
-        yield* attempt === 1 ? current.chunks : withoutDuplicateRunStarted(current.chunks);
-      } catch (error) {
-        if (!isStreamWatchdogError(error)) {
-          throw error;
-        }
-        if (error instanceof ToolCallInputStreamingTimeoutError) {
-          yield* makeStreamWatchdogTermination(error, current.lifecycleState, runtimeData);
-          await finalizeAbortedTurn(current.abortedTurnPersistence);
-          return;
-        }
-        stall = error;
-      }
-      if (!stall) {
-        await finalizeAbortedTurn(current.abortedTurnPersistence);
-        return;
-      }
-      const produced = current.readProducedMessages();
-      const reason = resolveStallRecoveryRefusal({
-        attempt,
-        lifecycleState: current.lifecycleState,
-        maxAttempts,
-        produced,
-        runtimeData,
-      });
-      yield makeStallRunEventChunk(stall, attempt, maxAttempts, reason);
-      if (reason) {
-        yield* makeStreamWatchdogTermination(stall, current.lifecycleState, runtimeData);
-        await finalizeAbortedTurn(current.abortedTurnPersistence);
-        return;
-      }
-      // An attempt being replaced still has to SETTLE what it started, exactly
-      // as the terminal path does (`makeStreamStalledTermination` drains both):
-      // an orphaned `subagent.started` would render a forever-running
-      // delegation, and a tool whose only terminal observation was a
-      // `tool-output` part would lose its `tool.completed` row and its duration
-      // outright, because the continuation treats that tool result as INPUT and
-      // never re-emits it. The whole lifecycle state is discarded with the
-      // attempt, so this is the last chance to flush either.
-      yield* makeCancelledDelegationRunEventChunks(current.lifecycleState);
-      yield* makePendingToolOutputRunEventChunks(current.lifecycleState);
-      continuationMessages = produced;
-      carriedLifecycleState = current.lifecycleState;
-      lastStalledAttempt = current;
-      yield makeResumedRunEventChunk(stall, attempt + 1, maxAttempts, produced?.length ?? 0);
-    }
-  } finally {
-    try {
-      if (runtimeData?.signal?.aborted) {
-        await finalizeAbortedTurn(activeAttempt?.abortedTurnPersistence);
-      }
-    } finally {
-      await runtime.dispose();
-    }
-  }
-}
-
-/**
- * Terminal chunks for a continuation that could not be constructed. Mirrors the
- * watchdog terminations' shape so every abnormal ending of a turn looks the same
- * downstream; the shared turn owner disposes the runtime after abort
- * persistence settles.
- */
-function* makeContinuationFailureTermination(
-  error: unknown,
-  runtimeData: RuntimeData | undefined
-): Generator<StreamChunk> {
-  const detail = error instanceof Error ? error.message : String(error);
-  logger.error(
-    {
-      code: 'mastra_agent_stream_continuation_failed',
-      detail,
-      ...(runtimeData?.model ? { model: runtimeData.model } : {}),
-      ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
-    },
-    'mastra stream continuation could not be constructed'
-  );
-  const visible = 'The model stream stalled, and the continuation could not be started.';
-  yield { type: 'text-delta', value: visible };
-  yield makeRunFailedChunk('Assistant run failed', visible, {
-    code: 'mastra_agent_stream_continuation_failed',
-  });
-  yield makeErrorFinishChunk();
-}
-
-/**
- * Drop the `run.started` a continuation attempt re-emits. See its call site for
- * why one turn must report one start.
- */
-async function* withoutDuplicateRunStarted(
-  chunks: AsyncIterableIterator<StreamChunk>
-): AsyncIterableIterator<StreamChunk> {
-  let dropped = false;
-  for await (const chunk of chunks) {
-    if (!dropped && chunk.type === 'run-event' && chunk.event.kind === 'run.started') {
-      dropped = true;
-      continue;
-    }
-    yield chunk;
-  }
-}
-
-/** Why this stall may NOT be recovered, or `undefined` when it may. */
-function resolveStallRecoveryRefusal(input: {
-  attempt: number;
-  lifecycleState: ToolLifecycleState;
-  maxAttempts: number;
-  produced: readonly MastraDBMessage[] | undefined;
-  runtimeData: RuntimeData | undefined;
-}): string | undefined {
-  if (input.runtimeData?.signal?.aborted) {
-    // A user Stop is a decision, not a transport fault.
-    return 'cancelled';
-  }
-  if (input.attempt >= input.maxAttempts) {
-    return 'budget-exhausted';
-  }
-  if (input.produced === undefined) {
-    return 'produced-messages-unreadable';
-  }
-  // CORROBORATION, not paranoia (review of #2590). `[]` is trusted to mean "the
-  // attempt produced nothing", which makes continuing from the request alone
-  // safe. But that trust rests entirely on the reader, and the attempt holds
-  // INDEPENDENT evidence of what it did: `terminalToolCallStates` gains an entry
-  // on every completed tool call. An empty message list while tools demonstrably
-  // ran is a contradiction — whatever the cause, resuming on it would re-execute
-  // every one of those tools, which is the exact outcome the `undefined` branch
-  // exists to prevent, reached through the branch treated as safe.
-  if (input.produced.length === 0 && input.lifecycleState.terminalToolCallStates.size > 0) {
-    return 'produced-messages-contradict-completed-tools';
-  }
-  return;
-}
-
-function makeStallRunEventChunk(
-  error: EmptyModelResponseError | StreamStalledError,
-  attempt: number,
-  maxAttempts: number,
-  refusal: string | undefined
-): StreamChunk {
-  if (error instanceof EmptyModelResponseError) {
-    // Same recoverable-attempt-fault shape as a stall (`run.stalled` is the
-    // durable "this attempt died, the turn may yet recover" row), but the
-    // detail and code say WHICH fault: the provider answered instantly with
-    // nothing, rather than going quiet.
-    const emptyDetail = `Model returned an empty response (finish reason "${error.finishReason}") on attempt ${attempt} of ${maxAttempts}.`;
-    const emptyDiagnostic = {
-      attempt,
-      code: error.code,
-      finishReason: error.finishReason,
-      maxAttempts,
-      stepCount: error.stepCount,
-      ...(refusal ? { refusal } : {}),
-    };
-    logger.warn(
-      { ...emptyDiagnostic, code: 'mastra_agent_stream_attempt_empty' },
-      'mastra stream attempt returned an empty response'
-    );
-    return makeRunDetailEventChunk(
-      'run.stalled',
-      'info',
-      'Model returned an empty response',
-      emptyDetail,
-      emptyDiagnostic
-    );
-  }
-  const detail = `No stream output for ${error.inactivityMs}ms (${error.phase}) on attempt ${attempt} of ${maxAttempts}.`;
-  // A RECOVERED stall is followed by no `run.failed`, so this event is the only
-  // durable record of it — it must therefore carry the full BST-1408 breadcrumb,
-  // not a subset (review of #2590). `lastPartType` is the field that says
-  // whether the provider went quiet after reasoning, a tool delta, or the
-  // framework prologue.
-  const diagnostic = {
-    attempt,
-    inactivityMs: error.inactivityMs,
-    maxAttempts,
-    partsSeen: error.partsSeen,
-    phase: error.phase,
-    ...(error.lastPartType ? { lastPartType: error.lastPartType } : {}),
-    ...(refusal ? { refusal } : {}),
-  };
-  logger.warn(
-    { code: 'mastra_agent_stream_attempt_stalled', ...diagnostic },
-    'mastra stream attempt stalled'
-  );
-  return makeRunDetailEventChunk('run.stalled', 'info', 'Model stream stalled', detail, diagnostic);
-}
-
-/**
- * `error` names WHICH fault is being recovered from. The `run.stalled` /
- * `run.resumed` pair is the only durable record of a recovered attempt — the
- * text a debug bundle shows — so a fixed "Continuing after a stall" would
- * report a stall that never happened on the empty-response path (review of
- * #2624).
- */
-function makeResumedRunEventChunk(
-  error: EmptyModelResponseError | StreamStalledError,
-  attempt: number,
-  maxAttempts: number,
-  carriedMessages: number
-): StreamChunk {
-  return makeRunDetailEventChunk(
-    'run.resumed',
-    'info',
-    error instanceof EmptyModelResponseError
-      ? 'Continuing after an empty response'
-      : 'Continuing after a stall',
-    `Attempt ${attempt} of ${maxAttempts}, carrying ${carriedMessages} completed message${carriedMessages === 1 ? '' : 's'} forward.`,
-    { attempt, carriedMessages, maxAttempts }
-  );
-}
-
-function startMastraThreadTitleGeneration({
-  memory,
-  messages,
-  runtime,
-  runtimeData,
-}: {
-  memory: MastraMemory | undefined;
-  messages: AgentMessage[] | undefined;
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-}): Promise<void> | undefined {
-  if (!(memory && messages?.length)) {
-    return;
-  }
-  return runBoundedMastraThreadTitleGeneration({ memory, messages, runtime, runtimeData });
-}
-
-function ensureMastraThreadTitleGeneration({
-  eligible,
-  memory,
-  messages,
-  runtime,
-  runtimeData,
-  task,
-}: {
-  eligible: boolean;
-  memory: MastraMemory | undefined;
-  messages: AgentMessage[] | undefined;
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-  task: Promise<void> | undefined;
-}): Promise<void> | undefined {
-  if (!(eligible && !task)) {
-    return task;
-  }
-  return startMastraThreadTitleGeneration({ memory, messages, runtime, runtimeData });
-}
-
-async function runBoundedMastraThreadTitleGeneration(options: {
-  memory: MastraMemory;
-  messages: AgentMessage[];
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-}): Promise<void> {
-  const controller = new AbortController();
-  const lifecycle = { signal: controller.signal };
-  const operation = generateMastraThreadTitle({ ...options, lifecycle });
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      operation,
-      new Promise<void>((_resolve, reject) => {
-        timeout = setTimeout(() => {
-          const error = new MastraThreadTitleTimeoutError();
-          controller.abort(error);
-          reject(error);
-        }, MASTRA_THREAD_TITLE_LIFECYCLE_TIMEOUT_MS);
-      }),
-    ]);
-  } catch (error) {
-    if (error instanceof MastraThreadTitleTimeoutError) {
-      logger.error('Mastra thread title generation timed out', {
-        code: 'mastra_thread_title_generation_timeout',
-        ...(options.runtimeData?.model ? { model: options.runtimeData.model } : {}),
-        ...(options.runtimeData?.provider ? { provider: options.runtimeData.provider } : {}),
-        resourceId: options.runtimeData?.memory?.resourceId,
-        stage: 'provider',
-        threadId: options.runtimeData?.memory?.threadId,
-      });
-      return;
-    }
-    logger.error('Mastra thread title lifecycle failed', {
-      code: 'mastra_thread_title_lifecycle_failed',
-      errorName: readMastraThreadTitleErrorName(error),
-      resourceId: options.runtimeData?.memory?.resourceId,
-      stage: 'lifecycle',
-      threadId: options.runtimeData?.memory?.threadId,
-    });
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-    if (!controller.signal.aborted) {
-      controller.abort(new Error('Mastra thread title lifecycle settled.'));
-    }
-    // Observe a late rejection if a non-compliant provider ignores AbortSignal.
-    void operation.catch(() => undefined);
-  }
-}
-
-async function generateMastraThreadTitle({
-  lifecycle,
-  memory,
-  messages,
-  runtime,
-  runtimeData,
-}: {
-  lifecycle: { signal: AbortSignal };
-  memory: MastraMemory;
-  messages: AgentMessage[];
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-}): Promise<void> {
-  const threadId = runtimeData?.memory?.threadId;
-  const resourceId = runtimeData?.memory?.resourceId;
-  if (!(threadId && resourceId)) {
-    return;
-  }
-  const preflight = await readMastraThreadTitlePreflight({
-    lifecycle,
-    memory,
-    resourceId,
-    runtimeData,
-    threadId,
-  });
-  if (!preflight) {
-    return;
-  }
-  const userMessages = makeMastraThreadTitleMessages(messages);
-  if (userMessages.length === 0) {
-    return;
-  }
-  const titleRequest = {
-    messages: userMessages,
-    ...(typeof preflight.titleConfig === 'object' && preflight.titleConfig.instructions
-      ? { instructions: preflight.titleConfig.instructions }
-      : {}),
-    ...(typeof preflight.titleConfig === 'object' && preflight.titleConfig.model
-      ? { model: preflight.titleConfig.model }
-      : {}),
-  };
-  const normalizedTitle = await requestMastraThreadTitle({
-    lifecycle,
-    resourceId,
-    runtime,
-    runtimeData,
-    threadId,
-    titleRequest,
-  });
-  if (!normalizedTitle) {
-    return;
-  }
-  await persistMastraThreadTitle({
-    lifecycle,
-    memory,
-    normalizedTitle,
-    preflight,
-    resourceId,
-    threadId,
-  });
-}
-
-async function readMastraThreadTitlePreflight({
-  lifecycle,
-  memory,
-  resourceId,
-  runtimeData,
-  threadId,
-}: {
-  lifecycle: { signal: AbortSignal };
-  memory: MastraMemory;
-  resourceId: string;
-  runtimeData: RuntimeData | undefined;
-  threadId: string;
-}): Promise<
-  | {
-      memoryConfig: NonNullable<RuntimeData['memory']>['memoryOptions'];
-      thread: NonNullable<Awaited<ReturnType<MastraMemory['getThreadById']>>>;
-      titleConfig: NonNullable<ReturnType<MastraMemory['getMergedThreadConfig']>['generateTitle']>;
-    }
-  | undefined
-> {
-  const memoryConfig = runtimeData?.memory?.memoryOptions;
-  let titleConfig: ReturnType<MastraMemory['getMergedThreadConfig']>['generateTitle'];
-  try {
-    titleConfig = memory.getMergedThreadConfig(memoryConfig).generateTitle;
-  } catch (error) {
-    logMastraThreadTitleFailure(lifecycle.signal, 'Mastra thread title configuration is invalid', {
-      code: 'mastra_thread_title_config_invalid',
-      errorName: readMastraThreadTitleErrorName(error),
-      resourceId,
-      stage: 'config',
-      threadId,
-    });
-    return;
-  }
-  if (!titleConfig) {
-    return;
-  }
-  try {
-    const thread = await memory.getThreadById({ threadId });
-    if (lifecycle.signal.aborted || !(thread && canOverwriteThreadTitle(thread))) {
-      return;
-    }
-    return { memoryConfig, thread, titleConfig };
-  } catch (error) {
-    logMastraThreadTitlePersistenceFailure({
-      error,
-      resourceId,
-      signal: lifecycle.signal,
-      stage: 'persistence-read',
-      threadId,
-    });
-    return;
-  }
-}
-
-function makeMastraThreadTitleMessages(messages: AgentMessage[]): AgentMessage[] {
-  return messages
-    .filter((message) => message.role === 'user')
-    .map((message) => ({
-      ...message,
-      // Mastra's title formatter accepts textual UI parts. File/tool parts are
-      // not title input and some versions attempt text-only operations on them.
-      parts: message.parts.filter((part) => part.type === 'text'),
-    }))
-    .filter((message) => message.parts.length > 0);
-}
-
-async function requestMastraThreadTitle({
-  lifecycle,
-  resourceId,
-  runtime,
-  runtimeData,
-  threadId,
-  titleRequest,
-}: {
-  lifecycle: { signal: AbortSignal };
-  resourceId: string;
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-  threadId: string;
-  titleRequest: Parameters<MastraAgentRuntime['agent']['generateTitleFromUserMessage']>[0];
-}): Promise<string | undefined> {
-  const maxAttempts = runtimeData?.provider === 'openrouter' ? 2 : 1;
-  const requestContext = new RequestContext();
-  let titleModel: Awaited<ReturnType<MastraAgentRuntime['agent']['getModel']>>;
-  try {
-    titleModel = await runtime.agent.getModel({
-      requestContext,
-      ...(titleRequest.model ? { modelConfig: titleRequest.model } : {}),
-    });
-  } catch (error) {
-    if (!lifecycle.signal.aborted) {
-      logMastraThreadTitleProviderFailure({
-        attempt: 1,
-        error,
-        lifecycle,
-        resourceId,
-        runtimeData,
-        threadId,
-      });
-    }
-    return;
-  }
-  const activeProviderOptions = buildGenerationProviderOptionsOption(runtimeData).providerOptions;
-  const maxOutputTokens = buildModelSettingsOption(runtimeData).modelSettings?.maxOutputTokens;
-  const cancellableModel = wrapModelWithCallTransform(titleModel, (params) => ({
-    ...params,
-    abortSignal: lifecycle.signal,
-    ...(params.maxOutputTokens === undefined && maxOutputTokens !== undefined
-      ? { maxOutputTokens }
-      : {}),
-    ...mergeMastraThreadTitleProviderOptions(params.providerOptions, activeProviderOptions),
-  }));
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    let title: string | undefined;
-    try {
-      title = await runtime.agent.generateTitleFromUserMessage({
-        ...titleRequest,
-        model: cancellableModel,
-        requestContext,
-      });
-    } catch (error) {
-      if (lifecycle.signal.aborted) {
-        return;
-      }
-      logMastraThreadTitleProviderFailure({
-        attempt,
-        error,
-        lifecycle,
-        resourceId,
-        runtimeData,
-        threadId,
-      });
-      return;
-    }
-    if (lifecycle.signal.aborted) {
-      return;
-    }
-    if (title?.trim()) {
-      return title.trim();
-    }
-    logger.warn('Mastra thread title generation returned no text', {
-      attempt,
-      code: 'mastra_thread_title_invalid_output',
-      maxAttempts,
-      ...(runtimeData?.model ? { model: runtimeData.model } : {}),
-      ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
-      resourceId,
-      retrying: attempt < maxAttempts,
-      stage: 'invalid-output',
-      threadId,
-    });
-  }
-  return;
-}
-
-function mergeMastraThreadTitleProviderOptions(
-  current: ModelProviderOptions | undefined,
-  active: unknown
-): Pick<{ providerOptions?: ModelProviderOptions }, 'providerOptions'> {
-  const activeOptions = readMastraThreadTitleProviderOptions(active);
-  const namespaces = new Set([...Object.keys(current ?? {}), ...Object.keys(activeOptions)]);
-  if (namespaces.size === 0) {
-    return {};
-  }
-  const providerOptions: ModelProviderOptions = {};
-  for (const namespace of namespaces) {
-    providerOptions[namespace] = {
-      ...(current?.[namespace] ?? {}),
-      ...(activeOptions[namespace] ?? {}),
-    };
-  }
-  return { providerOptions };
-}
-
-function readMastraThreadTitleProviderOptions(value: unknown): ModelProviderOptions {
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    return {};
-  }
-  const providerOptions: ModelProviderOptions = {};
-  for (const [namespace, options] of Object.entries(value)) {
-    if (options && typeof options === 'object' && !Array.isArray(options)) {
-      providerOptions[namespace] = { ...(options as Record<string, unknown>) };
-    }
-  }
-  return providerOptions;
-}
-
-function logMastraThreadTitleProviderFailure({
-  attempt,
-  error,
-  lifecycle,
-  resourceId,
-  runtimeData,
-  threadId,
-}: {
-  attempt: number;
-  error: unknown;
-  lifecycle: { signal: AbortSignal };
-  resourceId: string;
-  runtimeData: RuntimeData | undefined;
-  threadId: string;
-}): void {
-  if (lifecycle.signal.aborted) {
-    return;
-  }
-  const providerError = extractProviderRunError(error);
-  logger.error('Mastra thread title provider request failed', {
-    attempt,
-    code: 'mastra_thread_title_provider_failed',
-    ...(providerError.httpStatus === undefined ? {} : { httpStatus: providerError.httpStatus }),
-    ...(runtimeData?.model ? { model: runtimeData.model } : {}),
-    ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
-    providerErrorCode: providerError.code,
-    ...(providerError.providerRequestId
-      ? { providerRequestId: providerError.providerRequestId }
-      : {}),
-    resourceId,
-    stage: 'provider',
-    threadId,
-  });
-}
-
-async function persistMastraThreadTitle({
-  lifecycle,
-  memory,
-  normalizedTitle,
-  preflight,
-  resourceId,
-  threadId,
-}: {
-  lifecycle: { signal: AbortSignal };
-  memory: MastraMemory;
-  normalizedTitle: string;
-  preflight: {
-    memoryConfig: NonNullable<RuntimeData['memory']>['memoryOptions'];
-    thread: NonNullable<Awaited<ReturnType<MastraMemory['getThreadById']>>>;
-  };
-  resourceId: string;
-  threadId: string;
-}): Promise<void> {
-  try {
-    await memory.saveThread({
-      ...(preflight.memoryConfig ? { memoryConfig: preflight.memoryConfig } : {}),
-      thread: attachThreadTitleSaveAbortSignal(
-        {
-          ...preflight.thread,
-          title: normalizedTitle,
-          updatedAt: new Date(),
-        },
-        lifecycle.signal
-      ),
-    });
-  } catch (error) {
-    logMastraThreadTitlePersistenceFailure({
-      error,
-      resourceId,
-      signal: lifecycle.signal,
-      stage: 'persistence-write',
-      threadId,
-    });
-  }
-}
-
-function logMastraThreadTitlePersistenceFailure({
-  error,
-  resourceId,
-  signal,
-  stage,
-  threadId,
-}: {
-  error: unknown;
-  resourceId: string;
-  signal: AbortSignal;
-  stage: 'persistence-read' | 'persistence-write';
-  threadId: string;
-}): void {
-  logMastraThreadTitleFailure(signal, 'Mastra thread title persistence failed', {
-    code: 'mastra_thread_title_persistence_failed',
-    ...readMastraThreadTitleDatabaseDiagnostic(error),
-    errorName: readMastraThreadTitleErrorName(error),
-    resourceId,
-    stage,
-    threadId,
-  });
-}
-
-function logMastraThreadTitleFailure(
-  signal: AbortSignal,
-  message: string,
-  diagnostic: Record<string, unknown>
-): void {
-  if (!signal.aborted) {
-    logger.error(message, diagnostic);
-  }
-}
-
-function readMastraThreadTitleErrorName(error: unknown): string {
-  return error instanceof Error ? error.name : 'UnknownError';
-}
-
-function readMastraThreadTitleDatabaseDiagnostic(error: unknown): { databaseCode?: string } {
-  if (!(error && typeof error === 'object')) {
-    return {};
-  }
-  const code = (error as { code?: unknown }).code;
-  return typeof code === 'string' && code.length <= 64 ? { databaseCode: code } : {};
-}
-
-/** Yield the queued child-usage chunks for this leg's delegation capture, if any. */
-function* drainDelegationUsageChunks(
-  capture: DelegationUsageCapture | undefined
-): Generator<StreamChunk> {
-  if (!capture) {
-    return;
-  }
-  yield* capture.drain();
-}
-
-/** Post-loop chunks when a stream ends WITHOUT a finish event (not aborted). */
-function makeMissingFinishStreamChunks(lifecycleState: ToolLifecycleState): StreamChunk[] {
-  logger.warn('mastra stream ended without finish event', {
-    code: 'mastra_agent_stream_missing_finish',
-  });
-  return [...makePendingToolOutputRunEventChunks(lifecycleState), makeSyntheticFinishChunk()];
-}
-
-function logStreamOutcome(aborted: boolean): void {
-  if (aborted) {
-    logger.info('mastra stream aborted', { code: 'mastra_agent_stream_aborted' });
-    return;
-  }
-  logger.info('mastra stream finished', { code: 'mastra_agent_stream_finished' });
-}
-
-function logTokenDiagnostics(
-  runtime: MastraAgentRuntime,
-  runtimeData: RuntimeData | undefined,
-  lifecycleState: ToolLifecycleState
-): void {
-  const fields = runtime.tokenDiagnostics.toLogFields({
-    ...(lifecycleState.providerReportedPromptTokens === undefined
-      ? {}
-      : { promptTokensSummedAcrossSteps: lifecycleState.providerReportedPromptTokens }),
-    ...(lifecycleState.latestStepPromptTokens === undefined
-      ? {}
-      : { latestStepPromptTokens: lifecycleState.latestStepPromptTokens }),
-    stepCount: lifecycleState.stepCount,
-  });
-  const context = {
-    code: 'mastra_agent_token_measurement',
-    ...(runtimeData?.model ? { model: runtimeData.model } : {}),
-    ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
-    ...fields,
-  };
-  if (fields['measurementStatus'] === 'failed') {
-    logger.warn(context, 'mastra run token measurement failed visibly');
-    return;
-  }
-  logger.info(context, 'mastra run token measurement recorded');
-}
-
-function* drainToolCallTelemetryChunks(
-  terminal: boolean,
-  runtime: MastraAgentRuntime,
-  state: { emitted: boolean }
-): Generator<StreamChunk> {
-  if (!(terminal && !state.emitted)) {
-    return;
-  }
-  state.emitted = true;
-  const value = runtime.tokenDiagnostics.toolCallTelemetry();
-  if (value.length > 0) {
-    yield { type: 'tool-call-telemetry', value };
-  }
-}
-
-/**
- * Emit one completed-run pair on the final-prompt-content basis. The numerator
- * counts model-visible tool-output projections plus tool definitions once; the
- * denominator is the latest step prompt, which contains every prior tool
- * output once through Mastra's resend behavior—not the cross-step billing sum.
- * Conversation/system-prompt text outside tool outputs and definitions is
- * excluded from both, and a run without a measured tool output is ineligible.
- */
-function* drainTokenEstimateCalibrationChunk(
-  terminal: boolean,
-  runtime: MastraAgentRuntime,
-  runtimeData: RuntimeData | undefined,
-  lifecycleState: ToolLifecycleState,
-  state: { emitted: boolean },
-  promptBreakdown: AssistantContextBreakdown | undefined
-): Generator<StreamChunk> {
-  if (!(terminal && !state.emitted)) {
-    return;
-  }
-  state.emitted = true;
-  const finalStepPromptTokens = lifecycleState.latestStepPromptTokens;
-  const model = runtimeData?.model;
-  const provider = runtimeData?.provider;
-  if (finalStepPromptTokens === undefined || !(model && provider)) {
-    return;
-  }
-  const fields = runtime.tokenDiagnostics.toLogFields();
-  if (fields['measurementStatus'] === 'failed') {
-    return;
-  }
-  const modelVisibleProjectionCount = fields['modelVisibleProjectionCount'] as number;
-  // BST-1232 review (P1): a run with zero measured tool-output projections
-  // used to be entirely ineligible for this chunk, which meant an ordinary
-  // tool-free chat turn NEVER persisted `promptBreakdownBaselineTokens` —
-  // silently starving the next turn's compaction trigger of the one value
-  // this migration exists to give it. The estimator-vs-provider RATIO this
-  // chunk also carries (estimatedPromptTokens/finalStepPromptTokens) is
-  // still only meaningful when real tool-output measurement happened
-  // (BST-1205); that eligibility gate now lives in the consuming
-  // `estimator-calibration.sql` lens (`model_visible_projection_count > 0`)
-  // instead of the writer, so a zero-projection row can be written here
-  // without resurrecting a meaningless ratio sample downstream. A row is
-  // still skipped only when there is NOTHING new to report: no measured
-  // tool output AND no prompt breakdown to source a baseline from.
-  if (modelVisibleProjectionCount === 0 && !promptBreakdown) {
-    return;
-  }
-  // Comparable final-prompt basis: the numerator counts model-visible tool
-  // outputs and tool definitions once; the latest step prompt already contains
-  // every prior tool output once via Mastra's resend behavior. Conversation and
-  // system-prompt text outside those shares remain excluded from both figures.
-  const estimatedPromptTokens =
-    (fields['modelVisibleProjectionBackstopTokens'] as number) +
-    ((fields['toolDefinitionBackstopTokens'] as number | undefined) ?? 0);
-  yield {
-    type: 'token-estimate-calibration',
-    value: {
-      estimatedPromptTokens,
-      finalStepPromptTokens,
-      model,
-      modelVisibleProjectionCount,
-      occurredAt: Date.now(),
-      provider,
-      // BST-1232 review: `taskListTokens` absent genuinely means "no task
-      // list" (0 is honest), but `toolDefinitionsTokens` absent means tool-
-      // definition measurement FAILED for this run (see
-      // `RunTokenDiagnostics.toolDefinitionContextBreakdown()`'s own "absent,
-      // never zero-faked" contract) — folding that to 0 would silently
-      // understate the baseline by roughly the whole tool catalog
-      // (~9.8k tokens) while looking like valid evidence to the next turn's
-      // trigger. Omit the field entirely rather than persist a fabricated
-      // partial sum (no-silent-fallbacks); migration 091's NULL already
-      // means exactly "no trustworthy baseline for this row".
-      ...(promptBreakdown && promptBreakdown.toolDefinitionsTokens !== undefined
-        ? {
-            promptBreakdownBaselineTokens:
-              promptBreakdown.systemInstructionsTokens +
-              (promptBreakdown.taskListTokens ?? 0) +
-              promptBreakdown.toolDefinitionsTokens,
-          }
-        : {}),
-      resolvedDomainBudgetTokens: runtime.resolvedToolResultBudget.domainModelResultTokens,
-      resolvedTransportBudgetTokens: runtime.resolvedToolResultBudget.transportResultTokens,
-      stepCount: lifecycleState.stepCount,
-    },
-  };
-}
-
-/**
- * The initial turn. Recovery from a stalled attempt lives HERE and only here:
- * a continuation is a plain `agent.stream` over the messages produced so far,
- * which the approval- and suspend-resume legs cannot express — their entry
- * points consume a one-shot approval/suspension that cannot be re-issued. Those
- * legs still route through {@link runTurnAttempts} with a single attempt, so
- * runtime disposal has exactly one owner across every leg.
- */
-async function createStreamIteratorFromRuntime(
-  params: StreamIterationParams
-): Promise<StreamIterator> {
-  const { runtime, runtimeData } = params;
-  // `firstAttempt` is still awaited HERE, before the generator below is built,
-  // so a construction failure rejects the promise `streamMastraAgent` returns
-  // rather than throwing mid-stream (see runTurnAttempts' `firstAttempt`
-  // contract and the renderer safety net in docs/agents/assistant-runtime.md).
-  return runTurnAttempts({
-    firstAttempt: await createInitialTurnAttempt(params, undefined),
-    makeContinuation: (input) =>
-      createInitialTurnAttempt(
-        params,
-        input.continuationMessages,
-        input.carriedLifecycleState,
-        false
-      ),
-    maxAttempts: runtime.resilienceConfig.streamStallAttempts,
-    // BST-1602: a run whose MCP server contributed nothing says so. This is the
-    // FRESH-TURN seam, which is exactly the scope the rows want — the resume
-    // legs call `runTurnAttempts` directly, rebuild the runtime, re-run
-    // discovery, and still emit nothing.
-    preludeChunks: makeMcpDiscoverySkipChunks(runtime.mcpDiscoverySkips),
-    runtime,
-    runtimeData,
-  });
-}
-
-async function createInitialTurnAttempt(
-  {
-    runtime,
-    runtimeData,
-    messages,
-    memory,
-    requireToolApproval,
-    sanitizedNameMap,
-  }: StreamIterationParams,
-  continuationMessages: readonly MastraDBMessage[] | undefined,
-  carriedLifecycleState?: ToolLifecycleState,
-  disposeRuntimeOnFailure = true
-): Promise<TurnAttempt> {
-  const mastraMessages = convertMessagesToMastra(messages);
-  const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
-  // Same lifetime as `delegationUsage`: written by the delegation hook, read by
-  // the chunk loop when it maps the delegation's terminal run event (BST-1410).
-  // Built BEFORE the lifecycle state because that state carries it.
-  const delegationOutcomes =
-    runtime.personasById.size > 0 ? createDelegationOutcomeCapture() : undefined;
-  const lifecycleState = createTurnAttemptLifecycleState(
-    runtimeData,
-    delegationOutcomes,
-    runtime.toolExecutionDurations,
-    carriedLifecycleState
-  );
-
-  try {
-    // A continuation re-sends the original request FOLLOWED BY everything the
-    // stalled attempt produced, so the model continues from its own completed
-    // tool results instead of starting over. Re-sending the request is safe
-    // rather than duplicative: an aborted attempt persisted nothing at all
-    // (BST-1415), so the continuation is the turn's only writer.
-    const streamInput = [
-      ...mastraMessages,
-      ...(continuationMessages ?? []),
-    ] as unknown as Parameters<typeof runtime.agent.stream>[0];
-    const memoryOption = resolveMemoryOption(runtimeData, memory);
-    const delegationUsage =
-      runtime.personasById.size > 0
-        ? createDelegationUsageCapture(runtime.personasById, runtimeData)
-        : undefined;
-    const abortedTurnPersistence = createRuntimeAbortedTurnPersistence({
-      memory,
-      memoryOption,
-      runtimeData,
-      streamAbortContext,
-    });
-
-    const streamOptions: BrainstrikeAgentStreamOptions = {
-      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
-      abortSignal: streamAbortContext.signal,
-      ...buildAssistantStreamMessageIdOption(runtimeData),
-      ...(memoryOption ? { memory: memoryOption } : {}),
-      ...buildModelSettingsOption(runtimeData),
-      ...buildGenerationProviderOptionsOption(runtimeData),
-      // Delegation safety rails: per-run caps + maxSteps clamp + unknown-persona
-      // rejection (only when the run has registered personas).
-      ...(delegationUsage
-        ? {
-            delegation: createDelegationConfig({
-              ...(delegationOutcomes ? { delegationOutcomes } : {}),
-              logger,
-              onChildUsage: delegationUsage.onChildUsage,
-              personasById: runtime.personasById,
-            }),
-          }
-        : {}),
-      // When enabled, Mastra pauses before tool execution and emits resumable
-      // approval metadata for the UI action bridge.
-      ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
-    };
-    const resolvedStreamOptions = Object.keys(streamOptions).length > 0 ? streamOptions : undefined;
-
-    const streamResult = resolvedStreamOptions
-      ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
-      : await runtime.agent.stream(streamInput);
-    await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
-    logger.info(
-      {
-        code: 'mastra_agent_stream_started',
-        ...(runtimeData?.model ? { model: runtimeData.model } : {}),
-        ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
-      },
-      'mastra stream started'
-    );
-
-    const fullStream = resolveFullStream(streamResult);
-    if (!fullStream) {
-      throw createMastraAgentError('mastra_agent_stream_failure', {
-        detail: 'empty_stream',
-      });
-    }
-
-    // Prompt breakdown for the context usage popover: instruction-side counts
-    // were captured at Agent construction; the message-side counts (wire text +
-    // attachments) join here, where the outgoing messages are in scope.
-    // Memory-backed runs omit the history figure — Mastra recalls durable
-    // history AFTER this seam, so the wire is not the conversation.
-    const promptBreakdown = computePromptBreakdown({
-      instructionBreakdown: runtime.instructionBreakdown,
-      memoryBacked: Boolean(memoryOption),
-      messages,
-      toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
-    });
-
-    return {
-      abortedTurnPersistence,
-      chunks: streamAttemptChunks({
-        abortedTurnPersistence,
-        ...(delegationUsage ? { delegationUsage } : {}),
-        lifecycleState,
-        ...(memory ? { memory } : {}),
-        promptBreakdown,
-        runtime,
-        stream: fullStream,
-        streamAbortContext,
-        titleMessages: messages,
-        ...(runtimeData ? { runtimeData } : {}),
-        ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
-      }),
-      lifecycleState,
-      readProducedMessages: () => readAttemptProducedMessages(streamResult),
-    };
-  } catch (err) {
-    streamAbortContext.abort(new Error('Mastra stream construction failed.'));
-    streamAbortContext.dispose();
-    if (!disposeRuntimeOnFailure) {
-      throw err;
-    }
-    return await handleStreamFailure(err, runtime);
-  }
-}
-
-function validateToolApprovalAction(action: AssistantToolApprovalAction): void {
-  if (!action.runId.trim()) {
-    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-      detail: 'tool approval action requires runId',
-    });
-  }
-  if (!action.toolCallId.trim()) {
-    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-      detail: 'tool approval action requires toolCallId',
-    });
-  }
-}
-
-/**
- * The approval RESUME leg passes Mastra's run-wide `requireToolApproval: true`
- * (the resume API needs it — see docs/agents/assistant-runtime.md PERMISSION ENGINE). A blanket `true`
- * gates EVERY tool call on the resumed run. Substitute the FUNCTION form so the
- * rebuilt runtime reuses the permission gate's authoritative `askTools` set:
- * allowed read/state tools run free, ask-gated mutations can suspend again, and
- * Mastra's internal memory tools remain exempt. A caller-supplied function or a
- * non-`true` value passes through unchanged.
- *
- * An empty `askTools` is AMBIGUOUS and MUST be disambiguated by `permissionEnforced`:
- *  - `permissionEnforced === true` → a policy WAS enforced but resolved nothing
- *    to `'ask'`, i.e. every remaining tool is ALLOWED (e.g. "Allow all tools
- *    this session" granted all categories; denied tools were already omitted
- *    from the map). This is an all-allowed posture → gate NOTHING, so a later
- *    mutation tool in the same resumed run is NOT re-prompted.
- *  - `permissionEnforced === false` → NO policy was enforced yet the caller set
- *    run-wide `requireToolApproval: true` → a genuine explicit GLOBAL approval
- *    request → keep gating every non-internal tool (the pre-permission-engine
- *    behavior). Per-tool DENY still wins in both cases: a denied tool never
- *    reaches the map, so it never reaches this gate.
- */
-function resolveResumeApprovalGate(
-  requireToolApproval: ApprovalGate | undefined,
-  askTools: ReadonlyMap<string, PermissionAskToolMetadata>,
-  permissionEnforced: boolean
-): ApprovalGate {
-  if (requireToolApproval !== true) {
-    return requireToolApproval ?? false;
-  }
-  // Global-gate ONLY when the empty ask set is a genuine global-approval request
-  // (no policy enforced). An empty ask set UNDER an enforced policy is the
-  // all-allowed posture: the function below then gates nothing (askTools.has is
-  // always false), honoring "Allow all tools this session".
-  const isExplicitGlobalApproval = askTools.size === 0 && !permissionEnforced;
-  // Since the @mastra/core 1.56 approval rework there is no self-approving
-  // exemption: run_python is an ordinary ask-set tool (the permission gate's
-  // `requireApproval` clone is its Gate A), so re-gating it on a resumed leg
-  // is exactly the framework's own idiom — approve is consumed pre-execution
-  // and the tool runs once, never a loop. Only Mastra-INTERNAL bookkeeping
-  // tools stay exempt (the D4 defect).
-  return ({ toolName }: { toolName: string }): boolean =>
-    !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
-}
-
-async function readResumedApprovalToolCall(
-  runtime: MastraAgentRuntime,
-  runtimeData: RuntimeData | undefined,
-  action: AssistantToolApprovalAction
-): Promise<ResumedApprovalToolCall> {
-  const memoryContext = runtimeData?.memory;
-  const { runs } = await runtime.agent.listSuspendedRuns(
-    memoryContext
-      ? { resourceId: memoryContext.resourceId, threadId: memoryContext.threadId }
-      : undefined
-  );
-  const run = runs.find((candidate) => candidate.runId === action.runId);
-  const toolCall = run?.toolCalls.find(
-    (candidate) => candidate.toolCallId === action.toolCallId && candidate.requiresApproval
-  );
-  if (!(toolCall?.toolName && toolCall.args !== undefined)) {
-    throw createMastraAgentError('mastra_agent_stream_failure', {
-      context: { runId: action.runId, toolCallId: action.toolCallId },
-      detail: 'Suspended approval snapshot is missing the requested tool call or its arguments.',
-    });
-  }
-
-  const siblings: ResumedToolCallStart[] = [];
-  for (const candidate of run?.toolCalls ?? []) {
-    // Destructured consts so the narrowing survives into the push below.
-    const { args, toolCallId: siblingToolCallId, toolName: siblingToolName } = candidate;
-    if (
-      !siblingToolCallId ||
-      siblingToolCallId === action.toolCallId ||
-      !siblingToolName ||
-      args === undefined
-    ) {
-      continue;
-    }
-    siblings.push({
-      args,
-      displayToolName: resolveDiscoveredApprovalToolName(
-        siblingToolName,
-        runtime.toolNameMap,
-        action.runId
-      ),
-      registeredToolName: siblingToolName,
-      toolCallId: siblingToolCallId,
-    });
-  }
-
-  return {
-    args: toolCall.args,
-    displayToolName: resolveDiscoveredApprovalToolName(
-      toolCall.toolName,
-      runtime.toolNameMap,
-      action.runId
-    ),
-    registeredToolName: toolCall.toolName,
-    siblings,
-    toolCallId: action.toolCallId,
-  };
-}
-
-/**
- * Approval-resume. Routed through {@link runTurnAttempts} with a SINGLE attempt:
- * an approval is consumed by `approveToolCall`/`declineToolCall` and cannot be
- * re-issued, so this leg keeps the pre-BST-1409 terminal behavior on a stall.
- * It still shares the turn runner so `runtime.dispose()` has one owner.
- */
-async function createToolApprovalIteratorFromRuntime(
-  params: ToolApprovalIterationParams
-): Promise<StreamIterator> {
-  return runTurnAttempts({
-    firstAttempt: await createToolApprovalTurnAttempt(params),
-    // Unreachable at maxAttempts 1; present so the runner has one shape.
-    makeContinuation: () => createToolApprovalTurnAttempt(params),
-    maxAttempts: 1,
-    // No MCP discovery rows on a resume leg (BST-1602). This runtime was
-    // rebuilt and re-ran discovery, but the user already saw the rows on the
-    // fresh turn; re-emitting them would duplicate on every approval.
-    preludeChunks: [],
-    runtime: params.runtime,
-    runtimeData: params.runtimeData,
-  });
-}
-
-async function createToolApprovalTurnAttempt({
-  runtime,
-  runtimeData,
-  action,
-  memory,
-  requireToolApproval,
-  sanitizedNameMap,
-}: ToolApprovalIterationParams): Promise<TurnAttempt> {
-  const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
-  // Same lifetime as `delegationUsage`: written by the delegation hook, read by
-  // the chunk loop when it maps the delegation's terminal run event (BST-1410).
-  // Built BEFORE the lifecycle state because that state carries it.
-  const delegationOutcomes =
-    runtime.personasById.size > 0 ? createDelegationOutcomeCapture() : undefined;
-  const lifecycleState = createTurnAttemptLifecycleState(
-    runtimeData,
-    delegationOutcomes,
-    runtime.toolExecutionDurations
-  );
-  // A resume continues a turn whose model already contributed — the tool call
-  // being approved/resumed IS model output — so its finish must never be
-  // re-classified as an empty response, even when the resume stream itself
-  // carries no further content parts.
-  lifecycleState.sawModelContribution = true;
-  try {
-    validateToolApprovalAction(action);
-    const memoryOption = resolveMemoryOption(runtimeData, memory);
-    const resumedApprovalToolCall = await readResumedApprovalToolCall(runtime, runtimeData, action);
-    const abortedTurnPersistence = createRuntimeAbortedTurnPersistence({
-      memory,
-      memoryOption,
-      runtimeData,
-      streamAbortContext,
-    });
-    const delegationUsage =
-      runtime.personasById.size > 0
-        ? createDelegationUsageCapture(runtime.personasById, runtimeData)
-        : undefined;
-    const approvalOptions: BrainstrikeAgentStreamOptions & {
-      runId: string;
-      toolCallId: string;
-    } = {
-      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
-      abortSignal: streamAbortContext.signal,
-      runId: action.runId,
-      toolCallId: action.toolCallId,
-      ...buildAssistantStreamMessageIdOption(runtimeData),
-      ...(memoryOption ? { memory: memoryOption } : {}),
-      ...buildModelSettingsOption(runtimeData),
-      ...buildGenerationProviderOptionsOption(runtimeData),
-      // Resume keeps the delegation rails so a resumed run still caps/rejects
-      // subagent delegations consistently with the initial turn.
-      ...(delegationUsage
-        ? {
-            delegation: createDelegationConfig({
-              ...(delegationOutcomes ? { delegationOutcomes } : {}),
-              logger,
-              onChildUsage: delegationUsage.onChildUsage,
-              personasById: runtime.personasById,
-            }),
-          }
-        : {}),
-      // Reapply the per-tool permission decisions instead of letting Mastra's
-      // run-wide resume flag gate every subsequent tool call.
-      ...(requireToolApproval === undefined
-        ? {}
-        : {
-            requireToolApproval: resolveResumeApprovalGate(
-              requireToolApproval,
-              runtime.askTools,
-              runtime.permissionEnforced
-            ),
-          }),
-    };
-
-    const streamResult =
-      action.action === 'approve'
-        ? await runtime.agent.approveToolCall(approvalOptions as AgentToolApprovalOptions)
-        : await runtime.agent.declineToolCall(approvalOptions as AgentToolApprovalOptions);
-    await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
-
-    logger.info('mastra tool approval resume stream started', {
-      action: action.action,
-      code: 'mastra_agent_tool_approval_resume_started',
-      runId: action.runId,
-      toolCallId: action.toolCallId,
-    });
-
-    const fullStream = resolveFullStream(streamResult);
-    if (!fullStream) {
-      throw createMastraAgentError('mastra_agent_stream_failure', {
-        detail: 'empty_stream',
-      });
-    }
-
-    // BST-1232 review (P2): prompt composition is unchanged across a resume
-    // (same composed instructions, same tool definitions), so the SAME
-    // baseline the initial turn would have reported still applies here — it
-    // was simply never computed on this leg. `messages: []` is honest for a
-    // resume: no new user messages are sent, so the message-side counts this
-    // breakdown also carries (attachmentsCount, and historyMessagesTokens
-    // when not memory-backed) are correctly zero/omitted rather than stale.
-    const promptBreakdown = computePromptBreakdown({
-      instructionBreakdown: runtime.instructionBreakdown,
-      memoryBacked: Boolean(memoryOption),
-      messages: [],
-      toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
-    });
-
-    return {
-      abortedTurnPersistence,
-      chunks: streamAttemptChunks({
-        abortedTurnPersistence,
-        ...(delegationUsage ? { delegationUsage } : {}),
-        lifecycleState,
-        promptBreakdown,
-        runtime,
-        stream: fullStream,
-        streamAbortContext,
-        ...(action.action === 'approve' ? { resumedApprovalToolCall } : {}),
-        ...(runtimeData ? { runtimeData } : {}),
-        ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
-      }),
-      lifecycleState,
-      // A resume leg never recovers (see createStreamIteratorFromRuntime), so
-      // this is never consulted; `undefined` states that honestly rather than
-      // implying an empty continuation would be safe.
-      readProducedMessages: () => undefined,
-    };
-  } catch (err) {
-    streamAbortContext.abort(new Error('Mastra approval-resume stream construction failed.'));
-    streamAbortContext.dispose();
-    return await handleStreamFailure(err, runtime);
-  }
-}
-
-async function handleStreamFailure(err: unknown, runtime: MastraAgentRuntime): Promise<never> {
-  logger.error('mastra stream failed', {
-    code: 'mastra_agent_stream_failed',
-    error: err instanceof Error ? err.message : String(err),
-  });
-  try {
-    await runtime.dispose();
-  } catch (disposeError) {
-    logger.warn('dispose after stream failure failed', {
-      code: 'mastra_agent_runtime_dispose_failed',
-      error: disposeError instanceof Error ? disposeError.message : String(disposeError),
-    });
-  }
-  if (isMastraAgentError(err)) {
-    throw err;
-  }
-  const errorDetail = err instanceof Error ? err.message : undefined;
-  throw createMastraAgentError(
-    'mastra_agent_stream_failure',
-    errorDetail ? { cause: err, detail: errorDetail } : { cause: err }
-  );
 }
 
 export async function streamMastraAgent(
@@ -3106,13 +1837,32 @@ export async function streamMastraAgent(
   assertNoUnsupportedDirectStreamOptions(options);
 
   const runtimeData = options.runtime;
+  const initialSystemMessages = structuredClone(
+    messages.filter((message) => message.role === 'system')
+  );
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
-  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
+  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
+    {
+      ...options,
+      getDelegatedSystemContext: () => captureDelegatedSystemContext(initialSystemMessages),
+    },
+    runtimeResolution
+  );
+  // Debug-pack evidence for a FRESH turn only: resume legs replay the prompt
+  // their snapshot carries. The host logs a failed write and resolves.
+  const rootManifest = buildRootLegPromptManifest({
+    messages: initialSystemMessages,
+    registeredToolNames: runtime.registeredToolNames,
+    runtime: runtimeResolution.runtime,
+  });
+  if (rootManifest) {
+    await runtime.conversationBinding?.recordPromptManifest?.(rootManifest);
+  }
 
-  // Per-call approval for `'ask'` tools comes from the PER-TOOL `requireApproval`
-  // flag the permission gate set (see permission-tool-gate.ts), NOT from the
-  // run-wide `requireToolApproval` — the global flag would suspend EVERY tool
-  // call, including allowed read/mcp tools. We therefore only pass
+  // Per-call approval for `'ask'` tools comes from each ask tool's FUNCTION-form
+  // `requireApproval` (approval-gate.ts, evaluated by Mastra on every call),
+  // NOT from the run-wide `requireToolApproval` — a truthy run-wide gate would
+  // suspend EVERY tool call and force sequential steps. We therefore only pass
   // `requireToolApproval` when the caller explicitly set it (e.g. a deliberate
   // approve-all run); an unset option leaves the run on the per-tool gate.
   const requireToolApproval = options.requireToolApproval;
@@ -3141,7 +1891,7 @@ export async function streamMastraAgent(
  * model instead of the user's selected one. `mcpConfig` needs no threading here:
  * `createMastraAgentRuntime` already falls back to `sanitizedRuntime.mcpConfig`.
  */
-function withRuntimeDerivedStreamOptions(
+export function withRuntimeDerivedStreamOptions(
   options: MastraAgentRuntimeOptions
 ): MastraAgentRuntimeOptions {
   const runtimeData = options.runtime;
@@ -3176,7 +1926,11 @@ export async function streamMastraToolApprovalAction(
     });
   }
 
-  const runtimeData = options.runtime;
+  if (action.continuationId) {
+    return createChildContinuationDecisionStream(action, withRuntimeDerivedStreamOptions(options));
+  }
+  const resumeOptions = await withDelegatedPersonaSnapshots(action, options);
+  const runtimeData = resumeOptions.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   let preserveExecuteBackedWebSearch = false;
   if (providerSupportsNativeWebSearch(runtimeResolution.provider)) {
@@ -3185,7 +1939,7 @@ export async function streamMastraToolApprovalAction(
     // this immutable resumed leg must keep the execute-backed web-search tool.
     const { runtime: discoveryRuntime } = await initializeMastraRuntime(
       withRuntimeDerivedStreamOptions({
-        ...options,
+        ...resumeOptions,
         modelOverride: createListingOnlyModel(),
       }),
       runtimeResolution
@@ -3196,7 +1950,7 @@ export async function streamMastraToolApprovalAction(
         runtimeResolution.runtime,
         action
       );
-      preserveExecuteBackedWebSearch = suspendedToolCall.displayToolName === WEB_SEARCH_TOOL_ID;
+      preserveExecuteBackedWebSearch = suspendedToolCall.approvedToolName === WEB_SEARCH_TOOL_ID;
     } finally {
       await discoveryRuntime.dispose();
     }
@@ -3205,7 +1959,8 @@ export async function streamMastraToolApprovalAction(
   // the native tools on resume (see withRuntimeDerivedStreamOptions).
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
     {
-      ...withRuntimeDerivedStreamOptions(options),
+      ...withRuntimeDerivedStreamOptions(resumeOptions),
+      approvalResumeLeg: true,
       hydrateToolDiscoveryFromMemory: true,
       // The durable run suspended against the execute-backed tool. A session
       // grant changes authorization for this leg, not the stored invocation's
@@ -3225,469 +1980,6 @@ export async function streamMastraToolApprovalAction(
     runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
-}
-
-export interface DiscoveredSuspendedApproval {
-  readonly args?: unknown;
-  readonly runId: string;
-  /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
-  readonly suspendedAt: string;
-  readonly toolCallId: string;
-  readonly toolName: string;
-}
-
-/**
- * A non-approval `suspend()` pause discovered from workflow storage
- * (BST-1084): a tool that called `suspend()` (submitPlan/askUser) whose run
- * survived a restart/reload. `suspendPayload` comes off the durable snapshot
- * (Mastra's `AgentRunToolCall.suspendPayload`), so the rediscovered notice
- * renders the real plan/question. `toolName` is the ORIGINAL dotted name,
- * mapped exactly like approvals.
- */
-export interface DiscoveredSuspendedPause {
-  readonly runId: string;
-  readonly suspendedAt: string;
-  readonly suspendPayload?: unknown;
-  readonly toolCallId: string;
-  readonly toolName: string;
-}
-
-export interface ListSuspendedRunsResult {
-  readonly approvals: readonly DiscoveredSuspendedApproval[];
-  /** Non-approval suspend() pauses (BST-1084). Same ordering as approvals. */
-  readonly suspends: readonly DiscoveredSuspendedPause[];
-}
-
-/**
- * Map a suspended tool call's REGISTERED (Mastra-sanitized) id back to the
- * ORIGINAL name every client-facing approval surface is keyed by (riskByTool
- * lookups, per-tool overrides, the notice label). Resolution order:
- * 1. the discovery runtime's `toolNameMap` (authoritative when the tool is
- *    registered on this runtime — covers custom/MCP dotted names), then
- * 2. the static native reverse map (`denormalizeNativeToolName`) — covers the
- *    desktop KEYLESS discovery route, which registers NO tools, for every
- *    known native id (the confirmed `brainstrike_executeCommand` live bug).
- * When neither resolves, the registered id is returned unchanged with a LOUD
- * warning: the pause still surfaces (the user can approve/decline), but risk
- * metadata / grant actions will be honestly unavailable downstream — never a
- * silent drop, never a fabricated mapping (no-silent-fallbacks).
- */
-function resolveDiscoveredApprovalToolName(
-  registeredToolName: string,
-  toolNameMap: ReadonlyMap<string, string>,
-  runId: string
-): string {
-  const mapped = toolNameMap.get(registeredToolName);
-  if (mapped !== undefined) {
-    return mapped;
-  }
-  const nativeDotted = denormalizeNativeToolName(registeredToolName);
-  if (nativeDotted !== registeredToolName) {
-    return nativeDotted;
-  }
-  logger.warn('suspended approval tool name could not be mapped to an original name', {
-    code: 'mastra_agent_suspended_tool_name_unmapped',
-    runId,
-    toolName: registeredToolName,
-  });
-  return registeredToolName;
-}
-
-type SuspendedRunsForClassification = Awaited<ReturnType<Agent['listSuspendedRuns']>>['runs'];
-
-/**
- * Classify a suspended run's tool calls into approvals vs suspend() pauses.
- *
- * Mastra's documented contract: `run.toolCalls` contains only calls the run is
- * CURRENTLY suspended on ("A suspended tool call inside a suspended agent run
- * — either waiting on a tool-call approval or on resume data for a tool that
- * called suspend()", AgentRunToolCall). A call can be suspended for exactly
- * ONE reason at a time — even a tool that is both approval-gated and
- * suspending composes the two transports SERIALLY (pinned by the BOTH-FLAGS
- * integration proof). The id set below is a CANARY for that contract: if an
- * upstream change ever lists one call in both roles, the approval (the
- * earlier gate) wins and the duplicate is logged loudly instead of producing
- * two cards for one call. Only a call missing its ids (e.g. a
- * delegation-thread run) is tolerated + skipped.
- */
-function classifySuspendedToolCalls(
-  runs: SuspendedRunsForClassification,
-  toolNameMap: ReadonlyMap<string, string>
-): { approvals: DiscoveredSuspendedApproval[]; suspends: DiscoveredSuspendedPause[] } {
-  const approvals: DiscoveredSuspendedApproval[] = [];
-  const suspends: DiscoveredSuspendedPause[] = [];
-  const approvalToolCallIds = new Set<string>();
-  for (const run of runs) {
-    const suspendedAt = run.suspendedAt.toISOString();
-    for (const toolCall of run.toolCalls) {
-      if (!(toolCall.toolCallId && toolCall.toolName)) {
-        logger.debug('skipping suspended tool call without ids', {
-          code: 'mastra_agent_suspended_run_skipped',
-          requiresApproval: toolCall.requiresApproval,
-          runId: run.runId,
-          toolName: toolCall.toolName,
-        });
-        continue;
-      }
-      // Snapshots store the REGISTERED (sanitized) id; every client-facing
-      // surface is keyed by the ORIGINAL name — map it back here so the
-      // desktop route's riskByTool lookup and per-tool overrides match.
-      const toolName = resolveDiscoveredApprovalToolName(toolCall.toolName, toolNameMap, run.runId);
-      if (toolCall.requiresApproval) {
-        approvalToolCallIds.add(toolCall.toolCallId);
-        approvals.push({
-          runId: run.runId,
-          suspendedAt,
-          toolCallId: toolCall.toolCallId,
-          toolName,
-          ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
-        });
-        continue;
-      }
-      if (approvalToolCallIds.has(toolCall.toolCallId)) {
-        logger.warn('suspended tool call listed as BOTH approval and suspend; approval wins', {
-          code: 'mastra_agent_suspended_run_duplicate_tool_call',
-          runId: run.runId,
-          toolCallId: toolCall.toolCallId,
-          toolName,
-        });
-        continue;
-      }
-      // BST-1084: a tool that called suspend() — carry its durable payload
-      // so the rediscovered notice renders the real plan/question.
-      suspends.push({
-        runId: run.runId,
-        suspendedAt,
-        toolCallId: toolCall.toolCallId,
-        toolName,
-        ...(toolCall.suspendPayload === undefined
-          ? {}
-          : { suspendPayload: toolCall.suspendPayload }),
-      });
-    }
-  }
-  const bySuspendedAt = (a: { suspendedAt: string }, b: { suspendedAt: string }): number =>
-    Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt);
-  approvals.sort(bySuspendedAt);
-  suspends.sort(bySuspendedAt);
-  return { approvals, suspends };
-}
-
-/**
- * Restart-safe discovery of pending tool approvals for a thread. Rebuilds a
- * FRESH runtime (like {@link streamMastraToolApprovalAction}) and calls the
- * sanctioned `agent.listSuspendedRuns` — it holds no in-memory stream handle, so
- * it works after a process restart / renderer reload given only the thread
- * context. It is INERT: listing performs no inference and never resumes a run.
- *
- * Returns approval-gated tool calls (`requiresApproval === true`) in
- * `approvals` AND non-approval `suspend()` pauses (submitPlan/askUser) in
- * `suspends` (BST-1084) — both requiring a `toolCallId` + `toolName`, both
- * name-mapped to the original dotted form. Only a call missing its ids (e.g.
- * a delegation-thread run) is tolerated + skipped (logged at debug). Storage
- * is REQUIRED (no storage ⇒ no discovery, never a silent empty result).
- */
-export async function listSuspendedMastraRuns(
-  filter: { readonly threadId: string; readonly resourceId: string },
-  options: MastraAgentRuntimeOptions = {}
-): Promise<ListSuspendedRunsResult> {
-  assertNoUnsupportedDirectStreamOptions(options);
-  if (!options.storage) {
-    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-      detail: 'Mastra workflow storage is required to discover suspended approvals.',
-    });
-  }
-
-  const runtimeResolution = resolveRuntimeConfiguration(options.runtime, options.authInput);
-  // Listing performs NO inference: build the runtime with an inert model so no
-  // provider/model is resolved. This is why the discovery route can pass a
-  // keyless provider with no static default (e.g. ollama) without the
-  // `No default model configured` init throw (the D1 fix).
-  const { runtime } = await initializeMastraRuntime(
-    withRuntimeDerivedStreamOptions({ ...options, modelOverride: createListingOnlyModel() }),
-    runtimeResolution
-  );
-
-  try {
-    const { runs } = await runtime.agent.listSuspendedRuns({
-      resourceId: filter.resourceId,
-      threadId: filter.threadId,
-    });
-
-    const { approvals, suspends } = classifySuspendedToolCalls(runs, runtime.toolNameMap);
-
-    logger.info('discovered suspended approvals', {
-      approvalCount: approvals.length,
-      code: 'mastra_agent_suspended_runs_discovered',
-      runCount: runs.length,
-      suspendCount: suspends.length,
-      threadId: filter.threadId,
-    });
-
-    return { approvals, suspends };
-  } finally {
-    await runtime.dispose();
-  }
-}
-
-// resumeStream's resumeData param is typed `any` by Mastra; we cast a typed
-// `unknown` through this alias at the single call site (no other `any` here).
-type AgentResumeStreamOptions = Parameters<Agent['resumeStream']>[1];
-
-interface ToolResumeIterationParams {
-  action: AssistantToolResumeAction;
-  memory?: MastraMemory;
-  runtime: MastraAgentRuntime;
-  runtimeData?: RuntimeData;
-  sanitizedNameMap?: Map<string, string>;
-}
-
-function validateToolResumeAction(action: AssistantToolResumeAction): void {
-  if (!action.runId.trim()) {
-    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-      detail: 'tool resume action requires runId',
-    });
-  }
-  if (!action.toolCallId.trim()) {
-    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-      detail: 'tool resume action requires toolCallId',
-    });
-  }
-}
-
-/**
- * The suspend-resume transport answers a tool's OWN `suspend()` pause and
- * nothing else. Refuse when the targeted call is suspended for APPROVAL
- * (BST-1097): the two pause kinds carry different resume shapes, and a generic
- * resume payload delivered to an approval pause would reach a self-approving
- * tool as if its gates were already settled — e.g. `{action:'allow'}` answering
- * run_python's Gate A would skip the approval card entirely. Mirrors
- * `readResumedApprovalToolCall`, which enforces the symmetric direction
- * (`requiresApproval === true`) for the approval transport. A missing run or
- * tool call fails visibly here with the same typed error family — never a
- * silent fallthrough to a blind resume.
- */
-async function assertResumedCallIsSuspendPause(
-  runtime: MastraAgentRuntime,
-  runtimeData: RuntimeData | undefined,
-  action: AssistantToolResumeAction
-): Promise<{ readonly toolName: string }> {
-  const memoryContext = runtimeData?.memory;
-  const { runs } = await runtime.agent.listSuspendedRuns(
-    memoryContext
-      ? { resourceId: memoryContext.resourceId, threadId: memoryContext.threadId }
-      : undefined
-  );
-  const run = runs.find((candidate) => candidate.runId === action.runId);
-  const toolCall = run?.toolCalls.find((candidate) => candidate.toolCallId === action.toolCallId);
-  if (!toolCall) {
-    throw createMastraAgentError('mastra_agent_stream_failure', {
-      context: { runId: action.runId, toolCallId: action.toolCallId },
-      detail: 'Suspended tool snapshot is missing the requested tool call.',
-    });
-  }
-  if (toolCall.requiresApproval) {
-    throw createMastraAgentError('mastra_agent_stream_failure', {
-      context: { runId: action.runId, toolCallId: action.toolCallId },
-      detail:
-        'The requested tool call is suspended for APPROVAL; answer it through the approval transport, not the suspend-resume transport.',
-    });
-  }
-  if (!toolCall.toolName) {
-    // The rider decision below keys on the tool's ask registration; a
-    // snapshot with no tool name cannot be classified — refuse rather than
-    // guessing (a wrong guess either denies a valid resume or widens a
-    // payload the tool's schema will reject).
-    throw createMastraAgentError('mastra_agent_stream_failure', {
-      context: { runId: action.runId, toolCallId: action.toolCallId },
-      detail: 'Suspended tool snapshot has no tool name for the requested tool call.',
-    });
-  }
-  return { toolName: toolCall.toolName };
-}
-
-/**
- * Suspended-tool resume. Same single-attempt reasoning as the approval leg: the
- * Mastra snapshot is consumed by `resumeStream` and cannot be replayed.
- */
-async function createToolResumeIteratorFromRuntime(
-  params: ToolResumeIterationParams
-): Promise<StreamIterator> {
-  return runTurnAttempts({
-    firstAttempt: await createToolResumeTurnAttempt(params),
-    // Unreachable at maxAttempts 1; present so the runner has one shape.
-    makeContinuation: () => createToolResumeTurnAttempt(params),
-    maxAttempts: 1,
-    // No MCP discovery rows on a resume leg (BST-1602). This runtime was
-    // rebuilt and re-ran discovery, but the user already saw the rows on the
-    // fresh turn; re-emitting them would duplicate on every approval.
-    preludeChunks: [],
-    runtime: params.runtime,
-    runtimeData: params.runtimeData,
-  });
-}
-
-async function createToolResumeTurnAttempt({
-  runtime,
-  runtimeData,
-  action,
-  memory,
-  sanitizedNameMap,
-}: ToolResumeIterationParams): Promise<TurnAttempt> {
-  const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
-  // Same lifetime as `delegationUsage`: written by the delegation hook, read by
-  // the chunk loop when it maps the delegation's terminal run event (BST-1410).
-  // Built BEFORE the lifecycle state because that state carries it.
-  const delegationOutcomes =
-    runtime.personasById.size > 0 ? createDelegationOutcomeCapture() : undefined;
-  const lifecycleState = createTurnAttemptLifecycleState(
-    runtimeData,
-    delegationOutcomes,
-    runtime.toolExecutionDurations
-  );
-  // A resume continues a turn whose model already contributed — the tool call
-  // being approved/resumed IS model output — so its finish must never be
-  // re-classified as an empty response, even when the resume stream itself
-  // carries no further content parts.
-  lifecycleState.sawModelContribution = true;
-  try {
-    validateToolResumeAction(action);
-    const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
-    const memoryOption = resolveMemoryOption(runtimeData, memory);
-    const abortedTurnPersistence = createRuntimeAbortedTurnPersistence({
-      memory,
-      memoryOption,
-      runtimeData,
-      streamAbortContext,
-    });
-    // 1.56+ RIDER: Mastra re-checks an approval-gated tool's `requireApproval`
-    // on EVERY leg, including the resume of a plain (Gate B-style) suspension,
-    // and converts a resume without `approved: true` into its generic denial
-    // BEFORE execute() runs.
-    //
-    // The rider states a HISTORICAL fact, and the evidence is structural, not
-    // the current policy: `assertResumedCallIsSuspendPause` above proved this
-    // pause is a PLAIN suspension, and a plain suspension can only be raised
-    // from inside execute() — which the framework only reaches after the
-    // call's pre-execution gate settled under the policy in force at
-    // invocation ('ask' ⇒ an approval was collected; 'allow' ⇒ none was
-    // required). A policy tightened mid-suspension does not retroactively
-    // un-settle that gate, and the resume itself is an explicit user decision
-    // on this very call. `askTools.has` below only answers "will the REBUILT
-    // runtime re-check this tool at all" — when it will not, the payload
-    // passes through untouched.
-    //
-    // Scope: plain-OBJECT payloads only. Spreading a string/array resume
-    // (the LEGACY pre-envelope askUser answer shape — the notice now sends
-    // the `{answer}` envelope, AskUserResumeData) would mangle it into an
-    // index map, so a non-object payload is passed through unchanged — and if
-    // the tool is ask-gated, that legacy resume may hit the framework's
-    // denial. Loud, not silent: the warn below names the tool and the fix (an
-    // object resume envelope). Pinned by unit tests in
-    // mastra-tool-approval-chunks.spec.ts.
-    const isPlainObjectResume =
-      typeof action.resumeData === 'object' &&
-      action.resumeData !== null &&
-      !Array.isArray(action.resumeData);
-    const toolIsReChecked = runtime.askTools.has(suspendedCall.toolName);
-    if (toolIsReChecked && !isPlainObjectResume) {
-      logger.warn(
-        'Ask-gated suspending tool has a non-object resume payload; the 1.56+ approval rider cannot be attached and Mastra may deny the resume. Give the tool an object resume envelope to make it ask-compatible.',
-        {
-          code: 'mastra_agent_resume_rider_unattachable',
-          runId: action.runId,
-          toolCallId: action.toolCallId,
-          toolName: suspendedCall.toolName,
-        }
-      );
-    }
-    const resumeData =
-      toolIsReChecked && isPlainObjectResume
-        ? { ...(action.resumeData as Record<string, unknown>), approved: true }
-        : action.resumeData;
-    const delegationUsage =
-      runtime.personasById.size > 0
-        ? createDelegationUsageCapture(runtime.personasById, runtimeData)
-        : undefined;
-    const resumeOptions = {
-      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
-      abortSignal: streamAbortContext.signal,
-      runId: action.runId,
-      toolCallId: action.toolCallId,
-      ...buildAssistantStreamMessageIdOption(runtimeData),
-      ...(memoryOption ? { memory: memoryOption } : {}),
-      ...buildModelSettingsOption(runtimeData),
-      ...buildGenerationProviderOptionsOption(runtimeData),
-      // Resume keeps the delegation rails so a resumed run (e.g. an askUser
-      // pause→answer that then delegates) still caps/rejects subagent
-      // delegations consistently with the initial + approval-resume iterators.
-      ...(delegationUsage
-        ? {
-            delegation: createDelegationConfig({
-              ...(delegationOutcomes ? { delegationOutcomes } : {}),
-              logger,
-              onChildUsage: delegationUsage.onChildUsage,
-              personasById: runtime.personasById,
-            }),
-          }
-        : {}),
-    };
-
-    // resumeData is validated by Mastra against the suspended tool's resumeSchema.
-    const streamResult = await runtime.agent.resumeStream(
-      resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
-      resumeOptions as AgentResumeStreamOptions
-    );
-    await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
-
-    logger.info('mastra tool resume stream started', {
-      code: 'mastra_agent_tool_resume_started',
-      runId: action.runId,
-      toolCallId: action.toolCallId,
-    });
-
-    const fullStream = resolveFullStream(streamResult);
-    if (!fullStream) {
-      throw createMastraAgentError('mastra_agent_stream_failure', {
-        detail: 'empty_stream',
-      });
-    }
-
-    // BST-1232 review (P2): same rationale as the approval-resume leg above —
-    // prompt composition (instructions + tool definitions) is unchanged
-    // across a suspended-tool resume, so the same baseline applies; it was
-    // simply never threaded through on this leg. See the approval-resume
-    // leg's comment for why `messages: []` is the honest choice here.
-    const promptBreakdown = computePromptBreakdown({
-      instructionBreakdown: runtime.instructionBreakdown,
-      memoryBacked: Boolean(memoryOption),
-      messages: [],
-      toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
-    });
-
-    return {
-      abortedTurnPersistence,
-      chunks: streamAttemptChunks({
-        abortedTurnPersistence,
-        ...(delegationUsage ? { delegationUsage } : {}),
-        lifecycleState,
-        promptBreakdown,
-        runtime,
-        stream: fullStream,
-        streamAbortContext,
-        ...(runtimeData ? { runtimeData } : {}),
-        ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
-      }),
-      lifecycleState,
-      // See the approval-resume leg: a resume never recovers, so `undefined`
-      // is the honest answer rather than an empty continuation.
-      readProducedMessages: () => undefined,
-    };
-  } catch (err) {
-    streamAbortContext.abort(new Error('Mastra suspended-tool stream construction failed.'));
-    streamAbortContext.dispose();
-    return await handleStreamFailure(err, runtime);
-  }
 }
 
 /**
@@ -3714,10 +2006,14 @@ export async function streamMastraToolResumeAction(
     });
   }
 
-  const runtimeData = options.runtime;
+  if (action.continuationId) {
+    return createChildContinuationDecisionStream(action, withRuntimeDerivedStreamOptions(options));
+  }
+  const resumeOptions = await withDelegatedPersonaSnapshots(action, options);
+  const runtimeData = resumeOptions.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
-    { ...withRuntimeDerivedStreamOptions(options), hydrateToolDiscoveryFromMemory: true },
+    { ...withRuntimeDerivedStreamOptions(resumeOptions), hydrateToolDiscoveryFromMemory: true },
     runtimeResolution
   );
 
@@ -3728,4 +2024,11 @@ export async function streamMastraToolResumeAction(
     runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
+}
+
+export function streamMastraChildFollowup(
+  input: AssistantChildFollowupAction,
+  options: MastraAgentRuntimeOptions
+): Promise<StreamIterator> {
+  return createChildFollowupStream(input, withRuntimeDerivedStreamOptions(options));
 }

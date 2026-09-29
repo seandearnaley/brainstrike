@@ -324,9 +324,10 @@ interface WorkspaceIndexingQosObservation {
  *
  * Consumers re-resolve the QoS policy on every claim/permit cycle, so logging
  * each resolution would flood the logs. This logger emits only when the
- * (state, reason) pair actually changes — including reason-only changes within
- * the same state (e.g. system-constrained: battery → thermal-serious), which
- * matter when diagnosing why background indexing throttled.
+ * state changes at info. Reason-only changes within the same state (e.g.
+ * system-constrained: battery → thermal-serious) remain available at debug
+ * without claiming a state transition. Every observation updates the previous
+ * reason, including when debug output is disabled.
  *
  * `loop` names the resolution loop this tracker observes (e.g.
  * 'desktop-host-claim' vs 'app-shell-sync'). Multiple independent loops share
@@ -348,12 +349,18 @@ export function createWorkspaceIndexingQosTransitionLogger(
       reason: policy.reason,
       state: policy.state,
     };
-    logger.info('Workspace indexing QoS state changed', {
+    const transition = {
       from: previous,
       loop,
       to: next,
-    });
+    };
+    const stateChanged = previous === null || previous.state !== next.state;
     previous = next;
+    if (!stateChanged) {
+      logger.debug('Workspace indexing QoS reason changed', transition);
+      return;
+    }
+    logger.info('Workspace indexing QoS state changed', transition);
   };
 }
 

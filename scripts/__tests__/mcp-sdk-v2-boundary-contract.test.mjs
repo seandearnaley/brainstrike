@@ -51,8 +51,8 @@ test('BST-1497: Brainstrike source and manifests use only stable SDK v2 split pa
 
   const workspace = parse(readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8'));
   assert.equal(workspace.catalog['@modelcontextprotocol/sdk'], undefined);
-  for (const packageName of [clientPackage, ...serverTestPackages]) {
-    assert.equal(workspace.catalog[packageName], '2.0.0');
+  for (const packageName of [clientPackage, '@modelcontextprotocol/core', ...serverTestPackages]) {
+    assert.equal(workspace.catalog[packageName], '2.1.0');
   }
   assert.match(
     readJson('packages/agent/package.json').scripts.build,

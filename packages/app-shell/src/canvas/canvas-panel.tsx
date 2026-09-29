@@ -31,9 +31,10 @@ type VersionSelection = number | 'latest';
  * on the edit-activity stream) or the active thread changes.
  *
  * SELECTION MODEL (React Doctor `no-adjust-state-on-prop-change`): the
- * selected canvas/version are stored as USER INTENT (`selectedCanvasId`,
- * per-canvas `VersionSelection`) and reconciled against fresh query results
- * by DERIVATION — a vanished canvas falls back to the newest one, an
+ * selected canvas is `focusedCanvasId` in the Changes navigation store
+ * (written by the picker and by `canvas://` chips); the version is per-canvas
+ * local intent (`VersionSelection`). Both are reconciled against fresh query
+ * results by DERIVATION — a vanished canvas falls back to the newest one, an
  * out-of-range pinned version clamps to the latest — never by effects
  * re-writing state after data changes.
  */
@@ -47,7 +48,10 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
   const refreshNonce = useChangesNavigationStore((state) => state.canvasRefreshNonce);
 
   const [summaries, setSummaries] = useState<readonly CanvasPanelSummary[]>([]);
-  const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
+  // One owner for "which canvas" (store): the canvas:// chip and this picker
+  // write the same field, and selection stays derivation below.
+  const focusedCanvasId = useChangesNavigationStore((state) => state.focusedCanvasId);
+  const selectCanvas = useChangesNavigationStore((state) => state.selectCanvas);
   const [versionSelections, setVersionSelections] = useState<
     Readonly<Record<string, VersionSelection>>
   >({});
@@ -87,8 +91,8 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     if (summaries.length === 0) {
       return null;
     }
-    return summaries.find((summary) => summary.canvasId === selectedCanvasId) ?? summaries[0];
-  }, [selectedCanvasId, summaries]);
+    return summaries.find((summary) => summary.canvasId === focusedCanvasId) ?? summaries[0];
+  }, [focusedCanvasId, summaries]);
 
   const selection: VersionSelection = activeSummary
     ? (versionSelections[activeSummary.canvasId] ?? 'latest')
@@ -167,7 +171,7 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
             aria-label="Canvas document"
             className="h-6 min-w-0 flex-1 truncate rounded border border-border bg-transparent px-1 text-xs"
             data-testid="canvas-picker"
-            onChange={(event) => setSelectedCanvasId(event.target.value)}
+            onChange={(event) => selectCanvas(event.target.value)}
             value={activeSummary.canvasId}
           >
             {summaries.map((summary) => (

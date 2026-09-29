@@ -11,10 +11,12 @@
  * adoption blocker recorded in docs/agents/workspace-context.md).
  */
 
+import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import { createSkillTools } from '@mastra/core/workspace';
-import { z } from 'zod';
+import type { z } from 'zod';
+import { sanitizeToolName } from '../mastra/tool-sanitizer';
 import {
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
@@ -26,28 +28,49 @@ export { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET };
 export const SKILL_TOOL_IDS = ['skill', 'skill_read', 'skill_search'] as const;
 
 /**
- * Appended to every skill activation result. Names `brainstrike.runSkillScript`
- * by exact id — which is a DEFERRED tool on hosted discovery runs — so it must
- * carry its own recovery path: without the search_tools clause, a model that
+ * Appended to every skill activation result. Names the skill-script runner by
+ * its MODEL-FACING id (`brainstrike_runSkillScript`, never the dotted canonical
+ * id: `sanitizeTools` rewrites `id` too, and `load_tool` matches exactly —
+ * review of #3049). Natives are sanitized before any MCP tool joins the map,
+ * so the sanitizer's base form IS the registered name; a hash suffix only ever
+ * lands on a later colliding registrant.
+ *
+ * The runner is a DEFERRED tool on hosted discovery runs, so the guidance must
+ * carry its own recovery path: without the load_tool clause, a model that
  * checks its visible tools concludes the tool does not exist and works around
  * via executeCommand, bypassing the typed skill-script policy layer (field
  * failure 2026-08-23). On non-discovery runs the tool is eager and the clause
  * is inert.
  */
-export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE =
-  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd — if that tool is not currently loaded, load it with search_tools when available (matches become callable on your next step in this same response — keep going and call it). Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.';
+const RUN_SKILL_SCRIPT_MODEL_NAME = sanitizeToolName(
+  NATIVE_TOOL_REGISTRIES.nativeToolId.runSkillScript
+);
+const WRITE_WORKSPACE_FILE_MODEL_NAME = sanitizeToolName(
+  NATIVE_TOOL_REGISTRIES.nativeToolId.writeWorkspaceFile
+);
+
+export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE = `\n\nBrainstrike execution: run listed skill scripts with ${RUN_SKILL_SCRIPT_MODEL_NAME} using literal args and mounted root/cwd — if that tool is not currently loaded, load it with load_tool using that exact name when available (it becomes callable on your next step in this same response — keep going and call it). Use ${WRITE_WORKSPACE_FILE_MODEL_NAME} for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.`;
 
 /** Mirrors countTokensHeuristic (4 chars/token) — same unit as the guard. */
 const APPROX_CHARS_PER_TOKEN = 4;
 
 type AnyToolExecute = (input: unknown, context: unknown) => Promise<unknown>;
 
+/**
+ * Override Mastra's own description/schema with the provider contract the
+ * skill tool's `defineNativeTool` declaration carries (`providerDescription`
+ * + `inputSchema`), so the wire schema and the settings inspector share one
+ * source.
+ */
 function withProviderContract<TTool extends object>(
   tool: TTool,
-  description: string,
-  inputSchema: z.ZodType
+  definition: { readonly inputSchema: z.ZodType; readonly providerDescription: string }
 ): TTool {
-  return { ...tool, description, inputSchema } as TTool;
+  return {
+    ...tool,
+    description: definition.providerDescription,
+    inputSchema: definition.inputSchema,
+  } as TTool;
 }
 
 /**
@@ -144,11 +167,7 @@ export function createAssistantSkillTools(skills: WorkspaceSkills) {
   const tools = createSkillTools(skills);
   return {
     skill: withBoundedActivationAndGuidance(
-      withProviderContract(
-        tools.skill,
-        'Activate a skill by name or path.',
-        z.object({ name: z.string() })
-      ),
+      withProviderContract(tools.skill, NATIVE_TOOL_REGISTRIES.byId.skill),
       SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
       (originalChars) =>
         `\n\n[Skill instructions truncated at ~${SKILL_ACTIVATION_RESULT_TOKEN_BUDGET} tokens ` +
@@ -158,16 +177,7 @@ export function createAssistantSkillTools(skills: WorkspaceSkills) {
     ),
     // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
     skill_read: withBoundedStringOutput(
-      withProviderContract(
-        tools.skill_read,
-        'Read a skill reference, script, or asset by relative path.',
-        z.object({
-          endLine: z.number().optional(),
-          path: z.string(),
-          skillName: z.string(),
-          startLine: z.number().optional(),
-        })
-      ),
+      withProviderContract(tools.skill_read, NATIVE_TOOL_REGISTRIES.byId.skill_read),
       NATIVE_TOOL_RESULT_TOKEN_BUDGET,
       (originalChars) =>
         `\n\n[Output truncated at ~${NATIVE_TOOL_RESULT_TOKEN_BUDGET} tokens ` +
@@ -176,15 +186,7 @@ export function createAssistantSkillTools(skills: WorkspaceSkills) {
     ),
     // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
     skill_search: withBoundedStringOutput(
-      withProviderContract(
-        tools.skill_search,
-        'Search skill content.',
-        z.object({
-          query: z.string(),
-          skillNames: z.array(z.string()).optional(),
-          topK: z.number().optional(),
-        })
-      ),
+      withProviderContract(tools.skill_search, NATIVE_TOOL_REGISTRIES.byId.skill_search),
       NATIVE_TOOL_RESULT_TOKEN_BUDGET,
       (originalChars) =>
         `\n\n[Results truncated at ~${NATIVE_TOOL_RESULT_TOKEN_BUDGET} tokens ` +

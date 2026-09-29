@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const EXPECTED_REACT_DOCTOR_VERSION = '0.9.11';
+const EXPECTED_REACT_DOCTOR_VERSION = '0.9.13';
 const MINIMUM_RENAME_AWARE_VERSION = [0, 8, 2];
 
 function parseStableVersion(version) {
@@ -125,4 +125,18 @@ test('money control: local/CI version skew fails visibly', () => {
     dependencyVersion: '0.8.2',
   });
   assert.match(violations.join('\n'), /local\/CI version skew/u);
+});
+
+test('React Doctor explicitly uses the qualified repository Node runtime', () => {
+  const workflow = parseYaml(
+    readFileSync(path.join(repoRoot, '.github/workflows/react-doctor.yml'), 'utf8')
+  );
+  const action = workflow.jobs['react-doctor'].steps.find(
+    (step) => step.uses === 'millionco/react-doctor@v2'
+  );
+  assert.equal(
+    action.with['node-version'],
+    readFileSync(path.join(repoRoot, '.nvmrc'), 'utf8').trim(),
+    'The action default can differ from devEngines.runtime and make npm refuse to scan'
+  );
 });

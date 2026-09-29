@@ -36,8 +36,12 @@ jobs:
           # needs this input to expose the Actions API (CI results) to Claude.
           additional_permissions: |
             actions: read
+          # Keep --model equal to claudeReviewModel in scripts/claude-review.mjs
+          # (contract-tested). The action bundles its own CLI; v1 ships 2.1.278,
+          # which predates claude-opus-5-5 and so caps @claude at 200k context
+          # until the action updates. Accepted in #3279.
           claude_args: |
-            --model claude-opus-5
+            --model claude-opus-5-5
             --max-turns 16
             --append-system-prompt "Follow AGENTS.md as the required standard. Prioritize determinism, performance, test coverage, simplification, and architecture integrity."
 

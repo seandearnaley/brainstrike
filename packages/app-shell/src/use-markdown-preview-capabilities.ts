@@ -1,22 +1,8 @@
 import { AdaptersContext } from '@brainstrike/file-explorer-hooks';
 import type { MarkdownPreviewCapabilities } from '@brainstrike/file-explorer-ui';
-import { createLogger } from '@brainstrike/logging';
 import { useContext, useMemo } from 'react';
+import { openExternalLink } from './open-external-link';
 import { resolvePlatformBridge } from './platform-bridge';
-
-const logger = createLogger('MarkdownPreviewCapabilities');
-const ALLOWED_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
-
-function validateLinkProtocol(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    return ALLOWED_LINK_PROTOCOLS.has(parsed.protocol)
-      ? null
-      : `Blocked protocol: ${parsed.protocol}`;
-  } catch {
-    return 'Invalid URL';
-  }
-}
 
 interface FileHandleResolvingAdapter {
   resolveFileHandleByPath: (path: string) => Promise<FileSystemFileHandle>;
@@ -40,18 +26,9 @@ export function useMarkdownPreviewCapabilitiesValue(): MarkdownPreviewCapabiliti
   return useMemo<MarkdownPreviewCapabilities>(() => {
     const bridge = resolvePlatformBridge();
     return {
-      openExternalLink: async (url) => {
-        const protocolError = validateLinkProtocol(url);
-        if (protocolError) {
-          logger.warn('Blocked external link', { protocolError, url });
-          return { error: protocolError, ok: false };
-        }
-        if (bridge) {
-          return bridge.openExternal(url);
-        }
-        const opened = window.open(url, '_blank', 'noopener,noreferrer');
-        return opened ? { ok: true } : { error: 'Popup blocked by the browser', ok: false };
-      },
+      // Shared with the assistant panel's link seam so the protocol allowlist
+      // has exactly one definition in the renderer.
+      openExternalLink,
       resolveImageSrc: async (path) => {
         if (bridge) {
           // Desktop: main-process asset protocol validates root containment.

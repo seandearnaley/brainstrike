@@ -32,7 +32,7 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
 
 describe('lazy-tree-loader', () => {
   // Mock handle for test nodes
-  const mockHandle = {} as FileSystemDirectoryHandle;
+  const mockHandle = { kind: 'directory', name: 'test-dir' } as FileSystemDirectoryHandle;
 
   // Helper to create a mock file node
   const createFileNode = (overrides: Partial<IFileNode> = {}): IFileNode => ({
@@ -283,7 +283,7 @@ describe('lazy-tree-loader', () => {
         rootId: 'outer-root-id',
       } satisfies DirectoryHandle;
       const parentNode = createDirectoryNode({
-        handle: durableHandle as unknown as FileSystemDirectoryHandle,
+        handle: durableHandle,
         name: 'parent',
         path: '/root/parent',
       });
@@ -300,7 +300,7 @@ describe('lazy-tree-loader', () => {
       const adapter = createMockAdapter();
       const rootHandle = createDirectoryHandle({ rootId: 'outer-root-id' });
       const parentNode = createDirectoryNode({
-        handle: {} as FileSystemDirectoryHandle,
+        handle: mockHandle,
         name: 'parent',
         path: '/root/parent',
         rootFolderId: 'folder-state-id',

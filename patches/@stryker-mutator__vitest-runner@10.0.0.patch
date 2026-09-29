@@ -1,0 +1,270 @@
+diff --git a/dist/src/stryker-setup.d.ts b/dist/src/stryker-setup.d.ts
+index 0338d86bb336ae7e6bde56e9238c31ae03d9467a..fca9109e12fd08c5c0ede9c2ed60a0dcb89be978 100644
+--- a/dist/src/stryker-setup.d.ts
++++ b/dist/src/stryker-setup.d.ts
+@@ -7,6 +7,7 @@ declare module 'vitest' {
+         mutantActivation: MutantActivation;
+         activeMutant: string | undefined;
+         mode: 'mutant' | 'dry-run';
++        testNameSeparator: string;
+         isGreaterThanVitest4Point1: boolean;
+     }
+     interface TaskMeta {
+diff --git a/dist/src/stryker-setup.js b/dist/src/stryker-setup.js
+index aecfacbe47b285c272c47e54b3d66a716adfdc41..bb3c3bdc331baaa3e0858d9464d9b65c83e126a5 100644
+--- a/dist/src/stryker-setup.js
++++ b/dist/src/stryker-setup.js
+@@ -4,6 +4,7 @@ import { beforeEach, afterAll, beforeAll, afterEach, inject, } from 'vitest';
+ const globalNamespace = inject('globalNamespace');
+ const mutantActivation = inject('mutantActivation');
+ const mode = inject('mode');
++const testNameSeparator = inject('testNameSeparator');
+ const ns = globalThis[globalNamespace] || (globalThis[globalNamespace] = {});
+ ns.hitLimit = inject('hitLimit');
+ const isGreaterThanVitest4Point1 = inject('isGreaterThanVitest4Point1');
+@@ -63,7 +64,7 @@ function collectTestName({ name, suite, }) {
+         nameParts.unshift(currentSuite.name);
+         currentSuite = currentSuite.suite;
+     }
+-    return nameParts.join(' ').trim();
++    return nameParts.join(testNameSeparator).trim();
+ }
+ function toRawTestId(test) {
+     return `${test.file?.filepath ?? 'unknown.js'}#${collectTestName(test)}`;
+diff --git a/dist/src/test-helpers.d.ts b/dist/src/test-helpers.d.ts
+index c832dcc6dc2d5c40ca70dfe46fe0af2bbbccbb6a..a6b047f66654948b0867fa3e7238d8935ae4bcc3 100644
+--- a/dist/src/test-helpers.d.ts
++++ b/dist/src/test-helpers.d.ts
+@@ -2,6 +2,6 @@ import type { RunnerTestCase, RunnerTestSuite } from 'vitest';
+ export declare function collectTestName({ name, suite, }: {
+     name: string;
+     suite?: RunnerTestSuite;
+-}): string;
+-export declare function toRawTestId(test: RunnerTestCase): string;
++}, separator?: string): string;
++export declare function toRawTestId(test: RunnerTestCase, separator?: string): string;
+ //# sourceMappingURL=test-helpers.d.ts.map
+\ No newline at end of file
+diff --git a/dist/src/test-helpers.js b/dist/src/test-helpers.js
+index 56cc786f30c524ae18ce87eef1a67fdf26b703c5..ad0eff4525c274f394470b99238de85bbae9134c 100644
+--- a/dist/src/test-helpers.js
++++ b/dist/src/test-helpers.js
+@@ -1,16 +1,16 @@
+ // Don't merge this file into 'vitest-helpers.ts'!
+ // This file is used from the testing environment (via stryker-setup.js) and thus could be loaded into the browser (when using vitest with browser mode).
+ // Thus we should avoid unnecessary dependencies in this file.
+-export function collectTestName({ name, suite, }) {
++export function collectTestName({ name, suite, }, separator = ' ') {
+     const nameParts = [name];
+     let currentSuite = suite;
+     while (currentSuite) {
+         nameParts.unshift(currentSuite.name);
+         currentSuite = currentSuite.suite;
+     }
+-    return nameParts.join(' ').trim();
++    return nameParts.join(separator).trim();
+ }
+-export function toRawTestId(test) {
+-    return `${test.file?.filepath ?? 'unknown.js'}#${collectTestName(test)}`;
++export function toRawTestId(test, separator = ' ') {
++    return `${test.file?.filepath ?? 'unknown.js'}#${collectTestName(test, separator)}`;
+ }
+ //# sourceMappingURL=test-helpers.js.map
+\ No newline at end of file
+diff --git a/dist/src/vitest-helpers.d.ts b/dist/src/vitest-helpers.d.ts
+index 6f5ba8dcab16f4768139aa7da016a237eece7efb..101c33b888b171f5d29d0cad693b863d4fa1595a 100644
+--- a/dist/src/vitest-helpers.d.ts
++++ b/dist/src/vitest-helpers.d.ts
+@@ -2,7 +2,7 @@ import { TestResult } from '@stryker-mutator/api/test-runner';
+ import { type RunnerTestSuite } from 'vitest';
+ import { RunnerTestCase } from 'vitest/node';
+ import { MutantCoverage } from '@stryker-mutator/api/core';
+-export declare function convertTestToTestResult(test: RunnerTestCase): TestResult;
++export declare function convertTestToTestResult(test: RunnerTestCase, separator?: string): TestResult;
+ export declare function fromTestId(id: string): {
+     file: string;
+     test: string;
+diff --git a/dist/src/vitest-helpers.js b/dist/src/vitest-helpers.js
+index fa4f8138ab3b2aba64f4e715be2d8126da6ccf8b..1b7ede0e76b017705bb8ed073f316825cb89ad0f 100644
+--- a/dist/src/vitest-helpers.js
++++ b/dist/src/vitest-helpers.js
+@@ -17,11 +17,11 @@ function convertTaskStateToTestStatus(taskState, testMode) {
+     }
+     return TestStatus.Failed;
+ }
+-export function convertTestToTestResult(test) {
++export function convertTestToTestResult(test, separator = ' ') {
+     const status = convertTaskStateToTestStatus(test.result?.state, test.mode);
+     const baseTestResult = {
+-        id: normalizeTestId(toRawTestId(test)),
+-        name: collectTestName(test),
++        id: normalizeTestId(toRawTestId(test, separator)),
++        name: collectTestName(test, separator),
+         timeSpentMs: test.result?.duration ?? 0,
+         fileName: test.file?.filepath && path.resolve(test.file.filepath),
+     };
+diff --git a/dist/src/vitest-test-runner.d.ts b/dist/src/vitest-test-runner.d.ts
+index a48b399c7573d02f06b0cee72a7cfb2188e55fb9..25f9473010af72d26566f67da386e92f35cf5531 100644
+--- a/dist/src/vitest-test-runner.d.ts
++++ b/dist/src/vitest-test-runner.d.ts
+@@ -9,6 +9,7 @@ export declare class VitestTestRunner implements TestRunner {
+     private globalNamespace;
+     static inject: readonly ["options", "logger", 'globalNamespace'];
+     private ctx?;
++    private testNameSeparator;
+     private readonly options;
+     private localSetupFile;
+     constructor(options: StrykerOptions, log: Logger, globalNamespace: StrykerNamespace);
+diff --git a/dist/src/vitest-test-runner.js b/dist/src/vitest-test-runner.js
+index 84f1ca026503b8e92b7adc952ec6c6a401943656..acd3c713e575748da32897b73d894d3b05f5ddcc 100644
+--- a/dist/src/vitest-test-runner.js
++++ b/dist/src/vitest-test-runner.js
+@@ -18,6 +18,7 @@ export class VitestTestRunner {
+         'globalNamespace',
+     ];
+     ctx;
++    testNameSeparator = ' ';
+     options;
+     localSetupFile = path.resolve(`./stryker-setup-${process.env.STRYKER_MUTATOR_WORKER ?? 0}.js`);
+     constructor(options, log, globalNamespace) {
+@@ -81,6 +82,9 @@ export class VitestTestRunner {
+             bail: this.options.disableBail ? 0 : 1,
+             onConsoleLog: () => false,
+         });
++        this.testNameSeparator =
++            semver.major(vitestWrapper.version) >= 5 ? ' > ' : ' ';
++        this.ctx.provide('testNameSeparator', this.testNameSeparator);
+         this.ctx.provide('globalNamespace', this.globalNamespace);
+         this.ctx.provide('isGreaterThanVitest4Point1', semver.satisfies(vitestWrapper.version, '>=4.1.0'));
+         this.ctx.config.browser.screenshotFailures = false;
+@@ -173,7 +177,7 @@ export class VitestTestRunner {
+             .filter((test) => test.result); // if no result: it was skipped because of bail
+         let failure = false;
+         const testResults = tests.map((test) => {
+-            const testResult = convertTestToTestResult(test);
++            const testResult = convertTestToTestResult(test, this.testNameSeparator);
+             failure ||= testResult.status === TestStatus.Failed;
+             return testResult;
+         });
+diff --git a/src/stryker-setup.ts b/src/stryker-setup.ts
+index ff31bed1ea6cdd23d3b9e195d53303dde43526e4..9337bce5e2415bfb0c7839212b9b08a9976f8f16 100644
+--- a/src/stryker-setup.ts
++++ b/src/stryker-setup.ts
+@@ -16,6 +16,7 @@ import {
+ const globalNamespace = inject('globalNamespace');
+ const mutantActivation = inject('mutantActivation');
+ const mode = inject('mode');
++const testNameSeparator = inject('testNameSeparator');
+ 
+ const ns = globalThis[globalNamespace] || (globalThis[globalNamespace] = {});
+ ns.hitLimit = inject('hitLimit');
+@@ -85,7 +86,7 @@ function collectTestName({
+     nameParts.unshift(currentSuite.name);
+     currentSuite = currentSuite.suite;
+   }
+-  return nameParts.join(' ').trim();
++  return nameParts.join(testNameSeparator).trim();
+ }
+ 
+ function toRawTestId(test: RunnerTestCase): string {
+@@ -100,6 +101,7 @@ declare module 'vitest' {
+     mutantActivation: MutantActivation;
+     activeMutant: string | undefined;
+     mode: 'mutant' | 'dry-run';
++    testNameSeparator: string;
+     isGreaterThanVitest4Point1: boolean;
+   }
+   interface TaskMeta {
+diff --git a/src/test-helpers.ts b/src/test-helpers.ts
+index 1cf9538c2dd926d608282b40e848833585e1ea39..66d4c98f42dccb3c16d3d5d20a4fee3900b3a34b 100644
+--- a/src/test-helpers.ts
++++ b/src/test-helpers.ts
+@@ -4,22 +4,25 @@ import type { RunnerTestCase, RunnerTestSuite } from 'vitest';
+ // This file is used from the testing environment (via stryker-setup.js) and thus could be loaded into the browser (when using vitest with browser mode).
+ // Thus we should avoid unnecessary dependencies in this file.
+ 
+-export function collectTestName({
+-  name,
+-  suite,
+-}: {
+-  name: string;
+-  suite?: RunnerTestSuite;
+-}): string {
++export function collectTestName(
++  {
++    name,
++    suite,
++  }: {
++    name: string;
++    suite?: RunnerTestSuite;
++  },
++  separator = ' ',
++): string {
+   const nameParts = [name];
+   let currentSuite = suite;
+   while (currentSuite) {
+     nameParts.unshift(currentSuite.name);
+     currentSuite = currentSuite.suite;
+   }
+-  return nameParts.join(' ').trim();
++  return nameParts.join(separator).trim();
+ }
+ 
+-export function toRawTestId(test: RunnerTestCase): string {
+-  return `${test.file?.filepath ?? 'unknown.js'}#${collectTestName(test)}`;
++export function toRawTestId(test: RunnerTestCase, separator = ' '): string {
++  return `${test.file?.filepath ?? 'unknown.js'}#${collectTestName(test, separator)}`;
+ }
+diff --git a/src/vitest-helpers.ts b/src/vitest-helpers.ts
+index 691f04d9f0f84d3a68a687300418ada21ea17e0a..a78867f19af2c6c1b34ff2f46450151a9354f772 100644
+--- a/src/vitest-helpers.ts
++++ b/src/vitest-helpers.ts
+@@ -30,11 +30,14 @@ function convertTaskStateToTestStatus(
+   return TestStatus.Failed;
+ }
+ 
+-export function convertTestToTestResult(test: RunnerTestCase): TestResult {
++export function convertTestToTestResult(
++  test: RunnerTestCase,
++  separator = ' ',
++): TestResult {
+   const status = convertTaskStateToTestStatus(test.result?.state, test.mode);
+   const baseTestResult: BaseTestResult = {
+-    id: normalizeTestId(toRawTestId(test)),
+-    name: collectTestName(test),
++    id: normalizeTestId(toRawTestId(test, separator)),
++    name: collectTestName(test, separator),
+     timeSpentMs: test.result?.duration ?? 0,
+     fileName: test.file?.filepath && path.resolve(test.file.filepath),
+   };
+diff --git a/src/vitest-test-runner.ts b/src/vitest-test-runner.ts
+index b54e16ae236118113d78931dab44a2252825cde4..fbe1134be63d88f511b01a77b054442144423c0c 100644
+--- a/src/vitest-test-runner.ts
++++ b/src/vitest-test-runner.ts
+@@ -74,6 +74,7 @@ export class VitestTestRunner implements TestRunner {
+     'globalNamespace',
+   ] as const;
+   private ctx?: Vitest;
++  private testNameSeparator = ' ';
+   private readonly options: VitestRunnerOptionsWithStrykerOptions;
+   private localSetupFile = path.resolve(
+     `./stryker-setup-${process.env.STRYKER_MUTATOR_WORKER ?? 0}.js`,
+@@ -150,6 +151,9 @@ export class VitestTestRunner implements TestRunner {
+       bail: this.options.disableBail ? 0 : 1,
+       onConsoleLog: () => false,
+     });
++    this.testNameSeparator =
++      semver.major(vitestWrapper.version) >= 5 ? ' > ' : ' ';
++    this.ctx.provide('testNameSeparator', this.testNameSeparator);
+     this.ctx.provide('globalNamespace', this.globalNamespace);
+     this.ctx.provide(
+       'isGreaterThanVitest4Point1',
+@@ -260,7 +264,7 @@ export class VitestTestRunner implements TestRunner {
+ 
+     let failure = false;
+     const testResults = tests.map((test) => {
+-      const testResult = convertTestToTestResult(test);
++      const testResult = convertTestToTestResult(test, this.testNameSeparator);
+       failure ||= testResult.status === TestStatus.Failed;
+       return testResult;
+     });

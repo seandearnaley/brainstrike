@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/queue": "workspace:*",
@@ -12,11 +13,13 @@
     "@electric-sql/pglite": "catalog:",
     "@electric-sql/pglite-pg_textsearch": "catalog:",
     "@electric-sql/pglite-pgvector": "catalog:",
-    "drizzle-orm": "catalog:"
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@stryker-mutator/api": "catalog:",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/typescript-checker": "catalog:",
@@ -57,6 +60,11 @@
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js",
       "require": "./dist/react.js"
+    },
+    "./pglite-factory": {
+      "types": "./dist/pglite-factory.d.ts",
+      "import": "./dist/pglite-factory.js",
+      "require": "./dist/pglite-factory.js"
     }
   },
   "files": [
@@ -87,11 +95,12 @@
     "test:browser": "vitest run --project browser",
     "test:coverage": "vitest run --project unit --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:coverage:db:shard": "node ../../scripts/run-env.mjs DB_TEST_SHARD_REQUIRED=true -- vitest run --project unit --coverage --coverage.reporter=text --reporter=default --reporter=blob --reporter=@brainstrike/test-utils/vitest-lost-file-reporter",
+    "test:crash-gate": "vitest run --project unit --reporter=verbose --reporter=@brainstrike/test-utils/vitest-lost-file-reporter --disableConsoleIntercept __tests__/crash-injection-gate.integration.test.ts",
     "test:pg-textsearch-durability": "node ../../scripts/run-env.mjs TEST_ENABLE_PG_TEXTSEARCH_DURABILITY=true -- vitest run --project unit --reporter=verbose --reporter=@brainstrike/test-utils/vitest-lost-file-reporter --disableConsoleIntercept __tests__/pg-textsearch-durability-gate.integration.test.ts",
     "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit && effect-tsgo diagnostics --project tsconfig.json --strict"
   },
   "type": "module",
   "types": "./dist/index.d.ts"
