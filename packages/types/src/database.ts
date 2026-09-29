@@ -57,6 +57,7 @@ export type DatabaseInitFailureCategory =
 export type DatabaseInitStage =
   | 'load-extensions'
   | 'open-database'
+  | 'index-rebuild'
   | 'migration'
   | 'runtime-corruption-recovery';
 
@@ -77,10 +78,33 @@ export interface DatabaseInitFailureSnapshot {
  */
 export type DatabasePreviousShutdown = 'clean' | 'unclean' | 'new-database';
 
+/**
+ * One index the crash-recovery pass rebuilt. Mirrors `CrashSensitiveIndexRebuild` in
+ * `@brainstrike/db`, which this package cannot import (the dependency points the other way).
+ */
+export interface DatabaseCrashRecoveryIndexRebuild {
+  readonly accessMethod: string;
+  readonly durationMs: number;
+  readonly index: string;
+  readonly schema: string;
+  readonly table: string;
+}
+
+/** Mirrors `CrashSensitiveIndexRebuildResult` in `@brainstrike/db`. */
+export interface DatabaseCrashRecoveryIndexRebuildResult {
+  readonly rebuilt: readonly DatabaseCrashRecoveryIndexRebuild[];
+  readonly totalDurationMs: number;
+}
+
 export interface DatabaseDiagnosticsSnapshot {
   appDataDir: string;
   /** Set once a database handle could not be closed: it may still own the data directory until the process exits. */
   closeFailure: { message: string; stage: 'sync' | 'close' } | null;
+  /**
+   * The crash-sensitive indexes rebuilt when this open followed an unclean shutdown; `null`
+   * when no rebuild ran (a clean shutdown, a new database, or a rebuild that failed).
+   */
+  crashRecoveryIndexRebuild: DatabaseCrashRecoveryIndexRebuildResult | null;
   databaseLockHeld: boolean;
   databaseLockPath: string | null;
   databaseProfile: string | null;

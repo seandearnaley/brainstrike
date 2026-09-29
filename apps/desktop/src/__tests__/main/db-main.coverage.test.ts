@@ -84,7 +84,10 @@ function mockSuccessfulDatabaseModules(options?: {
   vi.doMock('@electric-sql/pglite', () => ({
     PGlite: { create: (options: unknown) => Promise.resolve(new PGliteMock(options)) },
   }));
-  vi.doMock('@brainstrike/db', () => ({ migrate: vi.fn().mockResolvedValue(undefined) }));
+  vi.doMock('@brainstrike/db', () => ({
+    migrate: vi.fn().mockResolvedValue(undefined),
+    rebuildCrashSensitiveIndexes: vi.fn().mockResolvedValue({ rebuilt: [], totalDurationMs: 0 }),
+  }));
   vi.doMock('@electric-sql/pglite-pgvector', () => options?.vectorModule ?? { vector: 'vector' });
   vi.doMock('@electric-sql/pglite/live', () => options?.liveModule ?? { live: 'live' });
   vi.doMock(

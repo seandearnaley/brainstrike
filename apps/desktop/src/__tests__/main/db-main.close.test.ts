@@ -49,6 +49,7 @@ const engine = vi.hoisted(() => ({
   exec: vi.fn(async () => undefined),
   migrate: vi.fn(async () => undefined),
   query: vi.fn(async () => ({ rows: [{ '?column?': 1 }] })),
+  rebuildCrashSensitiveIndexes: vi.fn(async () => ({ rebuilt: [], totalDurationMs: 0 })),
   syncToFs: vi.fn(async () => undefined),
 }));
 
@@ -56,7 +57,10 @@ vi.mock('electron', () => ({ app: { getPath: vi.fn(() => '/unused') } }));
 vi.mock('@brainstrike/db/pglite-factory', () => ({
   createBrainstrikePglite: engine.createBrainstrikePglite,
 }));
-vi.mock('@brainstrike/db', () => ({ migrate: engine.migrate }));
+vi.mock('@brainstrike/db', () => ({
+  migrate: engine.migrate,
+  rebuildCrashSensitiveIndexes: engine.rebuildCrashSensitiveIndexes,
+}));
 vi.mock('@brainstrike/logging', async () => {
   const actual =
     await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
