@@ -22,7 +22,8 @@ pre-existing Ling Free row has an enabled choice and explicit intent timestamps.
   ledger removal are atomic. Every model row matches the pre-rollback snapshot
   after failure; removing the trigger allows rollback.
 - Repeated runner up/down is guarded by the numbered ledger. Raw down is not
-  idempotent: it shifts remaining OpenRouter rows on each execution.
+  idempotent: a separate case executes raw down after runner rollback and
+  verifies another one-slot shift while the ledger stays unapplied.
 
 Negative control: temporarily remove down's provider predicate. The protected
 cross-provider row disappears and the preservation test fails. Restoring SQL

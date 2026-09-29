@@ -49,10 +49,14 @@ describe('migration 072 catalog rollback semantics', () => {
     const applied = await readModels();
     const target = applied.find((row) => row.id === targetIds[0]);
     expect(target).toMatchObject({
+      best_for: ['Agentic workflows', 'Tool use', 'Cost-sensitive tasks'],
+      capabilities: { streaming: true, type: 'llm', vision: false },
       created_at: original?.['created_at'],
       is_enabled: true,
       name: 'Ling 3.0 Flash Free (OpenRouter)',
+      provider_id: 'openrouter',
       sort_order: 1,
+      tagline: 'Efficient agentic model from InclusionAI',
       updated_at: original?.['updated_at'],
     });
     expect(applied.filter((row) => !targetIds.includes(row.id))).toEqual(
@@ -90,6 +94,28 @@ describe('migration 072 catalog rollback semantics', () => {
     await runner.rollback(migration);
     expect((await readModels()).filter((row) => row.provider_id !== 'openrouter')).toEqual(
       protectedRows
+    );
+    expect(await readModels()).toEqual(
+      before.map((row) =>
+        row.provider_id === 'openrouter' ? { ...row, sort_order: row.sort_order - 1 } : row
+      )
+    );
+  });
+
+  it('raw down shifts ordering again even though the runner ledger is already unapplied', async () => {
+    await runner.runMigration(migration);
+    await runner.rollback(migration);
+    const once = await readModels();
+    expect(once.some((row) => row.provider_id === 'openrouter')).toBe(true);
+    if (typeof migration.down !== 'string') {
+      throw new Error('Migration 072 must have SQL down');
+    }
+    await db.exec(migration.down);
+    expect(await runner.isApplied(72)).toBe(false);
+    expect(await readModels()).toEqual(
+      once.map((row) =>
+        row.provider_id === 'openrouter' ? { ...row, sort_order: row.sort_order - 1 } : row
+      )
     );
   });
 
