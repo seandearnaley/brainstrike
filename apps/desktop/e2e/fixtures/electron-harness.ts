@@ -99,7 +99,8 @@ export class ElectronHarness {
    * The harness keeps the app until the process is confirmed gone: if `end` throws, or returns
    * with the process still running, the process is SIGKILLed and awaited before the failure is
    * rethrown, because the fixture's teardown finds nothing to close once the context is forgotten.
-   * Afterwards the next `ensureContext()`/`restart()` launches a fresh process on the same userData.
+   * If that SIGKILL cannot be confirmed either, the context is kept for the teardown to close, and
+   * both errors are thrown together. Afterwards the next `ensureContext()`/`restart()` launches a fresh process on the same userData.
    */
   async endOutOfBand(end: (mainProcess: ChildProcess) => Promise<void>): Promise<void> {
     const context = this.context;
@@ -119,9 +120,8 @@ export class ElectronHarness {
       try {
         await reapProcess(mainProcess);
       } catch (reapError) {
-        // The process is still unaccounted for, so the harness keeps nothing of it either way; the
-        // test failure that got us here must not be replaced by the reap failure.
-        this.forget(context);
+        // The process may still be alive, so the harness keeps it: the fixture's teardown tries the
+        // graceful close again. Both errors are kept, so the reap failure never hides the original.
         throw new AggregateError(
           [error, reapError],
           'endOutOfBand failed and the Electron main process could not be reaped'
