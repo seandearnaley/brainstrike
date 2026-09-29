@@ -133,4 +133,14 @@ describe('db-main resetLocalDatabase in main process', () => {
       { force: true, recursive: true }
     );
   });
+
+  it('rejects, and deletes and backs up nothing, when the DB host cannot be closed', async () => {
+    dbHostManagerMocks.closeDbHostManager.mockRejectedValueOnce(new Error('DB host close failed'));
+    const { resetLocalDatabase } = await import('../../db-main');
+
+    await expect(resetLocalDatabase()).rejects.toThrow('DB host close failed');
+
+    expect(fsMocks.cpSync).not.toHaveBeenCalled();
+    expect(fsMocks.rmSync).not.toHaveBeenCalled();
+  });
 });

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createLogger } from '@brainstrike/logging';
 import { utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
+import { cleanShutdownMarkerNamesPid } from './db-clean-shutdown-marker';
 import {
   DB_HOST_CLOSE_ACK_TIMEOUT_MS,
   DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS,
@@ -24,12 +25,16 @@ import {
   toError,
 } from './db-host-protocol';
 import {
+  createLiveQueryDiagnostics,
   createRequestTimeoutDiagnostics,
   type RequestTimeoutDiagnostics,
 } from './db-host-request-diagnostics';
 import { DbHostRequestTimeoutError } from './db-host-timeout-error';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
-import { resolveDesktopDatabaseLocation } from './desktop-database-location';
+import {
+  resolveDesktopDatabaseLocation,
+  resolveDesktopDatabaseProfileDirectory,
+} from './desktop-database-location';
 import { isDesktopShuttingDown } from './desktop-shutdown-state';
 import {
   createHostRequestChannel,
@@ -46,26 +51,6 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_INITIALIZATION_TIMEOUT_MS = 90_000;
 const PREVIOUS_HOST_ALIVE_MESSAGE =
   'DB host is unavailable: the previous host has not exited and may still own the database.';
-
-function createLiveQueryDiagnostics(payload: {
-  readonly mode: 'query' | 'incremental';
-  readonly params?: readonly unknown[] | null;
-  readonly query: string;
-}): {
-  readonly mode: 'query' | 'incremental';
-  readonly paramsCount: number;
-  readonly queryPreview: string;
-  readonly unescapedPercentRuns: number;
-} {
-  const queryPreview = payload.query.replace(/\s+/g, ' ').slice(0, 240);
-  const percentRuns = payload.query.match(/%+/g) ?? [];
-  return {
-    mode: payload.mode,
-    paramsCount: payload.params?.length ?? 0,
-    queryPreview,
-    unescapedPercentRuns: percentRuns.filter((run) => run.length % 2 === 1).length,
-  };
-}
 
 export interface RemoteDbTransaction {
   readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
@@ -423,6 +408,8 @@ class DefaultDbHostManager implements DbHostManager {
         ? closeDbHostProcess(host, {
             acknowledge: async () => await this.send({ kind: 'close' }),
             ackTimeoutMs: this.#closeTimeoutMs,
+            confirmCleanExit: (pid) =>
+              cleanShutdownMarkerNamesPid(resolveDesktopDatabaseProfileDirectory(), pid),
             detach: () => this.#detachHost(new Error('DB host closed.')),
           })
         : this.#assertDepartingHostExited()

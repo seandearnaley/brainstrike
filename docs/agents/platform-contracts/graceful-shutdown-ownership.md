@@ -105,13 +105,17 @@ exit after SIGKILL 0.5 s):
 
 - ack ok: SIGTERM, await `exit` (any code is fine, the database is closed); no exit in
   time: SIGKILL, then `exit-timeout` if that still does not end it.
-- exit before ack: always `exited-unclean`, carrying the code.
-- ack timeout: SIGTERM, then any exit is always `exited-unclean` (carrying the code); no exit:
-  SIGKILL and `killed`.
+- exit before ack: `exited-unclean`, carrying the code, unless the marker proves the close
+  (below).
+- ack timeout: SIGTERM, then an exit is `exited-unclean` (carrying the code) unless the
+  marker proves the close; no exit: SIGKILL, then `killed` unless the marker proves it.
 - ack error (the host's close failed): SIGKILL, `close-failed`.
 
-The rule: a close is clean only when the host acknowledged it. The exit code is never
-proof. Measured with the repo's Electron 44.4.5 on macOS (`utilityProcess.fork` of a
+The rule: a close is clean iff the host acknowledged it, or, after exit, the clean-shutdown
+marker `<profile>/.db-clean-shutdown` exists and its `pid` equals the exited host's pid
+(remembered while the process was alive: Electron clears `pid` at exit; the path is
+`joinProfileDirectory()`, which main reaches through `resolveDesktopDatabaseProfileDirectory()` and the host through its `getAppDataPath()`). The exit code is never proof. An
+unreadable marker is logged at error and counts as no proof. Measured with the repo's Electron 44.4.5 on macOS (`utilityProcess.fork` of a
 trivial child; 2026-09-29):
 
 | child | terminated by | exit `code` |
@@ -133,6 +137,20 @@ replacement forks until the exit is observed. Nothing forks once
 `markDesktopShuttingDown()` has run (`DbHostUnavailableError`); a host that already
 exists still serves shutdown-time work. Not done here: signal handling in the host and
 main, and the reserved database-close slice of the shutdown sequence (L2).
+
+The host's side is fail-closed too. Before, `tryCloseDatabaseInstance`,
+`closeLocalDatabase` (ignoring a `syncToFs` failure), the failed-open close and
+`resetLocalDatabaseInternal` (ignoring a close failure before `rmSync`) all swallowed
+errors and released the process lock anyway. Now `closeLocalDatabase` throws
+`DatabaseCloseError` (`stage: 'sync' | 'close'`, sync still followed by the close) and
+keeps `.db-process.lock`; a failed close after a failed open logs and keeps the lock but
+leaves the open error primary; reset and factory reset abort before any backup or
+deletion, so a close failure leaves the database in place. A clean close writes
+`.db-clean-shutdown` (tmp file, fsync, rename, directory fsync) before releasing the
+lock; opening records `previousShutdown` (`clean`, `unclean`, `new-database`) in
+`DatabaseDiagnosticsSnapshot` and removes the marker before the database opens, so a
+crash later reads as unclean. The marker lives in the profile directory, so a reset
+deletes it with the rest of the profile.
 
 ### Update (2026-09-29, BST-1872 L1 review round): the exit is the only barrier
 
@@ -183,3 +201,55 @@ rejects with `DbHostUnavailableError`; it never forks and never waits unbounded.
   clean-shutdown marker records that session as unclean, so the next open reports `unclean`. Guard:
   the `afterExit` case of "never reports a repeated close as success while the host may still be
   alive" (both the manager and the default-manager variants). It is also in `close()`'s JSDoc.
+
+### Update (2026-09-29, BST-1872 L1 review round): the failed close is sticky
+
+Review of the fail-closed close found it released the guarantee one call later: after a close
+failed, `db` was null, so the next `closeDatabase()` returned early as a success, a reset went
+on to back up and delete the directory, and a lazy open passed the process lock (re-entrant for
+its own process) and opened a second PGlite over the first. Fixes, all in `db-main.ts` unless noted:
+
+- H. `mutableState.closeFailure` is set by every failed close of a live handle: `closeLocalDatabase()`
+  (sync or close stage) and the failed-open cleanup. While set, `closeLocalDatabase()` (checked
+  BEFORE its "nothing to close" return) throws a `DatabaseCloseError` of the same stage whose
+  `cause` is the first failure; every reset and corruption-recovery entry rejects through it
+  before any backup or `rmSync`; initialization rejects (`initializeMainDatabaseInternal`, before
+  the process lock) saying the handle may still own the data directory and BrainStrike must
+  restart. The lock stays and only process exit clears the state (the test reset helper aside).
+  `DatabaseDiagnosticsSnapshot.closeFailure` exposes `{ stage, message }`. The host's `close`
+  handler already answers a rejection as `ok: false`, so main's ladder SIGKILLs the host; the
+  next host reads no marker, so its open is unclean and WAL replay runs.
+- I. Runtime corruption recovery therefore fails closed when the close fails: it never deletes a
+  directory a handle may own. Intended, not a regression.
+- J. `db` is assigned only after the pgvector validation; the handle being opened lives in a
+  separate `openingHandle` that only the failed-open cleanup reads. Before, `getLocalDatabase()`
+  and `initializeLocalMainDatabase()` returned `db` without awaiting the single-flight promise, so
+  a concurrent caller could receive the unvalidated handle. The DB host's serial queue
+  (`db-host-entry.ts` `drainQueue`) hid this in production; the module's own API did not.
+- K. The marker is consumed by the open attempt: a failed open leaves none, so the next open
+  reports `unclean` (conservative by design).
+- L. Only an open removes a marker, and only a close of an opened database writes one. A host that
+  never opened the database writes none, so a stale marker naming its (reused) pid can only
+  certify the close of a host that held no database, which is true.
+- N. `writeCleanShutdownMarker` removes its `.tmp` when the rename fails (a failed cleanup logs at
+  warn), and `hasCleanShutdownMarker` accepts only a regular file, not a directory at the path.
+- Round 2, C (round 3 wording). `closeAfterFailedInitialization()` always tries to close the failed
+  handle (releasing its WASM instance and file handles), then releases the lock only if no close
+  has ever failed, this one or an earlier one. Since D, the "earlier one" case cannot be reached
+  through a close racing an open; the rule is one condition, not a separate branch. The guard
+  test covers a close that waits for a failing open whose own cleanup close fails.
+- Round 2, D. `closeLocalDatabase()` first awaits an in-flight open (`settleInFlightOpen()`), then
+  closes what that open produced; every reset and corruption-recovery entry goes through it, so
+  nothing is backed up or deleted while a handle is opening. `resetLocalDatabaseInternal()` also
+  loops until no open is in flight after its close (the code after the loop is synchronous, so no
+  open can start between that check and the deletes). The open never awaits a reset, so it cannot
+  deadlock. Failed opens are already recorded and reported to their callers, so the wait ignores them.
+  Round 3: the loop gives up after three closes if something reopens the database on every lock
+  release (it would otherwise livelock), rejecting with a message that nothing was deleted.
+- Round 2, E. `writeCleanShutdownMarker` removes its `.tmp` after a failure in ANY step of the write
+  (open, write, fsync or rename), with the same warn-on-cleanup-failure rule, and still throws.
+- Round 2, F. A directory at the marker path is not a marker and cannot be unlinked as one, so
+  every open fails as a `filesystem` failure before the database opens and deletes nothing.
+  Fail-closed and intended; the marker must be removed by hand. Pinned in `db-main.close.test.ts`.
+  Linux reports the unlink as `EISDIR` where macOS reports `EPERM`; both are filesystem codes
+  (the Linux CI run caught the missing `EISDIR`).

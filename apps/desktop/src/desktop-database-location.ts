@@ -5,6 +5,7 @@ import { app } from 'electron';
 import {
   type DatabaseLocation,
   type GitProfileContext,
+  joinProfileDirectory,
   PACKAGED_PRODUCT_DIR_NAME,
   resolveDatabaseLocation,
 } from './database-location';
@@ -113,6 +114,12 @@ export function resetDesktopDatabaseLocationForTests(): void {
     throw new Error('resetDesktopDatabaseLocationForTests can only be used in test mode');
   }
   cachedLocation = null;
+}
+
+/** Main's profile directory: the directory the DB host it forks opens, from the same location. */
+export function resolveDesktopDatabaseProfileDirectory(): string {
+  const location = resolveDesktopDatabaseLocation();
+  return joinProfileDirectory(location.rootPath, location.profile);
 }
 
 export function resolveDesktopDatabaseLocation(): DatabaseLocation {
