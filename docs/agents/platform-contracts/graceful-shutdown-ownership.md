@@ -299,3 +299,39 @@ through `#detachHost` (already exited, so no departing host is left behind) and 
 `#assertActive()` checks first in `#admit()` and `getDatabase()`, so no request forks a replacement
 and none waits on an exited host. A host main closed itself (the ladder's SIGTERM included) is
 detached before it exits and never counts.
+
+### Update (2026-09-29, BST-1872 L2b): main's signal handlers and the reserved database-close slice
+
+**Why the database close has its own slice.** One 5 s budget covered eleven steps, the database
+tenth. At the deadline the running step aborts and later steps do not run, so a slow earlier step
+skipped the only step whose skip damages durable state; every other skipped step loses only
+in-memory work. A clean run measured `database` 441 ms and all steps 767 ms (main log, 2026-09-29
+04:58:48). The close is now `DesktopShutdownRunPlan.closeDatabase`, run after the ordered steps
+whether they finished or the deadline aborted one, bounded by `DB_HOST_CLOSE_BUDGET_MS` (3.5 s).
+The forced exit waits for it (`exit(1)` after it), the backstop covers both budgets, and the
+durable error log closes last. `database` became `database-drain` (it stops what issues database
+work) and `error-log-sink` left the sequence. A failed close after a deadline is logged at error.
+"Fix the slow owner, never raise a budget" stands.
+
+**Measured, Electron 44.4.5, macOS (2026-09-29): main's JS signal handlers.** A probe main with
+`process.on('SIGINT'|'SIGTERM'|'SIGHUP')`:
+
+| handler registered | first signal | later signal |
+| --- | --- | --- |
+| at module scope | handler never runs; Electron's own handler calls `app.quit()` (`before-quit`, exit 0) | with quit prevented, the default action killed main (`code=null signal=SIGINT`) |
+| inside `app.whenReady()` | handler runs (window creation and a forked utility process change nothing) | handler runs every time |
+
+So the original `process.once` in `main.ts` never ran, which is why "Received shutdown signal"
+never appeared, and Electron's one-shot conversion is what a second signal defeats. In the real
+app the `whenReady` registration alone still did not run: `when-exit` 2.1.5 (electron-store 11 ->
+conf 15 -> atomically 2.1) calls `process.once` for SIGHUP/SIGINT/SIGTERM at import and re-raises
+the signal against the process; Node arms libuv's watcher only for a signal's FIRST listener, and
+Electron's handler displaced that early watcher. `main/shutdown-signals.ts` therefore installs
+from `app.whenReady()` and drops the existing listeners first, so ours arms a fresh watcher; they
+are not restored, because they exist to die by the signal and this shutdown ends through
+`app.quit()`, where their `exit` hooks still run. Real app, three SIGINTs 40 ms apart: before,
+main died from SIGINT mid-shutdown (only "MCP runtime shutdown cleanup completed" logged); after,
+`Received shutdown signal`, two `Shutdown already in progress; ignoring signal`, `Graceful
+shutdown completed` (`trigger: signal`), exit 0. A signal before ready still reaches Electron's own
+handler (quit through `before-quit`); a second one before ready cannot be caught. Linux and Windows
+are unmeasured: if the re-arm fails there, the first signal still quits through `before-quit`.

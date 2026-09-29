@@ -126,7 +126,10 @@ const CONTRACT_LINE_BUDGETS = {
   // observed (the absent marker makes the next open unclean).
   // BST-1872 L2a added 5 more, to 974: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a
   // failed close exits 1 with no marker and no retry, and a signal-closed host is not replaced).
-  'platform-contracts.md': 974,
+  // BST-1872 L2b added 8 more, to 982: the shutdown-ownership first bullet names the reserved
+  // database-close slice (+1) and main's persistent signal listeners installed after ready (+7,
+  // with why a listener added earlier never runs).
+  'platform-contracts.md': 982,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
