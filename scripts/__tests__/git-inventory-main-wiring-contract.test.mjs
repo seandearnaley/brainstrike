@@ -13,7 +13,7 @@
  *      boot (the build's own try/catch turns it into a cached, empty
  *      "no repositories" snapshot with nothing logged).
  *   2. The `'git-inventory'` graceful-shutdown step must run BEFORE the
- *      `'database'` step (its own `main.ts` comment says so: `loadRoots`
+ *      `'database-drain'` step (its own `main.ts` comment says so: `loadRoots`
  *      reads the DB, so the service's watchers/in-flight build must be torn
  *      down while the DB is still available) — a step reorder would pass
  *      every unit test for the service itself while breaking shutdown. The
@@ -85,27 +85,27 @@ function requireStepPosition(order, step) {
   return position;
 }
 
-test('git-inventory shutdown step runs before the database shutdown step', () => {
+test('git-inventory shutdown step runs before the database drain step', () => {
   const order = shutdownStepOrder();
   requireIndexOf("'git-inventory': async () => {", "the 'git-inventory' step body in main.ts");
   assert.ok(
-    requireStepPosition(order, 'git-inventory') < requireStepPosition(order, 'database'),
-    "the 'git-inventory' shutdown step must run BEFORE 'database': its loadRoots dependency " +
+    requireStepPosition(order, 'git-inventory') < requireStepPosition(order, 'database-drain'),
+    "the 'git-inventory' shutdown step must run BEFORE 'database-drain': its loadRoots dependency " +
       'reads the DB, so watchers/in-flight builds must be torn down while the database is ' +
       'still available (see the git-inventory-service comment at the step body in main.ts)'
   );
 });
 
-test("forge shutdown is its own step, before 'database', not nested inside 'git-inventory' (BST-1391)", () => {
+test("forge shutdown is its own step, before 'database-drain', not nested inside 'git-inventory' (BST-1391)", () => {
   // A prior revision nested forge teardown INSIDE the 'git-inventory' step,
   // after `await gitInventoryService.stop()`. `stop()`'s final `await
   // toDispose.disposeAll()` is unguarded, and the shutdown sequence catches a
   // rejection at the step boundary, so a throwing watcher disposer would
   // silently skip forge teardown entirely — leaving `ipcMain` handlers
-  // registered and a live `forgeService` heading into 'database'. forge gets
+  // registered and a live `forgeService` heading into 'database-drain'. forge gets
   // its own failure-isolated step for the same DB-availability reason as
   // git-inventory (`getDatabase` -> `readForgePrCacheEntry`/
-  // `writeForgePrCacheEntry`), so it must run BEFORE 'database' too.
+  // `writeForgePrCacheEntry`), so it must run BEFORE 'database-drain' too.
   // Each step is its own key in main.ts's step record, so nesting forge
   // inside git-inventory would mean moving these lines into that body.
   const order = shutdownStepOrder();
@@ -114,8 +114,8 @@ test("forge shutdown is its own step, before 'database', not nested inside 'git-
     "'forge' must be its own step AFTER 'git-inventory'"
   );
   assert.ok(
-    requireStepPosition(order, 'forge') < requireStepPosition(order, 'database'),
-    "the 'forge' shutdown step must run BEFORE 'database' — forge reads the DB " +
+    requireStepPosition(order, 'forge') < requireStepPosition(order, 'database-drain'),
+    "the 'forge' shutdown step must run BEFORE 'database-drain' — forge reads the DB " +
       '(getDatabase -> readForgePrCacheEntry/writeForgePrCacheEntry), so it must be torn ' +
       'down while the database is still available'
   );
