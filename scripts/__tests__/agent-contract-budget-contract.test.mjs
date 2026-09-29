@@ -140,10 +140,11 @@ const CONTRACT_LINE_BUDGETS = {
   // failure and its round-2 fixes) adds the rest of the DB host bullet, to 971.
   // BST-1870 L4 replaced the runtime-recovery section with DATABASE INTEGRITY CONTAINMENT
   // (the recovery order and its history moved to evidence), a net -4 lines.
-  // BST-1872 L2a added 6, to 973: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a failed
+  // BST-1870 L4b: the Guard line names the containment E2E, one more line.
+  // BST-1872 L2a added 6, to 974: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a failed
   // close exits 1 with no marker and no retry); main forks no replacement for a host whose close
   // was announced or proven by the marker, and a lost announcement is named as the known gap.
-  'platform-contracts.md': 973,
+  'platform-contracts.md': 974,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
