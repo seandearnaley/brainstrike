@@ -70,8 +70,17 @@ export interface DatabaseInitFailureSnapshot {
   timestamp: string;
 }
 
+/**
+ * How the previous session of this database ended, read from the clean-shutdown
+ * marker when the database opens: `clean` (closed and marked), `unclean` (no
+ * marker), or `new-database` (nothing was on disk to end).
+ */
+export type DatabasePreviousShutdown = 'clean' | 'unclean' | 'new-database';
+
 export interface DatabaseDiagnosticsSnapshot {
   appDataDir: string;
+  /** Set once a database handle could not be closed: it may still own the data directory until the process exits. */
+  closeFailure: { message: string; stage: 'sync' | 'close' } | null;
   databaseLockHeld: boolean;
   databaseLockPath: string | null;
   databaseProfile: string | null;
@@ -85,6 +94,8 @@ export interface DatabaseDiagnosticsSnapshot {
   lastRuntimeCorruptionAt: string | null;
   lastRuntimeCorruptionContext: string | null;
   nodeEnv: string | null;
+  /** `null` until the database host has opened the database. */
+  previousShutdown: DatabasePreviousShutdown | null;
   runtimeCorruptionRecoveryCount: number;
 }
 

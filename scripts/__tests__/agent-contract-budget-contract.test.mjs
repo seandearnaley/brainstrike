@@ -135,7 +135,9 @@ const CONTRACT_LINE_BUDGETS = {
   // proves a departed DB host gone, so nothing forks or reports a close before it. Round 2
   // added 1 more, to 967: a repeated close resolves once that exit is observed (the absent
   // marker makes the next open unclean).
-  'platform-contracts.md': 967,
+  // BST-1872 L1b (the fail-closed close, the clean-shutdown marker proof, the sticky close
+  // failure and its round-2 fixes) adds the rest of the DB host bullet, to 971.
+  'platform-contracts.md': 971,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
