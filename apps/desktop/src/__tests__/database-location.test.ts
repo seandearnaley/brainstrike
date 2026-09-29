@@ -200,6 +200,47 @@ describe('resolveDatabaseLocation', () => {
     expect(location.source).toBe('packaged');
   });
 
+  // Main hands the root to the DB host, and factory reset deletes under it: a
+  // relative root would resolve against each process's own cwd.
+  it.each([
+    ['darwin', './db'],
+    ['darwin', 'db'],
+    ['linux', '../elsewhere'],
+    ['win32', 'db-root'],
+    ['win32', '\\no-drive'],
+  ] as const)('throws for the relative %s root override %j', (platform, rootOverride) => {
+    expect(() => resolveDatabaseLocation(input({ env: { rootOverride }, platform }))).toThrow(
+      /BRAINSTRIKE_DB_ROOT_PATH .*must be an absolute path/u
+    );
+  });
+
+  it.each([
+    ['win32', 'D:/db-root'],
+    ['win32', '\\\\server\\share\\db'],
+    ['linux', '/srv/db'],
+  ] as const)('keeps the fully qualified %s root override %j', (platform, rootOverride) => {
+    expect(resolveDatabaseLocation(input({ env: { rootOverride }, platform })).rootPath).toBe(
+      rootOverride
+    );
+  });
+
+  // `profiles\nul` on Windows is the NUL device: every write would vanish.
+  it.each(['con', 'NUL', 'aux', 'prn', 'com1', 'LPT9', 'nul.db', 'con.'])(
+    'throws for the explicit profile override %j, a Windows reserved device name',
+    (raw) => {
+      expect(() => resolveDatabaseLocation(input({ env: { profileOverride: raw } }))).toThrow(
+        /BRAINSTRIKE_DB_PROFILE .*reserved/u
+      );
+    }
+  );
+
+  it.each(['console', 'nully', 'com10', 'lpt0', 'aux-db'])(
+    'keeps the explicit profile override %j, which only resembles a reserved name',
+    (raw) => {
+      expect(resolveDatabaseLocation(input({ env: { profileOverride: raw } })).profile).toBe(raw);
+    }
+  );
+
   it('lets an explicit profile override win, sanitised, over the derived profile', () => {
     const fromGit = resolveDatabaseLocation(
       input({ env: { profileOverride: ' Feature/X y ' }, readGitContext: () => GIT })

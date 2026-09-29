@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { DB_PROFILE_ENV } from './db-runtime-env';
+import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV } from './db-runtime-env';
 
 /**
  * Pure, Electron-free resolution of WHERE the desktop database lives. Main
@@ -23,10 +23,11 @@ export interface DatabaseLocationInput {
     readonly localAppData?: string | undefined;
     /**
      * Reduced to one safe path segment (`a/b` becomes `a-b`). Throws when it
-     * reduces to nothing (`.`, `..`, `-`); blank or a literal `undefined` is
-     * treated as unset.
+     * reduces to nothing (`.`, `..`, `-`) or to a Windows device name (`nul`);
+     * blank or a literal `undefined` is treated as unset.
      */
     readonly profileOverride?: string | undefined;
+    /** Throws unless fully qualified (a Windows root needs a drive or UNC prefix). */
     readonly rootOverride?: string | undefined;
     readonly xdgDataHome?: string | undefined;
   };
@@ -89,6 +90,10 @@ export function sanitizeProfileSegment(raw: string): string {
   return toProfileSegment(raw) || FALLBACK_PROFILE_SEGMENT;
 }
 
+// Windows maps these names (with any extension) to devices: `profiles\nul` would
+// swallow every write. Derived profiles never start with one of them.
+const WINDOWS_RESERVED_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/u;
+
 // An explicit override is the user's stated intent: reduce it to a safe segment,
 // but never invent a profile for one that reduces to nothing (`.`, `..`, `-`).
 function explicitProfile(raw: string): string {
@@ -96,6 +101,11 @@ function explicitProfile(raw: string): string {
   if (!segment) {
     throw new Error(
       `Invalid ${DB_PROFILE_ENV} ${JSON.stringify(raw)}: it reduces to an empty profile name. Use a name with at least one letter, digit or underscore.`
+    );
+  }
+  if (WINDOWS_RESERVED_DEVICE_NAME.test(segment)) {
+    throw new Error(
+      `Invalid ${DB_PROFILE_ENV} ${JSON.stringify(raw)}: "${segment}" is a reserved Windows device name. Choose another profile name.`
     );
   }
   return segment;
@@ -123,6 +133,26 @@ function pathFor(platform: NodeJS.Platform): path.PlatformPath {
   return platform === 'win32' ? path.win32 : path.posix;
 }
 
+// Independent of any process's cwd. `path.win32.isAbsolute('\\db')` is true, but a
+// drive-relative root still follows the current drive, so Windows needs a drive or UNC.
+function isFullyQualified(value: string, platform: NodeJS.Platform): boolean {
+  if (platform !== 'win32') {
+    return path.posix.isAbsolute(value);
+  }
+  return /^(?:[a-z]:[\\/]|[\\/]{2}[^\\/])/iu.test(value);
+}
+
+// Main hands the root to the DB host and factory reset deletes under it, so a
+// relative override (resolved against each process's own cwd) is refused.
+function explicitRoot(raw: string, platform: NodeJS.Platform): string {
+  if (!isFullyQualified(raw, platform)) {
+    throw new Error(
+      `Invalid ${DB_ROOT_PATH_ENV} ${JSON.stringify(raw)}: it must be an absolute path.`
+    );
+  }
+  return raw;
+}
+
 function packagedRootPath(input: DatabaseLocationInput): string {
   const platformPath = pathFor(input.platform);
   switch (input.platform) {
@@ -134,7 +164,7 @@ function packagedRootPath(input: DatabaseLocationInput): string {
       // Non-roaming: userData lives under %APPDATA% (Roaming), which Windows
       // may sync to the cloud, and a PGlite data directory must never be.
       const localAppData = input.env.localAppData?.trim();
-      if (!(localAppData && platformPath.isAbsolute(localAppData))) {
+      if (!(localAppData && isFullyQualified(localAppData, input.platform))) {
         throw new Error(
           `Cannot resolve the packaged Windows database location: LOCALAPPDATA must be an absolute path (received ${JSON.stringify(input.env.localAppData ?? null)}). Set BRAINSTRIKE_DB_ROOT_PATH to choose a location explicitly.`
         );
@@ -195,7 +225,9 @@ function defaultProfile(input: DatabaseLocationInput, source: DerivedSource): st
 }
 
 export function resolveDatabaseLocation(input: DatabaseLocationInput): DatabaseLocation {
-  const rootOverride = normalizeOverride(input.env.rootOverride);
+  const rawRootOverride = normalizeOverride(input.env.rootOverride);
+  const rootOverride =
+    rawRootOverride === undefined ? undefined : explicitRoot(rawRootOverride, input.platform);
   const profileOverride = normalizeOverride(input.env.profileOverride);
   const source = deriveSource(input);
   return {
