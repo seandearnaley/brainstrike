@@ -66,6 +66,11 @@ describe('db-host-entry signal close over the real db-main', () => {
     appDataDir = path.join(rootPath, 'profiles', 'test');
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_ROOT_PATH'] = rootPath;
+    // Implementations a test set (a failing close, a gated open) must not leak into the next one.
+    for (const method of [engine.close, engine.migrate, engine.syncToFs]) {
+      method.mockReset();
+      method.mockResolvedValue(undefined);
+    }
     engine.createBrainstrikePglite.mockImplementation(async () => ({
       close: engine.close,
       exec: engine.exec,
@@ -102,6 +107,57 @@ describe('db-host-entry signal close over the real db-main', () => {
     expect(JSON.parse(readFileSync(markerPath(), 'utf8'))).toMatchObject({ pid: process.pid });
     expect(existsSync(lockPath())).toBe(false);
     expect(lifecycleStates(host)).toEqual(['closing:SIGTERM', 'closed:SIGTERM']);
+  });
+
+  it('a signal that arrives mid-open waits for the open to settle, then closes what it opened', async () => {
+    const host = await bootHost();
+    const opening = Promise.withResolvers<void>();
+    engine.createBrainstrikePglite.mockImplementation(async () => {
+      await opening.promise;
+      return {
+        close: engine.close,
+        exec: engine.exec,
+        query: engine.query,
+        syncToFs: engine.syncToFs,
+      };
+    });
+    host.send('init', { kind: 'init' });
+    await vi.waitFor(() => expect(engine.createBrainstrikePglite).toHaveBeenCalledTimes(1));
+
+    host.signal('SIGTERM');
+    await vi.waitFor(() => expect(lifecycleStates(host)).toEqual(['closing:SIGTERM']));
+    // Nothing closes underneath the open, and the host has not exited.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(engine.close).not.toHaveBeenCalled();
+    expect(host.exitCodes).toEqual([]);
+
+    opening.resolve();
+
+    await vi.waitFor(() => expect(host.exitCodes).toEqual([0]));
+    expect(responsesFor(host, 'init')[0]).toMatchObject({ ok: true });
+    expect(engine.close).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(readFileSync(markerPath(), 'utf8'))).toMatchObject({ pid: process.pid });
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
+  it('a signal that arrives mid-open which then fails closes nothing more and exits 0 with no marker', async () => {
+    const host = await bootHost();
+    const opening = Promise.withResolvers<void>();
+    engine.migrate.mockImplementation(async () => {
+      await opening.promise;
+      throw new Error('migration failed');
+    });
+    host.send('init', { kind: 'init' });
+    await vi.waitFor(() => expect(engine.migrate).toHaveBeenCalledTimes(1));
+
+    host.signal('SIGTERM');
+    opening.resolve();
+
+    await vi.waitFor(() => expect(host.exitCodes).toEqual([0]));
+    expect(responsesFor(host, 'init')[0]).toMatchObject({ ok: false });
+    // The failed open's own cleanup closed its handle once; the signal close found nothing to close.
+    expect(engine.close).toHaveBeenCalledTimes(1);
+    expect(existsSync(markerPath())).toBe(false);
   });
 
   it.each([

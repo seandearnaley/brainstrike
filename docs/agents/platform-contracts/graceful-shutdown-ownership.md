@@ -280,10 +280,17 @@ fully clean `closeLocalDatabase` writes one), keep `.db-process.lock`, log
 is single-flight, later signals exit 1 without re-entering it, and a later `close` envelope is
 answered with the first failure. That also holds against the sticky `closeFailure` of `db-main.ts`
 (note H above), which would reject any second attempt anyway.
-`db-host-entry.close-failure.test.ts` drives the signal path through the real host entry over the
-real `closeLocalDatabase` with an injected engine failure (sync and close stage) and asserts no
-marker file, the lock kept, exit 1 and no second attempt; its control shows the marker written,
-naming the host pid, before the exit 0 of a clean signal close.
+`db-host-entry.db-main.test.ts` drives the signal path through the real host entry over the real
+`closeLocalDatabase` with an injected engine failure (sync and close stage) and asserts no marker
+file, the lock kept, exit 1 and no second attempt; its control shows the marker written, naming the
+host pid, before the exit 0 of a clean signal close.
+
+**A signal mid-open.** The open is the in-flight envelope (`init`, or the lazy open inside a data
+envelope), so the close waits for it through the serial queue, and `closeLocalDatabase()` waits for
+any open in flight again (`settleInFlightOpen()`): two layers, each sufficient on its own, so
+nothing ever closes underneath an open. The same test file pins both outcomes: the open settles and
+its handle is what gets closed (marker written, exit 0), and an open that then fails is cleaned up
+by its own failure path, so the signal close finds nothing to close and exits 0 with no marker.
 
 **Main's side composes with the departing-host barrier.** A host that closes on a signal aimed at
 it and exits is simply an attached host that exited: the manager's `exit` handler now detaches it
