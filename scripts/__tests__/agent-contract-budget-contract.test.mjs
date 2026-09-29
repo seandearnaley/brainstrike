@@ -114,11 +114,8 @@ const CONTRACT_LINE_BUDGETS = {
   // and "an exit code is never proof of a clean close"; L2 replaces the shutdown-ownership
   // first bullet and re-pins. The L1 review round added 1 more (963): only an observed exit
   // proves a departed DB host gone, so nothing forks or reports a close before it. The
-  // BST-1872 L1 raised it by 4 more, to 962: the awaited-close / SIGKILL-wedge / no-fork rule
-  // and "an exit code is never proof of a clean close"; L2 replaces the shutdown-ownership
-  // first bullet and re-pins. The L1 review round added 1 more (963): only an observed exit
-  // proves a departed DB host gone, so nothing forks or reports a close before it. The
-  // fail-closed close and the clean-shutdown marker proof added the rest, to 967.
+  // fail-closed close, the clean-shutdown marker proof and the sticky close failure added the
+  // rest, to 967.
   'platform-contracts.md': 967,
   'README.md': 70,
   'triage-labels.md': 35,

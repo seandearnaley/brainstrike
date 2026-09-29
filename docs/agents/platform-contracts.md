@@ -384,9 +384,9 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   host forks, and no close succeeds, while a previous host may be alive: only its observed `exit`
   proves it gone, and a failed close keeps it across manager replacement. Admission waits ≤0.5 s,
   then rejects `DbHostUnavailableError` (also while closing or at shutdown). A close or sync failure
-  rejects, keeps the process lock and aborts factory and developer reset before any deletion. A
-  clean close writes the marker atomically; opening removes it, so its absence means the last
-  session was unclean.
+  is sticky until the process exits: the lock stays and every later close, reopen and reset
+  (factory, developer, corruption recovery) rejects before deleting or opening anything. A clean
+  close writes the marker atomically; opening removes it, so its absence means unclean.
 
 Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:

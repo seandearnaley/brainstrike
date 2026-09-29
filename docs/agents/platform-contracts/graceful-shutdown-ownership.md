@@ -191,3 +191,35 @@ rejects with `DbHostUnavailableError`; it never forks and never waits unbounded.
   `exited` promise executor. A failed fork (no handle) or a throwing `once` now throws to the
   caller, as a failed fork always did; inside the executor it rejected `exited`, which nothing awaits
   until a close, and surfaced as an unhandled rejection that failed a CI shard.
+
+### Update (2026-09-29, BST-1872 L1 review round): the failed close is sticky
+
+Review of the fail-closed close found it released the guarantee one call later: after a close
+failed, `db` was null, so the next `closeDatabase()` returned early as a success, a reset went
+on to back up and delete the directory, and a lazy open passed the process lock (re-entrant for
+its own process) and opened a second PGlite over the first. Fixes, all in `db-main.ts` unless noted:
+
+- H. `mutableState.closeFailure` is set by every failed close of a live handle: `closeLocalDatabase()`
+  (sync or close stage) and the failed-open cleanup. While set, `closeLocalDatabase()` (checked
+  BEFORE its "nothing to close" return) throws a `DatabaseCloseError` of the same stage whose
+  `cause` is the first failure; every reset and corruption-recovery entry rejects through it
+  before any backup or `rmSync`; initialization rejects (`initializeMainDatabaseInternal`, before
+  the process lock) saying the handle may still own the data directory and BrainStrike must
+  restart. The lock stays and only process exit clears the state (the test reset helper aside).
+  `DatabaseDiagnosticsSnapshot.closeFailure` exposes `{ stage, message }`. The host's `close`
+  handler already answers a rejection as `ok: false`, so main's ladder SIGKILLs the host; the
+  next host reads no marker, so its open is unclean and WAL replay runs.
+- I. Runtime corruption recovery therefore fails closed when the close fails: it never deletes a
+  directory a handle may own. Intended, not a regression.
+- J. `db` is assigned only after the pgvector validation; the handle being opened lives in a
+  separate `openingHandle` that only the failed-open cleanup reads. Before, `getLocalDatabase()`
+  and `initializeLocalMainDatabase()` returned `db` without awaiting the single-flight promise, so
+  a concurrent caller could receive the unvalidated handle. The DB host's serial queue
+  (`db-host-entry.ts` `drainQueue`) hid this in production; the module's own API did not.
+- K. The marker is consumed by the open attempt: a failed open leaves none, so the next open
+  reports `unclean` (conservative by design).
+- L. Only an open removes a marker, and only a close of an opened database writes one. A host that
+  never opened the database writes none, so a stale marker naming its (reused) pid can only
+  certify the close of a host that held no database, which is true.
+- N. `writeCleanShutdownMarker` removes its `.tmp` when the rename fails (a failed cleanup logs at
+  warn), and `hasCleanShutdownMarker` accepts only a regular file, not a directory at the path.
