@@ -221,3 +221,46 @@ rare term, and needs IDF to put it first: normalization 0 ranked it fourth, norm
 second. Only normalizations 0 and 1 were run. The hybrid golden (v2) stayed at Precision@1 1 and
 MRR 1 in both runs, and the vector golden was unaffected, so the loss is confined to the
 lexical arm. BM25 was kept and made crash-safe by the rebuild instead.
+
+## The SIGKILL crash gate (BST-1875, 2026-09-29)
+
+Supports the `database.md` rules that a PGlite or extension bump passes the SIGKILL crash gate at
+200 iterations on every shipped platform, and that a new index access method joins the
+crash-sensitive list unless the gate proves it recovers.
+
+- What it does: `packages/db/__tests__/crash-injection-gate.integration.test.ts` spawns a writer
+  child (`node --import tsx`, one process so a SIGKILL reaches it) that opens an on-disk, fully
+  migrated data dir through `createEnginePglite` and loops committed transactions across btree,
+  BM25, GIN (pg_trgm, tsvector) and HNSW on the real schema, plus a `mastra_messages` ledger. After
+  a seeded 300-3000 ms past its first ack the parent SIGKILLs it, reopens through the production
+  factory, runs `rebuildCrashSensitiveIndexes`, and verifies acknowledged rows (read from the heap),
+  amcheck (heap, every btree with `heapallindexed`, every GIN), an HNSW nearest-neighbour probe per
+  index, and a BM25 insert plus ranked search per index. Indexes and tables come from the catalog;
+  a new access method fails the gate until the writer and checks cover it.
+- The BM25 probes must allocate. Consistent with the free-space-map cause above, a ranked search
+  straight after the crash passed on all 73 iterations that tried it before recovery; damage
+  showed only once a later write allocated (the next writer, or the insert probe). So the probe
+  inserts (rolled back) first and searches second. Failures arrive as `58P01`, `XX000` and
+  `XX001` with different texts, which is why detection is "the probe threw", never a message match.
+- Sensitivity, measured on the pinned builds with the recovery step removed by a local edit (never
+  committed), 20 iterations per seed: the first failing iteration was 3, 5, 4, 6, 2, 2, 6 and 1 for
+  seeds 1-8, so every seed fails inside the PR default of 10. Failures were BM25 (`corrupt segment`,
+  `invalid segment header`, `Invalid logical page`) or the writer dying on
+  `corrupt tombstone page`. The first workload (no stress thresholds, no `VACUUM`) first failed at
+  iteration 26 (seed 7) and the stress thresholds `bulk_load_threshold`, `memtable_pages_threshold`
+  and `segments_per_level` alone gave 23; adding a `VACUUM file_chunks` every fourth transaction and
+  the allocating insert probe together gave 7, 6 and 5 (seeds 7, 1, 2). The effects were not
+  measured separately.
+- Control: the same workload and probes, recovery still removed, but a clean close instead of a
+  SIGKILL, passed 25 of 25 iterations for each of two seeds. The damage is crash-induced, not a
+  workload artefact.
+- Green: 10 iterations took 34 s of gate time (42 s for the vitest process), 30 took 85 s and 50
+  took 138 s on macOS arm64, about 2.8 s per iteration, so 200 is about 9 min. Row counts are capped
+  (4,000 chunks, 1,500 thread-index rows), so per-iteration cost stays flat.
+- Limits: NODEFS `fsync` is a no-op, so this proves process crashes (SIGKILL keeps every completed
+  write), not power loss. The kill instant is random, so the seed reproduces the workload and the
+  kill schedule but not the exact kill; a clean run at 10 iterations is evidence, not proof, which
+  is why bumps need the 200-iteration nightly on Linux, macOS and Windows.
+- amcheck needs its own handle: the factory loads only the production extension set, so the
+  verifier opens `ENGINE_EXTENSIONS` plus `amcheck` with `PGlite.create` (a fixture, exempt from
+  the construction guard) and drops the extension afterwards.

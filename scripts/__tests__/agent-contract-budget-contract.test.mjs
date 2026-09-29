@@ -118,7 +118,11 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1871 (part b) raised it from 918 (+6): the crash-sensitive index rule replaces the
   // one-bullet pointer with what an agent must obey before adding an index access method;
   // its measurements went to `database/pg-textsearch-qualification.md`.
-  'database.md': 924,
+  // BST-1875 raised it from 924 (+1): the SIGKILL crash gate joins the PGlite/extension bump
+  // qualification (200 iterations, every shipped platform), and the crash-safety rule now
+  // cites the gate by name instead of by ticket. Its design and measurements went to
+  // `database/pg-textsearch-qualification.md`.
+  'database.md': 925,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
