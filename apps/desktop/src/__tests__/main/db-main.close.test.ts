@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Real filesystem in a temp root, so locks, markers and resets are observed on disk.
 // Only the calls whose ORDER matters are wrapped (and recorded), and one can be made to fail.
 const fsProbe = vi.hoisted(() => ({
+  afterLockUnlink: null as (() => void) | null,
   events: [] as string[],
   failMarkerUnlink: false,
   markerPresentWhenOpened: null as boolean | null,
@@ -38,6 +39,9 @@ vi.mock('node:fs', async (importOriginal) => {
         throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
       }
       actual.unlinkSync(target);
+      if (name === '.db-process.lock') {
+        fsProbe.afterLockUnlink?.();
+      }
     },
   };
   return { ...probed, default: probed };
@@ -81,6 +85,15 @@ function restoreEnvValue(key: string, value: string | undefined): void {
   process.env[key] = value;
 }
 
+const settle = (promise: Promise<unknown>): Promise<unknown> =>
+  promise.then(
+    () => null,
+    (error: unknown) => error
+  );
+const destructiveFsEvents = (): string[] =>
+  fsProbe.events.filter((event) => event.startsWith('rm:') || event.startsWith('cp:'));
+const nextTurn = (): Promise<unknown> => new Promise((resolve) => setImmediate(resolve));
+
 describe('db-main close and open', () => {
   let rootPath: string;
   let appDataDir: string;
@@ -109,6 +122,7 @@ describe('db-main close and open', () => {
       writable: true,
     });
     fsProbe.events.length = 0;
+    fsProbe.afterLockUnlink = null;
     fsProbe.failMarkerUnlink = false;
     fsProbe.markerPresentWhenOpened = null;
     engine.createBrainstrikePglite.mockImplementation(async () => {
@@ -179,6 +193,29 @@ describe('db-main close and open', () => {
         stage: 'open-database',
       });
       expect(existsSync(markerPath())).toBe(true);
+    });
+  });
+
+  // Fail-closed by design: a directory where the marker belongs is not a marker and cannot be
+  // removed as one, so the open stops with a filesystem failure rather than guess what it means.
+  describe('a directory at the marker path', () => {
+    it('fails every open as a filesystem failure, and deletes nothing', async () => {
+      seedDatabaseDirectory({ marker: false });
+      mkdirSync(markerPath());
+      fsProbe.events.length = 0;
+      const { getDatabaseDiagnostics, initializeMainDatabase } = await import('../../db-main');
+
+      await expect(initializeMainDatabase()).rejects.toThrow(/filesystem access failed/);
+      await expect(initializeMainDatabase()).rejects.toThrow(/filesystem access failed/);
+
+      expect(engine.createBrainstrikePglite).not.toHaveBeenCalled();
+      expect(getDatabaseDiagnostics().lastInitializationFailure).toMatchObject({
+        category: 'filesystem',
+        stage: 'open-database',
+      });
+      expect(destructiveFsEvents()).toEqual([]);
+      expect(existsSync(markerPath())).toBe(true);
+      expect(existsSync(pgVersionPath())).toBe(true);
     });
   });
 
@@ -282,14 +319,6 @@ describe('db-main close and open', () => {
   // A handle whose close failed may still own the data directory, so nothing may reopen, reset,
   // recover from corruption over it, or report a close, until the process exits.
   describe('a failed close is sticky', () => {
-    const settle = (promise: Promise<unknown>): Promise<unknown> =>
-      promise.then(
-        () => null,
-        (error: unknown) => error
-      );
-    const destructiveFsEvents = (): string[] =>
-      fsProbe.events.filter((event) => event.startsWith('rm:') || event.startsWith('cp:'));
-
     async function failTheFirstClose() {
       const db = await import('../../db-main');
       await db.initializeMainDatabase();
@@ -365,6 +394,31 @@ describe('db-main close and open', () => {
       expect(getDatabaseDiagnostics().closeFailure).toBeNull();
     });
 
+    it('keeps the lock when a close fails while the open is running and the open then fails', async () => {
+      let failMigration: (error: Error) => void = () => undefined;
+      engine.migrate.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            failMigration = reject;
+          })
+      );
+      engine.close.mockRejectedValueOnce(new Error('close failed'));
+      const { closeDatabase, getDatabaseDiagnostics, initializeMainDatabase } = await import(
+        '../../db-main'
+      );
+      const opening = settle(initializeMainDatabase());
+      await vi.waitFor(() => expect(engine.migrate).toHaveBeenCalledTimes(1));
+      const closing = settle(closeDatabase());
+      await nextTurn();
+
+      failMigration(new Error('relation already exists'));
+      await opening;
+      await closing;
+
+      expect(existsSync(lockPath())).toBe(true);
+      expect(getDatabaseDiagnostics().closeFailure).toMatchObject({ stage: 'close' });
+    });
+
     it.each([
       {
         failure: 'validation',
@@ -397,6 +451,80 @@ describe('db-main close and open', () => {
         expect(getDatabaseDiagnostics().closeFailure).toMatchObject({ stage: 'close' });
       }
     );
+  });
+
+  // A reset (or close) never runs while an open is in flight: it waits for the open to settle, then
+  // closes what it produced, so nothing is backed up or deleted under a handle that is still opening.
+  describe('a reset while the database is opening', () => {
+    const gatedFactory = (): { readonly release: () => void } => {
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      engine.createBrainstrikePglite.mockImplementationOnce(async () => {
+        await gate;
+        return {
+          close: engine.close,
+          exec: engine.exec,
+          query: engine.query,
+          syncToFs: engine.syncToFs,
+        };
+      });
+      return { release };
+    };
+
+    it('waits for the open, closes what it produced, and only then deletes', async () => {
+      const { release } = gatedFactory();
+      engine.close.mockImplementationOnce(async () => {
+        fsProbe.events.push('engine-close');
+      });
+      const { getDatabase, resetLocalDatabase } = await import('../../db-main');
+      const opening = getDatabase();
+      await vi.waitFor(() => expect(engine.createBrainstrikePglite).toHaveBeenCalledTimes(1));
+      seedDatabaseDirectory({ marker: false });
+      fsProbe.events.length = 0;
+
+      const resetting = settle(resetLocalDatabase());
+      await nextTurn();
+      expect(destructiveFsEvents()).toEqual([]);
+      expect(engine.close).not.toHaveBeenCalled();
+
+      release();
+      await opening;
+      expect(await resetting).toBeNull();
+
+      const closeAt = fsProbe.events.indexOf('engine-close');
+      const firstDeleteAt = fsProbe.events.findIndex(
+        (event) => event.startsWith('rm:') || event.startsWith('cp:')
+      );
+      expect(closeAt).toBeGreaterThanOrEqual(0);
+      expect(firstDeleteAt).toBeGreaterThan(closeAt);
+      expect(existsSync(pgVersionPath())).toBe(false);
+    });
+
+    it('settles an open that starts between the close and the delete', async () => {
+      const { getDatabase, initializeMainDatabase, resetLocalDatabase } = await import(
+        '../../db-main'
+      );
+      await initializeMainDatabase();
+      seedDatabaseDirectory({ marker: false });
+      const { release } = gatedFactory();
+      // The lock is released as the close finishes: a caller opens the database right then.
+      fsProbe.afterLockUnlink = () => {
+        fsProbe.afterLockUnlink = null;
+        void getDatabase().catch(() => undefined);
+      };
+      fsProbe.events.length = 0;
+
+      const resetting = settle(resetLocalDatabase());
+      await nextTurn();
+      expect(destructiveFsEvents()).toEqual([]);
+
+      release();
+      expect(await resetting).toBeNull();
+      expect(engine.close).toHaveBeenCalledTimes(2);
+      expect(existsSync(pgVersionPath())).toBe(false);
+    });
   });
 
   // A handle is visible to readers only once it has validated: a concurrent caller either awaits

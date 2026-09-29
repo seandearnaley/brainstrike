@@ -567,6 +567,26 @@ describe('DbHostManager close ladder', () => {
       expect(await retiring.outcome).toBe('resolved');
     });
 
+    // A close with no live host still owns the moment it reports closed: a request that was
+    // waiting on the departing host must reject with it, not fork a fresh host at the same instant.
+    it('rejects a request waiting on the barrier when close() runs with no live host, and forks nothing', async () => {
+      const { host, manager } = await wedgeWhereHostSurvivesSigkill('accepted');
+      const waiting = observe(manager.getDiagnostics());
+      await vi.advanceTimersByTimeAsync(0);
+      const closing = observe(manager.close());
+
+      host.emit('exit', 9);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(await closing.outcome).toBe('resolved');
+      expect(waiting.settled()).toBe(true);
+      expect(await waiting.outcome).toMatchObject({
+        message: 'DB host is unavailable: the database is closing.',
+        name: 'DbHostUnavailableError',
+      });
+      expect(forkMock).toHaveBeenCalledTimes(1);
+    });
+
     it('never reports a repeated close as success while the host may still be alive', async () => {
       const { closing, host, manager } = await closeWhereSigkillIsRefused();
       expect(await closing.outcome).toMatchObject({ outcome: 'exit-timeout' });

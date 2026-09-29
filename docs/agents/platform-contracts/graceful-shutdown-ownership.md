@@ -191,6 +191,16 @@ rejects with `DbHostUnavailableError`; it never forks and never waits unbounded.
   `exited` promise executor. A failed fork (no handle) or a throwing `once` now throws to the
   caller, as a failed fork always did; inside the executor it rejected `exited`, which nothing awaits
   until a close, and surfaced as an unhandled rejection that failed a CI shard.
+- Round 2, A. `close()` with no live host now sets `#closing` too (`close()` in `db-host-manager.ts`; a
+  close with nothing departing stays a no-op). Before, a request waiting in `#admit` could fork a
+  fresh host at the moment that close reported closed. It now re-checks, sees `#closing`, and rejects
+  with `DbHostUnavailableError`. Guard: "rejects a request waiting on the barrier when close() runs
+  with no live host, and forks nothing".
+- Round 2, B. Intended, not a code change: after a failed close, once the host's exit is observed, a
+  later `close()` or `closeDbHostManager()` RESOLVES. Nothing owns the directory, and the missing
+  clean-shutdown marker records that session as unclean, so the next open reports `unclean`. Guard:
+  the `afterExit` case of "never reports a repeated close as success while the host may still be
+  alive" (both the manager and the default-manager variants). It is also in `close()`'s JSDoc.
 
 ### Update (2026-09-29, BST-1872 L1 review round): the failed close is sticky
 
@@ -223,3 +233,18 @@ its own process) and opened a second PGlite over the first. Fixes, all in `db-ma
   certify the close of a host that held no database, which is true.
 - N. `writeCleanShutdownMarker` removes its `.tmp` when the rename fails (a failed cleanup logs at
   warn), and `hasCleanShutdownMarker` accepts only a regular file, not a directory at the path.
+- Round 2, C. `closeAfterFailedInitialization()` returns early, keeping the lock, whenever
+  `mutableState.closeFailure` is set, not only when its own close failed. Since D, a close cannot
+  run during an open, so this is defense in depth; the guard test still pins the outcome (a failed
+  close plus a failed migration leaves the lock held).
+- Round 2, D. `closeLocalDatabase()` first awaits an in-flight open (`settleInFlightOpen()`), then
+  closes what that open produced; every reset and corruption-recovery entry goes through it, so
+  nothing is backed up or deleted while a handle is opening. `resetLocalDatabaseInternal()` also
+  loops until no open is in flight after its close (the code after the loop is synchronous, so no
+  open can start between that check and the deletes). The open never awaits a reset, so it cannot
+  deadlock. Failed opens are already recorded and reported to their callers, so the wait ignores them.
+- Round 2, E. `writeCleanShutdownMarker` removes its `.tmp` after a failure in ANY step of the write
+  (open, write, fsync or rename), with the same warn-on-cleanup-failure rule, and still throws.
+- Round 2, F. A directory at the marker path is not a marker and cannot be unlinked as one, so
+  every open fails as a `filesystem` failure before the database opens and deletes nothing.
+  Fail-closed and intended; the marker must be removed by hand. Pinned in `db-main.close.test.ts`.

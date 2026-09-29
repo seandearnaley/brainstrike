@@ -66,3 +66,24 @@ export function createRequestTimeoutDiagnostics(request: DbHostRequest): Request
       return { requestKind: request.kind };
   }
 }
+
+/** What a failed live-query start logs about the query, without its parameters. */
+export function createLiveQueryDiagnostics(payload: {
+  readonly mode: 'query' | 'incremental';
+  readonly params?: readonly unknown[] | null;
+  readonly query: string;
+}): {
+  readonly mode: 'query' | 'incremental';
+  readonly paramsCount: number;
+  readonly queryPreview: string;
+  readonly unescapedPercentRuns: number;
+} {
+  const queryPreview = payload.query.replace(/\s+/g, ' ').slice(0, 240);
+  const percentRuns = payload.query.match(/%+/g) ?? [];
+  return {
+    mode: payload.mode,
+    paramsCount: payload.params?.length ?? 0,
+    queryPreview,
+    unescapedPercentRuns: percentRuns.filter((run) => run.length % 2 === 1).length,
+  };
+}
