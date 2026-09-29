@@ -1,4 +1,4 @@
-import type { DatabaseDiagnosticsSnapshot } from '@brainstrike/types';
+import type { DatabaseDiagnosticsSnapshot, DatabaseInitPhaseReport } from '@brainstrike/types';
 
 export interface DbHostQueryResult<TRecord = unknown> {
   /**
@@ -150,10 +150,23 @@ export interface DbHostLifecycleEnvelope {
   readonly state: (typeof DB_HOST_LIFECYCLE_STATES)[number];
 }
 
+/**
+ * What the host is about to do, posted BEFORE each long synchronous phase of an `init` request.
+ * It never settles the request: main treats it as liveness and re-arms that request's deadline
+ * from the phase. Validate with {@link isDbHostProgressEnvelope} before trusting one.
+ */
+export interface DbHostProgressEnvelope {
+  /** The id of the `init` request this reports on. */
+  readonly id: string;
+  readonly kind: 'progress';
+  readonly report: DatabaseInitPhaseReport;
+}
+
 export type DbHostToMainMessage =
   | DbHostLifecycleEnvelope
   | DbHostLiveUpdateEnvelope
   | DbHostLogEnvelope
+  | DbHostProgressEnvelope
   | DbHostResponseEnvelope;
 
 export interface DbHostInitResult {
@@ -219,4 +232,106 @@ export function isDbHostToMainMessage(value: unknown): value is DbHostToMainMess
     'reason' in value &&
     isOneOf(DB_HOST_CLOSE_REASONS, value.reason)
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isByteCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+// PostgreSQL identifiers are at most NAMEDATALEN - 1 = 63 bytes. These names reach the timeout log
+// and the error message a person reads, so a longer one is not a catalog name: reject it.
+const MAX_IDENTIFIER_BYTES = 63;
+const utf8 = new TextEncoder();
+// Controls (Cc), format characters (Cf: bidi marks, overrides and isolates, zero-width characters,
+// the byte-order mark) and line/paragraph separators (Zl, Zp): legal inside a quoted PostgreSQL
+// identifier, but they could forge or disguise the one-line error a person reads. Matching whole
+// categories fails closed for format characters Unicode adds later.
+const FORGING_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+
+function isIdentifier(value: unknown): value is string {
+  return (
+    isNonEmptyString(value) &&
+    utf8.encode(value).length <= MAX_IDENTIFIER_BYTES &&
+    !FORGING_CHARACTER.test(value)
+  );
+}
+
+/**
+ * Parses, not merely validates: the report main keeps is rebuilt from its known fields, so nothing
+ * extra the host put in the frame reaches `#initPhase`, the timeout log or the error. Null for
+ * anything malformed.
+ */
+export function parseDatabaseInitPhaseReport(report: unknown): DatabaseInitPhaseReport | null {
+  if (!isRecord(report)) {
+    return null;
+  }
+  switch (report['phase']) {
+    case 'open-database':
+      return isByteCount(report['pgWalBytes'])
+        ? { pgWalBytes: report['pgWalBytes'], phase: 'open-database' }
+        : null;
+    case 'index-rebuild': {
+      const { index } = report;
+      if (
+        !(
+          isRecord(index) &&
+          isIdentifier(index['accessMethod']) &&
+          isIdentifier(index['index']) &&
+          isIdentifier(index['schema']) &&
+          isIdentifier(index['table']) &&
+          isByteCount(index['heapBytes']) &&
+          isByteCount(index['indexBytes']) &&
+          isByteCount(index['toastBytes'])
+        )
+      ) {
+        return null;
+      }
+      return {
+        index: {
+          accessMethod: index['accessMethod'],
+          heapBytes: index['heapBytes'],
+          index: index['index'],
+          indexBytes: index['indexBytes'],
+          schema: index['schema'],
+          table: index['table'],
+          toastBytes: index['toastBytes'],
+        },
+        phase: 'index-rebuild',
+      };
+    }
+    case 'migration':
+      return { phase: 'migration' };
+    default:
+      return null;
+  }
+}
+
+export function isDatabaseInitPhaseReport(report: unknown): report is DatabaseInitPhaseReport {
+  return parseDatabaseInitPhaseReport(report) !== null;
+}
+
+/**
+ * Full structural guard for a progress envelope: kind, id, a phase from the closed set, and that
+ * phase's fields with the right types (byte counts are non-negative safe integers). Deliberately
+ * NOT the `kind`-only check `isDbHostToMainMessage` applies to it: a progress message re-arms a
+ * request's deadline, so a malformed one must be rejected, never guessed at.
+ */
+export function parseDbHostProgressEnvelope(value: unknown): DbHostProgressEnvelope | null {
+  if (!(isRecord(value) && value['kind'] === 'progress' && isNonEmptyString(value['id']))) {
+    return null;
+  }
+  const report = parseDatabaseInitPhaseReport(value['report']);
+  return report ? { id: value['id'], kind: 'progress', report } : null;
+}
+
+export function isDbHostProgressEnvelope(value: unknown): value is DbHostProgressEnvelope {
+  return parseDbHostProgressEnvelope(value) !== null;
 }
