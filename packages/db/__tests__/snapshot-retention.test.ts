@@ -253,6 +253,15 @@ describe('planSnapshotRetention input validation', () => {
     ).toThrow(/sized.*byteSize/u);
   });
 
+  it('rejects a reason the planner has no rule for, instead of pruning it silently', () => {
+    const unknown = snapshot(
+      'stray',
+      'nightly' as RetentionSnapshot['reason'],
+      '2026-09-29T00:00:00.000Z'
+    );
+    expect(() => plan([unknown])).toThrow(/stray.*reason/u);
+  });
+
   it('accepts a zero byteSize', () => {
     expect(() =>
       plan([snapshot('empty', 'daily', '2026-09-29T00:00:00.000Z', { byteSize: 0 })])

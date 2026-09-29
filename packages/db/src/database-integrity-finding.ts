@@ -41,7 +41,7 @@ export function truncateFindingMessage(message: string): string {
  * the error's primary message. Never a detail, hint, where or row value
  * (`docs/diagnostics-privacy-contract.md`).
  */
-export const relationFindingSchema = Schema.Struct({
+const relationFindingFields = Schema.Struct({
   accessMethod: Schema.NullOr(Schema.String),
   check: Schema.Literals(INTEGRITY_CHECKS),
   durability: Schema.Literals(FINDING_DURABILITIES),
@@ -54,6 +54,13 @@ export const relationFindingSchema = Schema.Struct({
   /** The owning table (a TOAST relation reports its owner). Null only for `open`. */
   table: Schema.NullOr(Schema.String),
 });
+
+export const relationFindingSchema = relationFindingFields.check(
+  Schema.makeFilter(
+    (finding) => finding.check === 'open' || (finding.relation !== null && finding.table !== null),
+    { message: 'relation and table may be null only for the open check' }
+  )
+);
 export type RelationFinding = (typeof relationFindingSchema)['Type'];
 
 export type FindingSeverity = 'repairable' | 'blocking';

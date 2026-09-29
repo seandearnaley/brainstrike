@@ -63,8 +63,9 @@ const pathSegment = Schema.String.check(
   Schema.makeFilter((value: string) => !WINDOWS_RESERVED_DEVICE_NAME.test(value), {
     message: 'must not be a reserved Windows device name',
   }),
-  Schema.makeFilter((value: string) => !value.endsWith('.partial'), {
-    message: 'must not end in .partial, which marks a snapshot still being written',
+  // Case-insensitive: on APFS and NTFS `x.PARTIAL` is the same directory as `x.partial`.
+  Schema.makeFilter((value: string) => !/\.partial$/iu.test(value), {
+    message: 'must not end in .partial (any case), which marks a snapshot still being written',
   })
 );
 
@@ -200,8 +201,11 @@ export function parseDatabaseSnapshotManifest(json: unknown): DatabaseSnapshotMa
     }
   }
   const { findings, findingsTruncated, status, unverifiableReason } = manifest.integrity;
+  // A check that examined nothing, or counted no table, is no evidence: it cannot be verified.
   const earned =
     status === 'clean' &&
+    manifest.integrity.checkedRelations > 0 &&
+    manifest.tables.length > 0 &&
     findings.length === 0 &&
     !findingsTruncated &&
     unverifiableReason === null &&

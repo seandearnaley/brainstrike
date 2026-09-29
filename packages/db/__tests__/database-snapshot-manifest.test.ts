@@ -211,6 +211,9 @@ describe('id and profile as a directory name', () => {
         'nul.db',
         'Con.txt',
         'com9.tar.gz',
+        'snap.partial',
+        'snap.PARTIAL',
+        'snap.Partial',
       ]) {
         const input = manifest({ [field]: bad });
         expect(() => parseDatabaseSnapshotManifest(input), bad).toThrow(TypeError);
@@ -235,6 +238,49 @@ describe('id and profile as a directory name', () => {
       }
     }
   );
+});
+
+describe('verification needs evidence', () => {
+  it('cannot claim verified for a check that examined nothing', () => {
+    const nothingChecked = withTables([], {
+      integrity: withIntegrity({ checkedRelations: 0 }),
+    });
+    expect(() => parseDatabaseSnapshotManifest(nothingChecked)).toThrow(/verified/u);
+    expect(parseDatabaseSnapshotManifest({ ...nothingChecked, verified: false }).verified).toBe(
+      false
+    );
+  });
+
+  it('cannot claim verified with no table counted', () => {
+    expect(() => parseDatabaseSnapshotManifest(withTables([]))).toThrow(/verified/u);
+  });
+});
+
+describe('a finding names its relation unless the database would not open', () => {
+  it.each(['relation', 'table'] as const)(
+    'rejects a null %s on a check other than open',
+    (field) => {
+      expect(() => damaged([{ ...FINDING, [field]: null }])).not.toThrow();
+      expect(() => parseDatabaseSnapshotManifest(damaged([{ ...FINDING, [field]: null }]))).toThrow(
+        new RegExp(field, 'u')
+      );
+    }
+  );
+
+  it('accepts null relation and table on an open finding', () => {
+    const openFinding = {
+      ...FINDING,
+      accessMethod: null,
+      check: 'open',
+      durability: 'unclassified',
+      relation: null,
+      relationKind: 'database',
+      table: null,
+    };
+    expect(parseDatabaseSnapshotManifest(damaged([openFinding])).integrity.findings).toHaveLength(
+      1
+    );
+  });
 });
 
 describe('a manifest that contradicts itself', () => {
