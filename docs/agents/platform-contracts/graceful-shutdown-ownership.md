@@ -160,7 +160,16 @@ rejects with `DbHostUnavailableError`; it never forks and never waits unbounded.
 - G. The kill log follows the logger's `(message, context)` order. While a close is in flight
   `#terminateHost` returns early on purpose: the request-timeout `rejectAll` also fails the
   close request, which drives the close ladder's SIGKILL.
-
-Known gap, not fixed here: `closeDbHostManager()` drops the default manager after a failed
-close, so `getDbHostManager()` builds a fresh manager with no barrier. Nothing forks once
-shutdown has begun, which covers the quit path; a runtime caller after a failed close is not covered.
+- Follow-up 1. The barrier also survives replacement of the default manager. When `retire()`
+  rejects inside `closeDbHostManager()`, the failed manager is kept as `unexitedDefaultManager` before
+  `defaultManager` is cleared. While its `hasDepartingHost()` is true, `getDbHostManager()` throws
+  `DbHostUnavailableError` and builds nothing, so close, reset and reinitialize cannot fork a second
+  host over the first. Once the exit is observed the slot is cleared and a new manager is built. A
+  repeated `closeDbHostManager()` with no default manager waits at most one post-SIGKILL budget on
+  that host and rejects `exit-timeout` while it is alive: finding D one level up. A close that
+  ended with the host's exit observed (`close-failed`, `exited-unclean`, `killed`) sets no barrier
+  and replaces the manager as before.
+- Follow-up 2. `DbHostProcess` registers its `exit` listener in the constructor body, not inside the
+  `exited` promise executor. A failed fork (no handle) or a throwing `once` now throws to the
+  caller, as a failed fork always did; inside the executor it rejected `exited`, which nothing awaits
+  until a close, and surfaced as an unhandled rejection that failed a CI shard.
