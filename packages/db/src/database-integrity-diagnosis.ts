@@ -265,6 +265,7 @@ class DiagnosisRun {
 
   async checkHeaps(): Promise<void> {
     for (const relation of this.#relations.filter(({ kind }) => kind !== 'i')) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential by design: one verify_heapam per relation on a single-connection PGlite (parallel calls only queue); a fatal trap must stop at its relation.
       await this.#attempt(relation, 'heap', async () => {
         const [problem] = heapProblemRows(
           (
@@ -301,6 +302,7 @@ class DiagnosisRun {
             // heapallindexed reads the table's heap: a damaged heap would be blamed on every index.
             this.#skip(index, 'table-has-findings');
           } else {
+            // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential by design: one amcheck statement per index on the single connection, attributed to that index; a fatal trap must stop here.
             await this.#attempt(index, 'btree', () =>
               this.#db.query('SELECT bt_index_check($1::oid::regclass, true)', [index.oid])
             );
@@ -322,6 +324,7 @@ class DiagnosisRun {
     // The bm25 write probe maintains every index on its table, so it goes last.
     for (const accessMethod of ['hnsw', 'bm25']) {
       for (const index of probed.filter((candidate) => candidate.accessMethod === accessMethod)) {
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential by design: each probe is a rolled-back transaction on the single connection and must not interleave; hnsw probes run before bm25.
         await this.#probe(index);
       }
     }
@@ -370,6 +373,7 @@ class DiagnosisRun {
         });
         continue;
       }
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential by design: one count(*) per table under session-scoped SETs on the single connection, so attribution and the GUC scope stay exact.
       const rows = await this.#attempt(relation, 'row-count', async () => {
         const [counted] = countRows(
           (
