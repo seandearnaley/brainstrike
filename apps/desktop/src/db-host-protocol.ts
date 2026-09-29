@@ -1,4 +1,4 @@
-import type { DatabaseDiagnosticsSnapshot } from '@brainstrike/types';
+import type { DatabaseDiagnosticsSnapshot, DatabaseInitPhaseReport } from '@brainstrike/types';
 
 export interface DbHostQueryResult<TRecord = unknown> {
   /**
@@ -150,10 +150,23 @@ export interface DbHostLifecycleEnvelope {
   readonly state: (typeof DB_HOST_LIFECYCLE_STATES)[number];
 }
 
+/**
+ * What the host is about to do, posted BEFORE each long synchronous phase of an `init` request.
+ * It never settles the request: main treats it as liveness and re-arms that request's deadline
+ * from the phase. Validate with {@link isDbHostProgressEnvelope} before trusting one.
+ */
+export interface DbHostProgressEnvelope {
+  /** The id of the `init` request this reports on. */
+  readonly id: string;
+  readonly kind: 'progress';
+  readonly report: DatabaseInitPhaseReport;
+}
+
 export type DbHostToMainMessage =
   | DbHostLifecycleEnvelope
   | DbHostLiveUpdateEnvelope
   | DbHostLogEnvelope
+  | DbHostProgressEnvelope
   | DbHostResponseEnvelope;
 
 export interface DbHostInitResult {
@@ -218,5 +231,59 @@ export function isDbHostToMainMessage(value: unknown): value is DbHostToMainMess
     isOneOf(DB_HOST_LIFECYCLE_STATES, value.state) &&
     'reason' in value &&
     isOneOf(DB_HOST_CLOSE_REASONS, value.reason)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isByteCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isPhaseReport(report: unknown): report is DatabaseInitPhaseReport {
+  if (!isRecord(report)) {
+    return false;
+  }
+  switch (report['phase']) {
+    case 'open-database':
+      return isByteCount(report['pgWalBytes']);
+    case 'index-rebuild': {
+      const { index } = report;
+      return (
+        isRecord(index) &&
+        isNonEmptyString(index['accessMethod']) &&
+        isNonEmptyString(index['index']) &&
+        isNonEmptyString(index['schema']) &&
+        isNonEmptyString(index['table']) &&
+        isByteCount(index['heapBytes']) &&
+        isByteCount(index['indexBytes']) &&
+        isByteCount(index['toastBytes'])
+      );
+    }
+    case 'migration':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Full structural guard for a progress envelope: kind, id, a phase from the closed set, and that
+ * phase's fields with the right types (byte counts are non-negative safe integers). Deliberately
+ * NOT the `kind`-only check `isDbHostToMainMessage` applies to it: a progress message re-arms a
+ * request's deadline, so a malformed one must be rejected, never guessed at.
+ */
+export function isDbHostProgressEnvelope(value: unknown): value is DbHostProgressEnvelope {
+  return (
+    isRecord(value) &&
+    value['kind'] === 'progress' &&
+    isNonEmptyString(value['id']) &&
+    isPhaseReport(value['report'])
   );
 }

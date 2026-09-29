@@ -1,12 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { createLogger } from '@brainstrike/logging';
+import type { DatabaseInitPhaseReport } from '@brainstrike/types';
 import { utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { cleanShutdownMarkerNamesPid } from './db-clean-shutdown-marker';
+import { AbandonedRequestLedger } from './db-host-abandoned-requests';
 import {
   DB_HOST_CLOSE_ACK_TIMEOUT_MS,
   DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS,
 } from './db-host-close-budget';
+import {
+  DB_HOST_INIT_FIRST_REPORT_TIMEOUT_MS,
+  resolveInitPhaseBudgetMs,
+} from './db-host-init-budget';
 import { DbHostCloseError, DbHostUnavailableError } from './db-host-lifecycle-errors';
 import { closeDbHostProcess, DbHostProcess, killWedgedHost } from './db-host-process';
 import {
@@ -15,12 +21,14 @@ import {
   type DbHostLiveQueryDiagnostics,
   type DbHostLiveStartResult,
   type DbHostManagerDiagnosticsResult,
+  type DbHostProgressEnvelope,
   type DbHostQueryResult,
   type DbHostRequest,
   type DbHostRequestEnvelope,
   type DbHostResponseEnvelope,
   type DbHostRowMode,
   type DbHostTransactionStartResult,
+  isDbHostProgressEnvelope,
   isDbHostToMainMessage,
   toError,
 } from './db-host-protocol';
@@ -48,7 +56,6 @@ export { DbHostRequestTimeoutError } from './db-host-timeout-error';
 const logger = createLogger('DbHostManager');
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-const DEFAULT_INITIALIZATION_TIMEOUT_MS = 90_000;
 const PREVIOUS_HOST_ALIVE_MESSAGE =
   'DB host is unavailable: the previous host has not exited and may still own the database.';
 
@@ -255,24 +262,14 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
   }
 }
 
-interface AbandonedRequest {
-  readonly requestKind: string;
-  readonly startedAt: number;
-  readonly timedOutAt: number;
-  readonly timeoutMs: number;
-}
-
-// Bounded memory of requests that timed out client-side while the DB host may
-// still be executing them (the host runs one statement at a time; an IPC
-// timeout does NOT cancel the statement). A late response for one of these
-// must be logged, never dropped silently.
-const MAX_ABANDONED_REQUESTS = 64;
-
 class DefaultDbHostManager implements DbHostManager {
   readonly #entryPath: string;
   readonly #liveQueries = new Map<string, RemoteLiveQuery<unknown>>();
-  readonly #requests: HostRequestChannel<DbHostRequestEnvelope, DbHostResponseEnvelope>;
-  readonly #abandoned = new Map<string, AbandonedRequest>();
+  readonly #requests: HostRequestChannel<
+    DbHostRequestEnvelope,
+    DbHostResponseEnvelope | DbHostProgressEnvelope
+  >;
+  readonly #abandoned: AbandonedRequestLedger;
   readonly #closeTimeoutMs: number;
   readonly #initializationTimeoutMs: number;
   readonly #maintenanceRequestTimeoutMs: number;
@@ -283,6 +280,8 @@ class DefaultDbHostManager implements DbHostManager {
   #closing: Promise<void> | null = null;
   #host: DbHostProcess | null = null;
   #initialization: Promise<RemoteDbClient> | null = null;
+  // The phase the running `init` last reported; null before its first report. Main-side state only.
+  #initPhase: DatabaseInitPhaseReport | null = null;
   // A detached host stays here until its own `exit` is observed: an exit is the only proof it
   // no longer owns the database, so no request forks a replacement (or reports a close) meanwhile.
   #departingHost: DbHostProcess | null = null;
@@ -293,16 +292,27 @@ class DefaultDbHostManager implements DbHostManager {
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.#maintenanceRequestTimeoutMs =
       options.maintenanceRequestTimeoutMs ?? Math.max(10 * 60_000, this.#requestTimeoutMs);
+    this.#abandoned = new AbandonedRequestLedger(this.#maintenanceRequestTimeoutMs);
     this.#initializationTimeoutMs =
       options.initializationTimeoutMs ??
-      Math.max(DEFAULT_INITIALIZATION_TIMEOUT_MS, this.#requestTimeoutMs);
-    this.#requests = createHostRequestChannel<DbHostRequestEnvelope, DbHostResponseEnvelope>({
+      Math.max(DB_HOST_INIT_FIRST_REPORT_TIMEOUT_MS, this.#requestTimeoutMs);
+    this.#requests = createHostRequestChannel<
+      DbHostRequestEnvelope,
+      DbHostResponseEnvelope | DbHostProgressEnvelope
+    >({
+      // Progress is liveness (the host reports what it is about to do, then goes silent inside a
+      // synchronous statement), and each report carries the budget of the phase it announces.
+      isProgress: (response) => response.kind === 'progress',
       // The DB host owns its own late-response ledger; the channel's default
       // warn would report an id this manager can describe far better.
       onLateResponse: (requestId, response) => {
         this.#logLateResponse(requestId, response);
       },
       onTimeout: (envelope, context) => this.#decideRequestTimeout(envelope, context),
+      progressTimeoutMs: (envelope, response) =>
+        response.kind === 'progress' && envelope.request.kind === 'init'
+          ? resolveInitPhaseBudgetMs(response.report)
+          : this.#getRequestTimeoutMs(envelope.request),
       requestId: (envelope) => envelope.id,
       responseId: (response) => response.id,
       role: 'DB host',
@@ -461,7 +471,10 @@ class DefaultDbHostManager implements DbHostManager {
     await this.send({ kind: 'chunks:insert-and-enqueue-embedding-jobs', payload });
   }
 
-  async send<TResult = unknown>(request: DbHostRequest): Promise<TResult> {
+  async send<TResult = unknown>(
+    request: DbHostRequest,
+    options: { readonly onPhase?: (report: DatabaseInitPhaseReport) => void } = {}
+  ): Promise<TResult> {
     if (request.kind !== 'close') {
       // Synchronous unless a host is departing, so a request issued before `close()` is still
       // posted before the close envelope. `#initialize()` is gated here too (its `init` request).
@@ -476,7 +489,17 @@ class DefaultDbHostManager implements DbHostManager {
       kind: 'request',
       request,
     };
-    const response = await this.#requests.request(envelope);
+    const response = await this.#requests.request(envelope, {
+      onProgress: (progress) => {
+        if (progress.kind === 'progress') {
+          options.onPhase?.(progress.report);
+        }
+      },
+    });
+    if (response.kind !== 'response') {
+      // The channel settles a request only on a non-progress response.
+      throw new Error(`DB host request ${envelope.id} settled with a ${response.kind} envelope.`);
+    }
     if (!response.ok) {
       throw toError(response.error);
     }
@@ -519,10 +542,13 @@ class DefaultDbHostManager implements DbHostManager {
   ): HostRequestTimeoutDecision {
     const { request } = envelope;
     const willTerminateHost = requiresHostTerminationOnTimeout(request);
-    const abandonedState = this.#getAbandonedRequestState(context.timedOutAt);
+    const abandonedState = this.#abandoned.state(context.timedOutAt);
+    const phase = request.kind === 'init' ? this.#initPhase : null;
     const error = new DbHostRequestTimeoutError({
       ...abandonedState,
       pendingCount: context.pendingCount,
+      phase,
+      progressCount: context.progressCount,
       requestKind: request.kind,
       timeoutMs: context.timeoutMs,
       willTerminateHost,
@@ -534,13 +560,15 @@ class DefaultDbHostManager implements DbHostManager {
         ...abandonedState,
         pendingByKind: this.#getPendingRequestCountsByKind(),
         pendingCount: context.pendingCount,
+        phase,
+        progressCount: context.progressCount,
         requestId: envelope.id,
         timeoutMs: context.timeoutMs,
         willTerminateHost,
       },
       'DB host request timed out'
     );
-    this.#recordAbandonedRequest(envelope.id, {
+    this.#abandoned.record(envelope.id, {
       requestKind: request.kind,
       startedAt: context.startedAt,
       timedOutAt: context.timedOutAt,
@@ -564,22 +592,6 @@ class DefaultDbHostManager implements DbHostManager {
       counts[envelope.request.kind] = (counts[envelope.request.kind] ?? 0) + 1;
     }
     return counts;
-  }
-
-  #getAbandonedRequestState(now: number): {
-    readonly hasStaleAbandonedRequest: boolean;
-    readonly recentAbandonedCount: number;
-  } {
-    let hasStaleAbandonedRequest = false;
-    let recentAbandonedCount = 0;
-    for (const request of this.#abandoned.values()) {
-      if (now - request.timedOutAt < request.timeoutMs) {
-        recentAbandonedCount += 1;
-      } else {
-        hasStaleAbandonedRequest = true;
-      }
-    }
-    return { hasStaleAbandonedRequest, recentAbandonedCount };
   }
 
   #getRequestTimeoutMs(request: DbHostRequest): number {
@@ -636,8 +648,16 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async #initialize(): Promise<RemoteDbClient> {
+    this.#initPhase = null;
     try {
-      await this.send<DbHostInitResult>({ kind: 'init' });
+      await this.send<DbHostInitResult>(
+        { kind: 'init' },
+        {
+          onPhase: (report) => {
+            this.#initPhase = report;
+          },
+        }
+      );
     } catch (error) {
       // Only a timeout can mean a wedged host. Any other rejection is a real initialization
       // failure the host has already recorded; killing it would discard that record, and the
@@ -646,6 +666,8 @@ class DefaultDbHostManager implements DbHostManager {
         this.#terminateHost(error, { requestKind: 'init' });
       }
       throw error;
+    } finally {
+      this.#initPhase = null;
     }
     this.#assertActive();
     this.#client = this.#createClient();
@@ -823,50 +845,33 @@ class DefaultDbHostManager implements DbHostManager {
       this.#liveQueries.get(message.liveId)?.acceptUpdate(message.results);
       return;
     }
+    if (message.kind === 'progress') {
+      this.#acceptProgress(message);
+      return;
+    }
     if (message.kind === 'response') {
       this.#acceptResponse(message);
     }
   }
 
-  #recordAbandonedRequest(id: string, request: AbandonedRequest): void {
-    if (this.#abandoned.size >= MAX_ABANDONED_REQUESTS && !this.#evictStaleAbandonedRequest()) {
-      // Keep the OLDEST entries: the host runs one statement at a time, so in
-      // a timeout burst the oldest abandoned request is the statement that is
-      // actually wedging the host — evicting it would silently drop exactly
-      // the late-completion log this map exists to produce. The newer entries
-      // are queued-behind victims whose late responses add little.
-      logger.debug(
-        { droppedRequestKind: request.requestKind, requestId: id },
-        'Abandoned-request map full; not tracking further timed-out request'
-      );
+  /**
+   * A progress report re-arms a deadline, so only a structurally valid one, for the `init` request,
+   * gets that far. Anything else is logged at error and dropped: the running deadline stands.
+   */
+  #acceptProgress(message: unknown): void {
+    if (!isDbHostProgressEnvelope(message)) {
+      logger.error('Dropped malformed DB host progress envelope', { message });
       return;
     }
-    this.#abandoned.set(id, request);
-  }
-
-  // A request that NEVER replies (host alive, statement truly wedged
-  // forever — no termination-triggering request kind ever fires to clear()
-  // the map) would otherwise occupy its slot for the life of the host,
-  // permanently disabling this log for every subsequent timeout once the map
-  // fills. Once an entry has outlived the longest legitimate in-flight
-  // request (the maintenance-timeout ceiling), it can only be dead weight —
-  // evict it to make room for tracking new timeouts.
-  #evictStaleAbandonedRequest(): boolean {
-    const oldest = this.#abandoned.entries().next().value as [string, AbandonedRequest] | undefined;
-    if (!oldest) {
-      return false;
+    const pending = this.#requests.inFlight().find((envelope) => envelope.id === message.id);
+    if (pending && pending.request.kind !== 'init') {
+      logger.error('Dropped DB host progress for a request that is not init', {
+        requestId: message.id,
+        requestKind: pending.request.kind,
+      });
+      return;
     }
-    const [oldestId, oldestRequest] = oldest;
-    const age = Date.now() - oldestRequest.startedAt;
-    if (age < this.#maintenanceRequestTimeoutMs) {
-      return false;
-    }
-    this.#abandoned.delete(oldestId);
-    logger.debug(
-      { ageMs: age, requestId: oldestId, requestKind: oldestRequest.requestKind },
-      'Abandoned-request entry exceeded staleness ceiling without a late response; evicting'
-    );
-    return true;
+    this.#requests.accept(message);
   }
 
   #acceptResponse(message: DbHostResponseEnvelope): void {
@@ -874,15 +879,20 @@ class DefaultDbHostManager implements DbHostManager {
     // late response still finds its own abandoned entry even when that entry
     // has already outlived its window.
     this.#requests.accept(message);
-    this.#clearStaleAbandonedRequests(Date.now());
+    this.#abandoned.clearStale(Date.now());
   }
 
-  #logLateResponse(requestId: string, message: DbHostResponseEnvelope): void {
-    const abandoned = this.#abandoned.get(requestId);
+  #logLateResponse(
+    requestId: string,
+    message: DbHostResponseEnvelope | DbHostProgressEnvelope
+  ): void {
+    if (message.kind === 'progress') {
+      return; // the channel routes only terminal responses here
+    }
+    const abandoned = this.#abandoned.take(requestId);
     if (!abandoned) {
       return;
     }
-    this.#abandoned.delete(requestId);
     // The statement outlived its IPC timeout and kept the single-threaded
     // host busy the whole time — surface how long it actually ran.
     logger.warn(
@@ -895,14 +905,6 @@ class DefaultDbHostManager implements DbHostManager {
       },
       'DB host request completed after timeout'
     );
-  }
-
-  #clearStaleAbandonedRequests(now: number): void {
-    for (const [id, request] of this.#abandoned) {
-      if (now - request.timedOutAt >= request.timeoutMs) {
-        this.#abandoned.delete(id);
-      }
-    }
   }
 
   #rejectAll(error: Error): void {
