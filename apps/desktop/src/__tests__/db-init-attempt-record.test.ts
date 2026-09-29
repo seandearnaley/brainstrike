@@ -112,6 +112,18 @@ describe('db init attempt record', () => {
       expect(readFileSync(recordPath(), 'utf8')).toBe(contents);
     });
 
+    it.each([
+      ['a foreign-version file', '{"version":2,"phaseKey":"do-not-log-this-value"}'],
+      ['a file that is not JSON', '{"phaseKey":"do-not-log-this-value'],
+    ])('logs the shape of %s, never its content', (_label, contents) => {
+      writeFileSync(recordPath(), contents);
+
+      readDbInitAttemptRecord(profileDir);
+
+      expect(loggerErrorMock).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('do-not-log-this-value');
+    });
+
     it('surfaces a read failure other than an absent file instead of treating it as absent', () => {
       // A directory where the record belongs cannot be read as a file.
       mkdirSync(recordPath());

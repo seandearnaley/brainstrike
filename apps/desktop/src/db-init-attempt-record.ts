@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { DatabaseInitAttemptRecord, DatabaseInitPhaseReport } from '@brainstrike/types';
 import { isDatabaseInitPhaseReport } from './db-host-protocol';
+import { summarizeMalformedMessage } from './platform/summarize-malformed-message';
 import { fsyncDirectory, isNoEntry, writeFileAtomically } from './write-file-atomically';
 
 const logger = createLogger('DbInitAttemptRecord');
@@ -113,12 +114,19 @@ export function readDbInitAttemptRecord(
   let parsed: unknown;
   try {
     parsed = JSON.parse(contents);
-  } catch (error) {
-    logger.error('Ignoring an unreadable DB init attempt record', { error, recordPath });
+  } catch {
+    // Not the parse error itself: its message repeats a snippet of the file.
+    logger.error('Ignoring a DB init attempt record that is not valid JSON', {
+      byteLength: contents.length,
+      recordPath,
+    });
     return null;
   }
   if (!isAttemptRecord(parsed)) {
-    logger.error('Ignoring a malformed or foreign-version DB init attempt record', { recordPath });
+    logger.error('Ignoring a malformed or foreign-version DB init attempt record', {
+      recordPath,
+      ...summarizeMalformedMessage(parsed),
+    });
     return null;
   }
   return parsed;

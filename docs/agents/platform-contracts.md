@@ -262,8 +262,8 @@ never used. Wiping the database alone is not enough.
   `DELETE … WHERE is_default = FALSE` for the MIXED `view_filter_presets`, so
   user presets converge with desktop while migration seeds survive.
 - Desktop factory reset is deliberately different: `resetLocalDatabase` closes
-  the database and recursively deletes the active profile directory — do not add
-  a redundant SQL purge there. Closing the default DB host manager permanently
+  the database and recursively deletes the active profile directory (which also holds
+  `.db-init-attempt.json`) — do not add a redundant SQL purge there. Closing the default DB host manager permanently
   retires that owner, retained `RemoteDbClient` methods reject afterwards, and
   Mastra memory's caches key on database object identity, so a retired owner
   fails visibly instead of writing into the replacement profile.
@@ -323,7 +323,7 @@ Guard: `packages/db/__tests__/reset-table-registry.test.tsx`,
 `reset-table-coverage.integration.test.ts`, `clear-data.integration.test.tsx`,
 `apps/desktop/src/__tests__/main/ipc-handlers-db-clear-all.integration.test.ts`,
 `main/desktop-factory-reset-storage-ledgers.test.ts`,
-`main/python-runtime-resources-dir.test.ts`,
+`main/python-runtime-resources-dir.test.ts`, `main/db-main.close.test.ts`,
 `packages/app-shell/src/__tests__/register-factory-reset-session-stores.test.ts`,
 `scripts/__tests__/verify-mastra-schema-init-order.test.mjs`,
 `verify-no-source-cycles.test.mjs`, `verify-no-cross-chunk-cycles.test.mjs`.
@@ -412,12 +412,16 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   is not `init`, is logged at error and never re-arms. The budgets are measured constants: re-measure
   and re-pin, never raise one to absorb a slow phase. Why: a host inside a synchronous WASM statement
   answers nothing, and a kill mid-rebuild leaves no clean-shutdown marker, so an unscaled deadline loops.
+- Main persists `<profile>/.db-init-attempt.json` on each init timeout; two consecutive timeouts in one
+  phase stop the manager (`DbHostInitStoppedError`, no third fork, diagnostics answered from main with
+  `initStop`). Only a user action clears a stop: `retryInit` or either reset. A successful init removes
+  the record and a non-timeout failure leaves it. The host never touches the record.
 
 Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:
 `platform-contracts/graceful-shutdown-ownership.md`, `effect-boundary/parser-generation-scope.md`.
 Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`, `ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
-`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`, `db-host-manager-init-phase.test.ts`, `db-host-init-budget.test.ts`, `db-host-protocol.test.ts`, `db-main.close.test.ts`, `apps/desktop/src/__tests__/platform/host-request-channel.test.ts`, `apps/desktop/src/__tests__/db-clean-shutdown-marker.test.ts`, `apps/desktop/src/__tests__/main/db-host-entry.signals.test.ts`, `db-host-entry.db-main.test.ts`, `apps/desktop/src/__tests__/main/shutdown-signals.test.ts`, `boot-order.test.ts`, `apps/desktop/e2e/shutdown-signals.desktop.test.ts`, `apps/desktop/src/__tests__/electron-harness-out-of-band.test.ts`.
+`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`, `db-host-manager-init-phase.test.ts`, `db-host-manager-init-loop.test.ts`, `db-host-init-budget.test.ts`, `db-host-protocol.test.ts`, `db-main.close.test.ts`, `apps/desktop/src/__tests__/platform/host-request-channel.test.ts`, `apps/desktop/src/__tests__/db-clean-shutdown-marker.test.ts`, `db-init-attempt-record.test.ts`, `apps/desktop/src/__tests__/main/db-host-entry.signals.test.ts`, `db-host-entry.db-main.test.ts`, `apps/desktop/src/__tests__/main/shutdown-signals.test.ts`, `boot-order.test.ts`, `apps/desktop/e2e/shutdown-signals.desktop.test.ts`, `apps/desktop/src/__tests__/electron-harness-out-of-band.test.ts`.
 
 ### Browser preference hydration
 
