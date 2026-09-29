@@ -134,6 +134,20 @@ replacement forks until the exit is observed. Nothing forks once
 exists still serves shutdown-time work. Not done here: signal handling in the host and
 main, and the reserved database-close slice of the shutdown sequence (L2).
 
+The host's side is fail-closed too. Before, `tryCloseDatabaseInstance`,
+`closeLocalDatabase` (ignoring a `syncToFs` failure), the failed-open close and
+`resetLocalDatabaseInternal` (ignoring a close failure before `rmSync`) all swallowed
+errors and released the process lock anyway. Now `closeLocalDatabase` throws
+`DatabaseCloseError` (`stage: 'sync' | 'close'`, sync still followed by the close) and
+keeps `.db-process.lock`; a failed close after a failed open logs and keeps the lock but
+leaves the open error primary; reset and factory reset abort before any backup or
+deletion, so a close failure leaves the database in place. A clean close writes
+`.db-clean-shutdown` (tmp file, fsync, rename, directory fsync) before releasing the
+lock; opening records `previousShutdown` (`clean`, `unclean`, `new-database`) in
+`DatabaseDiagnosticsSnapshot` and removes the marker before the database opens, so a
+crash later reads as unclean. The marker lives in the profile directory, so a reset
+deletes it with the rest of the profile.
+
 ### Update (2026-09-29, BST-1872 L1 review round): the exit is the only barrier
 
 Review of the awaited close found that its "wait for the exit" barrier was a promise for the

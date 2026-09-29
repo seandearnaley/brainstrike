@@ -382,13 +382,16 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   (logged as a crash). A close is clean only if the host acknowledged it; an exit code, even 0, is
   never proof. No host forks, and no close succeeds, while a previous host may be alive: only its
   observed `exit` proves it gone, and a failed close keeps it across manager replacement. Admission
-  waits ≤0.5 s, then rejects `DbHostUnavailableError` (also while closing or at shutdown).
+  waits ≤0.5 s, then rejects `DbHostUnavailableError` (also while closing or at shutdown). A close
+  or sync failure rejects, keeps the process lock and aborts factory and developer reset before any
+  deletion. A clean close writes `<profile>/.db-clean-shutdown` atomically; opening removes it, so
+  its absence means unclean.
 
 Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:
 `platform-contracts/graceful-shutdown-ownership.md`, `effect-boundary/parser-generation-scope.md`.
 Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`, `ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
-`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`.
+`renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`, `db-main.close.test.ts`, `apps/desktop/src/__tests__/db-clean-shutdown-marker.test.ts`.
 
 ### Browser preference hydration
 
