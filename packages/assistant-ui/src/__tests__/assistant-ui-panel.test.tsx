@@ -27,6 +27,8 @@ const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
 }));
 const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
+const releaseLocalBackendMock = vi.fn();
+const acquireLocalBackendMock = vi.fn(() => releaseLocalBackendMock);
 interface MockAuiState {
   composer: {
     attachments: readonly Attachment[];
@@ -121,11 +123,11 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
 }));
 
 vi.mock('../local-runtime-adapter', () => ({
+  acquireLocalBackend: () => acquireLocalBackendMock(),
   createLocalModelAdapter: (options: unknown) => {
     capturedLocalAdapterOptions = options as typeof capturedLocalAdapterOptions;
     return { run: vi.fn() };
   },
-  disposeLocalBackend: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@assistant-ui/react', () => {
@@ -1275,6 +1277,74 @@ describe('AssistantUiPanel model picker', () => {
       { memory: { runId: 'run-local' } },
       'completed'
     );
+  });
+
+  describe('shared local backend lease', () => {
+    const localGroups: ProviderGroupConfig[] = [
+      {
+        label: 'Local',
+        providers: [
+          {
+            capabilities: {
+              embeddings: false,
+              llm: true,
+              streaming: false,
+              supportsStandardEmbeddingDimension: false,
+            },
+            id: 'local',
+            models: [
+              {
+                default: true,
+                enabled: true,
+                id: 'onnx-community/gemma-4-E2B-it-ONNX',
+                label: 'Gemma 4 E2B',
+                type: 'llm',
+              },
+            ],
+            name: 'Local',
+            runtime: 'local',
+          },
+        ],
+        runtime: 'local',
+      },
+    ];
+    const renderLocalPanel = (localChatTransport: 'data-stream' | 'local-runtime') =>
+      render(
+        <AssistantUiPanel
+          localChatTransport={localChatTransport}
+          onModelChange={() => {}}
+          pickerModels={[
+            {
+              capabilities: { streaming: false, type: 'llm' },
+              description: null,
+              id: 'onnx-community/gemma-4-E2B-it-ONNX',
+              name: 'Gemma 4 E2B',
+              providerId: 'local',
+            },
+          ]}
+          pickerProviders={[{ icon: null, id: 'local', name: 'Local' }]}
+          providerGroups={localGroups}
+          selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
+          selectedProvider="local"
+        />
+      );
+
+    it('holds one lease for as long as an in-renderer local panel is mounted', () => {
+      const { unmount } = renderLocalPanel('local-runtime');
+
+      expect(acquireLocalBackendMock).toHaveBeenCalledTimes(1);
+      expect(releaseLocalBackendMock).not.toHaveBeenCalled();
+
+      unmount();
+
+      expect(releaseLocalBackendMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes no lease when local chat runs through the data-stream transport', () => {
+      renderLocalPanel('data-stream');
+
+      expect(acquireLocalBackendMock).not.toHaveBeenCalled();
+    });
   });
 
   it('renders compact local model status and auto-hides ready state', () => {

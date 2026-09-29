@@ -262,16 +262,11 @@ Guard: `pipeline-cache-controller.spec.ts`, `pipeline-cache-controller.browser.t
   uniform Float32 vectors: `streamEmbeddings` transfers one batch and awaits the
   matching request-and-index acknowledgement before the next. It bounds payload, not
   renderer RSS or heap.
-- Keep the backpressure gate proved: `embedding.worker.runtime.spec.ts` fails when
-  `await waitForBatchAck(...)` is removed, and `bst-372-current-retention.spec.ts` holds
-  the observed peak delta at or below 512,000 bytes in a fresh `--expose-gc` process
-  against production code.
+- Keep the backpressure gate proved: `embedding.worker.runtime.spec.ts` (fails without
+  `await waitForBatchAck(...)`) and `bst-372-current-retention.spec.ts` (peak delta bound).
 
 Settled: the comparison boundary is a controlled replay of the exact source
-implementations, recorded with raw results in
-`docs/bench-embedding-streaming-memory-2026-08.md`; the desktop E2E memory test is a
-complementary application-level proof, not a pre-streaming baseline. Evidence:
-`local-inference/streaming-payload-memory-proof.md`.
+implementations. Evidence: `local-inference/streaming-payload-memory-proof.md`.
 
 ### Embedding host lifecycle and shutdown
 
@@ -337,6 +332,10 @@ Flow:
    - It never runs the built-in local LLM directly on desktop; it talks to the host over
      `window.llmHost`. WEB keeps the in-renderer `LocalRuntimeChat` (session-only, no
      Mastra loop) because the browser has no assistant server.
+   - Every mounted `LocalRuntimeChat` holds a lease (`useLocalBackendLease`) on the ONE
+     module-level web backend; it is disposed only after the LAST lease releases AND the
+     generation queue drains, with the disposal flags raised only after that drain. Why:
+     raised earlier, the run holding its slot awaits a disposal awaiting that slot (a wedge).
 4. Main
    - Main runs the Mastra loop but executes no Gemma inference in-process: every
      generation is proxied to the hidden llm-host renderer. It owns hidden-host
@@ -398,5 +397,6 @@ ONNX-Runtime markers that carry no "gpu" substring. Evidence:
 `local-inference/local-llm-hosts-and-flow.md`,
 `local-inference/engine-fault-recovery.md`, `local-inference/gemma-runtime-budget.md`.
 Guard: `llm-host-runtime.test.tsx`, `llm-host-manager.test.ts`,
+`local-runtime-adapter-backend-lifetime.test.ts`,
 `packages/agent/src/__tests__/mastra-local-host-execution.spec.ts`,
 `scripts/__tests__/hf-proxy-contract-ownership.test.mjs`.
