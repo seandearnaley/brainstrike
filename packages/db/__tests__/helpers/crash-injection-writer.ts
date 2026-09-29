@@ -4,7 +4,7 @@
  *
  *   crash-injection-writer.ts <dataDir> <run> <seed>
  *
- * Opens the migrated on-disk data dir through the PRODUCTION factory and loops
+ * Opens the migrated on-disk data dir through desktop's factory (`createBrainstrikePglite`) and loops
  * committed transactions across every index access method the real schema uses:
  * btree, BM25 and GIN (pg_trgm + tsvector) on `file_records` / `file_chunks`,
  * HNSW + GIN on `brainstrike_thread_message_index`, and a precious ledger in
@@ -12,7 +12,7 @@
  * that must survive. Deletes only touch rows from earlier runs, so a row the
  * parent was told to expect is never deleted by a later, unacknowledged commit.
  */
-import { createEnginePglite } from '../../src/pglite-factory';
+import { createBrainstrikePglite } from '../../src/pglite-factory';
 import {
   CHUNK_CAP,
   CHUNK_STRIDE,
@@ -61,7 +61,7 @@ const vector = (): string =>
   `[${Array.from({ length: EMBEDDING_DIMENSIONS }, () => (random() - 0.5).toFixed(4)).join(',')}]`;
 
 async function main(): Promise<void> {
-  const db = await createEnginePglite({ dataDir });
+  const db = await createBrainstrikePglite({ dataDir });
   await db.query('SELECT setseed($1)', [random() * 2 - 1]);
   // Stress thresholds, as in the durability gate: spill and merge BM25 segments early and
   // often, so a kill is far more likely to land inside a free-and-reallocate cycle.

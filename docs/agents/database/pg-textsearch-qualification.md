@@ -230,10 +230,10 @@ crash-sensitive list unless the gate proves it recovers.
 
 - What it does: `packages/db/__tests__/crash-injection-gate.integration.test.ts` spawns a writer
   child (`node --import tsx`, one process so a SIGKILL reaches it) that opens an on-disk, fully
-  migrated data dir through `createEnginePglite` and loops committed transactions across btree,
-  BM25, GIN (pg_trgm, tsvector) and HNSW on the real schema, plus a `mastra_messages` ledger. After
-  a seeded 300-3000 ms past its first ack the parent SIGKILLs it, reopens through the production
-  factory, runs `rebuildCrashSensitiveIndexes`, and verifies acknowledged rows (read from the heap),
+  migrated data dir through desktop's `createBrainstrikePglite` and loops committed transactions
+  across btree, BM25, GIN (pg_trgm, tsvector) and HNSW on the real schema, plus a `mastra_messages`
+  ledger. After a seeded 300-3000 ms past its first ack the parent SIGKILLs it, reopens through the
+  same factory, runs `rebuildCrashSensitiveIndexes`, and verifies acknowledged rows (read from the heap),
   amcheck (heap, every btree with `heapallindexed`, every GIN), an HNSW nearest-neighbour probe per
   index, and a BM25 insert plus ranked search per index. Indexes and tables come from the catalog;
   a new access method fails the gate until the writer and checks cover it.

@@ -28,7 +28,7 @@ import { amcheck } from '@electric-sql/pglite/contrib/amcheck';
 import { describe, it, onTestFinished } from 'vitest';
 import { rebuildCrashSensitiveIndexes } from '../src/crash-sensitive-indexes';
 import { migrate } from '../src/migrations/bootstrap';
-import { createEnginePglite, ENGINE_EXTENSIONS } from '../src/pglite-factory';
+import { createBrainstrikePglite, ENGINE_EXTENSIONS } from '../src/pglite-factory';
 import {
   ACK_PREFIX,
   type CrashAck,
@@ -154,7 +154,7 @@ describe('SIGKILL crash-injection gate (production factory, real migrated schema
     `recovers and verifies every index access method after ${ITERATIONS} SIGKILLs`,
     async () => {
       const dataDir = createPGliteTestDataDir('crash-injection-gate');
-      const store = await createEnginePglite({ dataDir });
+      const store = await createBrainstrikePglite({ dataDir });
       try {
         await migrate(store);
       } finally {
@@ -191,9 +191,9 @@ describe('SIGKILL crash-injection gate (production factory, real migrated schema
             Array.from({ length: lastSeq }, (_, i) => `crash-msg-${run}-${i + 1}`)
           );
 
-          // Exactly desktop's first open after an unclean shutdown: the production
-          // factory, then the production rebuild.
-          const db = await stage('reopen', () => createEnginePglite({ dataDir }));
+          // Exactly desktop's first open after an unclean shutdown: desktop's factory
+          // (`createBrainstrikePglite`, what db-main opens), then the production rebuild.
+          const db = await stage('reopen', () => createBrainstrikePglite({ dataDir }));
           try {
             await stage('rebuild', () => rebuildCrashSensitiveIndexes(db));
             await stage('verify', async () => {

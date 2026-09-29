@@ -377,13 +377,17 @@ jobs:
       - db-coverage-shard
       - db-coverage
       - coverage
+      - pg-textsearch-durability
+      - sigkill-crash-gate
     if: >-
       always() &&
       github.event_name == 'schedule' &&
       (needs.package-coverage.result != 'success' ||
        needs.db-coverage-shard.result != 'success' ||
        needs.db-coverage.result != 'success' ||
-       needs.coverage.result != 'success')
+       needs.coverage.result != 'success' ||
+       needs.pg-textsearch-durability.result != 'success' ||
+       needs.sigkill-crash-gate.result != 'success')
     runs-on: ubuntu-latest
     # gh issue create / comment are sub-second under normal conditions; cap at
     # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
