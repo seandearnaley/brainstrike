@@ -2,16 +2,26 @@
 /**
  * Turn a shadcn preset code into a Brainstrike theme file.
  *
- *   node scripts/import-shadcn-theme.mjs <preset-code> <theme-id> [--from-css <applied-index.css>]
+ *   node scripts/import-shadcn-theme.mjs <preset-code> <theme-id>
+ *   node scripts/import-shadcn-theme.mjs <preset-code> <theme-id> \
+ *     --from-css <applied-index.css> --decoded <decoded.json> [--out-dir <dir>]
  *
  * Without --from-css the script copies scripts/shadcn-theme-fixture to a temp
- * dir and runs `npx -y shadcn@4.21.0 apply <code> --only theme` there (network).
+ * dir and runs `npx -y shadcn@4.21.0 apply <code> --only theme` there, then
+ * `npx -y shadcn@4.21.0 preset decode <code>` for the file header (network).
  * The shadcn version is PINNED: `@latest` would silently re-render every theme
  * the next time upstream changes its palette output.
- * With --from-css it renders from an already-applied index.css, which skips the
- * `apply` step only — decoding the preset for the file header still shells out
- * to npx. Used by the tests and for capturing fixtures. Values are never
- * hand-edited: re-run this script to change a theme.
+ *
+ * --from-css renders OFFLINE from captures of those two network steps: the
+ * applied index.css, plus --decoded, a JSON object of the decode output's
+ * key/value lines (it must include `style`). --from-css without --decoded is a
+ * usage error, never a silent trip to npx. Used by the tests and for capturing
+ * fixtures. --decoded may also accompany the online path to skip the decode.
+ *
+ * --out-dir writes the theme file somewhere other than packages/ui/src/themes
+ * (the directory must exist); the tests use it to keep the repo clean.
+ *
+ * Values are never hand-edited: re-run this script to change a theme.
  */
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -244,28 +254,74 @@ function applyPreset(code) {
   }
 }
 
+function usageError(message) {
+  console.error(message);
+  process.exit(1);
+}
+
+/** The value after `flag` in `args`, or null when the flag is absent. */
+function flagValue(args, flag) {
+  const index = args.indexOf(flag);
+  if (index < 0) {
+    return null;
+  }
+  const value = args[index + 1];
+  if (!value || value.startsWith('--')) {
+    usageError(`usage: ${flag} requires a value`);
+  }
+  return value;
+}
+
+/**
+ * Reads a captured `shadcn preset decode` result: a JSON object whose values
+ * are all strings and which includes `style` (the same sanity check
+ * `decodePreset` applies to the live output). Anything else is refused rather
+ * than rendered into a truncated header.
+ */
+function readDecoded(file) {
+  let decoded;
+  try {
+    decoded = JSON.parse(readFileSync(path.resolve(file), 'utf8'));
+  } catch (error) {
+    throw new Error(`--decoded ${file} could not be read as JSON: ${error.message}`);
+  }
+  const valid =
+    decoded !== null &&
+    typeof decoded === 'object' &&
+    !Array.isArray(decoded) &&
+    typeof decoded.style === 'string' &&
+    Object.values(decoded).every((value) => typeof value === 'string');
+  if (!valid) {
+    throw new Error(
+      `--decoded ${file} must be a JSON object of string values that includes "style" (the decode output's key/value lines)`
+    );
+  }
+  return decoded;
+}
+
 function main(argv) {
   const [code, id, ...rest] = argv;
   if (!(code && id)) {
-    console.error(
-      'usage: node scripts/import-shadcn-theme.mjs <preset-code> <theme-id> [--from-css <file>]'
+    usageError(
+      'usage: node scripts/import-shadcn-theme.mjs <preset-code> <theme-id> [--from-css <file> --decoded <file>] [--out-dir <dir>]'
     );
-    process.exit(1);
   }
   assertThemeId(id);
   assertPresetCode(code);
-  const fromCssIndex = rest.indexOf('--from-css');
-  const fromCssPath = fromCssIndex >= 0 ? rest[fromCssIndex + 1] : undefined;
-  if (fromCssIndex >= 0 && !fromCssPath) {
-    console.error('usage: --from-css <applied-index.css> requires a file path');
-    process.exit(1);
+  const fromCssPath = flagValue(rest, '--from-css');
+  const decodedPath = flagValue(rest, '--decoded');
+  const outDir = path.resolve(flagValue(rest, '--out-dir') ?? THEMES_DIR);
+  if (fromCssPath && !decodedPath) {
+    usageError(
+      '--from-css renders offline, so it also needs --decoded <file> (the decode output as JSON); refusing to decode the preset through npx'
+    );
   }
   const applied = fromCssPath ? readFileSync(path.resolve(fromCssPath), 'utf8') : applyPreset(code);
-  const decoded = decodePreset(code);
+  const decoded = decodedPath ? readDecoded(decodedPath) : decodePreset(code);
   const light = extractBlock(applied, ':root');
   const dark = extractBlock(applied, '.dark');
   const css = renderThemeCss({ code, dark, decoded, id, light });
-  const target = path.join(THEMES_DIR, `${id}.css`);
+  const target = path.join(outDir, `${id}.css`);
   writeFileSync(target, css);
   console.log(`wrote ${path.relative(repoRoot, target)}`);
   console.log('Registry entry (packages/ui/src/themes/index.ts):');

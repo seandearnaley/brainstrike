@@ -1,5 +1,15 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -12,20 +22,12 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..', '..');
-const applied = readFileSync(path.join(here, 'fixtures', 'shadcn-apply-buKEvLs.css'), 'utf8');
+const APPLIED_FIXTURE = path.join(here, 'fixtures', 'shadcn-apply-buKEvLs.css');
+const DECODED_FIXTURE = path.join(here, 'fixtures', 'shadcn-decode-buKEvLs.json');
+const applied = readFileSync(APPLIED_FIXTURE, 'utf8');
 
-const DECODED_EMBER = {
-  baseColor: 'neutral',
-  chartColor: 'neutral',
-  font: 'inter',
-  fontHeading: 'inherit',
-  iconLibrary: 'lucide',
-  menuAccent: 'subtle',
-  menuColor: 'default',
-  radius: 'large',
-  style: 'lyra',
-  theme: 'red',
-};
+/** The captured `shadcn preset decode buKEvLs` output; ember.css's header records the same. */
+const DECODED_EMBER = JSON.parse(readFileSync(DECODED_FIXTURE, 'utf8'));
 
 test('extractBlock reads the :root and .dark token maps', () => {
   const light = extractBlock(applied, ':root');
@@ -193,4 +195,95 @@ test('renderThemeCss pins the shadcn version in the regenerate hint', () => {
   });
   assert.match(css, /pins npx -y shadcn@4\.21\.0/u);
   assert.doesNotMatch(css, /shadcn@latest/u);
+});
+
+/**
+ * Runs the REAL CLI entry in a subprocess whose PATH holds only an `npx` stub
+ * that records the call and fails. The exported helpers above never touch the
+ * network, which is how `--from-css` shipped advertising an offline path while
+ * `main` still decoded the preset through `npx` — only the entry point can say.
+ * The theme file goes to a temp `--out-dir`, never into packages/ui.
+ */
+function runCli(args) {
+  const sandbox = mkdtempSync(path.join(tmpdir(), 'import-shadcn-theme-'));
+  const binDir = path.join(sandbox, 'bin');
+  const outDir = path.join(sandbox, 'themes');
+  const npxCalls = path.join(sandbox, 'npx-calls.log');
+  mkdirSync(binDir);
+  mkdirSync(outDir);
+  const stub = path.join(binDir, 'npx');
+  writeFileSync(
+    stub,
+    `#!/bin/sh\necho "$@" >> "${npxCalls}"\necho "npx must not run in this test" >&2\nexit 97\n`
+  );
+  chmodSync(stub, 0o755);
+  const result = spawnSync(
+    process.execPath,
+    [path.join(repoRoot, 'scripts', 'import-shadcn-theme.mjs'), ...args, '--out-dir', outDir],
+    { encoding: 'utf8', env: { ...process.env, PATH: binDir } }
+  );
+  return {
+    cleanup: () => rmSync(sandbox, { force: true, recursive: true }),
+    npxCalls: existsSync(npxCalls) ? readFileSync(npxCalls, 'utf8') : '',
+    outDir,
+    result,
+  };
+}
+
+test('--from-css with --decoded renders offline: no npx call, output is the committed ember.css', () => {
+  const run = runCli([
+    'buKEvLs',
+    'ember',
+    '--from-css',
+    APPLIED_FIXTURE,
+    '--decoded',
+    DECODED_FIXTURE,
+  ]);
+  try {
+    assert.equal(run.result.status, 0, run.result.stderr);
+    assert.equal(run.npxCalls, '', 'the offline path must not shell out to npx');
+    assert.equal(
+      readFileSync(path.join(run.outDir, 'ember.css'), 'utf8'),
+      readFileSync(path.join(repoRoot, 'packages/ui/src/themes/ember.css'), 'utf8')
+    );
+  } finally {
+    run.cleanup();
+  }
+});
+
+test('--from-css without --decoded fails loudly instead of decoding the preset remotely', () => {
+  const run = runCli(['buKEvLs', 'ember', '--from-css', APPLIED_FIXTURE]);
+  try {
+    assert.notEqual(run.result.status, 0);
+    assert.match(run.result.stderr, /--from-css[\s\S]*--decoded/u);
+    assert.equal(run.npxCalls, '', 'a missing --decoded must not fall back to npx');
+    assert.equal(existsSync(path.join(run.outDir, 'ember.css')), false);
+  } finally {
+    run.cleanup();
+  }
+});
+
+test('--decoded refuses a capture that is not a JSON object of strings with a style', () => {
+  const bad = mkdtempSync(path.join(tmpdir(), 'import-shadcn-decoded-'));
+  try {
+    for (const [name, body] of [
+      ['not-json.json', 'style: lyra'],
+      ['no-style.json', '{"font":"inter"}'],
+      ['non-string.json', '{"style":"lyra","radius":4}'],
+    ]) {
+      const file = path.join(bad, name);
+      writeFileSync(file, body);
+      const run = runCli(['buKEvLs', 'ember', '--from-css', APPLIED_FIXTURE, '--decoded', file]);
+      try {
+        assert.notEqual(run.result.status, 0, `${name} should be refused`);
+        assert.match(run.result.stderr, /--decoded/u, name);
+        assert.equal(run.npxCalls, '', name);
+        assert.equal(existsSync(path.join(run.outDir, 'ember.css')), false, name);
+      } finally {
+        run.cleanup();
+      }
+    }
+  } finally {
+    rmSync(bad, { force: true, recursive: true });
+  }
 });

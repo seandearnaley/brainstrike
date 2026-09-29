@@ -1,0 +1,12 @@
+{
+  "baseColor": "neutral",
+  "chartColor": "neutral",
+  "font": "inter",
+  "fontHeading": "inherit",
+  "iconLibrary": "lucide",
+  "menuAccent": "subtle",
+  "menuColor": "default",
+  "radius": "large",
+  "style": "lyra",
+  "theme": "red"
+}
