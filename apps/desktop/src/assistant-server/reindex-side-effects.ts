@@ -17,7 +17,11 @@ import {
   isBackgroundDatabaseWorkAdmitted,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
-import { DatabaseIntegrityError, getDesktopDatabaseIntegrity } from '../database-integrity-state';
+import {
+  containDatabaseIntegrityError,
+  DatabaseIntegrityError,
+  getDesktopDatabaseIntegrity,
+} from '../database-integrity-state';
 import { getDatabase } from '../db-main';
 import { getDesktopDatabaseWorkScheduler } from '../platform/desktop-database-work-scheduler';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
@@ -137,10 +141,13 @@ export async function triggerEditedFileReindex(args: {
       logger.warn(CONTAINMENT_SKIP_MESSAGE);
       return;
     }
+    // An integrity error pauses background writes for the whole app; the edit
+    // itself still succeeded, so this stays non-fatal (and logged below).
+    const reported = containDatabaseIntegrityError('assistant:reindex', error) ?? error;
     // A resolvable DB that then fails to re-index is a genuine problem — surface
     // it (no silent swallow) but never fail the already-successful edit.
     logger.error('Failed to re-index edited file; RAG index may be stale until next sync', {
-      error: redactToolErrorForLog(error),
+      error: redactToolErrorForLog(reported),
       path: REDACTED_PATH_LOG_VALUE,
     });
   }
@@ -205,10 +212,11 @@ export async function triggerFileDeletionInvalidation(args: {
       logger.warn(CONTAINMENT_SKIP_MESSAGE);
       return { invalidated: false };
     }
+    const reported = containDatabaseIntegrityError('assistant:reindex', error) ?? error;
     logger.error(
       'Failed to invalidate index rows for a removed/renamed file; RAG index may be stale until next sync',
       {
-        error: redactToolErrorForLog(error),
+        error: redactToolErrorForLog(reported),
         path: REDACTED_PATH_LOG_VALUE,
       }
     );

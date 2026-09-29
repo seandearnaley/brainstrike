@@ -11,7 +11,10 @@ import {
 } from '@brainstrike/db';
 import type { WorkspaceIndexingPowerSnapshot } from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
 import type { Effect, Scope } from 'effect';
-import type { DesktopDatabaseIntegrity } from './database-integrity-state';
+import {
+  containDatabaseIntegrityError,
+  type DesktopDatabaseIntegrity,
+} from './database-integrity-state';
 import type { DimensionIndexBuildStrategy } from './dimension-index-maintenance-capabilities';
 import {
   createSustainedIdleObserver,
@@ -243,6 +246,12 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
   let maintenanceInFlight: Promise<DesktopDimensionIndexMaintenanceRunResult> | null = null;
   const quietPeriodMs = resolveQuietPeriodMs(options.quietPeriodMs);
   const idle = createSustainedIdleObserver(now);
+  // An integrity error contains the database and surfaces as the typed error;
+  // nothing is replaced. The build's own failure is caught by
+  // `runNextDimensionIndexMaintenance` and recorded as text, so `createIndex`
+  // is where its SQLSTATE is still readable.
+  const containIntegrityError = (error: unknown): unknown =>
+    containDatabaseIntegrityError('dimension-index-maintenance', error, options.integrity) ?? error;
 
   const runOnce = async (): Promise<DesktopDimensionIndexMaintenanceRunResult> => {
     if (maintenanceInFlight) {
@@ -302,23 +311,32 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
       .runScheduledWork(
         MAINTENANCE_WORK_OPTIONS,
         async (): Promise<DesktopDimensionIndexMaintenanceRunResult> => {
-          const db = await options.getDatabase();
-          // Read inside the lane: the work scheduler is serial, so any run-scoped
-          // query submitted after this read queues behind the build.
-          const inFlight = await readInFlightAssistantWork(db);
-          if (inFlight.runs > 0 || inFlight.backgroundTasks > 0) {
-            options.logger.info(
-              { inFlight },
-              'Skipped dimension index maintenance because assistant work is in flight'
-            );
-            return createSkippedResult('assistant-work-in-flight');
+          try {
+            const db = await options.getDatabase();
+            // Read inside the lane: the work scheduler is serial, so any run-scoped
+            // query submitted after this read queues behind the build.
+            const inFlight = await readInFlightAssistantWork(db);
+            if (inFlight.runs > 0 || inFlight.backgroundTasks > 0) {
+              options.logger.info(
+                { inFlight },
+                'Skipped dimension index maintenance because assistant work is in flight'
+              );
+              return createSkippedResult('assistant-work-in-flight');
+            }
+            return await runDimensionMaintenance(db, {
+              createIndex: async (request) => {
+                try {
+                  await createDimensionIndexWithMaintenanceExec(db, request);
+                } catch (error) {
+                  throw containIntegrityError(error);
+                }
+              },
+              now,
+              strategy,
+            });
+          } catch (error) {
+            throw containIntegrityError(error);
           }
-          return await runDimensionMaintenance(db, {
-            createIndex: async (request) =>
-              await createDimensionIndexWithMaintenanceExec(db, request),
-            now,
-            strategy,
-          });
         }
       )
       .then((result) => {

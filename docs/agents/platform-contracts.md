@@ -389,7 +389,7 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   resolves and the absent marker makes the next open `unclean`. Admission waits ≤0.5 s, then rejects
   `DbHostUnavailableError` (also while closing or at shutdown). In the host, a close or sync failure
   is sticky until it exits: the lock stays and every later close, reopen and reset (factory,
-  developer, corruption recovery) rejects before deleting or opening anything. A clean close writes
+  developer) rejects before deleting or opening anything. A clean close writes
   the marker atomically; opening removes it, so its absence means unclean.
 - The DB host closes its own database on SIGINT, SIGTERM and SIGHUP (a tree teardown signals
   every process in it): it rejects queued envelopes, lets the in-flight one finish, unsubscribes
@@ -423,42 +423,38 @@ Guard: `apps/web/e2e/web-db-worker-startup.test.ts`.
 
 ---
 
-## RUNTIME DATABASE CORRUPTION RECOVERY
+## DATABASE INTEGRITY CONTAINMENT
 
-- Recovery replaces the active local database and reloads the visible renderer.
-  The failing operation belongs to the old snapshot and MUST NOT be retried
-  against the empty replacement.
-- Desktop order: invalidate the scheduler generation and reject new DB work until
-  reload begins; cancel active embedding backfills; unsubscribe renderer live
-  queries; terminate the DB utility process so queued requests fail; back up and
-  replace the active profile, then initialize migrations; reload visible windows
-  into the existing bounded startup progress flow.
-- Every scheduler handed to backfills or other detached work routes through the
-  same generation check. Recovery runs inside the single scheduler operation
-  after its failing call settled — do not wait for that scheduler to become idle
-  from inside recovery, because the current operation owns the lane.
-- Recovery is single-flight at the desktop composition root, and hidden hosts are
-  excluded from visible-window reload routing. A recovered IPC call rejects with
-  `DatabaseCorruptionRecoveredError` and the scheduled reload remounts renderer
-  state. Do not replace this with an unbounded blocking dialog.
-- Scheduled maintenance is an entry point too. A pass failing with an error
-  `isCorruptionError` accepts — the same rule `db:query` uses, never a copy —
-  logs `Corruption detected in maintenance; replacing the database without
-  retrying.`, enters this path with context `'maintenance'` inside its
-  background-lane operation before the lane is released, and rejects with
-  `DatabaseCorruptionRecoveredError`.
-  `createDesktopDatabaseMaintenanceScheduler` takes `onRuntimeCorruption` as a
-  required option with no default, so a composition cannot keep serving a
-  database a pass has proven corrupt. A background trigger never narrows the
-  response, and the visible-window reload is still required.
-- Boot and migration never reset: an integrity error while opening or migrating
-  closes the partial instance, records category `corruption`, and rejects with
-  nothing deleted; the host stays alive so `db:diagnostics` reports the failure.
+- An integrity error never deletes, replaces, resets or reloads the database. Only factory reset and the developer
+  reset remove a profile, and both are user-confirmed.
+- `database-corruption-classifier.ts` is the only classifier: SQLSTATE `XX001`/`XX002`, never message text; `XX000`
+  stays excluded.
+- `database-integrity-state.ts` owns the one integrity state: `healthy` → `contained { context, signal, since }` on the
+  first classified error. The transition is synchronous and single-flight; a later error while contained only warns.
+  Only a process restart or a completed user-confirmed reset returns it to `healthy`. Later repair rungs add members
+  to this union; nothing else stores integrity state.
+- While background work is not admitted, the desktop scheduler rejects every new and queued `background` task with
+  `DatabaseIntegrityError`; `foreground` and `normal` run. Maintenance and dimension-index passes skip with
+  `database-integrity-contained`, backfills are canceled at containment and refused afterwards, assistant re-index
+  skips, and the embedding host parks its claim permit.
+- The call that hit the error fails with `DatabaseIntegrityError` (cause = the original) and is never retried: it
+  rejects, or returns its failure object for `db:live-query:refresh`, `db:test` and `db:clearAll`. Live
+  subscriptions, windows and the DB host stay up.
+- Every entry point contains through `containDatabaseIntegrityError`, never a copy: the `db:*` handlers,
+  `db:live-query:refresh`, `db:clearAll`, `db:test`, `embedding-host:enqueue-backfill` and its detached failure,
+  scheduled and dimension-index maintenance (including the HNSW build), assistant re-index. Both maintenance
+  factories take `integrity` as a required option.
+- Boot and migration never reset: the host closes the partial instance, records category `corruption`, and stays alive
+  so `db:diagnostics` reports the real failure.
+- State crosses IPC as `DatabaseIntegritySnapshot { revision, state }` on `db:integrity:state` (visible-ui,
+  embedding-host) and the `db:integrity:changed` push; renderers read it through `createDatabaseIntegrityWatcher` in
+  `@brainstrike/db`. Web omits the capability.
 
-Settled: `apps/desktop/src/database-corruption-classifier.ts` is SQLSTATE-only (`XX001`,
-`XX002`; `XX000` excluded; no free-text matching), and maintenance recovers rather than
-merely logging. Evidence: `platform-contracts/corruption-recovery-maintenance.md`.
-Guard: `apps/desktop/src/__tests__/database-corruption-classifier.test.ts`, `database-maintenance-scheduler.test.ts`, `main/db-main.lifecycle.test.ts`, `main/db-host-manager-init-failure.test.ts`.
+Settled: containment, not replacement — the replace-and-reload design is reversed. Evidence:
+`platform-contracts/database-integrity-containment.md`, `platform-contracts/corruption-recovery-maintenance.md`.
+Guard: `apps/desktop/src/__tests__/database-integrity-state.test.ts`, `database-corruption-classifier.test.ts`,
+`platform/desktop-database-work.test.ts`, `main/ipc-handlers-db-integrity.test.ts`, `database-maintenance-scheduler.test.ts`,
+`main/db-main.lifecycle.test.ts`, `main/db-host-manager-init-failure.test.ts`.
 
 ---
 

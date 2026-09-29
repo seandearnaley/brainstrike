@@ -113,7 +113,8 @@ const CONTRACT_LINE_BUDGETS = {
   // rules first. The incident, the vendor citations and the open points went
   // to `database/desktop-database-location.md`.
   // BST-1870 L2b raised it from 908 (+10): the integrity-containment
-  // background pause is a new scheduler rule with its guards; L4 re-pins.
+  // background pause is a new scheduler rule with its guards. L4 rewrote the
+  // maintenance bullet in place, so the count is unchanged.
   'database.md': 918,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
@@ -137,9 +138,11 @@ const CONTRACT_LINE_BUDGETS = {
   // marker makes the next open unclean).
   // BST-1872 L1b (the fail-closed close, the clean-shutdown marker proof, the sticky close
   // failure and its round-2 fixes) adds the rest of the DB host bullet, to 971.
-  // BST-1872 L2a added 5 more, to 976: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a
+  // BST-1870 L4 replaced the runtime-recovery section with DATABASE INTEGRITY CONTAINMENT
+  // (the recovery order and its history moved to evidence), a net -4 lines.
+  // BST-1872 L2a added 5, to 972: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a
   // failed close exits 1 with no marker and no retry, and a signal-closed host is not replaced).
-  'platform-contracts.md': 976,
+  'platform-contracts.md': 972,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a

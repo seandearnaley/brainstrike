@@ -763,26 +763,14 @@ describe('db-main lifecycle', () => {
     );
   });
 
-  it('tracks runtime corruption recovery in diagnostics', async () => {
-    // Ensure we reset any prior constructor override from previous tests
-    PGliteMock.mockImplementation(function (this: {
-      close: () => Promise<void>;
-      query: () => Promise<unknown>;
-      exec: () => Promise<void>;
-    }) {
-      this.close = closeMock;
-      this.query = queryMock;
-      this.exec = execMock;
-    });
+  it('has no runtime path that resets the database on corruption', async () => {
+    const dbMain = await import('../../db-main');
 
-    const { handleRuntimeCorruption, getDatabaseDiagnostics } = await import('../../db-main');
-
-    await handleRuntimeCorruption('db:query');
-
-    const diagnostics = getDatabaseDiagnostics();
-    expect(diagnostics.runtimeCorruptionRecoveryCount).toBe(1);
-    expect(diagnostics.lastRuntimeCorruptionContext).toBe('db:query');
-    expect(diagnostics.lastRuntimeCorruptionAt).not.toBeNull();
+    // The only entry points that remove a profile are the user-confirmed resets.
+    expect(dbMain).not.toHaveProperty('handleRuntimeCorruption');
+    expect(dbMain.getDatabaseDiagnostics()).not.toHaveProperty('runtimeCorruptionRecoveryCount');
+    expect(dbMain.getDatabaseDiagnostics()).not.toHaveProperty('lastRuntimeCorruptionAt');
+    expect(dbMain.getDatabaseDiagnostics()).not.toHaveProperty('lastRuntimeCorruptionContext');
   });
 
   it('exposes a test-only helper to reset mutable diagnostics state', async () => {
@@ -797,6 +785,5 @@ describe('db-main lifecycle', () => {
     const diagnostics = getDatabaseDiagnostics();
     expect(diagnostics.initializationAttemptCount).toBe(0);
     expect(diagnostics.lastInitializationFailure).toBeNull();
-    expect(diagnostics.runtimeCorruptionRecoveryCount).toBe(0);
   });
 });
