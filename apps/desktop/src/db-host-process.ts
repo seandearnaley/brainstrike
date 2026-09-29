@@ -20,11 +20,15 @@ export class DbHostProcess {
 
   constructor(handle: UtilityProcess) {
     this.handle = handle;
+    let resolveExit: (code: number) => void = () => undefined;
     this.exited = new Promise<number>((resolve) => {
-      handle.once('exit', (code) => {
-        this.#exitCode = code;
-        resolve(code);
-      });
+      resolveExit = resolve;
+    });
+    // Registered here, not inside the executor: a failed fork (no handle, or a throwing `once`)
+    // must throw to the caller, not reject `exited`, which nothing awaits until a close.
+    handle.once('exit', (code) => {
+      this.#exitCode = code;
+      resolveExit(code);
     });
   }
 
