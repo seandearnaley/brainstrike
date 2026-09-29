@@ -113,6 +113,25 @@ describe('db-main resetLocalDatabase in main process', () => {
       force: true,
       recursive: true,
     });
+    // Close-before-delete is what lets a reset (or a userData wipe that contains
+    // the database root, as on packaged macOS) run against a quiesced directory.
+    expect(dbHostManagerMocks.closeDbHostManager.mock.invocationCallOrder[0]).toBeLessThan(
+      fsMocks.rmSync.mock.invocationCallOrder[0] ?? 0
+    );
+  });
+
+  it('keeps resetting the profile main resolved first, even if its inputs change afterwards', async () => {
+    const { resetLocalDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    const before = getDatabaseDiagnostics().databaseProfile;
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'a-different-profile';
+
+    await resetLocalDatabase();
+
+    expect(before).toBe('test-profile');
+    expect(fsMocks.rmSync).toHaveBeenCalledWith(
+      path.join('/mock/documents', 'BrainStrike-dev', 'profiles', before ?? ''),
+      { force: true, recursive: true }
+    );
   });
 
   it('rejects, and deletes and backs up nothing, when the DB host cannot be closed', async () => {

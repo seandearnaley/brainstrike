@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import { app, utilityProcess } from 'electron';
+import { utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { cleanShutdownMarkerNamesPid } from './db-clean-shutdown-marker';
 import {
@@ -31,8 +30,11 @@ import {
   type RequestTimeoutDiagnostics,
 } from './db-host-request-diagnostics';
 import { DbHostRequestTimeoutError } from './db-host-timeout-error';
-import { getAppDataPath } from './db-main';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
+import {
+  resolveDesktopDatabaseLocation,
+  resolveDesktopDatabaseProfileDirectory,
+} from './desktop-database-location';
 import { isDesktopShuttingDown } from './desktop-shutdown-state';
 import {
   createHostRequestChannel,
@@ -151,25 +153,6 @@ export function resolveDbHostEntryPath(currentModuleFilename?: string): string {
   return resolveBundledSiblingPath('DB host entry', 'db-host-entry.js', currentModuleFilename);
 }
 
-function resolveDatabaseRootPathForHost(): string {
-  const configuredRootPath = process.env[DB_ROOT_PATH_ENV]?.trim();
-  // Dev shells can leak literal "undefined" environment strings; the host manager itself
-  // always passes a concrete resolved path through createDbHostEnvironment().
-  if (configuredRootPath && configuredRootPath.toLowerCase() !== 'undefined') {
-    return configuredRootPath;
-  }
-  if (!app || typeof app.getPath !== 'function') {
-    throw new Error(
-      `Cannot start DB host because Electron app path resolution is unavailable and ${DB_ROOT_PATH_ENV} is not set.`
-    );
-  }
-  if (process.env['NODE_ENV'] === 'test' || process.argv.includes('--test-mode')) {
-    return app.getPath('userData');
-  }
-  const dbDirName = process.env['NODE_ENV'] === 'production' ? 'BrainStrike' : 'BrainStrike-dev';
-  return path.join(app.getPath('documents'), dbDirName);
-}
-
 function createDbHostEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {};
   const allowedKeys = ['NODE_ENV', 'LOG_LEVEL'] as const;
@@ -183,11 +166,12 @@ function createDbHostEnvironment(): Record<string, string> {
   if (serializePGliteInit !== undefined) {
     environment[SERIALIZE_PGLITE_INIT_ENV] = serializePGliteInit;
   }
-  const databaseProfile = process.env[DB_PROFILE_ENV];
-  if (databaseProfile !== undefined) {
-    environment[DB_PROFILE_ENV] = databaseProfile;
-  }
-  environment[DB_ROOT_PATH_ENV] = resolveDatabaseRootPathForHost();
+  // Main resolves the database location once. The host reads these two
+  // variables and derives nothing itself, so a host respawned after a git
+  // branch switch still opens the profile main's reset path will delete.
+  const location = resolveDesktopDatabaseLocation();
+  environment[DB_PROFILE_ENV] = location.profile;
+  environment[DB_ROOT_PATH_ENV] = location.rootPath;
   return environment;
 }
 
@@ -424,7 +408,8 @@ class DefaultDbHostManager implements DbHostManager {
         ? closeDbHostProcess(host, {
             acknowledge: async () => await this.send({ kind: 'close' }),
             ackTimeoutMs: this.#closeTimeoutMs,
-            confirmCleanExit: (pid) => cleanShutdownMarkerNamesPid(getAppDataPath(), pid),
+            confirmCleanExit: (pid) =>
+              cleanShutdownMarkerNamesPid(resolveDesktopDatabaseProfileDirectory(), pid),
             detach: () => this.#detachHost(new Error('DB host closed.')),
           })
         : this.#assertDepartingHostExited()

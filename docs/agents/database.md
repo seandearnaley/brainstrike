@@ -69,6 +69,17 @@ Guard: `packages/db/__tests__/chunk-search-adapter-parity.test.ts`,
 Settled: no same-handle retry/reactivation; upstream offers no retry. Guard named seams with `scripts/__tests__/database-telemetry-seams-contract.test.mjs`.
 Evidence: `database/query-telemetry-scheduled-handles.md` (file-record, token-cache, queue poller, live-query coverage and limits).
 
+## DESKTOP DATABASE LOCATION
+
+- `app.isPackaged` alone selects the packaged location; `NODE_ENV` never chooses a database path, because no build step sets it. `apps/desktop/src/database-location.ts` is the pure resolver; `desktop-database-location.ts` gives main one cached resolution per process and logs it once.
+- Precedence, per field: `BRAINSTRIKE_DB_ROOT_PATH` / `BRAINSTRIKE_DB_PROFILE` (blank or a literal `undefined` is ignored; a root that is not fully qualified throws; a profile is reduced to one safe path segment, and one that reduces to nothing, like `..`, or to a Windows device name, like `nul`, throws); then a test run (`NODE_ENV=test` or `--test-mode`: root `userData`, profile `test`); then packaged (profile `default`); then development (root `<Documents>/BrainStrike-dev`, profile scoped to branch + worktree, `dev-default` without git metadata). Development never moves, so existing developers' data stays put.
+- Packaged roots: macOS `<userData>/data`; Windows `%LOCALAPPDATA%\BrainStrike Desktop\data`; Linux `$XDG_DATA_HOME` (absolute only) or `~/.local/share`, then `BrainStrike Desktop/data`. A missing or relative `LOCALAPPDATA` throws; there is no fallback. The database is always `<root>/profiles/<profile>/pgdata`. Why: Windows `userData` is Roaming, which Electron warns may be backed up to cloud storage.
+- `PACKAGED_PRODUCT_DIR_NAME` equals `build.productName`; changing either renames the data folder and strands existing data.
+- Main ALWAYS hands the DB host both fields through `BRAINSTRIKE_DB_ROOT_PATH` and `BRAINSTRIKE_DB_PROFILE`. The utility process reads only those two variables and throws when either is missing; it never derives from cwd or git. Why: a host respawned after a branch switch would otherwise open a different profile than the one main's reset deletes.
+
+Evidence: `database/desktop-database-location.md`.
+Guard: `apps/desktop/src/__tests__/database-location.test.ts`, `main/desktop-database-location.test.ts`, `main/db-host-manager-location.test.ts`, `main/db-main.utility-env.test.ts`, `main/desktop-factory-reset-packaged-layout.test.ts`.
+
 ## DESKTOP LIVE-QUERY MEMORY TEST DIAGNOSTICS
 
 - The database-demo memory hooks, the remote ownership snapshot, and the
@@ -256,7 +267,7 @@ BrainStrike has no shipped production `down` path. The app applies only forward 
 Use this fail-closed procedure:
 
 1. Prefer a forward catalog migration that restores compatibility without deleting durable IDs. Treat any manual rollback as an exceptional developer/support investigation, not a supported app operation.
-2. Before an exceptional investigation, fully quit BrainStrike (all desktop processes or browser tabs/workers) to quiesce writes. On desktop, capture both `Documents/BrainStrike[-dev]/profiles/<profile>/pgdata` and the relevant Electron `userData` artifacts: Chromium renderer `localStorage` and `electron-storage.json`. On web, capture the origin's PGlite IndexedDB store and `localStorage`. Prove the complete clone can be restored into an isolated profile. BrainStrike does not ship a catalog-rollback backup command; if any required store or a verified restore is unavailable, stop.
+2. Before an exceptional investigation, fully quit BrainStrike (all desktop processes or browser tabs/workers) to quiesce writes. On desktop, capture both `<database root>/profiles/<profile>/pgdata` (root and profile per § "DESKTOP DATABASE LOCATION"; the running app logs them once at startup) and the relevant Electron `userData` artifacts: Chromium renderer `localStorage` and `electron-storage.json`. On web, capture the origin's PGlite IndexedDB store and `localStorage`. Prove the complete clone can be restored into an isolated profile. BrainStrike does not ship a catalog-rollback backup command; if any required store or a verified restore is unavailable, stop.
 3. Inventory references in both storage systems. Query PGlite tables such as `models`, `brainstrike_assistant_thread_runs.model`, and `brainstrike_assistant_run_usage.model`, plus any additional model-ID columns found in the current schemas. Separately inspect `assistant-preferences.v1` in renderer `window.localStorage` on desktop and web. Inspect `assistant-memory-preferences.v1` through the Electron storage bridge (`electron-storage.json`) on desktop or browser `localStorage` on web. Include selected/current models, enabled and recent models, and observational-memory targets; record affected counts and representative IDs.
 4. Preserve historical run model text; do not rewrite conversation provenance to make a catalog change pass. If a present or future foreign key blocks deletion, design a forward migration that preserves or archives the referenced catalog identity; never disable the constraint or cascade-delete user history.
 5. Remap only mutable preference state to a supported replacement through the relevant preference-store migration contract and a store-version bump. Verify the replacement exists in the target catalog first.

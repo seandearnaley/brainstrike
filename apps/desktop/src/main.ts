@@ -51,6 +51,7 @@ import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { closeDesktopRenderers } from './close-desktop-renderers';
 import { createWindow, noteNextWindowReload } from './create-window';
+import { getDesktopDatabaseIntegrity } from './database-integrity-state';
 import { createDesktopDatabaseMaintenanceScheduler } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
 import {
@@ -786,6 +787,20 @@ async function recoverRuntimeDatabaseAndReload(context: string): Promise<void> {
   }
 }
 
+// Integrity state clears only when a user-confirmed reset completed: a failed
+// reset must never mark the database healthy, so the wrapper marks after the
+// reset resolves and lets a rejection propagate untouched.
+const databaseIntegrity = getDesktopDatabaseIntegrity();
+
+function createDatabaseResetMarkingReplaced(
+  reason: 'factory-reset' | 'developer-reset'
+): () => Promise<void> {
+  return async () => {
+    await resetLocalDatabase();
+    databaseIntegrity.markDatabaseReplaced(reason);
+  };
+}
+
 const handleResetLocal = createDesktopFactoryResetHandler({
   cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
   completeSuccessfulReset: async () => {
@@ -801,7 +816,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   // folder while the DB rows it mirrors do not (see desktop-factory-reset.ts).
   errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
-  resetLocalDatabase,
+  resetLocalDatabase: createDatabaseResetMarkingReplaced('factory-reset'),
   resetPersistentStorageAfterDataDeletion: () => storage.clear(),
   resumeAfterReset: (outcome) =>
     resumeMcpRuntimeAfterFactoryReset(getDesktopMcpHostRuntime(), outcome),
@@ -977,6 +992,9 @@ ipcDisposers.add(
     },
     database: {
       getDiagnostics: async () => await getDbHostManager().getDiagnostics(),
+    },
+    databaseIntegrity: {
+      getSnapshot: () => databaseIntegrity.getSnapshot(),
     },
     databaseScheduler: {
       getSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
@@ -1623,7 +1641,7 @@ if (singleInstanceLockAcquired) {
                   // closing over in-flight work.
                   await resetDesktopDatabaseProfile({
                     cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
-                    resetLocalDatabase,
+                    resetLocalDatabase: createDatabaseResetMarkingReplaced('developer-reset'),
                     runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
                     waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
                   });

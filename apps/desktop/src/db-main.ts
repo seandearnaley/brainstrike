@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -26,8 +25,8 @@ import type {
   DatabasePreviousShutdown,
 } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
-import { app } from 'electron';
 import { isCorruptionError } from './database-corruption-classifier';
+import { joinProfileDirectory } from './database-location';
 import {
   hasCleanShutdownMarker,
   removeCleanShutdownMarker,
@@ -35,6 +34,11 @@ import {
 } from './db-clean-shutdown-marker';
 import type { RemoteDbClient } from './db-host-manager';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
+import {
+  isIsolatedDesktopTestRun,
+  resetDesktopDatabaseLocationForTests,
+  resolveDesktopDatabaseLocation,
+} from './desktop-database-location';
 import {
   BUNDLED_PG_MAJOR,
   ENGINE_UPGRADE_BACKUP_RETENTION_MS,
@@ -62,11 +66,6 @@ interface ErrorDetails {
   message: string;
   name?: string;
   stack?: string;
-}
-
-interface GitProfileContext {
-  branch: string | null;
-  workspaceSeed: string;
 }
 
 function withOptionalErrorCode(message: string, code: string | undefined): ErrorDetails {
@@ -207,9 +206,6 @@ let openingHandle: unknown = null;
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
 let dbInitializationPromise: Promise<DesktopDatabase> | null = null;
 interface DatabaseMutableState {
-  cachedDatabaseProfile: string | null;
-  // `undefined` means "not resolved yet"; `null` means "resolved but git metadata unavailable".
-  cachedGitProfileContext: GitProfileContext | null | undefined;
   // Set when a live handle could not be closed; it may still own the data directory, so nothing
   // reopens, resets or reports a close until the process exits. No API clears it.
   closeFailure: DatabaseCloseError | null;
@@ -226,8 +222,6 @@ interface DatabaseMutableState {
 }
 
 const mutableState: DatabaseMutableState = {
-  cachedDatabaseProfile: null,
-  cachedGitProfileContext: undefined,
   closeFailure: null,
   crashRecoveryIndexRebuild: null,
   dbProcessLockPath: null,
@@ -260,7 +254,6 @@ async function closeRemoteDbHostManager(): Promise<void> {
   await closeDbHostManager();
 }
 
-const PROFILES_DIRECTORY_NAME = 'profiles' as const;
 const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
 const PROFILE_BACKUPS_RETENTION_COUNT = 5 as const;
 const DB_LOCK_FILENAME = '.db-process.lock' as const;
@@ -268,8 +261,6 @@ const PGLITE_INITIALIZATION_LOCK_FILENAME_PREFIX = 'brainstrike-pglite-initializ
 const PGLITE_INITIALIZATION_LOCK_HASH_LENGTH = 16 as const;
 const PGLITE_INITIALIZATION_LOCK_TIMEOUT_MS = 60_000 as const;
 const PGLITE_INITIALIZATION_LOCK_POLL_MS = 100 as const;
-const WORKTREE_PROFILE_HASH_LENGTH = 8 as const;
-const WORKTREE_PROFILE_BRANCH_MAX = 40 as const;
 
 interface PGliteInstanceShape {
   close?: () => Promise<void> | void;
@@ -362,188 +353,38 @@ async function createVectorDatabase(
   return instance;
 }
 
-function sanitizeProfileSegment(raw: string): string {
-  const sanitized = raw
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  if (!sanitized) {
-    return 'default';
+// The DB host never derives its own location: main resolves it once
+// (`desktop-database-location.ts`) and hands both fields over via the
+// environment, so a host respawned mid-session cannot disagree with main's
+// reset path about which profile is open.
+function readHostDatabaseLocationEnv(
+  name: typeof DB_ROOT_PATH_ENV | typeof DB_PROFILE_ENV
+): string {
+  const value = process.env[name]?.trim();
+  if (!value || value.toLowerCase() === 'undefined') {
+    throw new Error(
+      `${name} must be set in utility process runtime: main resolves the desktop database location once and the DB host never derives its own.`
+    );
   }
-  return sanitized.slice(0, 64);
-}
-
-function hashProfileSeed(seed: string): string {
-  return createHash('sha1').update(seed).digest('hex').slice(0, WORKTREE_PROFILE_HASH_LENGTH);
-}
-
-function createWorktreeScopedProfile(branch: string, workspaceSeed: string): string {
-  const branchSegment = sanitizeProfileSegment(branch).slice(0, WORKTREE_PROFILE_BRANCH_MAX);
-  return sanitizeProfileSegment(`branch-${branchSegment}-wt-${hashProfileSeed(workspaceSeed)}`);
-}
-
-function parseGitHeadToBranch(headContent: string): string | null {
-  const trimmed = headContent.trim();
-  if (!trimmed.length) {
-    return null;
-  }
-
-  if (trimmed.startsWith('ref:')) {
-    const ref = trimmed.slice(4).trim();
-    if (ref.startsWith('refs/heads/')) {
-      return ref.slice('refs/heads/'.length);
-    }
-    return ref;
-  }
-
-  return `detached-${trimmed.slice(0, 12)}`;
-}
-
-function tryReadGitBranchFromGitDir(gitDirPath: string): string | null {
-  const headPath = path.join(gitDirPath, 'HEAD');
-  if (!existsSync(headPath)) {
-    return null;
-  }
-  return parseGitHeadToBranch(readFileSync(headPath, 'utf8'));
-}
-
-function tryResolveGitDirFromPointer(currentDir: string, gitPointerPath: string): string | null {
-  const gitPointer = readFileSync(gitPointerPath, 'utf8').trim();
-  const gitDirMatch = /^gitdir:\s*(.+)$/i.exec(gitPointer);
-  if (!gitDirMatch?.[1]) {
-    return null;
-  }
-  return path.resolve(currentDir, gitDirMatch[1].trim());
-}
-
-function tryReadGitContextAtDirectory(currentDir: string): GitProfileContext | null {
-  const gitPath = path.join(currentDir, '.git');
-  if (!existsSync(gitPath)) {
-    return null;
-  }
-
-  try {
-    const stats = lstatSync(gitPath);
-
-    if (stats.isDirectory()) {
-      return {
-        branch: tryReadGitBranchFromGitDir(gitPath),
-        workspaceSeed: path.resolve(currentDir),
-      };
-    }
-
-    if (stats.isFile()) {
-      const resolvedGitDir = tryResolveGitDirFromPointer(currentDir, gitPath);
-      if (resolvedGitDir) {
-        return {
-          branch: tryReadGitBranchFromGitDir(resolvedGitDir),
-          workspaceSeed: path.resolve(currentDir),
-        };
-      }
-    }
-  } catch {
-    // Ignore git metadata parsing errors and fall back to default profile.
-  }
-
-  return null;
-}
-
-function resolveGitContextFromDirectory(startDir: string): GitProfileContext | null {
-  let currentDir = path.resolve(startDir);
-
-  while (true) {
-    const contextAtCurrentDir = tryReadGitContextAtDirectory(currentDir);
-    if (contextAtCurrentDir) {
-      return contextAtCurrentDir;
-    }
-
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) {
-      return null;
-    }
-    currentDir = parentDir;
-  }
-}
-
-function getGitProfileContext(): GitProfileContext | null {
-  if (mutableState.cachedGitProfileContext !== undefined) {
-    return mutableState.cachedGitProfileContext;
-  }
-
-  mutableState.cachedGitProfileContext = resolveGitContextFromDirectory(process.cwd());
-  return mutableState.cachedGitProfileContext;
-}
-
-function isIsolatedDesktopTestRun(): boolean {
-  return process.env['NODE_ENV'] === 'test' || process.argv.includes('--test-mode');
+  return value;
 }
 
 function getDatabaseProfile(): string {
-  if (mutableState.cachedDatabaseProfile !== null) {
-    return mutableState.cachedDatabaseProfile;
+  if (isUtilityProcessRuntime()) {
+    return readHostDatabaseLocationEnv(DB_PROFILE_ENV);
   }
-
-  if (isIsolatedDesktopTestRun()) {
-    mutableState.cachedDatabaseProfile = 'test';
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  const explicitProfile = process.env[DB_PROFILE_ENV];
-  const normalizedExplicitProfile = explicitProfile?.trim();
-  if (
-    normalizedExplicitProfile &&
-    normalizedExplicitProfile.length > 0 &&
-    normalizedExplicitProfile.toLowerCase() !== 'undefined'
-  ) {
-    mutableState.cachedDatabaseProfile = sanitizeProfileSegment(normalizedExplicitProfile);
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  if (process.env['NODE_ENV'] === 'production') {
-    mutableState.cachedDatabaseProfile = 'default';
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  const gitContext = getGitProfileContext();
-  if (gitContext?.branch) {
-    mutableState.cachedDatabaseProfile = createWorktreeScopedProfile(
-      gitContext.branch,
-      gitContext.workspaceSeed
-    );
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  mutableState.cachedDatabaseProfile = 'dev-default';
-  return mutableState.cachedDatabaseProfile;
+  return resolveDesktopDatabaseLocation().profile;
 }
 
 function getDatabaseRootPath(): string {
-  const configuredRootPath = process.env[DB_ROOT_PATH_ENV]?.trim();
-  if (configuredRootPath && configuredRootPath.toLowerCase() !== 'undefined') {
-    return configuredRootPath;
+  if (isUtilityProcessRuntime()) {
+    return readHostDatabaseLocationEnv(DB_ROOT_PATH_ENV);
   }
-
-  if (!app || typeof app.getPath !== 'function') {
-    throw new Error(
-      `Desktop database root path is unavailable. ${DB_ROOT_PATH_ENV} must be set in utility process runtime.`
-    );
-  }
-
-  if (isIsolatedDesktopTestRun()) {
-    return app.getPath('userData');
-  }
-
-  const isProduction = process.env['NODE_ENV'] === 'production';
-  const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
-  return path.join(app.getPath('documents'), dbDirName);
+  return resolveDesktopDatabaseLocation().rootPath;
 }
 
-export function getAppDataPath(): string {
-  if (isIsolatedDesktopTestRun()) {
-    return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
-  }
-  return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
+function getAppDataPath(): string {
+  return joinProfileDirectory(getDatabaseRootPath(), getDatabaseProfile());
 }
 
 function getDatabasePath(): string {
@@ -834,7 +675,9 @@ export function isWasmAbortError(error: unknown): boolean {
   return WASM_ABORT_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern));
 }
 
-const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR'] as const;
+// EISDIR: Linux reports it where macOS reports EPERM, e.g. unlinking a directory that sits where a
+// file belongs (a directory at the clean-shutdown marker path).
+const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR', 'EISDIR'] as const;
 
 function classifyInitializationFailure(
   stage: DatabaseInitStage,
@@ -990,8 +833,7 @@ export function __resetDatabaseModuleStateForTests(): void {
   mutableState.lastRuntimeCorruptionContext = null;
   mutableState.previousShutdown = null;
   mutableState.crashRecoveryIndexRebuild = null;
-  mutableState.cachedDatabaseProfile = null;
-  mutableState.cachedGitProfileContext = undefined;
+  resetDesktopDatabaseLocationForTests();
 }
 
 /**
@@ -1005,28 +847,24 @@ async function closeAfterFailedInitialization(): Promise<void> {
   const failedHandle = (db ?? openingHandle) as PGliteInstanceShape | null;
   db = null;
   openingHandle = null;
-  if (mutableState.closeFailure) {
-    // A handle that could not be closed may still own the directory, whichever close it was.
-    logger.error(
-      'A database close failed earlier; keeping the lock after the failed initialization',
-      {
-        lockPath: mutableState.dbProcessLockPath,
-      }
-    );
-    return;
-  }
   if (failedHandle) {
     try {
       await closeDatabaseInstance(failedHandle, 'initialization-failure');
     } catch (error) {
       // Sticky: the handle may still own the data directory, so no later open may start over it.
-      mutableState.closeFailure = new DatabaseCloseError('close', error);
-      logger.error('Failed to close the database after a failed initialization; keeping the lock', {
+      mutableState.closeFailure ??= new DatabaseCloseError('close', error);
+      logger.error('Failed to close the database after a failed initialization', {
         error: getErrorDetails(error),
-        lockPath: mutableState.dbProcessLockPath,
       });
-      return;
     }
+  }
+  // The lock goes only if no close has ever failed: a handle that could not be closed, this one
+  // or an earlier one, may still own the directory.
+  if (mutableState.closeFailure) {
+    logger.error('A database close has failed; keeping the lock after the failed initialization', {
+      lockPath: mutableState.dbProcessLockPath,
+    });
+    return;
   }
   releaseDatabaseProcessLock();
 }
@@ -1481,11 +1319,22 @@ async function handleLocalRuntimeCorruption(context: string): Promise<DesktopDat
  * This deletes the profile-scoped pgdata and lock files while leaving other profiles untouched.
  * Next access will lazily recreate and migrate from scratch.
  */
+const RESET_QUIESCE_MAX_CLOSES = 3;
+
 async function resetLocalDatabaseInternal(): Promise<void> {
   // A close failure aborts the reset before anything is backed up or deleted. An open that starts
   // after the close would open a directory about to be removed, so settle it too; the code after
   // this loop is synchronous, so nothing can start an open between the check and the deletes.
+  // Bounded: a caller that reopens the database on every lock release would otherwise livelock
+  // the reset. Giving up deletes nothing.
+  let closes = 0;
   do {
+    if (closes === RESET_QUIESCE_MAX_CLOSES) {
+      throw new Error(
+        `Database reset stopped: the database was reopened after each of ${RESET_QUIESCE_MAX_CLOSES} closes; nothing was deleted.`
+      );
+    }
+    closes += 1;
     await closeLocalDatabase();
   } while (dbInitializationPromise !== null || db !== null);
 

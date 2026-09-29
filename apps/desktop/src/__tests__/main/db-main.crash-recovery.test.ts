@@ -77,6 +77,7 @@ vi.mock('@brainstrike/logging', async () => {
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 const originalDbRootPath = process.env['BRAINSTRIKE_DB_ROOT_PATH'];
+const originalDbProfile = process.env['BRAINSTRIKE_DB_PROFILE'];
 
 function restoreEnvValue(key: string, value: string | undefined): void {
   if (value === undefined) {
@@ -111,7 +112,9 @@ describe('db-main crash-sensitive index rebuild', () => {
     rootPath = mkdtempSync(path.join(tmpdir(), 'brainstrike-db-crash-recovery-'));
     appDataDir = path.join(rootPath, 'profiles', 'test');
     process.env['NODE_ENV'] = 'test';
+    // The DB host reads its location only from main's environment (BST-1873).
     process.env['BRAINSTRIKE_DB_ROOT_PATH'] = rootPath;
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
     Object.defineProperty(process, 'parentPort', {
       configurable: true,
       value: { on: vi.fn(), postMessage: vi.fn() },
@@ -145,6 +148,7 @@ describe('db-main crash-sensitive index rebuild', () => {
       originalParentPortDescriptor ?? { configurable: true, value: undefined, writable: true }
     );
     restoreEnvValue('BRAINSTRIKE_DB_ROOT_PATH', originalDbRootPath);
+    restoreEnvValue('BRAINSTRIKE_DB_PROFILE', originalDbProfile);
     rmSync(rootPath, { force: true, recursive: true });
   });
 

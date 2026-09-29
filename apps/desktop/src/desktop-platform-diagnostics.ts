@@ -8,6 +8,7 @@ import {
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
 import { LogLevel } from '@brainstrike/logging';
+import type { DatabaseIntegritySnapshot } from '@brainstrike/types';
 import type { BackgroundRuntimeProcessMetric } from './background-runtime-metrics';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
 import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
@@ -25,6 +26,8 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly collectedAt: string;
   readonly crashRecovery: DesktopRendererCrashRecoverySnapshot;
   readonly database: unknown;
+  /** Main-owned integrity state; the DB host never sees runtime classification. */
+  readonly databaseIntegrity: DatabaseIntegritySnapshot;
   readonly databaseScheduler: DatabaseWorkSchedulerSnapshot | null;
   readonly embeddingHost: RuntimeHostPlatformStatus<'embedding-host'>;
   readonly errors: Partial<Record<DesktopPlatformDiagnosticsProviderName, string>>;
@@ -62,6 +65,9 @@ export interface DesktopPlatformDiagnosticsProviders {
   };
   readonly database: {
     readonly getDiagnostics: () => Promise<unknown> | unknown;
+  };
+  readonly databaseIntegrity: {
+    readonly getSnapshot: () => DatabaseIntegritySnapshot;
   };
   readonly databaseScheduler: {
     readonly getSnapshot: () => DatabaseWorkSchedulerSnapshot;
@@ -213,6 +219,9 @@ export async function collectDesktopPlatformDiagnostics(
       }
     ),
     database,
+    // In-memory read with no fallback: there is no honest stand-in value, and a
+    // fabricated 'healthy' would hide exactly what this field exists to show.
+    databaseIntegrity: providers.databaseIntegrity.getSnapshot(),
     databaseScheduler,
     embeddingHost: await readDiagnosticsProvider(
       errors,
