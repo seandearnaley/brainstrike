@@ -246,9 +246,10 @@ crash-sensitive list unless the gate proves it recovers.
   `createDimensionIndex` (six today, plus the thread-message index: seven HNSW indexes). The key now
   comes from `pg_get_indexdef(oid, 1, true)`, an index that is not valid and ready fails the gate
   (`index-validity`) instead of being filtered out, and an HNSW index with no rows to probe fails
-  instead of passing. The listed count is checked against a total read through `pg_indexes`, which
-  shares no FROM/WHERE text with the listing (a first version counted with the listing's own clause,
-  so a join added there shrank both and could never fail; the second review found it). Restoring
+  instead of passing. The listing is checked, as a set of schema-qualified names with no duplicates,
+  against `pg_indexes` read with its own literal schema filter, so it shares no join and no filter
+  with the listing (a first version counted with the listing's own clause, so a join added there
+  shrank both and could never fail; a count also let a drop and a duplicate cancel out). Restoring
   the `indkey[0]` join in the listing's clause fails the gate with `listed 1 of 7 hnsw indexes`, and
   `crash-injection-verify.integration.test.ts` checks every access method's listing against
   `pg_indexes` independently.
@@ -256,7 +257,9 @@ crash-sensitive list unless the gate proves it recovers.
   index name anywhere in the text plan, and the BM25 probe names its index in the query, so a Seq
   Scan's Filter or a Sort Key printed the name with no index scan behind it. The check now walks
   `EXPLAIN (FORMAT JSON)` for an `Index Scan`, `Index Only Scan` or `Bitmap Index Scan` node whose
-  `Index Name` is exactly the index (pinned: a Seq Scan whose Filter names the index is rejected).
+  `Index Name` is exactly the index and that has an `Order By`, in the query's own tree: an InitPlan
+  or SubPlan scanning it does not count (the HNSW probe's query vector is an InitPlan). Pinned: a
+  Seq Scan whose Filter names the index, and an index scanned only in an InitPlan, are rejected.
 - The BM25 probes must allocate. Consistent with the free-space-map cause above, a ranked search
   straight after the crash passed on all 73 iterations that tried it before recovery; damage
   showed only once a later write allocated (the next writer, or the insert probe). So the probe

@@ -104,24 +104,39 @@ export async function listIndexes(db: CrashGateDb, accessMethod: string): Promis
      ${INDEXES_OF} ORDER BY 1`,
     [accessMethod]
   );
-  // The total comes from pg_indexes, a path that shares no FROM/WHERE text with the listing, so a
-  // join added to INDEXES_OF (the old `indkey[0]` one, say) shrinks the listing but not the total.
-  const total = await db.query<{ total: number }>(
-    `SELECT count(*)::int AS total FROM pg_indexes x
-     JOIN pg_namespace n ON n.nspname = x.schemaname
-     JOIN pg_class c ON c.relname = x.indexname AND c.relnamespace = n.oid
-     JOIN pg_am am ON am.oid = c.relam
-     WHERE am.amname = $1 AND ${USER_SCHEMA}`,
+  await assertListingMatchesCatalog(db, accessMethod, listed.rows);
+  return listed.rows;
+}
+
+/** Fails unless `listed` is exactly the catalog's set of `accessMethod` indexes in user schemas. */
+export async function assertListingMatchesCatalog(
+  db: CrashGateDb,
+  accessMethod: string,
+  listed: readonly IndexRow[]
+): Promise<void> {
+  // Read through pg_indexes with its OWN literal schema filter: nothing here is shared with the
+  // listing's clause (joins or USER_SCHEMA), so a narrowing edit there cannot shrink both sides.
+  const catalog = await db.query<{ index: string }>(
+    `SELECT format('%I.%I', x.schemaname, x.indexname) AS "index" FROM pg_indexes x
+     JOIN pg_namespace ns ON ns.nspname = x.schemaname
+     JOIN pg_class ic ON ic.relname = x.indexname AND ic.relnamespace = ns.oid
+     JOIN pg_am m ON m.oid = ic.relam
+     WHERE m.amname = $1 AND x.schemaname NOT IN ('pg_catalog', 'information_schema')
+       AND x.schemaname NOT LIKE 'pg\\_toast%'`,
     [accessMethod]
   );
-  if (listed.rows.length !== total.rows[0]?.total) {
+  const expected = new Set(catalog.rows.map((row) => row.index));
+  const seen = new Set<string>();
+  const duplicated = listed.filter((entry) => seen.size === seen.add(entry.index).size);
+  const missing = [...expected].filter((index) => !seen.has(index));
+  const unexpected = [...seen].filter((index) => !expected.has(index));
+  if (duplicated.length > 0 || missing.length > 0 || unexpected.length > 0) {
     throw new CrashGateCheckError(
       'index-coverage',
       accessMethod,
-      `listed ${listed.rows.length} of ${total.rows[0]?.total} ${accessMethod} indexes`
+      `listed ${listed.length} of ${expected.size} ${accessMethod} indexes; missing [${missing.join(', ')}], unexpected [${unexpected.join(', ')}], duplicated [${duplicated.map((entry) => entry.index).join(', ')}]`
     );
   }
-  return listed.rows;
 }
 
 /** After recovery every index is valid and ready; a half-built one is the damage this gate exists to see. */
@@ -146,23 +161,36 @@ const INDEX_SCAN_NODES: ReadonlySet<unknown> = new Set([
   'Index Scan',
 ]);
 
-function nodeScansIndex(node: unknown, indexName: string): boolean {
+/** InitPlans and SubPlans share the `Plans` array but are separate queries, not the probe's scan. */
+const SEPARATE_QUERY_RELATIONSHIPS: ReadonlySet<unknown> = new Set(['InitPlan', 'SubPlan']);
+
+function nodeRanksThroughIndex(node: unknown, indexName: string): boolean {
   if (typeof node !== 'object' || node === null) {
     return false;
   }
   const plan = node as Record<string, unknown>;
-  if (INDEX_SCAN_NODES.has(plan['Node Type']) && plan['Index Name'] === indexName) {
+  if (SEPARATE_QUERY_RELATIONSHIPS.has(plan['Parent Relationship'])) {
+    return false;
+  }
+  if (
+    INDEX_SCAN_NODES.has(plan['Node Type']) &&
+    plan['Index Name'] === indexName &&
+    plan['Order By'] !== undefined
+  ) {
     return true;
   }
   const children = plan['Plans'];
-  return Array.isArray(children) && children.some((child) => nodeScansIndex(child, indexName));
+  return (
+    Array.isArray(children) && children.some((child) => nodeRanksThroughIndex(child, indexName))
+  );
 }
 
 /**
- * Whether the plan for `sql` has a scan node through the index named exactly `indexName`. Walks
- * the JSON plan (PGlite returns it parsed) rather than matching text: the BM25 probe names its
- * index in the query, so a Seq Scan's Filter or a Sort Key would print that name with no index
- * scan behind it.
+ * Whether the plan for `sql` ranks its rows through an ordered scan (`Order By`) of the index
+ * named exactly `indexName`, in the query's own tree: an InitPlan or SubPlan scanning it does not
+ * count. Walks the JSON plan (PGlite returns it parsed) rather than matching text: the BM25 probe
+ * names its index in the query, so a Seq Scan's Filter or a Sort Key would print that name with
+ * no index scan behind it. Every probe that calls this is an ORDER BY probe.
  */
 export async function planUsesIndex(
   db: CrashGateDb,
@@ -175,7 +203,7 @@ export async function planUsesIndex(
     throw new Error(`EXPLAIN (FORMAT JSON) returned ${typeof document}, not a parsed plan array`);
   }
   return document.some((entry: unknown) =>
-    nodeScansIndex((entry as { readonly Plan?: unknown }).Plan, indexName)
+    nodeRanksThroughIndex((entry as { readonly Plan?: unknown }).Plan, indexName)
   );
 }
 

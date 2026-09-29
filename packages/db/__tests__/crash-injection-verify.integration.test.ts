@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDimensionIndex, hnswParams } from '../src/migrations/dimension-index-helpers';
 import { catalogEmbeddingDimensions } from './helpers/crash-injection-protocol';
 import {
+  assertListingMatchesCatalog,
   CrashGateCheckError,
   listIndexes,
   planUsesIndex,
@@ -78,6 +79,17 @@ describe('crash gate verifier (real migrated schema)', () => {
     }
   );
 
+  it('checks the listing against pg_indexes by name, so a drop and a duplicate cannot cancel out', async () => {
+    const listed = await listIndexes(db, 'btree');
+    // A listing that dropped one index and duplicated another has the right count and the wrong set.
+    const tampered = [...listed.slice(1), listed[1] as (typeof listed)[number]];
+
+    await expect(assertListingMatchesCatalog(db, 'btree', tampered)).rejects.toMatchObject({
+      check: 'index-coverage',
+    });
+    await expect(assertListingMatchesCatalog(db, 'btree', listed)).resolves.toBeUndefined();
+  });
+
   it('lists the BM25 index by its column key', async () => {
     const [bm25] = await listIndexes(db, 'bm25');
     expect(bm25).toMatchObject({ indexName: 'idx_file_chunks_content_bm25', key: 'content' });
@@ -110,6 +122,23 @@ describe('crash gate verifier (real migrated schema)', () => {
     expect(await planUsesIndex(db, indexScan, 'idx_file_chunks_content_bm25')).toBe(true);
     // A name that merely starts with another index's name is not that index.
     expect(await planUsesIndex(db, indexScan, 'idx_file_chunks_content_bm')).toBe(false);
+  });
+
+  it('never counts an index scanned only inside an InitPlan as the probe scanning through it', async () => {
+    await db.exec(
+      `INSERT INTO file_records (id, name, path, size) VALUES ('probe-file', 'p', '/p', 0);
+       INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash)
+       SELECT 'probe-' || g, 'probe-file', g, 'database recovery index ' || g, md5(g::text)
+       FROM generate_series(1, 50) AS g`
+    );
+    await db.exec('SET enable_seqscan = off');
+    // The outer scan goes through the content_hash btree; only the InitPlan ranks through BM25.
+    const initPlanOnly = `SELECT ctid FROM public.file_chunks WHERE content_hash = (
+      SELECT content_hash FROM public.file_chunks
+      ORDER BY content <@> to_bm25query('database recovery index', 'idx_file_chunks_content_bm25')
+      LIMIT 1)`;
+
+    expect(await planUsesIndex(db, initPlanOnly, 'idx_file_chunks_content_bm25')).toBe(false);
   });
 
   it('fails an HNSW index with no rows to probe rather than passing vacuously', async () => {
