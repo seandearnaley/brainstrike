@@ -27,6 +27,10 @@ export function restoreParentPort(): void {
 /**
  * Imports the real DB host entry with a fake parent port, captured signal handlers and a stubbed
  * `process.exit`. What the entry imports stays whatever the calling test file mocked.
+ *
+ * The `process.on`, `process.removeAllListeners`, `process.listenerCount` and `process.exit` spies
+ * are only undone by the caller's `vi.restoreAllMocks()` (call it in `afterEach`), and the
+ * `parentPort` by `restoreParentPort()`.
  */
 export async function bootHost(): Promise<BootedHost> {
   const listeners: ((message: unknown) => void)[] = [];
@@ -80,4 +84,20 @@ export function lifecycleStates(host: BootedHost): string[] {
   return posted(host)
     .filter((message) => message['kind'] === 'lifecycle')
     .map((message) => `${message['state']}:${message['reason']}`);
+}
+
+/**
+ * Where the first posted response for `id` sits in vitest's global call order, to compare with
+ * `exitCallOrder()`: a reply queued after `process.exit` was called would never be sent.
+ */
+export function responseCallOrder(host: BootedHost, id: string): number | undefined {
+  const index = posted(host).findIndex(
+    (message) => message['kind'] === 'response' && message['id'] === id
+  );
+  return index === -1 ? undefined : host.parentPort.postMessage.mock.invocationCallOrder[index];
+}
+
+/** Where the first (stubbed) `process.exit` call sits in vitest's global call order. */
+export function exitCallOrder(): number | undefined {
+  return vi.mocked(process.exit).mock.invocationCallOrder[0];
 }

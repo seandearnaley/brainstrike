@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   bootHost,
+  exitCallOrder,
   lifecycleStates,
   posted,
+  responseCallOrder,
   responsesFor,
   restoreParentPort,
 } from '../helpers/db-host-entry-harness';
@@ -17,7 +19,7 @@ const dbMainMocks = vi.hoisted(() => ({
 
 vi.mock('../../db-main', () => dbMainMocks);
 
-function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+function deferred<T = void>(): PromiseWithResolvers<T> {
   return Promise.withResolvers<T>();
 }
 
@@ -159,6 +161,78 @@ describe('db-host-entry signals and close lifecycle', () => {
       expect.objectContaining({ ok: true, result: { closed: true } }),
     ]);
     expect(dbMainMocks.closeDatabase).toHaveBeenCalledTimes(1);
+    // The reply is posted BEFORE the host exits: one queued after `process.exit` is never sent.
+    expect(responseCallOrder(host, 'late-close')).toBeLessThan(exitCallOrder() ?? 0);
+  });
+
+  it('answers a main-driven close that was in flight when the signal arrived before it exits', async () => {
+    const closing = deferred();
+    dbMainMocks.closeDatabase.mockReturnValue(closing.promise);
+    const host = await bootHost();
+    host.send('close', { kind: 'close' });
+    await vi.waitFor(() => expect(dbMainMocks.closeDatabase).toHaveBeenCalledTimes(1));
+
+    host.signal('SIGTERM');
+    closing.resolve();
+
+    await vi.waitFor(() => expect(host.exitCodes).toEqual([0]));
+    expect(responsesFor(host, 'close')).toEqual([
+      expect.objectContaining({ ok: true, result: { closed: true } }),
+    ]);
+    expect(responseCallOrder(host, 'close')).toBeLessThan(exitCallOrder() ?? 0);
+  });
+
+  it('answers a failed close with its error before it exits 1, for the in-flight and a joined close', async () => {
+    const closing = deferred();
+    dbMainMocks.closeDatabase.mockReturnValue(closing.promise);
+    const host = await bootHost();
+    host.send('close', { kind: 'close' });
+    await vi.waitFor(() => expect(dbMainMocks.closeDatabase).toHaveBeenCalledTimes(1));
+
+    host.signal('SIGTERM');
+    host.send('joined-close', { kind: 'close' });
+    closing.reject(new Error('checkpoint failed'));
+
+    await vi.waitFor(() => expect(host.exitCodes).toEqual([1]));
+    for (const id of ['close', 'joined-close']) {
+      expect(responsesFor(host, id)).toEqual([
+        expect.objectContaining({
+          error: expect.objectContaining({ message: 'checkpoint failed' }),
+          ok: false,
+        }),
+      ]);
+      expect(responseCallOrder(host, id)).toBeLessThan(exitCallOrder() ?? 0);
+    }
+  });
+
+  it('a signal during a transaction: the queued commit is rejected, the close still completes', async () => {
+    const running = deferred<{ rows: unknown[] }>();
+    const exec = vi.fn(async (_sql: string) => undefined);
+    const query = vi.fn(() => running.promise);
+    dbMainMocks.getDatabase.mockResolvedValue({ exec, query });
+    const host = await bootHost();
+    host.send('tx-start', { kind: 'transaction:start', transactionId: 'tx:1' } as never);
+    await vi.waitFor(() => expect(responsesFor(host, 'tx-start')).toHaveLength(1));
+    host.send('tx-query', {
+      kind: 'transaction:query',
+      sql: 'SELECT slow',
+      transactionId: 'tx:1',
+    } as never);
+    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
+    host.send('tx-commit', { kind: 'transaction:commit', transactionId: 'tx:1' } as never);
+
+    host.signal('SIGTERM');
+    running.resolve({ rows: [] });
+
+    await vi.waitFor(() => expect(host.exitCodes).toEqual([0]));
+    // The in-flight statement finished; the queued commit was refused, never run.
+    expect(responsesFor(host, 'tx-query')[0]).toMatchObject({ ok: true });
+    expect(responsesFor(host, 'tx-commit')[0]).toMatchObject({
+      error: { message: 'DB host is closing (SIGTERM).' },
+      ok: false,
+    });
+    expect(exec.mock.calls.map(([sql]) => sql)).toEqual(['BEGIN']);
+    expect(dbMainMocks.closeDatabase).toHaveBeenCalledTimes(1);
   });
 
   it('answers a close envelope that was already queued when the signal arrived exactly once', async () => {
@@ -175,6 +249,7 @@ describe('db-host-entry signals and close lifecycle', () => {
     await vi.waitFor(() => expect(host.exitCodes).toEqual([0]));
     expect(responsesFor(host, 'queued-close')).toHaveLength(1);
     expect(responsesFor(host, 'queued-close')[0]).toMatchObject({ ok: true });
+    expect(responseCallOrder(host, 'queued-close')).toBeLessThan(exitCallOrder() ?? 0);
     expect(dbMainMocks.closeDatabase).toHaveBeenCalledTimes(1);
   });
 
@@ -298,6 +373,8 @@ describe('db-host-entry signals and close lifecycle', () => {
       // Before this change a request queued behind `close` lazily re-opened the database.
       expect(dbMainMocks.getDatabase).not.toHaveBeenCalled();
       closing.resolve();
+      // Let the close finish and the host exit before the test ends (its exit is stubbed only until then).
+      await vi.waitFor(() => expect(host.exitCodes).toEqual([0]));
     }
   );
 });
