@@ -10,7 +10,7 @@
  * never an `isElectron()` check (AGENTS.md).
  */
 import { createLogger } from '@brainstrike/logging';
-import type { DatabaseDiagnosticsSnapshot } from '@brainstrike/types';
+import type { DatabaseDiagnosticsSnapshot, DatabaseInitAttemptRecord } from '@brainstrike/types';
 import type {
   ClearAllDataResult,
   DatabaseTransport,
@@ -37,10 +37,33 @@ async function loadElectronViewFilterPresetsRepository() {
   return mod.ElectronViewFilterPresetsRepository;
 }
 
+const INIT_STOP_ACTIVITY = {
+  'index-rebuild': 'rebuilding the search index',
+  migration: 'applying database migrations',
+  'open-database': 'opening the database and replaying its log',
+} as const;
+
+/** Main's own words for a stop; the same copy the manager's `DbHostInitStoppedError` carries. */
+function formatInitStop(stop: DatabaseInitAttemptRecord): string {
+  const activity = stop.report
+    ? INIT_STOP_ACTIVITY[stop.report.phase]
+    : 'starting the database process';
+  const times =
+    stop.consecutiveTimeouts === 2 ? 'twice' : `${stop.consecutiveTimeouts} times in a row`;
+  const budget =
+    stop.budgetMs < 1000 ? `${stop.budgetMs} ms` : `${Math.round(stop.budgetMs / 1000)} s`;
+  return `BrainStrike stopped retrying the database start: ${activity} timed out ${times} (last budget ${budget}). Nothing was deleted or replaced.`;
+}
+
 function formatDesktopDatabaseInitError(
   diagnostics: DatabaseDiagnosticsSnapshot | null,
   fallbackMessage: string
 ): string {
+  // First: while main is stopped it answers from its own record and forks no host, so the snapshot
+  // carries no failure and every branch below would blame the wrong thing.
+  if (diagnostics?.initStop) {
+    return formatInitStop(diagnostics.initStop);
+  }
   const failure = diagnostics?.lastInitializationFailure;
   const rawFailureMessage =
     failure && typeof failure === 'object' && 'message' in failure
