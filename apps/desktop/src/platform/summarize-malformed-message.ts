@@ -5,13 +5,24 @@ const MAX_SUMMARY_KEYS = 20;
 
 /**
  * Bounds one host-controlled string before it reaches a log, counting code points so a surrogate
- * pair is never split into a lone half.
+ * pair is never split into a lone half. Walks at most 65 code points, so a multi-megabyte string
+ * costs no more than a short one.
  */
 export function truncateForLog(value: string): string {
-  const codePoints = Array.from(value);
-  return codePoints.length <= MAX_SUMMARY_STRING_LENGTH
-    ? value
-    : `${codePoints.slice(0, MAX_SUMMARY_STRING_LENGTH).join('')}…`;
+  // A string's UTF-16 length is never less than its code-point count.
+  if (value.length <= MAX_SUMMARY_STRING_LENGTH) {
+    return value;
+  }
+  let kept = '';
+  let count = 0;
+  for (const codePoint of value) {
+    if (count === MAX_SUMMARY_STRING_LENGTH) {
+      return `${kept}…`;
+    }
+    kept += codePoint;
+    count += 1;
+  }
+  return value;
 }
 
 /**

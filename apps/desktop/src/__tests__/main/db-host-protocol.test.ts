@@ -156,6 +156,12 @@ describe('isDbHostProgressEnvelope', () => {
     ['a C1 control', 'idx\u0085'],
     ['a right-to-left override', 'idx\u202Egnp.exe'],
     ['a bidi isolate', 'idx\u2066x'],
+    ['a line separator', 'idx\u2028fake'],
+    ['a paragraph separator', 'idx\u2029fake'],
+    ['an Arabic letter mark', 'idx\u061Cx'],
+    ['a zero-width space', 'idx\u200Bx'],
+    ['a zero-width joiner', 'idx\u200Dx'],
+    ['a byte-order mark', '\uFEFFidx'],
   ])(
     'rejects an identifier containing %s, which could forge the one-line error a person reads',
     (_label, name) => {

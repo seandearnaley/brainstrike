@@ -250,33 +250,17 @@ function isByteCount(value: unknown): value is number {
 // and the error message a person reads, so a longer one is not a catalog name: reject it.
 const MAX_IDENTIFIER_BYTES = 63;
 const utf8 = new TextEncoder();
-// C0 and C1 controls, DEL, and the bidi marks, embeddings, overrides and isolates: legal inside a
-// quoted PostgreSQL identifier, but they could forge the one-line error a person reads.
-function isForgingCodePoint(code: number): boolean {
-  return (
-    code <= 0x1f ||
-    (code >= 0x7f && code <= 0x9f) ||
-    code === 0x20_0e ||
-    code === 0x20_0f ||
-    (code >= 0x20_2a && code <= 0x20_2e) ||
-    (code >= 0x20_66 && code <= 0x20_69)
-  );
-}
-
-function hasForgingCharacter(value: string): boolean {
-  for (const character of value) {
-    if (isForgingCodePoint(character.codePointAt(0) ?? 0)) {
-      return true;
-    }
-  }
-  return false;
-}
+// Controls (Cc), format characters (Cf: bidi marks, overrides and isolates, zero-width characters,
+// the byte-order mark) and line/paragraph separators (Zl, Zp): legal inside a quoted PostgreSQL
+// identifier, but they could forge or disguise the one-line error a person reads. Matching whole
+// categories fails closed for format characters Unicode adds later.
+const FORGING_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 function isIdentifier(value: unknown): value is string {
   return (
     isNonEmptyString(value) &&
     utf8.encode(value).length <= MAX_IDENTIFIER_BYTES &&
-    !hasForgingCharacter(value)
+    !FORGING_CHARACTER.test(value)
   );
 }
 
