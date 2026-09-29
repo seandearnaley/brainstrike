@@ -571,11 +571,9 @@ describe('createLocalModelAdapter', () => {
 
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(completeRuntimeData).toHaveBeenCalledTimes(1);
-    expect(completeRuntimeData).toHaveBeenCalledWith(
-      preparedRuntimeData,
-      'cancelled',
-      IPC_ABORT_MESSAGE
-    );
+    // No reason: the data-stream Stop stores none either, and Electron's IPC
+    // wrapper text must not become the persisted reason of a user Stop.
+    expect(completeRuntimeData).toHaveBeenCalledWith(preparedRuntimeData, 'cancelled');
     expect(onError).not.toHaveBeenCalled();
     expect(updates.at(-1)).toMatchObject({
       content: expect.arrayContaining([{ text: 'Generation cancelled.', type: 'text' }]),

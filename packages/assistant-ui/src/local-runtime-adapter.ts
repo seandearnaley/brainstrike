@@ -802,7 +802,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             progress: 100,
             stage: 'ready',
           });
-          await completeRuntimeData?.(preparedRuntimeData, 'cancelled', errorMessage);
+          await completeRuntimeData?.(preparedRuntimeData, 'cancelled');
           yield {
             content: buildAssistantContentParts(
               undefined,
