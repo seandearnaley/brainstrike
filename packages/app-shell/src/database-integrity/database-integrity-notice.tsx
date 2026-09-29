@@ -1,7 +1,10 @@
+import { createLogger } from '@brainstrike/logging';
 import type { DatabaseIntegrityContext, DatabaseIntegrityState } from '@brainstrike/types';
 import { AlertTriangle } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import { useDatabaseIntegrity } from './use-database-integrity';
+
+const logger = createLogger('DatabaseIntegrityNotice');
 
 interface DatabaseIntegrityNoticeCopy {
   readonly containedMessage: string;
@@ -39,6 +42,20 @@ const COPY: DatabaseIntegrityNoticeCopy = {
   unreadableMessage:
     "BrainStrike couldn't read the database status. Restart BrainStrike to check again.",
 };
+
+/** A timestamp main sent that does not parse is shown as sent, never as "Invalid Date". */
+function formatSince(since: string): string {
+  const date = new Date(since);
+  return Number.isNaN(date.getTime()) ? since : date.toLocaleString();
+}
+
+function UnreadableStrip(): ReactElement {
+  return (
+    <DatabaseIntegrityStrip>
+      <p>{COPY.unreadableMessage}</p>
+    </DatabaseIntegrityStrip>
+  );
+}
 
 /** Same strip as `AppReloadNotice`: a destructive-tinted `role="alert"` row atop the app column. */
 function DatabaseIntegrityStrip({ children }: { readonly children: ReactNode }): ReactElement {
@@ -80,7 +97,7 @@ function DatabaseIntegrityNoticeBody({
               <dd className="break-words">{state.signal.message}</dd>
               <dt className="text-muted-foreground">{COPY.fields.since}</dt>
               <dd>
-                <time dateTime={state.since}>{new Date(state.since).toLocaleString()}</time>
+                <time dateTime={state.since}>{formatSince(state.since)}</time>
               </dd>
             </dl>
             <p className="mt-2">{COPY.restartGuidance}</p>
@@ -88,8 +105,13 @@ function DatabaseIntegrityNoticeBody({
         </DatabaseIntegrityStrip>
       );
     default: {
-      const exhaustive: never = state;
-      throw new Error(`Unhandled database integrity state: ${JSON.stringify(exhaustive)}`);
+      // Compile-time exhaustiveness; at runtime a state this renderer does not know (a newer
+      // main, a malformed payload) fails visible, never healthy and never by unmounting the shell.
+      const unknown: never = state;
+      logger.error('Unknown database integrity state; showing the status as unreadable', {
+        kind: (unknown as { readonly kind?: unknown }).kind,
+      });
+      return <UnreadableStrip />;
     }
   }
 }
@@ -105,11 +127,7 @@ export function DatabaseIntegrityNotice(): ReactElement | null {
     return null;
   }
   if (view.status === 'unreadable') {
-    return (
-      <DatabaseIntegrityStrip>
-        <p>{COPY.unreadableMessage}</p>
-      </DatabaseIntegrityStrip>
-    );
+    return <UnreadableStrip />;
   }
   return <DatabaseIntegrityNoticeBody state={view.snapshot.state} />;
 }

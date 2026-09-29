@@ -136,8 +136,7 @@ const CONTRACT_LINE_BUDGETS = {
   // added 1 more, to 967: a repeated close resolves once that exit is observed (the absent
   // marker makes the next open unclean).
   // BST-1874 raised this from 967 (+2): one bullet states that the app shell
-  // shows a notice for every non-healthy integrity state; the L4 change moves it
-  // into the containment section and re-pins.
+  // shows a notice for every non-healthy integrity state.
   'platform-contracts.md': 969,
   'README.md': 70,
   'triage-labels.md': 35,

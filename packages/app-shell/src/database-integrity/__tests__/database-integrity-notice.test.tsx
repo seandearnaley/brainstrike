@@ -106,6 +106,39 @@ describe('DatabaseIntegrityNotice', () => {
     loggerMock.error.mockClear();
   });
 
+  it('shows the status-unreadable alert, never throws, for a state kind this renderer does not know', async () => {
+    // A newer main (a future `repairing` state) or a malformed payload must not take the shell down.
+    const unknown = {
+      revision: 2,
+      state: { kind: 'repairing' },
+    } as unknown as DatabaseIntegritySnapshot;
+    exposeBridge(createFakeBridge(() => Promise.resolve(unknown)).bridge);
+
+    render(<DatabaseIntegrityNotice />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("BrainStrike couldn't read the database status");
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Unknown database integrity state; showing the status as unreadable',
+      { kind: 'repairing' }
+    );
+  });
+
+  it('shows the raw first-seen value when it is not a valid date', async () => {
+    const snapshot = contained(1);
+    const invalid = {
+      ...snapshot,
+      state: { ...snapshot.state, since: 'not-a-date' },
+    } as DatabaseIntegritySnapshot;
+    exposeBridge(createFakeBridge(() => Promise.resolve(invalid)).bridge);
+
+    render(<DatabaseIntegrityNotice />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('not-a-date');
+    expect(alert).not.toHaveTextContent('Invalid Date');
+  });
+
   it('renders nothing when the desktop integrity capability is absent', async () => {
     const { container } = render(<DatabaseIntegrityNotice />);
     await settle();
