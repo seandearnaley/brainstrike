@@ -34,6 +34,10 @@ export interface DatabaseLocationInput {
   readonly isPackaged: boolean;
   /** `NODE_ENV === 'test'` or `--test-mode`: isolate into userData. */
   readonly isTestRun: boolean;
+  /**
+   * Read by property, only when the selected rule needs it: the main-side caller
+   * passes getters, so never spread or destructure this object.
+   */
   readonly paths: { readonly documents: string; readonly home: string; readonly userData: string };
   readonly platform: NodeJS.Platform;
   readonly productDirName: string;
