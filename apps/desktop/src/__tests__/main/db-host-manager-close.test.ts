@@ -189,6 +189,30 @@ describe('DbHostManager close ladder', () => {
       await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_BUDGET_MS - DB_HOST_CLOSE_ACK_TIMEOUT_MS + 1);
 
       expect(closing.settled()).toBe(true);
+      expect(await closing.outcome).toMatchObject({
+        name: 'DbHostCloseError',
+        outcome: 'exit-timeout',
+      });
+    });
+
+    it('settles a close that only has a departing host to wait for at its one 500 ms rung', async () => {
+      const { manager } = await openManager();
+      const first = observe(manager.close());
+      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_BUDGET_MS);
+      // The host survived every signal, so it is still departing: it may still own the database.
+      expect(await first.outcome).toMatchObject({ outcome: 'exit-timeout' });
+
+      const second = observe(manager.close());
+      await vi.advanceTimersByTimeAsync(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS - 1);
+      expect(second.settled()).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(second.settled()).toBe(true);
+      expect(await second.outcome).toMatchObject({
+        name: 'DbHostCloseError',
+        outcome: 'exit-timeout',
+      });
+      expect(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS).toBeLessThanOrEqual(DB_HOST_CLOSE_BUDGET_MS);
     });
   });
 
