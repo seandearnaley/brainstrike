@@ -68,7 +68,7 @@ import {
   type HostRequestTimeoutContext,
   type HostRequestTimeoutDecision,
 } from './platform/host-request-channel';
-import { summarizeMalformedMessage } from './platform/summarize-malformed-message';
+import { summarizeMalformedMessage, truncateForLog } from './platform/summarize-malformed-message';
 
 export type {
   RemoteDbClient,
@@ -865,13 +865,13 @@ class DefaultDbHostManager implements DbHostManager {
       // A report for a request that already settled or timed out re-arms nothing; drop it here so
       // only terminal responses ever reach the channel's late-response path.
       logger.debug('Dropped DB host progress for a request no longer in flight', {
-        requestId: message.id,
+        requestId: truncateForLog(message.id),
       });
       return;
     }
     if (pending.request.kind !== 'init') {
       logger.error('Dropped DB host progress for a request that is not init', {
-        requestId: message.id,
+        requestId: truncateForLog(message.id),
         requestKind: pending.request.kind,
       });
       return;
