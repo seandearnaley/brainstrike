@@ -5,10 +5,18 @@ import {
   resolveIndexBuildMaintenanceWorkMemMb,
 } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
+import { createDesktopDatabaseIntegrity } from '../database-integrity-state';
 import {
   createDesktopDimensionIndexMaintenanceScheduler,
   type DesktopDimensionIndexMaintenanceSchedulerOptions,
 } from '../dimension-index-maintenance-scheduler';
+
+function createHealthyIntegrity() {
+  return createDesktopDatabaseIntegrity({
+    logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    now: () => new Date('2026-09-29T12:00:00.000Z'),
+  });
+}
 
 function createQueuedCounts(
   overrides: Partial<Record<DatabaseWorkPriority, number>> = {}
@@ -73,6 +81,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
         queued: createQueuedCounts({ foreground: 1 }),
         runningPriority: null,
       }),
+      integrity: createHealthyIntegrity(),
       logger: createLogger(),
       runDimensionMaintenance,
       runScheduledWork,
@@ -98,6 +107,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
         idleTimeMs: 1000,
       }),
       getSchedulerSnapshot: idleSchedulerSnapshot,
+      integrity: createHealthyIntegrity(),
       logger: createLogger(),
       runDimensionMaintenance: vi.fn(),
       runScheduledWork,
@@ -118,6 +128,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       getDimensionIndexStrategy: () => null,
       getPowerSnapshot: idleAcSnapshot,
       getSchedulerSnapshot: idleSchedulerSnapshot,
+      integrity: createHealthyIntegrity(),
       logger: createLogger(),
       runDimensionMaintenance: vi.fn(),
       runScheduledWork,
@@ -162,6 +173,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       getDimensionIndexStrategy: () => 'regular',
       getPowerSnapshot: idleAcSnapshot,
       getSchedulerSnapshot: idleSchedulerSnapshot,
+      integrity: createHealthyIntegrity(),
       logger: createLogger(),
       runDimensionMaintenance,
       runScheduledWork,
@@ -202,6 +214,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       getDimensionIndexStrategy: () => 'regular',
       getPowerSnapshot: idleAcSnapshot,
       getSchedulerSnapshot: idleSchedulerSnapshot,
+      integrity: createHealthyIntegrity(),
       logger: createLogger(),
       runDimensionMaintenance,
       runScheduledWork: vi.fn(async (_options, work) => await work()),
@@ -242,6 +255,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
         getDimensionIndexStrategy: () => 'regular' as const,
         getPowerSnapshot: idleAcSnapshot,
         getSchedulerSnapshot: idleSchedulerSnapshot,
+        integrity: createHealthyIntegrity(),
         logger: createLogger(),
         runDimensionMaintenance:
           options.runDimensionMaintenance as unknown as DesktopDimensionIndexMaintenanceSchedulerOptions['runDimensionMaintenance'],
@@ -429,6 +443,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler admission', () => {
       getDimensionIndexStrategy: () => 'regular',
       getPowerSnapshot: idleAcSnapshot,
       getSchedulerSnapshot: idleSchedulerSnapshot,
+      integrity: createHealthyIntegrity(),
       logger: createLogger(),
       now: () => new Date(nowMs),
       runDimensionMaintenance,
@@ -533,6 +548,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler admission', () => {
           getDimensionIndexStrategy: () => 'regular',
           getPowerSnapshot: idleAcSnapshot,
           getSchedulerSnapshot: idleSchedulerSnapshot,
+          integrity: createHealthyIntegrity(),
           logger: createLogger(),
           quietPeriodMs,
           runScheduledWork: vi.fn(),
@@ -541,4 +557,76 @@ describe('DesktopDimensionIndexMaintenanceScheduler admission', () => {
       ).toThrow(/quietPeriodMs must be a non-negative number/);
     }
   );
+});
+
+/**
+ * BST-1870: while an integrity error is contained, background database work is
+ * paused. The pass skips quietly before it reads anything or enters the lane.
+ */
+describe('DesktopDimensionIndexMaintenanceScheduler integrity containment', () => {
+  function createContainedHarness() {
+    const integrity = createHealthyIntegrity();
+    integrity.contain('db:query', { message: 'invalid page in block 3', sqlstate: 'XX002' });
+    const getDatabase = vi.fn(async () => ({ query: idleAssistantQuery() }));
+    const getSchedulerSnapshot = vi.fn(idleSchedulerSnapshot);
+    const runDimensionMaintenance = vi.fn(async () => ({
+      dimension: 384,
+      durationMs: 1,
+      status: 'completed' as const,
+      strategy: 'regular' as const,
+    }));
+    const runScheduledWork = vi.fn(
+      async <TResult>(_options: DatabaseWorkRunOptions, work: () => Promise<TResult>) =>
+        await work()
+    );
+    const logger = createLogger();
+    const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
+      getDatabase,
+      getDimensionIndexStrategy: () => 'regular',
+      getPowerSnapshot: idleAcSnapshot,
+      getSchedulerSnapshot,
+      integrity,
+      logger,
+      quietPeriodMs: 0,
+      runDimensionMaintenance,
+      runScheduledWork:
+        runScheduledWork as unknown as DesktopDimensionIndexMaintenanceSchedulerOptions['runScheduledWork'],
+      subscribeToSchedulerSnapshots: ignoreSchedulerSnapshots,
+    });
+    return {
+      getDatabase,
+      getSchedulerSnapshot,
+      integrity,
+      logger,
+      runDimensionMaintenance,
+      runScheduledWork,
+      scheduler,
+    };
+  }
+
+  it('skips with database-integrity-contained and never reads the scheduler, enters the lane, or opens the database', async () => {
+    const harness = createContainedHarness();
+
+    await expect(harness.scheduler.runOnce()).resolves.toEqual({
+      reason: 'database-integrity-contained',
+      status: 'skipped',
+    });
+
+    expect(harness.getSchedulerSnapshot).not.toHaveBeenCalled();
+    expect(harness.runScheduledWork).not.toHaveBeenCalled();
+    expect(harness.getDatabase).not.toHaveBeenCalled();
+    expect(harness.runDimensionMaintenance).not.toHaveBeenCalled();
+    expect(harness.logger.info).toHaveBeenCalledExactlyOnceWith(
+      { integrityState: 'contained', revision: 1 },
+      'Skipped dimension index maintenance because database integrity containment is active'
+    );
+  });
+
+  it('runs again once the database has been replaced', async () => {
+    const harness = createContainedHarness();
+    harness.integrity.markDatabaseReplaced('developer-reset');
+
+    await expect(harness.scheduler.runOnce()).resolves.toMatchObject({ status: 'completed' });
+    expect(harness.runDimensionMaintenance).toHaveBeenCalledTimes(1);
+  });
 });

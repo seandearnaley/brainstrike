@@ -11,8 +11,12 @@
  */
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
-import { invalidateManagedCacheEntriesByIdentity } from '@brainstrike/db';
+import {
+  invalidateManagedCacheEntriesByIdentity,
+  isBackgroundDatabaseWorkAdmitted,
+} from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
+import { getDesktopDatabaseIntegrity } from '../database-integrity-state';
 import { getDatabase } from '../db-main';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support';
@@ -28,6 +32,23 @@ const logger = createLogger('DesktopAssistantTools');
  */
 function toFileRecordRelativePath(workspacePath: string): string {
   return workspacePath.replace(/^\/+/, '');
+}
+
+/**
+ * These side effects write to the Workspace Index straight through
+ * `getDatabase()`, bypassing the database work scheduler, so the scheduler's
+ * integrity gate never sees them. While an integrity error is contained they
+ * are background writes like any other: skip them, and say so — the edit or
+ * delete already succeeded, and the index can only be stale (BST-1870).
+ */
+function skipsWhileDatabaseIntegrityContained(): boolean {
+  if (isBackgroundDatabaseWorkAdmitted(getDesktopDatabaseIntegrity().getSnapshot().state)) {
+    return false;
+  }
+  logger.warn(
+    'Skipped re-index: database integrity containment is active; the Workspace Index may be stale'
+  );
+  return true;
 }
 
 /**
@@ -57,6 +78,9 @@ export async function triggerEditedFileReindex(args: {
   content: string;
   size: number;
 }): Promise<void> {
+  if (skipsWhileDatabaseIntegrityContained()) {
+    return;
+  }
   let db: ReindexDatabaseHandle;
   try {
     db = await getDatabase();
@@ -102,7 +126,8 @@ export async function triggerEditedFileReindex(args: {
  *
  * No-op (returns false) when no Workspace Index is configured or the DB is
  * unavailable (as in the DB-less unit tests) — there is then nothing to keep
- * coherent.
+ * coherent. It also returns false, with a warning, while database integrity
+ * containment pauses background writes: the index rows are then stale.
  */
 export async function triggerFileDeletionInvalidation(args: {
   runtimeData: RuntimeData | undefined;
@@ -111,6 +136,9 @@ export async function triggerFileDeletionInvalidation(args: {
 }): Promise<{ invalidated: boolean }> {
   const embeddingSetId = args.runtimeData?.workspaceIndexEmbeddingSetId?.trim();
   if (!embeddingSetId) {
+    return { invalidated: false };
+  }
+  if (skipsWhileDatabaseIntegrityContained()) {
     return { invalidated: false };
   }
 
@@ -176,6 +204,10 @@ export async function triggerRenamedDestinationReindex(args: {
 }): Promise<void> {
   const embeddingSetId = args.runtimeData?.workspaceIndexEmbeddingSetId?.trim();
   if (!embeddingSetId) {
+    return;
+  }
+  // Before the bounded destination read: nothing may be written, so the read is wasted.
+  if (skipsWhileDatabaseIntegrityContained()) {
     return;
   }
 
