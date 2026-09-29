@@ -6,6 +6,10 @@ describe('truncateForLog', () => {
     expect(truncateForLog('a'.repeat(64))).toBe('a'.repeat(64));
   });
 
+  it('keeps 64 astral characters unchanged: their UTF-16 length is 128, but they are 64 code points', () => {
+    expect(truncateForLog('😀'.repeat(64))).toBe('😀'.repeat(64));
+  });
+
   it('cuts at 64 code points, never splitting a surrogate pair into a lone half', () => {
     const cut = truncateForLog('😀'.repeat(70));
 
