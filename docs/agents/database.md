@@ -442,12 +442,12 @@ Evidence: `database/managed-worktree-ledger.md`.
   export. `derived` may be truncated and rebuilt; `operational` may be truncated without
   a rebuild; `schema-ledger` is never truncated and always exported.
 - `derived` requires `rebuildOwner` (`path/to/file.ts#symbol`), an existing automatic rebuild
-  path that the union type enforces and the guard resolves; no such path, not derived. Repair
-  truncates trusting it, so it first names any scope the owner cannot rebuild (`file_*`: only
-  the managed collection; manual imports need a re-import) to the user, never silently.
+  path the union type enforces and the guard resolves; none, not derived.
+- Before truncating ANY non-precious table, repair names to the user each scope it cannot
+  rebuild and any user-visible pending work it would drop, never silently; `reason` records it.
 - A new table is classified in the same change; the integration guard fails otherwise.
-- A precious table never has an `ON DELETE CASCADE` parent that is not precious. Why:
-  truncating that parent would cascade into user data.
+- No foreign key runs from a precious table to a non-precious one. Why: `TRUNCATE ... CASCADE`
+  empties every referencing table whatever its rule, and `SET NULL` rewrites precious rows.
 
 Evidence: `database/table-durability-classes.md`.
 Guard: `packages/db/__tests__/table-durability-registry.integration.test.ts`,

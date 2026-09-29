@@ -162,7 +162,7 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
   derived(
     'brainstrike_assistant_tool_projection_rewrites',
     'apps/desktop/src/assistant-server/tool-projection-rewrite-repository.ts#recordSuccessfulToolProjection',
-    'Prompt-time replay overlays over persisted tool results; detected again from mastra_messages on the next tracked tool call.'
+    'Prompt-time replay overlays over persisted tool results; re-detected per thread on its next tracked tool call, so an idle thread replays full results until then.'
   ),
   precious(
     'brainstrike_canvas_versions',
@@ -265,7 +265,7 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
   derived(
     'embedding_cache',
     'packages/embeddings/src/worker/embedding-worker-cache-io.ts#storeToCacheAsync',
-    'Embeddings keyed by content hash and model; refilled by the embedding worker as chunks are embedded.'
+    'Embeddings keyed by content hash and model; refilled by the embedding worker only as chunks re-embed, so truncated alone it stays cold.'
   ),
   operational(
     'embedding_dimension_index_maintenance',
@@ -313,7 +313,7 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
   ),
   operational(
     'job_queue',
-    'embed_chunk jobs only; sync re-enqueues unembedded chunks of the managed collection, while a manual collection needs a manual backfill after truncation.'
+    "embed_chunk jobs only; sync re-enqueues unembedded chunks of the managed collection, but a manual collection's pending embeddings stay pending until a manual backfill."
   ),
   operational('job_queue_metrics', 'Lifetime queue succeeded, failed and canceled counters.'),
   precious(
@@ -378,21 +378,34 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
 ];
 
 /**
+ * Table to class. A table classified twice throws here, at construction, so a
+ * duplicate fails the first import rather than letting one entry silently win.
+ */
+export function buildTableDurabilityIndex(
+  entries: readonly TableDurabilityEntry[]
+): ReadonlyMap<string, TableDurabilityClass> {
+  const index = new Map<string, TableDurabilityClass>();
+  for (const { durability, table } of entries) {
+    if (index.has(table)) {
+      throw new Error(`Table "${table}" is classified more than once; it must be exactly once.`);
+    }
+    index.set(table, durability);
+  }
+  return index;
+}
+
+const DURABILITY_BY_TABLE = buildTableDurabilityIndex(TABLE_DURABILITY_REGISTRY);
+
+/**
  * The durability class of `table`. Throws for an unregistered table — a guess
  * here would let a repair truncate rows nobody classified.
  */
 export function getTableDurability(table: string): TableDurabilityClass {
-  const matches = TABLE_DURABILITY_REGISTRY.filter((entry) => entry.table === table);
-  const [entry] = matches;
-  if (!entry) {
+  const durability = DURABILITY_BY_TABLE.get(table);
+  if (!durability) {
     throw new Error(
       `Table "${table}" has no durability class. Classify it in packages/db/src/table-durability-registry.ts (docs/agents/database.md § "TABLE DURABILITY CLASSES").`
     );
   }
-  if (matches.length > 1) {
-    throw new Error(
-      `Table "${table}" is classified ${matches.length} times; it must be exactly once.`
-    );
-  }
-  return entry.durability;
+  return durability;
 }

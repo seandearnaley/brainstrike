@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { getTableDurability, TABLE_DURABILITY_REGISTRY } from '../src/table-durability-registry';
+import {
+  buildTableDurabilityIndex,
+  getTableDurability,
+  TABLE_DURABILITY_REGISTRY,
+} from '../src/table-durability-registry';
 
 describe('getTableDurability', () => {
   it.each([
@@ -33,5 +37,21 @@ describe('TABLE_DURABILITY_REGISTRY shape', () => {
       expect(entry.reason.trim().length, entry.table).toBeGreaterThan(0);
       expect(entry.reason, entry.table).not.toContain('\n');
     }
+  });
+});
+
+describe('buildTableDurabilityIndex', () => {
+  const entry = (table: string, durability: 'precious' | 'operational') =>
+    ({ durability, reason: 'r', table }) as const;
+
+  it('maps each table to its class', () => {
+    const index = buildTableDurabilityIndex([entry('a', 'precious'), entry('b', 'operational')]);
+    expect([index.get('a'), index.get('b')]).toEqual(['precious', 'operational']);
+  });
+
+  it('throws when a table is classified twice, even with the same class', () => {
+    expect(() =>
+      buildTableDurabilityIndex([entry('dup', 'precious'), entry('dup', 'precious')])
+    ).toThrow('Table "dup" is classified more than once');
   });
 });

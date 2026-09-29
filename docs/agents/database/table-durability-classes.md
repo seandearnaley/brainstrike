@@ -19,9 +19,9 @@ Each call read the table's migration header, its repository or writers, its read
 | Table | Owner | What repopulates it |
 | --- | --- | --- |
 | `file_records`, `file_chunks`, `file_symbols`, `file_symbol_refs` | `workspace-collection-sync-import.ts#runRootFolderCacheImport` | Background indexing (`WorkspaceCollectionSyncService`, triggered by the provider's effects and resync-on-visibility) re-scans each mounted root and re-imports records, chunks and symbols. |
-| `embedding_cache` | `embedding-worker-cache-io.ts#storeToCacheAsync` | The embedding worker writes through as chunks are embedded, so it refills fully after `file_chunks` is rebuilt. |
+| `embedding_cache` | `embedding-worker-cache-io.ts#storeToCacheAsync` | The embedding worker writes through as chunks are embedded, so it refills fully after `file_chunks` is rebuilt; truncated alone it stays cold until chunks re-embed. |
 | `brainstrike_thread_message_index`, `brainstrike_thread_search_state` | `thread-search-repository.ts#ThreadSearchRepository` | `sync()` inserts missing index rows from `mastra_messages` in bounded batches and re-seeds missing state rows without re-extraction (its own comment covers the post-reset empty-state case). |
-| `brainstrike_assistant_tool_projection_rewrites` | `tool-projection-rewrite-repository.ts#recordSuccessfulToolProjection` | After the next tracked tool call, the scan re-reads the thread's persisted invocations and re-commits supersession and prune overlays. |
+| `brainstrike_assistant_tool_projection_rewrites` | `tool-projection-rewrite-repository.ts#recordSuccessfulToolProjection` | After the next tracked tool call, the scan re-reads the thread's persisted invocations and re-commits supersession and prune overlays. It is per thread: an idle thread replays its full tool results (larger prompts, no data loss) until its next tracked tool call. |
 
 ## Hard calls
 
@@ -34,10 +34,19 @@ Each call read the table's migration header, its repository or writers, its read
 - **Debug-only evidence is `operational`.** `brainstrike_assistant_run_errors`, `_prompt_manifests`, `brainstrike_delegated_live_decisions`, `_wakeups` and `brainstrike_diagnostic_events` are read only by the thread debug export (`thread-debug-snapshot.ts`); no runtime decision or UI reads them. `brainstrike_assistant_run_treatments` is analytics evidence whose loss voids past experiment attribution but changes no behavior.
 - **`brainstrike_assistant_tool_output_artifacts` is `operational`.** Retention is seven days by design, so truncation only shortens that window; older pages read as missing and the tool can be re-run.
 - **`brainstrike_assistant_edit_checkpoints` is `precious`.** Rows are identity-only since the snapshot-undo swap (paths, hashes, `reverted_at`); Revert restores from `brainstrike_workspace_snapshots` shadow commits. Both are the record of real file changes, and nothing rebuilds either.
-- **`file_tags`, `file_relationships` and `token_cache` are `operational`.** No code writes any of them. The first two cascade from `file_records`, so they cannot outlive a rebuild; the registry guard forbids a `precious` table under a non-`precious` cascade parent, so a feature that starts writing user tags must reclassify `file_tags` AND change the cascade. Dropping the three is a separate migration.
+- **`file_tags`, `file_relationships` and `token_cache` are `operational`.** No code writes any of them. The first two cascade from `file_records`, so they cannot outlive a rebuild; the registry guard rejects any foreign key from a `precious` table to a non-`precious` one, so a feature that starts writing user tags must reclassify `file_tags` AND change the cascade. Dropping the three is a separate migration.
+
+## What repair must name before truncating a non-precious table
+
+Truncating is safe only for what the table's rebuild path actually restores. Before truncating ANY `derived` or `operational` table, repair tells the user every scope that path cannot rebuild and any user-visible pending work the truncation would drop, and never proceeds silently. Each limit is in the entry's `reason`; the concrete cases:
+
+- `file_*`: only the managed collection rebuilds; manual-import collections need a re-import and lose their membership.
+- `job_queue`: manual-collection embed jobs are not re-enqueued; those chunks stay pending until a manual backfill.
+- `embedding_cache`: refills only when `file_chunks` re-embeds; truncated alone it stays cold.
+- `brainstrike_assistant_tool_projection_rewrites`: rebuilt per thread on its next tracked tool call; an idle thread replays full results until then.
 
 ## What the classes do not cover
 
 - The class is per table. `prompt_items.embedding` and `brainstrike_thread_message_index.embedding` are derivable columns, but only the second table is `derived`; re-deriving a column inside a `precious` table is a different repair.
-- Truncating a `derived` table cascades through its foreign keys (`file_records` reaches `file_chunks`, `file_symbols`, `file_symbol_refs`, `file_relationships`, `file_tags`). The registry guard keeps that set free of `precious` rows; a ladder must still truncate parents and children together.
+- Truncating a `derived` table cascades through its foreign keys (`file_records` reaches `file_chunks`, `file_symbols`, `file_symbol_refs`, `file_relationships`, `file_tags`). `TRUNCATE ... CASCADE` empties every referencing table whatever its delete rule, and `SET NULL` / `SET DEFAULT` rewrite rows under a DELETE-based repair, so the registry guard rejects ANY foreign key (cascade, restrict, no action, set null, set default) from a `precious` table to a non-`precious` one. Every existing edge passed; a ladder must still truncate parents and children together.
 - `roots` is `precious` and is the cascade parent of `file_records`: never truncate `roots` to "reset" the index.

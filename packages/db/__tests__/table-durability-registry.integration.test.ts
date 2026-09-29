@@ -29,7 +29,12 @@ const ABSENT_FROM_MIGRATED_DATABASE = new Set<string>([
   '_migrations',
 ]);
 
-/** Whether `source` exports `symbol` as a declaration or an `export { … }` specifier. */
+/**
+ * Whether `source` exports `symbol` as a declaration or an `export { … }`
+ * specifier (inline `type` included). `symbol` is interpolated into a RegExp
+ * unescaped, which is safe only because every rebuild owner is `\w+` (pinned by
+ * the registry unit test).
+ */
 function sourceExportsSymbol(source: string, symbol: string): boolean {
   const declaration = new RegExp(
     `^export\\s+(?:declare\\s+)?(?:abstract\\s+)?(?:async\\s+)?(?:function\\*?|class|const|let|var|interface|type|enum)\\s+${symbol}\\b`,
@@ -43,6 +48,7 @@ function sourceExportsSymbol(source: string, symbol: string): boolean {
       (specifier) =>
         specifier
           .trim()
+          .replace(/^type\s+/u, '')
           .split(/\s+as\s+/u)
           .pop()
           ?.trim() === symbol
@@ -57,13 +63,31 @@ describe('rebuild-owner export check (control)', () => {
       'export class DeclaredClass {}',
       'export const declaredConst = 1;',
       'const local = 1;',
-      'export { local as renamedExport, other };',
+      'export { local as renamedExport, other, type InlineType, type Inner as RenamedType };',
+      'export type { OnlyType };',
     ].join('\n');
-    for (const symbol of ['declaredFn', 'DeclaredClass', 'declaredConst', 'renamedExport']) {
+    for (const symbol of [
+      'declaredFn',
+      'DeclaredClass',
+      'declaredConst',
+      'renamedExport',
+      'InlineType',
+      'RenamedType',
+      'OnlyType',
+    ]) {
       expect(sourceExportsSymbol(source, symbol), symbol).toBe(true);
     }
-    for (const symbol of ['local', 'missing', 'declared']) {
+    for (const symbol of ['local', 'missing', 'declared', 'Inner', 'type']) {
       expect(sourceExportsSymbol(source, symbol), symbol).toBe(false);
+    }
+  });
+});
+
+describe('tables a migrated database lacks', () => {
+  it('are still classified, so a new lazy table cannot go unregistered', () => {
+    const registered = new Set(TABLE_DURABILITY_REGISTRY.map((entry) => entry.table));
+    for (const table of ABSENT_FROM_MIGRATED_DATABASE) {
+      expect(registered.has(table), `${table} has no durability class`).toBe(true);
     }
   });
 });
@@ -109,25 +133,46 @@ describe('table durability registry (real migrated database)', () => {
     }
   });
 
-  it('never lets a precious table depend on a non-precious parent through ON DELETE CASCADE', async () => {
+  /** Foreign keys from a precious child to a non-precious parent, whatever the delete rule. */
+  async function preciousChildrenOfNonPreciousParents(): Promise<
+    readonly { child: string; parent: string }[]
+  > {
     const durability = new Map(TABLE_DURABILITY_REGISTRY.map((e) => [e.table, e.durability]));
     const result = await db.query<{ child: string; parent: string }>(
       `SELECT DISTINCT child.relname AS child, parent.relname AS parent
          FROM pg_constraint c
          JOIN pg_class child ON child.oid = c.conrelid
          JOIN pg_class parent ON parent.oid = c.confrelid
-        WHERE c.contype = 'f' AND c.confdeltype = 'c' AND child.relnamespace = 'public'::regnamespace`
+        WHERE c.contype = 'f' AND child.relnamespace = 'public'::regnamespace`
     );
-    // Control: the query must see CASCADE foreign keys, or the loop is vacuous.
+    // Control: the query must see foreign keys, or the filter below is vacuous.
     expect(result.rows.length).toBeGreaterThan(0);
-    const offenders = result.rows.filter(
+    return result.rows.filter(
       ({ child, parent }) =>
         durability.get(child) === 'precious' && durability.get(parent) !== 'precious'
     );
+  }
+
+  it('never lets a precious table reference a non-precious parent through any foreign key', async () => {
     expect(
-      offenders,
-      'Truncating a derived or operational parent would cascade into these precious children.'
+      await preciousChildrenOfNonPreciousParents(),
+      'TRUNCATE parent CASCADE empties every referencing table whatever its delete rule, and SET NULL / SET DEFAULT rewrite precious rows under a DELETE-based repair.'
     ).toEqual([]);
+  });
+
+  it('catches a precious table that references a non-precious parent by a non-cascade rule', async () => {
+    await db.exec(`
+      ALTER TABLE brainstrike_assistant_thread_groups
+        ADD COLUMN probe_no_action text REFERENCES job_queue_metrics(queue);
+      ALTER TABLE brainstrike_assistant_thread_placements
+        ADD COLUMN probe_set_null text REFERENCES job_queue_metrics(queue) ON DELETE SET NULL;
+    `);
+    expect(await preciousChildrenOfNonPreciousParents()).toEqual(
+      expect.arrayContaining([
+        { child: 'brainstrike_assistant_thread_groups', parent: 'job_queue_metrics' },
+        { child: 'brainstrike_assistant_thread_placements', parent: 'job_queue_metrics' },
+      ])
+    );
   });
 
   it('resolves every derived rebuild owner to an exported symbol', () => {
