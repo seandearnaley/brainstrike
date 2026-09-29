@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { joinProfileDirectory } from '../../database-location';
 import {
   bootHost,
   lifecycleStates,
@@ -40,6 +41,15 @@ vi.mock('@brainstrike/logging', async () => {
 });
 
 const originalDbRootPath = process.env['BRAINSTRIKE_DB_ROOT_PATH'];
+const originalDbProfile = process.env['BRAINSTRIKE_DB_PROFILE'];
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    Reflect.deleteProperty(process.env, key);
+    return;
+  }
+  process.env[key] = value;
+}
 
 describe('db-host-entry signal close over the real db-main', () => {
   let rootPath: string;
@@ -63,9 +73,11 @@ describe('db-host-entry signal close over the real db-main', () => {
     vi.resetModules();
     vi.clearAllMocks();
     rootPath = mkdtempSync(path.join(tmpdir(), 'brainstrike-host-close-'));
-    appDataDir = path.join(rootPath, 'profiles', 'test');
+    appDataDir = joinProfileDirectory(rootPath, 'test');
     process.env['NODE_ENV'] = 'test';
+    // The host reads BOTH from its environment and throws when either is missing.
     process.env['BRAINSTRIKE_DB_ROOT_PATH'] = rootPath;
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
     // Implementations a test set (a failing close, a gated open) must not leak into the next one.
     for (const method of [engine.close, engine.migrate, engine.syncToFs]) {
       method.mockReset();
@@ -83,11 +95,8 @@ describe('db-host-entry signal close over the real db-main', () => {
     vi.restoreAllMocks();
     vi.resetModules();
     restoreParentPort();
-    if (originalDbRootPath === undefined) {
-      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
-    } else {
-      process.env['BRAINSTRIKE_DB_ROOT_PATH'] = originalDbRootPath;
-    }
+    restoreEnv('BRAINSTRIKE_DB_ROOT_PATH', originalDbRootPath);
+    restoreEnv('BRAINSTRIKE_DB_PROFILE', originalDbProfile);
     rmSync(rootPath, { force: true, recursive: true });
   });
 

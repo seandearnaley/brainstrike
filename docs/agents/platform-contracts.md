@@ -216,7 +216,10 @@ never used. Wiping the database alone is not enough.
 - Desktop userData is wiped wholesale, so the main-process storage keys, the
   bundled CPython unpack directory, and the shadow-git dirs need no per-key
   wiring. If one moves outside `userData`, or `logs` gains a preserved sibling,
-  it needs explicit wiring and an update here.
+  it needs explicit wiring and an update here. The database root is inside
+  `userData` only in test runs and on packaged macOS; reset closes the DB host and
+  deletes the profile before any wipe (`database.md` § "DESKTOP DATABASE
+  LOCATION"; guard `main/desktop-factory-reset-packaged-layout.test.ts`).
 - The renderer `storage:*` bridge cannot mutate the root, recents, or vault
   authority keys: `setItem`/`removeItem` reject them by exact key, `setItem`
   rejects a non-string value, and `clear` removes only renderer-owned records,
@@ -378,7 +381,6 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   already-closed listener (`ERR_SERVER_NOT_RUNNING`) is a successful repeated
   stop and other close failures stay visible. Why: plain `server.close()` waits
   for every in-flight response.
-- The DB host is closed, not killed: close envelope → SIGTERM → awaited `exit` → SIGKILL on timeout
 - The DB host is closed, not killed: close envelope → SIGTERM → awaited `exit` → SIGKILL on timeout
   (logged as a crash). A close is clean only if the host acknowledged it or, after exit,
   `<profile>/.db-clean-shutdown` names that host's pid; an exit code, even 0, is never proof. No host

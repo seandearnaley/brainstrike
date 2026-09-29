@@ -723,7 +723,8 @@ async function closeWhenIdle(settled: Promise<void> | null): Promise<void> {
     });
     throw error;
   } finally {
-    // Exit 0 ONLY after a successful close, so main can read the exit as a clean close.
+    // Exit 0 only after a clean close. The code is informational: main proves a clean close by the
+    // acknowledgement or the marker naming this pid, never by the exit code.
     if (exitAfterClose) {
       process.exit(lifecycle === 'closed' ? 0 : 1);
     }
