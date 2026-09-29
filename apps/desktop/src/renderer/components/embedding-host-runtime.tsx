@@ -2,7 +2,7 @@ import {
   ensureVectorPreferencesHydrated,
   useVectorPreferencesStore,
 } from '@brainstrike/app-state/stores/vector-preferences-store';
-import { createEmbeddingCacheRepository } from '@brainstrike/db';
+import { createEmbeddingCacheRepository, createPriorityDbHandle } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
@@ -316,7 +316,10 @@ async function loadQueryEmbeddingModelConfig(
   db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
   request: EmbeddingHostQueryEmbeddingRequest
 ): Promise<ModelConfig> {
-  const result = await db.query<DbModelRow>(
+  // A user's search waits on this read. Host-window work defaults to background,
+  // which the desktop scheduler rejects while database integrity is contained
+  // (BST-1870), so the read runs on the foreground lane.
+  const result = await createPriorityDbHandle(db, 'foreground').query<DbModelRow>(
     `SELECT
       id,
       provider_id AS "providerId",
