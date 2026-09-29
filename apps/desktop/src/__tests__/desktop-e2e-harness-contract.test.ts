@@ -66,6 +66,11 @@ describe('desktop E2E harness contract', () => {
     expect(extraEnvAt).toBeGreaterThan(source.indexOf('...baseEnv,'));
     expect(extraEnvAt).toBeLessThan(source.indexOf("ELECTRON_IS_E2E_TEST: 'true'"));
     expect(extraEnvAt).toBeLessThan(source.indexOf('BRAINSTRIKE_DISABLE_FILE_LOGS'));
+    // ...and it must stay that way for the one variable a spec exists to pass: nothing after the
+    // spread, up to the end of `createLaunchOptions`, may set `LOG_LEVEL` and override it.
+    const afterSpread = source.slice(extraEnvAt, source.indexOf('// #region Linux CI Electron'));
+    expect(afterSpread.length).toBeGreaterThan(0);
+    expect(afterSpread).not.toContain('LOG_LEVEL');
   });
 
   it('exposes renderer GC and fails loudly when the memory harness cannot collect', () => {

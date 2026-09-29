@@ -116,7 +116,17 @@ export class ElectronHarness {
         );
       }
     } catch (error) {
-      await reapProcess(mainProcess);
+      try {
+        await reapProcess(mainProcess);
+      } catch (reapError) {
+        // The process is still unaccounted for, so the harness keeps nothing of it either way; the
+        // test failure that got us here must not be replaced by the reap failure.
+        this.forget(context);
+        throw new AggregateError(
+          [error, reapError],
+          'endOutOfBand failed and the Electron main process could not be reaped'
+        );
+      }
       this.forget(context);
       throw error;
     }

@@ -100,6 +100,29 @@ describe('ElectronHarness.endOutOfBand', () => {
     expect(electronProcess.signalCode).toBe('SIGKILL');
   });
 
+  it('keeps both errors when reaping the process fails too, so the original is never hidden', async () => {
+    const harness = createHarness();
+    const electronProcess = await launchedProcess(harness);
+    const reapFailure = new Error('EPERM: operation not permitted');
+    electronProcess.kill.mockImplementation(() => {
+      throw reapFailure;
+    });
+    const failure = new Error('close timed out');
+
+    const thrown = await harness
+      .endOutOfBand(async () => {
+        throw failure;
+      })
+      .then(
+        () => null,
+        (error: unknown) => error
+      );
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([failure, reapFailure]);
+    expect((thrown as AggregateError).message).toMatch(/could not be reaped/);
+  });
+
   it('does not kill a process that already exited when `end` rejects', async () => {
     const harness = createHarness();
     const electronProcess = await launchedProcess(harness);
