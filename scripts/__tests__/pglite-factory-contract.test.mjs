@@ -12,7 +12,8 @@ const factoryPath = 'packages/db/src/pglite-factory.ts';
 // engine set. Its own module and package subpath keep amcheck out of every browser bundle.
 const verificationFactoryPath = 'packages/db/src/pglite-verification-factory.ts';
 const factoryPaths = [factoryPath, verificationFactoryPath];
-// Runtime sources that may import it: only the desktop DB tool process (added by BST-1877 L2).
+// Runtime sources that may import it. FORTHCOMING: BST-1877 L2 adds the desktop DB tool entry; until
+// then nothing imports the verification factory (the guard below passes with no importer).
 const verificationFactoryImporters = ['apps/desktop/src/db-tool-entry.ts'];
 function isRuntimeSource(file) {
   return (
@@ -109,6 +110,30 @@ test('only the desktop DB tool process may import the amcheck verification facto
     importers.filter((file) => !verificationFactoryImporters.includes(file)),
     [],
     'amcheck must stay out of browser bundles: only the desktop DB tool process imports the verification factory'
+  );
+});
+
+test('amcheck is imported only by the verification factory, never directly', () => {
+  const files = execFileSync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard', 'apps', 'packages', 'scripts'],
+    { cwd: repoRoot, encoding: 'utf8' }
+  )
+    .trim()
+    .split('\n')
+    .filter((file) => existsSync(path.join(repoRoot, file)));
+  const importers = files.filter(
+    (file) =>
+      isRuntimeSource(file) &&
+      file !== verificationFactoryPath &&
+      readFileSync(path.join(repoRoot, file), 'utf8').includes(
+        '@electric-sql/pglite/contrib/amcheck'
+      )
+  );
+  assert.deepEqual(
+    importers,
+    [],
+    `Load amcheck only through ${verificationFactoryPath}, so no other module can put it in a bundle`
   );
 });
 

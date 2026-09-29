@@ -544,8 +544,9 @@ quantization benchmark, `apps/desktop/src/db-main.ts`, which dynamically imports
 `@brainstrike/db/pglite-factory` so bare package imports stay external in the
 main-process build, and the snapshot verifier's `pglite-verification-factory.ts`: the
 engine set plus `amcheck` and no `live`, in its own subpath so no browser bundle reaches
-amcheck, imported only by `apps/desktop/src/db-tool-entry.ts`. The contract guard has no
-runtime exceptions.
+amcheck. Only the desktop DB tool entry (`apps/desktop/src/db-tool-entry.ts`, forthcoming)
+may import it, and nothing else may import `amcheck`. The contract guard has no runtime
+exceptions.
 
 - Loading the extension binaries does not execute `CREATE EXTENSION`; callers and
   migrations own that SQL and shutdown/drain behaviour.

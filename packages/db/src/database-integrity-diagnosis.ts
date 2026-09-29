@@ -20,6 +20,14 @@
  *   a probe touches is a property of the query, so a probe proves the paths it
  *   walks, not the whole index; `unchecked` lists what no probe could walk.
  * - a per-table `count(*)` with index scans disabled, so the count reads the heap.
+ * - an index the catalog marks invalid or not ready (what an interrupted rebuild
+ *   leaves) is its own `index-invalid` finding: amcheck refuses it, and a
+ *   verification after a crash must surface it. An unpopulated materialized view
+ *   is unchecked, not damaged.
+ *
+ * Probe findings keep only the SQLSTATE and a fixed description: the write path
+ * and the tokenizer can echo row content into an error. The probe write runs as
+ * a replica (`session_replication_role`), so user triggers do not fire in it.
  *
  * An error is attributed to the relation being checked and its message is never
  * parsed: BM25 damage is reported against the heap, so the text is not evidence
@@ -52,14 +60,17 @@ const DEFAULT_MAX_FINDINGS = 500;
 const BM25_PROBE_TEXT_LENGTH = 200;
 const BM25_LOST_ENTRIES =
   'The search for text taken from the table matched no row, so the index does not hold rows the table does.';
+const INDEX_INVALID =
+  'The catalog marks this index invalid or not ready, so it is neither maintained nor used until it is rebuilt.';
 const HNSW_LOST_ENTRIES =
   'The nearest-neighbour search for a vector taken from the table returned no row, so the index does not hold rows the table does.';
 
 export interface UncheckedRelation {
-  readonly accessMethod: string;
+  readonly accessMethod: string | null;
   readonly reason:
     | 'no-indexed-rows'
     | 'table-has-findings'
+    | 'unpopulated-materialized-view'
     | 'unsupported-access-method'
     | 'unsupported-index-definition';
   readonly relation: string;
@@ -101,11 +112,13 @@ const relationRows = makeThrowingDecoder(
       hasToast: Schema.Boolean,
       kind: Schema.Literals(['r', 'm', 't', 'i', 'S']),
       oid: Schema.String,
+      populated: Schema.Boolean,
       relation: Schema.String,
       schema: Schema.String,
       table: Schema.String,
       tableOid: Schema.String,
       tableSchema: Schema.String,
+      usable: Schema.Boolean,
     })
   )
 );
@@ -156,7 +169,8 @@ const HNSW_DISTANCE_OPERATORS: Readonly<Record<string, string>> = {
 const RELATIONS_SQL = `
   SELECT c.oid::text AS "oid", n.nspname::text AS "schema", c.relname::text AS "relation",
          c.relkind::text AS "kind", am.amname::text AS "accessMethod",
-         (c.reltoastrelid <> 0) AS "hasToast",
+         (c.reltoastrelid <> 0) AS "hasToast", c.relispopulated AS "populated",
+         COALESCE(i.indisvalid AND i.indisready, true) AS "usable",
          owner.oid::text AS "tableOid", owner.relname::text AS "table",
          owner_ns.nspname::text AS "tableSchema"
   FROM pg_class c
@@ -212,6 +226,9 @@ function messageOf(error: unknown): string {
 function isFatalTrap(error: unknown): boolean {
   return error instanceof Error && error.name === 'PGliteFatalTrapError';
 }
+
+/** Probe errors can echo row content (the write path, the tokenizer), so their findings keep only the SQLSTATE. */
+const PROBE_CHECKS: ReadonlySet<IntegrityCheck> = new Set(['bm25-probe', 'hnsw-probe']);
 
 /** A probe transaction that would not roll back leaves the connection in an unknown state: the diagnosis stops. */
 class ProbeCleanupError extends Error {
@@ -271,6 +288,13 @@ class DiagnosisRun {
   async checkIndexes(): Promise<void> {
     const probed: RelationRow[] = [];
     for (const index of this.#relations.filter(({ kind }) => kind === 'i')) {
+      if (!index.usable) {
+        // Left behind by an interrupted build or rebuild, and exactly what a verification after a
+        // crash must surface. amcheck refuses such an index, so it is reported, not checked.
+        this.#record(index, 'index-invalid', { message: INDEX_INVALID, sqlstate: null });
+        this.checkedRelations += 1;
+        continue;
+      }
       switch (index.accessMethod) {
         case 'btree':
           if (this.#tablesWithHeapFindings.has(index.tableOid)) {
@@ -336,6 +360,16 @@ class DiagnosisRun {
       if (relation.schema !== 'public' || (relation.kind !== 'r' && relation.kind !== 'm')) {
         continue;
       }
+      if (!relation.populated) {
+        // count(*) on a view that was never populated is an error, not a damaged relation.
+        this.#skip(relation, 'unpopulated-materialized-view');
+        tables.push({
+          durability: this.#classify(relation.relation) ?? 'unclassified',
+          rows: null,
+          table: relation.relation,
+        });
+        continue;
+      }
       const rows = await this.#attempt(relation, 'row-count', async () => {
         const [counted] = countRows(
           (
@@ -351,7 +385,7 @@ class DiagnosisRun {
       });
       tables.push({
         durability: this.#classify(relation.relation) ?? 'unclassified',
-        rows: rows === NOT_CHECKED ? null : (rows ?? null),
+        rows: typeof rows === 'number' ? rows : null,
         table: relation.relation,
       });
     }
@@ -383,22 +417,25 @@ class DiagnosisRun {
 
   /** Searches with text taken from the table, then rewrites one row through the index; both roll back. */
   async #probeBm25(index: RelationRow, definition: IndexDefinition): Promise<Verdict<void>> {
-    if (definition.column === null) {
+    // An expression key has no column to sample, and bm25 requires a text_config; without both the
+    // probe cannot be built.
+    if (definition.column === null || definition.textConfig === null) {
       return this.#notChecked(index, 'unsupported-index-definition');
     }
     const table = qualified(index.tableSchema, index.table);
     const column = quoteIdentifier(definition.column);
     // A value whose text has at least one term the index's own configuration keeps, so the
     // search below has something to match. A sample of stop words alone would legitimately match nothing.
-    const config = definition.textConfig
-      ? `${quoteLiteral(definition.textConfig)}::regconfig, `
-      : '';
+    const config = `${quoteLiteral(definition.textConfig)}::regconfig, `;
     const text = `left(${column}::text, ${BM25_PROBE_TEXT_LENGTH})`;
+    // A partial index holds only the rows its predicate accepts: the sample, the search and the
+    // write all stay inside them, and the search's WHERE lets the planner choose the index.
+    const inIndex = definition.predicate ? ` AND (${definition.predicate})` : '';
     const [sample] = sampleRows(
       (
         await this.#db.query(
           `SELECT ${text} AS "sample" FROM ${table}
-            WHERE ${column} IS NOT NULL AND to_tsvector(${config}${text}) <> ''::tsvector LIMIT 1`
+            WHERE ${column} IS NOT NULL${inIndex} AND to_tsvector(${config}${text}) <> ''::tsvector LIMIT 1`
         )
       ).rows
     );
@@ -407,7 +444,7 @@ class DiagnosisRun {
     }
     await this.#inRolledBackTransaction(async () => {
       const found = await this.#db.query(
-        `SELECT 1 FROM ${table} ORDER BY ${column} <@> to_bm25query($1, ${quoteLiteral(index.relation)}) LIMIT 1`,
+        `SELECT 1 FROM ${table}${definition.predicate ? ` WHERE (${definition.predicate})` : ''} ORDER BY ${column} <@> to_bm25query($1, ${quoteLiteral(index.relation)}) LIMIT 1`,
         [sample.sample]
       );
       if (found.rows.length === 0) {
@@ -416,7 +453,7 @@ class DiagnosisRun {
       }
       // A non-HOT update: the access method's insert path runs, then the write rolls back.
       await this.#db.query(
-        `UPDATE ${table} SET ${column} = ${column} || ' ' WHERE ctid = (SELECT ctid FROM ${table} WHERE ${column} IS NOT NULL LIMIT 1)`
+        `UPDATE ${table} SET ${column} = ${column} || ' ' WHERE ctid = (SELECT ctid FROM ${table} WHERE ${column} IS NOT NULL${inIndex} LIMIT 1)`
       );
     });
     return undefined;
@@ -462,7 +499,11 @@ class DiagnosisRun {
     await this.#db.exec('BEGIN');
     let failure: { error: unknown } | undefined;
     try {
-      await this.#db.exec('SET LOCAL enable_seqscan = off');
+      // replica: the probe write does not fire user triggers or foreign-key checks, which would
+      // run application code against a copy; a trigger marked ENABLE ALWAYS still fires.
+      await this.#db.exec(
+        'SET LOCAL enable_seqscan = off; SET LOCAL session_replication_role = replica'
+      );
       await run();
     } catch (error) {
       failure = { error };
@@ -498,7 +539,12 @@ class DiagnosisRun {
       if (isFatalTrap(error) || error instanceof ProbeCleanupError) {
         throw error;
       }
-      this.#record(relation, check, { message: messageOf(error), sqlstate: sqlstateOf(error) });
+      this.#record(relation, check, {
+        message: PROBE_CHECKS.has(check)
+          ? `The ${check === 'bm25-probe' ? 'bm25' : 'hnsw'} probe raised an error against this index.`
+          : messageOf(error),
+        sqlstate: sqlstateOf(error),
+      });
       this.#countChecked(check, undefined);
       return undefined;
     }
@@ -516,7 +562,10 @@ class DiagnosisRun {
     check: IntegrityCheck,
     problem: { message: string; sqlstate: string | null }
   ): void {
-    this.#tablesWithFindings.add(relation.tableOid);
+    if (check !== 'index-invalid') {
+      // A catalog marking is not a failed read, so it never gates another check on the table.
+      this.#tablesWithFindings.add(relation.tableOid);
+    }
     if (check === 'heap') {
       this.#tablesWithHeapFindings.add(relation.tableOid);
     }
@@ -534,7 +583,7 @@ class DiagnosisRun {
 
   #skip(relation: RelationRow, reason: UncheckedRelation['reason']): void {
     this.unchecked.push({
-      accessMethod: relation.accessMethod ?? 'unknown',
+      accessMethod: relation.accessMethod,
       reason,
       relation: relation.relation,
       table: relation.table,
@@ -550,9 +599,8 @@ class DiagnosisRun {
     if (relation.tableSchema === 'pg_catalog') {
       return 'catalog';
     }
-    return relation.tableSchema === 'public'
-      ? (this.#classify(relation.table) ?? 'unclassified')
-      : 'unclassified';
+    // RELATIONS_SQL reaches only public and pg_catalog owners (TOAST relations report theirs).
+    return this.#classify(relation.table) ?? 'unclassified';
   }
 }
 

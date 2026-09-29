@@ -123,7 +123,9 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1877 L1b raised it from 926 (+3): the snapshot verifier is a new PGlite construction
   // site (the engine set plus amcheck, in its own subpath and importable by one file), and an
   // agent adding a site or importing amcheck must meet that rule where the sites are listed.
-  'database.md': 929,
+  // It rose to 930 (+1) when the review made the sentence true in the present tense: the tool entry
+  // is forthcoming, and no module may import amcheck directly (now guarded).
+  'database.md': 930,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.

@@ -10,8 +10,8 @@ import { TABLE_DURABILITY_CLASSES } from './table-durability-registry.js';
 
 /** Checks that read a table's heap. */
 const TABLE_CHECKS = ['heap', 'row-count'] as const;
-/** Checks that read one index. */
-const INDEX_CHECKS = ['btree', 'gin', 'bm25-probe', 'hnsw-probe'] as const;
+/** Checks that read one index; `index-invalid` reports the catalog marking an index unusable. */
+const INDEX_CHECKS = ['btree', 'gin', 'bm25-probe', 'hnsw-probe', 'index-invalid'] as const;
 /** Every check, derived from the two families and `open`, so a check cannot exist without a family. */
 export const INTEGRITY_CHECKS = ['open', ...TABLE_CHECKS, ...INDEX_CHECKS] as const;
 export type IntegrityCheck = (typeof INTEGRITY_CHECKS)[number];

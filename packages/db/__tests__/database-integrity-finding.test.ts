@@ -43,7 +43,7 @@ describe('classifyFindingSeverity', () => {
     (durability) => {
       // Fail closed: only an index in a user schema can be rebuilt while the database stays up.
       const expected: FindingSeverity = durability === 'catalog' ? 'blocking' : 'repairable';
-      for (const check of ['btree', 'gin', 'bm25-probe', 'hnsw-probe'] as const) {
+      for (const check of ['btree', 'gin', 'bm25-probe', 'hnsw-probe', 'index-invalid'] as const) {
         expect(severity(check, 'index', durability), check).toBe(expected);
       }
     }
@@ -59,7 +59,7 @@ describe('classifyFindingSeverity', () => {
 
 describe('classifyFindingSeverity when the check and the relation kind disagree', () => {
   const HEAP_CHECKS = ['heap', 'row-count'] as const;
-  const INDEX_CHECKS = ['btree', 'gin', 'bm25-probe', 'hnsw-probe'] as const;
+  const INDEX_CHECKS = ['btree', 'gin', 'bm25-probe', 'hnsw-probe', 'index-invalid'] as const;
 
   it.each(DURABILITIES)('fails closed for a heap check on an index (%s)', (durability) => {
     for (const check of HEAP_CHECKS) {
