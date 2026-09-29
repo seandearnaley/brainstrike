@@ -352,3 +352,50 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     expect(restoredPrimary).not.toBe(highContrastPrimary);
   });
 });
+
+/**
+ * Generated palettes (`themes/*.css`, imported from shadcn presets) author their
+ * tokens as `oklch(...)`. Chromium's canvas `fillStyle` getter echoes that syntax
+ * back verbatim instead of converting it to `#rrggbb`, so a helper that trusted
+ * it would hand `hexToHsl` an `oklch(...)` string. These cases pin the
+ * pixel-readback contract on a bare page: no app boot, and independent of which
+ * palettes the app currently ships.
+ */
+test.describe('Theme colour normalization (E2E)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('about:blank');
+  });
+
+  test('collapses oklch() literals to opaque sRGB hex', async ({ page }) => {
+    expect(await normalizeColor(page, 'oklch(1 0 0)')).toBe('#ffffff');
+    expect(await normalizeColor(page, 'oklch(0 0 0)')).toBe('#000000');
+
+    const cyan = await normalizeColor(page, 'oklch(0.52 0.105 223.128)');
+    expect(cyan).toMatch(/^#[0-9a-f]{6}$/u);
+    const { hue, saturation } = hexToHsl(cyan);
+    expect(hue).toBeGreaterThanOrEqual(170);
+    expect(hue).toBeLessThanOrEqual(210);
+    expect(saturation).toBeGreaterThan(40);
+  });
+
+  test('resolves an oklch() custom property to the same hex as its literal', async ({ page }) => {
+    const literal = 'oklch(0.525 0.223 3.958)';
+    await page.evaluate((value) => {
+      document.documentElement.style.setProperty('--bs-oklch-probe', value);
+    }, literal);
+
+    const [fromToken, fromLiteral] = await Promise.all([
+      resolveTokenColor(page, '--bs-oklch-probe'),
+      normalizeColor(page, literal),
+    ]);
+
+    expect(fromToken).toMatch(/^#[0-9a-f]{6}$/u);
+    expect(fromToken).toBe(fromLiteral);
+  });
+
+  test('refuses a translucent oklch() token instead of flattening it', async ({ page }) => {
+    // Preset dark borders are `oklch(1 0 0 / 10%)`; comparing a flattened value
+    // would silently assert on the wrong colour.
+    await expect(normalizeColor(page, 'oklch(1 0 0 / 10%)')).rejects.toThrow(/not opaque/u);
+  });
+});
