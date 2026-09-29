@@ -22,6 +22,8 @@ export interface ElectronAppContext {
 
 interface LaunchElectronAppOptions {
   readonly disableExternalLocalRuntimeProbes?: boolean;
+  /** Extra environment for this launch, applied BEFORE the harness's own variables so it cannot override them. */
+  readonly env?: Readonly<Record<string, string>>;
   readonly launchMode?: 'built' | 'dev-server' | 'test-built';
   readonly userDataDir?: string;
 }
@@ -218,7 +220,7 @@ function logEnvironmentDiagnostics(userDataDir?: string): void {
 export async function launchElectronApp(
   _debugPort?: number,
   userDataDir?: string,
-  options: Pick<LaunchElectronAppOptions, 'disableExternalLocalRuntimeProbes'> = {}
+  options: Pick<LaunchElectronAppOptions, 'disableExternalLocalRuntimeProbes' | 'env'> = {}
 ): Promise<ElectronAppContext> {
   return await launchElectronAppWithOptions({
     ...options,
@@ -267,7 +269,8 @@ export async function launchElectronAppWithOptions(
       userDataDir,
       launchTimeoutMs,
       launchMode,
-      options.disableExternalLocalRuntimeProbes ?? false
+      options.disableExternalLocalRuntimeProbes ?? false,
+      options.env ?? {}
     );
 
     try {
@@ -346,7 +349,8 @@ function createLaunchOptions(
   userDataDir?: string,
   launchTimeoutMs?: number,
   launchMode: 'built' | 'dev-server' | 'test-built' = 'test-built',
-  disableExternalLocalRuntimeProbes = false
+  disableExternalLocalRuntimeProbes = false,
+  extraEnv: Readonly<Record<string, string>> = {}
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
@@ -408,6 +412,8 @@ function createLaunchOptions(
     args: [...baseArgs, ...ciArgs],
     env: {
       ...baseEnv,
+      // Before every harness-owned variable below: a spec's env can add, never override them.
+      ...extraEnv,
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase

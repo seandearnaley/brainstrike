@@ -1,12 +1,17 @@
 import { runShutdownSequence, type ShutdownStepOutcome } from '@brainstrike/effect-kit';
+import { DB_HOST_CLOSE_BUDGET_MS } from '../db-host-close-budget';
 import { type SerializedDesktopError, serializeDesktopError } from '../desktop-error-serialization';
 
 /**
  * The ONE order desktop main tears down in. Each owner stops while everything
  * it depends on is still alive: renderers before the hosts they call, the
  * assistant server before the MCP host it uses, git and forge before the
- * database they read, and the durable error log last so it can record every
- * earlier failure. See platform-contracts.md § "Graceful shutdown ownership".
+ * database they read, and `database-drain` last: it stops everything that
+ * issues database work. Two things deliberately sit OUTSIDE this sequence and
+ * its budget: the database close itself (`DesktopShutdownRunPlan.closeDatabase`,
+ * its own reserved slice that always runs) and the durable error-log close
+ * (last of all, so the log can record every earlier failure). See
+ * platform-contracts.md § "Graceful shutdown ownership".
  */
 export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'renderers',
@@ -18,8 +23,7 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'llm-host',
   'git-inventory',
   'forge',
-  'database',
-  'error-log-sink',
+  'database-drain',
 ] as const;
 
 export type DesktopShutdownStepName = (typeof DESKTOP_SHUTDOWN_STEP_ORDER)[number];
@@ -27,10 +31,11 @@ export type DesktopShutdownStepName = (typeof DESKTOP_SHUTDOWN_STEP_ORDER)[numbe
 export type DesktopShutdownTrigger = 'before-quit' | 'signal';
 
 /**
- * How long after the step deadline the backstop exits. The step deadline
- * normally fires first, aborting and naming the stuck step; the backstop only
- * acts when the orchestration itself failed (a throwing `planRun`, say) and
- * the steps never got their deadline.
+ * How long past the step deadline AND the reserved database-close slice
+ * (`DB_HOST_CLOSE_BUDGET_MS`) the backstop exits. The step deadline normally
+ * fires first, aborting and naming the stuck step, and the close ladder bounds
+ * itself; the backstop only acts when the orchestration itself failed (a
+ * throwing `planRun`, say) and the steps never got their deadline.
  */
 export const DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS = 250;
 
@@ -41,6 +46,15 @@ export type DesktopShutdownStepRun = (signal: AbortSignal) => Promise<void> | vo
 
 /** One run's step bodies, built when that run starts so they capture its state. */
 export interface DesktopShutdownRunPlan {
+  /**
+   * The reserved database-close slice. Runs after the ordered steps whether they
+   * finished or the deadline aborted one: the only step whose skip damages durable
+   * state. It bounds itself (`DB_HOST_CLOSE_BUDGET_MS`); a failure is recorded as the
+   * `database-close` step.
+   */
+  readonly closeDatabase: () => Promise<void>;
+  /** Closes the durable NDJSON error log. Runs last, after the aggregate failure warn. */
+  readonly closeErrorLogSink: () => void;
   /** Read after 'mcp-runtime' settles; false records `McpShutdownOrderingError`. */
   readonly isAssistantServerDrained: () => boolean;
   readonly steps: Readonly<Record<DesktopShutdownStepName, DesktopShutdownStepRun>>;
@@ -81,28 +95,83 @@ function toFailure(outcome: ShutdownStepOutcome): SerializedDesktopError | null 
     : null;
 }
 
+/** The reserved slice's own step name: it is not part of `DESKTOP_SHUTDOWN_STEP_ORDER`. */
+const DATABASE_CLOSE_STEP = 'database-close' as const;
+
+interface DatabaseCloseResult {
+  readonly elapsedMs: number;
+  readonly failure: SerializedDesktopError | null;
+}
+
+/** Runs the reserved database close. Never rejects: a failure is returned, to be recorded. */
+async function runDatabaseClose(
+  plan: DesktopShutdownRunPlan,
+  now: () => number
+): Promise<DatabaseCloseResult> {
+  const startedAt = now();
+  try {
+    await plan.closeDatabase();
+    return { elapsedMs: now() - startedAt, failure: null };
+  } catch (error) {
+    return {
+      elapsedMs: now() - startedAt,
+      failure: { step: DATABASE_CLOSE_STEP, ...serializeDesktopError(error) },
+    };
+  }
+}
+
+/**
+ * The ONLY log of the failures, and it MUST precede the sink close: a closed
+ * sink makes this very record a no-op in the NDJSON backstop. The close still
+ * runs if the warn throws. Returns the failure of the warn or the close.
+ */
+function closeErrorLogSinkAfterFailureWarn(
+  plan: DesktopShutdownRunPlan,
+  failures: readonly SerializedDesktopError[],
+  logger: DesktopShutdownLogger,
+  trigger: DesktopShutdownTrigger
+): SerializedDesktopError | null {
+  try {
+    try {
+      if (failures.length > 0) {
+        logger.warn('Graceful shutdown completed with cleanup failures', { failures, trigger });
+      }
+    } finally {
+      plan.closeErrorLogSink();
+    }
+    return null;
+  } catch (error) {
+    return { step: 'error-log-sink', ...serializeDesktopError(error) };
+  }
+}
+
 /**
  * Builds desktop main's one graceful-shutdown runner. `run()` latches the
  * shutdown flag, retires background admission, and runs
- * `DESKTOP_SHUTDOWN_STEP_ORDER` once under `deadlineMs`, with an unref'd
- * backstop so the exit stays bounded even if the orchestration itself fails.
+ * `DESKTOP_SHUTDOWN_STEP_ORDER` once under `deadlineMs`, then ALWAYS runs the
+ * reserved database-close slice, then closes the durable error log (or, after a
+ * deadline, exits 1). An unref'd backstop keeps the exit bounded even if the
+ * orchestration itself fails.
  */
 export function createDesktopGracefulShutdown(
   options: DesktopGracefulShutdownOptions
 ): DesktopGracefulShutdown {
   const { deadlineMs, exitProcess, logger, markShuttingDown, planRun } = options;
+  const now = options.now ?? Date.now;
   let running: Promise<void> | null = null;
   let backstop: ReturnType<typeof setTimeout> | null = null;
 
   // A throwing logger must never cancel the exit, and rethrowing its error
   // from a timer would only add an uncaught exception to a dying process.
-  const forceExit = (data: Record<string, unknown>): void => {
+  const logErrorBeforeExit = (message: string, data: Record<string, unknown>): void => {
     try {
-      logger.error('Timed out waiting for graceful shutdown; forcing exit', data);
+      logger.error(message, data);
     } catch {
-      // The exit below is what matters; there is nowhere left to report this.
+      // The exit that follows is what matters; there is nowhere left to report this.
     }
-    exitProcess(1);
+  };
+  const logForcedExit = (data: Record<string, unknown>): void => {
+    logErrorBeforeExit('Timed out waiting for graceful shutdown; forcing exit', data);
   };
 
   // Armed before anything that can throw, so a broken orchestration still
@@ -111,9 +180,13 @@ export function createDesktopGracefulShutdown(
     if (backstop) {
       return;
     }
-    backstop = setTimeout(() => {
-      forceExit({ backstop: true, inFlightStep: null, trigger: forcedExitTrigger });
-    }, deadlineMs + DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS);
+    backstop = setTimeout(
+      () => {
+        logForcedExit({ backstop: true, inFlightStep: null, trigger: forcedExitTrigger });
+        exitProcess(1);
+      },
+      deadlineMs + DB_HOST_CLOSE_BUDGET_MS + DESKTOP_SHUTDOWN_BACKSTOP_GRACE_MS
+    );
     backstop.unref?.();
   };
 
@@ -124,18 +197,9 @@ export function createDesktopGracefulShutdown(
     options.retireBackgroundAdmission();
     const plan = planRun();
     const failures: SerializedDesktopError[] = [];
-    // A holder, not a `let`: it is assigned inside the settle callback, which
-    // control-flow narrowing cannot see.
-    const sink: { closeFailure: SerializedDesktopError | null } = { closeFailure: null };
 
     const recordSettled = (outcome: ShutdownStepOutcome): void => {
       const failure = toFailure(outcome);
-      if (outcome.step === 'error-log-sink') {
-        // Not added to `failures`: the aggregate warn that reads them has
-        // already run, and the sink that just failed is the NDJSON backstop.
-        sink.closeFailure = failure;
-        return;
-      }
       if (failure) {
         failures.push(failure);
       }
@@ -148,53 +212,59 @@ export function createDesktopGracefulShutdown(
       }
     };
 
-    const steps = DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => ({
-      name,
-      run:
-        name === 'error-log-sink'
-          ? async (signal: AbortSignal) => {
-              // The ONLY log of the failures above, and it MUST precede the
-              // sink close: a closed sink makes this very record a no-op in
-              // the NDJSON backstop. The close still runs if the warn throws.
-              try {
-                if (failures.length > 0) {
-                  logger.warn('Graceful shutdown completed with cleanup failures', {
-                    failures,
-                    trigger,
-                  });
-                }
-              } finally {
-                await plan.steps[name](signal);
-              }
-            }
-          : plan.steps[name],
-    }));
+    const report = await runShutdownSequence(
+      DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => ({ name, run: plan.steps[name] })),
+      {
+        deadlineMs,
+        now: options.now,
+        // Only logs: the exit waits for the database close below.
+        onDeadline: (inFlight) => {
+          logForcedExit({ inFlightStep: inFlight, trigger: forcedExitTrigger });
+        },
+        onStepSettled: recordSettled,
+      }
+    );
 
-    const report = await runShutdownSequence(steps, {
-      deadlineMs,
-      now: options.now,
-      onDeadline: (inFlight) => {
-        forceExit({ inFlightStep: inFlight, trigger: forcedExitTrigger });
-      },
-      onStepSettled: recordSettled,
-    });
+    // The one step whose skip damages durable state (every other skipped step
+    // loses only in-memory work): it runs after the steps finished AND after
+    // the deadline aborted one.
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- ordered after the sequence, not independent of it: `database-drain` stops everything that still issues database work, so it must finish (or the deadline abort it) before the close; running them together would close PGlite under admitted work.
+    const databaseClose = await runDatabaseClose(plan, now);
     if (report.timedOut) {
+      if (databaseClose.failure) {
+        logErrorBeforeExit('Database close failed during a forced shutdown', {
+          failure: databaseClose.failure,
+          trigger,
+        });
+      }
+      exitProcess(1);
       return;
     }
+    if (databaseClose.failure) {
+      failures.push(databaseClose.failure);
+    }
 
-    if (sink.closeFailure) {
+    const sinkFailure = closeErrorLogSinkAfterFailureWarn(plan, failures, logger, trigger);
+    if (sinkFailure) {
       logger.error('Failed to close the durable NDJSON error log', {
-        failure: sink.closeFailure,
+        failure: sinkFailure,
         trigger,
       });
     }
     // Per-step durations are the only record that explains a slow (but not
     // forced) exit; the forced-exit path logs the in-flight step instead.
-    const completed = report.steps.map(({ elapsedMs, outcome, step }) => ({
-      elapsedMs,
-      failed: outcome === 'failed',
-      step,
-    }));
+    const completed = [
+      ...report.steps.map(({ elapsedMs, outcome, step }) => ({
+        elapsedMs,
+        failed: outcome === 'failed',
+        step,
+      })),
+      {
+        elapsedMs: databaseClose.elapsedMs,
+        failed: databaseClose.failure !== null,
+        step: DATABASE_CLOSE_STEP,
+      },
+    ];
     logger.info('Graceful shutdown completed', {
       steps: completed,
       stepsMs: completed.reduce((total, step) => total + step.elapsedMs, 0),

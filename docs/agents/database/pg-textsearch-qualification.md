@@ -221,3 +221,74 @@ rare term, and needs IDF to put it first: normalization 0 ranked it fourth, norm
 second. Only normalizations 0 and 1 were run. The hybrid golden (v2) stayed at Precision@1 1 and
 MRR 1 in both runs, and the vector golden was unaffected, so the loss is confined to the
 lexical arm. BM25 was kept and made crash-safe by the rebuild instead.
+
+## The SIGKILL crash gate (BST-1875, 2026-09-29)
+
+Supports the `database.md` rules that a PGlite or extension bump passes the SIGKILL crash gate at
+200 iterations on every shipped platform, and that a new index access method joins the
+crash-sensitive list unless the gate proves it recovers.
+
+- What it does: `packages/db/__tests__/crash-injection-gate.integration.test.ts` spawns a writer
+  child (`node --import tsx`, one process so a SIGKILL reaches it) that opens an on-disk, fully
+  migrated data dir through desktop's `createBrainstrikePglite` and loops committed transactions
+  across btree, BM25, GIN (pg_trgm, tsvector) and HNSW on the real schema, plus a `mastra_messages`
+  ledger. After a seeded 300-3000 ms past its first ack the parent SIGKILLs it, reopens through the
+  same factory, runs `rebuildCrashSensitiveIndexes`, and verifies acknowledged rows (read from the heap),
+  amcheck (heap, every btree with `heapallindexed`, every GIN), an HNSW nearest-neighbour probe per
+  index, and a BM25 insert plus ranked search per index. Indexes and tables come from the catalog;
+  a new access method fails the gate until the writer and checks cover it.
+- "Every index" was wrong in the first version, and the review found it. The listing joined
+  `pg_attribute` on `indkey[0]`, which is 0 for an expression index, so the production
+  `idx_file_chunks_emb_hnsw_<N>` indexes (`USING hnsw ((embedding::halfvec(N)) halfvec_cosine_ops)
+  WHERE vector_dims(embedding) = N`) vanished from amcheck and every probe, and the writer never
+  filled `file_chunks.embedding`, so they were empty anyway. The migrated schema has none of them (they
+  are built per embedding set), so the gate builds one per model-catalog dimension with the production
+  `createDimensionIndex` (six today, plus the thread-message index: seven HNSW indexes). The key now
+  comes from `pg_get_indexdef(oid, 1, true)`, an index that is not valid and ready fails the gate
+  (`index-validity`) instead of being filtered out, and an HNSW index with no rows to probe fails
+  instead of passing. The listing is checked, as a set of schema-qualified names with no duplicates,
+  against `pg_indexes` read with its own literal schema filter, so it shares no join and no filter
+  with the listing (a first version counted with the listing's own clause, so a join added there
+  shrank both and could never fail; a count also let a drop and a duplicate cancel out). Restoring
+  the `indkey[0]` join in the listing's clause fails the gate with `listed 1 of 7 hnsw indexes`, and
+  `crash-injection-verify.integration.test.ts` checks every access method's listing against
+  `pg_indexes` independently.
+- A probe proves nothing unless the plan scanned through its index. The first check matched the
+  index name anywhere in the text plan, and the BM25 probe names its index in the query, so a Seq
+  Scan's Filter or a Sort Key printed the name with no index scan behind it. The check now walks
+  `EXPLAIN (FORMAT JSON)` for an `Index Scan`, `Index Only Scan` or `Bitmap Index Scan` node whose
+  `Index Name` is exactly the index and that has an `Order By`, in the query's own tree: an InitPlan
+  or SubPlan scanning it does not count (the HNSW probe's query vector is an InitPlan). Pinned: a
+  Seq Scan whose Filter names the index, and an index scanned only in an InitPlan, are rejected.
+- The BM25 probes must allocate. Consistent with the free-space-map cause above, a ranked search
+  straight after the crash passed on all 73 iterations that tried it before recovery; damage
+  showed only once a later write allocated (the next writer, or the insert probe). So the probe
+  inserts (rolled back) first and searches second. Failures arrive as `58P01`, `XX000` and
+  `XX001` with different texts, which is why detection is "the probe threw", never a message match.
+- Sensitivity, measured on the pinned builds with the recovery step removed by a local edit (never
+  committed), 20 iterations per seed, run one at a time: the first failing iteration was 5, 5, 1, 4,
+  4, 1 and 5 for seeds 1-7, so every seed fails inside the PR default of 10. Failures were BM25
+  (`corrupt segment`, `invalid segment header`, `Invalid logical page`) or the writer dying on
+  `corrupt tombstone page`. The first workload (no stress thresholds, no `VACUUM`) first failed at
+  iteration 26 (seed 7) and the stress thresholds `bulk_load_threshold`, `memtable_pages_threshold`
+  and `segments_per_level` alone gave 23; adding a `VACUUM file_chunks` every fourth transaction and
+  the allocating insert probe together gave 7, 6 and 5 (seeds 7, 1, 2). The effects were not
+  measured separately. Embedding all six dimensions in EVERY transaction cost about three times the
+  transaction rate and first failed at 2, 7, 3, 8, 1, 10, 4 and 2 (seeds 13, 8, 3, 4, 5, 6, 7, 9;
+  some runs overlapped), so a run's first transaction embeds every dimension and later ones rotate
+  through them.
+- Control: the same workload and probes, recovery still removed, but a clean close instead of a
+  SIGKILL, passed 25 of 25 iterations for each of two seeds. The damage is crash-induced, not a
+  workload artefact.
+- Green, on macOS arm64, with the seven HNSW indexes: 10 iterations took 29 and 31 s of gate time
+  (two seeds), 50 took 192 s and 200 took 665 s (3.3 s per iteration, flat across the run because row
+  counts are capped at 4,000 chunks and 1,500 thread-index rows). Before the `file_chunks` HNSW
+  indexes were covered, 200 took 585 s. Nothing has run on Linux or Windows yet: the first nightly
+  durations for each are recorded HERE, and the nightly ceilings (120/115 min) are tightened from them.
+- Limits: NODEFS `fsync` is a no-op, so this proves process crashes (SIGKILL keeps every completed
+  write), not power loss. The kill instant is random, so the seed reproduces the workload and the
+  kill schedule but not the exact kill; a clean run at 10 iterations is evidence, not proof, which
+  is why bumps need the 200-iteration nightly on Linux, macOS and Windows.
+- amcheck needs its own handle: the factory loads only the production extension set, so the
+  verifier opens `ENGINE_EXTENSIONS` plus `amcheck` with `PGlite.create` (a fixture, exempt from
+  the construction guard) and drops the extension afterwards.

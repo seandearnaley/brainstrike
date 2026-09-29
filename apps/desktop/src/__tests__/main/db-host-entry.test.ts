@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
 
 interface ParentPortMock {
   readonly on: (event: 'message', listener: (message: unknown) => void) => ParentPortMock;
@@ -81,8 +82,12 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe('db-host-entry', () => {
+  let restoreProcessOn: () => void;
+
   beforeEach(() => {
     vi.resetModules();
+    // The host entry installs signal handlers on import; they must not pile up on the test runner.
+    restoreProcessOn = captureProcessSignalHandlers().restore;
     dbMainMocks.closeDatabase.mockReset();
     dbMainMocks.getDatabase.mockReset();
     dbMainMocks.getDatabaseDiagnostics.mockReset();
@@ -94,6 +99,7 @@ describe('db-host-entry', () => {
   });
 
   afterEach(() => {
+    restoreProcessOn();
     vi.resetModules();
     restoreParentPort();
   });

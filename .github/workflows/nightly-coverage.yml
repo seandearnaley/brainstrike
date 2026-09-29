@@ -53,6 +53,41 @@ jobs:
           TEST_TIMEOUT_MULTIPLIER: "2"
         run: pnpm --filter @brainstrike/db test:pg-textsearch-durability
 
+  # BST-1875: the durability gate above closes cleanly, so it can never see
+  # crash-recovery damage. This job SIGKILLs a writer 200 times per platform
+  # mid-transaction against the real migrated schema, then runs desktop's
+  # production recovery and verifies every index access method. A PR run of the
+  # same file (10 iterations) gates every db change inside required `Unit`;
+  # this is the 200-iteration qualification a PGlite/pg_textsearch bump needs.
+  # 200 iterations took 665 s on a laptop (macOS arm64), the only measurement so
+  # far. The ceilings assume a runner 3-5x slower, Windows especially; tighten
+  # them once the first Linux and Windows durations are recorded in
+  # docs/agents/database/pg-textsearch-qualification.md.
+  sigkill-crash-gate:
+    name: SIGKILL crash gate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Run SIGKILL crash gate
+        timeout-minutes: 115
+        env:
+          NODE_ENV: test
+          TEST_TIMEOUT_MULTIPLIER: "2"
+          CRASH_GATE_ITERATIONS: "200"
+        run: pnpm --filter @brainstrike/db test:crash-gate
+
   package-coverage:
     name: Coverage packages (${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -344,13 +379,17 @@ jobs:
       - db-coverage-shard
       - db-coverage
       - coverage
+      - pg-textsearch-durability
+      - sigkill-crash-gate
     if: >-
       always() &&
       github.event_name == 'schedule' &&
       (needs.package-coverage.result != 'success' ||
        needs.db-coverage-shard.result != 'success' ||
        needs.db-coverage.result != 'success' ||
-       needs.coverage.result != 'success')
+       needs.coverage.result != 'success' ||
+       needs.pg-textsearch-durability.result != 'success' ||
+       needs.sigkill-crash-gate.result != 'success')
     runs-on: ubuntu-latest
     # gh issue create / comment are sub-second under normal conditions; cap at
     # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.

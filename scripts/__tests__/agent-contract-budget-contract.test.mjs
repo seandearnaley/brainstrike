@@ -118,9 +118,13 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1871 (part b) raised it from 918 (+6): the crash-sensitive index rule replaces the
   // one-bullet pointer with what an agent must obey before adding an index access method;
   // its measurements went to `database/pg-textsearch-qualification.md`.
-  // BST-1877 raised it from 924 (+2): the durability registry gains a non-throwing lookup
+  // BST-1875 raised it from 924 (+1): the SIGKILL crash gate joins the PGlite/extension bump
+  // qualification (200 iterations, every shipped platform), and the crash-safety rule now
+  // cites the gate by name instead of by ticket. Its design and measurements went to
+  // `database/pg-textsearch-qualification.md`.
+  // BST-1877 raised it from 925 (+2): the durability registry gains a non-throwing lookup
   // for verification, and its one rule (report, never act on it) belongs beside the throwing one.
-  'database.md': 926,
+  'database.md': 927,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
@@ -148,7 +152,13 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1870 L4b: the Guard line names the containment E2E, one more line.
   // BST-1874 raised it from 968 (+3): one bullet states that the app shell shows a notice for
   // every non-healthy integrity state, and its guard joins the section's list.
-  'platform-contracts.md': 971,
+  // BST-1872 L2a added 6, to 977: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a failed
+  // close exits 1 with no marker and no retry); main forks no replacement for a host whose close
+  // was announced or proven by the marker, and a lost announcement is named as the known gap.
+  // BST-1872 L2b added 8 more, to 985: the shutdown-ownership first bullet names the reserved
+  // database-close slice (+1) and main's persistent signal listeners installed after ready (+7,
+  // with why a listener added earlier never runs).
+  'platform-contracts.md': 985,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a

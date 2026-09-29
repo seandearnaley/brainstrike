@@ -128,7 +128,30 @@ export interface DbHostLogEnvelope {
   readonly message: string;
 }
 
+/** The signals the DB host closes its own database on. */
+export const DB_HOST_CLOSE_SIGNALS = ['SIGHUP', 'SIGINT', 'SIGTERM'] as const;
+export type DbHostSignal = (typeof DB_HOST_CLOSE_SIGNALS)[number];
+
+/** Why the host closed: main asked (`request`), or the host itself received a signal. */
+export const DB_HOST_CLOSE_REASONS = ['request', ...DB_HOST_CLOSE_SIGNALS] as const;
+export type DbHostCloseReason = (typeof DB_HOST_CLOSE_REASONS)[number];
+
+export const DB_HOST_LIFECYCLE_STATES = ['closing', 'closed', 'close-failed'] as const;
+
+/**
+ * The host's close, as it happens: `closing` when it stops serving, then `closed` or
+ * `close-failed`. Announced so main can tell a host that closed itself (a signal aimed at
+ * it, not at main) from one it closed, and never silently fork a replacement.
+ */
+export interface DbHostLifecycleEnvelope {
+  readonly error?: DbHostSerializedError;
+  readonly kind: 'lifecycle';
+  readonly reason: DbHostCloseReason;
+  readonly state: (typeof DB_HOST_LIFECYCLE_STATES)[number];
+}
+
 export type DbHostToMainMessage =
+  | DbHostLifecycleEnvelope
   | DbHostLiveUpdateEnvelope
   | DbHostLogEnvelope
   | DbHostResponseEnvelope;
@@ -174,11 +197,26 @@ export function toError(error: DbHostSerializedError): Error {
   return normalized;
 }
 
+function isOneOf<T extends string>(values: readonly T[], value: unknown): value is T {
+  return typeof value === 'string' && (values as readonly string[]).includes(value);
+}
+
+/**
+ * A message from the host has a string `kind`. A `lifecycle` one is also checked field by field:
+ * main acts on it (it refuses to fork a replacement for a signal-closed host), so a malformed one
+ * is rejected as malformed, never trusted.
+ */
 export function isDbHostToMainMessage(value: unknown): value is DbHostToMainMessage {
+  if (value === null || typeof value !== 'object' || !('kind' in value)) {
+    return false;
+  }
+  if (value.kind !== 'lifecycle') {
+    return typeof value.kind === 'string';
+  }
   return (
-    value !== null &&
-    typeof value === 'object' &&
-    'kind' in value &&
-    typeof (value as { kind?: unknown }).kind === 'string'
+    'state' in value &&
+    isOneOf(DB_HOST_LIFECYCLE_STATES, value.state) &&
+    'reason' in value &&
+    isOneOf(DB_HOST_CLOSE_REASONS, value.reason)
   );
 }
