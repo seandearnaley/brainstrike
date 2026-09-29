@@ -172,7 +172,10 @@ export const GATED_RUN_RESPONSE = 'Assistant: Gated response released.';
  * A mocked browser-local model host (`window.llmHost`) whose every turn HOLDS
  * until the test calls `releaseGatedRuns`, so tab switches and closes land
  * deterministically mid-run. `cancel` records each host abort the local runtime
- * issues. Pair with `openAssistantWorkspace(page, { enableLocalAssistantModel: true })`.
+ * issues and, like the real bridge, rejects THAT request's held `generate` with
+ * the plain Error an abort becomes after crossing Electron IPC (message only,
+ * `name` 'Error'). Pair with
+ * `openAssistantWorkspace(page, { enableLocalAssistantModel: true })`.
  */
 export async function mockGatedLocalLlmHost(page: Page): Promise<void> {
   await page.addInitScript((responseText: string) => {
@@ -190,17 +193,27 @@ export async function mockGatedLocalLlmHost(page: Page): Promise<void> {
       }
     };
 
+    const heldRejecters = new Map<string, (reason: Error) => void>();
+
     // @ts-expect-error local runtime host mock for e2e
     window.llmHost = {
-      cancel(requestId: string) {
+      async cancel(requestId: string) {
         ledger.cancelledRequestIds.push(requestId);
+        heldRejecters.get(requestId)?.(
+          new Error(
+            "Error invoking remote method 'llm-host:generate': Error: The operation was aborted."
+          )
+        );
+        heldRejecters.delete(requestId);
       },
       async generate({ requestId }: { readonly requestId: string }) {
         emit(requestId, { kind: 'stage', message: 'responding' });
         ledger.started += 1;
-        await new Promise<void>((resolve) => {
+        await new Promise<void>((resolve, reject) => {
           ledger.releases.push(resolve);
+          heldRejecters.set(requestId, reject);
         });
+        heldRejecters.delete(requestId);
         emit(requestId, { kind: 'text', text: responseText });
         return {
           finishReason: 'stop',

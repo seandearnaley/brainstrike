@@ -510,6 +510,112 @@ describe('createLocalModelAdapter', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
+  // Electron IPC keeps only an error's message, so the visible renderer's
+  // `llmHost.generate` rejects with a plain Error when the hidden host aborts
+  // (`name` is 'Error', never 'AbortError').
+  const IPC_ABORT_MESSAGE =
+    "Error invoking remote method 'llm-host:generate': Error: The operation was aborted.";
+
+  function installRejectableHost(rejectOnCancel: boolean): {
+    readonly cancel: ReturnType<typeof vi.fn>;
+    readonly generateStarted: Promise<void>;
+    readonly rejectGeneration: (reason: unknown) => void;
+  } {
+    let rejectPending: ((reason: unknown) => void) | null = null;
+    let markGenerateStarted: (() => void) | null = null;
+    const generateStarted = new Promise<void>((resolve) => {
+      markGenerateStarted = resolve;
+    });
+    const rejectGeneration = (reason: unknown): void => {
+      rejectPending?.(reason);
+    };
+    const cancel = vi.fn().mockImplementation(async () => {
+      if (rejectOnCancel) {
+        rejectGeneration(new Error(IPC_ABORT_MESSAGE));
+      }
+    });
+    const generate = vi.fn().mockImplementation(
+      async () =>
+        await new Promise<LocalLlmGenerationResult>((_resolve, reject) => {
+          rejectPending = reject;
+          markGenerateStarted?.();
+        })
+    );
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        cancel,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+        warmup: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    return { cancel, generateStarted, rejectGeneration };
+  }
+
+  it('completes a Stop as cancelled when the desktop host rejects with a plain Error', async () => {
+    const { cancel, generateStarted } = installRejectableHost(true);
+    const completeRuntimeData = vi.fn();
+    const onError = vi.fn();
+    const preparedRuntimeData = { memory: { runId: 'run-stopped' } };
+    const adapter = createLocalModelAdapter({
+      completeRuntimeData,
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onError,
+      prepareRuntimeData: async () => preparedRuntimeData,
+    });
+    const abortController = new AbortController();
+    const run = collectRun(
+      adapter.run({ ...createRunOptions(), abortSignal: abortController.signal })
+    );
+
+    await generateStarted;
+    abortController.abort();
+    const updates = await run;
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(completeRuntimeData).toHaveBeenCalledTimes(1);
+    // No reason: the data-stream Stop stores none either, and Electron's IPC
+    // wrapper text must not become the persisted reason of a user Stop.
+    expect(completeRuntimeData).toHaveBeenCalledWith(preparedRuntimeData, 'cancelled');
+    expect(onError).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({
+      content: expect.arrayContaining([{ text: 'Generation cancelled.', type: 'text' }]),
+    });
+  });
+
+  it('keeps a plain Error from the desktop host failed when no Stop preceded it', async () => {
+    const { cancel, generateStarted, rejectGeneration } = installRejectableHost(false);
+    const completeRuntimeData = vi.fn();
+    const onError = vi.fn();
+    const preparedRuntimeData = { memory: { runId: 'run-broken' } };
+    const adapter = createLocalModelAdapter({
+      completeRuntimeData,
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onError,
+      prepareRuntimeData: async () => preparedRuntimeData,
+    });
+    const run = collectRun(adapter.run(createRunOptions()));
+
+    await generateStarted;
+    rejectGeneration(new Error('Engine exploded'));
+    const updates = await run;
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(completeRuntimeData).toHaveBeenCalledTimes(1);
+    expect(completeRuntimeData).toHaveBeenCalledWith(
+      preparedRuntimeData,
+      'failed',
+      'Engine exploded'
+    );
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(updates.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        expect.objectContaining({ text: expect.stringContaining('Local model error') }),
+      ]),
+    });
+  });
+
   it('lets an aborted warmup caller exit locally without cancelling shared warmup work', async () => {
     const warmup = vi.fn().mockImplementation(async () => await new Promise<void>(() => {}));
     const cancel = vi.fn().mockResolvedValue(undefined);
