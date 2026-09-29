@@ -137,6 +137,7 @@ describe('DbHostManager database location handoff', () => {
 
   it('ignores NODE_ENV=production when choosing the host database root', async () => {
     process.env['NODE_ENV'] = 'production';
+    vi.spyOn(process, 'cwd').mockReturnValue(makeGitCheckout('ref: refs/heads/prod-check\n'));
     const manager = await newManager();
 
     manager.getDiagnostics().catch(() => undefined);

@@ -134,7 +134,9 @@ export function resolveDesktopDatabaseLocation(): DatabaseLocation {
     },
     isPackaged: app.isPackaged,
     isTestRun: isIsolatedDesktopTestRun(),
-    // Lazy: only the paths the selected rule reads are requested from Electron.
+    // Lazy on purpose: a packaged or test run must not ask Electron for `documents`
+    // (nor `home` off Linux), and a getter that throws must not fail a run that
+    // never reads it. Pinned per rule in desktop-database-location.test.ts.
     paths: {
       get documents() {
         return app.getPath('documents');

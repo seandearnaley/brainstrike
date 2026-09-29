@@ -21,6 +21,12 @@ The DB host compounded it. `createDbHostEnvironment()` always passed the root pa
 
 Before, a test run forced profile `test` even when `BRAINSTRIKE_DB_PROFILE` was set, while `BRAINSTRIKE_DB_ROOT_PATH` always won. Now each explicit override wins for its own field, so a test run with an explicit profile uses it. No harness sets a profile override; `apps/desktop/e2e/utils/electron-helpers.mts` and `start-agent-devtools-session.mjs` set only the root.
 
+## One safe segment, and a throw for none
+
+The profile is joined under `<root>/profiles/` and factory reset deletes that directory recursively. `sanitizeProfileSegment` used to leave `.` and `..` intact, so `BRAINSTRIKE_DB_PROFILE=..` made `<root>/profiles/..` normalise to the root and a reset would have deleted every profile and backup with it (Codex review, PR #3385). The reducer now also strips leading and trailing dots, so a segment is never dot-only and never starts with a dot; a trailing dot goes too because Windows drops it.
+
+Names the app derives (branch names) still fall back to `default`. An explicit override is the user's stated intent, so one that reduces to nothing (`.`, `..`, `-`, `***`) throws, naming `BRAINSTRIKE_DB_PROFILE`, rather than silently opening `default`, which is the packaged profile. Separators inside an override keep mapping to `-` (`a/b` becomes `a-b`) as before, so an existing `feature/x` override keeps its directory. Windows reserved device names are not handled.
+
 ## Factory reset
 
 `resetDesktopApplicationData` stops runtimes, then runs `resetDatabaseProfile` (which closes the DB host through `closeDbHostManager` and deletes the profile), and only then stages `userData` entries for deletion. On packaged macOS the database root is inside `userData`, so the wipe removes `data` with everything else, including the backups the same reset just made under `<root>/backups`. Where the root is outside `userData` (Windows, Linux, development) `<root>/backups` survives a factory reset; retention is the five newest per profile.

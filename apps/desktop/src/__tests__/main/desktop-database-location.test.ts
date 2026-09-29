@@ -188,6 +188,19 @@ describe('resolveDesktopDatabaseLocation', () => {
     expect(() => win.resolveDesktopDatabaseLocation()).toThrow(/LOCALAPPDATA/u);
   });
 
+  it('puts a packaged Windows build under the non-roaming LOCALAPPDATA', async () => {
+    electron.app = { getPath: getPathMock, isPackaged: true };
+    process.env['LOCALAPPDATA'] = 'C:\\Users\\me\\AppData\\Local';
+    setPlatform('win32');
+    const { resolveDesktopDatabaseLocation } = await load();
+
+    expect(resolveDesktopDatabaseLocation()).toEqual({
+      profile: 'default',
+      rootPath: 'C:\\Users\\me\\AppData\\Local\\BrainStrike Desktop\\data',
+      source: 'packaged',
+    });
+  });
+
   it('resolves once, caches the result, and logs it once', async () => {
     process.env['NODE_ENV'] = 'test';
     const { resolveDesktopDatabaseLocation } = await load();
@@ -205,8 +218,39 @@ describe('resolveDesktopDatabaseLocation', () => {
     );
   });
 
-  it('only asks Electron for the paths the chosen rule reads', async () => {
-    setPlatform('darwin');
+  // A getter that throws (e.g. `documents` in an unusual sandbox) must not fail a
+  // run whose rule never reads it, on any platform.
+  it.each([
+    { expected: ['userData'], isPackaged: true, platform: 'darwin', rule: 'packaged macOS' },
+    { expected: [], isPackaged: true, platform: 'win32', rule: 'packaged Windows' },
+    { expected: ['home'], isPackaged: true, platform: 'linux', rule: 'packaged Linux' },
+    { expected: ['documents'], isPackaged: false, platform: 'darwin', rule: 'development' },
+  ] as const)('only asks Electron for the paths the $rule rule reads', async (scenario) => {
+    setPlatform(scenario.platform);
+    process.env['LOCALAPPDATA'] = 'C:\\Local';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'fixed';
+    electron.app = { getPath: getPathMock, isPackaged: scenario.isPackaged };
+    const { resolveDesktopDatabaseLocation } = await load();
+
+    resolveDesktopDatabaseLocation();
+
+    expect(getPathMock.mock.calls.map(([name]) => name)).toEqual(scenario.expected);
+  });
+
+  it('re-resolves after a test reset, which is refused outside NODE_ENV=test', async () => {
+    process.env['NODE_ENV'] = 'test';
+    const module = await load();
+    const first = module.resolveDesktopDatabaseLocation();
+
+    module.resetDesktopDatabaseLocationForTests();
+    expect(module.resolveDesktopDatabaseLocation()).not.toBe(first);
+
+    process.env['NODE_ENV'] = 'development';
+    expect(() => module.resetDesktopDatabaseLocationForTests()).toThrow(/test mode/u);
+  });
+
+  it('only asks Electron for userData in a test run', async () => {
+    process.env['NODE_ENV'] = 'test';
     electron.app = { getPath: getPathMock, isPackaged: true };
     const { resolveDesktopDatabaseLocation } = await load();
 
