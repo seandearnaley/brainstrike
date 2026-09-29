@@ -47,6 +47,7 @@ class FakeUtilityProcess extends EventEmitter {
 
 const forkMock = vi.hoisted(() => vi.fn());
 const loggerErrorMock = vi.hoisted(() => vi.fn());
+const loggerDebugMock = vi.hoisted(() => vi.fn());
 vi.mock('electron', () => ({
   app: { getPath: () => '/mock/userData', isPackaged: false },
   utilityProcess: { fork: forkMock },
@@ -56,7 +57,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   return {
     ...actual,
     createLogger: () => ({
-      debug: vi.fn(),
+      debug: loggerDebugMock,
       error: loggerErrorMock,
       fatal: vi.fn(),
       info: vi.fn(),
@@ -98,6 +99,7 @@ beforeEach(() => {
   vi.resetModules();
   vi.useFakeTimers();
   loggerErrorMock.mockReset();
+  loggerDebugMock.mockReset();
   forkMock.mockReset().mockImplementation(() => new FakeUtilityProcess());
   killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
 });
@@ -199,15 +201,17 @@ it('ignores a malformed progress envelope and keeps the original deadline', asyn
   const host = latestProcess();
   await vi.advanceTimersByTimeAsync(10);
   host.progress(host.initRequest.id, {
-    index: { heapBytes: 'big' },
+    index: { heapBytes: 'big', table: 'secret-row-content' },
     phase: 'index-rebuild',
   });
 
   expect(loggerErrorMock).toHaveBeenCalledTimes(1);
+  // Shape only: a malformed frame's values can carry user content, so none reaches the log.
   expect(loggerErrorMock).toHaveBeenCalledWith(
     'Dropped malformed DB host progress envelope',
-    expect.objectContaining({ message: expect.objectContaining({ kind: 'progress' }) })
+    expect.objectContaining({ keys: expect.arrayContaining(['id', 'kind']), messageType: 'object' })
   );
+  expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('secret-row-content');
   // Not re-armed: the 15 ms window still ends at t=15, not t=25.
   await vi.advanceTimersByTimeAsync(5);
   const error = await failure;
@@ -243,6 +247,23 @@ it('ignores a progress envelope for a request that is not init', async () => {
   const error = await failure;
   expect(error).toBeInstanceOf(DbHostRequestTimeoutError);
   expect(error).toMatchObject({ phase: null, progressCount: 0, requestKind: 'diagnostics' });
+});
+
+it('drops a valid progress report for a request no longer in flight, before the channel sees it', async () => {
+  const { manager } = await loadManager({ initializationTimeoutMs: 15 });
+
+  const init = settled(manager.getDatabase());
+  const host = latestProcess();
+  host.progress('no-such-request', REBUILD_342_MIB);
+
+  expect(loggerDebugMock).toHaveBeenCalledWith(
+    'Dropped DB host progress for a request no longer in flight',
+    { requestId: 'no-such-request' }
+  );
+  expect(loggerErrorMock).not.toHaveBeenCalled();
+  host.reply(host.initRequest, {});
+  await vi.advanceTimersByTimeAsync(0);
+  await init;
 });
 
 it('does not let a fresh init attempt inherit the phase of the attempt that timed out', async () => {
