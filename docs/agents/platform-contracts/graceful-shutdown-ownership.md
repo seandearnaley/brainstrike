@@ -89,3 +89,30 @@ failure. The deferred poll now observes shutdown before querying; the durable
 suspension is reconciled by the next eligible maintenance run. This does not
 change the embedding host's three-second stop timeout, which remains a separate
 fail-visible shutdown step.
+
+### Update (2026-09-29, BST-1872 L1): the DB host close is awaited
+
+Before: `DbHostManager.close()` raced the close acknowledgement against 2 s, then
+called `host.kill()` (Electron's `kill()` is SIGTERM on POSIX) without awaiting
+`exit`, and the next request forked a second host at once, so two hosts could touch
+one pgdata while the first died. A transaction-request or init timeout terminated the
+host the same way. A SIGTERM cannot end a host wedged in synchronous WASM, so it was
+never a wedge escape either.
+
+Now `close()` resolves only when the database is proven closed AND the host process
+is gone. The waits are `db-host-close-budget.ts` (ack 2 s, exit after SIGTERM 1 s,
+exit after SIGKILL 0.5 s):
+
+- ack ok: SIGTERM, await `exit` (any code is clean, the database is closed); no exit in
+  time: SIGKILL, then `exit-timeout` if that still does not end it.
+- exit before ack: clean only with code 0, else `exited-unclean`.
+- ack timeout: SIGTERM, then only exit 0 is clean (`exited-unclean` otherwise); no exit:
+  SIGKILL and `killed`. Until the host handles signals (BST-1872 L2) SIGTERM ends it
+  with a non-zero code, so this path rejects, which is today's kill, awaited and reported.
+- ack error (the host's close failed): SIGKILL, `close-failed`.
+
+Request and init timeouts SIGKILL, log at error with the request diagnostics, and no
+replacement forks until the exit is observed. Nothing forks once
+`markDesktopShuttingDown()` has run (`DbHostUnavailableError`); a host that already
+exists still serves shutdown-time work. Not done here: signal handling in the host and
+main, and the reserved database-close slice of the shutdown sequence (L2).

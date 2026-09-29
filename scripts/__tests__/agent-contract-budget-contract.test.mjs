@@ -110,7 +110,9 @@ const CONTRACT_LINE_BUDGETS = {
   'mcp-conformance.md': 199,
   // BST-1870 L1 raised this from 955 (+3): the boot/migration never-reset rule; the L4
   // change replaces this whole section and re-pins to its exact new count.
-  'platform-contracts.md': 958,
+  // BST-1872 L1 raised it by 3 more, to 961: the awaited-close / SIGKILL-wedge / no-fork rule;
+  // L2 replaces the shutdown-ownership first bullet and re-pins.
+  'platform-contracts.md': 961,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a
