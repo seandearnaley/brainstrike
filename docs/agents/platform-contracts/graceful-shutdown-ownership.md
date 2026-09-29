@@ -335,3 +335,25 @@ main died from SIGINT mid-shutdown (only "MCP runtime shutdown cleanup completed
 shutdown completed` (`trigger: signal`), exit 0. A signal before ready still reaches Electron's own
 handler (quit through `before-quit`); a second one before ready cannot be caught. Linux and Windows
 are unmeasured: if the re-arm fails there, the first signal still quits through `before-quit`.
+
+### Update (2026-09-29, BST-1872 L2c): the signal E2E
+
+`e2e/shutdown-signals.desktop.test.ts` delivers to the real app the pattern `concurrently`'s
+tree-kill and the tty group produce: SIGINT to the DB host, SIGINT twice to main, then SIGTERM to
+both. It expects exit 0 within 10 s with no `forcing exit`, and the log to show
+`Received shutdown signal`, `Shutdown already in progress; ignoring signal` and `Graceful shutdown
+completed` (`trigger: signal`). The clean-shutdown marker must exist and name the HOST's pid (only
+the host writes it), and after `restart()` the next boot reads `previousShutdown: 'clean'` with the
+inserted row present. The host's own `DB host received SIGINT` log is not asserted: one run in four
+lacked it, because a host that exits promptly can lose the messages it posted just before exiting
+(the same holds for its `lifecycle` announcement, which is why the marker, not the message, is the
+proof of a clean close, and why the no-replacement guard is best effort). The negative control SIGKILLs main and then the host (main first, so a renderer request
+can never fork a replacement host in the gap): no marker, and the next boot reads `unclean`. A
+real-app run before the after-ready fix failed at `Received shutdown signal`, with the graceful run
+logged as `trigger: before-quit`. It runs in the regression project, not the smoke lane, and on
+macOS only so far. `ElectronHarness.endOutOfBand` marks such an exit intentional first, so
+`ElectronProcessExitGuard` does not fail the test for it.
+
+**Not done: Step 0.** It needs a person at the terminal (turbo/concurrently pgids, which process got
+which signal, ms from Ctrl-C to turbo's force kill). The E2E delivers the signal pattern instead. If
+turbo force-kills before the marker is written, file a follow-up; do not work around turbo here.
