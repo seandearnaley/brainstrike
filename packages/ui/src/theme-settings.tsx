@@ -3,7 +3,7 @@
 // note in error-boundary.tsx (BST-890).
 
 import { Monitor, Moon, Sun } from 'lucide-react';
-import type { ComponentType } from 'react';
+import { type ComponentType, useId } from 'react';
 import { Button } from './button';
 import { Label } from './label';
 import { cn } from './lib/utils';
@@ -32,31 +32,43 @@ function Swatch({ color, testId }: { color: string; testId: string }) {
   );
 }
 
+/**
+ * One palette card: a NATIVE radio, visually hidden, inside a label that paints
+ * the swatches. The browser then supplies the whole radio-group keyboard model
+ * (one tab stop on the checked card, arrows move AND select with wrap-around,
+ * Space selects) — a hand-rolled keydown handler would only re-implement it,
+ * worse. Same pattern as `threads-panel-view-options.tsx`; the shared `name`
+ * is what makes the browser treat the cards as ONE group.
+ */
 function ThemeCard({
   active,
+  groupName,
   onSelect,
   theme,
 }: {
   active: boolean;
+  groupName: string;
   onSelect: () => void;
   theme: ThemeDefinition;
 }) {
   return (
-    /* biome-ignore lint/a11y/useSemanticElements: WAI-ARIA radio pattern for a rich swatch+label card; <input type="radio"> cannot host this content. */
-    <button
-      aria-checked={active}
-      aria-label={theme.label}
+    <label
       className={cn(
-        'flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors',
+        'flex cursor-pointer flex-col gap-2 rounded-lg border p-3 text-left transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring',
         active
           ? 'border-primary ring-2 ring-ring/50'
           : 'border-border hover:bg-accent hover:text-accent-foreground'
       )}
       data-testid={`theme-card-${theme.id}`}
-      onClick={onSelect}
-      role="radio"
-      type="button"
     >
+      <input
+        checked={active}
+        className="sr-only"
+        name={groupName}
+        onChange={onSelect}
+        type="radio"
+        value={theme.id}
+      />
       <span className="flex gap-1">
         <Swatch
           color={theme.swatch.light.background}
@@ -76,12 +88,13 @@ function ThemeCard({
         />
       </span>
       <span className="font-medium text-sm">{theme.label}</span>
-    </button>
+    </label>
   );
 }
 
 export function ThemeSettings() {
   const { mode, setMode, setTheme, theme } = useTheme();
+  const paletteGroupName = useId();
 
   return (
     <div className="grid gap-6">
@@ -116,6 +129,7 @@ export function ThemeSettings() {
           {THEMES.map((definition) => (
             <ThemeCard
               active={theme === definition.id}
+              groupName={paletteGroupName}
               key={definition.id}
               onSelect={() => setTheme(definition.id)}
               theme={definition}

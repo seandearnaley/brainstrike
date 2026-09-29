@@ -45,15 +45,28 @@ describe('ThemeSettings', () => {
     }
   });
 
+  it('puts every card in ONE native radio group, which is what gives arrow keys and a single tab stop', () => {
+    render(<ThemeSettings />);
+    const names = new Set(screen.getAllByRole('radio').map((card) => card.getAttribute('name')));
+    expect(names.size).toBe(1);
+    expect([...names][0]).toBeTruthy();
+  });
+
   it('marks the active theme card checked and switches on click', () => {
     render(<ThemeSettings />);
-    expect(screen.getByRole('radio', { name: 'Brainstrike' })).toHaveAttribute(
-      'aria-checked',
-      'true'
-    );
-    expect(screen.getByRole('radio', { name: 'Tide' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('radio', { name: 'Brainstrike' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Tide' })).not.toBeChecked();
     fireEvent.click(screen.getByRole('radio', { name: 'Tide' }));
     expect(setTheme).toHaveBeenCalledWith('tide');
+  });
+
+  it('pairs the hover surface with its foreground so a bold-accent palette stays legible', () => {
+    render(<ThemeSettings />);
+    // Tide is not the active card here, so it carries the idle hover treatment.
+    expect(screen.getByTestId('theme-card-tide')).toHaveClass(
+      'hover:bg-accent',
+      'hover:text-accent-foreground'
+    );
   });
 
   it('paints each card swatch from the registry', () => {
