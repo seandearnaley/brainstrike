@@ -184,3 +184,42 @@ Constraints:
   unsupported unions throw with the tool/property path instead of reaching the
   template or silently weakening the contract.
 - If you change the local host lifecycle, preload bridge, or availability gating, update this section and the relevant tests.
+
+## Web backend lifetime: the last panel owns it (BST-1861, 2026-09-28)
+
+Supports the lease rule under item 3 of the flow above: a `LocalRuntimeChat` never disposes the
+shared web backend by itself; the LAST lease does, after the generation queue drains.
+
+- **Before.** `LocalRuntimeChat` called `disposeLocalBackend()` from an unmount effect, so ANY
+  panel unmount (an idle tab close, a thread switch remounting through `key`, a deleted thread)
+  disposed the module-level backend that every other web local panel shares. Desktop is
+  not the victim: with the data-stream transport `LocalRuntimeChat` never mounts, the llm-host is
+  its own renderer (`llm-host-runtime.tsx` builds its own backend), and on the rare desktop
+  local-runtime transport the call only reset the warmed-model caches.
+- **Three failures, by where the other panel's run was when the close landed** (fake backend with
+  the runtime shape of `LocalLlmBackend`, `local-runtime-adapter-backend-lifetime.test.ts`):
+  1. Generating: the run finished (the disposal waited on the queue), then the backend was
+     disposed anyway, so the next turn ran `loadBackend` and `initialize` again (a full model
+     reload on real WebGPU).
+  2. `loadBackend()` pending: the run failed visibly with `Backend initialization cancelled:
+     disposal was requested`.
+  3. Model `initialize()` pending, or between tool rounds: a wedge. `getBackend()` runs again
+     before every generation round and awaited the disposal, while the disposal (flags already
+     raised) awaited the generation slot that very run holds. The run never finished, the disposal
+     never settled, and `acquireLocalGenerationSlot` held every later run from every panel behind
+     it until a page reload.
+- **Fix.** `acquireLocalBackend()` returns a release; a Set of per-lease symbols is the consumer
+  registry. Every release calls `disposeLocalBackendWhenUnused`, which waits for the queue tail to
+  settle (re-waiting if another run queued behind it), reads the registry, and only then raises
+  the disposal flags, all in one synchronous segment. `disposeLocalBackend` keeps its own race
+  handling (a run that starts during an in-progress disposal waits for it, then loads afresh).
+- **Rejected.** A numeric counter (a repeated release of a stale handle would steal another
+  panel's hold; per-lease identity is idempotent by construction). Disposing synchronously on the
+  last release (StrictMode's simulated unmount, or a thread switch that releases and acquires in
+  one commit, would reload the model; the drain's first `await` yields a microtask so both land
+  first, while a release and acquire in separate commits legitimately disposes). Keeping the old
+  order and only guarding the count (flags before the drain is the wedge above).
+- **Known edge, unchanged.** A run still awaiting `acquireBackgroundWorkPauseReason` (before it
+  takes its slot) when the last lease releases and the disposal completes loads a backend nobody
+  leases; `run()` does not check its abort signal before taking the slot. The old unconditional
+  dispose had the same gap.

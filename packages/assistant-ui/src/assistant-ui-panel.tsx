@@ -97,7 +97,7 @@ import {
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
 import { LocalModelStatus } from './local-model-status';
-import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
+import { createLocalModelAdapter } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
 import { RunningStateBridge } from './running-state-bridge';
@@ -108,6 +108,7 @@ import {
 } from './slash-commands';
 import { ThreadScrollFollowProvider } from './thread-scroll-follow';
 import { useAssistantServerRunSession } from './use-assistant-server-run-session';
+import { useLocalBackendLease } from './use-local-backend-lease';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 
 // Re-export types needed by consumers
@@ -562,13 +563,8 @@ const LocalRuntimeChat = ({
   const runtime = useLocalRuntime(adapter);
   useEffect(() => onRuntimeReady?.(runtime), [onRuntimeReady, runtime]);
 
-  // Cleanup on unmount
-  useEffect(
-    () => () => {
-      void disposeLocalBackend();
-    },
-    []
-  );
+  // The backend is shared by every mounted local panel; the last one to leave disposes it.
+  useLocalBackendLease();
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
