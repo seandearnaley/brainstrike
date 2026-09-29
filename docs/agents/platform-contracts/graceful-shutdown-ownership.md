@@ -89,3 +89,97 @@ failure. The deferred poll now observes shutdown before querying; the durable
 suspension is reconciled by the next eligible maintenance run. This does not
 change the embedding host's three-second stop timeout, which remains a separate
 fail-visible shutdown step.
+
+### Update (2026-09-29, BST-1872 L1): the DB host close is awaited
+
+Before: `DbHostManager.close()` raced the close acknowledgement against 2 s, then
+called `host.kill()` (Electron's `kill()` is SIGTERM on POSIX) without awaiting
+`exit`, and the next request forked a second host at once, so two hosts could touch
+one pgdata while the first died. A transaction-request or init timeout terminated the
+host the same way. A SIGTERM cannot end a host wedged in synchronous WASM, so it was
+never a wedge escape either.
+
+Now `close()` resolves only when the database is proven closed AND the host process
+is gone. The waits are `db-host-close-budget.ts` (ack 2 s, exit after SIGTERM 1 s,
+exit after SIGKILL 0.5 s):
+
+- ack ok: SIGTERM, await `exit` (any code is fine, the database is closed); no exit in
+  time: SIGKILL, then `exit-timeout` if that still does not end it.
+- exit before ack: always `exited-unclean`, carrying the code.
+- ack timeout: SIGTERM, then any exit is always `exited-unclean` (carrying the code); no exit:
+  SIGKILL and `killed`.
+- ack error (the host's close failed): SIGKILL, `close-failed`.
+
+The rule: a close is clean only when the host acknowledged it. The exit code is never
+proof. Measured with the repo's Electron 44.4.5 on macOS (`utilityProcess.fork` of a
+trivial child; 2026-09-29):
+
+| child | terminated by | exit `code` |
+| --- | --- | --- |
+| no signal handlers | `child.kill()` (Electron API) | **0** |
+| no signal handlers | `process.kill(pid, 'SIGTERM')` | 15 |
+| no signal handlers | `process.kill(pid, 'SIGINT')` | 2 |
+| no signal handlers | `process.kill(pid, 'SIGHUP')` | **0** |
+| no signal handlers | `process.kill(pid, 'SIGKILL')` | 9 |
+| `process.on('SIGTERM')` handler that calls `process.exit(0)` | `child.kill()` or SIGTERM | 0 (the handler ran) |
+| handler that calls `process.exit(7)` | SIGTERM | 7 |
+
+So a host with no handler that `kill()` ends reports 0, exactly what a clean exit
+reports. JS SIGTERM and SIGINT handlers do run in the utility process, which the host's
+own signal handling (L2) relies on.
+
+Request and init timeouts SIGKILL, log at error with the request diagnostics, and no
+replacement forks until the exit is observed. Nothing forks once
+`markDesktopShuttingDown()` has run (`DbHostUnavailableError`); a host that already
+exists still serves shutdown-time work. Not done here: signal handling in the host and
+main, and the reserved database-close slice of the shutdown sequence (L2).
+
+### Update (2026-09-29, BST-1872 L1 review round): the exit is the only barrier
+
+Review of the awaited close found that its "wait for the exit" barrier was a promise for the
+kill, not the exit, so a failed or unanswered SIGKILL released the next fork while the old host
+could still own the data directory. The invariant now: no DB host forks, and no close reports
+success, while a previous host may be alive; the only proof it is gone is its observed `exit`.
+Admission that meets a departing host waits at most `DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS`, then
+rejects with `DbHostUnavailableError`; it never forks and never waits unbounded. Fixes:
+
+- A. `#departingHost` holds the detached `DbHostProcess` itself; only its own `host.exited`
+  continuation clears it (identity-checked). `killWedgedHost`'s result gates nothing.
+- B. One `#admit()` gate, re-run after every wait, guards every request that can fork
+  (`send()` for every non-close kind, which is also how `getDatabase()` initializes). It stays
+  synchronous when nothing departs so a request issued before `close()` is posted before the
+  close envelope. `#ensureHost()` also refuses to fork while a host departs.
+- C. Requests issued while `close()` runs reject with `DbHostUnavailableError` instead of
+  queueing behind the close and forking a host after it.
+- D. A repeated `close()` with no live host waits for the departing host's exit and rejects
+  `exit-timeout` while it is still alive; it is never a silent success.
+- E. A SIGKILL the OS refuses (EPERM) is caught inside the shared kill path, logged at error,
+  and counts as "not exited", so every close rung reports `exit-timeout` and no caller sees a raw errno.
+- F. `DbHostProcess.forceKill()` sends nothing once the exit was observed: the pid may belong
+  to an unrelated process by then.
+- G. The kill log follows the logger's `(message, context)` order. While a close is in flight
+  `#terminateHost` returns early on purpose: the request-timeout `rejectAll` also fails the
+  close request, which drives the close ladder's SIGKILL.
+- Follow-up 1. The barrier also survives replacement of the default manager. When `retire()`
+  rejects inside `closeDbHostManager()`, the failed manager is kept as `unexitedDefaultManager` before
+  `defaultManager` is cleared. While its `hasDepartingHost()` is true, `getDbHostManager()` throws
+  `DbHostUnavailableError` and builds nothing, so close, reset and reinitialize cannot fork a second
+  host over the first. Once the exit is observed the slot is cleared and a new manager is built. A
+  repeated `closeDbHostManager()` with no default manager waits at most one post-SIGKILL budget on
+  that host and rejects `exit-timeout` while it is alive: finding D one level up. A close that
+  ended with the host's exit observed (`close-failed`, `exited-unclean`, `killed`) sets no barrier
+  and replaces the manager as before.
+- Follow-up 2. `DbHostProcess` registers its `exit` listener in the constructor body, not inside the
+  `exited` promise executor. A failed fork (no handle) or a throwing `once` now throws to the
+  caller, as a failed fork always did; inside the executor it rejected `exited`, which nothing awaits
+  until a close, and surfaced as an unhandled rejection that failed a CI shard.
+- Round 2, A. `close()` with no live host now sets `#closing` too (`close()` in `db-host-manager.ts`; a
+  close with nothing departing stays a no-op). Before, a request waiting in `#admit` could fork a
+  fresh host at the moment that close reported closed. It now re-checks, sees `#closing`, and rejects
+  with `DbHostUnavailableError`. Guard: "rejects a request waiting on the barrier when close() runs
+  with no live host, and forks nothing".
+- Round 2, B. Intended, not a code change: after a failed close, once the host's exit is observed, a
+  later `close()` or `closeDbHostManager()` RESOLVES. Nothing owns the directory, and the missing
+  clean-shutdown marker records that session as unclean, so the next open reports `unclean`. Guard:
+  the `afterExit` case of "never reports a repeated close as success while the host may still be
+  alive" (both the manager and the default-manager variants). It is also in `close()`'s JSDoc.
