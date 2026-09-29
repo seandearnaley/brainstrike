@@ -4,8 +4,10 @@ import type {
   ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
-import { isCorruptionError } from '../database-corruption-classifier';
-import { createDesktopDatabaseIntegrity } from '../database-integrity-state';
+import {
+  createDesktopDatabaseIntegrity,
+  DatabaseIntegrityError,
+} from '../database-integrity-state';
 import {
   createDesktopDatabaseMaintenanceScheduler,
   type DesktopDatabaseMaintenanceSchedulerOptions,
@@ -89,7 +91,6 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
       integrity: createHealthyIntegrity(),
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
       now: () => new Date(nowMs),
-      onRuntimeCorruption: vi.fn(),
       ...(quietPeriodMs === undefined ? {} : { quietPeriodMs }),
       runMaintenance,
       runScheduledWork: (async <TResult>(
@@ -190,7 +191,6 @@ describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
         }),
         integrity: createHealthyIntegrity(),
         logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-        onRuntimeCorruption: vi.fn(),
         quietPeriodMs: -1,
         runScheduledWork: (async <TResult>(
           _options: DatabaseWorkOptions,
@@ -220,7 +220,6 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         info: vi.fn(),
         warn: vi.fn(),
       },
-      onRuntimeCorruption: vi.fn(),
       runMaintenance,
       runScheduledWork,
     });
@@ -264,7 +263,6 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       }),
       integrity: createHealthyIntegrity(),
       logger,
-      onRuntimeCorruption: vi.fn(),
       runMaintenance,
       runScheduledWork,
     });
@@ -329,7 +327,6 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       }),
       integrity: createHealthyIntegrity(),
       logger,
-      onRuntimeCorruption: vi.fn(),
       runMaintenance: vi.fn(async () => partialResult),
       runScheduledWork,
     });
@@ -378,7 +375,6 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         info: vi.fn(),
         warn: vi.fn(),
       },
-      onRuntimeCorruption: vi.fn(),
       quietPeriodMs: 0,
       runMaintenance,
       runScheduledWork,
@@ -440,7 +436,6 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
           info: vi.fn(),
           warn: vi.fn(),
         },
-        onRuntimeCorruption: vi.fn(),
         // Timer mechanics in isolation: opt out of the BST-1333 quiet-period
         // gate, which start() would otherwise arm for 15s and which has its
         // own describe block above.
@@ -491,7 +486,6 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
           info: vi.fn(),
           warn: vi.fn(),
         },
-        onRuntimeCorruption: vi.fn(),
         // Timer mechanics in isolation — see the note on the initial-pass test.
         quietPeriodMs: 0,
         runMaintenance,
@@ -524,22 +518,22 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
 });
 
 /**
- * Corruption found by a maintenance pass takes the same runtime recovery path
- * as corruption found by `db:query`. Measured case (2026-09-15): a pass failed
- * with XX001, was logged as "Scheduled database maintenance failed", and the
- * app kept serving that database for about nine hours until an embedding
- * backfill `db:query` hit XX001 and finally replaced it.
+ * Corruption found by a maintenance pass contains the database, exactly like
+ * corruption found by `db:query`: background work pauses and nothing is
+ * replaced. Measured case (2026-09-15): a pass failed with XX001 and was only
+ * logged as "Scheduled database maintenance failed" while the app kept running
+ * background writes into that database for about nine hours.
  */
-describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
+describe('DesktopDatabaseMaintenanceScheduler integrity containment on failure', () => {
   interface CorruptionHarness {
     readonly events: string[];
+    readonly integrity: ReturnType<typeof createHealthyIntegrity>;
     readonly logger: {
       readonly debug: ReturnType<typeof vi.fn>;
       readonly error: ReturnType<typeof vi.fn>;
       readonly info: ReturnType<typeof vi.fn>;
       readonly warn: ReturnType<typeof vi.fn>;
     };
-    readonly onRuntimeCorruption: ReturnType<typeof vi.fn>;
     readonly scheduler: ReturnType<typeof createDesktopDatabaseMaintenanceScheduler>;
   }
 
@@ -551,9 +545,7 @@ describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
 
   function createHarness(maintenanceError: Error): CorruptionHarness {
     const events: string[] = [];
-    const onRuntimeCorruption = vi.fn(async (context: string) => {
-      events.push(`recover:${context}`);
-    });
+    const integrity = createHealthyIntegrity();
     const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
       getDatabase: vi.fn(async () => databaseWithAssistantWork()),
@@ -562,9 +554,8 @@ describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
         runningPriority: null,
       }),
       initialDelayMs: 0,
-      integrity: createHealthyIntegrity(),
+      integrity,
       logger,
-      onRuntimeCorruption,
       quietPeriodMs: 0,
       runMaintenance: vi.fn(async () => {
         throw maintenanceError;
@@ -581,45 +572,43 @@ describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
         }
       }) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'],
     });
-    return { events, logger, onRuntimeCorruption, scheduler };
+    return { events, integrity, logger, scheduler };
   }
 
-  it('replaces the database when a pass fails with a corruption-class error', async () => {
+  it('contains the database when a pass fails with a corruption-class error', async () => {
     const corruption = createDbHostError(
       'pg_textsearch memtable marking dead chain page out',
       'XX001'
     );
-    // The fixture must be corruption by the query path's own rule, not a stub.
-    expect(isCorruptionError(corruption)).toBe(true);
     const harness = createHarness(corruption);
 
-    await expect(harness.scheduler.runOnce()).rejects.toMatchObject({
-      name: 'DatabaseCorruptionRecoveredError',
+    const rejection = await harness.scheduler.runOnce().catch((error: unknown) => error);
+
+    expect(rejection).toBeInstanceOf(DatabaseIntegrityError);
+    expect(rejection).toMatchObject({
+      cause: corruption,
+      detail: { context: 'maintenance', reason: 'detected' },
     });
-
-    expect(harness.onRuntimeCorruption).toHaveBeenCalledExactlyOnceWith('maintenance');
-    expect(harness.logger.warn).toHaveBeenCalledExactlyOnceWith(
-      { context: 'maintenance', error: corruption },
-      'Corruption detected in maintenance; replacing the database without retrying.'
-    );
+    expect(harness.integrity.getSnapshot().state).toMatchObject({
+      context: 'maintenance',
+      kind: 'contained',
+      signal: { sqlstate: 'XX001' },
+    });
   });
 
-  it('recovers inside the maintenance work lane, before the lane is released', async () => {
-    // db:query recovers inside its scheduler operation so the recovery epoch
-    // bump lands while the failing operation still owns the serial lane.
-    // Recovering after the lane unwinds would let queued work reach the
-    // corrupt database first.
+  it('contains inside the maintenance work lane, before the lane is released', async () => {
     const harness = createHarness(createDbHostError('invalid page index at block 398', 'XX001'));
+    harness.integrity.subscribe(() => harness.events.push('contained'));
 
-    await expect(harness.scheduler.runOnce()).rejects.toThrow();
+    await expect(harness.scheduler.runOnce()).rejects.toThrow(DatabaseIntegrityError);
 
-    expect(harness.events).toEqual(['lane:enter', 'recover:maintenance', 'lane:exit']);
+    expect(harness.events).toEqual(['lane:enter', 'contained', 'lane:exit']);
   });
 
-  it('recovers on the timer path main.ts uses, then logs the recovered pass as failed', async () => {
-    // main.ts only calls start(), so production recovery runs on the timer
+  it('logs the contained pass as failed on the timer path main.ts uses', async () => {
+    // main.ts only calls start(), so production containment runs on the timer
     // path. The pass is still logged at error level: it did not complete, and
-    // the logged error names the recovery instead of the raw corruption.
+    // the logged error is the typed integrity error rather than the raw one.
     const corruption = createDbHostError('invalid page index at block 398', 'XX001');
     const harness = createHarness(corruption);
 
@@ -627,7 +616,7 @@ describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
     try {
       await vi.waitFor(() => {
         expect(harness.logger.error).toHaveBeenCalledExactlyOnceWith(
-          { error: expect.objectContaining({ name: 'DatabaseCorruptionRecoveredError' }) },
+          { error: expect.objectContaining({ cause: corruption, name: 'DatabaseIntegrityError' }) },
           'Scheduled database maintenance failed'
         );
       });
@@ -635,16 +624,11 @@ describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
       harness.scheduler.stop();
     }
 
-    expect(harness.onRuntimeCorruption).toHaveBeenCalledExactlyOnceWith('maintenance');
-    expect(harness.logger.warn).toHaveBeenCalledExactlyOnceWith(
-      { context: 'maintenance', error: corruption },
-      'Corruption detected in maintenance; replacing the database without retrying.'
-    );
+    expect(harness.integrity.getSnapshot().state.kind).toBe('contained');
   });
 
-  it('keeps a non-corruption failure log-only: same error, same log, no recovery', async () => {
+  it('keeps a non-corruption failure log-only: same error, same log, state healthy', async () => {
     const failure = createDbHostError('canceling statement due to statement timeout', '57014');
-    expect(isCorruptionError(failure)).toBe(false);
     const harness = createHarness(failure);
 
     harness.scheduler.start();
@@ -659,8 +643,21 @@ describe('DesktopDatabaseMaintenanceScheduler corruption recovery', () => {
       harness.scheduler.stop();
     }
 
-    expect(harness.onRuntimeCorruption).not.toHaveBeenCalled();
+    expect(harness.integrity.getSnapshot().state).toEqual({ kind: 'healthy' });
     expect(harness.logger.warn).not.toHaveBeenCalled();
+  });
+
+  // Compile-time guard: type-check fails here if `integrity` ever becomes optional.
+  it('has no default for the integrity option', () => {
+    const withoutIntegrity: Omit<DesktopDatabaseMaintenanceSchedulerOptions, 'integrity'> = {
+      getDatabase: vi.fn(async () => databaseWithAssistantWork()),
+      getSchedulerSnapshot: () => ({ queued: createQueuedCounts(), runningPriority: null }),
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+      runScheduledWork: vi.fn() as never,
+    };
+    // @ts-expect-error `integrity` is required: a pass must never run unguarded.
+    const create = () => createDesktopDatabaseMaintenanceScheduler(withoutIntegrity);
+    expect(create).toBeTypeOf('function');
   });
 });
 
@@ -681,7 +678,6 @@ describe('DesktopDatabaseMaintenanceScheduler assistant work admission', () => {
       getSchedulerSnapshot: () => ({ queued: createQueuedCounts(), runningPriority: null }),
       integrity: createHealthyIntegrity(),
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-      onRuntimeCorruption: vi.fn(),
       quietPeriodMs: 0,
       runMaintenance,
       runScheduledWork: (async <TResult>(
@@ -718,7 +714,6 @@ describe('DesktopDatabaseMaintenanceScheduler integrity containment', () => {
       getSchedulerSnapshot: () => ({ queued: createQueuedCounts(), runningPriority: null }),
       integrity,
       logger,
-      onRuntimeCorruption: vi.fn(),
       quietPeriodMs: 0,
       runMaintenance,
       runScheduledWork:

@@ -449,7 +449,7 @@ describe('desktop embedding backfill termination logging', () => {
     });
   });
 
-  it('routes detached background-indexing failures to the owning recovery boundary', async () => {
+  it('routes detached background-indexing failures to the owning containment boundary', async () => {
     const corruption = Object.assign(new Error('invalid page in block 42'), { code: 'XX001' });
     const onDetachedFailure = vi.fn(async () => undefined);
     enqueueEmbeddingBackfillMock.mockRejectedValueOnce(corruption);

@@ -55,12 +55,7 @@ import { startDatabaseIntegrityContainment } from './database-integrity-containm
 import { getDesktopDatabaseIntegrity } from './database-integrity-state';
 import { createDesktopDatabaseMaintenanceScheduler } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
-import {
-  closeDatabase,
-  getDatabase,
-  handleRuntimeCorruption as replaceCorruptedDatabase,
-  resetLocalDatabase,
-} from './db-main';
+import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
@@ -135,9 +130,7 @@ import {
   cleanupDesktopLiveSubscriptionsForShutdown,
   getDesktopDatabaseWorkScheduler,
   getDesktopDatabaseWorkSchedulerSnapshot,
-  quiesceDesktopDatabaseWorkForRecovery,
   registerIpcHandlers,
-  resumeDesktopDatabaseWorkAfterRecoveryReload,
   runDesktopScheduledDatabaseWork,
   runWithDesktopDatabaseResetBarrier,
   setBackgrounded,
@@ -711,88 +704,6 @@ const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 const llmHostManager = new LlmHostManager();
-let runtimeDatabaseRecoveryPromise: Promise<void> | null = null;
-
-async function recoverRuntimeDatabaseAndReload(context: string): Promise<void> {
-  if (runtimeDatabaseRecoveryPromise) {
-    await runtimeDatabaseRecoveryPromise;
-    return;
-  }
-
-  const recovery = (async (): Promise<void> => {
-    logger.warn('Runtime database recovery started; active indexing work is being canceled', {
-      context,
-    });
-    quiesceDesktopDatabaseWorkForRecovery();
-    let reloadScheduled = false;
-    try {
-      cancelAllDesktopEmbeddingBackfills();
-      // Recovery runs inside the scheduler operation whose database call just
-      // failed, so waiting for scheduler idle here would deadlock on itself.
-      // Backfills receive the recovery-aware scheduler; queued work cannot run
-      // until this operation unwinds and then rejects against the old epoch.
-      await cleanupDesktopLiveSubscriptionsForShutdown();
-      await replaceCorruptedDatabase(context);
-
-      const visibleWindows = BrowserWindow.getAllWindows().filter(
-        (window) =>
-          !(
-            chunkingHostManager.isHostWindow(window) ||
-            embeddingHostManager.isHostWindow(window) ||
-            llmHostManager.isHostWindow(window)
-          )
-      );
-      if (visibleWindows.length === 0) {
-        logger.warn('Runtime database recovery completed without a visible window to reload', {
-          context,
-        });
-        resumeDesktopDatabaseWorkAfterRecoveryReload();
-        return;
-      }
-
-      for (const window of visibleWindows) {
-        noteNextWindowReload(window, {
-          reason: 'runtime-database-corruption-recovery',
-          source: 'main',
-        });
-      }
-      logger.info('Runtime database recovery completed; visible windows will reload', {
-        context,
-        visibleWindowCount: visibleWindows.length,
-      });
-
-      // Let the failed IPC invocation unwind first. Until this timer runs,
-      // scheduler quiescence rejects both old queued closures and new work from
-      // the stale renderer. The replacement database cannot receive either.
-      reloadScheduled = true;
-      setTimeout(() => {
-        try {
-          for (const window of visibleWindows) {
-            if (!window.isDestroyed()) {
-              window.webContents.reloadIgnoringCache();
-            }
-          }
-        } finally {
-          resumeDesktopDatabaseWorkAfterRecoveryReload();
-        }
-      }, 0);
-    } catch (error) {
-      if (!reloadScheduled) {
-        resumeDesktopDatabaseWorkAfterRecoveryReload();
-      }
-      throw error;
-    }
-  })();
-
-  runtimeDatabaseRecoveryPromise = recovery;
-  try {
-    await recovery;
-  } finally {
-    if (runtimeDatabaseRecoveryPromise === recovery) {
-      runtimeDatabaseRecoveryPromise = null;
-    }
-  }
-}
 
 // Integrity state clears only when a user-confirmed reset completed: a failed
 // reset must never mark the database healthy, so the wrapper marks after the
@@ -932,8 +843,6 @@ const desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceSche
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   integrity: databaseIntegrity,
   logger,
-  // Corruption found by a pass takes the same recovery path as db:query.
-  onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
   runScheduledWork: runDesktopScheduledDatabaseWork,
   // BST-1333: lets the scheduler require SUSTAINED idle before starting an
   // unpreemptable maintenance statement, instead of trusting a single sample.
@@ -998,7 +907,6 @@ ipcDisposers.add(
         : 'unmanaged';
     },
     onResetLocal: handleResetLocal,
-    onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
     onWorkspaceRootGranted: (grantedPath: string) => {
       pendingRootGrantSubscriber?.(grantedPath);
     },

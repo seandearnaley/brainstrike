@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { joinProfileDirectory } from '../../database-location';
+import { writeCleanShutdownMarker } from '../../db-clean-shutdown-marker';
 import {
   bootHost,
   lifecycleStates,
@@ -148,6 +149,23 @@ describe('db-host-entry signal close over the real db-main', () => {
     expect(responsesFor(host, 'init')[0]).toMatchObject({ ok: true });
     expect(engine.close).toHaveBeenCalledTimes(1);
     expect(JSON.parse(readFileSync(markerPath(), 'utf8'))).toMatchObject({ pid: process.pid });
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
+  it('a signal before the database was ever opened closes nothing, writes no marker and leaves an earlier one alone', async () => {
+    const earlier = { closedAt: '2026-09-28T09:00:00.000Z', pid: 424_242 };
+    mkdirSync(appDataDir, { recursive: true });
+    writeCleanShutdownMarker(appDataDir, earlier);
+    const host = await bootHost();
+
+    host.signal('SIGTERM');
+
+    await vi.waitFor(() => expect(host.exitCodes).toEqual([0]));
+    expect(lifecycleStates(host)).toEqual(['closing:SIGTERM', 'closed:SIGTERM']);
+    expect(engine.createBrainstrikePglite).not.toHaveBeenCalled();
+    expect(engine.close).not.toHaveBeenCalled();
+    // The earlier session's marker names its own pid, so it proves nothing about this host.
+    expect(JSON.parse(readFileSync(markerPath(), 'utf8'))).toEqual(earlier);
     expect(existsSync(lockPath())).toBe(false);
   });
 

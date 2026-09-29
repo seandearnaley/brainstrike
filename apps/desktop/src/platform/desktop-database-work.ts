@@ -9,12 +9,9 @@ import { runDesktopScheduledDatabaseWork } from './desktop-database-work-schedul
 
 // IPC and host callers share the same scheduler and reset barrier instance.
 export {
-  DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE,
   getDesktopDatabaseWorkScheduler,
   getDesktopDatabaseWorkSchedulerSnapshot,
-  quiesceDesktopDatabaseWorkForRecovery,
   resetDesktopDatabaseWorkSchedulerForTests,
-  resumeDesktopDatabaseWorkAfterRecoveryReload,
   runDesktopScheduledDatabaseWork,
   runWithDesktopDatabaseResetBarrier,
   waitForDesktopDatabaseWorkSchedulerIdle,

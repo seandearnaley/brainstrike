@@ -719,8 +719,9 @@ async function closeWhenIdle(settled: Promise<void> | null): Promise<void> {
   } finally {
     // Exit 0 only after a clean close. The code is informational: main proves a clean close by the
     // acknowledgement or the marker naming this pid, never by the exit code. The exit waits one
-    // macrotask: the replies to the in-flight and joined `close` envelopes are posted from promise
-    // callbacks that run right after this settles, and an exit first would drop them.
+    // macrotask so the replies to the in-flight and joined `close` envelopes, posted from promise
+    // callbacks that run right after this settles, are queued before it. That orders them; it does
+    // not guarantee their delivery, which is why the marker, not a reply, is the proof.
     if (exitAfterClose) {
       const code = lifecycle === 'closed' ? 0 : 1;
       setImmediate(() => process.exit(code));

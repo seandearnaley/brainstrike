@@ -221,6 +221,8 @@ its own process) and opened a second PGlite over the first. Fixes, all in `db-ma
   next host reads no marker, so its open is unclean and WAL replay runs.
 - I. Runtime corruption recovery therefore fails closed when the close fails: it never deletes a
   directory a handle may own. Intended, not a regression.
+  Superseded by BST-1870 L4: runtime corruption recovery no longer exists; an integrity error
+  contains the database and never resets it (`platform-contracts.md` § DATABASE INTEGRITY CONTAINMENT).
 - J. `db` is assigned only after the pgvector validation; the handle being opened lives in a
   separate `openingHandle` that only the failed-open cleanup reads. Before, `getLocalDatabase()`
   and `initializeLocalMainDatabase()` returned `db` without awaiting the single-flight promise, so
@@ -276,7 +278,8 @@ It exits 0 only after a successful close, but the code is informational: main pr
 by the acknowledgement or the marker naming the host's pid, never by the exit code. The exit waits
 one macrotask after the close settles, so the replies to the in-flight and joined `close`
 envelopes (posted from promise callbacks) are queued first: main sends `close` and the tree-kill
-signal reaches the host at almost the same moment, and an exit first would drop the acknowledgement.
+signal reaches the host at almost the same moment. The wait orders the replies before the exit; it
+does not guarantee their delivery, so the marker, not a reply, stays the proof.
 A later signal after `closed` exits 0 at once (its replies are long posted); after `close-failed`
 it exits 1 at once. The host's log line and `lifecycle` messages are best effort: a host that
 exits promptly can lose what it posted just before exiting (one E2E run in four lacked the log
@@ -310,6 +313,12 @@ nothing ever closes underneath an open. The same test file pins both outcomes: t
 its handle is what gets closed (marker written, exit 0), and an open that then fails is cleaned up
 by its own failure path, so the signal close finds nothing to close and exits 0 with no marker.
 
+**A signal before the database was ever opened.** `closeLocalDatabase()` has no handle to close, so
+it writes no marker and leaves one from an earlier session untouched; the host still announces
+`closed` and exits 0. That marker names the earlier session's pid, so it is never proof for this
+host. `db-host-entry.db-main.test.ts` pins it (a mutation that writes the marker without a handle
+turns the test red).
+
 **Main's side composes with the departing-host barrier.** A host that closes on a signal aimed at
 it and exits is simply an attached host that exited: the manager's `exit` handler detaches it
 through `#detachHost` (already exited, so no departing host is left behind) and records why no
@@ -321,6 +330,18 @@ no proof and is logged. That reason lives in the same `#unavailable` slot as ret
 `#assertActive()` checks first in `#admit()` and `getDatabase()`, so no request forks a replacement
 and none waits on an exited host. A host main closed itself (the ladder's SIGTERM included) is
 detached before it exits and never counts, marker or not.
+
+**Known gap: a lost `closing` announcement.** Only the `closing` announcement or the marker naming
+the host's pid keeps main from forking a replacement. A failed close writes no marker, and a signal
+close before any open writes none either, so if `closing` is also lost, main sees an unexplained
+exit and the next request forks a replacement while main is still serving. The replacement opens
+the directory as after a crash: the dead host's lock is reclaimed as stale (`isPidAlive`), and the
+missing marker makes the open unclean. Nothing is deleted, and the never-opened case changed nothing
+on disk. `closing` is posted when the close begins, before any close work; the measured loss above
+(one E2E run in four) is of the log line posted just before the exit, and a lost `closing` was
+never observed.
+Not closed, because no other signal distinguishes this exit from a crash; the exit code is never
+proof.
 
 ### Update (2026-09-29, BST-1872 L2b): main's signal handlers and the reserved database-close slice
 
