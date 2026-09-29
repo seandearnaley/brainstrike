@@ -415,7 +415,11 @@ announcement can be lost the same way, which is why the marker, not a message, i
 clean close and why the manager falls back to the marker when it decides not to fork a replacement.
 
 The negative control SIGKILLs main and then the host (main first, so a renderer request can never
-fork a replacement host in the gap): no marker, and the next boot reads `unclean`. The positive
+fork a replacement host in the gap): no marker, and the next boot reads `unclean`. The host also
+dies with main on its own: measured 3 times on macOS (Electron 44.4.5), `SIGKILL` of main alone
+left main gone after 22, 18 and 19 ms and the host gone after 75, 70 and 70 ms (polled with
+`kill -0` for up to 10 s), so the positive spec needs no host SIGKILL in its failure path; the
+negative control still kills it explicitly, which is deterministic rather than a race. The positive
 test waits for the process's `close` (stdout drained, so the log assertions see the whole run, and
 the DB host, which inherits main's stdio, must be gone too); the negative control waits for `exit`,
 because a SIGKILLed tree can leave a sibling holding the pipe open and `close` would then time out
