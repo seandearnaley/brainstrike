@@ -626,8 +626,36 @@ describe('createEmbeddingWorkerConfig', () => {
 
   // The starvation bound only relaxes foreground-pressure yielding; it must not
   // be able to admit a claim while database integrity containment is active.
-  it('holds the claim permit under containment even after the starvation bound elapses', async () => {
-    import.meta.env['VITE_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS'] = '1';
+  it('holds the claim permit under containment even while the starvation bypass is active', async () => {
+    import.meta.env['VITE_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS'] = '20';
+    const { scheduledDb } = createScheduledTestDb();
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    let releaseForegroundWork!: () => void;
+    const foregroundWork = scheduler.run(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseForegroundWork = resolve;
+        }),
+      { label: 'test foreground query', priority: 'foreground' }
+    );
+    await vi.waitFor(() => {
+      expect(scheduler.getSnapshot().runningPriority).toBe('foreground');
+    });
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    // Healthy: the bounded permit starts the starvation clock, and the bypass engages.
+    await config.waitForBackgroundPermit?.({ label: 'embedding claim' });
+    await vi.waitFor(
+      async () => {
+        await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+      },
+      { interval: 10, timeout: 5000 }
+    );
+
+    // Containment begins while the bypass would admit a claim at once.
     integrityWatcher.current.mockResolvedValue({
       revision: 1,
       state: {
@@ -643,8 +671,6 @@ describe('createEmbeddingWorkerConfig', () => {
         admit = resolve;
       })
     );
-    const config = createEmbeddingWorkerConfig(createScheduledTestDb().scheduledDb as never);
-
     let admitted = false;
     const permit = config.waitForBackgroundPermit?.({ label: 'embedding claim' })?.then(() => {
       admitted = true;
@@ -653,6 +679,7 @@ describe('createEmbeddingWorkerConfig', () => {
       setTimeout(resolve, 50);
     });
     expect(admitted).toBe(false);
+    expect(integrityWatcher.waitUntilBackgroundAdmitted).toHaveBeenCalled();
 
     // The hold re-reads the state after the base permit, so admission is the
     // healthy snapshot main publishes, not just the released wait.
@@ -660,6 +687,9 @@ describe('createEmbeddingWorkerConfig', () => {
     admit();
     await permit;
     expect(admitted).toBe(true);
+
+    releaseForegroundWork();
+    await foregroundWork;
   });
 
   it('never bypasses an in-flight foreground query embedding', async () => {
