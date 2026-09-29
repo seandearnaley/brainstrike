@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   computeLedgerHead,
   customMigrations,
@@ -19,6 +19,46 @@ describe('getBundledLedgerHead', () => {
     expect(APPLY_ORDER.length).toBeGreaterThan(50);
     expect(getBundledLedgerHead()).toBe(APPLY_ORDER.at(-1));
     expect(getBundledLedgerHead()).toBe(customMigrations.at(-1)?.hash);
+  });
+});
+
+describe('the bundled ledger is fixed at load', () => {
+  it('does not move when the exported customMigrations array is appended to afterwards', () => {
+    const head = getBundledLedgerHead();
+    customMigrations.push({
+      hash: 'custom-999-appended-later',
+      name: 'x',
+      sql: '',
+      version: '999',
+    });
+    try {
+      expect(getBundledLedgerHead()).toBe(head);
+      expect(computeLedgerHead(new Set(['custom-999-appended-later']))).toEqual({
+        head: null,
+        unknown: 1,
+      });
+    } finally {
+      customMigrations.pop();
+    }
+  });
+});
+
+describe('a build that bundles no migrations', () => {
+  it('has no ledger head and says so, and no applied hash is known to it', async () => {
+    vi.resetModules();
+    vi.doMock('../src/drizzle/migrations.json', () => ({
+      default: { generatedAt: '', migrations: [], version: 1 },
+    }));
+    vi.doMock('../src/migrations/index.js', () => ({ migrations: [] }));
+    try {
+      const empty = await import('../src/drizzle/migrate.js');
+      expect(() => empty.getBundledLedgerHead()).toThrow(/bundles no migrations/u);
+      expect(empty.computeLedgerHead(new Set(['x']))).toEqual({ head: null, unknown: 1 });
+    } finally {
+      vi.doUnmock('../src/drizzle/migrations.json');
+      vi.doUnmock('../src/migrations/index.js');
+      vi.resetModules();
+    }
   });
 });
 

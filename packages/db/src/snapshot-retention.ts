@@ -76,9 +76,11 @@ export const DEFAULT_SNAPSHOT_RETENTION_POLICY: SnapshotRetentionPolicy = {
 
 const DAY_MS = 86_400_000;
 const RULE_ORDER: readonly RetentionRule[] = ['pre-update', 'repair', 'daily', 'weekly'];
-const PRE_UPDATE_REASONS: readonly DatabaseSnapshotReason[] = ['pre-migration', 'pre-update'];
-const REPAIR_REASONS: readonly DatabaseSnapshotReason[] = ['pre-repair', 'post-repair'];
-const NEVER_AUTOMATICALLY_PRUNED: readonly DatabaseSnapshotReason[] = ['manual', 'imported'];
+type Reasons = ReadonlySet<DatabaseSnapshotReason>;
+const DAILY_REASONS: Reasons = new Set(['daily']);
+const PRE_UPDATE_REASONS: Reasons = new Set(['pre-migration', 'pre-update']);
+const REPAIR_REASONS: Reasons = new Set(['pre-repair', 'post-repair']);
+const NEVER_AUTOMATICALLY_PRUNED: Reasons = new Set(['manual', 'imported']);
 
 interface Entry {
   readonly snapshot: RetentionSnapshot;
@@ -107,14 +109,43 @@ function isoWeekStart(time: number): number {
   return day - ((new Date(day).getUTCDay() + 6) % 7) * DAY_MS;
 }
 
+/**
+ * The planner is an exported API, so it validates its own input rather than
+ * trusting a caller to have parsed a manifest: `createdAt` is exactly what
+ * `toISOString` writes (the manifest's own rule) and `byteSize` a finite,
+ * non-negative integer, or the plan's ages and totals would be guesses.
+ */
 function toEntry(snapshot: RetentionSnapshot): Entry {
   const time = Date.parse(snapshot.createdAt);
-  if (Number.isNaN(time)) {
+  if (Number.isNaN(time) || new Date(time).toISOString() !== snapshot.createdAt) {
     throw new TypeError(
-      `Snapshot "${snapshot.id}" has an invalid createdAt "${snapshot.createdAt}"; its age cannot be planned.`
+      `Snapshot "${snapshot.id}" has an invalid createdAt "${snapshot.createdAt}"; expected an ISO-8601 UTC timestamp as toISOString writes it.`
+    );
+  }
+  if (!Number.isInteger(snapshot.byteSize) || snapshot.byteSize < 0) {
+    throw new RangeError(
+      `Snapshot "${snapshot.id}" has an invalid byteSize ${String(snapshot.byteSize)}; expected a finite non-negative integer.`
     );
   }
   return { snapshot, time };
+}
+
+/**
+ * Ids are the directory names the manifest allows, which are ASCII, so ordering
+ * by UTF-16 unit is ordering by code point; unlike `localeCompare` it never
+ * depends on the runtime's ICU data.
+ */
+const compareIds = (a: string, b: string): number => (a === b ? 0 : a < b ? -1 : 1);
+
+/** The ids of the entries `test` accepts, in order, in one pass. */
+function idsWhere(entries: readonly Entry[], test: (id: string) => boolean): string[] {
+  const ids: string[] = [];
+  for (const { snapshot } of entries) {
+    if (test(snapshot.id)) {
+      ids.push(snapshot.id);
+    }
+  }
+  return ids;
 }
 
 /** restic's keep-N-per-period: the newest entry of each of the `count` most recent periods that have one. `entries` is newest first. */
@@ -143,24 +174,27 @@ export function planSnapshotRetention(input: {
 }): SnapshotRetentionPlan {
   const policy = input.policy ?? DEFAULT_SNAPSHOT_RETENTION_POLICY;
   assertPolicy(policy);
+  const seen = new Set<string>();
+  for (const { id } of input.snapshots) {
+    if (seen.has(id)) {
+      throw new Error(`Duplicate snapshot id "${id}" in the retention input.`);
+    }
+    seen.add(id);
+  }
   // Newest first; an equal timestamp breaks on id so the plan is deterministic.
   const entries = input.snapshots
     .map(toEntry)
-    .sort((a, b) => b.time - a.time || b.snapshot.id.localeCompare(a.snapshot.id));
+    .sort((a, b) => b.time - a.time || compareIds(b.snapshot.id, a.snapshot.id));
 
-  const pinned = new Set(
-    entries
-      .filter(({ snapshot }) => input.protectedIds.has(snapshot.id))
-      .map(({ snapshot }) => snapshot.id)
-  );
+  const pinned = new Set(idsWhere(entries, (id) => input.protectedIds.has(id)));
   const newestVerified = entries.find(({ snapshot }) => snapshot.verified);
   if (newestVerified) {
     pinned.add(newestVerified.snapshot.id);
   }
 
-  const withReason = (reasons: readonly DatabaseSnapshotReason[]): readonly Entry[] =>
-    entries.filter(({ snapshot }) => reasons.includes(snapshot.reason));
-  const dailies = withReason(['daily']);
+  const withReason = (reasons: Reasons): readonly Entry[] =>
+    entries.filter(({ snapshot }) => reasons.has(snapshot.reason));
+  const dailies = withReason(DAILY_REASONS);
   const keptBy = new Map<string, Set<RetentionRule>>();
   const keepFor = (rule: RetentionRule, kept: readonly Entry[]): void => {
     for (const { snapshot } of kept) {
@@ -177,9 +211,10 @@ export function planSnapshotRetention(input: {
     ...keptBy.keys(),
     ...withReason(NEVER_AUTOMATICALLY_PRUNED).map(({ snapshot }) => snapshot.id),
   ]);
-  const prune: SnapshotPrune[] = entries
-    .filter(({ snapshot }) => !keep.has(snapshot.id))
-    .map(({ snapshot }) => ({ id: snapshot.id, why: 'bucket' }));
+  const prune: SnapshotPrune[] = idsWhere(entries, (id) => !keep.has(id)).map((id) => ({
+    id,
+    why: 'bucket',
+  }));
 
   let keptBytes = entries.reduce(
     (total, { snapshot }) => (keep.has(snapshot.id) ? total + snapshot.byteSize : total),
@@ -203,9 +238,7 @@ export function planSnapshotRetention(input: {
   }
 
   return {
-    keep: entries
-      .filter(({ snapshot }) => keep.has(snapshot.id))
-      .map(({ snapshot }) => snapshot.id),
+    keep: idsWhere(entries, (id) => keep.has(id)),
     overCap: keptBytes > policy.capBytes,
     overCapBytes: Math.max(0, keptBytes - policy.capBytes),
     prune,

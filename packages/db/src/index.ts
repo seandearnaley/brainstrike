@@ -45,7 +45,9 @@ export {
   type FindingSeverity,
   INTEGRITY_CHECKS,
   type IntegrityCheck,
+  MAX_FINDING_MESSAGE_LENGTH,
   type RelationFinding,
+  truncateFindingMessage,
 } from './database-integrity-finding.js';
 export * from './database-pressure-controller.js';
 export * from './database-query-telemetry.js';

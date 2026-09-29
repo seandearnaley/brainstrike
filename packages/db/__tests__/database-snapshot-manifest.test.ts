@@ -26,6 +26,38 @@ const CLEAN_INTEGRITY = {
   unverifiableReason: null,
 };
 
+interface Table {
+  durability: string;
+  rows: number | null;
+  table: string;
+}
+
+const TABLES: readonly Table[] = [
+  { durability: 'derived', rows: 120_000, table: 'file_chunks' },
+  { durability: 'precious', rows: 4000, table: 'mastra_messages' },
+  { durability: 'operational', rows: 50, table: 'job_queue' },
+  { durability: 'schema-ledger', rows: 145, table: '__drizzle_migrations' },
+];
+
+/** The per-class totals a writer derives from `tables`; a null count adds nothing. */
+function countsOf(tables: readonly Table[]): Record<string, number> {
+  const counts: Record<string, number> = {
+    derived: 0,
+    operational: 0,
+    precious: 0,
+    'schema-ledger': 0,
+    unclassified: 0,
+  };
+  for (const { durability, rows } of tables) {
+    counts[durability] = (counts[durability] ?? 0) + (rows ?? 0);
+  }
+  return counts;
+}
+
+/** A manifest whose totals agree with `tables`, so a test isolates one contradiction. */
+const withTables = (tables: readonly Table[], overrides: Record<string, unknown> = {}) =>
+  manifest({ rowCountsByDurability: countsOf(tables), tables, ...overrides });
+
 /** A clean, fully verified manifest, as the writer emits it; `overrides` replace whole top-level keys. */
 function manifest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -43,19 +75,10 @@ function manifest(overrides: Record<string, unknown> = {}): Record<string, unkno
     method: 'cold-clone',
     profile: 'default',
     reason: 'pre-update',
-    rowCountsByDurability: {
-      derived: 120_000,
-      operational: 50,
-      precious: 4000,
-      'schema-ledger': 145,
-      unclassified: 0,
-    },
+    rowCountsByDurability: countsOf(TABLES),
     schemaVersion: 1,
     sourceShutdown: 'unclean',
-    tables: [
-      { durability: 'derived', rows: 120_000, table: 'file_chunks' },
-      { durability: 'precious', rows: 4000, table: 'mastra_messages' },
-    ],
+    tables: TABLES,
     timeMachine: 'included',
     timings: { cloneMs: 900, fsyncMs: 1200, holdMs: null, verifyMs: 14_000 },
     unknownLedgerEntries: 0,
@@ -71,10 +94,8 @@ const damaged = (findings: readonly object[] = [FINDING]) =>
   manifest({ integrity: withIntegrity({ findings, status: 'damaged' }), verified: false });
 
 describe('parseDatabaseSnapshotManifest', () => {
-  it('returns a valid manifest unchanged, through a JSON round trip', () => {
-    expect(parseDatabaseSnapshotManifest(JSON.parse(JSON.stringify(manifest())))).toEqual(
-      manifest()
-    );
+  it('returns a valid manifest unchanged, from a copy with no shared references', () => {
+    expect(parseDatabaseSnapshotManifest(structuredClone(manifest()))).toEqual(manifest());
   });
 
   it('accepts a damaged manifest with findings, and an unverifiable one with its reason', () => {
@@ -165,14 +186,142 @@ describe('parseDatabaseSnapshotManifest', () => {
   });
 
   it('rejects a manifest that claims verified while a table has no row count', () => {
-    const uncounted = manifest({
-      tables: [{ durability: 'derived', rows: null, table: 'file_chunks' }],
-    });
+    const uncounted = withTables([{ durability: 'derived', rows: null, table: 'file_chunks' }]);
     expect(() => parseDatabaseSnapshotManifest(uncounted)).toThrow(/verified/u);
   });
 
   it('rejects a manifest that denies verification to a clean, fully counted check', () => {
     expect(() => parseDatabaseSnapshotManifest(manifest({ verified: false }))).toThrow(/verified/u);
+  });
+});
+
+describe('id and profile as a directory name', () => {
+  it.each(['id', 'profile'] as const)(
+    'rejects a %s that would not be a safe directory on every platform',
+    (field) => {
+      for (const bad of [
+        'abc.',
+        'a'.repeat(65),
+        'con',
+        'NUL',
+        'Aux',
+        'prn',
+        'com1',
+        'LPT9',
+        'nul.db',
+        'Con.txt',
+        'com9.tar.gz',
+      ]) {
+        const input = manifest({ [field]: bad });
+        expect(() => parseDatabaseSnapshotManifest(input), bad).toThrow(TypeError);
+        expect(() => parseDatabaseSnapshotManifest(input), bad).toThrow(new RegExp(field, 'u'));
+      }
+    }
+  );
+
+  it.each(['id', 'profile'] as const)(
+    'accepts a %s that only resembles a reserved name, or sits at the length limit',
+    (field) => {
+      for (const good of [
+        'console',
+        'nully',
+        'com10',
+        'lpt0',
+        'aux-db',
+        'a'.repeat(64),
+        'default',
+      ]) {
+        expect(parseDatabaseSnapshotManifest(manifest({ [field]: good }))[field]).toBe(good);
+      }
+    }
+  );
+});
+
+describe('a manifest that contradicts itself', () => {
+  const clean = (overrides: Record<string, unknown>) =>
+    manifest({ integrity: withIntegrity(overrides) });
+
+  it.each([
+    [
+      'clean with a finding, still claiming verified',
+      clean({ findings: [FINDING] }),
+      /integrity\.findings/u,
+    ],
+    [
+      'clean with a finding, denying verified',
+      manifest({ integrity: withIntegrity({ findings: [FINDING] }), verified: false }),
+      /integrity\.findings/u,
+    ],
+    ['clean but truncated', clean({ findingsTruncated: true }), /integrity\.findingsTruncated/u],
+    [
+      'clean with an unverifiable reason',
+      clean({ unverifiableReason: 'x' }),
+      /integrity\.unverifiableReason/u,
+    ],
+    [
+      'damaged with no findings and not truncated',
+      manifest({ integrity: withIntegrity({ status: 'damaged' }), verified: false }),
+      /integrity\.findings/u,
+    ],
+    [
+      'unverifiable with no reason',
+      manifest({ integrity: withIntegrity({ status: 'unverifiable' }), verified: false }),
+      /integrity\.unverifiableReason/u,
+    ],
+    [
+      'damaged with an unverifiable reason',
+      manifest({
+        integrity: withIntegrity({
+          findings: [FINDING],
+          status: 'damaged',
+          unverifiableReason: 'x',
+        }),
+        verified: false,
+      }),
+      /integrity\.unverifiableReason/u,
+    ],
+  ])('rejects %s', (_label, input, fields) => {
+    expect(() => parseDatabaseSnapshotManifest(input)).toThrow(TypeError);
+    expect(() => parseDatabaseSnapshotManifest(input)).toThrow(fields);
+  });
+
+  it('rejects per-class totals that disagree with the table row counts, naming the class', () => {
+    const wrong = manifest({ rowCountsByDurability: { ...countsOf(TABLES), derived: 120_001 } });
+    expect(() => parseDatabaseSnapshotManifest(wrong)).toThrow(/rowCountsByDurability\.derived/u);
+    const unclassified = withTables([{ durability: 'unclassified', rows: 7, table: 'zz' }], {
+      rowCountsByDurability: { ...countsOf([]), unclassified: 6 },
+    });
+    expect(() => parseDatabaseSnapshotManifest(unclassified)).toThrow(
+      /rowCountsByDurability\.unclassified/u
+    );
+  });
+
+  it('sums only the counted tables: a null row count adds nothing to its class total', () => {
+    const tables = [
+      { durability: 'derived', rows: 5, table: 'a' },
+      { durability: 'derived', rows: null, table: 'b' },
+    ];
+    const parsed = parseDatabaseSnapshotManifest(withTables(tables, { verified: false }));
+    expect(parsed.rowCountsByDurability.derived).toBe(5);
+    expect(parsed.verified).toBe(false);
+    const overCounted = withTables(tables, {
+      rowCountsByDurability: { ...countsOf(tables), derived: 6 },
+      verified: false,
+    });
+    expect(() => parseDatabaseSnapshotManifest(overCounted)).toThrow(
+      /rowCountsByDurability\.derived/u
+    );
+  });
+
+  it('cannot claim verified unless clean, unmarked, findings-free, untruncated and fully counted', () => {
+    for (const input of [
+      clean({ findings: [FINDING] }),
+      clean({ findingsTruncated: true }),
+      clean({ unverifiableReason: 'x' }),
+      withTables([{ durability: 'derived', rows: null, table: 'a' }]),
+    ]) {
+      expect(() => parseDatabaseSnapshotManifest(input)).toThrow(TypeError);
+    }
   });
 });
 

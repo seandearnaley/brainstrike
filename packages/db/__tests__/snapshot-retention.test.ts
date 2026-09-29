@@ -209,6 +209,77 @@ describe('planSnapshotRetention buckets', () => {
   });
 });
 
+describe('planSnapshotRetention policy validation', () => {
+  it.each([
+    ['daily', -1],
+    ['preUpdate', 1.5],
+    ['repair', Number.NaN],
+    ['weekly', Number.POSITIVE_INFINITY],
+  ] as const)('rejects a %s count of %s, naming it', (key, value) => {
+    expect(() =>
+      plan([], { policy: { ...DEFAULT_SNAPSHOT_RETENTION_POLICY, [key]: value } })
+    ).toThrow(new RegExp(`${key}.*non-negative integer`, 'u'));
+  });
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('rejects a capBytes of %s', (capBytes) => {
+    expect(() => plan([], { policy: { ...DEFAULT_SNAPSHOT_RETENTION_POLICY, capBytes } })).toThrow(
+      /capBytes.*non-negative finite/u
+    );
+  });
+});
+
+describe('planSnapshotRetention input validation', () => {
+  it.each([
+    ['a date without a time', '2026-09-29'],
+    ['a timestamp without milliseconds', '2026-09-29T10:00:00Z'],
+    ['a timestamp with an offset', '2026-09-29T10:00:00.000+02:00'],
+    ['a timestamp with padding', ' 2026-09-29T10:00:00.000Z'],
+  ])(
+    'rejects %s as createdAt: only the exact toISOString form is accepted',
+    (_label, createdAt) => {
+      expect(() => plan([snapshot('odd', 'daily', createdAt)])).toThrow(/odd.*createdAt/u);
+    }
+  );
+
+  it.each([
+    ['negative', -1],
+    ['fractional', 1.5],
+    ['NaN', Number.NaN],
+    ['infinite', Number.POSITIVE_INFINITY],
+    ['text', '5' as unknown as number],
+  ])('rejects a %s byteSize', (_label, byteSize) => {
+    expect(() =>
+      plan([snapshot('sized', 'daily', '2026-09-29T00:00:00.000Z', { byteSize })])
+    ).toThrow(/sized.*byteSize/u);
+  });
+
+  it('accepts a zero byteSize', () => {
+    expect(() =>
+      plan([snapshot('empty', 'daily', '2026-09-29T00:00:00.000Z', { byteSize: 0 })])
+    ).not.toThrow();
+  });
+
+  it('rejects a duplicate id, naming it', () => {
+    const twice = [
+      snapshot('same', 'daily', '2026-09-28T00:00:00.000Z'),
+      snapshot('same', 'daily', '2026-09-29T00:00:00.000Z'),
+    ];
+    expect(() => plan(twice)).toThrow(/duplicate.*same/iu);
+  });
+
+  it('breaks a timestamp tie by code point, never by locale', () => {
+    // Descending id order puts lowercase before uppercase by code point; ICU collation would
+    // put 'B' first, so this plan would change with the runtime's locale data.
+    const tied = [
+      snapshot('B', 'pre-update', '2026-09-29T00:00:00.000Z'),
+      snapshot('a', 'pre-update', '2026-09-29T00:00:00.000Z'),
+    ];
+    const result = plan(tied, { policy: { ...DEFAULT_SNAPSHOT_RETENTION_POLICY, preUpdate: 1 } });
+    expect(result.keep).toContain('a');
+    expect(prunedIds(result)).toEqual(['B']);
+  });
+});
+
 describe('planSnapshotRetention size cap', () => {
   const cap = (capBytes: number): SnapshotRetentionPolicy => ({
     ...DEFAULT_SNAPSHOT_RETENTION_POLICY,
