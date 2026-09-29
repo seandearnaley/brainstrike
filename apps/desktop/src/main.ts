@@ -164,6 +164,7 @@ import {
 import { createDisposerStack, type DisposerHandle } from './main/disposer-stack';
 import { startGitAwarenessLifecycle } from './main/git-awareness-lifecycle';
 import { createDesktopLoggingPreferencesController } from './main/logging-preferences';
+import { installShutdownSignalHandlers } from './main/shutdown-signals';
 import { startSnapshotStartupMaintenance } from './main/snapshot-lifecycle';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
@@ -453,7 +454,7 @@ let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 // registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
 // the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
 // `unregisterForgeIpc` below is the deliberate exception: it is torn down
-// inside the graceful shutdown's 'forge' step, BEFORE 'database'.
+// inside the graceful shutdown's 'forge' step, BEFORE 'database-drain'.
 const ipcDisposers = createDisposerStack();
 // Per-window: the embedded browser pane's IPC is bound to the CURRENT visible
 // window (rebound on a macOS dock-reopen), so its handle is kept to retire the
@@ -485,7 +486,6 @@ let worktreeService: ReturnType<typeof createWorktreeService> | null = null;
 let snapshotService: SnapshotService | null = null;
 let desktopMaintenanceTriggerGraph: DesktopMaintenanceTriggerGraph | null = null;
 let desktopDimensionIndexStrategy: DimensionIndexBuildStrategy | null = null;
-let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownInFlight = false;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
@@ -501,6 +501,24 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
   const stopServer = stopAssistantServer;
   let assistantServerDrained = stopServer === null;
   return {
+    // The reserved slice: `desktop-graceful-shutdown.ts` runs it after the ordered
+    // steps even when the deadline aborted one. `database-drain` has already
+    // stopped what issues database work, so this is the host close alone.
+    closeDatabase: () => closeDatabase(),
+    // Runs last, after the aggregate failure warn (the shutdown module logs
+    // it first): the durable NDJSON file is the last writer standing, so it
+    // stays open to capture every earlier failure. The handle is nulled from
+    // a `finally` so a throwing `close()` still leaves `errorLogSink` cleared
+    // rather than a stale handle that later `recordDurableLog` calls would
+    // treat as still open.
+    closeErrorLogSink: () => {
+      const sinkToClose = errorLogSink;
+      try {
+        sinkToClose?.close();
+      } finally {
+        errorLogSink = null;
+      }
+    },
     isAssistantServerDrained: () => assistantServerDrained,
     steps: {
       'assistant-server': async () => {
@@ -528,7 +546,9 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       'chunking-host': async () => {
         await chunkingHostManager.dispose();
       },
-      database: async () => {
+      // Stops everything that issues database work. It does NOT close the
+      // database: that is `closeDatabase` below, a slice that always runs.
+      'database-drain': async () => {
         const maintenance = desktopMaintenanceTriggerGraph;
         maintenance?.stop();
         desktopMaintenanceTriggerGraph = null;
@@ -538,56 +558,41 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         const triggerErrors: unknown[] = triggerClosures.flatMap((result) =>
           result.status === 'rejected' ? [result.reason] : []
         );
-        // A failed trigger finalizer cannot skip the independent DB idle join
-        // and host close. Admitted SQL remains owned by the work scheduler.
-        let databaseCloseFailed = false;
-        let databaseCloseError: unknown;
+        // A failed trigger finalizer cannot skip the independent DB idle join.
+        // Admitted SQL remains owned by the work scheduler.
+        let databaseDrainFailed = false;
+        let databaseDrainError: unknown;
         try {
           await cleanupDesktopLiveSubscriptionsForShutdown();
           await waitForDesktopDatabaseWorkSchedulerIdle();
           await cleanupDesktopLiveSubscriptionsForShutdown();
-          await closeDatabase();
         } catch (error) {
-          databaseCloseFailed = true;
-          databaseCloseError = error;
+          databaseDrainFailed = true;
+          databaseDrainError = error;
         }
         if (triggerErrors.length > 0) {
           throw new AggregateError(
-            databaseCloseFailed ? [...triggerErrors, databaseCloseError] : triggerErrors,
+            databaseDrainFailed ? [...triggerErrors, databaseDrainError] : triggerErrors,
             'Desktop database shutdown cleanup failed'
           );
         }
-        if (databaseCloseFailed) {
-          throw databaseCloseError;
+        if (databaseDrainFailed) {
+          throw databaseDrainError;
         }
       },
       'embedding-host': async () => {
         await embeddingHostManager.dispose();
-      },
-      // Runs last, after the aggregate failure warn (the shutdown module logs
-      // it before this step): the durable NDJSON file is the last writer
-      // standing, so it stays open to capture every earlier failure. The
-      // handle is nulled from a `finally` so a throwing `close()` still leaves
-      // `errorLogSink` cleared rather than a stale handle that later
-      // `recordDurableLog` calls would treat as still open.
-      'error-log-sink': () => {
-        const sinkToClose = errorLogSink;
-        try {
-          sinkToClose?.close();
-        } finally {
-          errorLogSink = null;
-        }
       },
       // Its own step, deliberately NOT nested inside 'git-inventory':
       // `gitInventoryService.stop()`'s final `await toDispose.disposeAll()` is
       // unguarded, and the shutdown sequence catches a rejection at the step
       // boundary — nesting forge teardown after it would silently skip these
       // three lines on a throwing watcher disposer, leaving `ipcMain` handlers
-      // registered and a live `forgeService` heading into 'database'.
+      // registered and a live `forgeService` heading into 'database-drain'.
       // forge has the same DB dependency as git-inventory (`getDatabase` ->
       // `readForgePrCacheEntry`/`writeForgePrCacheEntry`) but is otherwise
       // unrelated to git-inventory's success, so it gets its own
-      // failure-isolated step, BEFORE 'database' for the same reason.
+      // failure-isolated step, BEFORE 'database-drain' for the same reason.
       forge: async () => {
         const service = forgeService;
         // Retire both authorities before any await: watcher invalidations and
@@ -603,7 +608,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         }
       },
       'git-inventory': async () => {
-        // Runs BEFORE 'database': this service's `loadRoots` dependency
+        // Runs BEFORE 'database-drain': this service's `loadRoots` dependency
         // reads the DB `roots` table, so its watchers/in-flight build must
         // be torn down while the database is still available to it.
         if (gitInventoryService) {
@@ -649,11 +654,6 @@ const gracefulShutdown = createDesktopGracefulShutdown({
 });
 
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
-  if (signalShutdownInFlight) {
-    return;
-  }
-  signalShutdownInFlight = true;
-
   logger.warn('Received shutdown signal, attempting graceful desktop shutdown', { signal });
 
   // The graceful run logs and resolves even when cleanup fails, so we always
@@ -661,23 +661,42 @@ async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
   await gracefulShutdown.run('signal', signal);
 
   allowImmediateQuit = true;
-  if (app.isReady()) {
-    app.quit();
-  } else {
-    process.exit(0);
-  }
+  app.quit();
 }
 
+// Called from `app.whenReady()`, never at module scope. Electron converts the FIRST
+// SIGINT/SIGTERM/SIGHUP into `app.quit()` with its own one-shot handler, installed before ready:
+// a JS listener registered earlier is replaced by it and never runs (measured, Electron 44.4.5),
+// and a second signal then takes the default action and kills main mid-shutdown. One registered
+// here replaces Electron's, and the persistent listeners take every later signal.
 function registerShutdownSignalHandlers(): void {
-  if (process.env['NODE_ENV'] === 'test') {
+  // A unit test that imports this module must install nothing on the test
+  // runner's own process; the E2E launch also runs under NODE_ENV=test but is the
+  // real app and must exercise the handlers.
+  if (process.env['NODE_ENV'] === 'test' && !isElectronE2ETestMode()) {
     return;
   }
-
-  const shutdownSignals: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
-  for (const signal of shutdownSignals) {
-    process.once(signal, () => {
-      void handleShutdownSignal(signal);
+  // Loud, but never a boot failure: the boot `catch` below quits the app. A signal whose listeners
+  // were not yet removed still quits through Electron's own handler (`before-quit`); one whose
+  // listeners were removed takes its default action and skips the graceful run.
+  try {
+    installShutdownSignalHandlers({
+      logger,
+      onFirstSignal: (signal) => {
+        void handleShutdownSignal(signal);
+      },
+      signals: ['SIGINT', 'SIGTERM', 'SIGHUP'],
+      target: process,
     });
+  } catch (error) {
+    try {
+      logger.error(
+        'Failed to install the shutdown signal handlers; a signal may skip the graceful shutdown',
+        { error }
+      );
+    } catch {
+      // A throwing logger must not escape into the boot callback either.
+    }
   }
 }
 
@@ -1059,7 +1078,6 @@ process.on('unhandledRejection', (reason, promise) => {
     reason: serializedReason,
   });
 });
-registerShutdownSignalHandlers();
 
 const singleInstanceLockAcquired = isElectronE2ETestMode()
   ? true
@@ -1205,6 +1223,7 @@ if (singleInstanceLockAcquired) {
   };
 
   app.whenReady().then(async () => {
+    registerShutdownSignalHandlers();
     try {
       emitBootMeasurementMark('app-ready', app.isPackaged);
       // Validated up front (before assistant-server startup) so a malformed
@@ -2010,7 +2029,7 @@ if (singleInstanceLockAcquired) {
         }, 30_000).unref();
         // Deliberately never stopped: it and the watchdog below keep reporting
         // THROUGH graceful shutdown, whose hangs they exist to diagnose. Both
-        // are unref'd, and after the 'database' step the stopped
+        // are unref'd, and after the database close the stopped
         // processCounterSampler turns each tick's sample into a no-op.
       }
 

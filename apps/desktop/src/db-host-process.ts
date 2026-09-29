@@ -1,21 +1,31 @@
 import { createLogger } from '@brainstrike/logging';
 import type { UtilityProcess } from 'electron';
+import { cleanShutdownMarkerNamesPid } from './db-clean-shutdown-marker';
 import {
   DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS,
   DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS,
 } from './db-host-close-budget';
-import { DbHostCloseError } from './db-host-lifecycle-errors';
+import { DbHostCloseError, DbHostUnavailableError } from './db-host-lifecycle-errors';
+import { type DbHostSignal, isDbHostToMainMessage } from './db-host-protocol';
+import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 
 const logger = createLogger('DbHostProcess');
 
+/** Does the clean-shutdown marker of the profile in use name `pid`? Throws when it is unreadable. */
+function markerNamesHostPid(pid: number | undefined): boolean {
+  return cleanShutdownMarkerNamesPid(resolveDesktopDatabaseProfileDirectory(), pid);
+}
+
 /**
  * The DB host utility process plus what closing it needs: an `exit` promise whose
- * listener is registered at fork (no exit is missed) and SIGKILL, which Electron's
- * `kill()` (SIGTERM only) cannot deliver.
+ * listener is registered at fork (no exit is missed), SIGKILL, which Electron's
+ * `kill()` (SIGTERM only) cannot deliver, and the signal the host announced it is
+ * closing itself on (a tree teardown signals every process, this host included).
  */
 export class DbHostProcess {
   readonly exited: Promise<number>;
   readonly handle: UtilityProcess;
+  #closedBySignal: DbHostSignal | null = null;
   #exitCode: number | undefined;
   #pid: number | undefined;
 
@@ -35,6 +45,40 @@ export class DbHostProcess {
       this.#exitCode = code;
       resolveExit(code);
     });
+    // Every lifecycle state carries the reason, so `closed` or `close-failed` still proves a
+    // signal close whose `closing` announcement was lost (posting is best effort).
+    handle.on('message', (message: unknown) => {
+      if (
+        isDbHostToMainMessage(message) &&
+        message.kind === 'lifecycle' &&
+        message.reason !== 'request'
+      ) {
+        this.#closedBySignal = message.reason;
+      }
+    });
+  }
+
+  /**
+   * Why no replacement may fork after this ATTACHED host exited by itself, or null. Main closes a
+   * host only by detaching it first, so an attached host that closed itself received a signal: it
+   * announced that, or (the announcement is best effort and can be lost) the clean-shutdown marker
+   * names its pid, the durable proof. An unreadable marker is no proof.
+   */
+  unavailableAfterOwnExit(
+    confirmCleanExit: (pid: number | undefined) => boolean = markerNamesHostPid
+  ): DbHostUnavailableError | null {
+    if (this.#closedBySignal) {
+      return DbHostUnavailableError.closedBySignal(this.#closedBySignal);
+    }
+    try {
+      return confirmCleanExit(this.pid) ? DbHostUnavailableError.closedBySignal(null) : null;
+    } catch (error) {
+      logger.error(
+        { err: error, pid: this.pid },
+        'Could not read the clean-shutdown marker; treating the exit as unproven'
+      );
+      return null;
+    }
   }
 
   /** `undefined` until the process has exited. */
@@ -228,14 +272,14 @@ export async function closeDbHostProcess(
     readonly ackTimeoutMs: number;
     readonly acknowledge: () => Promise<unknown>;
     /** After the host has exited: did it leave proof (its pid in the marker) that it closed cleanly? */
-    readonly confirmCleanExit: (pid: number | undefined) => boolean;
+    readonly confirmCleanExit?: (pid: number | undefined) => boolean;
     readonly detach: () => void;
   }
 ): Promise<void> {
   const hostPid = host.pid;
   const provedClean = (): boolean => {
     try {
-      return options.confirmCleanExit(hostPid);
+      return (options.confirmCleanExit ?? markerNamesHostPid)(hostPid);
     } catch (error) {
       logger.error(
         { err: error, pid: hostPid },

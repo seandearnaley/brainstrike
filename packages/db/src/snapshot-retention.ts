@@ -25,7 +25,10 @@
  *    fits, and names the rules each such prune overrode. Whatever it cannot
  *    satisfy is reported as `overCap` and `overCapBytes`, never forced.
  */
-import type { DatabaseSnapshotReason } from './database-snapshot-manifest.js';
+import {
+  DATABASE_SNAPSHOT_REASONS,
+  type DatabaseSnapshotReason,
+} from './database-snapshot-manifest.js';
 
 export interface RetentionSnapshot {
   readonly byteSize: number;
@@ -115,7 +118,15 @@ function isoWeekStart(time: number): number {
  * `toISOString` writes (the manifest's own rule) and `byteSize` a finite,
  * non-negative integer, or the plan's ages and totals would be guesses.
  */
+const KNOWN_REASONS: ReadonlySet<string> = new Set(DATABASE_SNAPSHOT_REASONS);
+
 function toEntry(snapshot: RetentionSnapshot): Entry {
+  // A reason with no rule would fall through every group and be pruned silently: fail closed.
+  if (!KNOWN_REASONS.has(snapshot.reason)) {
+    throw new TypeError(
+      `Snapshot "${snapshot.id}" has an unknown reason "${String(snapshot.reason)}"; the planner has no rule for it.`
+    );
+  }
   const time = Date.parse(snapshot.createdAt);
   if (Number.isNaN(time) || new Date(time).toISOString() !== snapshot.createdAt) {
     throw new TypeError(

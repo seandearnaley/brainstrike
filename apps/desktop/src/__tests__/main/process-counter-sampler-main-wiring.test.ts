@@ -22,10 +22,10 @@ describe('process counter sampler main wiring', () => {
     expect(wiringBlock()).toContain('runScheduledWork: runDesktopScheduledDatabaseWork,');
   });
 
-  it('stops the sampler in the shutdown database step before the scheduler idle join', () => {
-    // Bounded to the database step's own body: an unbounded slice runs to end
+  it('stops the sampler in the shutdown database-drain step before the scheduler idle join', () => {
+    // Bounded to the drain step's own body: an unbounded slice runs to end
     // of file, where a LATER step's idle join could stand in for this one's.
-    const step = readMainSourceSections().stepBody('database');
+    const step = readMainSourceSections().stepBody('database-drain');
 
     const stopAt = step.indexOf('processCounterSampler.stop();');
     const idleJoinAt = step.indexOf('await waitForDesktopDatabaseWorkSchedulerIdle();');

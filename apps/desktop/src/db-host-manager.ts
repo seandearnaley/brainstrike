@@ -277,7 +277,8 @@ class DefaultDbHostManager implements DbHostManager {
   readonly #initializationTimeoutMs: number;
   readonly #maintenanceRequestTimeoutMs: number;
   readonly #requestTimeoutMs: number;
-  #retired = false;
+  // Why no request may fork a host: retired, or its host closed itself on a signal aimed at it.
+  #unavailable: Error | null = null;
   #client: RemoteDbClient | null = null;
   #closing: Promise<void> | null = null;
   #host: DbHostProcess | null = null;
@@ -369,13 +370,13 @@ class DefaultDbHostManager implements DbHostManager {
   // Default-manager replacement is permanent; explicit close() remains reusable
   // for reinitializeDatabase(). Retained clients must never fork another owner.
   async retire(): Promise<void> {
-    this.#retired = true;
+    this.#unavailable = new Error('DB host manager is retired.');
     await this.close();
   }
 
   #assertActive(): void {
-    if (this.#retired) {
-      throw new Error('DB host manager is retired.');
+    if (this.#unavailable) {
+      throw this.#unavailable;
     }
   }
 
@@ -624,11 +625,8 @@ class DefaultDbHostManager implements DbHostManager {
       if (this.#host !== host) {
         return; // detached: its requests and live queries are already failed
       }
-      const error = new Error(`DB host exited with code ${code}.`);
-      this.#host = null;
-      this.#client = null;
-      this.#failAllLiveQueries(error);
-      this.#rejectAll(error);
+      this.#unavailable ??= host.unavailableAfterOwnExit();
+      this.#detachHost(new Error(`DB host exited with code ${code}.`));
     });
     host.handle.on('error', (type, location) => {
       logger.error('DB host process error', { location, type });
@@ -825,7 +823,9 @@ class DefaultDbHostManager implements DbHostManager {
       this.#liveQueries.get(message.liveId)?.acceptUpdate(message.results);
       return;
     }
-    this.#acceptResponse(message);
+    if (message.kind === 'response') {
+      this.#acceptResponse(message);
+    }
   }
 
   #recordAbandonedRequest(id: string, request: AbandonedRequest): void {
