@@ -399,8 +399,9 @@ shutdown completed` (`trigger: signal`), exit 0. A signal before ready still rea
 handler (quit through `before-quit`); a second one before ready cannot be caught. Linux and Windows
 are unmeasured: if the re-arm fails there, the first signal still quits through `before-quit`.
 A failure while installing the handlers is logged at error (through a guard, so a throwing logger
-cannot escape) and never stops boot: without them the first signal still quits through Electron's
-own handler (`before-quit`), the same graceful run.
+cannot escape) and never stops boot. A signal whose listeners the install had not yet removed still
+quits through Electron's own handler (`before-quit`, the graceful run); one whose listeners it had
+removed takes its default action and skips the graceful run, which the error log says.
 
 ### Update (2026-09-29, BST-1872 L2c): the signal E2E
 
@@ -412,10 +413,11 @@ completed` (`trigger: signal`). The clean-shutdown marker must exist and name th
 the host writes it), and after `restart()` the next boot reads `previousShutdown: 'clean'` with the
 inserted row present.
 
-The host's own `DB host received SIGINT` log is not asserted: one run in four lacked it, because a
-host that exits promptly can lose the messages it posted just before exiting. Its `lifecycle`
-announcement can be lost the same way, which is why the marker, not a message, is the proof of a
-clean close and why the manager falls back to the marker when it decides not to fork a replacement.
+The host's own `DB host received SIGINT` log is not asserted: one run in four lacked it, because
+what the host posts can be lost when it exits soon after. `closing` goes out over the same port in
+the same tick right after that line, so it is lost the same way, which is why the marker, not a
+message, is the proof of a clean close and why the manager falls back to the marker when it decides
+not to fork a replacement.
 
 The negative control SIGKILLs main and then the host (main first, so a renderer request can never
 fork a replacement host in the gap): no marker, and the next boot reads `unclean`. The host also
