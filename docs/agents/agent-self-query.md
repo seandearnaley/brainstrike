@@ -199,8 +199,8 @@ Guard: `packages/db/__tests__/agent-sql-service.test.ts`.
   chunks-without-symbols and never fails the file import.
 
 Settled: name-based refs and composite keys, both measured. Evidence:
-`agent-self-query/symbol-graph-design.md`.
-Guard: `packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts`.
+`agent-self-query/symbol-graph-design.md`, `agent-self-query/symbol-rollback-review.md`.
+Guard: `packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts`, `packages/db/__tests__/migration-075-rollback.integration.test.ts`.
 
 ### The hybrid one-statement query (BST-935) — PROVEN admitted
 
