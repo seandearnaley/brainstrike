@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { DB_PROFILE_ENV } from './db-runtime-env';
 
 /**
  * Pure, Electron-free resolution of WHERE the desktop database lives. Main
@@ -20,6 +21,11 @@ export interface DatabaseLocationInput {
   readonly env: {
     /** `%LOCALAPPDATA%`; required for a packaged Windows build. */
     readonly localAppData?: string | undefined;
+    /**
+     * Reduced to one safe path segment (`a/b` becomes `a-b`). Throws when it
+     * reduces to nothing (`.`, `..`, `-`); blank or a literal `undefined` is
+     * treated as unset.
+     */
     readonly profileOverride?: string | undefined;
     readonly rootOverride?: string | undefined;
     readonly xdgDataHome?: string | undefined;
@@ -58,16 +64,41 @@ const DEVELOPMENT_FALLBACK_PROFILE = 'dev-default';
 const WORKTREE_PROFILE_HASH_LENGTH = 8;
 const WORKTREE_PROFILE_BRANCH_MAX = 40;
 
-export function sanitizeProfileSegment(raw: string): string {
-  const sanitized = raw
+const PROFILE_SEGMENT_MAX_LENGTH = 64;
+const FALLBACK_PROFILE_SEGMENT = 'default';
+
+/**
+ * Reduces `raw` to ONE safe path segment, or '' when nothing usable remains:
+ * lowercase `[a-z0-9._-]`, path separators turned into `-`, and no leading or
+ * trailing dot (so never `.` or `..`; Windows also drops a trailing dot). The
+ * segment is joined under `<root>/profiles/` and factory reset deletes that
+ * directory recursively, so a `..` here would delete the whole root.
+ */
+function toProfileSegment(raw: string): string {
+  const stripped = raw
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  if (!sanitized) {
-    return 'default';
+    .replace(/^[-.]+|[-.]+$/g, '');
+  // Cutting at the limit can expose a dot again; the first character is never one.
+  return stripped.slice(0, PROFILE_SEGMENT_MAX_LENGTH).replace(/\.+$/, '');
+}
+
+/** For names WE derive (branch names): nothing usable falls back to `default`. */
+export function sanitizeProfileSegment(raw: string): string {
+  return toProfileSegment(raw) || FALLBACK_PROFILE_SEGMENT;
+}
+
+// An explicit override is the user's stated intent: reduce it to a safe segment,
+// but never invent a profile for one that reduces to nothing (`.`, `..`, `-`).
+function explicitProfile(raw: string): string {
+  const segment = toProfileSegment(raw);
+  if (!segment) {
+    throw new Error(
+      `Invalid ${DB_PROFILE_ENV} ${JSON.stringify(raw)}: it reduces to an empty profile name. Use a name with at least one letter, digit or underscore.`
+    );
   }
-  return sanitized.slice(0, 64);
+  return segment;
 }
 
 function hashProfileSeed(seed: string): string {
@@ -171,7 +202,7 @@ export function resolveDatabaseLocation(input: DatabaseLocationInput): DatabaseL
     profile:
       profileOverride === undefined
         ? defaultProfile(input, source)
-        : sanitizeProfileSegment(profileOverride),
+        : explicitProfile(profileOverride),
     rootPath: rootOverride ?? defaultRootPath(input, source),
     source: rootOverride !== undefined && profileOverride !== undefined ? 'override' : source,
   };

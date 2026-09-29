@@ -214,6 +214,47 @@ describe('resolveDatabaseLocation', () => {
     expect(inTestRun.rootPath).toBe('/Users/me/userData');
   });
 
+  it.each([
+    ['.hidden', 'hidden'],
+    ['a/b', 'a-b'],
+    ['a\\b', 'a-b'],
+    ['foo.', 'foo'],
+  ])('maps the explicit profile override %j to the safe segment %j', (raw, expected) => {
+    expect(resolveDatabaseLocation(input({ env: { profileOverride: raw } })).profile).toBe(
+      expected
+    );
+  });
+
+  it.each(['.', '..', '...', '  ..  ', './.', '../..', '/', '\\', '***', '-'])(
+    'throws for the explicit profile override %j instead of guessing a profile',
+    (raw) => {
+      expect(() => resolveDatabaseLocation(input({ env: { profileOverride: raw } }))).toThrow(
+        /BRAINSTRIKE_DB_PROFILE/u
+      );
+    }
+  );
+
+  it.each([{ isPackaged: true, platform: 'linux' }, { isTestRun: true }, {}] as const)(
+    'rejects an unusable profile override in every mode (%j) and beside a root override',
+    (mode) => {
+      const withProfile = { profileOverride: '..' };
+
+      expect(() =>
+        resolveDatabaseLocation(
+          input({ ...(mode as Partial<DatabaseLocationInput>), env: withProfile })
+        )
+      ).toThrow(/BRAINSTRIKE_DB_PROFILE/u);
+      expect(() =>
+        resolveDatabaseLocation(
+          input({
+            ...(mode as Partial<DatabaseLocationInput>),
+            env: { ...withProfile, rootOverride: '/r' },
+          })
+        )
+      ).toThrow(/BRAINSTRIKE_DB_PROFILE/u);
+    }
+  );
+
   it('reports source override only when the environment supplied both fields', () => {
     expect(
       resolveDatabaseLocation(input({ env: { profileOverride: 'p', rootOverride: '/r' } }))
@@ -259,10 +300,54 @@ describe('resolveDatabaseLocation', () => {
 });
 
 describe('profile helpers', () => {
-  it('sanitises to a bounded lowercase segment and falls back to default when empty', () => {
-    expect(sanitizeProfileSegment('  Feature/Branch_1 ')).toBe('feature-branch_1');
-    expect(sanitizeProfileSegment('***')).toBe('default');
-    expect(sanitizeProfileSegment('a'.repeat(100))).toHaveLength(64);
+  it.each([
+    ['  Feature/Branch_1 ', 'feature-branch_1'],
+    ['a/b', 'a-b'],
+    ['a\\b', 'a-b'],
+    ['../x', 'x'],
+    ['.hidden', 'hidden'],
+    ['..hidden', 'hidden'],
+    ['foo.', 'foo'],
+    ['a..b', 'a..b'],
+    ['v1.2', 'v1.2'],
+    [`${'a'.repeat(63)}.b`, 'a'.repeat(63)],
+    ['.', 'default'],
+    ['..', 'default'],
+    ['...', 'default'],
+    ['./.', 'default'],
+    ['', 'default'],
+    ['   ', 'default'],
+    ['***', 'default'],
+  ])('sanitises %j to the single safe segment %j', (raw, expected) => {
+    expect(sanitizeProfileSegment(raw)).toBe(expected);
+  });
+
+  it('never returns anything but a one-segment, non-dot-leading name of at most 64 characters', () => {
+    const hostile = [
+      '.',
+      '..',
+      '...',
+      '.hidden',
+      'a/b',
+      'a\\b',
+      '../..',
+      '..\\..',
+      '/',
+      '\\',
+      'x'.repeat(200),
+    ];
+    for (const raw of hostile) {
+      const segment = sanitizeProfileSegment(raw);
+
+      expect(segment).toMatch(/^[a-z0-9_][a-z0-9._-]{0,63}$/u);
+      expect(segment).not.toMatch(/\.$/u);
+      expect(path.posix.basename(segment)).toBe(segment);
+      expect(path.win32.basename(segment)).toBe(segment);
+    }
+  });
+
+  it('keeps a dot-only branch inside a composite name, never as a bare path segment', () => {
+    expect(createWorktreeScopedProfile('..', '/repo')).toMatch(/^branch-default-wt-[a-f0-9]{8}$/u);
   });
 
   it('scopes a worktree profile by branch and a stable hash of the workspace seed', () => {
