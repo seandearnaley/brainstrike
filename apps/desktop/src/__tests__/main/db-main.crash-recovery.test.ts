@@ -265,18 +265,45 @@ describe('db-main crash-sensitive index rebuild', () => {
       );
     });
 
-    it('reports a rebuild that ran out of disk as a filesystem failure, not corruption', async () => {
-      seedDatabaseDirectory({ marker: false });
-      failRebuildOnce(new Error('could not extend file "base/5/16384": No space left on device'));
+    it.each([
+      ['its message', new Error('could not extend file "base/5/16384": No space left on device')],
+      [
+        'its ENOSPC code alone',
+        Object.assign(new Error('could not extend file "base/5/16384"'), { code: 'ENOSPC' }),
+      ],
+    ])(
+      'reports a rebuild that ran out of disk (by %s) as a filesystem failure, not corruption',
+      async (_label, error) => {
+        seedDatabaseDirectory({ marker: false });
+        failRebuildOnce(error);
+        const { getDatabaseDiagnostics, initializeMainDatabase } = await import('../../db-main');
+
+        await expect(initializeMainDatabase()).rejects.toThrow(
+          /could not rebuild its search index/
+        );
+
+        expect(getDatabaseDiagnostics().lastInitializationFailure).toMatchObject({
+          category: 'filesystem',
+          stage: 'index-rebuild',
+        });
+        expect(probe.destructive).toEqual([]);
+      }
+    );
+
+    it('leaves a disk-full migration failure classified as a migration failure', async () => {
+      // The disk-full rule is scoped to the rebuild stage; other stages keep their categories.
+      seedDatabaseDirectory({ marker: true });
+      engine.migrate.mockImplementationOnce(async () => {
+        throw new Error('could not extend file "base/5/16384": No space left on device');
+      });
       const { getDatabaseDiagnostics, initializeMainDatabase } = await import('../../db-main');
 
-      await expect(initializeMainDatabase()).rejects.toThrow(/could not rebuild its search index/);
+      await expect(initializeMainDatabase()).rejects.toThrow(/No space left on device/);
 
       expect(getDatabaseDiagnostics().lastInitializationFailure).toMatchObject({
-        category: 'filesystem',
-        stage: 'index-rebuild',
+        category: 'migration',
+        stage: 'migration',
       });
-      expect(probe.destructive).toEqual([]);
     });
 
     it('still reports a WASM abort during the rebuild as the runtime failure it is', async () => {

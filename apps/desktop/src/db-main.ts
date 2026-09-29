@@ -834,7 +834,7 @@ export function isWasmAbortError(error: unknown): boolean {
   return WASM_ABORT_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern));
 }
 
-const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR', 'ENOSPC'] as const;
+const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR'] as const;
 
 function classifyInitializationFailure(
   stage: DatabaseInitStage,
@@ -872,16 +872,17 @@ function classifyInitializationFailure(
       FILESYSTEM_ERROR_CODES.includes(details.code as (typeof FILESYSTEM_ERROR_CODES)[number])) ||
     message.includes('permission denied') ||
     message.includes('read-only file system') ||
-    message.includes('no such file') ||
-    message.includes('no space left on device')
+    message.includes('no such file')
   ) {
     return 'filesystem';
   }
 
-  // After the environmental categories (a full disk is not damage): otherwise an index that
-  // cannot be rebuilt after a crash is an integrity failure, whatever its SQLSTATE.
+  // An index that cannot be rebuilt after a crash is an integrity failure, whatever its
+  // SQLSTATE, unless the rebuild ran out of disk: a full disk is not damage.
   if (stage === 'index-rebuild') {
-    return 'corruption';
+    return details.code === 'ENOSPC' || message.includes('no space left on device')
+      ? 'filesystem'
+      : 'corruption';
   }
 
   if (stage === 'migration' || message.includes('migrations failed')) {
