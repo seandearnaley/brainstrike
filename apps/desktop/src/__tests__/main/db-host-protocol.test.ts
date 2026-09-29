@@ -1,6 +1,10 @@
 import type { DatabaseInitPhaseReport } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
-import { isDbHostProgressEnvelope, isDbHostToMainMessage } from '../../db-host-protocol';
+import {
+  isDbHostProgressEnvelope,
+  isDbHostToMainMessage,
+  parseDbHostProgressEnvelope,
+} from '../../db-host-protocol';
 
 describe('isDbHostToMainMessage', () => {
   it.each([
@@ -144,4 +148,46 @@ describe('isDbHostProgressEnvelope', () => {
       expect(withName('é'.repeat(32))).toBe(false);
     }
   );
+
+  it.each([
+    ['a line feed', 'idx\nfake'],
+    ['a carriage return', 'idx\rfake'],
+    ['a NUL', 'idx\u0000'],
+    ['a C1 control', 'idx\u0085'],
+    ['a right-to-left override', 'idx\u202Egnp.exe'],
+    ['a bidi isolate', 'idx\u2066x'],
+  ])(
+    'rejects an identifier containing %s, which could forge the one-line error a person reads',
+    (_label, name) => {
+      for (const field of ['accessMethod', 'index', 'schema', 'table'] as const) {
+        expect(
+          isDbHostProgressEnvelope(
+            progress({ index: { ...INDEX, [field]: name }, phase: 'index-rebuild' })
+          )
+        ).toBe(false);
+      }
+    }
+  );
+});
+
+describe('parseDbHostProgressEnvelope', () => {
+  it('rebuilds the envelope from its known fields only, dropping anything extra the host sent', () => {
+    const parsed = parseDbHostProgressEnvelope(
+      progress(
+        {
+          extraOnReport: 'secret-report-text',
+          index: { ...INDEX, rows: ['secret-row-content'] },
+          phase: 'index-rebuild',
+        },
+        { extraOnEnvelope: 'secret-envelope-text' }
+      )
+    );
+
+    expect(parsed).toEqual(progress({ index: INDEX, phase: 'index-rebuild' }));
+    expect(JSON.stringify(parsed)).not.toMatch(/secret/u);
+  });
+
+  it('returns null for anything the guard rejects', () => {
+    expect(parseDbHostProgressEnvelope(progress({ phase: 'load-extensions' }))).toBeNull();
+  });
 });
