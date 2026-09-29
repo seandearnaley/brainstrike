@@ -40,7 +40,7 @@
     "@assistant-ui/react": "catalog:",
     "@assistant-ui/react-markdown": "catalog:",
     "@assistant-ui/styles": "catalog:",
-    "@biomejs/biome": "2.5.8",
+    "@biomejs/biome": "2.5.14",
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/e2e-test-utils": "workspace:*",

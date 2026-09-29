@@ -5,8 +5,8 @@ module-graph hold" (BST-1273, cleared 2026-08-15). Read this when a Biome bump
 panics, reformats test files en masse, or leaves `biome-ignore` directives
 dead. The contract holds the rules; this file is the record of why.
 
-`@biomejs/biome` is pinned to exactly 2.5.8 (root + `apps/web`; the two must
-stay in lockstep). History: Biome 2.5.3/2.5.4 hit a module-graph panic
+The cleared August qualification pinned `@biomejs/biome` to exactly 2.5.8
+(root + `apps/web`; the two must stay in lockstep). Biome 2.5.3/2.5.4 hit a module-graph panic
 (`module_resolver.rs:500:33`, "index out of bounds") **deterministically 39
 times** on this codebase — triggered by `nursery/noFloatingPromises` resolving
 cross-module callback return types (upstream biomejs/biome#10963, same class as
@@ -38,3 +38,37 @@ Two things the 2.5.3–2.5.8 window changed on this repo, both already absorbed:
 
 `nursery/noFloatingPromises` (the repo's only error-level nursery rule)
 surfaced **no** new violations at 2.5.8.
+
+## 2026-09-28: 2.5.14 qualification
+
+The paired exact pins move from 2.5.8 to 2.5.14, retaining Ultracite 7.9.2,
+the lint policy, file budgets and existing suppressions. The [vendor changelog](https://biomejs.dev/internals/changelog/)
+records improved `useReadonlyClassProperties` handling of static properties.
+The actual full-tree baseline checked 6429 files with zero errors or panics
+and 15 existing warnings. With 2.5.14 and unchanged source, the same check
+failed with six diagnostics naming three static properties:
+
+- `MigrationRunner.MIGRATION_TABLE` is initialized once and only read.
+- `EmbeddingProviderFactory.instances` retains one Map identity; its contents
+  remain mutable through `set`, `delete` and `clear`.
+- `TransformersBackend._epFallbackSeen` is initialized to zero and only read.
+
+Adding only `readonly` to those three declarations made the full check pass:
+6429 files, zero errors or panics, and the same 15 warning headers. All three
+files emit byte-identical JavaScript before and after these type-only edits;
+there is no migration, provider lifetime or inference behavior change.
+
+Normal pnpm resolution supplied the nine Biome package records and nine
+snapshots, including all eight optional platform binaries. It also introduced
+an unwanted Biome catalog and unrelated resolutions; those were rejected.
+The complete baseline graph was reconciled using only the two exact importer
+edges and that vendor closure. Every other graph entry and the workspace file
+remained unchanged. An ordinary full nonfrozen install explicitly skipped
+resolution and preserved the prepared lock bytes; frozen install also passed.
+All nine integrity/platform records match their npm manifests.
+
+The existing file-budget and catalog/lock conformance guards passed 38 tests.
+Every full-audit record remained identical (0 critical, 27 high, 16 moderate,
+6 low); the complete production audit remained zero. These are local owner
+qualifications. Completed PR review, required CI and actual postmerge proof
+are separate delivery gates, not claims made by this evidence.

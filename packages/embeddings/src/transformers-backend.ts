@@ -207,7 +207,7 @@ function determineDevice(requestedDevice: string | undefined): 'webgpu' | 'wasm'
 export class TransformersBackend {
   // Runtime diagnostics (static, process-wide)
   private static _verboseOrtLogs = false;
-  private static _epFallbackSeen = 0;
+  private static readonly _epFallbackSeen = 0;
   private static _inferenceCount = 0;
 
   static setVerboseOrtLogs(enabled: boolean) {
