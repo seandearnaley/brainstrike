@@ -239,8 +239,10 @@ export {
   type ScheduledDatabaseMaintenanceStatus,
 } from './services/scheduled-database-maintenance.js';
 export {
+  findTableDurability,
   getTableDurability,
   type RebuildOwner,
+  TABLE_DURABILITY_CLASSES,
   TABLE_DURABILITY_REGISTRY,
   type TableDurabilityClass,
   type TableDurabilityEntry,
