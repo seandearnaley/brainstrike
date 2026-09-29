@@ -43,6 +43,8 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly migration: {
     readonly attemptCount: number | null;
     readonly inFlight: boolean | null;
+    /** Main's stop after repeated init timeouts (`DatabaseInitAttemptRecord`), or null. */
+    readonly initStop: unknown;
     readonly lastFailure: unknown;
     readonly lastSucceededAt: string | null;
   };
@@ -283,6 +285,7 @@ export async function collectDesktopPlatformDiagnostics(
     migration: {
       attemptCount: getNumberValue(database, 'initializationAttemptCount'),
       inFlight: getBooleanValue(database, 'initializationInFlight'),
+      initStop: getRecordValue(database, 'initStop') ?? null,
       lastFailure: getRecordValue(database, 'lastInitializationFailure') ?? null,
       lastSucceededAt: getStringOrNullValue(database, 'lastInitializationSucceededAt'),
     },

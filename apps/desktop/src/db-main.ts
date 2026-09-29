@@ -21,6 +21,7 @@ import type {
   DatabaseDiagnosticsSnapshot,
   DatabaseInitFailureCategory,
   DatabaseInitFailureSnapshot,
+  DatabaseInitPhaseReport,
   DatabaseInitStage,
   DatabasePreviousShutdown,
 } from '@brainstrike/types';
@@ -47,6 +48,7 @@ import {
   isNewerPgDataDir,
   pruneStaleEngineUpgradeBackups,
   readPgDataMajor,
+  readPgWalBytes,
 } from './pg-data-version';
 
 const logger = createLogger('DatabaseMain');
@@ -1027,7 +1029,9 @@ function consumePreviousShutdown(appDataDir: string, dataDir: string): DatabaseP
  * A failure of any kind — an integrity error included — closes the partial handle, records the
  * failure and rejects; the data directory is never reset or replaced here.
  */
-async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
+async function initializeMainDatabaseInternal(
+  onPhase: (report: DatabaseInitPhaseReport) => void
+): Promise<DesktopDatabase> {
   // Before anything else, and before the process lock (which is re-entrant for this process and
   // would let a second PGlite open over a handle that could not be closed).
   assertNoFailedClose();
@@ -1081,6 +1085,9 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
       mutableState.previousShutdown = consumePreviousShutdown(appDataDir, dataDir);
       mutableState.crashRecoveryIndexRebuild = null;
 
+      // Reported BEFORE the open: WAL crash recovery runs inside it, synchronously, so the host
+      // cannot say anything once it has started.
+      onPhase({ pgWalBytes: readPgWalBytes(dataDir), phase: 'open-database' });
       readyDatabase = await createVectorDatabase(loadedPGlite.createBrainstrikePglite, dataDir);
       db = readyDatabase;
       openingHandle = null;
@@ -1130,7 +1137,11 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
     if (mutableState.previousShutdown === 'unclean') {
       let rebuild: DatabaseCrashRecoveryIndexRebuildResult;
       try {
-        rebuild = await loadedPGlite.rebuildCrashSensitiveIndexes(readyDatabase);
+        rebuild = await loadedPGlite.rebuildCrashSensitiveIndexes(readyDatabase, {
+          onBeforeIndex: (index) => {
+            onPhase({ index, phase: 'index-rebuild' });
+          },
+        });
       } catch (err) {
         recordInitializationFailure('index-rebuild', err);
         releaseInitializationLockOnce();
@@ -1155,6 +1166,7 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
     // extension/module startup can otherwise overlap with another Electron worker
     // before the database is actually ready to serve renderer IPC queries.
     try {
+      onPhase({ phase: 'migration' });
       await loadedPGlite.migrate(readyDatabase);
     } catch (err) {
       recordInitializationFailure('migration', err);
@@ -1185,7 +1197,9 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
  * Initialize the database once per process lifecycle event loop.
  * Concurrent callers share a single in-flight initialization.
  */
-async function initializeLocalMainDatabase(): Promise<DesktopDatabase> {
+async function initializeLocalMainDatabase(
+  onPhase: (report: DatabaseInitPhaseReport) => void = () => undefined
+): Promise<DesktopDatabase> {
   if (db) {
     return db as DesktopDatabase;
   }
@@ -1194,7 +1208,7 @@ async function initializeLocalMainDatabase(): Promise<DesktopDatabase> {
     return await dbInitializationPromise;
   }
 
-  dbInitializationPromise = initializeMainDatabaseInternal();
+  dbInitializationPromise = initializeMainDatabaseInternal(onPhase);
 
   try {
     return await dbInitializationPromise;
@@ -1352,9 +1366,24 @@ async function resetLocalDatabaseInternal(): Promise<void> {
   }
 }
 
-export async function initializeMainDatabase(): Promise<DesktopDatabase> {
+export interface InitializeMainDatabaseOptions {
+  /**
+   * Called BEFORE each long synchronous phase of the open (`open-database`, one `index-rebuild`
+   * per index, `migration`). Only the DB host can report: main initializes through its manager.
+   */
+  readonly onPhase?: (report: DatabaseInitPhaseReport) => void;
+}
+
+export async function initializeMainDatabase(
+  options: InitializeMainDatabaseOptions = {}
+): Promise<DesktopDatabase> {
   if (isUtilityProcessRuntime()) {
-    return await initializeLocalMainDatabase();
+    return await initializeLocalMainDatabase(options.onPhase);
+  }
+  if (options.onPhase) {
+    throw new Error(
+      'Init phase reports exist only inside the DB host; main initializes through its manager.'
+    );
   }
   const manager = await getRemoteDbHostManager();
   return await manager.getDatabase();

@@ -943,9 +943,12 @@ describe('DbHostManager close ladder', () => {
 
         const diagnostics = observe(manager.getDiagnostics());
 
-        expect(loggerWarnMock).toHaveBeenCalledWith('Ignored malformed DB host message', {
-          message,
-        });
+        // Shape only: DB host frames can carry query results, so no value reaches the log.
+        expect(loggerWarnMock).toHaveBeenCalledWith(
+          'Ignored malformed DB host message',
+          expect.objectContaining({ keyCount: Object.keys(message).length, messageType: 'object' })
+        );
+        expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('SIGUSR1');
         expect(forkMock).toHaveBeenCalledTimes(2);
         latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
         await diagnostics.outcome;

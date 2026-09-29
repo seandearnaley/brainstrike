@@ -130,6 +130,34 @@ describe('db-host-entry', () => {
     );
   });
 
+  it('posts a progress envelope carrying the init request id for every phase report', async () => {
+    dbMainMocks.initializeMainDatabase.mockImplementation(
+      async (options: { onPhase: (report: unknown) => void }) => {
+        options.onPhase({ pgWalBytes: 4096, phase: 'open-database' });
+        options.onPhase({ phase: 'migration' });
+      }
+    );
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({ id: 'init-request', kind: 'request', request: { kind: 'init' } });
+    await flushMicrotasks();
+
+    // Progress and the terminal response only; the host's own log lines are not part of this contract.
+    const envelopes = parentPort.postMessage.mock.calls
+      .map(([message]) => message as { kind: string })
+      .filter((message) => message.kind === 'progress' || message.kind === 'response');
+    expect(envelopes).toEqual([
+      {
+        id: 'init-request',
+        kind: 'progress',
+        report: { pgWalBytes: 4096, phase: 'open-database' },
+      },
+      { id: 'init-request', kind: 'progress', report: { phase: 'migration' } },
+      { id: 'init-request', kind: 'response', ok: true, result: { initialized: true } },
+    ]);
+  });
+
   it('emits source-tagged lifecycle logs from the utility process', async () => {
     const { parentPort } = installParentPortMock();
     await import('../../db-host-entry');

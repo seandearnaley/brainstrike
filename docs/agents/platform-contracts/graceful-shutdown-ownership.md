@@ -446,3 +446,163 @@ every launch (restarts included) ahead of its own variables, never by mutating `
 **Not done: Step 0.** It needs a person at the terminal (turbo/concurrently pgids, which process got
 which signal, ms from Ctrl-C to turbo's force kill). The E2E delivers the signal pattern instead. If
 turbo force-kills before the marker is written, file a follow-up; do not work around turbo here.
+
+### Update (2026-09-29, BST-1883): the DB host init deadline is per phase
+
+Before: one 90 s wall-clock deadline (`DEFAULT_INITIALIZATION_TIMEOUT_MS`, `db-host-manager.ts`) covered the
+whole `init` request: module load, `PGlite.create` with its WAL crash recovery, the crash-sensitive index
+rebuild after an unclean shutdown, and migrations. A timeout SIGKILLed the host. The clean-shutdown marker is
+consumed before the open, so a host killed mid-rebuild leaves none: the next open reads `unclean` and
+rebuilds from scratch, and a rebuild slower than the deadline would never finish. The 90 s did not scale
+with the work, so the loop was reachable by any database whose rebuild outgrew it.
+
+Mechanics of the loop (the part PR2a of BST-1883 breaks; recorded here because the deadline change alone does
+not):
+
+- Main retries within ONE app session. `getDatabase()` clears `#initialization` in `finally`, so the next
+  caller re-runs `#initialize()`, which sends `init` again; `#admit()` waits up to 0.5 s for the killed host's
+  exit and `#ensureHost()` forks a new one. Callers that re-enter: every `db:*` IPC handler
+  (`ipc-domains/db-ipc.ts` calls `getDatabase()` per request), both maintenance schedulers, `main.ts` startup,
+  snapshot and git-awareness lifecycles. The renderer's `DbProvider` opens once and goes to its error state,
+  but main-side callers keep forking. The loop spans relaunches too.
+- After a timeout kill, diagnostics lie. `db:diagnostics` -> `getDiagnostics()` forks a FRESH host with no
+  init; its snapshot has `lastInitializationFailure: null`, so the renderer's
+  `formatDesktopDatabaseInitError` takes its `!failure` branch and says pgvector is required. The timeout's
+  own message is what the error card shows, so it must be correct copy on its own.
+
+What makes a per-phase deadline possible (real Electron 44.4.5 `utilityProcess`, Apple M1 Pro, macOS 27.0):
+the host CAN say what it is about to do before it goes silent. `electron-main.cjs` forks `utility-entry.cjs`;
+the child posts `{kind: 'before', sentAt}` immediately before a synchronous block; a 50 ms interval counts
+ticks; main stamps every message and pings the child 1.5 s into the block. Same machine clock.
+
+| block | `before` sent -> received | block length | child ticks during block | main->child ping queued |
+| --- | --- | --- | --- | --- |
+| JS busy loop `while (Date.now() < end)` | 1 ms | 5000 ms | 0 | 3565 ms (answered after the block) |
+| PGlite `REINDEX INDEX idx_file_chunks_content_bm25` on the incident-DB clone | 0 ms | 12572 ms | 0 | 11367 ms |
+
+A message posted before a synchronous WASM statement reaches main DURING it; the host cannot run a timer or
+answer an inbound message until the statement ends, so heartbeats are impossible. Outbound delivery does not
+need the host's event loop (the Electron docs are silent; this measurement is the evidence).
+
+Runtime matters. The same REINDEX of the incident database took 11.9-12.6 s in Electron's utility process
+(V8 15.2) and 16.0-25.1 s in system Node 24.18 (V8 13.6). Measure in Electron, the production runtime.
+
+What shipped (PR1): `DatabaseInitPhaseReport` (`@brainstrike/types`), reported by `initializeMainDatabase({
+onPhase })` before `open-database` (bytes of `pg_wal` segments, an O(1) upper bound of the redo), before each
+`REINDEX` (`onBeforeIndex`, with the index's `pg_relation_size` heap, TOAST and index bytes) and before
+`migration`; a `progress` envelope carrying the `init` request id; `progressTimeoutMs` on the host request
+channel; and `db-host-init-budget.ts`. The budgets are policy, not measurement noise:
+
+| phase | budget | measured basis |
+| --- | --- | --- |
+| before the first report | 90 s | today's whole-init value, not re-measured |
+| `open-database` | max(90 s, 30 s + `pg_wal` bytes at 4 MiB/s) | redo >= 35 MB/s (8.75x margin) |
+| `index-rebuild` | max(90 s, 30 s + (heap + TOAST) bytes at 1 MiB/s) | slowest heap+TOAST rate 7.1 MB/s (7x margin) |
+| `migration` | 90 s | 136 migrations = 0.84 s; none rewrites a large table |
+
+Worked examples the test pins (byte counts are the measured MiB figures rounded up): incident database
+rebuild 131 + 211 MiB -> 372 s for a 12 s job; 1M x 123-char rows 206 MiB -> 236 s for 20 s; 100k x 1420-char
+rows 157 MiB -> 187 s for 22 s; open with the incident backup's 912 MiB of `pg_wal` -> 258 s (a clean open
+takes 0.24 s, a crash open with 1.07 GB of real redo took 4.7 s); an empty `pg_wal` -> 90 s. No phase gets
+less than the single 90 s deadline this replaced (`DB_HOST_INIT_MIN_PHASE_BUDGET_MS`, added after review): every
+measurement is one M1 Pro, and a cold first open on Windows or Linux (WASM compile, extension load, antivirus,
+a spinning disk) is unmeasured, so a budget may grow for a large database but never tightens. The margins are a
+policy choice: 7x and 8.75x under the slowest measured rate covers a machine that much slower than an M1
+Pro, or that much TOAST compression of the content, not both. A wedge on the incident database is now
+detected in 6.2 min instead of 90 s. The message a person reads names the phase and budget: `DB host init
+timed out in phase index-rebuild (public.idx_file_chunks_content_bm25, 342 MiB table, budget 372 s)`.
+Sizes read MiB because the budget rates are MiB/s; the ticket brief's "MB" is the same figure.
+
+A budget past Node's `setTimeout` limit (2^31 - 1 ms) is refused: the timer would fire after 1 ms. A
+progress report whose budget cannot be derived is logged at error and leaves the running deadline armed.
+
+Real-host verification of PR1 (2026-09-29): the built `db-host-entry.js` forked as a real Electron
+`utilityProcess`, `init` sent, every message stamped by the parent, the host SIGKILLed after `init` so the
+next launch reads `unclean`. A new database reported `open-database` (`pgWalBytes` 0) at 687 ms, `migration`
+at 1759 ms, then the response at 2326 ms. A database seeded with 300k chunks (heap 128.7 MiB, index 307 MiB,
+`pg_wal` 2.05 GiB after the kill) reported `open-database` at 593 ms with 2,197,815,296 bytes, `index-rebuild`
+at 8095 ms, `migration` at 13138 ms and the response 5 ms later: the report for the ~5 s REINDEX reached the
+parent before the statement finished, with plain numbers for every byte count, and the 2 GiB redo took 7.5 s
+against a 554 s budget.
+
+Rejected alternatives:
+
+- (B) No deadline kill during the rebuild, elapsed time and a user Quit. A wedged REINDEX (the PGlite close-race
+  wedge is real; a WASM trap is handled by the fatal-trap patch) would become an indefinite startup hang with
+  no way to tell progress from a wedge, and Quit ends in the shutdown ladder's SIGKILL -> unclean -> the same
+  hang next launch. It still needs the phase report and still needs a loop breaker. Kept only as a
+  user-confirmed "retry with no time limit" in the stopped state (PR2a/PR2b).
+- (D) Split `init` into separate requests (open / list indexes / rebuild one / migrate), each with its own
+  deadline. It moves "when to rebuild" from the host into main (BST-1871 settled that the host owns it), leaves
+  a half-initialized host between steps that the single-flight `initializeMainDatabaseInternal` and the
+  serialized init lock exist to prevent, and refactors `db-main.ts` for the same semantics one hook gives.
+- (E) Rebuild lazily after startup was already ruled out by BST-1871: the rebuild runs before migrations and
+  before any write. Not relitigated.
+
+Still open after PR1: a slower machine than the budgets cover still times out and, with no loop breaker, still
+retries (PR2a: two consecutive timeouts in one phase stop the manager, main answers diagnostics from its own
+record); the person sees only the error card until PR2b's startup surface lands. `db-host-manager.ts` sits
+under the 1000-line gate after this change (the abandoned-request ledger moved to
+`db-host-abandoned-requests.ts`), so PR2a extracts before it adds.
+
+### Update (2026-09-29, BST-1883 PR2a): the init loop breaker
+
+A per-phase deadline still times out on a machine slower than its margins, and each timeout is a SIGKILL that
+leaves no clean-shutdown marker, so the next open rebuilds again. Main now stops after two timeouts in one phase.
+
+- The record is `<profile>/.db-init-attempt.json` (`db-init-attempt-record.ts`, `DatabaseInitAttemptRecord`):
+  `{ version: 1, phaseKey, report, budgetMs, hostPid, consecutiveTimeouts, lastTimeoutAt }`. `phaseKey` is
+  `open-database`, `migration`, `index-rebuild:<schema>.<index>`, or `init:first-report` for a timeout before any
+  report (`report` is then null). It lives INSIDE the profile directory, next to `.db-clean-shutdown` and
+  `.db-process.lock`, so the developer reset and the factory reset (both `resetLocalDatabase`, which
+  removes the profile directory) delete it with the profile and need no wiring of their own. Only main reads or
+  writes it; the host never does. A reset's backup copy of the profile keeps the file, so restoring a backup by
+  hand restores a stop that `retryInit` clears.
+- It is written on a timeout only. `consecutiveTimeouts` is one more than the previous record's when the same
+  `phaseKey` expired again, else 1. A successful init removes the record; a non-timeout init failure leaves it
+  (the host is alive and holds the real failure). At `consecutiveTimeouts >= 2` (`DB_INIT_STOP_AFTER_TIMEOUTS`)
+  the manager forks nothing and rejects `DbHostInitStoppedError` (see the fork gate below), whose message is the copy a person reads:
+  `BrainStrike stopped retrying the database start: rebuilding the search index timed out twice (last budget
+  372 s). Nothing was deleted or replaced.` The stop persists across relaunches because the record does.
+- `getDiagnostics()` while stopped answers from main and forks nothing: a fresh host reports no failure, which the
+  renderer's `formatDesktopDatabaseInitError` used to turn into "pgvector extension is required". The result
+  carries `initStop` (the record, else null), with the fields main cannot know (`hasDatabaseHandle` false,
+  `lastInitializationFailure` null, ...). The platform diagnostics `migration.initStop` reports it too, and the
+  renderer transport reads `initStop` before any recorded failure.
+- `retryInit({ noDeadline })` is the only way out besides a reset: it removes the record (a failure to remove it
+  throws and keeps the stop). `noDeadline: true` arms the NEXT `#initialize` only, the
+  init request and every phase, with `DB_HOST_INIT_MAX_BUDGET_MS` (2^31 - 1 ms, 24.8 days: the longest timer
+  Node honours), which is the user-confirmed "wait as long as it takes" that option (B) above was kept for. Nothing
+  calls it yet: its IPC and button are PR2b, and the record's stop persists across relaunches, so PR2a must not
+  ship without them.
+- A record that cannot be written (the timeout is logged at error and still kills the host) is kept in memory
+  (`InitAttemptGuard`): the count never depends on persisting it, so the breaker still trips in this session and only
+  the relaunch is lost. One that cannot be removed after a success is logged and only makes a later stop one timeout
+  early. An unreadable or foreign-version file reads as no record and is logged at error by shape only: it can cost
+  one more attempt and it never deletes anything. Any other read failure (a directory at the path, permissions) throws.
+  The writer only produces what the reader accepts: the recorded budget is rounded up to a whole millisecond, a
+  window that is not a positive safe integer is refused, and the manager refuses an initialization window it could not
+  arm or record, because a record the reader rejects reads as absent and the breaker would silently never trip.
+
+Review round (PR #3417) rulings:
+
+- The stop is checked in the fork path itself (`#ensureHost`) as well as in `#initialize`, so no request (data,
+  reset, live-query diagnostics) can start a host while stopped. Nothing caches the stop: the record, or the one that
+  could not be written, is the only source, so a reset that deletes the profile and `retryInit` clear it by
+  construction. `DbHostManager.reset()` (a request for a host to reset itself, with no production caller) rejects
+  while stopped like any other request. The user-confirmed resets never use it: `resetLocalDatabase` retires the
+  default manager (`closeDbHostManager`, a no-op with no host) and deletes the profile from main, which is how a
+  person clears a stop without a host. `db-host-manager-init-stop-reset.test.ts` runs the real manager and the real
+  db-main reset over a temp profile and asserts no fork, the record gone and a new manager that opens.
+- A completed `reset()` clears a pending `noDeadline`, and the suspension flag is reset in `#initialize`'s `finally`,
+  so "the next init only" holds locally.
+- Reading the record on each diagnostics call, each `#initialize` and each fork costs 5.5-9.1 microseconds when the
+  file is absent (10,000 `readFileSync` ENOENT calls in 55-91 ms, Node 24.18, Apple M1 Pro) and 36 microseconds for
+  a present 300-byte record read and parsed.
+
+The brief's design wrote the record on every progress report and carried `consecutiveTimeouts` forward only when
+the reported phase matched the stored one. That never reaches two in production: each attempt reports
+`open-database` before the rebuild, so a retry overwrote the stored `index-rebuild` phase and reset the count
+before it could expire again (its own test only passed because the fake host reported one phase per attempt).
+The record is therefore written on timeouts only, and the realistic sequence (open-database, then index-rebuild,
+twice) is what `db-host-manager-init-loop.test.ts` runs.

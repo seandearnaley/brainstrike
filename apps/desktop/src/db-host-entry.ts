@@ -6,6 +6,7 @@ import {
   invalidateManagedCacheEntriesByIdentity,
   parseManagedCacheBatchArgs,
 } from '@brainstrike/db';
+import type { DatabaseInitPhaseReport } from '@brainstrike/types';
 import {
   DB_HOST_CLOSE_SIGNALS,
   DB_HOST_ERROR_IDENTIFIER_FIELDS,
@@ -286,6 +287,14 @@ function postResponse(id: string, result: unknown): void {
   post(response);
 }
 
+/**
+ * Posted BEFORE a long synchronous phase of `init`: the host answers nothing while it runs one, so
+ * this is the only way main can arm that phase's deadline. Needs no timer and no event loop.
+ */
+function postProgress(id: string, report: DatabaseInitPhaseReport): void {
+  post({ id, kind: 'progress', report });
+}
+
 function postError(id: string, error: unknown): void {
   const response: DbHostResponseEnvelope = {
     error: serializeError(error),
@@ -495,11 +504,11 @@ function describeDiagnostics(): unknown {
   };
 }
 
-async function handleRequest(request: DbHostRequest): Promise<unknown> {
+async function handleRequest(request: DbHostRequest, requestId: string): Promise<unknown> {
   switch (request.kind) {
     case 'init':
       postLog('debug', 'DB host init started');
-      await initializeMainDatabase();
+      await initializeMainDatabase({ onPhase: (report) => postProgress(requestId, report) });
       postLog('info', 'DB host init completed');
       return { initialized: true };
     case 'query': {
@@ -618,7 +627,7 @@ async function handleEnvelope(envelope: DbHostRequestEnvelope): Promise<void> {
   }, SLOW_REQUEST_WARNING_MS);
 
   try {
-    const result = await handleRequest(envelope.request);
+    const result = await handleRequest(envelope.request, envelope.id);
     postResponse(envelope.id, result);
   } catch (error) {
     const serializedError = serializeError(error);
