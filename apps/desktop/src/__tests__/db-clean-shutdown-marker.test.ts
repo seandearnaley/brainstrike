@@ -9,7 +9,40 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const fsFault = vi.hoisted(() => ({ failTemporaryUnlink: false }));
+const loggerWarnMock = vi.hoisted(() => vi.fn());
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const faulty = {
+    ...actual,
+    unlinkSync: (target: string) => {
+      if (fsFault.failTemporaryUnlink && String(target).endsWith('.tmp')) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      }
+      actual.unlinkSync(target);
+    },
+  };
+  return { ...faulty, default: faulty };
+});
+
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: loggerWarnMock,
+    }),
+  };
+});
+
 import {
   cleanShutdownMarkerNamesPid,
   hasCleanShutdownMarker,
@@ -23,6 +56,8 @@ describe('clean-shutdown marker', () => {
 
   beforeEach(() => {
     appDataDir = mkdtempSync(path.join(tmpdir(), 'brainstrike-marker-'));
+    fsFault.failTemporaryUnlink = false;
+    loggerWarnMock.mockReset();
   });
 
   afterEach(() => {
@@ -60,6 +95,38 @@ describe('clean-shutdown marker', () => {
     writeFileSync(`${markerPath()}.tmp`, '{"closedAt":"partial"');
 
     expect(hasCleanShutdownMarker(appDataDir)).toBe(false);
+  });
+
+  it('does not take a directory at the marker path for a marker', () => {
+    mkdirSync(markerPath());
+
+    expect(hasCleanShutdownMarker(appDataDir)).toBe(false);
+  });
+
+  describe('when the rename fails', () => {
+    // A directory where the marker belongs makes the rename fail, after the temp file was written.
+    const failTheRename = (): void => {
+      mkdirSync(markerPath());
+      expect(() => writeCleanShutdownMarker(appDataDir, { closedAt: 'now', pid: 1 })).toThrow();
+    };
+
+    it('surfaces the failure and does not leave its temp file behind', () => {
+      failTheRename();
+
+      expect(existsSync(`${markerPath()}.tmp`)).toBe(false);
+    });
+
+    it('logs at warn, and still surfaces the rename failure, when the temp file cannot be removed', () => {
+      fsFault.failTemporaryUnlink = true;
+
+      failTheRename();
+
+      expect(existsSync(`${markerPath()}.tmp`)).toBe(true);
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        'Could not remove the temporary clean-shutdown marker',
+        expect.objectContaining({ error: expect.objectContaining({ code: 'EACCES' }) })
+      );
+    });
   });
 
   it('treats removing an absent marker as done', () => {

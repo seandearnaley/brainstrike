@@ -1,7 +1,7 @@
 import {
   closeSync,
-  existsSync,
   fsyncSync,
+  lstatSync,
   openSync,
   readFileSync,
   renameSync,
@@ -9,6 +9,9 @@ import {
   writeSync,
 } from 'node:fs';
 import path from 'node:path';
+import { createLogger } from '@brainstrike/logging';
+
+const logger = createLogger('DbCleanShutdownMarker');
 
 /**
  * The clean-shutdown marker: a sibling of `pgdata/` and `.db-process.lock` in the
@@ -62,12 +65,39 @@ export function writeCleanShutdownMarker(
   } finally {
     closeSync(descriptor);
   }
-  renameSync(temporaryPath, markerPath);
+  try {
+    renameSync(temporaryPath, markerPath);
+  } catch (error) {
+    removeTemporaryMarker(temporaryPath);
+    throw error;
+  }
   fsyncDirectory(appDataDir);
 }
 
+// Best effort: a leftover temp file reads as no marker, so a failed cleanup costs nothing but tidiness.
+function removeTemporaryMarker(temporaryPath: string): void {
+  try {
+    unlinkSync(temporaryPath);
+  } catch (error) {
+    if (!isNoEntry(error)) {
+      logger.warn('Could not remove the temporary clean-shutdown marker', {
+        error,
+        temporaryPath,
+      });
+    }
+  }
+}
+
+/** Only a regular file is a marker: a directory (or a link) at the path proves nothing. */
 export function hasCleanShutdownMarker(appDataDir: string): boolean {
-  return existsSync(getMarkerPath(appDataDir));
+  try {
+    return lstatSync(getMarkerPath(appDataDir)).isFile();
+  } catch (error) {
+    if (isNoEntry(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 /**
