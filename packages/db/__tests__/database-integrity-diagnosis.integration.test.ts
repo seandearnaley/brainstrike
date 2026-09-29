@@ -27,6 +27,11 @@ import {
 const PAGE = 8192;
 const CHUNKS = 300;
 const PROBE_ROWS = 50;
+/** Chunks whose 12 KB of incompressible text is stored out of line, in file_chunks' TOAST table. */
+const TOASTED_CHUNKS = 3;
+/** The BIGSERIAL sequence of a precious table (migration 079): owner `brainstrike_mind_ops`. */
+const SEQUENCE = 'brainstrike_mind_ops_seq_seq';
+const SEQUENCE_OWNER = 'brainstrike_mind_ops';
 const BM25_INDEX = 'idx_file_chunks_content_bm25';
 const GIN_INDEX = 'idx_file_chunks_content_tsvector';
 const HNSW_INDEX = 'idx_probe_dim8';
@@ -35,6 +40,9 @@ const PKEY_INDEX = 'file_chunks_pkey';
 const UNCLASSIFIED_TABLE = 'zz_unregistered_probe';
 
 const CLASSIFY: IntegrityDiagnosisOptions['classify'] = findTableDurability;
+
+/** Files key for file_chunks' TOAST relation, whose generated name is not stable. */
+const TOAST_KEY = 'file_chunks toast';
 
 /** Relation name -> file path relative to the data directory (`pg_relation_filepath`). */
 type RelationFiles = Readonly<Record<string, string>>;
@@ -85,6 +93,14 @@ async function buildBase(): Promise<Base> {
        FROM generate_series(1, $1::int) AS g`,
       [CHUNKS, now]
     );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, created_at, updated_at)
+       SELECT 'big-' || g, 'diag-file', 10000 + g,
+              (SELECT string_agg(md5(random()::text || k::text), '') FROM generate_series(1, 400) k WHERE g > 0),
+              'big-hash-' || g, $1, $1
+       FROM generate_series(1, ${TOASTED_CHUNKS}) AS g`,
+      [now]
+    );
     await db.exec(`
       CREATE INDEX ${HNSW_INDEX} ON file_chunks
         USING hnsw ((embedding::halfvec(8)) halfvec_cosine_ops) WHERE vector_dims(embedding) = 8;
@@ -109,9 +125,15 @@ async function buildBase(): Promise<Base> {
       BM25_INDEX,
       HNSW_INDEX,
       UNCLASSIFIED_TABLE,
+      'file_chunks',
+      SEQUENCE,
+      TOAST_KEY,
     ]) {
       const { rows } = await db.query<{ file: string }>(
-        'SELECT pg_relation_filepath($1::regclass) AS file',
+        `SELECT pg_relation_filepath(
+                  CASE WHEN $1 = '${TOAST_KEY}'
+                       THEN (SELECT reltoastrelid FROM pg_class WHERE oid = 'file_chunks'::regclass)
+                       ELSE $1::regclass END) AS file`,
         [relation]
       );
       const file = rows[0]?.file;
@@ -196,7 +218,7 @@ describe('a healthy migrated database', () => {
         `SELECT count(*) FILTER (WHERE n.nspname IN ('public', 'pg_catalog', 'pg_toast'))::int AS total,
                 array_agg(DISTINCT n.nspname::text ORDER BY n.nspname::text) AS schemas
            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE c.relkind IN ('r', 'm', 't', 'i')`
+          WHERE c.relkind IN ('r', 'm', 't', 'i', 'S')`
       );
       expect(enumerated.rows[0]?.total).toBeGreaterThan(500);
       // A new schema would hold relations no check walks: extend the diagnosis before this list.
@@ -213,7 +235,7 @@ describe('a healthy migrated database', () => {
       expect(diagnosis.unchecked).toEqual([
         {
           accessMethod: 'hnsw',
-          reason: 'empty-table',
+          reason: 'no-indexed-rows',
           relation: 'idx_thread_message_index_embedding_hnsw',
           table: 'brainstrike_thread_message_index',
         },
@@ -240,7 +262,10 @@ describe('a healthy migrated database', () => {
           expect(counted.durability, table).toBe(durability);
         }
       }
-      expect(byTable.get('file_chunks')).toMatchObject({ durability: 'derived', rows: CHUNKS });
+      expect(byTable.get('file_chunks')).toMatchObject({
+        durability: 'derived',
+        rows: CHUNKS + TOASTED_CHUNKS,
+      });
       expect(byTable.get('file_records')).toMatchObject({ rows: 1 });
       expect(byTable.get(UNCLASSIFIED_TABLE)).toEqual({
         durability: 'unclassified',
@@ -256,9 +281,7 @@ describe('a healthy migrated database', () => {
       await diagnose(handle);
 
       const bm25Search = statements.find(({ sql }) => sql.includes('to_bm25query'));
-      const hnswSearch = statements.find(
-        ({ sql }) => sql.includes('<=>') && sql.includes('halfvec')
-      );
+      const hnswSearch = statements.find(({ sql }) => HNSW_PROBE(sql));
       if (!(bm25Search && hnswSearch)) {
         throw new Error('the diagnosis issued no bm25 or hnsw probe');
       }
@@ -477,6 +500,257 @@ describe('damaged relations', () => {
         // Nothing but the findings list is cut.
         expect(cut.checkedRelations).toBe(all.checkedRelations);
         expect(cut.tables).toEqual(all.tables);
+      }
+    );
+  });
+});
+
+/** A handle that throws `error` from every query `when` accepts, and from every exec `execWhen` accepts. */
+function failingStatements(
+  db: PGlite,
+  error: Error,
+  when: (sql: string) => boolean,
+  execWhen: (sql: string) => Error | undefined = () => undefined
+): CrashSensitiveIndexDb {
+  return {
+    exec: (sql) => {
+      const failure = execWhen(sql);
+      return failure ? Promise.reject(failure) : db.exec(sql);
+    },
+    query: (sql, params) => (when(sql) ? Promise.reject(error) : db.query(sql, params)),
+  };
+}
+
+/** The hnsw probe's ranked search itself, not the query that first asks whether the index has rows. */
+const HNSW_PROBE = (sql: string) => sql.includes('ORDER BY') && sql.includes('<=>');
+const readError = () => Object.assign(new Error('detoast failed'), { code: 'XX000' });
+
+describe('damage that reaches past the relation being checked', () => {
+  it('names a damaged TOAST page as a heap finding on the table that owns it', async () => {
+    await withDatabase(
+      (dir, files) => overwriteBytes(dir, files[TOAST_KEY], 0, PAGE),
+      async (db) => {
+        const diagnosis = await diagnose(db);
+        // verify_heapam without check_toast passes file_chunks; the diagnosis asks for the toast check.
+        expect(diagnosis.findings).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              check: 'heap',
+              durability: 'derived',
+              relation: 'file_chunks',
+              sqlstate: 'XX001',
+              table: 'file_chunks',
+            }),
+          ])
+        );
+      }
+    );
+  });
+
+  it('does not blame every btree index of a table for damage in its heap', async () => {
+    await withDatabase(
+      (dir, files) => overwriteBytes(dir, files.file_chunks, 0, PAGE),
+      async (db) => {
+        const diagnosis = await diagnose(db);
+        // The heap is the damaged relation: bt_index_check(heapallindexed) would read it once per index.
+        expect(diagnosis.findings.map(({ check }) => check).sort()).toEqual(['heap', 'row-count']);
+        const skipped = diagnosis.unchecked.filter(
+          ({ accessMethod, reason, table }) =>
+            accessMethod === 'btree' && reason === 'table-has-findings' && table === 'file_chunks'
+        );
+        expect(skipped.map(({ relation }) => relation)).toContain(PKEY_INDEX);
+        expect(diagnosis.checkedRelations + diagnosis.unchecked.length).toBeGreaterThan(500);
+      }
+    );
+  });
+
+  it('still names a damaged index on a table whose heap is fine', async () => {
+    await withDatabase(
+      async (dir, files) => {
+        await overwriteBytes(dir, files[PKEY_INDEX], PAGE, PAGE);
+        await overwriteBytes(dir, files[base.secondBtreeIndex], PAGE, PAGE);
+      },
+      async (db) => {
+        const diagnosis = await diagnose(db);
+        // One index finding does not gate the heap reads of the next index on the same table.
+        expect(diagnosis.findings.map(({ relation }) => relation).sort()).toEqual(
+          [PKEY_INDEX, base.secondBtreeIndex].sort()
+        );
+      }
+    );
+  });
+});
+
+describe('a probe whose setup reads fail', () => {
+  it.each([
+    // Two hnsw indexes fail; the bm25 index is then skipped, as its table already has findings.
+    [
+      'its index definition',
+      'pg_get_indexdef(i.indexrelid, 1, true)',
+      ['hnsw-probe', 'hnsw-probe'],
+    ],
+    ['its bm25 sample', 'left(', ['bm25-probe']],
+    [
+      'its hnsw population check',
+      'SELECT EXISTS (SELECT 1 FROM "public"."file_chunks"',
+      ['hnsw-probe'],
+    ],
+  ])(
+    'turns a failing read of %s into a finding, and finishes the diagnosis',
+    async (_label, fragment, checks) => {
+      await withDatabase(untouched, async (db) => {
+        const diagnosis = await diagnose(
+          failingStatements(db, readError(), (sql) => sql.includes(fragment))
+        );
+        expect(diagnosis.findings.map(({ check }) => check).sort()).toEqual([...checks].sort());
+        expect(diagnosis.findings.every(({ sqlstate }) => sqlstate === 'XX000')).toBe(true);
+        expect(diagnosis.tables.every(({ rows }) => rows !== null)).toBe(true);
+      });
+    }
+  );
+});
+
+describe('cleanup after a failure', () => {
+  const trap = () => Object.assign(new Error('WebAssembly trap'), { name: 'PGliteFatalTrapError' });
+
+  it('does not roll back a poisoned instance, and rethrows the original trap', async () => {
+    await withDatabase(untouched, async (db) => {
+      const cleanups: string[] = [];
+      const handle = failingStatements(db, trap(), HNSW_PROBE, (sql) => {
+        if (sql === 'ROLLBACK') {
+          cleanups.push(sql);
+          return new Error('cleanup ran on a dead instance');
+        }
+        return;
+      });
+      await expect(diagnose(handle)).rejects.toMatchObject({ name: 'PGliteFatalTrapError' });
+      expect(cleanups).toEqual([]);
+    });
+  });
+
+  it('stops, rather than reporting a finding, when a probe transaction cannot be rolled back', async () => {
+    await withDatabase(untouched, async (db) => {
+      const handle = failingStatements(
+        db,
+        Object.assign(new Error('probe failed'), { code: 'XX001' }),
+        HNSW_PROBE,
+        (sql) => (sql === 'ROLLBACK' ? new Error('rollback failed') : undefined)
+      );
+      await expect(diagnose(handle)).rejects.toThrow(/could not be rolled back/u);
+    });
+  });
+
+  it('does not reset session settings on a poisoned instance, and rethrows the original trap', async () => {
+    await withDatabase(untouched, async (db) => {
+      const resets: string[] = [];
+      const handle = failingStatements(
+        db,
+        trap(),
+        (sql) => sql.includes('count(*)') && sql.includes('"file_records"'),
+        (sql) => {
+          if (sql.startsWith('RESET')) {
+            resets.push(sql);
+            return new Error('reset ran on a dead instance');
+          }
+          return;
+        }
+      );
+      await expect(diagnose(handle)).rejects.toMatchObject({ name: 'PGliteFatalTrapError' });
+      expect(resets).toEqual([]);
+    });
+  });
+});
+
+describe('an index that returns nothing for rows it should cover', () => {
+  /** A table whose index missed every insert: `indisready` false hides it from index maintenance. */
+  async function tableWithLostIndex(db: PGlite, indexSql: string, index: string): Promise<void> {
+    await db.exec(`CREATE TABLE zz_lost (id int, body text, emb vector(3)); ${indexSql}`);
+    await db.exec(`UPDATE pg_index SET indisready = false WHERE indexrelid = '${index}'::regclass`);
+    await db.exec(`
+      INSERT INTO zz_lost SELECT g, 'quaternion interpolation pipeline ' || g, ('[' || g || ',1,2]')::vector
+        FROM generate_series(1, 20) g`);
+    await db.exec(`UPDATE pg_index SET indisready = true WHERE indexrelid = '${index}'::regclass`);
+  }
+
+  it('names an hnsw index that lost its entries, instead of counting the empty probe as checked', async () => {
+    await withDatabase(untouched, async (db) => {
+      await tableWithLostIndex(
+        db,
+        'CREATE INDEX zz_lost_hnsw ON zz_lost USING hnsw (emb vector_cosine_ops);',
+        'zz_lost_hnsw'
+      );
+      const diagnosis = await diagnose(db);
+      expect(diagnosis.findings).toEqual([
+        expect.objectContaining({
+          check: 'hnsw-probe',
+          durability: 'unclassified',
+          relation: 'zz_lost_hnsw',
+          relationKind: 'index',
+          sqlstate: null,
+          table: 'zz_lost',
+        }),
+      ]);
+      expect(diagnosis.findings.map((finding) => classifyFindingSeverity(finding))).toEqual([
+        'repairable',
+      ]);
+    });
+  });
+
+  it('names a bm25 index that lost its entries', async () => {
+    await withDatabase(untouched, async (db) => {
+      await tableWithLostIndex(
+        db,
+        'CREATE INDEX zz_lost_bm25 ON zz_lost USING bm25 (body) WITH (text_config=english);',
+        'zz_lost_bm25'
+      );
+      const diagnosis = await diagnose(db);
+      expect(diagnosis.findings).toEqual([
+        expect.objectContaining({
+          check: 'bm25-probe',
+          relation: 'zz_lost_bm25',
+          sqlstate: null,
+          table: 'zz_lost',
+        }),
+      ]);
+    });
+  });
+
+  it('does not blame an index for a sample that has no indexable term', async () => {
+    await withDatabase(untouched, async (db) => {
+      await db.exec(`
+        CREATE TABLE zz_stopwords (body text);
+        INSERT INTO zz_stopwords VALUES ('the of and'), ('the of and');
+        CREATE INDEX zz_stopwords_bm25 ON zz_stopwords USING bm25 (body) WITH (text_config=english);`);
+      const diagnosis = await diagnose(db);
+      expect(diagnosis.findings).toEqual([]);
+      expect(diagnosis.unchecked).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ reason: 'no-indexed-rows', relation: 'zz_stopwords_bm25' }),
+        ])
+      );
+    });
+  });
+});
+
+describe('sequences', () => {
+  it('names a damaged sequence as a heap finding on the table that owns it', async () => {
+    await withDatabase(
+      (dir, files) => overwriteBytes(dir, files[SEQUENCE], 0, PAGE),
+      async (db) => {
+        const diagnosis = await diagnose(db);
+        expect(diagnosis.findings).toEqual([
+          expect.objectContaining({
+            check: 'heap',
+            durability: 'precious',
+            relation: SEQUENCE,
+            relationKind: 'table',
+            sqlstate: 'XX001',
+            table: SEQUENCE_OWNER,
+          }),
+        ]);
+        expect(diagnosis.findings.map((finding) => classifyFindingSeverity(finding))).toEqual([
+          'blocking',
+        ]);
       }
     );
   });

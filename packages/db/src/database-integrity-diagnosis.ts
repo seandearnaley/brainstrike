@@ -7,24 +7,34 @@
  * runs ONE statement per relation, so a failure names the relation that was
  * being checked:
  *
- * - heap tables and TOAST tables: `verify_heapam`
+ * - heap tables, TOAST tables and sequences (a sequence is a one-row heap):
+ *   `verify_heapam`, with `check_toast` for a table that owns a TOAST table, so
+ *   a value that cannot be detoasted is a finding on the table, not a later crash
  * - btree indexes: `bt_index_check(index, heapallindexed => true)`
  * - gin indexes: `gin_index_check`
  * - bm25 (pg_textsearch) and hnsw (pgvector) indexes have no amcheck support, so
- *   each gets a probe that goes THROUGH the access method: a search, plus for
- *   bm25 a rolled-back non-HOT write. Which page a probe touches is a
- *   property of the query, so a probe proves the paths it walks, not the whole
- *   index; `unchecked` lists what no probe could walk.
+ *   each gets a probe that goes THROUGH the access method: a search for a value
+ *   taken from the table, plus for bm25 a rolled-back non-HOT write. The search
+ *   must return a row: the value came from the table, so an empty answer means
+ *   the index does not hold rows the table does, which is a finding. Which page
+ *   a probe touches is a property of the query, so a probe proves the paths it
+ *   walks, not the whole index; `unchecked` lists what no probe could walk.
  * - a per-table `count(*)` with index scans disabled, so the count reads the heap.
  *
  * An error is attributed to the relation being checked and its message is never
  * parsed: BM25 damage is reported against the heap, so the text is not evidence
- * of where the damage is. For the same reason a probe that walks other
- * relations (a write maintains every index; a search reads the heap) runs only
- * when its table has no finding yet, and is otherwise listed as unchecked
- * rather than blamed on the wrong relation. hnsw probes run before the bm25
+ * of where the damage is. For the same reason a check that reads ANOTHER
+ * relation runs only when that relation is clean: a btree check with
+ * `heapallindexed` reads the table's heap, so it is skipped once the heap has a
+ * finding; a probe searches the heap and, for a write, maintains every index, so
+ * it is skipped once its table has any finding. Skipped checks are listed as
+ * unchecked, never blamed on the wrong relation. hnsw probes run before the bm25
  * write probe so read-side damage is named correctly; a failure only the write
  * path reaches is still attributed to the bm25 index, the one being probed.
+ *
+ * The diagnosis is sequential on purpose: one statement per relation on a single
+ * connection, and a fatal WebAssembly trap must stop it at the relation that
+ * caused it.
  */
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { Schema } from 'effect';
@@ -32,19 +42,23 @@ import type { CrashSensitiveIndexDb } from './crash-sensitive-indexes.js';
 import {
   classifyFindingSeverity,
   type IntegrityCheck,
-  MAX_FINDING_MESSAGE_LENGTH,
   type RelationFinding,
+  truncateFindingMessage,
 } from './database-integrity-finding.js';
 import type { TableDurabilityClass } from './table-durability-registry.js';
 
 const DEFAULT_MAX_FINDINGS = 500;
 /** Characters of an indexed value used as the bm25 probe's search text. */
 const BM25_PROBE_TEXT_LENGTH = 200;
+const BM25_LOST_ENTRIES =
+  'The search for text taken from the table matched no row, so the index does not hold rows the table does.';
+const HNSW_LOST_ENTRIES =
+  'The nearest-neighbour search for a vector taken from the table returned no row, so the index does not hold rows the table does.';
 
 export interface UncheckedRelation {
   readonly accessMethod: string;
   readonly reason:
-    | 'empty-table'
+    | 'no-indexed-rows'
     | 'table-has-findings'
     | 'unsupported-access-method'
     | 'unsupported-index-definition';
@@ -84,7 +98,8 @@ const relationRows = makeThrowingDecoder(
   Schema.Array(
     Schema.Struct({
       accessMethod: Schema.NullOr(Schema.String),
-      kind: Schema.Literals(['r', 'm', 't', 'i']),
+      hasToast: Schema.Boolean,
+      kind: Schema.Literals(['r', 'm', 't', 'i', 'S']),
       oid: Schema.String,
       relation: Schema.String,
       schema: Schema.String,
@@ -104,9 +119,12 @@ const indexDefinitionRows = makeThrowingDecoder(
       keyColumns: Schema.Int,
       opclass: Schema.String,
       predicate: Schema.NullOr(Schema.String),
+      textConfig: Schema.NullOr(Schema.String),
     })
   )
 );
+type IndexDefinition = ReturnType<typeof indexDefinitionRows>[number];
+
 const heapProblemRows = makeThrowingDecoder(
   Schema.Array(
     Schema.Struct({
@@ -130,20 +148,29 @@ const HNSW_DISTANCE_OPERATORS: Readonly<Record<string, string>> = {
   vector_l2_ops: '<->',
 };
 
+/**
+ * A sequence has no `pg_index` row, so its owner comes from `pg_depend` (an
+ * `a`uto dependency for OWNED BY, an `i`nternal one for identity columns); a
+ * TOAST relation and an index report the table they belong to.
+ */
 const RELATIONS_SQL = `
   SELECT c.oid::text AS "oid", n.nspname::text AS "schema", c.relname::text AS "relation",
          c.relkind::text AS "kind", am.amname::text AS "accessMethod",
+         (c.reltoastrelid <> 0) AS "hasToast",
          owner.oid::text AS "tableOid", owner.relname::text AS "table",
          owner_ns.nspname::text AS "tableSchema"
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   LEFT JOIN pg_am am ON am.oid = c.relam
   LEFT JOIN pg_index i ON i.indexrelid = c.oid
-  JOIN pg_class base ON base.oid = COALESCE(i.indrelid, c.oid)
+  LEFT JOIN pg_depend seq_owner ON c.relkind = 'S'
+    AND seq_owner.classid = 'pg_class'::regclass AND seq_owner.objid = c.oid
+    AND seq_owner.refclassid = 'pg_class'::regclass AND seq_owner.deptype IN ('a', 'i')
+  JOIN pg_class base ON base.oid = COALESCE(i.indrelid, seq_owner.refobjid, c.oid)
   LEFT JOIN pg_class toast_owner ON toast_owner.reltoastrelid = base.oid AND base.relkind = 't'
   JOIN pg_class owner ON owner.oid = COALESCE(toast_owner.oid, base.oid)
   JOIN pg_namespace owner_ns ON owner_ns.oid = owner.relnamespace
-  WHERE c.relkind IN ('r', 'm', 't', 'i')
+  WHERE c.relkind IN ('r', 'm', 't', 'i', 'S')
     AND n.nspname IN ('public', 'pg_catalog', 'pg_toast')
   ORDER BY n.nspname, c.relname`;
 
@@ -151,8 +178,11 @@ const INDEX_DEFINITION_SQL = `
   SELECT pg_get_indexdef(i.indexrelid, 1, true) AS "expression",
          pg_get_expr(i.indpred, i.indrelid) AS "predicate",
          oc.opcname::text AS "opclass", a.attname::text AS "column",
-         i.indnkeyatts::int AS "keyColumns"
+         i.indnkeyatts::int AS "keyColumns",
+         (SELECT split_part(option, '=', 2) FROM unnest(c.reloptions) AS option
+           WHERE option LIKE 'text_config=%') AS "textConfig"
   FROM pg_index i
+  JOIN pg_class c ON c.oid = i.indexrelid
   JOIN pg_opclass oc ON oc.oid = i.indclass[0]
   LEFT JOIN pg_attribute a ON a.attrelid = i.indrelid AND i.indkey[0] <> 0 AND a.attnum = i.indkey[0]
   WHERE i.indexrelid = $1::oid`;
@@ -183,7 +213,17 @@ function isFatalTrap(error: unknown): boolean {
   return error instanceof Error && error.name === 'PGliteFatalTrapError';
 }
 
-type IndexDefinition = ReturnType<typeof indexDefinitionRows>[number];
+/** A probe transaction that would not roll back leaves the connection in an unknown state: the diagnosis stops. */
+class ProbeCleanupError extends Error {
+  constructor(cause: unknown) {
+    super('A probe transaction could not be rolled back, so the diagnosis stopped.', { cause });
+    this.name = 'ProbeCleanupError';
+  }
+}
+
+/** What a check returns when it recorded an `unchecked` entry instead of reaching a verdict. */
+const NOT_CHECKED = Symbol('not checked');
+type Verdict<T> = T | typeof NOT_CHECKED;
 
 /** Mutable state and steps of one diagnosis; only {@link diagnoseDatabaseIntegrity} constructs it. */
 class DiagnosisRun {
@@ -194,6 +234,7 @@ class DiagnosisRun {
   readonly #classify: IntegrityDiagnosisOptions['classify'];
   readonly #relations: readonly RelationRow[];
   readonly #tablesWithFindings = new Set<string>();
+  readonly #tablesWithHeapFindings = new Set<string>();
 
   constructor(
     db: CrashSensitiveIndexDb,
@@ -211,8 +252,8 @@ class DiagnosisRun {
         const [problem] = heapProblemRows(
           (
             await this.#db.query(
-              `SELECT blkno::text AS "blkno", offnum, msg FROM verify_heapam($1::oid::regclass, true)`,
-              [relation.oid]
+              `SELECT blkno::text AS "blkno", offnum, msg FROM verify_heapam($1::oid::regclass, true, $2::boolean)`,
+              [relation.oid, relation.hasToast]
             )
           ).rows
         );
@@ -232,9 +273,14 @@ class DiagnosisRun {
     for (const index of this.#relations.filter(({ kind }) => kind === 'i')) {
       switch (index.accessMethod) {
         case 'btree':
-          await this.#attempt(index, 'btree', () =>
-            this.#db.query('SELECT bt_index_check($1::oid::regclass, true)', [index.oid])
-          );
+          if (this.#tablesWithHeapFindings.has(index.tableOid)) {
+            // heapallindexed reads the table's heap: a damaged heap would be blamed on every index.
+            this.#skip(index, 'table-has-findings');
+          } else {
+            await this.#attempt(index, 'btree', () =>
+              this.#db.query('SELECT bt_index_check($1::oid::regclass, true)', [index.oid])
+            );
+          }
           break;
         case 'gin':
           await this.#attempt(index, 'gin', () =>
@@ -259,38 +305,55 @@ class DiagnosisRun {
 
   /** One `count(*)` per public table, with index scans off so the count reads the heap. */
   async countTables(): Promise<DiagnosedTable[]> {
-    const tables: DiagnosedTable[] = [];
     await this.#db.exec(
       'SET enable_indexscan = off; SET enable_indexonlyscan = off; SET enable_bitmapscan = off'
     );
+    let tables: DiagnosedTable[];
     try {
-      for (const relation of this.#relations) {
-        if (relation.schema !== 'public' || (relation.kind !== 'r' && relation.kind !== 'm')) {
-          continue;
-        }
-        const rows = await this.#attempt(relation, 'row-count', async () => {
-          const [counted] = countRows(
-            (
-              await this.#db.query(
-                `SELECT count(*)::int AS "rows" FROM ${qualified(relation.schema, relation.relation)}`
-              )
-            ).rows
-          );
-          if (!counted) {
-            throw new Error('count(*) returned no row');
-          }
-          return counted.rows;
-        });
-        tables.push({
-          durability: this.#classify(relation.relation) ?? 'unclassified',
-          rows: rows ?? null,
-          table: relation.relation,
-        });
+      tables = await this.#countEach();
+    } catch (error) {
+      // A poisoned instance cannot run RESET, and a cleanup failure must not replace the error that
+      // explains why the diagnosis is stopping.
+      if (!isFatalTrap(error)) {
+        await this.#resetCountSettings().catch(() => undefined);
       }
-    } finally {
-      await this.#db.exec(
-        'RESET enable_indexscan; RESET enable_indexonlyscan; RESET enable_bitmapscan'
-      );
+      throw error;
+    }
+    await this.#resetCountSettings();
+    return tables;
+  }
+
+  /** RESET restores the server defaults, which are the values the diagnosis started from. */
+  #resetCountSettings(): Promise<unknown> {
+    return this.#db.exec(
+      'RESET enable_indexscan; RESET enable_indexonlyscan; RESET enable_bitmapscan'
+    );
+  }
+
+  async #countEach(): Promise<DiagnosedTable[]> {
+    const tables: DiagnosedTable[] = [];
+    for (const relation of this.#relations) {
+      if (relation.schema !== 'public' || (relation.kind !== 'r' && relation.kind !== 'm')) {
+        continue;
+      }
+      const rows = await this.#attempt(relation, 'row-count', async () => {
+        const [counted] = countRows(
+          (
+            await this.#db.query(
+              `SELECT count(*)::int AS "rows" FROM ${qualified(relation.schema, relation.relation)}`
+            )
+          ).rows
+        );
+        if (!counted) {
+          throw new Error('count(*) returned no row');
+        }
+        return counted.rows;
+      });
+      tables.push({
+        durability: this.#classify(relation.relation) ?? 'unclassified',
+        rows: rows === NOT_CHECKED ? null : (rows ?? null),
+        table: relation.relation,
+      });
     }
     return tables;
   }
@@ -302,125 +365,148 @@ class DiagnosisRun {
       this.#skip(index, 'table-has-findings');
       return;
     }
-    const [definition] = indexDefinitionRows(
-      (await this.#db.query(INDEX_DEFINITION_SQL, [index.oid])).rows
-    );
-    if (definition?.keyColumns !== 1) {
-      this.#skip(index, 'unsupported-index-definition');
-    } else if (index.accessMethod === 'bm25') {
-      await this.#probeBm25(index, definition);
-    } else {
-      await this.#probeHnsw(index, definition);
-    }
+    const check = index.accessMethod === 'bm25' ? 'bm25-probe' : 'hnsw-probe';
+    // Every read the probe needs is inside the attempt: a value that cannot be read (a TOAST
+    // pointer that passed amcheck, say) is a finding on this index, not the end of the diagnosis.
+    await this.#attempt(index, check, async () => {
+      const [definition] = indexDefinitionRows(
+        (await this.#db.query(INDEX_DEFINITION_SQL, [index.oid])).rows
+      );
+      if (definition?.keyColumns !== 1) {
+        return this.#notChecked(index, 'unsupported-index-definition');
+      }
+      return index.accessMethod === 'bm25'
+        ? this.#probeBm25(index, definition)
+        : this.#probeHnsw(index, definition);
+    });
   }
 
   /** Searches with text taken from the table, then rewrites one row through the index; both roll back. */
-  async #probeBm25(index: RelationRow, definition: IndexDefinition): Promise<void> {
+  async #probeBm25(index: RelationRow, definition: IndexDefinition): Promise<Verdict<void>> {
     if (definition.column === null) {
-      this.#skip(index, 'unsupported-index-definition');
-      return;
+      return this.#notChecked(index, 'unsupported-index-definition');
     }
     const table = qualified(index.tableSchema, index.table);
     const column = quoteIdentifier(definition.column);
+    // A value whose text has at least one term the index's own configuration keeps, so the
+    // search below has something to match. A sample of stop words alone would legitimately match nothing.
+    const config = definition.textConfig
+      ? `${quoteLiteral(definition.textConfig)}::regconfig, `
+      : '';
+    const text = `left(${column}::text, ${BM25_PROBE_TEXT_LENGTH})`;
     const [sample] = sampleRows(
       (
         await this.#db.query(
-          `SELECT left(${column}::text, ${BM25_PROBE_TEXT_LENGTH}) AS "sample" FROM ${table} WHERE ${column} IS NOT NULL LIMIT 1`
+          `SELECT ${text} AS "sample" FROM ${table}
+            WHERE ${column} IS NOT NULL AND to_tsvector(${config}${text}) <> ''::tsvector LIMIT 1`
         )
       ).rows
     );
     if (!sample) {
-      this.#skip(index, 'empty-table');
-      return;
+      return this.#notChecked(index, 'no-indexed-rows');
     }
-    await this.#attempt(
-      index,
-      'bm25-probe',
-      () =>
-        this.#inRolledBackTransaction(async () => {
-          await this.#db.query(
-            `SELECT 1 FROM ${table} ORDER BY ${column} <@> to_bm25query($1, ${quoteLiteral(index.relation)}) LIMIT 1`,
-            [sample.sample]
-          );
-          // A non-HOT update: the access method's insert path runs, then the write rolls back.
-          await this.#db.query(
-            `UPDATE ${table} SET ${column} = ${column} || ' ' WHERE ctid = (SELECT ctid FROM ${table} WHERE ${column} IS NOT NULL LIMIT 1)`
-          );
-        }),
-      sample.sample
-    );
+    await this.#inRolledBackTransaction(async () => {
+      const found = await this.#db.query(
+        `SELECT 1 FROM ${table} ORDER BY ${column} <@> to_bm25query($1, ${quoteLiteral(index.relation)}) LIMIT 1`,
+        [sample.sample]
+      );
+      if (found.rows.length === 0) {
+        this.#record(index, 'bm25-probe', { message: BM25_LOST_ENTRIES, sqlstate: null });
+        return;
+      }
+      // A non-HOT update: the access method's insert path runs, then the write rolls back.
+      await this.#db.query(
+        `UPDATE ${table} SET ${column} = ${column} || ' ' WHERE ctid = (SELECT ctid FROM ${table} WHERE ${column} IS NOT NULL LIMIT 1)`
+      );
+    });
+    return undefined;
   }
 
   /** Orders the table by distance to one of its own vectors, forced through the index. */
-  async #probeHnsw(index: RelationRow, definition: IndexDefinition): Promise<void> {
+  async #probeHnsw(index: RelationRow, definition: IndexDefinition): Promise<Verdict<void>> {
     const operator = HNSW_DISTANCE_OPERATORS[definition.opclass];
     if (!operator) {
-      this.#skip(index, 'unsupported-index-definition');
-      return;
+      return this.#notChecked(index, 'unsupported-index-definition');
     }
     const table = qualified(index.tableSchema, index.table);
     // The catalog's own rendering of the key and partial predicate: a partial index is only
-    // chosen when the query's WHERE implies its predicate.
-    const where = definition.predicate ? ` WHERE ${definition.predicate}` : '';
+    // chosen when the query's WHERE implies its predicate. A NULL key is never indexed.
     const key = `(${definition.expression})`;
+    const indexed = ` WHERE ${[definition.predicate, `${key} IS NOT NULL`].filter(Boolean).join(' AND ')}`;
+    // The sample must be a vector the index holds: cosine distance to itself is NaN for a zero
+    // vector, which pgvector does not index.
+    const covered = `${indexed} AND (${key} ${operator} ${key}) < 1`;
     const [populated] = flagRows(
-      (await this.#db.query(`SELECT EXISTS (SELECT 1 FROM ${table}${where}) AS "present"`)).rows
+      (await this.#db.query(`SELECT EXISTS (SELECT 1 FROM ${table}${covered}) AS "present"`)).rows
     );
     if (!populated?.present) {
-      this.#skip(index, 'empty-table');
-      return;
+      return this.#notChecked(index, 'no-indexed-rows');
     }
-    await this.#attempt(index, 'hnsw-probe', () =>
-      this.#inRolledBackTransaction(async () => {
-        await this.#db.query(
-          `SELECT 1 FROM ${table}${where} ORDER BY ${key} ${operator} (SELECT ${key} FROM ${table}${where} LIMIT 1) LIMIT 1`
-        );
-      })
-    );
+    await this.#inRolledBackTransaction(async () => {
+      const found = await this.#db.query(
+        `SELECT 1 FROM ${table}${indexed} ORDER BY ${key} ${operator} (SELECT ${key} FROM ${table}${covered} LIMIT 1) LIMIT 1`
+      );
+      if (found.rows.length === 0) {
+        this.#record(index, 'hnsw-probe', { message: HNSW_LOST_ENTRIES, sqlstate: null });
+      }
+    });
+    return undefined;
   }
 
-  /** A rolled-back transaction with sequential scans ruled out, so a probe walks the index it names. */
+  /**
+   * A rolled-back transaction with sequential scans ruled out, so a probe walks the index it
+   * names. A trap skips the rollback (the instance is dead) and is rethrown; any other failure
+   * is rethrown after a rollback that must itself succeed.
+   */
   async #inRolledBackTransaction(run: () => Promise<void>): Promise<void> {
     await this.#db.exec('BEGIN');
+    let failure: { error: unknown } | undefined;
     try {
       await this.#db.exec('SET LOCAL enable_seqscan = off');
       await run();
-    } finally {
+    } catch (error) {
+      failure = { error };
+    }
+    if (failure && isFatalTrap(failure.error)) {
+      throw failure.error;
+    }
+    try {
       await this.#db.exec('ROLLBACK');
+    } catch (error) {
+      throw isFatalTrap(error) ? error : new ProbeCleanupError(error);
+    }
+    if (failure) {
+      throw failure.error;
     }
   }
 
   /**
-   * Runs one relation's check. A thrown error becomes that relation's finding, with
-   * `redact` (text the check bound as a parameter) scrubbed from its message; a trap aborts.
+   * Runs one relation's check. A thrown error becomes that relation's finding; a trap or a failed
+   * cleanup aborts. A check that recorded an `unchecked` entry (it returned {@link NOT_CHECKED})
+   * is not counted as checked.
    */
   async #attempt<T>(
     relation: RelationRow,
     check: IntegrityCheck,
-    run: () => Promise<T>,
-    redact?: string
-  ): Promise<T | undefined> {
+    run: () => Promise<Verdict<T>>
+  ): Promise<Verdict<T> | undefined> {
     try {
       const result = await run();
-      this.#countChecked(check);
+      this.#countChecked(check, result);
       return result;
     } catch (error) {
-      if (isFatalTrap(error)) {
+      if (isFatalTrap(error) || error instanceof ProbeCleanupError) {
         throw error;
       }
-      const message = messageOf(error);
-      this.#record(relation, check, {
-        message: redact ? message.replaceAll(redact, '[probe text]') : message,
-        sqlstate: sqlstateOf(error),
-      });
-      this.#countChecked(check);
+      this.#record(relation, check, { message: messageOf(error), sqlstate: sqlstateOf(error) });
+      this.#countChecked(check, undefined);
       return undefined;
     }
   }
 
   /** A row count re-reads a table its heap check already counted. */
-  #countChecked(check: IntegrityCheck): void {
-    if (check !== 'row-count') {
+  #countChecked(check: IntegrityCheck, result: unknown): void {
+    if (check !== 'row-count' && result !== NOT_CHECKED) {
       this.checkedRelations += 1;
     }
   }
@@ -431,11 +517,14 @@ class DiagnosisRun {
     problem: { message: string; sqlstate: string | null }
   ): void {
     this.#tablesWithFindings.add(relation.tableOid);
+    if (check === 'heap') {
+      this.#tablesWithHeapFindings.add(relation.tableOid);
+    }
     this.findings.push({
       accessMethod: relation.accessMethod,
       check,
       durability: this.#durabilityOf(relation),
-      message: problem.message.slice(0, MAX_FINDING_MESSAGE_LENGTH),
+      message: truncateFindingMessage(problem.message),
       relation: relation.relation,
       relationKind: relation.kind === 'i' ? 'index' : 'table',
       sqlstate: problem.sqlstate,
@@ -450,6 +539,11 @@ class DiagnosisRun {
       relation: relation.relation,
       table: relation.table,
     });
+  }
+
+  #notChecked(relation: RelationRow, reason: UncheckedRelation['reason']): typeof NOT_CHECKED {
+    this.#skip(relation, reason);
+    return NOT_CHECKED;
   }
 
   #durabilityOf(relation: RelationRow): RelationFinding['durability'] {
@@ -479,7 +573,7 @@ export async function diagnoseDatabaseIntegrity(
     options.classify,
     relationRows((await db.query(RELATIONS_SQL)).rows)
   );
-  // Heaps first: every later probe is gated on its table having no finding yet.
+  // Heaps first: every later check is gated on its table having no finding yet.
   await run.checkHeaps();
   await run.checkIndexes();
   const tables = await run.countTables();
