@@ -5,7 +5,7 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
-import type { ForgePrCacheEntry } from '@brainstrike/types';
+import type { ThreadSearchRepository } from '@brainstrike/db';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -19,11 +19,11 @@ import {
   THREAD_CONTROL_ROW_PITCH_PX,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from '../assistant-thread-presentation';
-import type { ThreadBranchInfo } from '../hooks/use-thread-branch-by-root-path';
+import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
 import { lookupThreadBranch } from '../thread-branch-resolution';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
-import { ThreadMetadataBadgesForTest, ThreadsPanel } from '../threads-panel';
+import { ThreadsPanel } from '../threads-panel';
 
 const virtualizerState = vi.hoisted(() => ({
   estimatedSizes: [] as number[],
@@ -80,6 +80,7 @@ const {
     deleteFailureThreadId: null as string | null,
     forgePrError: null as Error | null,
     forgePrRows: [] as Record<string, unknown>[],
+    getNavigationTitles: vi.fn<ThreadSearchRepository['getNavigationTitles']>(),
     initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
     initializing: false,
     metadataFailureMessage: 'Metadata update failed in PGlite.',
@@ -128,8 +129,8 @@ function parseMetadataObject(value: unknown): Record<string, unknown> {
 }
 
 vi.mock('@brainstrike/db', () => ({
-  // Inert search doubles: these suites never type a query, so the search
-  // controller only constructs the service and (on delete) clears index rows.
+  // Search returns no matches; the real controller still resolves the title
+  // batch and clears index rows when threads are deleted.
   createThreadSearchService: () => ({
     searchThreads: () =>
       Promise.resolve({
@@ -144,6 +145,7 @@ vi.mock('@brainstrike/db', () => ({
       }),
   }),
   ThreadSearchRepository: class {
+    readonly getNavigationTitles = dbMocks.getNavigationTitles;
     deleteThreads(): Promise<void> {
       return Promise.resolve();
     }
@@ -193,8 +195,8 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 vi.mock('@brainstrike/db/react', () => ({
-  // Inert search doubles: these suites never type a query, so the search
-  // controller only constructs the service and (on delete) clears index rows.
+  // Search returns no matches; the real controller still resolves the title
+  // batch and clears index rows when threads are deleted.
   createThreadSearchService: () => ({
     searchThreads: () =>
       Promise.resolve({
@@ -210,6 +212,7 @@ vi.mock('@brainstrike/db/react', () => ({
   }),
   makeLiveQueryKey: (...parts: readonly unknown[]) => JSON.stringify(parts),
   ThreadSearchRepository: class {
+    readonly getNavigationTitles = dbMocks.getNavigationTitles;
     deleteThreads(): Promise<void> {
       return Promise.resolve();
     }
@@ -375,6 +378,7 @@ beforeEach(() => {
     path: '/tmp/workspace-a',
   };
   dbMocks.database = { exec: mockDb.exec, query: mockDb.query };
+  dbMocks.getNavigationTitles.mockReset().mockResolvedValue([]);
   dbMocks.activeRunQueryEnabled = [];
   dbMocks.activeRunError = null;
   dbMocks.activeRunRows = [];
@@ -503,7 +507,7 @@ beforeEach(() => {
           placementRows.splice(index, 1);
         }
       }
-      return { rows: [{ allFound: true }] };
+      return { rows: [{ allAuthorized: true, allFound: true }] };
     }
     if (sql.includes('updated_threads AS')) {
       const threadIds = (params ?? []).slice(0, -1).map(String);
@@ -536,6 +540,7 @@ beforeEach(() => {
       if (index >= 0) {
         threadRows.splice(index, 1);
       }
+      return { rows: [{ allAuthorized: true }] };
     }
     if (sql.includes('SET metadata')) {
       const threadId = String(params?.[0]);
@@ -843,6 +848,10 @@ describe('ThreadsPanel', () => {
       expect(screen.queryByTestId('threads-visible-count')).not.toBeInTheDocument();
     });
     expect(screen.queryByRole('button', { name: /visible threads?$/ })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(dbMocks.getNavigationTitles).toHaveBeenCalledWith(WORKSPACE_MEMORY_RESOURCE_ID, []);
+    });
+    expect(useThreadSearchStore.getState().status).toBe('results');
     expect(screen.getByRole('button', { name: 'New thread' })).toBeVisible();
   });
 
@@ -1083,9 +1092,10 @@ describe('ThreadsPanel', () => {
 
     fireEvent.click(within(toolbar).getByRole('button', { name: 'Color' }));
     const bulkColorGrid = await screen.findByTestId('thread-bulk-color-grid');
-    expect(bulkColorGrid).toHaveClass('grid-cols-4');
+    expect(within(bulkColorGrid).getByText('Voltage')).toBeVisible();
+    expect(within(bulkColorGrid).getByText('Afterglow')).toBeVisible();
     for (const button of within(bulkColorGrid).getAllByRole('button')) {
-      expect(button).toHaveClass('size-8', 'justify-self-center');
+      expect(button).toHaveClass('size-8');
     }
     fireEvent.click(await screen.findByRole('button', { name: 'Use Rose color for 2 threads' }));
     await waitFor(() => {
@@ -1601,7 +1611,7 @@ describe('ThreadsPanel', () => {
     });
     expect(mockDb.query).toHaveBeenCalledWith(
       expect.stringContaining('DELETE FROM mastra_threads'),
-      ['thread-b', 'thread:thread-b']
+      ['thread-b']
     );
     expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
     expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
@@ -1625,117 +1635,6 @@ describe('ThreadsPanel', () => {
     expect(await screen.findByText('Delete failed in PGlite.')).toBeVisible();
     expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
-  });
-});
-
-describe('thread row PR pill', () => {
-  const thread: AssistantMemoryThread = {
-    createdAt: new Date('2026-08-24T00:00:00Z'),
-    id: 'thread-pr-pill',
-    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-    title: 'PR pill thread',
-    updatedAt: new Date('2026-08-24T01:00:00Z'),
-  };
-  const pr: ForgePrCacheEntry = {
-    branch: 'main',
-    checksRollup: 'failing',
-    isDraft: false,
-    number: 2574,
-    repoCommonDir: '/repos/widgets/.git',
-    state: 'open',
-    url: 'https://github.test/acme/widgets/pull/2574',
-  };
-
-  it('renders the PR number and open failing state', () => {
-    render(<ThreadMetadataBadgesForTest branch={null} pr={pr} thread={thread} />);
-
-    const pill = screen.getByTestId('thread-pr-pill');
-    expect(pill).toHaveTextContent('#2574');
-    expect(pill).toHaveAttribute('data-checks', 'failing');
-    expect(pill).toHaveAttribute('data-state', 'open');
-  });
-
-  it('renders no PR pill when there is no cached PR', () => {
-    render(<ThreadMetadataBadgesForTest branch={null} pr={null} thread={thread} />);
-
-    expect(screen.queryByTestId('thread-pr-pill')).toBeNull();
-  });
-
-  it('marks merged PRs for faded row styling', () => {
-    render(
-      <ThreadMetadataBadgesForTest branch={null} pr={{ ...pr, state: 'merged' }} thread={thread} />
-    );
-
-    expect(screen.getByTestId('thread-pr-pill')).toHaveAttribute('data-state', 'merged');
-  });
-
-  describe('provider badge — the wideOnly "protected slot" it can inherit', () => {
-    const branchInfo: ThreadBranchInfo = {
-      branch: 'main',
-      detached: false,
-      gitCommonDir: '/repos/widgets/.git',
-    };
-    const threadWithProvider: AssistantMemoryThread = {
-      ...thread,
-      latestRun: {
-        completedAt: new Date('2026-08-24T00:05:00Z'),
-        createdAt: new Date('2026-08-24T00:00:00Z'),
-        error: null,
-        id: 'run-1',
-        model: 'claude-sonnet-5',
-        provider: 'openrouter',
-        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-        runtimeKind: 'hosted',
-        startedAt: new Date('2026-08-24T00:00:00Z'),
-        status: 'completed',
-        threadId: thread.id,
-        turnMessageId: null,
-        updatedAt: new Date('2026-08-24T00:05:00Z'),
-      },
-    };
-
-    function providerBadgeClassName(): string {
-      return screen.getByText('OpenRouter').className;
-    }
-
-    // (a) No branch and no PR: provider is the row's first badge, so it takes
-    // over the "always visible in the narrow band" slot instead of also
-    // hiding until 560px.
-    it('does not wide-gate the provider badge when nothing protected renders', () => {
-      render(<ThreadMetadataBadgesForTest branch={null} pr={null} thread={threadWithProvider} />);
-
-      const className = providerBadgeClassName();
-      expect(className).toContain('inline-flex');
-      expect(className).not.toContain('hidden');
-      expect(className).not.toContain('@[560px]/threads:inline-flex');
-    });
-
-    // (b) Branch present: branch occupies the protected slot, so provider
-    // reverts to hiding until 560px, same as model/reasoning/max-output.
-    it('wide-gates the provider badge once a branch renders, and keeps the branch visible', () => {
-      render(
-        <ThreadMetadataBadgesForTest branch={branchInfo} pr={null} thread={threadWithProvider} />
-      );
-
-      const providerClassName = providerBadgeClassName();
-      expect(providerClassName).toContain('hidden');
-      expect(providerClassName).toContain('@[560px]/threads:inline-flex');
-
-      const branchClassName = screen.getByText('main').className;
-      expect(branchClassName).toContain('inline-flex');
-      expect(branchClassName).not.toContain('hidden');
-    });
-
-    // (c) PR present (no branch): the PR pill alone is enough to occupy the
-    // protected slot too.
-    it('wide-gates the provider badge once a PR pill renders', () => {
-      render(<ThreadMetadataBadgesForTest branch={null} pr={pr} thread={threadWithProvider} />);
-
-      const providerClassName = providerBadgeClassName();
-      expect(providerClassName).toContain('hidden');
-      expect(providerClassName).toContain('@[560px]/threads:inline-flex');
-      expect(screen.getByTestId('thread-pr-pill')).toBeVisible();
-    });
   });
 });
 
@@ -1894,10 +1793,9 @@ describe('ThreadsPanel groups', () => {
       'research',
     ]);
     const folderColorGrid = within(groupCustomizer).getByTestId('thread-group-color-grid');
-    expect(folderColorGrid).toHaveClass('grid-cols-4');
-    for (const button of within(folderColorGrid).getAllByRole('button')) {
-      expect(button).toHaveClass('size-8', 'justify-self-center');
-    }
+    expect(within(folderColorGrid).getByText('Voltage')).toBeVisible();
+    expect(within(folderColorGrid).getByText('Afterglow')).toBeVisible();
+    expect(within(folderColorGrid).getAllByRole('button')).toHaveLength(19);
     fireEvent.click(await screen.findByRole('button', { name: 'Use Rose color for Research' }));
 
     await waitFor(() => {
@@ -1913,8 +1811,9 @@ describe('ThreadsPanel groups', () => {
       'border-spacing-0'
     );
     expect(screen.getByTestId('thread-group-color-rose')).toHaveClass(
-      'border-rose-300',
-      'bg-rose-50'
+      'bs-agent-solid-mark',
+      'bg-rose-500',
+      'text-black'
     );
     // Group surfaces are soft tinted fills only — the hairline outline borders
     // are gone so grouped threads read as one calm slab.
@@ -2412,28 +2311,61 @@ describe('ThreadsPanel folders', () => {
     expect(screen.queryAllByTestId('thread-failed-glyph')).toHaveLength(0);
   });
 
-  it('marks a completed thread unseen until it is opened', async () => {
+  // BST-1845: "seen" is a fact about the SCREEN, and only the surface that
+  // renders transcripts can report it (`onScreenThreadId`). A Threads panel
+  // mounted without that surface has nothing on screen — so even the row it has
+  // selected carries its dot.
+  it('marks every finished thread unseen, the selected one included, while nothing is on screen', async () => {
     renderThreadsPanel();
 
-    // The panel opens on the newest thread, and a thread you are looking at is
-    // never unseen — so exactly the other one carries the glyph.
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-unseen-glyph')).toHaveLength(2);
+    });
+    expect(within(rowFor('Second thread')).getByTestId('thread-unseen-glyph')).toBeInTheDocument();
+    expect(within(rowFor('First thread')).getByTestId('thread-unseen-glyph')).toHaveAccessibleName(
+      'First thread has unseen activity'
+    );
+  });
+
+  it('exempts only the thread the transcript surface reports on screen', async () => {
+    act(() => {
+      useOnScreenThreadStore.getState().setOnScreenThreadId('thread-b');
+    });
+    renderThreadsPanel();
+
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-unseen-glyph')).toHaveLength(1);
     });
     expect(within(rowFor('Second thread')).queryByTestId('thread-unseen-glyph')).toBeNull();
-    const firstRow = rowFor('First thread');
-    expect(within(firstRow).getByTestId('thread-unseen-glyph')).toHaveAccessibleName(
-      'First thread has unseen activity'
-    );
+    expect(within(rowFor('First thread')).getByTestId('thread-unseen-glyph')).toBeInTheDocument();
 
-    fireEvent.click(within(firstRow).getByText('First thread'));
+    act(() => {
+      useOnScreenThreadStore.getState().setOnScreenThreadId('thread-a');
+    });
 
     await waitFor(() => {
       expect(within(rowFor('First thread')).queryByTestId('thread-unseen-glyph')).toBeNull();
     });
-    expect(
-      useAssistantThreadStore.getState().lastViewedAtByThreadId['thread-a']
-    ).toBeGreaterThanOrEqual(new Date('2026-04-22T09:00:10Z').getTime());
+    expect(within(rowFor('Second thread')).getByTestId('thread-unseen-glyph')).toBeInTheDocument();
+  });
+
+  // The Threads panel renders no transcript, so selecting a row there shows the
+  // user nothing to have "seen". The transcript surface is the only stamper.
+  it('never stamps the viewed watermark itself when a row is selected', async () => {
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-unseen-glyph')).toHaveLength(2);
+    });
+
+    fireEvent.click(within(rowFor('First thread')).getByText('First thread'));
+
+    await waitFor(() => {
+      expect(useAssistantThreadStore.getState().activeThreadIdByResourceId).toMatchObject({
+        [WORKSPACE_MEMORY_RESOURCE_ID]: 'thread-a',
+      });
+    });
+    expect(useAssistantThreadStore.getState().lastViewedAtByThreadId).toEqual({});
+    expect(within(rowFor('First thread')).getByTestId('thread-unseen-glyph')).toBeInTheDocument();
   });
 
   it('chips the folder branch on the bound row only, and only in folder grouping', async () => {
@@ -2936,7 +2868,7 @@ describe('ThreadsPanel folders', () => {
     }
 
     // Proves the whole chain end-to-end: a row seeded through the live-query
-    // route (not `ThreadMetadataBadgesForTest` directly) joins on the
+    // route (not the metadata-badge component directly) joins on the
     // `gitCommonDir` the git inventory mock reports for the bound root, and
     // renders a real `thread-pr-pill` inside the actual thread row.
     it('renders a thread-pr-pill inside a real thread row', async () => {

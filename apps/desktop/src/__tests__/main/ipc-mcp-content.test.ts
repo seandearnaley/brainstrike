@@ -157,7 +157,7 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
     runtime = target;
     unregister = mcpIpc.registerMcpIpcHandlers({ runtime: target });
     // Startup discovery holds the lifecycle barrier; `mcp:status:get` waits on it.
-    await requireHandler('mcp:status:get')();
+    await requireHandler('mcp:status:get')(VISIBLE_UI_EVENT);
     await target.replaceResolvedConfig({
       servers: [
         {

@@ -58,9 +58,11 @@ describe('createWindow', () => {
 
     mockWebContents = {
       getURL: vi.fn(() => `${DESKTOP_DEV_RENDERER_URL}/`),
+      isDestroyed: vi.fn(() => false),
       on: vi.fn(),
       openDevTools: vi.fn(),
       reload: vi.fn(),
+      send: vi.fn(),
       setWindowOpenHandler: vi.fn(),
     };
 
@@ -447,19 +449,23 @@ describe('createWindow', () => {
       const rpcHandler = mockWebContents.on.mock.calls.find(
         (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
       )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
-      const focusHandler = mockBrowserWindow.on.mock.calls.find(
-        (call: [string, (...args: unknown[]) => void]) => call[0] === 'focus'
-      )?.[1] as () => void;
+      // Electron runs EVERY `focus` listener; other wiring (the native-focus
+      // publisher) shares the event, so recovery is not necessarily the first.
+      const focusHandlers = mockBrowserWindow.on.mock.calls
+        .filter((call: [string, () => void]) => call[0] === 'focus')
+        .map((call: [string, () => void]) => call[1]);
 
       expect(rpcHandler).toBeDefined();
-      expect(focusHandler).toBeDefined();
+      expect(focusHandlers.length).toBeGreaterThan(0);
 
       // Crash defers recovery
       rpcHandler({}, { exitCode: 5, reason: 'crashed' });
       expect(mockWebContents.reload).not.toHaveBeenCalled();
 
       // Focus triggers reload before the 3s timer
-      focusHandler();
+      for (const focusHandler of focusHandlers) {
+        focusHandler();
+      }
       expect(mockWebContents.reload).toHaveBeenCalledTimes(1);
 
       // Timer fires later but pendingRendererRecovery is already false — no double reload
@@ -697,6 +703,42 @@ describe('createWindow', () => {
     });
   });
 
+  it('retries the production dev target 30 times at 200 ms spacing', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('VITEST', 'false');
+    vi.resetModules();
+    try {
+      const [{ createWindow: createProductionWindow }, rendererTarget] = await Promise.all([
+        import('../create-window'),
+        import('../desktop-renderer-target'),
+      ]);
+      rendererTarget.configureDesktopRendererTarget(DEV_RENDERER_TARGET);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
+      const attemptedAt: number[] = [];
+      const failure = new Error('dev server unavailable');
+      mockBrowserWindow.loadURL.mockImplementation(() => {
+        attemptedAt.push(Date.now());
+        return Promise.reject(failure);
+      });
+
+      const result = expect(createProductionWindow()).rejects.toThrow(
+        'Dev renderer unavailable in non-packaged mode; refusing production fallback'
+      );
+      await vi.runAllTimersAsync();
+      await result;
+
+      expect(attemptedAt).toHaveLength(30);
+      expect(attemptedAt.slice(1).map((time, index) => time - attemptedAt[index]!)).toEqual(
+        Array.from({ length: 29 }, () => 200)
+      );
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   describe('security configuration', () => {
     it('should configure window open handler', async () => {
       existsSyncMock.mockReturnValue(true);
@@ -901,9 +943,12 @@ describe('createWindow', () => {
       const error = new Error('All ports unavailable');
       mockBrowserWindow.loadURL.mockRejectedValue(error);
 
-      await expect(createWindow()).rejects.toThrow(
+      const failure = await createWindow().catch((cause: unknown) => cause);
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain(
         'Dev renderer unavailable in non-packaged mode; refusing production fallback'
       );
+      expect(((failure as Error).cause as Error).cause).toBe(error);
       expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
       const attemptedUrls = mockBrowserWindow.loadURL.mock.calls.map((call: [string]) => call[0]);
       for (const url of attemptedUrls) {

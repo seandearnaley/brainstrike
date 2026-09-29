@@ -27,7 +27,7 @@ import { toJsonSafe } from '../stream/json';
 import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
 import { readHookResultEnvelope } from '../tools/hook-runner';
-import { readToolCallId } from '../tools/read-tool-call-id';
+import { readToolCallId, readToolExecutionThreadId } from '../tools/read-tool-call-id';
 import { readMcpMultimodalOutput } from './mcp-multimodal-output';
 import { projectToolOutputArtifactPage } from './tool-output-artifact-reader';
 
@@ -45,6 +45,7 @@ export const TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES =
 export const TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES = 16 * 1024 * 1024;
 
 export type ToolOutputArtifactSettlementFailureReason =
+  | 'missing_execution_thread_id'
   | 'missing_tool_call_id'
   | 'output_too_large'
   | 'serialization_failed'
@@ -66,6 +67,8 @@ export class ToolOutputArtifactSettlementError extends Error {
 
 export interface StoreSettledToolOutputInput {
   readonly content: string;
+  /** Observed native execution scope, never a model-supplied ownership field. */
+  readonly executionThreadId?: string;
   readonly format: ToolOutputArtifactFormat;
   readonly toolCallId: string;
 }
@@ -85,6 +88,7 @@ export interface ApplyToolOutputArtifactSettlementOptions {
    * Keys are canonical (pre-sanitization) tool names.
    */
   readonly inlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
+  readonly requireExecutionThreadId?: boolean;
   readonly store: ToolOutputArtifactSettlementStore;
   readonly toolNameMap: ReadonlyMap<string, string>;
   /** The model-projection owner decides whether an otherwise-inline result loses data. */
@@ -382,10 +386,18 @@ async function settleOutput(
   }
 
   const readerToolName = options.getReaderToolName();
+  // Root artifacts retain the host-bound key used before child settlement.
+  const executionThreadId = options.requireExecutionThreadId
+    ? readToolExecutionThreadId(args)
+    : undefined;
+  if (options.requireExecutionThreadId && !executionThreadId) {
+    throw new ToolOutputArtifactSettlementError('missing_execution_thread_id', toolName);
+  }
   let reference: ToolOutputArtifactReference;
   try {
     reference = await options.store.store({
       content: serialized.content,
+      ...(executionThreadId ? { executionThreadId } : {}),
       format: serialized.format,
       toolCallId,
     });

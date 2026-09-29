@@ -8,7 +8,7 @@
       "electron",
       "vite/client",
       "vitest/globals",
-      "@testing-library/jest-dom"
+      "@brainstrike/test-utils/vitest-matchers"
     ],
     "paths": {},
     "strictNullChecks": true

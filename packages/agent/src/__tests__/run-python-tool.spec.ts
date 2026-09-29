@@ -17,6 +17,7 @@ import {
   sliceTailCodePoints,
   toRunPythonResult,
 } from '../tools/run-python-tool';
+import { registerToolGuardDeadlineSignal } from '../tools/tool-guard-deadline';
 
 const FENCE_CAPABILITIES: ExecutorCapabilities = {
   languages: ['python'],
@@ -139,6 +140,43 @@ describe('createRunPythonTool', () => {
     const stub = stubFence(async () => execResult());
     await runTool(hostWith(stub), { code: 'pass' }, { abortSignal: controller.signal });
     expect(stub.inputs[0]?.signal).toBe(controller.signal);
+  });
+
+  it('also aborts on the tool guard deadline, even though the run signal never fires (BST-1777)', async () => {
+    const controller = new AbortController();
+    const guard = new AbortController();
+    const context = { abortSignal: controller.signal, toolCallId: 'run-python-call' };
+    const release = registerToolGuardDeadlineSignal([{}, context], guard.signal);
+    let observedSignal: AbortSignal | undefined;
+    const stub = stubFence((input) => {
+      observedSignal = input.signal;
+      // Settles only when the signal it was handed aborts, so the case can
+      // await the run in its `finally` instead of leaving it pending forever.
+      return new Promise((_resolve, reject) => {
+        input.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        });
+      });
+    });
+    const runPromise = runTool(hostWith(stub), { code: 'pass' }, context);
+    try {
+      // `vi.waitFor` rather than a fixed tick count: scratch-dir creation is
+      // real fs I/O, and a loaded box that outran 50 macrotasks failed on
+      // `undefined !== false` instead of saying the executor never started.
+      await vi.waitFor(() => {
+        expect(observedSignal).toBeDefined();
+      });
+      expect(observedSignal?.aborted).toBe(false);
+      guard.abort(new Error('guard'));
+      expect(observedSignal?.aborted).toBe(true);
+      expect(controller.signal.aborted).toBe(false);
+    } finally {
+      // Never leave a pending run (and its scratch dir) behind: the guard
+      // abort above settles the stub, and the run is awaited before the case
+      // ends. In a `finally` so a failed expectation cleans up too.
+      release();
+      await runPromise.catch(() => undefined);
+    }
   });
 
   it('spends ONE budget across host resolution and execution', async () => {

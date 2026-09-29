@@ -1,0 +1,1435 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Subagent threads · Brainstrike design</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --canvas: #fff;
+        --surface: #f6f5f4;
+        --soft: #faf9f8;
+        --ink: #272623;
+        --muted: #625f5b;
+        --line: #dfddda;
+        --focus: #44403c;
+        --blue: #0369a1;
+        --blue-bg: #f0f9ff;
+        --violet: #6d28d9;
+        --violet-bg: #f5f3ff;
+        --green: #047857;
+        --green-bg: #ecfdf5;
+        --amber: #92400e;
+        --amber-bg: #fffbeb;
+        --red: #be123c;
+        --red-bg: #fff1f2;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --canvas: #191918;
+        --surface: #252523;
+        --soft: #1e1e1c;
+        --ink: #f2f0ed;
+        --muted: #b5b1aa;
+        --line: #46433e;
+        --focus: #e7e5e4;
+        --blue: #7dd3fc;
+        --blue-bg: #082f49;
+        --violet: #c4b5fd;
+        --violet-bg: #2e1065;
+        --green: #6ee7b7;
+        --green-bg: #022c22;
+        --amber: #fcd34d;
+        --amber-bg: #451a03;
+        --red: #fda4af;
+        --red-bg: #4c0519;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      .shell[hidden],
+      #saved-error[hidden] {
+        display: none;
+      }
+      #saved-error {
+        padding: 24px;
+        color: var(--red);
+      }
+      body {
+        height: 100dvh;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font:
+          14px/1.55 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: 1px solid transparent;
+        background: transparent;
+        border-radius: 6px;
+        min-height: 28px;
+      }
+      button:hover {
+        background: var(--surface);
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 3px;
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.6;
+      }
+      svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+      .icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .mark {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        flex: none;
+        border: 1px solid currentColor;
+        border-radius: 5px;
+        background: var(--tone-bg);
+        color: var(--tone);
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .blue {
+        --tone: var(--blue);
+        --tone-bg: var(--blue-bg);
+      }
+      .violet {
+        --tone: var(--violet);
+        --tone-bg: var(--violet-bg);
+      }
+      .green {
+        --tone: var(--green);
+        --tone-bg: var(--green-bg);
+      }
+      .neutral {
+        --tone: var(--muted);
+        --tone-bg: var(--surface);
+      }
+      .lab {
+        min-height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 18px;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+        background: var(--soft);
+      }
+      .lab strong {
+        font-weight: 600;
+      }
+      .lab-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .lab select {
+        max-width: 140px;
+        background: var(--canvas);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 3px;
+      }
+      .shell {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 240px minmax(0, 1fr);
+      }
+      .sidebar {
+        background: var(--soft);
+        border-right: 1px solid var(--line);
+        padding: 22px 12px;
+        overflow: auto;
+        min-height: 0;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 0 10px 25px;
+        font-size: 16px;
+        font-weight: 650;
+        letter-spacing: -0.5px;
+      }
+      .brand svg {
+        width: 22px;
+        height: 22px;
+      }
+      .section-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+        padding: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .tree {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0 4px;
+      }
+      .tree td {
+        padding: 0;
+      }
+      .tree-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 32px;
+        width: 100%;
+        padding: 3px 6px;
+        border-radius: 6px;
+        background: var(--tone-bg);
+      }
+      .tree-row.selected {
+        box-shadow: inset 0 0 0 1px var(--tone);
+      }
+      .tree-row .row-open {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+        flex: 1;
+        text-align: left;
+        padding: 0;
+      }
+      .row-name {
+        font-size: 12px;
+        font-weight: 550;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tree-toggle {
+        padding: 0;
+        width: 24px;
+        flex: none;
+      }
+      .tree-state {
+        font-size: 13px;
+        color: var(--muted);
+        margin-left: auto;
+      }
+      .sidebar-note {
+        padding: 16px 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .main {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: 43px auto minmax(0, 1fr) auto;
+      }
+      .tabs {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--line);
+        overflow: auto;
+        min-width: 0;
+      }
+      .tab-wrap {
+        display: flex;
+        flex: none;
+        align-items: center;
+        border-radius: 6px;
+        background: var(--tone-bg);
+        height: 28px;
+      }
+      .tab-wrap.active {
+        box-shadow: inset 0 0 0 1px var(--tone);
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 2px 8px;
+        min-width: 95px;
+        font-size: 12px;
+        font-weight: 550;
+        max-width: 220px;
+      }
+      .tab .mark {
+        width: 18px;
+        height: 18px;
+        font-size: 10px;
+      }
+      .tab-title {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .close {
+        width: 28px;
+        padding: 0;
+        font-size: 17px;
+      }
+      .thread-head {
+        padding: 17px 32px 14px;
+        border-bottom: 1px solid var(--line);
+        background: var(--canvas);
+      }
+      .breadcrumbs {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--muted);
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+      .breadcrumbs button {
+        padding: 1px 5px;
+      }
+      .head-line {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .head-line h1 {
+        font-size: 18px;
+        letter-spacing: -0.35px;
+        margin: 0;
+        font-weight: 600;
+      }
+      .head-line .mark {
+        width: 28px;
+        height: 28px;
+        font-size: 13px;
+      }
+      .role {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .head-spacer {
+        flex: 1;
+      }
+      .scope {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 12px;
+        flex-wrap: wrap;
+        margin-top: 9px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .pill.running,
+      .pill.queued {
+        color: var(--blue);
+      }
+      .pill.needs-input {
+        color: var(--amber);
+      }
+      .pill.completed {
+        color: var(--green);
+      }
+      .pill.failed {
+        color: var(--red);
+      }
+      .pill.cancelled,
+      .pill.no-answer {
+        color: var(--muted);
+      }
+      .control {
+        border-color: var(--line);
+        padding: 3px 10px;
+        font-size: 12px;
+        background: var(--canvas);
+      }
+      .conversation {
+        overflow: auto;
+        min-height: 0;
+        scrollbar-gutter: stable;
+        padding: 24px 32px;
+        overscroll-behavior: contain;
+      }
+      .messages {
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      .user {
+        margin: 0 0 25px auto;
+        max-width: 82%;
+        padding: 13px 17px;
+        border-radius: 18px;
+        background: var(--surface);
+        font-size: 15px;
+      }
+      .assistant {
+        font-size: 15px;
+        margin: 0 0 24px;
+        line-height: 1.75;
+      }
+      .assistant p {
+        margin: 0 0 14px;
+      }
+      .trace {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        margin: 18px 0 24px;
+        overflow: hidden;
+        background: var(--soft);
+      }
+      .trace-head {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        flex-wrap: wrap;
+        padding: 11px 14px;
+        border-bottom: 1px solid var(--line);
+        font-size: 13px;
+      }
+      .trace-head strong {
+        font-weight: 550;
+      }
+      .trace-head .muted {
+        margin-left: auto;
+        font-size: 12px;
+      }
+      .delegation {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+      .delegation:last-child {
+        border-bottom: 0;
+      }
+      .delegation-main {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .delegation-main strong {
+        font-weight: 600;
+      }
+      .delegation-main .pill {
+        margin-left: auto;
+      }
+      .open-child {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        text-align: left;
+        min-width: 0;
+        padding: 3px 1px;
+      }
+      .child-role {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .delegation p {
+        margin: 5px 0 0 32px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .child-meta {
+        margin: 7px 0 0 32px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        font-size: 11px;
+        color: var(--muted);
+        flex-wrap: wrap;
+      }
+      .tool-row {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 12px 14px;
+        font-size: 13px;
+      }
+      .tool-row code {
+        font:
+          12px ui-monospace,
+          SFMono-Regular,
+          monospace;
+        overflow-wrap: anywhere;
+      }
+      .tool-row .muted {
+        margin-left: auto;
+        font-size: 12px;
+      }
+      .reading {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        margin: 16px 0;
+        font-size: 13px;
+      }
+      .reading summary {
+        cursor: pointer;
+        padding: 11px 14px;
+      }
+      .reading p {
+        padding: 0 14px 12px;
+        color: var(--muted);
+        margin: 0;
+      }
+      .approval {
+        border: 1px solid var(--amber);
+        border-radius: 10px;
+        padding: 16px;
+        background: var(--amber-bg);
+        margin: 20px 0;
+      }
+      .approval strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+      .approval p {
+        margin: 0 0 12px;
+      }
+      .approval-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .primary {
+        background: var(--ink);
+        color: var(--canvas);
+        padding: 5px 12px;
+        border-color: var(--ink);
+      }
+      .primary:hover {
+        background: var(--muted);
+      }
+      .result {
+        padding: 15px 17px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        margin: 18px 0;
+      }
+      .result strong {
+        display: block;
+      }
+      .artifact {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        margin: 17px 0;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      .artifact code {
+        font:
+          12px ui-monospace,
+          monospace;
+      }
+      .notify {
+        padding: 10px 13px;
+        background: var(--surface);
+        border-radius: 7px;
+        font-size: 12px;
+        margin: 12px 0;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      .composer-area {
+        padding: 12px 32px 20px;
+        background: var(--canvas);
+        min-width: 0;
+      }
+      .composer-inner {
+        max-width: 800px;
+        margin: auto;
+      }
+      .workspace {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 9px;
+        flex-wrap: wrap;
+      }
+      .workspace .usage {
+        margin-left: auto;
+      }
+      .composer {
+        border: 1px solid var(--line);
+        border-radius: 17px;
+        background: var(--soft);
+        padding: 12px 13px 10px;
+      }
+      .composer textarea {
+        display: block;
+        width: 100%;
+        resize: none;
+        border: 0;
+        background: transparent;
+        outline-offset: 1px;
+        padding: 2px 3px;
+        min-height: 44px;
+        font-size: 14px;
+      }
+      .composer-bottom {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-top: 6px;
+        flex-wrap: wrap;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .composer-bottom .send {
+        margin-left: auto;
+      }
+      .composer-note {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 7px;
+      }
+      .mobile-tree {
+        display: none;
+      }
+      .live-announcement {
+        min-height: 0;
+      }
+      .simulation-note {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      @media (max-width: 900px) {
+        .shell {
+          grid-template-columns: 200px minmax(0, 1fr);
+        }
+        .thread-head {
+          padding: 14px 20px;
+        }
+        .conversation {
+          padding: 20px;
+        }
+        .composer-area {
+          padding: 10px 20px 14px;
+        }
+        .lab {
+          padding: 7px 12px;
+        }
+        .lab-detail {
+          display: none;
+        }
+      }
+      @media (max-width: 650px) {
+        .shell {
+          grid-template-columns: minmax(0, 1fr);
+          position: relative;
+        }
+        .sidebar {
+          display: none;
+        }
+        .sidebar.mobile-open {
+          display: block;
+          position: absolute;
+          inset: 43px 0 0;
+          background: var(--canvas);
+          z-index: 1;
+        }
+        .mobile-tree {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .lab {
+          gap: 5px;
+        }
+        .lab-controls {
+          gap: 5px;
+        }
+        .lab select {
+          max-width: 115px;
+        }
+        .thread-head {
+          padding: 10px 16px;
+        }
+        .conversation {
+          padding: 16px;
+        }
+        .composer-area {
+          padding: 10px 16px;
+        }
+        .role {
+          font-size: 11px;
+        }
+        .head-line {
+          gap: 7px;
+        }
+        .head-line h1 {
+          font-size: 17px;
+        }
+        .user {
+          max-width: 95%;
+        }
+        .head-line .control {
+          margin-left: auto;
+        }
+        .scope {
+          gap: 6px;
+        }
+        .workspace {
+          gap: 8px;
+        }
+        .workspace .usage {
+          margin-left: 0;
+        }
+        .delegation-main {
+          flex-wrap: wrap;
+        }
+        .delegation-main .pill {
+          margin-left: 32px;
+        }
+        .tab {
+          max-width: 165px;
+        }
+        .composer-note {
+          font-size: 10px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }
+      }
+      @media (forced-colors: active) {
+        .mark,
+        .tab-wrap.active,
+        .tree-row.selected {
+          border: 1px solid CanvasText;
+        }
+        .pill {
+          color: CanvasText;
+        }
+        .primary {
+          color: ButtonText;
+          background: ButtonFace;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="lab">
+      <div>
+        <strong>Interaction study</strong
+        ><span class="lab-detail"> · First-class subagents · BST-1717</span>
+      </div>
+      <div class="lab-controls">
+        <label for="scenario">State</label
+        ><select id="scenario" aria-label="State of selected agent">
+          <option value="running">Running</option>
+          <option value="queued">Queued</option>
+          <option value="needs-input">Needs input</option>
+          <option value="completed">Completed</option>
+          <option value="no-answer">No answer</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="failed">Failed</option></select
+        ><button class="control" id="theme">Dark</button
+        ><button class="control" id="reset">Reset</button>
+      </div>
+    </div>
+    <div id="saved-error" role="alert" hidden></div>
+    <div class="shell">
+      <aside class="sidebar" aria-label="Threads">
+        <div class="brand">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="m13 2-8 12h6l-1 8 9-13h-6z" /></svg
+          >Brainstrike
+        </div>
+        <div class="section-label">brainstrike</div>
+        <table class="tree" role="treegrid" aria-label="Thread hierarchy">
+          <tbody id="tree"></tbody>
+        </table>
+        <p class="sidebar-note">
+          Children stay with the conversation that delegated them.
+        </p>
+        <p class="sidebar-note">
+          Design fixture. All runs, messages and usage are simulated.
+        </p>
+      </aside>
+      <main class="main">
+        <div
+          class="tabs"
+          role="tablist"
+          aria-label="Open conversations"
+          id="tabs"
+        ></div>
+        <header class="thread-head" id="head"></header>
+        <section
+          class="conversation"
+          role="region"
+          aria-label="Conversation"
+          tabindex="0"
+          id="conversation"
+        >
+          <div
+            class="messages"
+            id="messages"
+            role="tabpanel"
+            aria-labelledby="tab-root"
+          ></div>
+        </section>
+        <footer class="composer-area">
+          <div class="composer-inner">
+            <div class="workspace">
+              <span>⌘ brainstrike</span><span>⑂ main</span
+              ><span id="usage" class="usage"></span>
+            </div>
+            <form class="composer" id="composer">
+              <label class="sr-only" for="composer-input" id="composer-label"
+                >Message</label
+              ><textarea id="composer-input" rows="2"></textarea>
+              <div class="composer-bottom">
+                <span>GPT-5.6 Luna · Effort Auto</span
+                ><button type="submit" class="primary send" id="send">
+                  Send
+                </button>
+              </div>
+            </form>
+            <div class="composer-note" id="composer-note"></div>
+          </div>
+        </footer>
+      </main>
+    </div>
+    <div
+      role="status"
+      aria-live="polite"
+      class="sr-only"
+      id="announcement"
+    ></div>
+    <script>
+      "use strict";
+      // Deliberately isolated design fixture: no runtime, workspace, or application
+      // persistence. Production implementations reuse the owners named in README.md.
+      const initialNodes = {
+        root: {
+          id: "root",
+          name: "Repository report",
+          role: "Main assistant",
+          parent: null,
+          color: "neutral",
+          mark: "B",
+          state: "running",
+          task: "Explore the Brainstrike repo and make a report about the current state of the project.",
+          summary: "Coordinating architecture and test coverage research.",
+          usage: "12.8k direct · 46.2k tree",
+        },
+        cedar: {
+          id: "cedar",
+          name: "Cedar",
+          role: "Explorer",
+          parent: "root",
+          color: "blue",
+          mark: "C",
+          state: "running",
+          task: "Map the agent runtime and persistence boundaries. Identify the canonical implementation and return evidence with file references.",
+          summary: "Tracing agent execution and durable memory.",
+          usage: "18.4k direct · 26.7k branch",
+        },
+        wren: {
+          id: "wren",
+          name: "Wren",
+          role: "Worker",
+          parent: "cedar",
+          color: "violet",
+          mark: "W",
+          state: "needs-input",
+          task: "Run the targeted persistence integration tests and report whether nested delegation survives reload.",
+          summary: "Waiting for permission to run the persistence checks.",
+          usage: "8.3k direct",
+        },
+        flint: {
+          id: "flint",
+          name: "Flint",
+          role: "Explorer",
+          parent: "root",
+          color: "green",
+          mark: "F",
+          state: "completed",
+          task: "Inspect test coverage and CI boundaries. Return specific gaps and the existing verifiers we should extend.",
+          summary:
+            "Found the existing unit, browser and packaged desktop harnesses.",
+          usage: "6.7k direct",
+        },
+      };
+      const states = {
+        running: ["◌", "Running"],
+        queued: ["◷", "Queued"],
+        "needs-input": ["◇", "Needs input"],
+        completed: ["✓", "Completed"],
+        "no-answer": ["—", "No answer"],
+        cancelled: ["□", "Cancelled"],
+        failed: ["!", "Failed"],
+      };
+      // Bump the version when changing the persisted interaction-state schema.
+      const storageKey = "bst-1717-interaction-study-v1";
+      const fresh = () => ({
+        nodes: structuredClone(initialNodes),
+        active: "root",
+        tabs: ["root"],
+        expanded: ["root", "cedar"],
+        views: {},
+        drafts: {},
+        notices: {},
+        theme: "light",
+      });
+      let startupError = null;
+      const isRecord = (value) =>
+        Boolean(value && typeof value === "object" && !Array.isArray(value));
+      const isNodeId = (id) =>
+        typeof id === "string" && Object.hasOwn(initialNodes, id);
+      function loadState() {
+        try {
+          const raw = sessionStorage.getItem(storageKey);
+          if (raw === null) return fresh();
+          const saved = JSON.parse(raw);
+          if (
+            !isRecord(saved) ||
+            !isRecord(saved.nodes) ||
+            !isRecord(saved.views) ||
+            !isRecord(saved.drafts) ||
+            !isRecord(saved.notices)
+          )
+            throw new Error("Invalid state object");
+          const next = fresh();
+          for (const id of Object.keys(initialNodes)) {
+            const savedNode = saved.nodes[id];
+            if (!isRecord(savedNode) || !Object.hasOwn(states, savedNode.state))
+              throw new Error("Invalid agent state");
+            // Names, roles, colors, ancestry and copy come only from fixture
+            // constants, never from saved markup or future user input.
+            next.nodes[id].state = savedNode.state;
+          }
+          if (saved.active !== null && !isNodeId(saved.active))
+            throw new Error("Invalid active conversation");
+          for (const key of ["tabs", "expanded"]) {
+            if (
+              !Array.isArray(saved[key]) ||
+              !saved[key].every(isNodeId) ||
+              new Set(saved[key]).size !== saved[key].length
+            )
+              throw new Error("Invalid navigation");
+            next[key] = saved[key];
+          }
+          if (saved.active && !next.tabs.includes(saved.active))
+            throw new Error("Active conversation has no tab");
+          if (saved.theme !== "light" && saved.theme !== "dark")
+            throw new Error("Invalid theme");
+          next.active = saved.active;
+          next.theme = saved.theme;
+          for (const [id, view] of Object.entries(saved.views)) {
+            if (
+              !isNodeId(id) ||
+              !isRecord(view) ||
+              !Number.isFinite(view.scroll) ||
+              view.scroll < 0 ||
+              (view.focus !== undefined &&
+                view.focus !== null &&
+                typeof view.focus !== "string")
+            )
+              throw new Error("Invalid view state");
+            next.views[id] = { scroll: view.scroll, focus: view.focus ?? null };
+          }
+          for (const [id, draft] of Object.entries(saved.drafts)) {
+            if (!isNodeId(id) || typeof draft !== "string")
+              throw new Error("Invalid draft");
+            next.drafts[id] = draft;
+          }
+          for (const [id, notices] of Object.entries(saved.notices)) {
+            if (
+              !isNodeId(id) ||
+              !Array.isArray(notices) ||
+              !notices.every((text) => typeof text === "string")
+            )
+              throw new Error("Invalid notices");
+            next.notices[id] = notices;
+          }
+          return next;
+        } catch {
+          startupError =
+            "Saved design state could not be loaded. Reset this study to continue. The saved entry has not been changed.";
+          return fresh(); // Only supplies inert controls behind the recovery screen.
+        }
+      }
+      let state = loadState();
+      const $ = (id) => document.getElementById(id);
+      const escape = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      const children = (id) =>
+        Object.values(state.nodes).filter((node) => node.parent === id);
+      const ancestry = (id) => {
+        const nodes = [];
+        let node = state.nodes[id];
+        while (node) {
+          nodes.unshift(node);
+          node = state.nodes[node.parent];
+        }
+        return nodes;
+      };
+      const persist = () => {
+        if (startupError) return;
+        const nodes = Object.fromEntries(
+          Object.entries(state.nodes).map(([id, node]) => [
+            id,
+            { state: node.state },
+          ]),
+        );
+        sessionStorage.setItem(storageKey, JSON.stringify({ ...state, nodes }));
+      };
+      const mark = (node) =>
+        `<span class="mark ${node.color}" aria-hidden="true">${node.mark}</span>`;
+      const status = (node) =>
+        node.state === "needs-input"
+          ? `<button class="pill ${node.state}" data-review="${node.id}" aria-label="${node.name} needs input, review request"><span aria-hidden="true">${states[node.state][0]}</span>${states[node.state][1]} ↗</button>`
+          : `<span class="pill ${node.state}"><span aria-hidden="true">${states[node.state][0]}</span>${states[node.state][1]}</span>`;
+      const notice = (id, text) => {
+        state.notices[id] ??= [];
+        state.notices[id].push(text);
+        $("announcement").textContent = text;
+      };
+      function saveView() {
+        if (startupError || !state.active) return;
+        state.views[state.active] = {
+          scroll: $("conversation").scrollTop,
+          focus: document.activeElement?.id || null,
+        };
+        state.drafts[state.active] = $("composer-input").value;
+        persist();
+      }
+      function restoreView(id, restoreFocus) {
+        const view = state.views[id];
+        $("conversation").scrollTop = view?.scroll || 0;
+        if (!view && state.nodes[id].state === "needs-input") {
+          document.querySelector(".approval")?.scrollIntoView({ block: "end" });
+        }
+        if (restoreFocus && view?.focus && $(view.focus)) {
+          $(view.focus).focus({ preventScroll: true });
+          return;
+        }
+        $("thread-title").focus({ preventScroll: true });
+      }
+      function openThread(id, mode = "open") {
+        saveView();
+        state.active = id;
+        if (!state.tabs.includes(id)) state.tabs.push(id);
+        document.querySelector(".sidebar").classList.remove("mobile-open");
+        render();
+        restoreView(id, mode === "return");
+        if (mode === "tab") $(`tab-${id}`).focus({ preventScroll: true });
+        persist();
+      }
+      function closeTab(id) {
+        saveView();
+        state.tabs = state.tabs.filter((tab) => tab !== id);
+        if (state.active === id) {
+          state.active = state.nodes[id].parent || state.tabs[0] || null;
+          if (state.active && !state.tabs.includes(state.active))
+            state.tabs.push(state.active);
+        }
+        render();
+        if (state.active)
+          $(`tab-${state.active}`).focus({ preventScroll: true });
+        else $("thread-title").focus({ preventScroll: true });
+        $("conversation").scrollTop = state.views[state.active]?.scroll || 0;
+        persist();
+        $("announcement").textContent =
+          `Closed ${state.nodes[id].name} tab. Run state unchanged.`;
+      }
+      function renderTree() {
+        const rows = [];
+        function visit(node, level) {
+          const hasChildren = children(node.id).length > 0;
+          const expanded = state.expanded.includes(node.id);
+          rows.push(
+            `<tr role="row" aria-level="${level}" ${hasChildren ? `aria-expanded="${expanded}"` : ""} aria-selected="${state.active === node.id}" tabindex="${state.active === node.id || (!state.active && node.id === "root") ? 0 : -1}" data-node="${node.id}" id="tree-${node.id}"><td role="gridcell"><div class="tree-row ${node.color} ${state.active === node.id ? "selected" : ""}" style="margin-left:${(level - 1) * 12}px;width:calc(100% - ${(level - 1) * 12}px)">${hasChildren ? `<button tabindex="-1" class="tree-toggle" data-toggle="${node.id}" aria-label="${expanded ? "Collapse" : "Expand"} ${node.name}">${expanded ? "⌄" : "›"}</button>` : '<span style="width:24px;flex:none"></span>'}<button tabindex="-1" class="row-open" data-open="${node.id}" aria-label="View ${node.name}">${mark(node)}<span class="row-name">${node.name}</span><span class="tree-state" aria-label="${states[node.state][1]}">${states[node.state][0]}</span></button></div></td></tr>`,
+          );
+          if (expanded)
+            children(node.id).forEach((child) => visit(child, level + 1));
+        }
+        visit(state.nodes.root, 1);
+        $("tree").innerHTML = rows.join("");
+      }
+      function delegation(node) {
+        return `<div class="delegation"><div class="delegation-main"><button class="open-child" data-open="${node.id}" id="open-${node.id}" aria-label="Open ${node.name}">${mark(node)}<strong>${node.name}</strong><span class="child-role">${node.role}</span><span aria-hidden="true">↗</span></button>${status(node)}</div><p>${node.summary}</p><div class="child-meta"><span>${node.usage}</span><span>${children(node.id).length ? `${children(node.id).length} child` : "No children"}</span></div></div>`;
+      }
+      function renderMessages(node) {
+        const parts = [`<div class="user">${escape(node.task)}</div>`];
+        if (node.id === "root") {
+          parts.push(
+            '<div class="assistant"><p>I’m splitting the inspection into runtime architecture and test coverage. Each explorer will return its evidence here.</p></div>',
+          );
+          parts.push(
+            `<div class="trace"><div class="trace-head"><strong>Delegated to Cedar and Flint</strong><span class="muted">2 agents</span></div>${children(node.id).map(delegation).join("")}</div><div class="assistant"><p>The report will connect the implementation to the tests that verify it.</p></div>`,
+          );
+        } else {
+          parts.push(
+            `<div class="assistant"><p>${node.id === "cedar" ? "I found the native Mastra supervisor and the app-owned stream mapper. I’m following where the child transcript becomes a compact activity summary." : node.id === "wren" ? "The targeted suite exercises real PGlite memory. I’m ready to run it in the inherited workspace." : "The test infrastructure already has the right seams. We can extend the existing suites without adding a parallel harness."}</p></div>`,
+          );
+          parts.push(
+            '<details class="reading"><summary>Reviewed the runtime and persistence contracts</summary><p>Compare the native delegation boundary with the persisted transcript and the shared assistant thread renderer.</p></details>',
+          );
+          parts.push(
+            '<div class="trace"><div class="trace-head"><strong>Read 2 files</strong><span class="muted">Evidence</span></div><div class="tool-row"><span aria-hidden="true">✓</span><span>Read <code>docs/agents/assistant-subagents.md</code></span></div><div class="tool-row"><span aria-hidden="true">✓</span><span>Read <code>packages/agent/src/mastra/agent-streaming.ts</code></span></div></div>',
+          );
+          if (children(node.id).length)
+            parts.push(
+              `<div class="trace"><div class="trace-head"><strong>Delegated to Wren</strong><span class="muted">1 agent</span></div>${children(node.id).map(delegation).join("")}</div>`,
+            );
+        }
+        if (node.state === "needs-input") {
+          parts.push(
+            `<div class="approval" role="group" aria-label="${node.name} approval"><strong>${node.name} needs your approval</strong><p>Run the targeted persistence integration tests in <b>brainstrike</b>.</p><div class="approval-actions"><button class="primary" data-approve="${node.id}">Approve once</button><button class="control" data-decline="${node.id}">Decline</button></div><div class="simulation-note">Simulated approval · no command executes in this study.</div></div>`,
+          );
+        }
+        if (node.state === "queued")
+          parts.push(
+            '<div class="notify">Queued for a worker slot. No tools have started.</div>',
+          );
+        if (node.state === "completed")
+          parts.push(
+            '<div class="result"><strong>Result returned to parent</strong>The existing deterministic model fixture, real memory suite and packaged desktop harness cover the relevant boundaries.</div><div class="artifact"><span aria-hidden="true">▤</span><div><strong>Coverage findings</strong><br><code>report.md</code> · simulated artifact</div></div>',
+          );
+        if (node.state === "no-answer")
+          parts.push(
+            '<div class="result"><strong>Finished without an answer</strong>The run ended without a final response. Its recorded tool activity remains available.</div>',
+          );
+        if (node.state === "failed")
+          parts.push(
+            '<div class="result"><strong>Run failed</strong>The provider rejected the next step. Partial activity is preserved and the parent received the failure.</div>',
+          );
+        if (node.state === "cancelled")
+          parts.push(
+            '<div class="result"><strong>Stopped</strong>Partial activity is preserved. The parent received a cancellation outcome.</div>',
+          );
+        for (const text of state.notices[node.id] || [])
+          parts.push(`<div class="notify">${escape(text)}</div>`);
+        $("messages").innerHTML = parts.join("");
+      }
+      const hasActiveBranch = (id) =>
+        ["running", "queued", "needs-input"].includes(state.nodes[id].state) ||
+        children(id).some((child) => hasActiveBranch(child.id));
+      function render() {
+        $("saved-error").hidden = !startupError;
+        $("saved-error").textContent = startupError || "";
+        document.querySelector(".shell").hidden = Boolean(startupError);
+        if (startupError) {
+          $("scenario").disabled = true;
+          return;
+        }
+        const node = state.nodes[state.active];
+        document.querySelector(".composer-area").hidden = !node;
+        $("scenario").disabled = !node;
+        document.documentElement.dataset.theme = state.theme;
+        $("theme").textContent = state.theme === "light" ? "Dark" : "Light";
+        $("theme").setAttribute(
+          "aria-label",
+          `Switch to ${state.theme === "light" ? "dark" : "light"} theme`,
+        );
+        renderTree();
+        $("tabs").innerHTML = state.tabs
+          .map((id) => {
+            const tab = state.nodes[id];
+            return `<div class="tab-wrap ${tab.color} ${state.active === id ? "active" : ""}"><button role="tab" aria-selected="${state.active === id}" aria-controls="messages" tabindex="${state.active === id ? 0 : -1}" class="tab" data-tab="${id}" id="tab-${id}" aria-label="${tab.name}">${mark(tab)}<span class="tab-title">${tab.name}</span></button><button class="close" data-close="${id}" aria-label="Close ${tab.name} tab">×</button></div>`;
+          })
+          .join("");
+        if (!node) {
+          $("messages").removeAttribute("aria-labelledby");
+          $("messages").removeAttribute("role");
+          $("head").innerHTML =
+            '<button class="mobile-tree control" id="show-tree">Threads</button><h1 id="thread-title" tabindex="-1">Choose a conversation</h1>';
+          $("messages").innerHTML =
+            '<p class="muted">Closed tabs keep running. Open a conversation from Threads to return to it.</p>';
+          return;
+        }
+        $("messages").setAttribute("role", "tabpanel");
+        $("messages").setAttribute("aria-labelledby", `tab-${node.id}`);
+        $(`tab-${node.id}`).parentElement.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+        });
+        const path = ancestry(node.id);
+        $("head").innerHTML =
+          `<nav class="breadcrumbs" aria-label="Conversation ancestry"><button class="mobile-tree control" id="show-tree">Threads</button>${path.map((part, index) => (index === path.length - 1 ? `<span aria-current="page">${part.name}</span>` : `<button data-return="${part.id}" id="return-${part.id}">${part.name}</button><span aria-hidden="true">›</span>`)).join("")}</nav><div class="head-line">${mark(node)}<h1 id="thread-title" tabindex="-1">${node.name}</h1><span class="role">${node.role}</span><span class="head-spacer"></span>${status(node)}<button class="control" id="stop" ${hasActiveBranch(node.id) ? "" : "disabled"}>${node.parent ? `Stop ${node.name}${children(node.id).length ? " branch" : ""}` : "Stop all agents"}</button></div><div class="scope">${node.parent ? `<span>Delegated by ${state.nodes[node.parent].name}</span><span>·</span>` : ""}<span>${children(node.id).length} direct ${children(node.id).length === 1 ? "child" : "children"}</span><span>·</span><span>brainstrike / main</span></div>`;
+        renderMessages(node);
+        $("scenario").value = node.state;
+        $("composer-input").value = state.drafts[node.id] || "";
+        $("composer-input").placeholder = node.parent
+          ? `Follow up with ${node.name}…`
+          : "Ask Brainstrike anything…";
+        $("composer-label").textContent = node.parent
+          ? `Message ${node.name}`
+          : "Message main assistant";
+        $("send").textContent = ["running", "queued"].includes(node.state)
+          ? "Queue message"
+          : "Send";
+        $("composer-note").textContent = node.parent
+          ? `Messages go to ${node.name}. ${state.nodes[node.parent].name} receives a coordination notice.`
+          : "Messages go to the main assistant. Child results return here.";
+        $("usage").textContent = node.usage;
+      }
+      function stopBranch(id) {
+        const node = state.nodes[id];
+        for (const child of children(id)) stopBranch(child.id);
+        if (["running", "queued", "needs-input"].includes(node.state))
+          node.state = "cancelled";
+      }
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (!button) return;
+        const d = button.dataset;
+        if (d.review) {
+          if (state.active !== d.review) openThread(d.review);
+          document.querySelector(".approval")?.scrollIntoView({ block: "end" });
+          document
+            .querySelector("[data-approve]")
+            ?.focus({ preventScroll: true });
+          return;
+        }
+        if (d.open) {
+          openThread(d.open);
+          return;
+        }
+        if (d.return) {
+          openThread(d.return, "return");
+          return;
+        }
+        if (d.tab) {
+          openThread(d.tab, "tab");
+          return;
+        }
+        if (d.close) {
+          closeTab(d.close);
+          return;
+        }
+        if (d.toggle) {
+          const index = state.expanded.indexOf(d.toggle);
+          if (index < 0) state.expanded.push(d.toggle);
+          else state.expanded.splice(index, 1);
+          renderTree();
+          $(`tree-${d.toggle}`).focus();
+          persist();
+          return;
+        }
+        if (d.approve || d.decline) {
+          const id = d.approve || d.decline;
+          const node = state.nodes[id];
+          node.state = d.approve ? "completed" : "no-answer";
+          notice(
+            node.parent || node.id,
+            `${node.name}: ${d.approve ? "approval granted; simulated checks passed and result returned." : "approval declined; no command ran."}`,
+          );
+          render();
+          $("thread-title").focus();
+          persist();
+          return;
+        }
+        if (button.id === "theme") {
+          saveView();
+          state.theme = state.theme === "light" ? "dark" : "light";
+          render();
+          $("conversation").scrollTop = state.views[state.active]?.scroll || 0;
+          $("theme").focus();
+          persist();
+          return;
+        }
+        if (button.id === "reset") {
+          startupError = null;
+          state = fresh();
+          persist();
+          render();
+          return;
+        }
+        if (button.id === "show-tree") {
+          document.querySelector(".sidebar").classList.toggle("mobile-open");
+          $(`tree-${state.active || "root"}`).focus();
+          return;
+        }
+        if (button.id === "stop") {
+          const node = state.nodes[state.active];
+          stopBranch(node.id);
+          notice(
+            node.parent || node.id,
+            `${node.name} stopped${children(node.id).length ? " with its descendants" : ""}. Other branches are unchanged.`,
+          );
+          render();
+          $("thread-title").focus();
+          persist();
+        }
+      });
+      $("tabs").addEventListener("keydown", (event) => {
+        const id = event.target.dataset.tab;
+        if (!id) return;
+        const index = state.tabs.indexOf(id);
+        const keys = {
+          ArrowRight: (index + 1) % state.tabs.length,
+          ArrowLeft: (index - 1 + state.tabs.length) % state.tabs.length,
+          Home: 0,
+          End: state.tabs.length - 1,
+        };
+        if (event.key === "Delete") {
+          event.preventDefault();
+          closeTab(id);
+          return;
+        }
+        if (keys[event.key] === undefined) return;
+        event.preventDefault();
+        openThread(state.tabs[keys[event.key]], "tab");
+      });
+      $("tree").addEventListener("keydown", (event) => {
+        const row = event.target.closest("[data-node]");
+        if (!row) return;
+        const id = row.dataset.node;
+        const rows = [...$("tree").querySelectorAll("[data-node]")];
+        const index = rows.indexOf(row);
+        let target;
+        if (event.key === "ArrowDown")
+          target = rows[Math.min(index + 1, rows.length - 1)];
+        if (event.key === "ArrowUp") target = rows[Math.max(index - 1, 0)];
+        if (event.key === "Home") target = rows[0];
+        if (event.key === "End") target = rows.at(-1);
+        if (event.key === "ArrowRight") {
+          if (children(id).length && !state.expanded.includes(id)) {
+            state.expanded.push(id);
+            renderTree();
+            target = $(`tree-${id}`);
+          } else target = rows[index + 1];
+        }
+        if (event.key === "ArrowLeft") {
+          if (state.expanded.includes(id)) {
+            state.expanded = state.expanded.filter((value) => value !== id);
+            renderTree();
+            target = $(`tree-${id}`);
+          } else if (state.nodes[id].parent)
+            target = $(`tree-${state.nodes[id].parent}`);
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openThread(id);
+          return;
+        }
+        if (target) {
+          event.preventDefault();
+          for (const item of $("tree").querySelectorAll("[data-node]"))
+            item.tabIndex = -1;
+          target.tabIndex = 0;
+          target.focus();
+          persist();
+        }
+      });
+      $("composer").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const text = $("composer-input").value.trim();
+        if (!text) return;
+        const node = state.nodes[state.active];
+        notice(
+          node.id,
+          `${["running", "queued"].includes(node.state) ? "Queued for the next safe boundary" : "Follow-up recorded"}: ${text}`,
+        );
+        if (node.parent)
+          notice(
+            node.parent,
+            `${node.name} received direct user follow-up. Delivery and later results remain attributed to ${node.name}.`,
+          );
+        state.drafts[node.id] = "";
+        render();
+        $("composer-input").focus();
+        persist();
+      });
+      $("composer-input").addEventListener("input", () => {
+        state.drafts[state.active] = $("composer-input").value;
+      });
+      $("scenario").addEventListener("change", (event) => {
+        saveView();
+        state.nodes[state.active].state = event.target.value;
+        render();
+        $("scenario").focus();
+        persist();
+      });
+      $("conversation").addEventListener("scroll", () => {
+        if (!state.active) return;
+        const view = state.views[state.active] || {};
+        state.views[state.active] = {
+          ...view,
+          scroll: $("conversation").scrollTop,
+        };
+      });
+      window.addEventListener("pagehide", saveView);
+      render();
+      $("conversation").scrollTop = state.views[state.active]?.scroll || 0;
+    </script>
+  </body>
+</html>

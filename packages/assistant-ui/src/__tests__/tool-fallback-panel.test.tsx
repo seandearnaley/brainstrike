@@ -108,7 +108,9 @@ describe('ToolFallback', () => {
     args: { input: 'test' },
     argsText: '{"input":"test"}',
     part: {},
-    respondToApproval: () => {},
+    // 0.15.18 made respondToApproval async (Promise<void>); the stub has to
+    // match the contract it is standing in for.
+    respondToApproval: () => Promise.resolve(),
     resume: () => {},
     status: { type: 'complete' as const },
     toolCallId: 'test-call-id',
@@ -120,20 +122,23 @@ describe('ToolFallback', () => {
     it('displays running status with the shared thinking indicator', () => {
       wrap(<ToolFallback {...mockBaseProps} result={undefined} status={{ type: 'running' }} />);
 
-      expect(screen.getByText(/testTool/)).toBeInTheDocument();
+      // The raw tool id stays IN the card (sr-only text + hover title), even
+      // though the visible line now reads the verb.
+      expect(screen.getByTestId('tool-fallback')).toHaveTextContent('testTool');
       expect(screen.getByLabelText(/Running/)).toBeInTheDocument();
+      // BST-1681: the running state glyph is the shared live mark, not the
+      // old dashed circle.
       expect(
-        screen.getByLabelText(/Running/).querySelector('.lucide-circle-dashed')
+        screen.getByLabelText(/Running/).querySelector('[data-testid="step-running-mark"]')
       ).not.toBeNull();
       // BST-849: the in-flight row reads its live progress, not a static
       // "Thinking" — with no streaming state or timing on the props it is
       // plain "Running".
       expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Running');
-      expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute(
-        'data-tone',
-        'greyscale'
-      );
-      expect(screen.getAllByTestId('assistant-thinking-mark')).toHaveLength(1);
+      expect(screen.getByTestId('step-running-mark')).toHaveAttribute('data-tone', 'greyscale');
+      // Exactly one live mark on the row: the glyph. The timing slot's
+      // indicator renders its label only (`showMark={false}`).
+      expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(1);
       expect(screen.queryByRole('button')).not.toBeInTheDocument(); // No collapse button while running
     });
   });
@@ -148,7 +153,7 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.getByText(/testTool/)).toBeInTheDocument();
+      expect(screen.getByTestId('tool-fallback')).toHaveTextContent('testTool');
       expect(screen.getByLabelText(/Completed/)).toBeInTheDocument();
     });
 
@@ -240,7 +245,7 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.getByText(/testTool/)).toBeInTheDocument();
+      expect(screen.getByTestId('tool-fallback')).toHaveTextContent('testTool');
       expect(screen.getByLabelText(/Failed/)).toBeInTheDocument();
     });
 
@@ -363,7 +368,7 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.getByText(/testTool/)).toBeInTheDocument();
+      expect(screen.getByTestId('tool-fallback')).toHaveTextContent('testTool');
       expect(screen.getByLabelText(/Completed/)).toBeInTheDocument();
     });
 
@@ -377,7 +382,7 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.getByText(/testTool/)).toBeInTheDocument();
+      expect(screen.getByTestId('tool-fallback')).toHaveTextContent('testTool');
       expect(screen.queryByRole('button')).not.toBeInTheDocument(); // No expand button without result or args
     });
 
@@ -425,7 +430,9 @@ describe('ToolFallback', () => {
       );
 
       const button = screen.getByRole('button', { name: /expand details/i });
-      expect(button).toHaveAttribute('aria-label', 'Expand details');
+      // BST-1682: the name is the visible content plus the affordance clause,
+      // so the affordance is asserted as the SUFFIX rather than the whole name.
+      expect(button).toHaveAttribute('aria-label', expect.stringMatching(/, expand details$/));
     });
 
     it('updates ARIA label after expanding', async () => {
@@ -443,7 +450,10 @@ describe('ToolFallback', () => {
       await user.click(expandButton);
 
       const collapseButton = screen.getByRole('button', { name: /collapse details/i });
-      expect(collapseButton).toHaveAttribute('aria-label', 'Collapse details');
+      expect(collapseButton).toHaveAttribute(
+        'aria-label',
+        expect.stringMatching(/, collapse details$/)
+      );
     });
 
     it('has identifiable test id', () => {

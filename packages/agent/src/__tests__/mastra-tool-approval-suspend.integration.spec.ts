@@ -170,12 +170,16 @@ function createTurnCountedToolCallModel(args: {
   };
 }
 
+/**
+ * Discovery-then-tool scripted model: turn 1 loads the deferred tool by exact
+ * name via Mastra's `load_tool` meta-tool, turn 2 calls it, turn 3 emits final
+ * text.
+ */
 function createDiscoveryThenToolApprovalModel(args: {
   deferredInput?: string;
   deferredToolCallId: string;
   deferredToolName: string;
   finalText: string;
-  searchQuery: string;
 }): LanguageModelV2 {
   let turn = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
@@ -197,9 +201,9 @@ function createDiscoveryThenToolApprovalModel(args: {
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
             {
-              input: JSON.stringify({ query: args.searchQuery }),
-              toolCallId: 'call-search-before-approval',
-              toolName: 'search_tools',
+              input: JSON.stringify({ toolName: args.deferredToolName }),
+              toolCallId: 'call-load-before-approval',
+              toolName: 'load_tool',
               type: 'tool-call',
             },
             { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
@@ -942,7 +946,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     modelHolder.current = createTurnCountedToolCallModel({
       finalText: 'unused',
       input: JSON.stringify({ command: 'echo approved then stopped' }),
-      stallAfterToolResultText: 'This incomplete resumed answer must not be remembered.',
+      stallAfterToolResultText: 'This resumed answer was cut short by the user.',
       toolCallId: 'call-approval-resume-cancel',
       toolName: 'shell_tool',
     });
@@ -1008,7 +1012,10 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     const persistedRecord = JSON.stringify(persisted.rows);
     expect(persistedRecord).toContain('echo approved then stopped');
     expect(persistedRecord.toLowerCase()).toContain('aborted before completion');
-    expect(persistedRecord).not.toContain('This incomplete resumed answer must not be remembered.');
+    // Mastra >= 1.62 persists the cancelled resume's partial text itself;
+    // Brainstrike's abort seam keeps completed tool work plus the marker and
+    // no longer excludes the tail (BST-1667).
+    expect(persistedRecord).toContain('This resumed answer was cut short by the user.');
     expect(askExecute).toHaveBeenCalledTimes(1);
 
     await database.close();
@@ -1124,7 +1131,6 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       deferredToolCallId: 'call-deferred-approval',
       deferredToolName: 'brainstrike_listWorkspaceContext',
       finalText: 'Workspace context listed.',
-      searchQuery: 'active workspace roots context',
     });
 
     const suspendChunks = await drainYielding(
@@ -1225,7 +1231,6 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       deferredToolCallId: 'call-web-search-approval',
       deferredToolName: 'brainstrike_webSearch',
       finalText: 'Web search completed.',
-      searchQuery: 'public web search',
     });
 
     const suspendChunks = await drainYielding(

@@ -19,5 +19,10 @@
     "dist",
     "node_modules",
     "**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../indexing-contract"
+    }
   ]
 }

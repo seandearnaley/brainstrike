@@ -68,6 +68,15 @@ export const POPUP_LAYER_CLASS = 'z-[70]';
 export const TOAST_LAYER_CLASS = 'z-100';
 
 /**
+ * In-flow sticky section headers inside ONE scroller (the Model Catalog's
+ * provider headers, BST-1805). Not a floating layer: it only has to out-rank
+ * positioned row content painted later in the same scroller (Switch thumbs,
+ * focus rings), and it must stay below every dialog and popup tier so a popover
+ * opened from a header control paints over it.
+ */
+export const STICKY_SECTION_HEADER_LAYER_CLASS = 'z-10';
+
+/**
  * Resolves the tier for a dialog at `depth`, where 1 is the outermost dialog.
  * `depth` counts LEXICALLY enclosing `Dialog`s, open or not.
  *

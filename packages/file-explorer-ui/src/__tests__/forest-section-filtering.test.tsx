@@ -6,8 +6,9 @@
  * passes per section per tree commit.
  */
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { composeWrappers, createFileNode, makeRenderWithProviders } from '@brainstrike/test-utils';
+import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { act, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

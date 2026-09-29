@@ -3,7 +3,7 @@ import {
   createDirectoryNode,
   createFileNode,
   createNestedDirectoryStructure,
-} from '@brainstrike/test-utils';
+} from '@brainstrike/file-tree-test-fixtures';
 import type { IFileNode } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

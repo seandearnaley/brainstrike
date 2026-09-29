@@ -111,7 +111,6 @@ describe('createBrowserProject', () => {
 
     expect(project.test.name).toBe('browser');
     expect(project.test.include).toEqual(['**/*.browser.test.{ts,tsx}']);
-    expect(project.test.outputDir).toBe('test-results');
     expect(project.test.browser.enabled).toBe(true);
     expect(project.test.browser.headless).toBe(true);
     expect(project.test.browser.trace).toBe('off');
@@ -151,9 +150,11 @@ describe('createBrowserProject', () => {
     });
 
     expect(project.test.include).toEqual(['src/**/*.browser.test.ts']);
-    expect(project.test.outputDir).toBe('.trace-output');
     expect(project.test.browser.headless).toBe(false);
-    expect(project.test.browser.trace).toBe('on-first-retry');
+    expect(project.test.browser.trace).toEqual({
+      mode: 'on-first-retry',
+      tracesDir: '.trace-output',
+    });
     expect(project.test.browser.provider).toBeDefined();
   });
 
@@ -163,7 +164,10 @@ describe('createBrowserProject', () => {
       isCI: true,
       setupFiles: SETUP_FILES,
     });
-    expect(project.test.browser.trace).toBe('retain-on-failure');
+    expect(project.test.browser.trace).toEqual({
+      mode: 'retain-on-failure',
+      tracesDir: 'test-results',
+    });
   });
 
   it('uses CI defaults when inferred from environment', () => {
@@ -171,7 +175,10 @@ describe('createBrowserProject', () => {
     process.env['GITHUB_ACTIONS'] = 'true';
 
     const project = createBrowserProject({ asyncUtilTimeout: 1000, setupFiles: SETUP_FILES });
-    expect(project.test.browser.trace).toBe('retain-on-failure');
+    expect(project.test.browser.trace).toEqual({
+      mode: 'retain-on-failure',
+      tracesDir: 'test-results',
+    });
   });
 
   it('re-exports playwright provider', () => {

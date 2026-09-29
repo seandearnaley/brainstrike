@@ -1,6 +1,9 @@
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { ThemeSettings } from '@brainstrike/ui';
 import {
   Bot,
+  BrainCircuit,
   Cpu,
   FolderTree,
   Palette,
@@ -10,6 +13,8 @@ import {
   Sigma,
   Webhook,
 } from 'lucide-react';
+import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
+import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import {
@@ -161,10 +166,40 @@ export function createPermissionSettingsCategory(): SettingsCategory {
   };
 }
 
+export interface CreateAssistantMemorySettingsCategoryOptions {
+  readonly assistantMemoryBackendAvailable: boolean;
+  readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+}
+
+export function createAssistantMemorySettingsCategory({
+  assistantMemoryBackendAvailable,
+  providerKeySources,
+}: CreateAssistantMemorySettingsCategoryOptions): SettingsCategory {
+  return {
+    content: (
+      <AssistantMemorySettingsSection
+        assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
+        {...(providerKeySources ? { providerKeySources } : {})}
+      />
+    ),
+    description: 'Configure the assistant’s observational memory and semantic recall.',
+    icon: BrainCircuit,
+    id: 'assistant-memory',
+    keywords: ['memory', 'observations', 'semantic recall', 'mastra', 'embedding'],
+    title: 'Assistant Memory',
+  };
+}
+
 export function createSubagentPersonasSettingsCategory(): SettingsCategory {
   return {
-    content: <SubagentPersonasSettingsSection />,
-    description: 'Control which subagent personas the assistant may delegate to.',
+    content: (
+      <div className="space-y-6">
+        <SubagentPersonasSettingsSection />
+        <SubagentSettingsSection />
+      </div>
+    ),
+    description:
+      'Control which subagent personas the assistant may delegate to, and the budgets every subagent runs under.',
     icon: Bot,
     id: 'subagents',
     keywords: [
@@ -177,6 +212,10 @@ export function createSubagentPersonasSettingsCategory(): SettingsCategory {
       'agents',
       'explorer',
       'analyst',
+      'budgets',
+      'steps',
+      'output tokens',
+      'summary',
     ],
     title: 'Subagents',
   };

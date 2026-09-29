@@ -66,8 +66,8 @@ function createFileNode(
     depth: 0,
     handle:
       overrides.type === 'directory'
-        ? ({} as FileSystemDirectoryHandle)
-        : ({} as FileSystemFileHandle),
+        ? { kind: 'directory', name: overrides.name, path: overrides.path, platform: 'electron' }
+        : { kind: 'file', name: overrides.name, path: overrides.path, platform: 'electron' },
     isVisible: true,
     loadState: 'loaded',
     rootFolderId: 'folder-1',

@@ -84,6 +84,8 @@ export const DESKTOP_IPC_CHANNELS = {
     exec: 'db:exec',
     getUserDataPath: 'db:getUserDataPath',
     insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
+    integrityChanged: 'db:integrity:changed',
+    integrityState: 'db:integrity:state',
     invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
     liveQueryRefresh: 'db:live-query:refresh',
     liveQueryStart: 'db:live-query:start',
@@ -98,6 +100,8 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
+    readMainLogWindow: 'desktop-diagnostics:read-main-log-window',
+    readProcessCounters: 'desktop-diagnostics:read-process-counters',
   },
   // Hidden embedding host; same pinning as chunkingHost (embedding-host-shared.ts).
   embeddingHost: {
@@ -347,6 +351,15 @@ export const DESKTOP_IPC_CHANNELS = {
     clear: 'vector-preferences:clear',
     read: 'vector-preferences:read',
     write: 'vector-preferences:write',
+  },
+  // Native focus of the host BrowserWindow (BST-1864). `isFocused` is the ONLY
+  // invoke: the value for the asking window, served on request so a renderer
+  // that (re)loads after a focus change still reads the truth. `changed` is a
+  // one-way main→renderer push (`focus`/`blur` of that window) — NOT an
+  // ipcMain.handle channel, never registered on the invoke registry.
+  windowFocus: {
+    changed: 'window-focus:changed',
+    isFocused: 'window-focus:is-focused',
   },
   workspace: {
     // One-way main→replacement-renderer challenge. Main publishes a fresh

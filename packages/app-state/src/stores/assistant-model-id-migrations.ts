@@ -56,6 +56,17 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     'google/gemini-2.5-pro': 'google/gemini-2.5-flash',
     'google/gemini-3-flash-preview': 'google/gemini-3.5-flash',
     'google/gemini-3-pro-preview': 'google/gemini-3.1-pro-preview',
+    // BST-1697 — four ids delisted from the OpenRouter models API (checked
+    // 2026-09-09). The free routes remap to PAID replacements, so each of
+    // these lands a user-visible notice when it is the selected model.
+    //
+    // Ling 3.0 Flash was free and text-only; BST-1702 added the like-for-like
+    // paid `inclusionai/ling-3.0-flash` (same 262,144 context, text-only, a
+    // quarter of Nemotron's price), so the retired `:free` route remaps
+    // there, not to the Nemotron stopgap.
+    'inclusionai/ling-3.0-flash:free': 'inclusionai/ling-3.0-flash',
+    // Same family, identical 256,000 / 80,000 / text-only shape.
+    'kwaipilot/kat-coder-air-v2.5': 'kwaipilot/kat-coder-pro-v2.5',
     'openai/gpt-3.5-turbo': 'openai/gpt-5.4-mini',
     'openai/gpt-4-turbo': 'openai/gpt-5.4',
     'openai/gpt-4o': 'openai/gpt-5.4',
@@ -63,6 +74,14 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     'openrouter/claude-3-5-sonnet': 'anthropic/claude-sonnet-4.6',
     'openrouter/gpt-4o': 'openai/gpt-5.4',
     'openrouter/gpt-4o-mini': 'openai/gpt-5.4-mini',
+    // Dated snapshot replacement with identical context, output ceiling,
+    // vision and pricing (added by BST-1695).
+    'qwen/qwen3.8-max': 'qwen/qwen3.8-max-0902',
+    // Ox Alpha was free AND vision-capable. Every cheaper OpenRouter row we
+    // ship is text-only, so this picks the cheapest CAPABILITY-PRESERVING
+    // replacement rather than the cheapest one: 1,048,576 -> 1,000,000
+    // context, 131,072 output unchanged, vision preserved.
+    'stealth/ox-alpha': 'qwen/qwen3.8-flash',
   },
   voyage: {},
 };

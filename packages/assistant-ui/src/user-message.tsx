@@ -1,4 +1,5 @@
 import { ActionBarPrimitive, MessagePrimitive, useAui, useAuiState } from '@assistant-ui/react';
+import { CHILD_INPUT_DELIVERY_METADATA_KEY } from '@brainstrike/assistant-contract';
 import { TooltipIconButton, useCopyToClipboard } from '@brainstrike/ui';
 import { CheckIcon, CopyIcon, PencilIcon } from 'lucide-react';
 import { type ReactNode, use } from 'react';
@@ -25,7 +26,11 @@ import { MessageRewindAction } from './message-rewind-action';
 // __tests__/assistant-chat-polish.browser.test.tsx (BST-898 hover-float
 // geometry) alongside __tests__/user-action-bar-copy.test.tsx.
 export const UserMessage = () => {
+  const messageId = useAuiState((state) => state.message.id);
   const threadKey = use(ActiveThreadKeyContext);
+  const childInputDelivery = useAuiState(
+    (state) => state.message.metadata.custom[CHILD_INPUT_DELIVERY_METADATA_KEY]
+  );
   // Approval action messages ("Approved <tool>.") are transport bookkeeping —
   // kept in thread state (outcome locking + resume runConfig ride on them,
   // and they are excluded from every outbound payload at the transport seam)
@@ -46,13 +51,21 @@ export const UserMessage = () => {
   if (approvalChipKey) {
     const chipProps = fromApprovalActionChipKey(approvalChipKey);
     return (
-      <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
+      <MessagePrimitive.Root
+        className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2"
+        data-message-id={messageId}
+        tabIndex={-1}
+      >
         <ApprovalActionChip {...chipProps} />
       </MessagePrimitive.Root>
     );
   }
   return (
-    <MessagePrimitive.Root className="aui-user-message-root relative grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
+    <MessagePrimitive.Root
+      className="aui-user-message-root relative grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2"
+      data-message-id={messageId}
+      tabIndex={-1}
+    >
       <UserActionBar />
 
       {/* Attachments sit ABOVE the bubble, outside ExpandableMessageContent:
@@ -61,6 +74,16 @@ export const UserMessage = () => {
           BST-1575). */}
       <div className="col-start-2 row-start-2 flex max-w-xl flex-col items-end gap-2">
         <UserMessageAttachments />
+        {childInputDelivery === 'pending' && (
+          <p className="text-muted-foreground text-sm" role="status">
+            Delivery unconfirmed. This input will not be replayed automatically.
+          </p>
+        )}
+        {childInputDelivery === 'delivered' && (
+          <p className="text-muted-foreground text-xs" role="status">
+            Accepted by child
+          </p>
+        )}
         {hasBubbleContent ? (
           <ExpandableMessageContent
             className="aui-user-message-content max-w-full break-words rounded-2xl bg-muted px-4 py-2"
@@ -108,6 +131,7 @@ export const USER_ACTION_BAR_CLASSNAME =
 // exported from its own module for the same reason.
 export const UserActionBar = () => {
   const aui = useAui();
+  const canEdit = useAuiState((state) => state.thread.capabilities.edit);
   const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
 
   // Routed through the shared clipboard service (useCopyToClipboard), NOT
@@ -156,11 +180,13 @@ export const UserActionBar = () => {
       <span aria-live="polite" className="sr-only" role="status">
         {isFailed ? 'Copy failed' : null}
       </span>
-      <ActionBarPrimitive.Edit asChild>
-        <TooltipIconButton aria-label="Edit message" tooltip="Edit">
-          <PencilIcon className="size-4" />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Edit>
+      {canEdit ? (
+        <ActionBarPrimitive.Edit asChild>
+          <TooltipIconButton aria-label="Edit message" tooltip="Edit">
+            <PencilIcon className="size-4" />
+          </TooltipIconButton>
+        </ActionBarPrimitive.Edit>
+      ) : null}
     </ActionBarPrimitive.Root>
   );
 };

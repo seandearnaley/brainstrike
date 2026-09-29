@@ -27,17 +27,42 @@
 import { useAui, useAuiState } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/logging';
 import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
-import { useEffect, useRef } from 'react';
-import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
+import { use, useEffect, useRef } from 'react';
+import { useAnsweredApprovals } from './answered-approvals-context';
+import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
+import {
+  dequeueDispatchable,
+  followUpQueueKey,
+  useFollowUpQueueStore,
+} from './follow-up-queue-store';
 import { useThreadScrollFollow } from './thread-scroll-follow';
 
 const logger = createLogger('FollowUpQueue');
 
-export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
+function canDispatchQueuedFollowUp(args: {
+  readonly isRunning: boolean;
+  readonly queueLength: number;
+  readonly isRunEndTransition: boolean;
+  readonly isCatchUp: boolean;
+  readonly deferredRunEnd: boolean;
+}): boolean {
+  return (
+    !args.isRunning &&
+    args.queueLength > 0 &&
+    (args.isRunEndTransition || args.isCatchUp || args.deferredRunEnd)
+  );
+}
+
+export function useFollowUpQueueDispatch(
+  threadKey: string | undefined,
+  isReattaching = false
+): void {
+  const ownsQueue = use(FollowUpQueueOwnershipContext);
   const aui = useAui();
   const follow = useThreadScrollFollow();
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
+  const { answers: answered } = useAnsweredApprovals();
   const queueKey = followUpQueueKey(threadKey);
   const queueLength = useFollowUpQueueStore((state) => state.queuedByThread[queueKey]?.length ?? 0);
 
@@ -50,8 +75,12 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
   // promised "sends when the current run ends"; the run HAS ended). false
   // until the first settled (non-loading) observation.
   const caughtUpKeyRef = useRef<string | undefined>(undefined);
+  const deferredRunEndRef = useRef(false);
 
   useEffect(() => {
+    if (!ownsQueue) {
+      return;
+    }
     if (seededKeyRef.current !== queueKey) {
       // Thread switch WITHIN one mounted bridge: reseed the baseline from the
       // NEW thread's live state — a switch is not a run end — and let the
@@ -59,6 +88,7 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       seededKeyRef.current = queueKey;
       wasRunningRef.current = isRunning;
       caughtUpKeyRef.current = undefined;
+      deferredRunEndRef.current = false;
       return;
     }
     if (isHistoryLoading) {
@@ -70,11 +100,27 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
     const wasRunning = wasRunningRef.current;
     wasRunningRef.current = isRunning;
     const isRunEndTransition = wasRunning && !isRunning;
-    if (isRunning || queueLength === 0 || !(isRunEndTransition || isCatchUp)) {
+    // The renderer can briefly report idle after a socket drops even while
+    // the host run remains active. Keep the chip until replay reaches a real
+    // terminal result (or the stale cursor is explicitly released).
+    if (isReattaching) {
+      deferredRunEndRef.current ||= queueLength > 0 && (isRunEndTransition || isCatchUp);
       return;
     }
+    if (
+      !canDispatchQueuedFollowUp({
+        deferredRunEnd: deferredRunEndRef.current,
+        isCatchUp,
+        isRunEndTransition,
+        isRunning,
+        queueLength,
+      })
+    ) {
+      return;
+    }
+    deferredRunEndRef.current = false;
 
-    const item = useFollowUpQueueStore.getState().dequeue(queueKey);
+    const item = dequeueDispatchable(queueKey, answered);
     if (!item) {
       return;
     }
@@ -84,10 +130,12 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
     // failure — it is not requeued.
     const wasPinned = follow.getIsAtBottom();
     try {
-      aui.thread().append({
-        content: [{ text: item.text, type: 'text' }],
-        role: 'user',
-      });
+      aui.thread().append(
+        item.message ?? {
+          content: [{ text: item.text, type: 'text' }],
+          role: 'user',
+        }
+      );
     } catch (error) {
       useFollowUpQueueStore.getState().requeueFront(queueKey, item);
       logger.warn('Failed to dispatch queued follow-up; requeued at front', { error });
@@ -108,12 +156,28 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       // docs/agents/assistant-runtime.md).
       follow.scrollToBottom();
     }
-  }, [aui, follow, isHistoryLoading, isRunning, queueKey, queueLength]);
+  }, [
+    answered,
+    aui,
+    follow,
+    isHistoryLoading,
+    isReattaching,
+    isRunning,
+    ownsQueue,
+    queueKey,
+    queueLength,
+  ]);
 }
 
 /** Render-nothing leaf owning the run-end dispatch subscription. */
-export function FollowUpQueueBridge({ threadKey }: { readonly threadKey?: string | undefined }) {
-  useFollowUpQueueDispatch(threadKey);
+export function FollowUpQueueBridge({
+  isReattaching,
+  threadKey,
+}: {
+  readonly isReattaching?: boolean;
+  readonly threadKey?: string | undefined;
+}) {
+  useFollowUpQueueDispatch(threadKey, isReattaching);
   return null;
 }
 
@@ -216,6 +280,10 @@ export function ComposerRunControls({
   readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
   readonly threadKey?: string | undefined;
 }) {
+  const ownsQueue = use(FollowUpQueueOwnershipContext);
+  if (!ownsQueue) {
+    return null;
+  }
   return (
     <>
       <QueueFollowUpButton threadKey={threadKey} />
@@ -228,11 +296,12 @@ export function ComposerRunControls({
 
 /** Removable "queued" chips above the composer; hidden when nothing is queued. */
 export function FollowUpQueueChips({ threadKey }: { readonly threadKey?: string | undefined }) {
+  const ownsQueue = use(FollowUpQueueOwnershipContext);
   const queueKey = followUpQueueKey(threadKey);
   const items = useFollowUpQueueStore((state) => state.queuedByThread[queueKey]);
   const remove = useFollowUpQueueStore((state) => state.remove);
 
-  if (!items?.length) {
+  if (!(ownsQueue && items?.length)) {
     return null;
   }
   return (

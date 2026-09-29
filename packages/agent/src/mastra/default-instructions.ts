@@ -365,7 +365,7 @@ function buildParallelCallInstruction(
   // a tool the run does not register would advertise a capability that is not
   // there, which is the confusion this whole line exists to prevent.
   return toolDiscoveryEnabled
-    ? `${base} — never search_tools, whose matches load only NEXT turn, so search before long-running work.`
+    ? `${base} — never search_tools or load_tool, whose results are usable only NEXT turn, so load before long-running work.`
     : `${base}.`;
 }
 
@@ -429,7 +429,7 @@ function buildCanvasInstruction(names: ModelFacingToolNames): string {
   if (!names.manageCanvas) {
     return '';
   }
-  return `Use ${names.manageCanvas} to create or list persisted HTML canvas documents (list returns summaries, never content). Use update for one exact unique replacement, or rewrite for full HTML replacement; every change creates a new version.`;
+  return `Use ${names.manageCanvas} to create or list persisted HTML canvas documents (list returns summaries, never content). Create a canvas only when its content is ready — the create call carrying the finished document is the deliverable, never an empty placeholder. Use update for one exact unique replacement, or rewrite for full HTML replacement; every change creates a new version.`;
 }
 
 function buildBrowserPaneInstruction(names: ModelFacingToolNames): string {
@@ -439,13 +439,20 @@ function buildBrowserPaneInstruction(names: ModelFacingToolNames): string {
   return `The app has an embedded browser pane the user can see. ${names.browserNavigate} opens a URL in it (creates a tab when none is open) and waits for the load; then SEE the live page with ${names.browserReadPage} (compact accessibility tree, [ref=eN] handles on interactive elements — prefer this) or ${names.browserGetPageText} (plain text). These read the pane's ACTIVE tab.`;
 }
 
-/** The persona shape the delegation guidance needs (ids/labels/descriptions only). */
+/** The persona shape the delegation guidance needs. */
 export type DelegationPersonaSummary = Pick<
   AssistantPersonaDefinition,
-  'description' | 'id' | 'label'
+  'description' | 'id' | 'label' | 'mode'
 >;
 
 export interface BuildDefaultInstructionsOptions {
+  /**
+   * The host runs delegations as durable background workers. The delegation
+   * paragraph then says so and tells the model that the `_background` knobs
+   * Mastra's own prompt advertises are host-owned: never force foreground,
+   * never request retries (BST-1749).
+   */
+  backgroundDelegation?: boolean;
   /**
    * Registered subagent personas. When non-empty, a delegation paragraph is
    * appended naming each `agent-<id>` delegation tool. Empty/undefined ⇒ no text
@@ -469,7 +476,8 @@ export interface BuildDefaultInstructionsOptions {
 }
 
 function buildDelegationInstruction(
-  personas: readonly DelegationPersonaSummary[] | undefined
+  personas: readonly DelegationPersonaSummary[] | undefined,
+  backgroundDelegation: boolean
 ): string {
   if (!personas || personas.length === 0) {
     return '';
@@ -477,7 +485,18 @@ function buildDelegationInstruction(
   const toolList = personas
     .map((persona) => `${persona.label} (agent-${persona.id}): ${persona.description}`)
     .join('; ');
-  return `You can delegate to read-only subagents by calling their delegation tools: ${toolList}. Delegate when a sub-task needs broad multi-file exploration or independent research the user asked for, and pass a self-contained prompt describing exactly what you need back. Do NOT delegate a single lookup you can do yourself with one tool call, and NEVER delegate mutations (subagents are read-only). Each subagent runs its own tools and returns a written summary you must incorporate into your answer.`;
+  const readOnlyPersonas = personas.filter((persona) => persona.mode !== 'worker');
+  const workerPersonas = personas.filter((persona) => persona.mode === 'worker');
+  const readOnlyGuidance = readOnlyPersonas.length
+    ? `${readOnlyPersonas.map((persona) => persona.label).join(', ')} ${readOnlyPersonas.length === 1 ? 'is' : 'are'} read-only; use ${readOnlyPersonas.length === 1 ? 'it' : 'them'} for broad exploration or independent research, never for mutations. `
+    : '';
+  const workerGuidance = workerPersonas.length
+    ? `Delegate implementation and verification to ${workerPersonas.map((persona) => persona.label).join(', ')} when the user asks for agent work; ${workerPersonas.length === 1 ? 'it' : 'they'} can use only the tools and permissions admitted by the host. `
+    : '';
+  const execution = backgroundDelegation
+    ? ' Subagents run as background workers; launch independent subagents together and keep working while they run, but do not produce a deliverable that depends on their findings (a report, a canvas, a summary) until every subagent has returned. Do not set `_background.enabled` to false and do not set `_background.maxRetries` or `_background.timeoutMs`: execution mode, retries and timeouts are owned by the host. When a subagent is suspended, it is waiting for the user to approve one of its tool calls; the approval controls are already shown to the user, so say which subagent is waiting for approval and stop — never ask the user for "resume input" and never try to resume it yourself.'
+    : '';
+  return `You can delegate by calling these persona tools: ${toolList}. ${readOnlyGuidance}${workerGuidance}Pass a self-contained prompt describing exactly what you need back. Do NOT delegate a single lookup you can do yourself with one tool call. Each subagent returns a written summary you must incorporate into your answer.${execution}`;
 }
 
 function buildAskUserInstruction(names: ModelFacingToolNames): string {
@@ -526,7 +545,7 @@ function buildToolDiscoveryInstruction(
   // exact id that are not in the model's callable list until discovered.
   const families = describeAvailableDeferredCapabilityFamilies(availableOriginalToolIds);
   const familiesClause = families.length > 0 ? `: ${families}` : '';
-  return `Some capabilities are deferred behind search_tools${familiesClause}. For the deferred inventory, including MCP tools, use list_available_tools and follow nextOffset until null. Search returns at most three ranked matches, not the complete catalog; never infer that other tools are unavailable from a search result. When a tool you need is not loaded — including one these instructions, the catalog, or a skill activation names — call search_tools with its exact name or a concise capability query${alternativesClause}. Loaded matches become callable on your next step within this same response ("next turn" in tool results means that step, not a later user message): keep going and call them right away; never end your reply to wait for a tool to load. If the search finds nothing, inspect the catalog for an exact name before concluding the capability is unavailable.`;
+  return `Some capabilities are deferred${familiesClause}. For the deferred inventory (MCP tools included) use list_available_tools; follow nextOffset until null. When a needed tool is not loaded — one these instructions, the catalog, or a skill activation names — load_tool its exact name${alternativesClause}; when you only know the capability, search_tools with a concise query, then load_tool the match. Search returns at most three ranked matches, not the complete catalog, so never infer other tools are unavailable. If the search finds nothing, check the catalog for an exact name first. Loaded tools are callable on your next step within this same response ("next turn" in tool results means that step, not a later user message): call them right away; never end your reply to wait for a load.`;
 }
 
 /**
@@ -673,7 +692,10 @@ export function buildDefaultInstructions(
     options.toolDiscoveryEnabled,
     new Set(toolNameMap.values())
   );
-  const delegationInstruction = buildDelegationInstruction(options.personas);
+  const delegationInstruction = buildDelegationInstruction(
+    options.personas,
+    Boolean(options.backgroundDelegation)
+  );
   const projectWorkflowInstruction = [
     'For project work, use only registered tools.',
     workspaceInspectionInstruction,

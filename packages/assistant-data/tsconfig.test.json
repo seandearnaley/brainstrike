@@ -4,7 +4,7 @@
     "types": [
       "node",
       "vitest/globals",
-      "@testing-library/jest-dom"
+      "@brainstrike/test-utils/vitest-matchers"
     ],
     "skipLibCheck": true,
     "strictNullChecks": true

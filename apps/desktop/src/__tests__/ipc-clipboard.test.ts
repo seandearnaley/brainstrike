@@ -3,7 +3,7 @@ import { createClipboardIpcHandlers } from '../ipc-clipboard-handlers';
 
 function makeClipboard() {
   return {
-    writeText: vi.fn(),
+    writeText: vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined),
   };
 }
 
@@ -31,6 +31,17 @@ describe('clipboard IPC handlers', () => {
     clipboard.writeText.mockImplementation(() => {
       throw new Error('clipboard locked');
     });
+    const handlers = createClipboardIpcHandlers({ clipboard });
+    const result = await handlers.writeText('hello');
+    expect(result).toEqual({
+      error: { category: 'clipboard', code: 'write_failed', message: 'clipboard locked' },
+      ok: false,
+    });
+  });
+
+  it('awaits a rejected clipboard write and returns the IpcResult failure taxonomy', async () => {
+    const clipboard = makeClipboard();
+    clipboard.writeText.mockImplementation(() => Promise.reject(new Error('clipboard locked')));
     const handlers = createClipboardIpcHandlers({ clipboard });
     const result = await handlers.writeText('hello');
     expect(result).toEqual({

@@ -12,9 +12,9 @@
 
 import { ipcMain } from 'electron';
 import type { ParserHostManager } from './parser-host-manager';
+import { isParserHostParseRequest } from './parser-host-schema';
 import {
   extractParserHostRequestId,
-  isParserHostParseRequest,
   PARSER_HOST_PARSE_CHANNEL,
   type ParserHostParseResponse,
 } from './parser-host-shared';
@@ -29,9 +29,8 @@ const UNAUTHENTICATED_SENDER_POLICY = {
  * Register the parser host IPC handler. Returns an unregister callback so
  * the caller can clean up during shutdown.
  *
- * Payload validation uses the shared `isParserHostParseRequest` guard from
- * `parser-host-shared.ts` — same predicate the utility-process entry uses
- * on the other side of the IPC boundary, so the two sides can't drift.
+ * Payload validation uses the main-only Effect Schema predicate on both
+ * sides of the IPC boundary, so the two checks cannot drift.
  */
 export function registerParserHostIpcHandlers(manager: ParserHostManager): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });

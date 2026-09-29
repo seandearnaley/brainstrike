@@ -1,121 +1,109 @@
 import { isChunkingStrategy } from '@brainstrike/text-splitter';
+import { Schema } from 'effect';
 import { CHUNKING_CONFIG } from './chunking-config';
 import type { ChunkBatchRequest, ChunkingRequestOptions, ChunkRequest } from './shared';
 
-function isOptionalBoolean(value: unknown): boolean {
-  return value === undefined || typeof value === 'boolean';
-}
+/**
+ * Worker message schemas (docs/agents/effect-boundary.md § "Schema at
+ * boundaries"). They keep the worker's historical leniency on purpose: extra
+ * keys pass, an optional key present as `undefined` passes, and `content` is
+ * only required to be a string. Size handling stays in the worker runtime so
+ * an oversized file becomes a per-file skip or error, never a terminal
+ * `__init__` failure that poisons the whole worker session.
+ */
+const boundedInt = (minimum: number, maximum: number) =>
+  Schema.Int.check(Schema.isGreaterThanOrEqualTo(minimum), Schema.isLessThanOrEqualTo(maximum));
 
-function isOptionalPositiveInteger(value: unknown): boolean {
-  return value === undefined || (Number.isInteger(value) && (value as number) > 0);
-}
-
-function isOptionalNonNegativeInteger(value: unknown): boolean {
-  return value === undefined || (Number.isInteger(value) && (value as number) >= 0);
-}
-
-function isOptionalBoundedPositiveInteger(value: unknown, max: number): boolean {
-  return isOptionalPositiveInteger(value) && (value === undefined || (value as number) <= max);
-}
-
-function isOptionalBoundedNonNegativeInteger(value: unknown, max: number): boolean {
-  return isOptionalNonNegativeInteger(value) && (value === undefined || (value as number) <= max);
-}
-
-function isOptionalStringArray(value: unknown): boolean {
-  if (value === undefined) {
-    return true;
-  }
-  if (!Array.isArray(value)) {
-    return false;
-  }
-  if (value.length > CHUNKING_CONFIG.maxSeparatorsCount) {
-    return false;
-  }
-  return value.every((separator) => typeof separator === 'string');
-}
-
-function isContentString(value: unknown): boolean {
-  // Structural validation only enforces "string-ness". Semantic size handling stays in the
-  // worker runtime so oversized files become per-file skips/errors instead of terminal
-  // "__init__" failures that poison the entire worker session.
-  return typeof value === 'string';
-}
-
-function isBoundedMetadataString(value: unknown): boolean {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= CHUNKING_CONFIG.maxMetadataFieldLength
-  );
-}
-
-function isChunkRequestRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
+const metadataString = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(CHUNKING_CONFIG.maxMetadataFieldLength)
+);
 
 /**
- * Worker message validation must stay aligned with the canonical chunking strategy
- * contract. If the supported strategy set changes, update the shared source of
- * truth in @brainstrike/text-splitter instead of widening this validator locally.
+ * The strategy set is owned by @brainstrike/text-splitter; if it changes,
+ * update that source of truth instead of widening this validator locally.
  */
-export function isChunkingRequestOptions(value: unknown): value is ChunkingRequestOptions {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const obj = value as Record<string, unknown>;
-  return (
-    isChunkingStrategy(obj['strategy']) &&
-    isOptionalBoolean(obj['allowLargeFiles']) &&
-    isOptionalBoolean(obj['forceStrategy']) &&
-    isOptionalBoolean(obj['ignoreFileTypeRecommendations']) &&
-    isOptionalBoolean(obj['tokenTrueSizing']) &&
-    isOptionalBoundedPositiveInteger(obj['maxTokens'], CHUNKING_CONFIG.maxTokensHardLimit) &&
-    isOptionalBoundedPositiveInteger(obj['maxTokensCap'], CHUNKING_CONFIG.maxTokensHardLimit) &&
-    isOptionalBoundedNonNegativeInteger(obj['overlap'], CHUNKING_CONFIG.overlapHardLimit) &&
-    isOptionalStringArray(obj['separators'])
-  );
-}
+const chunkingStrategy = Schema.declare(isChunkingStrategy);
 
-function hasValidChunkRequestFields(msg: Record<string, unknown>): boolean {
-  return (
-    isBoundedMetadataString(msg['id']) &&
-    isBoundedMetadataString(msg['fileRecordId']) &&
-    isContentString(msg['content']) &&
-    isBoundedMetadataString(msg['fileName']) &&
-    isBoundedMetadataString(msg['filePath']) &&
-    isChunkingRequestOptions(msg['options'])
-  );
+const chunkingRequestOptions = Schema.Struct({
+  allowLargeFiles: Schema.optional(Schema.Boolean),
+  forceStrategy: Schema.optional(Schema.Boolean),
+  ignoreFileTypeRecommendations: Schema.optional(Schema.Boolean),
+  maxTokens: Schema.optional(boundedInt(1, CHUNKING_CONFIG.maxTokensHardLimit)),
+  maxTokensCap: Schema.optional(boundedInt(1, CHUNKING_CONFIG.maxTokensHardLimit)),
+  overlap: Schema.optional(boundedInt(0, CHUNKING_CONFIG.overlapHardLimit)),
+  separators: Schema.optional(
+    Schema.Array(Schema.String).check(Schema.isMaxLength(CHUNKING_CONFIG.maxSeparatorsCount))
+  ),
+  strategy: chunkingStrategy,
+  tokenTrueSizing: Schema.optional(Schema.Boolean),
+});
+
+const chunkRequestFields = {
+  content: Schema.String,
+  fileName: metadataString,
+  filePath: metadataString,
+  fileRecordId: metadataString,
+  id: metadataString,
+  options: chunkingRequestOptions,
+};
+
+const chunkRequest = Schema.Struct({ ...chunkRequestFields, type: Schema.Literal('chunk') });
+
+const chunkBatchRequest = Schema.Struct({
+  requests: Schema.Array(Schema.Struct(chunkRequestFields)).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(CHUNKING_CONFIG.maxBatchSize)
+  ),
+  type: Schema.Literal('chunk-batch'),
+});
+
+/** Maps every key of `Interface` that the schema does not declare to `never`. */
+type UndeclaredKeys<Interface, Declared> = {
+  readonly [K in Exclude<keyof Interface, keyof Declared>]: never;
+};
+
+/**
+ * The schema type without `readonly`. Structured clone delivers fresh mutable
+ * values, so readonly-ness is the one difference the drift check ignores.
+ */
+type Writable<T> = T extends readonly (infer Item)[]
+  ? Writable<Item>[]
+  : T extends object
+    ? { -readonly [K in keyof T]: Writable<T[K]> }
+    : T;
+
+/**
+ * A type guard for `schema` that narrows to the hand-written message
+ * interface. The type parameters are the drift check, in both directions: the
+ * interface must fit the schema's type, the schema's type (readonly aside) must
+ * fit the interface, and the interface may not declare a top-level key the
+ * schema lacks, even an optional one. A field added to only one side, typed
+ * differently on each, or narrowed on the interface alone (an optional field
+ * made required, a union member dropped, `| undefined` removed from a field the
+ * schema accepts as `undefined`) stops this module compiling.
+ */
+const guardFor = <S extends Schema.Top>(schema: S) => {
+  const matches = Schema.is(schema);
+  return <Interface extends S['Type'] & UndeclaredKeys<Interface, S['Type']>>(
+    ..._exact: [Writable<S['Type']>] extends [Interface] ? [] : [never]
+  ) =>
+    (value: unknown): value is Interface =>
+      matches(value);
+};
+
+const matchesOptions = guardFor(chunkingRequestOptions)<ChunkingRequestOptions>();
+const matchesRequest = guardFor(chunkRequest)<ChunkRequest>();
+const matchesBatch = guardFor(chunkBatchRequest)<ChunkBatchRequest>();
+
+export function isChunkingRequestOptions(value: unknown): value is ChunkingRequestOptions {
+  return matchesOptions(value);
 }
 
 export function isChunkRequest(value: unknown): value is ChunkRequest {
-  if (!isChunkRequestRecord(value)) {
-    return false;
-  }
-  const msg = value as Record<string, unknown>;
-  return msg['type'] === 'chunk' && hasValidChunkRequestFields(msg);
+  return matchesRequest(value);
 }
 
 export function isChunkBatchRequest(value: unknown): value is ChunkBatchRequest {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const msg = value as Record<string, unknown>;
-  if (
-    msg['type'] !== 'chunk-batch' ||
-    !Array.isArray(msg['requests']) ||
-    msg['requests'].length === 0 ||
-    msg['requests'].length > CHUNKING_CONFIG.maxBatchSize
-  ) {
-    return false;
-  }
-  for (const req of msg['requests']) {
-    if (!isChunkRequestRecord(req)) {
-      return false;
-    }
-    if (!hasValidChunkRequestFields(req as Record<string, unknown>)) {
-      return false;
-    }
-  }
-  return true;
+  return matchesBatch(value);
 }

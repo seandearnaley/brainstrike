@@ -2,10 +2,8 @@ import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db/react';
 import { TransformersBackend } from '@brainstrike/embeddings/backend';
-import type { QueueAdapter } from '@brainstrike/queue';
-// Import types to ensure global Window augmentation is available
-import '@brainstrike/types';
 import { createLogger } from '@brainstrike/logging';
+import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Badge,
   Button,
@@ -27,6 +25,7 @@ const logger = createLogger('VectorStatus');
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { useSharedEmbeddingRuntime } from './embedding-runtime-provider';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
+import { getEmbeddingHostApi } from './vector-status/embedding-runtime-controller';
 import {
   EmbeddingSetSelector,
   useEmbeddingSetSelection,
@@ -180,7 +179,7 @@ function WorkerControls({
   onStopWorker: () => Promise<void>;
   onResetWorker: () => Promise<void>;
 }) {
-  if (typeof window === 'undefined' || isElectronRenderer()) {
+  if (typeof window === 'undefined' || getEmbeddingHostApi()) {
     return null;
   }
 
@@ -476,6 +475,7 @@ function QueueControls({
 }
 
 function getWorkerStatus(
+  isWeb: boolean,
   queueEnabled: boolean,
   queueCounts: { failed: number; running: number },
   startWorkerError: string | null,
@@ -483,7 +483,6 @@ function getWorkerStatus(
   workerLocalRunning: boolean,
   throughput: number
 ): 'disabled' | 'initializing' | 'running' | 'error' {
-  const isWeb = typeof window !== 'undefined' && window.electronAPI === undefined;
   if (!queueEnabled) {
     return 'disabled';
   }
@@ -515,10 +514,6 @@ function isQueueEnabled(): boolean {
     return typeof window !== 'undefined';
   }
 }
-function isElectronRenderer(): boolean {
-  return typeof window !== 'undefined' && window.electronAPI !== undefined;
-}
-
 function getEpMixLabel(): string {
   try {
     const anyTB = TransformersBackend as unknown as {
@@ -679,7 +674,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   });
 
   // On web, determine if we need to auto-start the worker when backfill is clicked
-  const isWebPlatform = typeof window !== 'undefined' && !isElectronRenderer();
+  const isWebPlatform = typeof window !== 'undefined' && !getEmbeddingHostApi();
   const needsWorkerStart =
     isWebPlatform && !workerControls.workerLocalRunning && !workerControls.startingWorker;
 
@@ -743,6 +738,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   );
 
   const workerStatus = getWorkerStatus(
+    isWebPlatform,
     queueEnabled,
     queueState.queueCounts,
     workerControls.workerStatus?.embeddingRuntime?.backendMismatch

@@ -15,6 +15,7 @@ const TERMINAL_APP: WorkspaceApp = {
   icon: TerminalSquare,
   id: TERMINAL_APP_ID,
   label: 'Terminal',
+  placement: 'pinned',
   render: () => null,
 };
 

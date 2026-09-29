@@ -58,6 +58,10 @@ describe('hidden renderer preload contract', () => {
     // would widen the hidden hosts' reach and fails by name.
     const source = readHiddenPreloadSource();
     expect(source).toContain("from './platform/desktop-ipc-channels'");
+    expect(source).toContain("from './ipc-domains/database.contract'");
+    expect(source).toContain("from './ipc-domains/storage-preferences.contract'");
+    expect(source).toContain('createIpcBridge(ipcRenderer, vectorPreferencesContract)');
+    expect(source).toContain('createIpcBridge(ipcRenderer, databaseIntegrityContract)');
     const manifestChannels = Object.values(DESKTOP_IPC_CHANNELS).flatMap((group) =>
       Object.values(group)
     );
@@ -71,24 +75,16 @@ describe('hidden renderer preload contract', () => {
     );
     expect([...referencedGroups].sort()).toEqual([
       'chunkingHost',
-      'db',
       'embeddingHost',
       'files',
       'llmHost',
       'logging',
       'runtime',
-      'vectorPreferences',
     ]);
     for (const member of [
-      'DESKTOP_IPC_CHANNELS.db.query',
-      'DESKTOP_IPC_CHANNELS.db.exec',
-      'DESKTOP_IPC_CHANNELS.db.transaction',
       'DESKTOP_IPC_CHANNELS.files.parserHostParse',
       'DESKTOP_IPC_CHANNELS.runtime.powerSnapshot',
       'DESKTOP_IPC_CHANNELS.runtime.powerState',
-      'DESKTOP_IPC_CHANNELS.vectorPreferences.read',
-      'DESKTOP_IPC_CHANNELS.vectorPreferences.write',
-      'DESKTOP_IPC_CHANNELS.vectorPreferences.clear',
       'DESKTOP_IPC_CHANNELS.logging.getPreferences',
       'DESKTOP_IPC_CHANNELS.logging.ingestBufferedRecord',
       'DESKTOP_IPC_CHANNELS.logging.preferencesUpdated',

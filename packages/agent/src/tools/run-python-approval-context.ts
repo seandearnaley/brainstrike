@@ -21,11 +21,14 @@
  */
 import { createHash } from 'node:crypto';
 import os from 'node:os';
+import { NATIVE_TOOL_ID, requireNativeToolExecutionBudget } from '@brainstrike/assistant-contract';
 import type { CodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
 import { RunPythonInputSchema } from './schemas';
 
 /** Matches the display schema's documented default; the seam caps at MAX_EXEC_TIMEOUT_MS. */
-export const RUN_PYTHON_DEFAULT_TIMEOUT_MS = 30_000;
+export const RUN_PYTHON_DEFAULT_TIMEOUT_MS = requireNativeToolExecutionBudget(
+  NATIVE_TOOL_ID.runPython
+).defaultMs;
 
 /**
  * Stable hash over every non-fingerprint field, sorted-key canonical JSON.

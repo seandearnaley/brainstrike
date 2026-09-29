@@ -184,7 +184,9 @@ describe('MarkdownText', () => {
     expect(writeText).not.toHaveBeenCalled();
     // The failure must be VISIBLE (not the idle 'Copy code' tooltip): a broken
     // Electron bridge never silently looks like a fresh copy affordance.
-    expect(copyButton).toHaveAttribute('title', 'Copy failed');
+    await waitFor(() => {
+      expect(copyButton).toHaveAttribute('title', 'Copy failed');
+    });
   });
 
   it('uses web clipboard when Electron clipboard is unavailable', async () => {

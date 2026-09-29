@@ -2,10 +2,12 @@ import type {
   CreateResumeRunConfig,
   ExportedMessageRepository,
   ExportedMessageRepositoryItem,
+  ThreadAssistantMessagePart,
   ThreadMessage,
 } from '@assistant-ui/react';
 import {
   type AssistantActiveRunSession,
+  type AssistantDiscoveredRun,
   isAssistantActiveRunSession,
 } from '@brainstrike/assistant-contract';
 import { useEffect, useRef } from 'react';
@@ -87,33 +89,132 @@ export interface ReattachableRuntime {
   };
 }
 
+/** Restore the exact unsaved user input retained by the host before replay. */
+export function restoreDiscoveredRunInput(
+  runtime: ReattachableRuntime,
+  discoveredRun: AssistantDiscoveredRun
+): void {
+  const repository = runtime.thread.export();
+  const input = discoveredRun.inputMessage;
+  if (!input) {
+    return;
+  }
+  if (discoveredRun.parentMessageId !== input.id) {
+    throw new Error('Discovered assistant run input does not match its admitted parent.');
+  }
+  const existing = repository.messages.find((item) => item.message.id === input.id);
+  if (existing) {
+    if (
+      existing.message.role !== 'user' ||
+      existing.parentId !== discoveredRun.inputParentMessageId
+    ) {
+      throw new Error(`Discovered assistant input '${input.id}' conflicts with hydrated history.`);
+    }
+    return;
+  }
+  const inputParentId = discoveredRun.inputParentMessageId;
+  if (inputParentId && !repository.messages.some((item) => item.message.id === inputParentId)) {
+    throw new Error(`Discovered assistant input '${input.id}' has no hydrated parent.`);
+  }
+  const content = input.parts
+    .filter(
+      (part): part is Extract<(typeof input.parts)[number], { type: 'text' }> =>
+        part.type === 'text'
+    )
+    .map((part) => ({ text: part.text, type: 'text' as const }));
+  const attachments = input.parts
+    .filter(
+      (part): part is Extract<(typeof input.parts)[number], { type: 'file' }> =>
+        part.type === 'file'
+    )
+    .map((part, index) => {
+      if (!part.mediaType.startsWith('image/')) {
+        throw new Error(`Discovered assistant input '${input.id}' has an unsupported file part.`);
+      }
+      return {
+        content: [{ image: part.data, type: 'image' as const }],
+        contentType: part.mediaType,
+        id: `${input.id}:recovered-attachment:${index}`,
+        name: part.filename ?? `image-${index + 1}`,
+        status: { type: 'complete' as const },
+        type: 'image' as const,
+      };
+    });
+  runtime.thread.import({
+    headId: input.id,
+    messages: [
+      ...repository.messages,
+      {
+        message: {
+          attachments,
+          content,
+          createdAt: new Date(),
+          id: input.id,
+          metadata: { custom: {} },
+          role: 'user',
+        },
+        parentId: inputParentId,
+      },
+    ],
+  });
+}
+
 export function beginAssistantReplay({
   durableMessageId,
   identityRef,
+  parentMessageId,
   runtime,
   stream,
+  syntheticPauseMessageId,
 }: {
   readonly durableMessageId: string;
   readonly identityRef: AssistantReplayMessageIdentityRef;
+  readonly parentMessageId?: string | null;
   readonly runtime: ReattachableRuntime;
   readonly stream: NonNullable<CreateResumeRunConfig['stream']>;
+  readonly syntheticPauseMessageId?: string;
 }): void {
   const repository = runtime.thread.export();
   const durableItem = repository.messages.find((item) => item.message.id === durableMessageId);
-  if (!durableItem) {
+  if (!durableItem && parentMessageId === undefined) {
     throw new Error(
       `Assistant replay could not find durable message '${durableMessageId}' after history hydration.`
     );
   }
-  if (repository.messages.some((item) => item.parentId === durableMessageId)) {
+  const parentId = durableItem?.parentId ?? parentMessageId ?? null;
+  if (parentId && !repository.messages.some((item) => item.message.id === parentId)) {
+    throw new Error(
+      `Assistant replay could not find the admitted parent '${parentId}' after history hydration.`
+    );
+  }
+  if (durableItem && parentMessageId !== undefined && durableItem.parentId !== parentMessageId) {
+    throw new Error(`Assistant replay found a conflicting parent for '${durableMessageId}'.`);
+  }
+  const syntheticPause = repository.messages.find(
+    (item) => item.message.id === syntheticPauseMessageId
+  );
+  if (
+    syntheticPause &&
+    (syntheticPause.parentId !== durableMessageId ||
+      repository.messages.some((item) => item.parentId === syntheticPauseMessageId))
+  ) {
+    throw new Error('Assistant replay found a conflicting synthetic pause descendant.');
+  }
+  if (
+    repository.messages.some(
+      (item) => item.parentId === durableMessageId && item.message.id !== syntheticPauseMessageId
+    )
+  ) {
     throw new Error(
       `Assistant replay cannot replace durable message '${durableMessageId}' because it already has descendants.`
     );
   }
 
   runtime.thread.import({
-    headId: durableItem.parentId,
-    messages: repository.messages.filter((item) => item.message.id !== durableMessageId),
+    headId: parentId,
+    messages: repository.messages.filter(
+      (item) => item.message.id !== durableMessageId && item.message.id !== syntheticPauseMessageId
+    ),
   });
   let unsubscribeRunEnd = (): void => undefined;
   const handleRunEnd = (): void => {
@@ -130,7 +231,7 @@ export function beginAssistantReplay({
   unsubscribeRunEnd = runtime.thread.unstable_on('runEnd', handleRunEnd);
   try {
     runtime.thread.resumeRun({
-      parentId: durableItem.parentId,
+      parentId,
       runConfig: {},
       stream,
     });
@@ -200,13 +301,91 @@ export function remapAssistantReplayHistoryItem(
   };
 }
 
+function mergeActionReplayContent(
+  prefix: readonly ThreadAssistantMessagePart[],
+  continuation: readonly ThreadAssistantMessagePart[]
+): readonly ThreadAssistantMessagePart[] {
+  const content = [...prefix];
+  for (const part of continuation) {
+    if (part.type === 'tool-call') {
+      const index = content.findIndex(
+        (existing) => existing.type === 'tool-call' && existing.toolCallId === part.toolCallId
+      );
+      if (index >= 0) {
+        const existing = content[index];
+        if (existing?.type !== 'tool-call') {
+          throw new Error('Assistant replay tool part changed type during merge.');
+        }
+        const { approval: _priorApproval, ...withoutApproval } = existing;
+        content[index] =
+          part.result !== undefined && part.approval === undefined
+            ? { ...withoutApproval, ...part }
+            : { ...existing, ...part };
+        continue;
+      }
+    }
+    content.push(part);
+  }
+  return content;
+}
+
+function withActionReplayPrefix(
+  stream: NonNullable<CreateResumeRunConfig['stream']>,
+  prefixContent: readonly ThreadAssistantMessagePart[]
+): NonNullable<CreateResumeRunConfig['stream']> {
+  return async function* replayWithPrefix(options) {
+    for await (const update of stream(options)) {
+      yield {
+        ...update,
+        content: mergeActionReplayContent(prefixContent, update.content ?? []),
+      };
+    }
+  };
+}
+
+function startAssistantReplay({
+  discoveredRun,
+  identityRef,
+  record,
+  runtime,
+  stream,
+}: {
+  readonly discoveredRun: AssistantDiscoveredRun | undefined;
+  readonly identityRef: AssistantReplayMessageIdentityRef;
+  readonly record: AssistantActiveRunSession;
+  readonly runtime: ReattachableRuntime;
+  readonly stream: NonNullable<CreateResumeRunConfig['stream']>;
+}): void {
+  if (discoveredRun) {
+    if (discoveredRun.runId !== record.runId) {
+      throw new Error('Discovered assistant run does not match the active replay cursor.');
+    }
+    restoreDiscoveredRunInput(runtime, discoveredRun);
+  }
+  const actionReplay = discoveredRun?.actionReplay;
+  beginAssistantReplay({
+    durableMessageId: actionReplay?.pausedMessageId ?? record.assistantMessageId,
+    identityRef,
+    ...(actionReplay
+      ? { parentMessageId: actionReplay.pausedParentMessageId }
+      : record.parentMessageId === undefined
+        ? {}
+        : { parentMessageId: record.parentMessageId }),
+    runtime,
+    stream: actionReplay ? withActionReplayPrefix(stream, actionReplay.prefixContent) : stream,
+    ...(actionReplay ? { syntheticPauseMessageId: actionReplay.syntheticPauseMessageId } : {}),
+  });
+}
+
 export function useAssistantRunReattachment({
+  discoveredRun,
   identityRef,
   record,
   replayRetryToken,
   runtime,
   stream,
 }: {
+  readonly discoveredRun?: AssistantDiscoveredRun | undefined;
   readonly identityRef: AssistantReplayMessageIdentityRef;
   readonly record: AssistantActiveRunSession | undefined;
   readonly replayRetryToken: number;
@@ -227,9 +406,10 @@ export function useAssistantRunReattachment({
         return;
       }
       attemptedReplayKeyRef.current = replayKey;
-      beginAssistantReplay({
-        durableMessageId: record.assistantMessageId,
+      startAssistantReplay({
+        discoveredRun,
         identityRef,
+        record,
         runtime,
         stream,
       });
@@ -237,5 +417,5 @@ export function useAssistantRunReattachment({
 
     attempt();
     return runtime.thread.subscribe(attempt);
-  }, [identityRef, record, replayRetryToken, runtime, stream]);
+  }, [discoveredRun, identityRef, record, replayRetryToken, runtime, stream]);
 }

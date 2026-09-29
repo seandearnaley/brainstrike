@@ -3,15 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserIpcHandlers } from '../../browser-ipc-handlers';
 import type { ChangesIpcHandlers } from '../../changes-ipc-handlers';
 import type { CommandSessionIpcHandlers } from '../../command-session-ipc-handlers';
+import type { ForgeIpcHandlers } from '../../forge-ipc-handlers';
 import type { GitIpcHandlers } from '../../git-ipc-handlers';
 import { registerBrowserIpcHandlers } from '../../ipc-browser';
 import { registerChangesIpcHandlers } from '../../ipc-changes';
+import { registerForgeIpcHandlers } from '../../ipc-forge';
 import { registerGitIpcHandlers } from '../../ipc-git';
 import { registerShellIpcHandlers } from '../../ipc-shell';
 import type { ShellIpcHandlers } from '../../ipc-shell-handlers';
 import { registerTerminalIpc } from '../../ipc-terminal';
+import { registerWorktreesIpcHandlers } from '../../ipc-worktrees';
+import {
+  type NotesVaultIpcHandlers,
+  registerNotesVaultIpcHandlers,
+} from '../../notes-vault-ipc-handlers';
 import { registerTerminalIpcHandlers, type TerminalIpcHandlers } from '../../terminal-ipc-handlers';
 import { clearWindowRoleByWebContentsId } from '../../window-role';
+import type { WorktreesIpcHandlers } from '../../worktrees-ipc-handlers';
 import {
   createAllowlistedSenderFrame,
   createTrustedInvokeEvent,
@@ -52,6 +60,127 @@ function createRecordingStub<T extends object>(): {
     get: () => calls,
   });
   return { calls, stub };
+}
+
+function gitInvokeArgs(channel: string): readonly unknown[] {
+  switch (channel) {
+    case 'git:aheadBehind':
+    case 'git:pull':
+    case 'git:repository':
+    case 'git:status':
+      return ['root-1'];
+    case 'git:commit':
+      return ['root-1', { summary: 'summary' }];
+    case 'git:commitFiles':
+      return ['root-1', { commit: 'abc123' }];
+    case 'git:createBranch':
+    case 'git:switchBranch':
+      return ['root-1', { branch: 'feature' }];
+    case 'git:diff':
+      return ['root-1', { mode: 'working' }];
+    case 'git:fetch':
+      return ['root-1', { remote: 'origin' }];
+    case 'git:history':
+      return ['root-1', { limit: 20, offset: 0 }];
+    case 'git:push':
+    case 'git:stage':
+    case 'git:unstage':
+      return ['root-1', {}];
+    case 'git:structuredFileDiff':
+      return ['root-1', { mode: 'working', path: 'src/index.ts' }];
+    default:
+      throw new Error(`Missing Git authorization fixture for ${channel}`);
+  }
+}
+
+function contractDomainInvokeArgs(channel: string): readonly unknown[] {
+  switch (channel) {
+    case 'terminal:create':
+    case 'command-sessions:list':
+      return [{ rootId: 'r1' }];
+    case 'terminal:write':
+      return [{ data: 'pwd\n', terminalId: 'terminal-1' }];
+    case 'terminal:resize':
+      return [{ cols: 80, rows: 24, terminalId: 'terminal-1' }];
+    case 'terminal:destroy':
+      return [{ terminalId: 'terminal-1' }];
+    case 'command-sessions:read':
+    case 'command-sessions:remove':
+    case 'command-sessions:stop':
+      return [{ rootId: 'r1', sessionId: 'session-1' }];
+    case 'command-sessions:write':
+      return [{ data: 'continue', rootId: 'r1', sessionId: 'session-1' }];
+    case 'changes:resolveView':
+      return ['root-1', { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' }];
+    case 'changes:fileDiff':
+      return [
+        'root-1',
+        { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' },
+        'src/index.ts',
+      ];
+    case 'changes:inventory':
+      return [];
+    case 'changes:rewindPreview':
+      return [{ messageId: 'message-1', threadId: 'thread-1' }];
+    case 'changes:applyRewind':
+      return [{ messageId: 'message-1', mode: 'conversation-only', threadId: 'thread-1' }];
+    case 'changes:redoRewind':
+      return [{ rewindId: 'rewind-1' }];
+    case 'changes:finalizeRewinds':
+      return [{ threadId: 'thread-1' }];
+    case 'notes-vault:ensure-default-vault':
+    case 'notes-vault:pick-directory':
+      return [];
+    case 'notes-vault:delete-entry':
+      return ['/vault/note.md', { recursive: false }];
+    case 'notes-vault:rename':
+      return ['/vault/old.md', '/vault/new.md'];
+    case 'notes-vault:write-file':
+      return ['/vault/note.md', '# Note'];
+    case 'notes-vault:create-directory':
+    case 'notes-vault:list-directory':
+    case 'notes-vault:read-file':
+    case 'notes-vault:register-root':
+    case 'notes-vault:stat-entry':
+    case 'notes-vault:unwatch':
+    case 'notes-vault:watch':
+      return ['/vault'];
+    case 'forge:identity':
+    case 'forge:prStatus':
+      return ['root-1'];
+    case 'forge:refresh':
+      return ['root-1', { reason: 'user' }];
+    case 'worktrees:adopt':
+      return [{ createdBy: 'user', path: '/repo/worktree' }];
+    case 'worktrees:archive':
+    case 'worktrees:inspectArchive':
+    case 'worktrees:restore':
+      return [{ worktreeId: 'worktree-1' }];
+    case 'worktrees:checkoutStatus':
+      return [{ path: '/repo/worktree' }];
+    case 'worktrees:create':
+      return [
+        {
+          baseRef: 'HEAD',
+          branch: { name: 'feature' },
+          createdBy: 'user',
+          name: 'feature',
+          rootId: 'root-1',
+        },
+      ];
+    case 'worktrees:createBranchHere':
+      return [{ branch: 'feature', worktreeId: 'worktree-1' }];
+    case 'worktrees:createContext':
+      return [{ rootId: 'root-1' }];
+    case 'worktrees:getSettings':
+    case 'worktrees:list':
+    case 'worktrees:managedPaths':
+      return [];
+    case 'worktrees:setSettings':
+      return [{ managedDirectory: '/worktrees', setupCommand: null }];
+    default:
+      return [{ rootId: 'r1' }];
+  }
 }
 
 const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
@@ -113,6 +242,47 @@ const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
     register: (stub) => registerChangesIpcHandlers(stub() as ChangesIpcHandlers),
   },
   {
+    channels: ['forge:identity', 'forge:prStatus', 'forge:refresh'],
+    domain: 'forge',
+    register: (stub) => registerForgeIpcHandlers(stub() as ForgeIpcHandlers),
+  },
+  {
+    channels: [
+      'worktrees:adopt',
+      'worktrees:archive',
+      'worktrees:checkoutStatus',
+      'worktrees:create',
+      'worktrees:createBranchHere',
+      'worktrees:createContext',
+      'worktrees:getSettings',
+      'worktrees:inspectArchive',
+      'worktrees:list',
+      'worktrees:managedPaths',
+      'worktrees:restore',
+      'worktrees:setSettings',
+    ],
+    domain: 'worktrees',
+    register: (stub) => registerWorktreesIpcHandlers(stub() as WorktreesIpcHandlers),
+  },
+  {
+    channels: [
+      'notes-vault:ensure-default-vault',
+      'notes-vault:pick-directory',
+      'notes-vault:register-root',
+      'notes-vault:list-directory',
+      'notes-vault:stat-entry',
+      'notes-vault:read-file',
+      'notes-vault:write-file',
+      'notes-vault:create-directory',
+      'notes-vault:delete-entry',
+      'notes-vault:rename',
+      'notes-vault:watch',
+      'notes-vault:unwatch',
+    ],
+    domain: 'notesVault',
+    register: (stub) => registerNotesVaultIpcHandlers(stub() as NotesVaultIpcHandlers),
+  },
+  {
     channels: [
       'browser:createTab',
       'browser:closeTab',
@@ -168,7 +338,10 @@ describe('privileged desktop IPC domains are visible-UI-only (BST-1641)', () => 
       const dispose = register(() => stub);
       const event = createTrustedInvokeEvent('visible-ui', VISIBLE_SENDER_ID);
 
-      await expect(registeredHandler(channel)(event, { rootId: 'r1' })).resolves.toEqual({
+      const args = channel.startsWith('git:')
+        ? gitInvokeArgs(channel)
+        : contractDomainInvokeArgs(channel);
+      await expect(registeredHandler(channel)(event, ...args)).resolves.toEqual({
         ok: true,
       });
       expect(calls).toHaveBeenCalledTimes(1);

@@ -1,5 +1,7 @@
 import type { DatabaseWorkScheduler, DimensionIndexMaintenanceStrategy } from '@brainstrike/db';
+import type { DatabaseIntegrityContext } from '@brainstrike/types';
 import { ipcMain } from 'electron';
+import { containDatabaseIntegrityError } from '../database-integrity-state';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   EMBEDDING_BACKFILL_CANCELED_MESSAGE,
@@ -16,11 +18,11 @@ import {
   runDesktopEmbeddingBackfill,
 } from '../ipc-embedding-backfill';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
-import {
-  handleRuntimeDatabaseCorruption,
-  type RuntimeDatabaseCorruptionHandler,
-  recoverRuntimeDatabaseCorruption,
-} from './runtime-database-corruption';
+
+// The channel constant is only a template-literal type; the integrity context is the literal.
+// The unit test pins the two equal.
+const ENQUEUE_BACKFILL_INTEGRITY_CONTEXT =
+  'embedding-host:enqueue-backfill' satisfies DatabaseIntegrityContext;
 
 const UNAUTHENTICATED_SENDER_POLICY = {
   reason:
@@ -33,35 +35,20 @@ interface RegisterEmbeddingBackfillIpcHandlersOptions {
   readonly getDatabaseWorkScheduler: () => DatabaseWorkScheduler;
   readonly getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
   readonly isBackgrounded: () => boolean;
-  readonly onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler;
 }
 
-async function withCorruptionRecovery<T>(
-  operation: () => Promise<T>,
-  context: string,
-  onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler
-): Promise<T> {
+/** An integrity error contains the database and rejects the call; nothing is replaced or retried. */
+async function withIntegrityContainment<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    const { isCorruptionError } = await import('../db-main');
-    if (!isCorruptionError(error)) {
-      throw error;
-    }
-    return recoverRuntimeDatabaseCorruption(context, onRuntimeCorruption);
+    throw containDatabaseIntegrityError(ENQUEUE_BACKFILL_INTEGRITY_CONTEXT, error) ?? error;
   }
 }
 
-async function handleDetachedFailure(
-  error: unknown,
-  context: string,
-  onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler
-): Promise<void> {
-  const { isCorruptionError } = await import('../db-main');
-  if (!isCorruptionError(error)) {
-    return;
-  }
-  await handleRuntimeDatabaseCorruption(context, onRuntimeCorruption);
+/** The IPC call already resolved, so a detached failure can only contain, never reject. */
+async function containDetachedFailure(error: unknown): Promise<void> {
+  containDatabaseIntegrityError(ENQUEUE_BACKFILL_INTEGRITY_CONTEXT, error);
 }
 
 export function registerEmbeddingBackfillIpcHandlers({
@@ -70,7 +57,6 @@ export function registerEmbeddingBackfillIpcHandlers({
   getDatabaseWorkScheduler,
   getDimensionIndexMaintenanceStrategy,
   isBackgrounded,
-  onRuntimeCorruption,
 }: RegisterEmbeddingBackfillIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
@@ -101,7 +87,7 @@ export function registerEmbeddingBackfillIpcHandlers({
     UNAUTHENTICATED_SENDER_POLICY,
     async (event, embeddingSetId: unknown) => {
       try {
-        return await withCorruptionRecovery(
+        return await withIntegrityContainment(
           async () =>
             await runDesktopEmbeddingBackfill({
               databaseWorkScheduler: getDatabaseWorkScheduler(),
@@ -112,15 +98,8 @@ export function registerEmbeddingBackfillIpcHandlers({
                 : {}),
               isBackgrounded,
               ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
-              onDetachedFailure: async (error: unknown) =>
-                await handleDetachedFailure(
-                  error,
-                  EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
-                  onRuntimeCorruption
-                ),
-            }),
-          EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
-          onRuntimeCorruption
+              onDetachedFailure: containDetachedFailure,
+            })
         );
       } catch (error) {
         // A deliberate cancellation is a benign STATE, not a handler failure.
@@ -128,7 +107,7 @@ export function registerEmbeddingBackfillIpcHandlers({
         // and already logs the cancellation at info level; here we resolve a
         // structured { canceled: true } so Electron's ipcMain.handle does not
         // surface it as "Error occurred in handler". Every other error — including
-        // corruption that survived recovery — still rejects and is logged loudly.
+        // a contained integrity error — still rejects and is logged loudly.
         if (error instanceof Error && error.message === EMBEDDING_BACKFILL_CANCELED_MESSAGE) {
           return { canceled: true } as const;
         }

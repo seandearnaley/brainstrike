@@ -13,6 +13,8 @@ import {
   reclaimLegacyBrowserPGliteStorage,
 } from './browser-pglite-storage.js';
 
+import { reportDatabaseCloseFailure } from './database-close-diagnostics.js';
+
 type VectorExtension = Extension;
 type LiveExtension = Extension;
 type TrgmExtension = Extension;
@@ -322,7 +324,7 @@ class WasmLoader {
             try {
               await closeResolved(db);
             } catch (err) {
-              logger.warn('Failed to close late PGlite worker startup', { dataDir, error: err });
+              reportDatabaseCloseFailure(err, 'browser-persistent');
             }
           })
           .catch(() => undefined);
@@ -373,6 +375,7 @@ class WasmLoader {
   async closeCached(dataDir?: string): Promise<void> {
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
     const cacheKey = normalizedDataDir || 'default';
+    const storage = isBrowserPersistentPGliteDataDir(dataDir) ? 'browser-persistent' : 'direct';
 
     const db = this.dbCache.get(cacheKey);
     if (db) {
@@ -381,7 +384,7 @@ class WasmLoader {
         await (await db).close();
         logger.info('Closed and removed cached PGlite instance', { cacheKey });
       } catch (err) {
-        logger.warn('Failed to close cached PGlite instance', { cacheKey, error: err });
+        reportDatabaseCloseFailure(err, storage);
       }
     }
 
@@ -394,7 +397,7 @@ class WasmLoader {
         await workerDb.close();
         logger.info('Closed and removed cached PGlite worker client', { cacheKey });
       } catch (err) {
-        logger.warn('Failed to close cached PGlite worker client', { cacheKey, error: err });
+        reportDatabaseCloseFailure(err, storage);
       }
     } else if (pendingWorkerStartup) {
       this.workerClientStartups.delete(cacheKey);
@@ -410,7 +413,7 @@ class WasmLoader {
         if (isWorkerStartupDisposedError(err)) {
           logger.info('Disposed pending PGlite worker client startup', { cacheKey });
         } else {
-          logger.warn('Failed to close pending PGlite worker client', { cacheKey, error: err });
+          reportDatabaseCloseFailure(err, storage);
         }
       }
     }

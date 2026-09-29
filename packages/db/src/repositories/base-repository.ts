@@ -669,7 +669,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   }
 
   async clearAll(): Promise<number> {
-    const countResult = await this.db.query(`SELECT COUNT(*) as count FROM ${this.tableName}`);
+    const countResult = await measureDatabaseQuery(
+      'file-tree',
+      async () => await this.db.query(`SELECT COUNT(*) as count FROM ${this.tableName}`)
+    );
     const countRow = countResult.rows[0];
     const totalCount =
       countRow && typeof countRow === 'object' && 'count' in countRow ? Number(countRow.count) : 0;

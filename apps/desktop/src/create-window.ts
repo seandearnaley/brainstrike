@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
+import { Effect, Schedule } from 'effect';
 import { app, BrowserWindow } from 'electron';
 import { resolveAgentDevtoolsWindowTitle } from './agent-devtools-config';
 import {
@@ -16,6 +18,7 @@ import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { resolveDistRoot } from './dist-root';
 import { shouldDenyMcpAppFrameNavigation } from './mcp/apps-frame-navigation';
 import type { DesktopWindowState } from './store-schema';
+import { publishWindowFocus } from './window-focus-ipc';
 import { assignWindowRole, getWindowRole } from './window-role';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
 
@@ -125,15 +128,19 @@ function shouldAutoOpenDevTools(): boolean {
   return process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] === '1';
 }
 
-async function wait(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function connectToDevServer(win: BrowserWindow, devRendererUrl: string) {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= DEV_SERVER_RETRY_ATTEMPTS; attempt++) {
-    try {
+async function connectToDevServer(win: BrowserWindow, devRendererUrl: string): Promise<void> {
+  let attempt = 0;
+  const load = Effect.tryPromise({
+    catch: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      startupLogger.warn(
+        { attempt, message, url: devRendererUrl },
+        'Desktop renderer connection attempt failed'
+      );
+      return error;
+    },
+    try: async () => {
+      attempt++;
       const attemptStart = Date.now();
       // CRITICAL: Keep dev renderer URL deterministic.
       // Probing multiple ports caused hidden startup slowdowns and non-deterministic
@@ -147,27 +154,19 @@ async function connectToDevServer(win: BrowserWindow, devRendererUrl: string) {
         { attempt, elapsedMs: Date.now() - attemptStart, url: devRendererUrl },
         'Desktop renderer connection established'
       );
-      return;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      startupLogger.warn(
-        { attempt, message, url: devRendererUrl },
-        'Desktop renderer connection attempt failed'
-      );
-      lastError = error;
-    }
-
-    if (attempt < DEV_SERVER_RETRY_ATTEMPTS) {
-      await wait(DEV_SERVER_RETRY_DELAY_MS);
-    }
-  }
-
-  throw new Error(
-    `Unable to connect to dev renderer at ${devRendererUrl} after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`,
-    {
-      cause: lastError instanceof Error ? lastError : undefined,
-    }
+    },
+  });
+  const retryPolicy = Schedule.spaced(DEV_SERVER_RETRY_DELAY_MS).pipe(
+    Schedule.upTo({ times: DEV_SERVER_RETRY_ATTEMPTS - 1 })
   );
+  try {
+    await runAtPromiseBoundary(Effect.retry(load, retryPolicy));
+  } catch (error) {
+    throw new Error(
+      `Unable to connect to dev renderer at ${devRendererUrl} after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`,
+      { cause: error instanceof Error ? error : undefined }
+    );
+  }
 }
 
 export function noteNextWindowReload(win: BrowserWindow, metadata: WindowReloadMetadata): void {
@@ -297,6 +296,16 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       : {}),
   });
   assignWindowRole(win, 'visible-ui');
+  // The renderer's app-active signal follows THIS window's native focus, not its
+  // own `document.hasFocus()` (false while the browser pane or DevTools holds
+  // keyboard focus). Attached before `show()` and before the renderer loads: the
+  // renderer subscribes and asks `isFocused()` during the load, and `show()`
+  // itself hands the window key status, so a listener attached after either would
+  // miss a transition the renderer's initial read predates. A push before the
+  // renderer has subscribed is dropped, which is fine: its own `isFocused()`
+  // answers the state at call time. Per window, so a dock-reopened replacement
+  // publishes too.
+  publishWindowFocus(win);
   if (agentDevtoolsWindowTitle) {
     win.on('page-title-updated', (event: Electron.Event) => {
       event.preventDefault();
@@ -430,6 +439,31 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   app.on('activate', activateHandler);
   win.on('closed', () => {
     app.removeListener('activate', activateHandler);
+  });
+
+  // A hung renderer leaves no trace in the durable log on its own: the main
+  // process keeps serving while the window is frozen (2026-09-14, four child
+  // streams into the root thread). Electron reports the hang; record it and
+  // its recovery with timing so a debug pack can prove WHEN the UI locked.
+  let unresponsiveSince: number | undefined;
+  win.webContents.on('unresponsive', () => {
+    unresponsiveSince = Date.now();
+    startupLogger.error(
+      { code: 'renderer_unresponsive', windowRole: getWindowRole(win) ?? 'visible-ui' },
+      'Renderer became unresponsive'
+    );
+  });
+  win.webContents.on('responsive', () => {
+    startupLogger.warn(
+      {
+        code: 'renderer_responsive_again',
+        unresponsiveMs:
+          unresponsiveSince === undefined ? undefined : Date.now() - unresponsiveSince,
+        windowRole: getWindowRole(win) ?? 'visible-ui',
+      },
+      'Renderer responsive again'
+    );
+    unresponsiveSince = undefined;
   });
 
   win.webContents.on(

@@ -42,9 +42,10 @@ export default defineConfig({
     hookTimeout: 60_000,
     include: ['src/**/*.integration.test.?(c|m)[jt]s?(x)'],
     pool: 'forks',
-    // The base setup file is @testing-library/jest-dom wiring, which has no
-    // meaning (and no DOM to attach to) in this lane.
-    setupFiles: [],
+    // No DOM/unit setup here: the base setup file is @testing-library/jest-dom
+    // wiring, which has no DOM to attach to in this lane. The event-loop
+    // watchdog still applies because this lane hosts real PGlite.
+    setupFiles: ['@brainstrike/test-utils/vitest.event-loop-watchdog.setup'],
     // A real migrate() + PGlite boot is well past vitest's 5s default.
     testTimeout: 60_000,
   },

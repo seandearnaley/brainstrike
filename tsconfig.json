@@ -53,6 +53,9 @@
       "@brainstrike/hooks": [
         "./packages/hooks/src"
       ],
+      "@brainstrike/effect-kit": [
+        "./packages/effect-kit/src"
+      ],
       "@brainstrike/logging": [
         "./packages/logging/src"
       ],
@@ -91,6 +94,9 @@
       ],
       "@brainstrike/file-explorer-ui/*": [
         "./packages/file-explorer-ui/src/*"
+      ],
+      "@brainstrike/file-tree-test-fixtures": [
+        "./packages/file-tree-test-fixtures/src"
       ],
       "@brainstrike/storage": [
         "./packages/storage/src"
@@ -255,6 +261,9 @@
       "path": "./packages/tokenization"
     },
     {
+      "path": "./packages/effect-kit"
+    },
+    {
       "path": "./packages/logging"
     },
     {
@@ -277,6 +286,9 @@
     },
     {
       "path": "./packages/file-explorer-ui"
+    },
+    {
+      "path": "./packages/file-tree-test-fixtures"
     },
     {
       "path": "./packages/storage"

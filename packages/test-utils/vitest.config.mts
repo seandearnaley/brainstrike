@@ -6,7 +6,7 @@ import { workspaceSrcAliases } from './workspace-src-aliases.mjs';
 
 export default defineConfig({
   resolve: {
-    // Resolve workspace deps (@brainstrike/types) from SOURCE, not built dist.
+    // Resolve workspace deps from SOURCE, not built dist.
     // See ./workspace-src-aliases.mjs (incident #1066/#1207).
     alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
   },

@@ -207,7 +207,7 @@ function determineDevice(requestedDevice: string | undefined): 'webgpu' | 'wasm'
 export class TransformersBackend {
   // Runtime diagnostics (static, process-wide)
   private static _verboseOrtLogs = false;
-  private static _epFallbackSeen = 0;
+  private static readonly _epFallbackSeen = 0;
   private static _inferenceCount = 0;
 
   static setVerboseOrtLogs(enabled: boolean) {
@@ -333,6 +333,7 @@ export class TransformersBackend {
       const metadata = await client.stream(
         this.createWorkerRequest(texts, modelId, options?.streamBatchSize),
         {
+          ...(options?.signal ? { signal: options.signal } : {}),
           onBatch: async (event) => {
             const results = event.vectors.map((vector) => {
               const embedding = Array.from(vector) as number[];

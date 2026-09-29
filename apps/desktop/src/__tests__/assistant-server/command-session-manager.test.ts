@@ -5,6 +5,8 @@ import path from 'node:path';
 import type { IPty } from 'node-pty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCommandSessionManager } from '../../assistant-server/command-session-manager';
+import * as workspaceLeases from '../../assistant-server/workspace-mutation-lease';
+import { acquireWorkspaceMutationLease } from '../../assistant-server/workspace-mutation-lease';
 import type { WorkspaceRootResolver } from '../../workspace-root-cwd';
 
 class FakePty {
@@ -66,6 +68,8 @@ function resolverFor(
 ): WorkspaceRootResolver {
   return { listRoots: () => Promise.resolve(roots) };
 }
+
+const acquireWorkspaceMutationLeaseOriginal = acquireWorkspaceMutationLease;
 
 describe('command session manager', () => {
   let rootA: string;
@@ -589,6 +593,87 @@ describe('command session manager', () => {
     expect(spawned[0]?.killCalls).toBe(1);
     expect(manager.list('root-a')).toEqual([]);
   });
+
+  it('classifies cancellation while waiting for a delegated workspace lease', async () => {
+    const manager = createManager();
+    const root = await fsPromises.realpath(rootA);
+    const release = await acquireWorkspaceMutationLease(root, 'opaque');
+    const cancel = new AbortController();
+    const acquire = vi.spyOn(workspaceLeases, 'acquireWorkspaceMutationLease');
+    const starting = manager.start({
+      command: 'queued',
+      delegatedThreadId: 'child',
+      rootId: 'root-a',
+      signal: cancel.signal,
+    });
+    // The real root resolver finishes before the queued lease can be granted.
+    await vi.waitFor(() =>
+      expect(acquire).toHaveBeenCalledWith(root, 'opaque', cancel.signal, 'session-1')
+    );
+    cancel.abort();
+    try {
+      await expect(starting).rejects.toMatchObject({ code: 'aborted' });
+      expect(spawned).toEqual([]);
+    } finally {
+      acquire.mockRestore();
+      release();
+      await manager.dispose();
+    }
+  });
+
+  it('keeps post-acquisition cancellation typed and releases without spawning', async () => {
+    const manager = createManager();
+    const cancel = new AbortController();
+    const acquire = vi
+      .spyOn(workspaceLeases, 'acquireWorkspaceMutationLease')
+      .mockImplementationOnce(async (...args) => {
+        const release = await acquireWorkspaceMutationLeaseOriginal(...args);
+        cancel.abort();
+        return release;
+      });
+    try {
+      await expect(
+        manager.start({
+          command: 'cancel-before-spawn',
+          delegatedThreadId: 'child',
+          rootId: 'root-a',
+          signal: cancel.signal,
+        })
+      ).rejects.toMatchObject({ code: 'aborted' });
+      expect(spawned).toEqual([]);
+      const release = await acquireWorkspaceMutationLease(
+        await fsPromises.realpath(rootA),
+        'files'
+      );
+      release();
+    } finally {
+      acquire.mockRestore();
+      await manager.dispose();
+    }
+  });
+
+  it.each(['root', 'all'] as const)(
+    'retains the exit observer after %s disposal times out',
+    async (scope) => {
+      const manager = createManager({ processExitTimeoutMs: 5 });
+      const root = await fsPromises.realpath(rootA);
+      await manager.start({ command: 'late', delegatedThreadId: 'child', rootId: 'root-a' });
+      const process = spawned[0]!;
+      process.killEmitsExit = false;
+      try {
+        await (scope === 'root' ? manager.disposeRoot('root-a') : manager.dispose());
+        await expect(acquireWorkspaceMutationLease(root, 'files')).rejects.toThrow(
+          'must wait for that process to exit'
+        );
+        process.emitExit(0);
+        const release = await acquireWorkspaceMutationLease(root, 'files');
+        release();
+      } finally {
+        process.emitExit(0);
+        await manager.dispose();
+      }
+    }
+  );
 
   it('finishes root and global disposal when one PTY never reports exit', async () => {
     const manager = createManager({ processExitTimeoutMs: 5 });

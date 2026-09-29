@@ -133,8 +133,20 @@ export async function selectWorkspaceSearchCollection(
   panel: Locator,
   collectionName: string
 ): Promise<void> {
-  const picker = panel.getByRole('combobox');
+  const picker = panel.getByRole('combobox', { exact: true, name: 'Search collection' });
+  const quietLabel = panel.getByTestId('workspace-search-single-collection');
+  // Live collection rows arrive after the lazy panel mounts. Absence of the
+  // picker is a single-set state only when the requested quiet label is visible.
+  await expect
+    .poll(
+      async () =>
+        (await picker.isVisible()) ||
+        (await quietLabel.getByText(collectionName, { exact: true }).isVisible()),
+      { timeout: 15_000 }
+    )
+    .toBe(true);
   if ((await picker.count()) === 0) {
+    await expect(quietLabel).toHaveText(collectionName, { timeout: 15_000 });
     return;
   }
 

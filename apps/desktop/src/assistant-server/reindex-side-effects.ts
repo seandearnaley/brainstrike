@@ -5,15 +5,25 @@
  * non-fatal by contract — the mutation already succeeded, so failures are
  * logged (never swallowed, never propagated).
  *
- * Leaf module: depends on the database handle, the background-indexer seam,
- * and the shared file reader — never on `assistant-tools.ts`, so no import
- * cycle is possible.
+ * Leaf module: depends on the database handle, the desktop work scheduler, the
+ * background-indexer seam, and the shared file reader — never on
+ * `assistant-tools.ts`, so no import cycle is possible.
  */
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
-import { invalidateManagedCacheEntriesByIdentity } from '@brainstrike/db';
+import {
+  createScheduledDbHandle,
+  invalidateManagedCacheEntriesByIdentity,
+  isBackgroundDatabaseWorkAdmitted,
+} from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
+import {
+  containDatabaseIntegrityError,
+  DatabaseIntegrityError,
+  getDesktopDatabaseIntegrity,
+} from '../database-integrity-state';
 import { getDatabase } from '../db-main';
+import { getDesktopDatabaseWorkScheduler } from '../platform/desktop-database-work-scheduler';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support';
 import { readWorkspaceTextFile } from './workspace-text-file-reader';
@@ -28,6 +38,47 @@ const logger = createLogger('DesktopAssistantTools');
  */
 function toFileRecordRelativePath(workspacePath: string): string {
   return workspacePath.replace(/^\/+/, '');
+}
+
+const CONTAINMENT_SKIP_MESSAGE =
+  'Skipped re-index: database integrity containment is active; the Workspace Index may be stale';
+
+/**
+ * Index maintenance after an edit or delete is background database work, so
+ * while an integrity error is contained it is skipped — and said so: the edit
+ * or delete already succeeded, and the index can only be stale (BST-1870).
+ *
+ * This pre-check is one read. Containment can start while the helper awaits
+ * `getDatabase()` or between its own statements, so the actual database access
+ * goes through {@link openBackgroundDatabase}, whose statements the scheduler
+ * gates at their own start ({@link isPausedByDatabaseIntegrity}).
+ */
+function skipsWhileDatabaseIntegrityContained(): boolean {
+  if (isBackgroundDatabaseWorkAdmitted(getDesktopDatabaseIntegrity().getSnapshot().state)) {
+    return false;
+  }
+  logger.warn(CONTAINMENT_SKIP_MESSAGE);
+  return true;
+}
+
+/**
+ * The database handle for index maintenance: every query and transaction is a
+ * `background` task on the desktop work scheduler, exactly like the embedding
+ * backfill's handle (`ipc-embedding-backfill.ts`, `createScheduledDbHandle` over
+ * `getDesktopDatabaseWorkScheduler()`). The scheduler's start-time gate then
+ * rejects each statement, including the write, once containment is active.
+ */
+async function openBackgroundDatabase(): Promise<ReindexDatabaseHandle> {
+  return createScheduledDbHandle(
+    await getDatabase(),
+    getDesktopDatabaseWorkScheduler(),
+    'background'
+  );
+}
+
+/** The scheduler gate refused a statement because containment began after the pre-check. */
+function isPausedByDatabaseIntegrity(error: unknown): boolean {
+  return error instanceof DatabaseIntegrityError && error.detail.reason === 'background-paused';
 }
 
 /**
@@ -57,9 +108,12 @@ export async function triggerEditedFileReindex(args: {
   content: string;
   size: number;
 }): Promise<void> {
+  if (skipsWhileDatabaseIntegrityContained()) {
+    return;
+  }
   let db: ReindexDatabaseHandle;
   try {
-    db = await getDatabase();
+    db = await openBackgroundDatabase();
   } catch (error) {
     // DB unavailable (no DB initialized). Non-fatal and expected outside a
     // running app — log at debug so it is traceable without alarming.
@@ -82,10 +136,18 @@ export async function triggerEditedFileReindex(args: {
       workspaceIndexEmbeddingSetId: args.runtimeData?.workspaceIndexEmbeddingSetId,
     });
   } catch (error) {
+    if (isPausedByDatabaseIntegrity(error)) {
+      // Containment began after the pre-check: the gate refused the write.
+      logger.warn(CONTAINMENT_SKIP_MESSAGE);
+      return;
+    }
+    // An integrity error pauses background writes for the whole app; the edit
+    // itself still succeeded, so this stays non-fatal (and logged below).
+    const reported = containDatabaseIntegrityError('assistant:reindex', error) ?? error;
     // A resolvable DB that then fails to re-index is a genuine problem — surface
     // it (no silent swallow) but never fail the already-successful edit.
     logger.error('Failed to re-index edited file; RAG index may be stale until next sync', {
-      error: redactToolErrorForLog(error),
+      error: redactToolErrorForLog(reported),
       path: REDACTED_PATH_LOG_VALUE,
     });
   }
@@ -102,7 +164,9 @@ export async function triggerEditedFileReindex(args: {
  *
  * No-op (returns false) when no Workspace Index is configured or the DB is
  * unavailable (as in the DB-less unit tests) — there is then nothing to keep
- * coherent.
+ * coherent. It also returns false, with a warning, while database integrity
+ * containment pauses background writes — at the pre-check or when the scheduler
+ * gate refuses the write: the index rows are then stale.
  */
 export async function triggerFileDeletionInvalidation(args: {
   runtimeData: RuntimeData | undefined;
@@ -113,10 +177,13 @@ export async function triggerFileDeletionInvalidation(args: {
   if (!embeddingSetId) {
     return { invalidated: false };
   }
+  if (skipsWhileDatabaseIntegrityContained()) {
+    return { invalidated: false };
+  }
 
   let db: ReindexDatabaseHandle;
   try {
-    db = await getDatabase();
+    db = await openBackgroundDatabase();
   } catch (error) {
     logger.debug('Skipped index invalidation: database unavailable', {
       error: redactToolErrorForLog(error),
@@ -141,10 +208,15 @@ export async function triggerFileDeletionInvalidation(args: {
     );
     return { invalidated: result.deletedFileRecordIds.length > 0 };
   } catch (error) {
+    if (isPausedByDatabaseIntegrity(error)) {
+      logger.warn(CONTAINMENT_SKIP_MESSAGE);
+      return { invalidated: false };
+    }
+    const reported = containDatabaseIntegrityError('assistant:reindex', error) ?? error;
     logger.error(
       'Failed to invalidate index rows for a removed/renamed file; RAG index may be stale until next sync',
       {
-        error: redactToolErrorForLog(error),
+        error: redactToolErrorForLog(reported),
         path: REDACTED_PATH_LOG_VALUE,
       }
     );
@@ -176,6 +248,10 @@ export async function triggerRenamedDestinationReindex(args: {
 }): Promise<void> {
   const embeddingSetId = args.runtimeData?.workspaceIndexEmbeddingSetId?.trim();
   if (!embeddingSetId) {
+    return;
+  }
+  // Before the bounded destination read: nothing may be written, so the read is wasted.
+  if (skipsWhileDatabaseIntegrityContained()) {
     return;
   }
 

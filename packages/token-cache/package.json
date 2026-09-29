@@ -3,15 +3,18 @@
   "description": "Persistent token cache with background worker for file explorer.",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
     "@electric-sql/pglite": "catalog:",
+    "effect": "catalog:",
     "xxhash-wasm": "catalog:"
   },
   "devDependencies": {
+    "@effect/tsgo": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
     "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
@@ -65,7 +68,7 @@
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest --watch",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && effect-tsgo diagnostics --project tsconfig.json --strict",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "sideEffects": false,

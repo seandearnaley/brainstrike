@@ -1,6 +1,6 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { StorageAdapter } from '@brainstrike/storage';
-import { createFileNode } from '@brainstrike/test-utils';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

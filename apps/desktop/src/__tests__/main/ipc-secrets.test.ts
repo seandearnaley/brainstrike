@@ -832,6 +832,41 @@ describe('registerSecretsIpcHandlers', () => {
       ).resolves.toEqual({ credential: null, ok: true });
     });
 
+    it('rejects a malformed argument list before it can key the secrets store', async () => {
+      process.env['NODE_ENV'] = 'production';
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getCredential: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi.fn(),
+        setCredential: vi.fn(),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+      const save = getHandler('secrets:save')!;
+
+      await expect(save(createInvokeEvent(), 42, 'sk-test')).rejects.toThrow(
+        /secrets IPC provider must be a non-empty string/u
+      );
+      await expect(save(createInvokeEvent(), 'openai\u0000', 'sk-test')).rejects.toThrow(
+        /no control characters/u
+      );
+      await expect(save(createInvokeEvent(), 'openai', 7)).rejects.toThrow(
+        /secrets IPC value must be a string/u
+      );
+      await expect(save(createInvokeEvent(), 'openai', 'sk-test', 'extra')).rejects.toThrow(
+        TypeError
+      );
+      await expect(getHandler('secrets:get')!(createInvokeEvent())).rejects.toThrow(TypeError);
+      await expect(
+        getHandler('secrets:saveCredential')!(createInvokeEvent(), '', { type: 'api_key' })
+      ).rejects.toThrow(/secrets IPC provider/u);
+      expect(secretsService.saveKey).not.toHaveBeenCalled();
+      expect(secretsService.getKey).not.toHaveBeenCalled();
+      expect(secretsService.setCredential).not.toHaveBeenCalled();
+    });
+
     it('delegates saveCredential and getCredential to the secrets service in production', async () => {
       process.env['NODE_ENV'] = 'production';
       const secretsService: SecretsServiceMock = {

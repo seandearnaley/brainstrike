@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import SettingsPageContent from '../page-content';
 
 vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
+  ModelCatalogHeaderActions: vi.fn(() => null),
   ModelSelectionPage: vi.fn(() => <div data-testid="model-selection-page-mock" />),
 }));
 
@@ -77,7 +78,7 @@ describe('Web SettingsPageContent', () => {
   test('renders navigation and defaults to appearance category', () => {
     renderPage();
 
-    expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
 
     const nav = screen.getByRole('navigation', { name: /settings categories/i });
@@ -124,5 +125,21 @@ describe('Web SettingsPageContent', () => {
     const pane = await screen.findByTestId('settings-category-models');
     expect(within(pane).getByTestId('model-selection-page-mock')).toBeInTheDocument();
     expect(window.location.hash).toBe('#settings/models');
+  });
+
+  test('renders Assistant Memory as its own category right after Model Catalog', async () => {
+    renderPage();
+
+    const nav = screen.getByRole('navigation', { name: /settings categories/i });
+    const titles = within(nav)
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+    expect(titles.indexOf('Assistant Memory')).toBe(titles.indexOf('Model Catalog') + 1);
+
+    fireEvent.click(within(nav).getByRole('button', { name: /^Assistant Memory$/i }));
+
+    const pane = await screen.findByTestId('settings-category-assistant-memory');
+    expect(within(pane).getByTestId('assistant-memory-settings-section')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#settings/assistant-memory');
   });
 });

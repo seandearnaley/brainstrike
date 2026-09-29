@@ -77,9 +77,8 @@ function deadlinePromise<T>(
   });
 }
 
-function phaseBudgets(timeoutMs: number): readonly [operationMs: number, cleanupMs: number] {
-  const cleanupMs = Math.min(1000, Math.max(1, Math.floor(timeoutMs / 4)));
-  return [Math.max(1, timeoutMs - cleanupMs), cleanupMs];
+function cleanupReserveMs(timeoutMs: number): number {
+  return Math.min(1000, Math.max(1, Math.floor(timeoutMs / 4)));
 }
 
 function expectedAbort(error: unknown, signal: AbortSignal): boolean {
@@ -109,7 +108,10 @@ async function runPhase(
 ): Promise<CompletedPhase> {
   const owner = dependencies.createPhaseOwner(runnerCase, phase);
   const controller = new AbortController();
-  const [operationTimeoutMs, cleanupReserveMs] = phaseBudgets(timeoutMs);
+  const reserveMs = cleanupReserveMs(timeoutMs);
+  // The reserve is carved from the end of the phase deadline, so time already spent
+  // (a slow owner creation) shortens the operation, never the cleanup.
+  const operationTimeoutMs = Math.max(1, Math.ceil(remainingRunMs() - reserveMs));
   const runPromise = Promise.resolve().then(() => owner.run(controller.signal));
   let timedOut = false;
   let observation: McpLabRunnerCaseObservation | undefined;
@@ -132,7 +134,7 @@ async function runPhase(
   let cleanupError: Error | undefined;
   try {
     const cleanupController = new AbortController();
-    const cleanupTimeoutMs = Math.max(1, Math.ceil(Math.min(cleanupReserveMs, remainingRunMs())));
+    const cleanupTimeoutMs = Math.max(1, Math.ceil(Math.min(reserveMs, remainingRunMs())));
     cleanupDetails = validateCleanup(
       await deadlinePromise(
         Promise.resolve().then(async () => {

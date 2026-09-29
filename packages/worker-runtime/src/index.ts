@@ -148,19 +148,6 @@ export interface RuntimeLogBindings {
   readonly windowRole?: string;
 }
 
-const RUNTIME_ENVELOPE_TYPES = new Set<RuntimeEnvelopeType>([
-  'cancel',
-  'error',
-  'progress',
-  'request',
-  'result',
-  'status',
-]);
-
-function isRuntimeEnvelopeType(value: unknown): value is RuntimeEnvelopeType {
-  return typeof value === 'string' && RUNTIME_ENVELOPE_TYPES.has(value as RuntimeEnvelopeType);
-}
-
 export interface RuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<string>> {
   getStatus: () => TStatus;
   setStatus: (status: TStatus) => TStatus;
@@ -360,77 +347,6 @@ export function createBackgroundRuntimeScopedChannels<
     scopedChannels[key] = createBackgroundRuntimeScopedChannel(runtimeKind, suffix);
   }
   return scopedChannels as BackgroundRuntimeScopedChannels<TRuntimeKind, TChannels>;
-}
-
-export function assertRuntimeObjectPayloadEnvelope(
-  value: unknown,
-  context: string
-): {
-  readonly candidate: Record<string, unknown>;
-  readonly envelopeBase: RuntimeEnvelopeObjectPayloadBase;
-  readonly payload: Record<string, unknown>;
-} {
-  if (!value || typeof value !== 'object') {
-    throw new Error(`${context} must be an object.`);
-  }
-  const candidate = value as Record<string, unknown>;
-  if (!isRuntimeEnvelopeType(candidate['type'])) {
-    throw new Error(`${context} must include a valid runtime envelope type.`);
-  }
-  if (typeof candidate['requestId'] !== 'string' || candidate['requestId'].trim().length === 0) {
-    throw new Error(`${context} must include a non-empty requestId.`);
-  }
-  if (typeof candidate['runtimeId'] !== 'string' || candidate['runtimeId'].trim().length === 0) {
-    throw new Error(`${context} must include a non-empty runtimeId.`);
-  }
-  if (typeof candidate['channel'] !== 'string' || candidate['channel'].trim().length === 0) {
-    throw new Error(`${context} must include a non-empty channel.`);
-  }
-  const payload = candidate['payload'];
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error(`${context} must include a payload object.`);
-  }
-  const type = candidate['type'];
-  const channel = candidate['channel'];
-  const requestId = candidate['requestId'];
-  const runtimeId = candidate['runtimeId'];
-  return {
-    candidate,
-    envelopeBase: {
-      channel,
-      requestId,
-      runtimeId,
-      type,
-    },
-    payload: payload as Record<string, unknown>,
-  };
-}
-
-export function assertRuntimeRequestPayloadBase<TKind extends string>(
-  value: unknown,
-  context: string,
-  expectedKind: TKind
-): {
-  readonly candidate: Record<string, unknown>;
-  readonly requestBase: RuntimeRequestPayloadBase<TKind>;
-} {
-  if (!value || typeof value !== 'object') {
-    throw new Error(`${context} must be an object.`);
-  }
-  const candidate = value as Record<string, unknown>;
-  if (candidate['kind'] !== expectedKind) {
-    throw new Error(`${context} must declare kind="${expectedKind}".`);
-  }
-  if (typeof candidate['requestId'] !== 'string' || candidate['requestId'].trim().length === 0) {
-    throw new Error(`${context} must include a non-empty requestId.`);
-  }
-  return {
-    candidate,
-    requestBase: {
-      kind: expectedKind,
-      requestId: candidate['requestId'],
-    },
-  };
 }
 
 export function createRuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<string>>(

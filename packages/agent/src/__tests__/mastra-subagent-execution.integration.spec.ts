@@ -15,12 +15,20 @@ import type {
 } from '@ai-sdk/provider';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import { PGlite } from '@electric-sql/pglite';
+import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import type { PGlite } from '@electric-sql/pglite';
+import { InMemoryStore } from '@mastra/core/storage';
 import { createTool } from '@mastra/core/tools';
+import { Memory } from '@mastra/memory';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { CHILD_WRAP_UP_FEEDBACK } from '../mastra/build-persona-subagents';
+import {
+  createDelegatedConversationBinding,
+  type DelegatedConversationIdentity,
+} from '../mastra/delegated-conversation-binding';
 import type { PgliteDatabase } from '../pglite-mastra-memory';
+import { createStalledChildSupervisorModel } from '../test-fixtures/stalled-child-supervisor-model';
 import type { StreamChunk } from '../types';
 
 const { modelHolder } = vi.hoisted(() => ({
@@ -172,44 +180,6 @@ function createSupervisorModel(childToolCallId: string): LanguageModelV2 {
             ? finalTextStream('CHILD_ANSWER: found FLAG-42 in the workspace.')
             : toolCallStream(CHILD_TOOL, childToolCallId, JSON.stringify({ pattern: 'flag' }))
         ),
-      });
-    },
-    modelId: 'fake-model',
-    provider: 'fake',
-    specificationVersion: 'v2',
-    supportedUrls: {},
-  };
-}
-
-/**
- * A supervisor model whose PARENT turn delegates to `agent-explore`, but whose
- * CHILD `doStream` resolves to a stream that never enqueues or closes —
- * simulating a real Mastra stream that stalls mid-delegation (no more items
- * ever arrive on the parent's `fullStream`, so the inactivity watchdog in
- * `streamChunksFromMastra` eventually throws `StreamStalledError`).
- */
-function createStalledChildSupervisorModel(): LanguageModelV2 {
-  return {
-    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
-    doStream: (options: LanguageModelV2CallOptions) => {
-      const isParent = toolNamesOf(options).includes(DELEGATION_TOOL);
-      if (isParent) {
-        return Promise.resolve({
-          stream: enqueue(
-            toolCallStream(
-              DELEGATION_TOOL,
-              'delegation-call-1',
-              JSON.stringify({ prompt: 'find the flag' })
-            )
-          ),
-        });
-      }
-      return Promise.resolve({
-        stream: new ReadableStream<LanguageModelV2StreamPart>({
-          start() {
-            // Intentionally never enqueue or close: simulates a hung child model.
-          },
-        }),
       });
     },
     modelId: 'fake-model',
@@ -660,6 +630,73 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     await runtime.dispose();
   });
 
+  it('keeps delegation available when only a memory instance is supplied', async () => {
+    modelHolder.current = createSupervisorModel('probe-child');
+    const memory = new Memory({ options: { generateTitle: false }, storage: new InMemoryStore() });
+    const execute = vi.fn(async () => ({ matches: ['proof'] }));
+    const iterator = await streamMastraAgent(
+      [{ id: 'probe-user', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+      {
+        memory,
+        personas: [testPersona],
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { 'brainstrike.grepSearch': makeChildTool(execute) },
+      }
+    );
+    const result = await collect(iterator);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(result)).not.toContain('Delegated persistence requires');
+  });
+
+  it('aborts a memory-backed hung child before watchdog recovery', async () => {
+    vi.stubEnv('BRAINSTRIKE_TOOL_TIMEOUT_MS', '100');
+    vi.stubEnv('BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS', '300');
+    vi.stubEnv('BRAINSTRIKE_STREAM_INACTIVITY_MS', '300');
+    vi.stubEnv('BRAINSTRIKE_STREAM_STALL_ATTEMPTS', '2');
+    const stalled = createStalledChildSupervisorModel(DELEGATION_TOOL);
+    let parentCalls = 0;
+    const childSignals: (AbortSignal | undefined)[] = [];
+    modelHolder.current = {
+      ...stalled,
+      doStream: (options) => {
+        if (toolNamesOf(options).includes(DELEGATION_TOOL) && parentCalls++ > 0) {
+          return Promise.resolve({ stream: enqueue(finalTextStream('Recovered parent')) });
+        }
+        if (!toolNamesOf(options).includes(DELEGATION_TOOL)) {
+          childSignals.push(options.abortSignal);
+        }
+        return stalled.doStream(options);
+      },
+    };
+    const memory = new Memory({ options: { generateTitle: false }, storage: new InMemoryStore() });
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'probe-user', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          personas: [testPersona],
+          runtime: {
+            apiKey: 'test-key',
+            memory: {
+              memorySettings: OM_DISABLED_MEMORY_SETTINGS,
+              resourceId: 'owner',
+              threadId: 'root',
+            },
+            provider: 'openai',
+          },
+          tools: { 'brainstrike.grepSearch': makeChildTool(vi.fn()) },
+        }
+      );
+      const result = await collect(iterator);
+      expect(JSON.stringify(result)).toContain('Recovered parent');
+      expect(result.runEvents.map((event) => event.kind)).toContain('run.resumed');
+      expect(childSignals).toHaveLength(1);
+      expect(childSignals[0]?.aborted).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('drains the orphaned delegation on a stream stall mid-delegation (no orphaned subagent.started)', async () => {
     // Short-circuit the resilience timeouts so the real inactivity watchdog
     // fires quickly instead of waiting out the 120s production default.
@@ -673,7 +710,7 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     const previousStallAttempts = process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'];
     process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '1';
     try {
-      modelHolder.current = createStalledChildSupervisorModel();
+      modelHolder.current = createStalledChildSupervisorModel(DELEGATION_TOOL);
 
       const iterator = await streamMastraAgent(
         [{ id: 'u1', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
@@ -719,19 +756,188 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
       }
     }
   }, 10_000);
+  it.each([
+    { rejected: false, toolFailure: false },
+    { rejected: true, toolFailure: false },
+    { rejected: false, toolFailure: true },
+  ])(
+    'awaits native child run authorization before publishing progress (%j)',
+    async ({ rejected, toolFailure }) => {
+      modelHolder.current = createSupervisorModel('authorized-child-tool');
+      // This tests publication/abort, not database durability; use Mastra's public test store.
+      const memory = new Memory({
+        options: { generateTitle: false },
+        storage: new InMemoryStore(),
+      });
+      const identities: DelegatedConversationIdentity[] = [];
+      const bindRun = vi.fn(
+        async (identity: {
+          parentRuntimeRunId: string;
+          parentToolCallId: string;
+          childRuntimeRunId: string;
+        }) => {
+          expect(identities[0]).toMatchObject({
+            parentRuntimeRunId: identity.parentRuntimeRunId,
+            parentToolCallId: identity.parentToolCallId,
+          });
+          expect(identity.childRuntimeRunId).toBeTruthy();
+          expect(identity.childRuntimeRunId).not.toBe(identity.parentRuntimeRunId);
+          if (rejected) {
+            throw new Error('Native child run is unauthorized');
+          }
+          const child = identities[0];
+          if (!child) {
+            throw new Error('Missing child binding');
+          }
+          expect(await memory.getThreadById({ threadId: child.childThreadId })).toMatchObject({
+            resourceId: child.childResourceId,
+          });
+          return { threadId: child.childThreadId };
+        }
+      );
+      const conversationBinding = {
+        ...createDelegatedConversationBinding(async (identity) => {
+          identities.push(identity);
+        }),
+        bindRun,
+      };
+      const execute = vi.fn(async () => {
+        if (toolFailure) {
+          throw new Error('Native child tool failed');
+        }
+        return { matches: ['match'] };
+      });
+      const iterator = await streamMastraAgent(
+        [{ id: 'binding-user', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+        {
+          conversationBinding,
+          memory,
+          personas: [testPersona],
+          runtime: {
+            apiKey: 'test-key',
+            memory: {
+              memorySettings: OM_DISABLED_MEMORY_SETTINGS,
+              resourceId: 'owner',
+              threadId: 'root',
+            },
+            provider: 'openai',
+          },
+          tools: { 'brainstrike.grepSearch': makeChildTool(execute) },
+        }
+      );
+      const progress: string[] = [];
+      const chunks: StreamChunk[] = [];
+      const consume = async (): Promise<void> => {
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+          if (chunk.type === 'run-event' && chunk.event.kind.startsWith('subagent.tool.')) {
+            expect(bindRun).toHaveBeenCalledOnce();
+            progress.push(chunk.event.kind);
+          }
+        }
+      };
+      if (rejected) {
+        await expect(consume()).rejects.toThrow('Native child run is unauthorized');
+        expect(progress).toEqual([]);
+      } else {
+        await consume();
+        expect(progress).toContain('subagent.tool.started');
+        // Full child content has its own native invocation and message identity;
+        // it must not be flattened into the parent assistant's text.
+        expect(chunks).toContainEqual(
+          expect.objectContaining({
+            chunk: { type: 'text-delta', value: 'CHILD_ANSWER: found FLAG-42 in the workspace.' },
+            identity: expect.objectContaining(bindRun.mock.calls[0]?.[0]),
+            messageId: expect.any(String),
+            type: 'delegated-conversation-chunk',
+          })
+        );
+        expect(chunks.filter((chunk) => chunk.type === 'text-delta')).not.toContainEqual({
+          type: 'text-delta',
+          value: 'CHILD_ANSWER: found FLAG-42 in the workspace.',
+        });
+        if (toolFailure) {
+          await expect(execute.mock.results[0]?.value).rejects.toThrow('Native child tool failed');
+          expect(progress).toContain('subagent.tool.failed');
+          expect(progress).not.toContain('subagent.tool.completed');
+        }
+      }
+      expect(bindRun).toHaveBeenCalledOnce();
+    }
+  );
 });
 
 describe('mastra subagent delegation persistence (real PGlite memory)', () => {
   let database: PGlite;
 
-  beforeEach(() => {
-    database = new PGlite();
+  beforeEach(async () => {
+    database = await createEnginePglite();
     modelHolder.current = undefined;
   });
 
   afterEach(async () => {
     await database.close();
   });
+
+  it.each([false, true])(
+    'awaits the host binding before child execution (persistence failure=%s)',
+    async (fail) => {
+      const parentThreadId = 'binding-root';
+      const resourceId = 'binding-owner';
+      const bindings: DelegatedConversationIdentity[] = [];
+      modelHolder.current = createSupervisorModel('binding-child-tool');
+      const { memory } = await createPgliteMastraMemory({
+        database: database as unknown as PgliteDatabase,
+        memorySettings: OM_DISABLED_MEMORY_SETTINGS,
+      });
+      const conversationBinding = createDelegatedConversationBinding(async (identity) => {
+        const thread = await memory.getThreadById({ threadId: identity.childThreadId });
+        expect(thread?.resourceId).toBe(identity.childResourceId);
+        if (fail) {
+          throw new Error('Host binding write failed');
+        }
+        bindings.push(identity);
+      });
+      const execute = vi.fn(async () => {
+        expect(bindings).toHaveLength(1);
+        return { matches: ['bound'] };
+      });
+      const iterator = await streamMastraAgent(
+        [{ id: 'binding-user', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+        {
+          conversationBinding,
+          memory,
+          personas: [testPersona],
+          runtime: {
+            apiKey: 'test-key',
+            memory: {
+              memorySettings: OM_DISABLED_MEMORY_SETTINGS,
+              resourceId,
+              threadId: parentThreadId,
+            },
+            provider: 'openai',
+          },
+          tools: { 'brainstrike.grepSearch': makeChildTool(execute) },
+        }
+      );
+      const { runEvents } = await collect(iterator);
+      expect(execute).toHaveBeenCalledTimes(fail ? 0 : 1);
+      if (fail) {
+        expect(bindings).toHaveLength(0);
+        expect(runEvents.some((event) => event.kind === 'subagent.failed')).toBe(true);
+        return;
+      }
+      expect(bindings).toHaveLength(1);
+      expect(bindings[0]).toMatchObject({
+        configuration: { maxSteps: testPersona.maxSteps, persona: testPersona },
+        parentResourceId: resourceId,
+        parentRuntimeRunId: expect.any(String),
+        parentThreadId,
+        parentToolCallId: expect.any(String),
+        personaId: testPersona.id,
+      });
+    }
+  );
 
   it('persists the delegation as a tool-invocation part with inline subAgentToolResults; child rows live under a suffixed thread', async () => {
     const childCallId = 'child-call-persist';

@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DesktopShutdownRunPlan } from '../../main/desktop-graceful-shutdown';
+import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
 
 /**
  * Startup-latency contract: the visible window must NOT wait on database
@@ -153,7 +155,8 @@ vi.mock('electron-store', () => {
   return { default: MockElectronStore };
 });
 
-const { getDatabaseMock } = vi.hoisted(() => ({
+const { closeDatabaseMock, getDatabaseMock } = vi.hoisted(() => ({
+  closeDatabaseMock: vi.fn(async (): Promise<void> => undefined),
   getDatabaseMock: vi.fn(),
 }));
 
@@ -161,9 +164,53 @@ vi.mock('../../db-main', async () => {
   const actual = await vi.importActual<typeof import('../../db-main')>('../../db-main');
   return {
     ...actual,
+    closeDatabase: closeDatabaseMock,
     getDatabase: getDatabaseMock,
   };
 });
+
+const { recoverInterruptedMaintenanceMock } = vi.hoisted(() => ({
+  recoverInterruptedMaintenanceMock: vi.fn(async (): Promise<number> => 0),
+}));
+
+vi.mock('@brainstrike/db', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
+  return {
+    ...actual,
+    recoverInterruptedDimensionIndexMaintenanceAtStartup: recoverInterruptedMaintenanceMock,
+  };
+});
+
+const { cleanupSubscriptionsMock, waitForDatabaseIdleMock } = vi.hoisted(() => ({
+  cleanupSubscriptionsMock: vi.fn(async (): Promise<void> => undefined),
+  waitForDatabaseIdleMock: vi.fn(async (): Promise<void> => undefined),
+}));
+
+vi.mock('../../ipc-handlers', async () => {
+  const actual = await vi.importActual<typeof import('../../ipc-handlers')>('../../ipc-handlers');
+  return {
+    ...actual,
+    cleanupDesktopLiveSubscriptionsForShutdown: cleanupSubscriptionsMock,
+    waitForDesktopDatabaseWorkSchedulerIdle: waitForDatabaseIdleMock,
+  };
+});
+
+const { shutdownPlanCapture } = vi.hoisted(() => ({
+  shutdownPlanCapture: {
+    current: null as null | (() => DesktopShutdownRunPlan),
+    run: null as null | ReturnType<typeof vi.fn>,
+  },
+}));
+
+vi.mock('../../main/desktop-graceful-shutdown', () => ({
+  createDesktopGracefulShutdown: vi.fn(
+    (options: { readonly planRun: () => DesktopShutdownRunPlan }) => {
+      shutdownPlanCapture.current = options.planRun;
+      shutdownPlanCapture.run = vi.fn(async () => undefined);
+      return { run: shutdownPlanCapture.run };
+    }
+  ),
+}));
 
 const { probeMock } = vi.hoisted(() => ({
   probeMock: vi.fn(async () => ({
@@ -197,35 +244,75 @@ vi.mock('../../desktop-shutdown-state', async () => {
   };
 });
 
-const { databaseSchedulerStartMock, dimensionSchedulerStartMock } = vi.hoisted(() => ({
-  databaseSchedulerStartMock: vi.fn(),
-  dimensionSchedulerStartMock: vi.fn(),
+const { maintenanceCloseMock, maintenanceStartMock, maintenanceStopMock } = vi.hoisted(() => ({
+  maintenanceCloseMock: vi.fn(async (): Promise<void> => undefined),
+  maintenanceStartMock: vi.fn(async (): Promise<void> => undefined),
+  maintenanceStopMock: vi.fn(),
 }));
 
 vi.mock('../../database-maintenance-scheduler', () => ({
-  createDesktopDatabaseMaintenanceScheduler: vi.fn(() => ({
-    start: databaseSchedulerStartMock,
-    stop: vi.fn(),
-  })),
+  createDesktopDatabaseMaintenanceScheduler: vi.fn(() => ({})),
 }));
 
 vi.mock('../../dimension-index-maintenance-scheduler', () => ({
-  createDesktopDimensionIndexMaintenanceScheduler: vi.fn(() => ({
-    start: dimensionSchedulerStartMock,
-    stop: vi.fn(),
+  createDesktopDimensionIndexMaintenanceScheduler: vi.fn(() => ({})),
+}));
+
+vi.mock('../../desktop-maintenance-trigger-graph', () => ({
+  createDesktopMaintenanceTriggerGraph: vi.fn(() => ({
+    close: maintenanceCloseMock,
+    start: maintenanceStartMock,
+    stop: maintenanceStopMock,
   })),
 }));
 
+/** The logger `main.ts` made for 'DesktopMain'; fails loudly rather than reading the last one. */
+function requireMainLogger() {
+  const index = createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain');
+  const logger = index === -1 ? undefined : createLoggerMock.mock.results[index]?.value;
+  if (!logger) {
+    throw new Error("main.ts never created its 'DesktopMain' logger");
+  }
+  return logger;
+}
+
 describe('main boot order', () => {
+  let uncaughtExceptionListenersBeforeMain = new Set<unknown>();
+  let unhandledRejectionListenersBeforeMain = new Set<unknown>();
+
   beforeEach(() => {
+    uncaughtExceptionListenersBeforeMain = new Set(process.listeners('uncaughtException'));
+    unhandledRejectionListenersBeforeMain = new Set(process.listeners('unhandledRejection'));
     vi.resetModules();
     vi.clearAllMocks();
+    shutdownPlanCapture.current = null;
+    shutdownPlanCapture.run = null;
+    isDesktopShuttingDownMock.mockReturnValue(false);
+    closeDatabaseMock.mockResolvedValue(undefined);
+    cleanupSubscriptionsMock.mockResolvedValue(undefined);
+    waitForDatabaseIdleMock.mockResolvedValue(undefined);
+    maintenanceCloseMock.mockResolvedValue(undefined);
+    maintenanceStartMock.mockResolvedValue(undefined);
+    recoverInterruptedMaintenanceMock.mockResolvedValue(0);
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(true);
     process.env['CI'] = 'false';
     process.argv = process.argv.filter(
       (arg) => arg !== '--test-mode' && !arg.startsWith('--brainstrike-desktop-launch-mode')
     );
+  });
+
+  afterEach(() => {
+    for (const listener of process.listeners('uncaughtException')) {
+      if (!uncaughtExceptionListenersBeforeMain.has(listener)) {
+        process.off('uncaughtException', listener);
+      }
+    }
+    for (const listener of process.listeners('unhandledRejection')) {
+      if (!unhandledRejectionListenersBeforeMain.has(listener)) {
+        process.off('unhandledRejection', listener);
+      }
+    }
   });
 
   it('creates and shows the main window without waiting for DB init or the capability probe', async () => {
@@ -244,16 +331,125 @@ describe('main boot order', () => {
       expect(mockBrowserWindowInstance.loadFile).toHaveBeenCalled();
       expect(mockBrowserWindowInstance.show).toHaveBeenCalled();
     });
-    expect(databaseSchedulerStartMock).not.toHaveBeenCalled();
-    expect(dimensionSchedulerStartMock).not.toHaveBeenCalled();
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
 
     // Once the DB (and probe) complete, the maintenance schedulers start.
     resolveDatabase?.({});
     await vi.waitFor(() => {
       expect(probeMock).toHaveBeenCalledTimes(1);
-      expect(databaseSchedulerStartMock).toHaveBeenCalledTimes(1);
-      expect(dimensionSchedulerStartMock).toHaveBeenCalledTimes(1);
+      expect(maintenanceStartMock).toHaveBeenCalledTimes(1);
     });
+    expect(recoverInterruptedMaintenanceMock).toHaveBeenCalledTimes(1);
+    expect(recoverInterruptedMaintenanceMock.mock.invocationCallOrder[0]).toBeLessThan(
+      probeMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
+    expect(probeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      maintenanceStartMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
+  });
+
+  it('does not start maintenance when exclusive boot recovery fails', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    recoverInterruptedMaintenanceMock.mockRejectedValueOnce(new Error('recovery failed'));
+
+    await import('../../main');
+
+    await vi.waitFor(() => expect(recoverInterruptedMaintenanceMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+    expect(probeMock).not.toHaveBeenCalled();
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
+    const mainLogger = createLoggerMock.mock.results
+      .map((result) => result.value)
+      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
+    await vi.waitFor(() =>
+      expect(mainLogger?.error).toHaveBeenCalledWith(
+        'Failed to start desktop maintenance schedulers',
+        { error: expect.objectContaining({ message: 'recovery failed' }) }
+      )
+    );
+  });
+
+  it('keeps a recovery teardown diagnostic quiet when shutdown begins during the query', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    let rejectRecovery: ((error: Error) => void) | undefined;
+    recoverInterruptedMaintenanceMock.mockImplementationOnce(
+      () =>
+        new Promise<number>((_resolve, reject) => {
+          rejectRecovery = reject;
+        })
+    );
+
+    await import('../../main');
+    await vi.waitFor(() => expect(recoverInterruptedMaintenanceMock).toHaveBeenCalledTimes(1));
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    rejectRecovery?.(new Error('DB host manager is retired.'));
+
+    const mainLogger = createLoggerMock.mock.results
+      .map((result) => result.value)
+      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
+    await vi.waitFor(() =>
+      expect(mainLogger?.info).toHaveBeenCalledWith(
+        'Dimension index maintenance initialization aborted by shutdown',
+        { error: expect.objectContaining({ message: 'DB host manager is retired.' }) }
+      )
+    );
+    expect(probeMock).not.toHaveBeenCalled();
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
+    expect(mainLogger?.error).not.toHaveBeenCalledWith(
+      'Failed to start desktop maintenance schedulers',
+      expect.anything()
+    );
+  });
+
+  it('keeps a database initialization teardown diagnostic quiet during shutdown', async () => {
+    let rejectDatabase: ((error: Error) => void) | undefined;
+    getDatabaseMock.mockImplementation(
+      () =>
+        new Promise<unknown>((_resolve, reject) => {
+          rejectDatabase = reject;
+        })
+    );
+
+    await import('../../main');
+    await vi.waitFor(() => expect(getDatabaseMock).toHaveBeenCalled());
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    rejectDatabase?.(new Error('DB host manager is retired.'));
+
+    const mainLogger = createLoggerMock.mock.results
+      .map((result) => result.value)
+      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
+    await vi.waitFor(() =>
+      expect(mainLogger?.info).toHaveBeenCalledWith(
+        'Dimension index maintenance initialization aborted by shutdown',
+        { error: expect.objectContaining({ message: 'DB host manager is retired.' }) }
+      )
+    );
+    expect(recoverInterruptedMaintenanceMock).not.toHaveBeenCalled();
+    expect(probeMock).not.toHaveBeenCalled();
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
+    expect(mainLogger?.error).not.toHaveBeenCalledWith(
+      'Failed to start desktop maintenance schedulers',
+      expect.anything()
+    );
+  });
+
+  it('leaves an ordinary database initialization failure visible and stops maintenance', async () => {
+    getDatabaseMock.mockRejectedValue(new Error('database initialization failed'));
+
+    await import('../../main');
+
+    const mainLogger = createLoggerMock.mock.results
+      .map((result) => result.value)
+      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
+    await vi.waitFor(() =>
+      expect(mainLogger?.error).toHaveBeenCalledWith(
+        'Failed to start desktop maintenance schedulers',
+        { error: expect.objectContaining({ message: 'database initialization failed' }) }
+      )
+    );
+    expect(recoverInterruptedMaintenanceMock).not.toHaveBeenCalled();
+    expect(probeMock).not.toHaveBeenCalled();
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
   });
 
   it('still starts the maintenance schedulers when the capability probe fails', async () => {
@@ -264,25 +460,52 @@ describe('main boot order', () => {
 
     await vi.waitFor(() => {
       expect(mockBrowserWindowInstance.show).toHaveBeenCalled();
-      expect(databaseSchedulerStartMock).toHaveBeenCalledTimes(1);
-      expect(dimensionSchedulerStartMock).toHaveBeenCalledTimes(1);
+      expect(maintenanceStartMock).toHaveBeenCalledTimes(1);
     });
   });
 
-  it('logs a probe failure during shutdown as an expected teardown, not an error', async () => {
+  it('logs each error from a partial maintenance graph acquisition', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    maintenanceStartMock.mockRejectedValueOnce(
+      new AggregateError([new Error('dimension timer failed'), undefined], 'Acquisition failed')
+    );
+
+    await import('../../main');
+
+    const mainLogger = createLoggerMock.mock.results
+      .map((result) => result.value)
+      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
+    await vi.waitFor(() =>
+      expect(mainLogger?.error).toHaveBeenCalledWith(
+        'Failed to start desktop maintenance schedulers',
+        {
+          error: expect.objectContaining({
+            errors: [
+              expect.objectContaining({ message: 'dimension timer failed' }),
+              { message: 'undefined' },
+            ],
+          }),
+        }
+      )
+    );
+  });
+
+  it('does not start maintenance after a probe finishes during shutdown', async () => {
     // The probe now runs concurrently with the app lifecycle. A short-lived
     // session (e2e apps, quick open/quit) can tear the DB down mid-probe;
     // that rejection is an EXPECTED teardown per desktop-shutdown-state and
     // must not produce an alarming error-level log on every fast quit.
     getDatabaseMock.mockResolvedValue({});
-    probeMock.mockRejectedValueOnce(new Error('db host disposed'));
-    isDesktopShuttingDownMock.mockReturnValue(true);
+    probeMock.mockImplementationOnce(async () => {
+      isDesktopShuttingDownMock.mockReturnValue(true);
+      throw new Error('db host disposed');
+    });
 
     await import('../../main');
 
-    await vi.waitFor(() => {
-      expect(databaseSchedulerStartMock).toHaveBeenCalledTimes(1);
-    });
+    await vi.waitFor(() => expect(probeMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+    expect(maintenanceStartMock).not.toHaveBeenCalled();
 
     const mainLogger = createLoggerMock.mock.results
       .map((result) => result.value)
@@ -295,5 +518,240 @@ describe('main boot order', () => {
     expect(infoMessages).toContain(
       'Dimension index maintenance capability probe aborted by shutdown'
     );
+  });
+
+  it('fences the paired maintenance owner before joining trigger close and the database lane', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    await import('../../main');
+    const planRun = shutdownPlanCapture.current;
+    if (!planRun) {
+      throw new Error('Shutdown plan was not registered');
+    }
+
+    let releaseTriggerClose: (() => void) | undefined;
+    maintenanceCloseMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseTriggerClose = resolve;
+        })
+    );
+    const step = planRun().steps['database-drain'](new AbortController().signal);
+
+    expect(maintenanceStopMock).toHaveBeenCalledTimes(1);
+    expect(maintenanceCloseMock).toHaveBeenCalledTimes(1);
+    expect(waitForDatabaseIdleMock).not.toHaveBeenCalled();
+
+    releaseTriggerClose?.();
+    await step;
+    expect(waitForDatabaseIdleMock).toHaveBeenCalledTimes(1);
+    // The drain step never closes the database: that is the reserved slice's job.
+    expect(closeDatabaseMock).not.toHaveBeenCalled();
+  });
+
+  it('closes the database from the reserved slice alone, and a failed close rejects', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    await import('../../main');
+    const planRun = shutdownPlanCapture.current;
+    if (!planRun) {
+      throw new Error('Shutdown plan was not registered');
+    }
+
+    await planRun().closeDatabase();
+    expect(closeDatabaseMock).toHaveBeenCalledTimes(1);
+    expect(waitForDatabaseIdleMock).not.toHaveBeenCalled();
+
+    closeDatabaseMock.mockRejectedValueOnce(new Error('DB host failed to close'));
+    await expect(planRun().closeDatabase()).rejects.toThrow('DB host failed to close');
+  });
+
+  it('still drains the database when trigger cleanup rejects undefined', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    await import('../../main');
+    const planRun = shutdownPlanCapture.current;
+    if (!planRun) {
+      throw new Error('Shutdown plan was not registered');
+    }
+    maintenanceCloseMock.mockRejectedValueOnce(undefined);
+
+    await expect(
+      planRun().steps['database-drain'](new AbortController().signal)
+    ).rejects.toMatchObject({
+      errors: [undefined],
+    });
+    expect(cleanupSubscriptionsMock).toHaveBeenCalledTimes(2);
+    expect(waitForDatabaseIdleMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains the existing database failure path when the idle join rejects', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    await import('../../main');
+    const planRun = shutdownPlanCapture.current;
+    if (!planRun) {
+      throw new Error('Shutdown plan was not registered');
+    }
+    waitForDatabaseIdleMock.mockRejectedValueOnce(undefined);
+
+    await expect(
+      planRun().steps['database-drain'](new AbortController().signal)
+    ).rejects.toBeUndefined();
+    expect(cleanupSubscriptionsMock).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseMock).not.toHaveBeenCalled();
+  });
+
+  describe('shutdown signal registration', () => {
+    let capture: ReturnType<typeof captureProcessSignalHandlers>;
+
+    beforeEach(() => {
+      getDatabaseMock.mockResolvedValue({});
+      capture = captureProcessSignalHandlers();
+    });
+
+    afterEach(() => {
+      capture.restore();
+      // Kept until here, not restored right after the import: `main.ts` reads the launch flag
+      // from the `whenReady` callback, which runs after the import returns.
+      process.argv = process.argv.filter((arg) => arg !== '--test-mode');
+    });
+
+    const importMainInE2eMode = async (): Promise<void> => {
+      process.argv.push('--test-mode');
+      await import('../../main');
+    };
+
+    it('installs no handlers under NODE_ENV=test, so importing main never touches the test process', async () => {
+      await import('../../main');
+      await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+
+      expect(capture.handlers.size).toBe(0);
+    });
+
+    it('installs persistent SIGINT, SIGTERM and SIGHUP handlers in an E2E launch, which also runs under NODE_ENV=test', async () => {
+      // `when-exit`, through electron-store, registers a once-listener at import time.
+      const dependencyListener = vi.fn();
+      capture.handlers.set('SIGINT', [dependencyListener]);
+
+      await importMainInE2eMode();
+
+      await vi.waitFor(() =>
+        expect([...capture.handlers.keys()].sort()).toEqual(['SIGHUP', 'SIGINT', 'SIGTERM'])
+      );
+      for (const listeners of capture.handlers.values()) {
+        expect(listeners).toHaveLength(1);
+      }
+      // Replaced, not stacked behind: a dead libuv watcher would never fire ours.
+      expect(capture.handlers.get('SIGINT')).not.toContain(dependencyListener);
+    });
+
+    it('reads the E2E launch flag when ready fires, not when main is imported', async () => {
+      // A real `whenReady` resolves after the import returns.
+      const ready = Promise.withResolvers<void>();
+      mockApp.whenReady.mockReturnValueOnce(ready.promise);
+
+      await importMainInE2eMode();
+      expect(capture.handlers.size).toBe(0);
+      ready.resolve();
+
+      await vi.waitFor(() =>
+        expect([...capture.handlers.keys()].sort()).toEqual(['SIGHUP', 'SIGINT', 'SIGTERM'])
+      );
+    });
+
+    it("waits for app ready: a listener registered earlier is replaced by Electron's own one-shot handler", async () => {
+      mockApp.whenReady.mockReturnValueOnce(new Promise(() => undefined));
+
+      await importMainInE2eMode();
+
+      expect(capture.handlers.size).toBe(0);
+    });
+
+    describe('when installing the handlers throws', () => {
+      // The smallest seam that proves boot survives: main.ts itself, with the install's own
+      // `process.removeAllListeners` made to throw for SIGINT (libuv refusing to arm, say).
+      const failInstall = (): void => {
+        const passThrough = vi.mocked(process.removeAllListeners).getMockImplementation();
+        vi.mocked(process.removeAllListeners).mockImplementation(((event?: string | symbol) => {
+          if (event === 'SIGINT') {
+            throw new Error('libuv could not arm the watcher');
+          }
+          return passThrough?.(event);
+        }) as typeof process.removeAllListeners);
+      };
+      const defaultLogger = createLoggerMock.getMockImplementation();
+
+      afterEach(() => {
+        if (defaultLogger) {
+          createLoggerMock.mockImplementation(defaultLogger);
+        }
+      });
+
+      // The E2E-mode boot (the only one that installs) does not show a window under these mocks, so
+      // "boot went on" is the boot `try` being entered: its first statement logs this.
+      const bootWentOn = (): void => {
+        expect(requireMainLogger().debug).toHaveBeenCalledWith(
+          'App ready, starting initialization...'
+        );
+      };
+
+      it('logs it at error and still boots', async () => {
+        failInstall();
+
+        await importMainInE2eMode();
+
+        await vi.waitFor(bootWentOn);
+        expect(requireMainLogger().error).toHaveBeenCalledWith(
+          expect.stringContaining('Failed to install the shutdown signal handlers'),
+          {
+            // SIGINT failed before its listeners were removed, so Electron's handler still quits.
+            error: expect.objectContaining({
+              cause: expect.objectContaining({ message: 'libuv could not arm the watcher' }),
+              failedSignal: 'SIGINT',
+              installed: [],
+              name: 'ShutdownSignalInstallError',
+              removedListeners: false,
+            }),
+          }
+        );
+      });
+
+      it('still boots when that log itself throws', async () => {
+        failInstall();
+        createLoggerMock.mockImplementation((scope: string) => ({
+          debug: vi.fn(),
+          error: vi.fn((message: unknown) => {
+            if (
+              scope === 'DesktopMain' &&
+              typeof message === 'string' &&
+              message.startsWith('Failed to install')
+            ) {
+              throw new Error('logger broke');
+            }
+          }),
+          info: vi.fn(),
+          trace: vi.fn(),
+          warn: vi.fn(),
+        }));
+
+        await importMainInE2eMode();
+
+        await vi.waitFor(bootWentOn);
+      });
+    });
+
+    it('starts one graceful run from the first signal and logs later signals instead of re-running', async () => {
+      await importMainInE2eMode();
+      await vi.waitFor(() => expect(capture.handlers.size).toBe(3));
+      const listeners = (signal: string) => capture.handlers.get(signal) ?? [];
+
+      listeners('SIGINT')[0]?.('SIGINT');
+      await vi.waitFor(() => expect(shutdownPlanCapture.run).toHaveBeenCalledTimes(1));
+      listeners('SIGTERM')[0]?.('SIGTERM');
+      listeners('SIGINT')[0]?.('SIGINT');
+
+      expect(shutdownPlanCapture.run).toHaveBeenCalledExactlyOnceWith('signal', 'SIGINT');
+      expect(requireMainLogger().info).toHaveBeenCalledWith(
+        'Shutdown already in progress; ignoring signal',
+        { signal: 'SIGTERM' }
+      );
+    });
   });
 });

@@ -26,3 +26,13 @@ export const useBrowserTabsStore = create<BrowserTabsState>((set) => ({
 export function selectActiveBrowserTab(state: BrowserTabsState): BrowserTab | undefined {
   return state.tabs.find((tab) => tab.active);
 }
+
+/** Main's tab list as last pushed, read live at menu-open and at execution. */
+export function liveBrowserTabs(): readonly BrowserTab[] {
+  return useBrowserTabsStore.getState().tabs;
+}
+
+/** A tab's visible label: its title, else its URL, else "New Tab". */
+export function browserTabLabel(tab: Pick<BrowserTab, 'title' | 'url'>): string {
+  return tab.title || tab.url || 'New Tab';
+}

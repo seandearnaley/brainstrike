@@ -45,6 +45,7 @@ vi.mock('node:fs', () => ({
   default: {
     closeSync: closeSyncMock,
     existsSync: existsSyncMock,
+    fsyncSync: vi.fn(),
     lstatSync: lstatSyncMock,
     mkdirSync: mkdirSyncMock,
     openSync: openSyncMock,
@@ -54,6 +55,7 @@ vi.mock('node:fs', () => ({
     writeFileSync: writeFileSyncMock,
   },
   existsSync: existsSyncMock,
+  fsyncSync: vi.fn(),
   lstatSync: lstatSyncMock,
   mkdirSync: mkdirSyncMock,
   openSync: openSyncMock,
@@ -100,6 +102,7 @@ vi.mock('@electric-sql/pglite-pgvector', () => ({ vector: { name: 'vector' } }))
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   migrate: (...args: unknown[]) => migrateMock(...args),
+  rebuildCrashSensitiveIndexes: vi.fn(async () => ({ rebuilt: [], totalDurationMs: 0 })),
 }));
 vi.mock('@brainstrike/db/react', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
@@ -120,7 +123,8 @@ describe('db-main lazy-load getDatabase', () => {
     vi.clearAllMocks();
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
-    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/mock/documents';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
     existsSyncMock.mockReturnValue(true);
     mkdirSyncMock.mockImplementation(() => {});
   });

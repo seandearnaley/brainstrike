@@ -7,8 +7,8 @@ import {
   emitAssistantRunEventSafely,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { DbHostRequestTimeoutError } from '../db-host-manager';
-import { runDesktopScheduledDatabaseWork } from '../platform/desktop-database-work';
+import { DbHostRequestTimeoutError } from '../db-host-timeout-error';
+import { runDesktopScheduledDatabaseWork } from '../platform/desktop-database-work-scheduler';
 
 const logger = createLogger('AssistantRunCriticalDatabase');
 

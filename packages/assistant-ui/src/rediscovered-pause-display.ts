@@ -5,10 +5,31 @@
  * preserve state through mixed-export files).
  */
 
-export interface RediscoveredPauseDisplay {
-  readonly stale: boolean;
-  readonly suspendedAt: string;
-}
+import {
+  type DelegatedToolDecisionState,
+  hasValidDelegatedDecisionState,
+  isDelegatedToolDecisionState,
+} from '@brainstrike/assistant-contract';
+
+export type RediscoveredPauseDisplay =
+  | {
+      readonly decisionState: DelegatedToolDecisionState | 'invalid';
+      readonly stale?: never;
+      readonly suspendedAt?: never;
+    }
+  | {
+      readonly decisionState?: never;
+      readonly stale: boolean;
+      readonly suspendedAt: string;
+    };
+
+export const DELEGATED_DECISION_STATUS_LABELS = {
+  cancelled: 'Turn cancelled',
+  claimed: 'Decision in progress',
+  consumed: 'Decision already submitted',
+  interrupted: 'Decision interrupted',
+  invalid: 'Decision status unavailable',
+} as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -18,6 +39,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function readRediscoveredPauseDisplay(data: unknown): RediscoveredPauseDisplay | null {
   if (!isRecord(data)) {
     return null;
+  }
+  if ('decisionState' in data) {
+    const state = data['decisionState'];
+    return {
+      decisionState:
+        hasValidDelegatedDecisionState(data) && isDelegatedToolDecisionState(state)
+          ? state
+          : 'invalid',
+    };
   }
   const suspendedAt = data['suspendedAt'];
   const stale = data['stale'];

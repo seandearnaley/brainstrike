@@ -33,7 +33,10 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract';
+import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/assistant-stream-session';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { RunPersistencePort, StreamInitializer } from './ports.js';
+import { acquireThreadRunOwnership } from './thread-run-ownership.js';
 import type { AgentStreamFailure } from './types.js';
 
 export interface RunAssistantTurnParams {
@@ -45,10 +48,21 @@ export interface RunAssistantTurnParams {
    * drops functions — a custom_fetch closure would vanish silently).
    */
   readonly authInput?: ProviderAuthInput | undefined;
+  readonly childFollowupAction?: AssistantChildFollowupAction;
+  readonly discovery?: {
+    readonly resourceId: string;
+    readonly threadId: string;
+    readonly parentMessageId?: string | null;
+    readonly inputMessage: AssistantDiscoveredRun['inputMessage'];
+    readonly inputParentMessageId: string | null;
+    readonly actionReplay?: AssistantDiscoveredRun['actionReplay'];
+  };
   readonly executionSignal: AbortSignal;
   readonly initializeStream: StreamInitializer;
   readonly messages: AgentMessage[];
   readonly persistence: RunPersistencePort;
+  /** Runs after thread ownership admission and before any native resume starts. */
+  readonly resolveDiscovery?: () => Promise<RunAssistantTurnParams['discovery']>;
   readonly runId: string | undefined;
   readonly runtimeData: RuntimeData;
   /**
@@ -79,24 +93,56 @@ export type RunAssistantTurnResult =
 export async function runAssistantTurn(
   params: RunAssistantTurnParams
 ): Promise<RunAssistantTurnResult> {
+  const scope = params.runtimeData.memory;
+  if (!scope) {
+    return runOwnedAssistantTurn(params);
+  }
+  const release = await acquireThreadRunOwnership(scope, params.executionSignal);
+  try {
+    params.executionSignal.throwIfAborted();
+    const turn = await runOwnedAssistantTurn(params);
+    if (!turn.ok) {
+      release();
+      return turn;
+    }
+    // Host-owned execution settles even when its HTTP subscriber disconnects.
+    // Releasing after the terminal write prevents the next native manager from
+    // recovering or overwriting a still-owned root.
+    const completion = turn.completion().finally(release);
+    completion.catch(() => {});
+    return { ...turn, completion: () => completion };
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
+
+async function runOwnedAssistantTurn(
+  params: RunAssistantTurnParams
+): Promise<RunAssistantTurnResult> {
   const {
     apiKey,
     authInput,
     assistantMessageId,
     executionSignal,
+    discovery,
+    resolveDiscovery,
     messages,
     persistence,
     initializeStream,
     sessions,
     runId,
     runtimeData,
+    childFollowupAction,
     toolApprovalAction,
     toolResumeAction,
   } = params;
 
+  const admittedDiscovery = resolveDiscovery ? await resolveDiscovery() : discovery;
   const streamResult = await initializeStream({
     apiKey,
     authInput,
+    childFollowupAction,
     messages,
     runId,
     runtimeData,
@@ -106,7 +152,11 @@ export async function runAssistantTurn(
   });
   if (!streamResult.ok) {
     if (runId) {
-      await persistence.recordThreadRunStatus(runId, 'failed', streamResult.payload.message);
+      await persistence.recordThreadRunStatus(
+        runId,
+        executionSignal.aborted ? 'cancelled' : 'failed',
+        executionSignal.aborted ? 'Assistant run canceled by user.' : streamResult.payload.message
+      );
     }
     return { ok: false, payload: streamResult.payload, status: streamResult.status };
   }
@@ -125,6 +175,7 @@ export async function runAssistantTurn(
   const session = sessions.create(streamResult.stream, {
     ...(assistantMessageId ? { messageId: assistantMessageId } : {}),
     ...(outputLimitContext ? { outputLimitContext } : {}),
+    ...(admittedDiscovery && runId ? { discovery: { ...admittedDiscovery, runId } } : {}),
   });
   const response = session.createResponse({
     headers: {

@@ -506,6 +506,132 @@ describe('ProviderVerificationService failure classification', () => {
     });
   });
 
+  it('bounds a stalled body even when it ignores abort, then permits a new probe', async () => {
+    vi.useFakeTimers();
+    let resolveBody: ((text: string) => void) | undefined;
+    const stalled = new Response('', { status: 401 });
+    vi.spyOn(stalled, 'text').mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveBody = resolve;
+        })
+    );
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(stalled)
+      .mockResolvedValueOnce(okResponse());
+    let now = 1000;
+    const { service } = createService({
+      failureTtlMs: 1,
+      fetchImpl,
+      now: () => now,
+      requestTimeoutMs: 5,
+    });
+
+    try {
+      const firstRequest = service.verify('openai');
+      await vi.advanceTimersByTimeAsync(5);
+      const first = await firstRequest;
+      expect(first.result).toMatchObject({
+        detail: 'Request timed out after 5ms',
+        status: 'unreachable',
+      });
+      expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+
+      now += 2;
+      const second = await service.verify('openai');
+      expect(second.result.status).toBe('verified');
+      resolveBody?.('wrong key');
+      await Promise.resolve();
+      expect((await service.verify('openai')).result.status).toBe('verified');
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('bounds a stalled fetch that ignores abort and samples failure TTL at completion', async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(() => new Promise<Response>(() => {}));
+    let now = 1000;
+    const { service } = createService({
+      failureTtlMs: 10,
+      fetchImpl,
+      now: () => now,
+      requestTimeoutMs: 5,
+    });
+    try {
+      const first = service.verify('openai');
+      const concurrent = service.verify('openai');
+      now += 100;
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(Promise.all([first, concurrent])).resolves.toMatchObject([
+        { result: { status: 'unreachable' } },
+        { result: { status: 'unreachable' } },
+      ]);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+      now += 5;
+      await expect(service.verify('openai')).resolves.toMatchObject({ freshness: 'fresh-cache' });
+      now += 6;
+      const next = service.verify('openai');
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(next).resolves.toMatchObject({ freshness: 'live' });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not read the body when an uncooperative fetch resolves after timeout', async () => {
+    vi.useFakeTimers();
+    let resolveFetch: ((response: Response) => void) | undefined;
+    const response = okResponse();
+    const readBody = vi.spyOn(response, 'text');
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const { service } = createService({ fetchImpl, requestTimeoutMs: 5 });
+
+    try {
+      const request = service.verify('openai');
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(request).resolves.toMatchObject({ result: { status: 'unreachable' } });
+      resolveFetch?.(response);
+      await Promise.resolve();
+      expect(readBody).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the deadline after a successful probe', async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+    const { service } = createService({ fetchImpl, requestTimeoutMs: 20 });
+
+    try {
+      await expect(service.verify('openai')).resolves.toMatchObject({
+        result: { status: 'verified' },
+      });
+      const signal = fetchImpl.mock.calls[0]?.[1]?.signal;
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(20);
+      expect(signal?.aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('maps a non-auth HTTP failure to unreachable, never invalid', async () => {
     const { service } = createService({
       fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 503 })),

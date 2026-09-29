@@ -1,7 +1,11 @@
 import type { ThreadWorkspaceRepository, WorkspaceSnapshotV1 } from '@brainstrike/assistant-data';
-import { EMPTY_WORKSPACE_SNAPSHOT } from '@brainstrike/assistant-data';
+import {
+  EMPTY_WORKSPACE_SNAPSHOT,
+  ThreadWorkspaceUnavailableError,
+} from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ThreadWorkspaceNavigation } from '../thread-workspace-navigation';
 import { useThreadWorkspaceCoordinator } from '../use-thread-workspace-coordinator';
 import type { WorkspaceStateFacade } from '../workspace-snapshot-io';
 
@@ -88,7 +92,16 @@ function createHarness() {
     listeners.add(listener);
     return () => listeners.delete(listener);
   };
-  return { applied, facade, notify, repository, rows, state, subscribe };
+  const navigation = new ThreadWorkspaceNavigation({
+    activateThread: vi.fn(),
+    openApp: (appId) => {
+      state.openAppIds = [...state.openAppIds, appId];
+      state.selection = { appId, kind: 'app' };
+      notify();
+    },
+    reportError: vi.fn(),
+  });
+  return { applied, facade, navigation, notify, repository, rows, state, subscribe };
 }
 
 const SNAPSHOT_B: WorkspaceSnapshotV1 = {
@@ -113,6 +126,85 @@ describe('useThreadWorkspaceCoordinator', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
+  it('does not save another root child into the outgoing workspace while switching', async () => {
+    const harness = createHarness();
+    harness.rows.set('thread-b', SNAPSHOT_B);
+    const { rerender } = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    act(() => {
+      harness.navigation.open('brainstrike:workspace', 'thread-b', 'child-b');
+    });
+    rerender({ activeThreadId: 'thread-b', openThreadIds: ['thread-a', 'thread-b'] });
+    await waitFor(() => expect(harness.state.selection).toEqual({ appId: 'child-b', kind: 'app' }));
+    expect(harness.rows.get('thread-a')?.apps.openAppIds).not.toContain('child-b');
+    expect(harness.rows.get('thread-b')?.apps.openAppIds).toEqual(['changes', 'child-b']);
+  });
+
+  it('waits for delayed incoming hydration and discards a superseded child navigation', async () => {
+    const harness = createHarness();
+    const pending = Promise.withResolvers<WorkspaceSnapshotV1 | null>();
+    const { rerender } = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    vi.mocked(harness.repository.getThreadWorkspace).mockImplementation(async (id) =>
+      id === 'thread-b' ? pending.promise : null
+    );
+    act(() => harness.navigation.open('brainstrike:workspace', 'thread-b', 'child-b'));
+    rerender({ activeThreadId: 'thread-b', openThreadIds: ['thread-a', 'thread-b'] });
+    expect(harness.state.openAppIds).not.toContain('child-b');
+    rerender({ activeThreadId: 'thread-c', openThreadIds: ['thread-a', 'thread-b', 'thread-c'] });
+    await act(async () => {
+      pending.resolve(SNAPSHOT_B);
+    });
+    expect(harness.state.openAppIds).not.toContain('child-b');
+    expect(harness.rows.get('thread-a')?.apps.openAppIds).not.toContain('child-b');
+  });
+
+  it('rejects a child navigation while storage is unavailable without replaying it on boot', async () => {
+    const harness = createHarness();
+    harness.rows.set('thread-a', SNAPSHOT_B);
+    const { rerender } = renderHook(
+      ({ repository }: { repository: ThreadWorkspaceRepository | null }) =>
+        useThreadWorkspaceCoordinator({
+          activeThreadId: 'thread-a',
+          facade: harness.facade,
+          navigation: harness.navigation,
+          openThreadIds: ['thread-a'],
+          repository,
+          resourceId: 'brainstrike:workspace',
+          subscribe: harness.subscribe,
+        }),
+      { initialProps: { repository: null as ThreadWorkspaceRepository | null } }
+    );
+    const failed = vi.spyOn(harness.navigation, 'failed');
+    act(() => harness.navigation.open('brainstrike:workspace', 'thread-a', 'child-a'));
+    expect(failed).toHaveBeenCalledWith('brainstrike:workspace', 'thread-a', expect.any(Error));
+    expect(harness.navigation.hasPending('brainstrike:workspace', 'thread-a')).toBe(false);
+    rerender({ repository: harness.repository });
+    await waitFor(() => expect(harness.state.openAppIds).toEqual(['changes']));
+    act(() => harness.navigation.open('brainstrike:workspace', 'thread-a', 'child-a'));
+    expect(harness.state.openAppIds).toEqual(['changes', 'child-a']);
+  });
+
+  it('allows an explicit navigation retry after incoming hydration fails', async () => {
+    const harness = createHarness();
+    const { rerender } = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    vi.mocked(harness.repository.getThreadWorkspace).mockRejectedValueOnce(
+      new Error('Read unavailable')
+    );
+    act(() => harness.navigation.open('brainstrike:workspace', 'thread-b', 'child-b'));
+    rerender({ activeThreadId: 'thread-b', openThreadIds: ['thread-a', 'thread-b'] });
+    await waitFor(() =>
+      expect(harness.repository.getThreadWorkspace).toHaveBeenCalledWith('thread-b')
+    );
+    await act(async () => undefined);
+    expect(harness.state.openAppIds).not.toContain('child-b');
+    vi.mocked(harness.repository.getThreadWorkspace).mockResolvedValueOnce(SNAPSHOT_B);
+    act(() => harness.navigation.open('brainstrike:workspace', 'thread-b', 'child-b'));
+    await waitFor(() => expect(harness.state.selection).toEqual({ appId: 'child-b', kind: 'app' }));
+    expect(harness.rows.get('thread-a')?.apps.openAppIds).not.toContain('child-b');
+  });
+
   function render(harness: ReturnType<typeof createHarness>, initialThread: string | null) {
     return renderHook(
       ({ activeThreadId, openThreadIds }) =>
@@ -120,6 +212,7 @@ describe('useThreadWorkspaceCoordinator', () => {
           activeThreadId,
           debounceMs: 50,
           facade: harness.facade,
+          navigation: harness.navigation,
           openThreadIds,
           repository: harness.repository,
           resourceId: 'brainstrike:workspace',
@@ -158,6 +251,150 @@ describe('useThreadWorkspaceCoordinator', () => {
     expect(harness.rows.get('thread-a')?.fileTabs.tabs).toEqual([
       { compositeKey: 'ka', path: 'a.ts' },
     ]);
+  });
+
+  it.each([
+    {
+      action: 'open',
+      apps: {
+        openAppIds: ['context-explorer', 'delegated-child'],
+        selection: { appId: 'delegated-child', kind: 'app' as const },
+      },
+    },
+    {
+      action: 'close',
+      apps: {
+        openAppIds: ['context-explorer'],
+        selection: { appId: 'context-explorer', kind: 'app' as const },
+      },
+    },
+    {
+      action: 'select',
+      apps: {
+        openAppIds: ['context-explorer', 'delegated-child'],
+        selection: { appId: 'context-explorer', kind: 'app' as const },
+      },
+    },
+  ])('publishes app $action before a reload can discard the debounce timer', async ({ apps }) => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const harness = createHarness();
+    harness.state.openAppIds = ['context-explorer', 'delegated-child'];
+    harness.state.selection = { appId: 'delegated-child', kind: 'app' };
+    // Opening starts with a closed child; close/selection start with it open.
+    if (apps.openAppIds.length === 2 && apps.selection.appId === 'delegated-child') {
+      harness.state.openAppIds = ['context-explorer'];
+      harness.state.selection = { appId: 'context-explorer', kind: 'app' };
+    }
+    await act(async () => {
+      render(harness, 'thread-a');
+    });
+    expect(harness.rows.has('thread-a')).toBe(true);
+    vi.mocked(harness.repository.setThreadWorkspace).mockClear();
+
+    act(() => {
+      harness.state.openAppIds = apps.openAppIds;
+      harness.state.selection = apps.selection;
+      harness.notify();
+    });
+
+    // No clock advance and no unmount flush: publication must happen on the
+    // live store change so a document reload cannot drop the pending save.
+    expect(harness.repository.setThreadWorkspace).toHaveBeenCalledTimes(1);
+    expect(harness.rows.get('thread-a')?.apps).toEqual(apps);
+  });
+
+  it('keeps scroll and editor updates debounced when app state is unchanged', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const harness = createHarness();
+    harness.state.activeTabId = 'ka';
+    harness.state.tabs = [{ compositeKey: 'ka', path: 'a.ts' }];
+    await act(async () => {
+      render(harness, 'thread-a');
+    });
+    expect(harness.rows.has('thread-a')).toBe(true);
+    vi.mocked(harness.repository.setThreadWorkspace).mockClear();
+
+    act(() => {
+      harness.state.explorerScrollTop = 120;
+      harness.notify();
+      harness.state.editorState = { mode: 'source', scrollTop: 45 };
+      harness.notify();
+    });
+    expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(49);
+    });
+    expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(harness.repository.setThreadWorkspace).toHaveBeenCalledTimes(1);
+    expect(harness.rows.get('thread-a')?.explorer.scrollTop).toBe(120);
+    expect(harness.rows.get('thread-a')?.editors['ka']).toEqual({ mode: 'source', scrollTop: 45 });
+  });
+
+  it('reports the exact active owner when a workspace save is rejected', async () => {
+    const harness = createHarness();
+    render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    const failed = vi.spyOn(harness.navigation, 'failed');
+    const pending = Promise.withResolvers<void>();
+    vi.mocked(harness.repository.setThreadWorkspace).mockImplementationOnce(() => pending.promise);
+    act(() => {
+      harness.state.openAppIds = ['changes'];
+      harness.notify();
+    });
+    const error = new ThreadWorkspaceUnavailableError('thread-a');
+    await act(async () => pending.reject(error));
+    expect(failed).toHaveBeenCalledExactlyOnceWith('brainstrike:workspace', 'thread-a', error);
+  });
+
+  it('preserves the replacement coordinator readiness when an unmounted owner save rejects', async () => {
+    const harness = createHarness();
+    harness.rows.set('thread-b', SNAPSHOT_B);
+    const old = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    const outgoing = Promise.withResolvers<void>();
+    vi.mocked(harness.repository.setThreadWorkspace).mockImplementationOnce(() => outgoing.promise);
+    act(() => {
+      harness.state.openAppIds = ['changes'];
+      harness.notify();
+    });
+    old.unmount();
+    render(harness, 'thread-b');
+    await waitFor(() => expect(harness.state.tabs).toEqual(SNAPSHOT_B.fileTabs.tabs));
+    // New owner's edits are still within its ordinary debounce window.
+    act(() => {
+      harness.state.tabs = [{ compositeKey: 'pending', path: 'pending.ts' }];
+      harness.notify();
+    });
+    await act(async () => outgoing.reject(new ThreadWorkspaceUnavailableError('thread-a')));
+    act(() => {
+      harness.navigation.open('brainstrike:workspace', 'thread-b', 'child-b');
+      expect(harness.navigation.hasPending('brainstrike:workspace', 'thread-b')).toBe(false);
+    });
+    expect(harness.state.openAppIds).toContain('child-b');
+    expect(harness.state.tabs).toEqual([{ compositeKey: 'pending', path: 'pending.ts' }]);
+  });
+
+  it('evicts an outgoing snapshot rejected after its native thread was deleted', async () => {
+    const harness = createHarness();
+    harness.rows.set('thread-b', SNAPSHOT_B);
+    const { rerender } = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    const outgoing = Promise.withResolvers<void>();
+    vi.mocked(harness.repository.setThreadWorkspace).mockImplementationOnce(() => outgoing.promise);
+    rerender({ activeThreadId: 'thread-b', openThreadIds: ['thread-b'] });
+    await waitFor(() => expect(harness.state.tabs).toEqual(SNAPSHOT_B.fileTabs.tabs));
+    harness.rows.delete('thread-a');
+    await act(async () => outgoing.reject(new ThreadWorkspaceUnavailableError('thread-a')));
+    vi.mocked(harness.repository.getThreadWorkspace).mockClear();
+    // Even an obsolete restored address must read storage again, never hydrate
+    // the outgoing snapshot cached immediately before the rejected save.
+    rerender({ activeThreadId: 'thread-a', openThreadIds: ['thread-a', 'thread-b'] });
+    await waitFor(() =>
+      expect(harness.repository.getThreadWorkspace).toHaveBeenCalledWith('thread-a')
+    );
   });
 
   it('on switch: flushes outgoing synchronously, hydrates incoming from the repository', async () => {

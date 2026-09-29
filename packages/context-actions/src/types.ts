@@ -31,6 +31,12 @@ export type ContextTarget =
       kind: 'workspace-file-tab';
       tabId: string;
     })
+  | {
+      readonly kind: 'workspace-app-tab';
+      readonly appId: string;
+      readonly label: string;
+      readonly placement: 'dynamic' | 'pinned';
+    }
   | (FileContextIdentity & {
       kind: 'file-viewer';
       /** Exact, event-time selection snapshot; null means the selection is collapsed. */
@@ -42,6 +48,12 @@ export type ContextTarget =
     })
   | (AssistantThreadContextIdentity & { kind: 'assistant-thread' })
   | (AssistantThreadContextIdentity & { kind: 'assistant-thread-tab' })
+  | {
+      readonly kind: 'browser-tab';
+      readonly tabId: string;
+      readonly title: string;
+      readonly url: string;
+    }
   | {
       readonly allowOverlap: boolean;
       readonly compositeKey: string;
@@ -68,6 +80,11 @@ export type ContextTarget =
       readonly searchRangeCount: number;
       readonly startLine: number;
     }
+  /**
+   * The empty background of a tab strip (BST-1836 §6.4). Strip-level local
+   * actions (New, Close All) claim it; `stripId` names the owning strip.
+   */
+  | { readonly kind: 'tab-strip'; readonly stripId: string }
   | { kind: 'collection'; id: string; name: string }
   | { kind: 'collection-file'; id: string; name: string; path: string | null }
   | { kind: 'chunk'; id: string; content: string }

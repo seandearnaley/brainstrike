@@ -8,9 +8,9 @@ describe('wasmLoader.ensureWasmLoaded', () => {
   beforeEach(async () => {
     // Clear all modules and reset state before each test
     vi.resetModules();
-    vi.unmock('@electric-sql/pglite');
-    vi.unmock('@electric-sql/pglite-pgvector');
-    vi.unmock('@electric-sql/pglite/contrib/pg_trgm');
+    vi.doUnmock('@electric-sql/pglite');
+    vi.doUnmock('@electric-sql/pglite-pgvector');
+    vi.doUnmock('@electric-sql/pglite/contrib/pg_trgm');
 
     vi.doMock('@electric-sql/pglite', () => {
       PGliteMock = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
@@ -45,9 +45,40 @@ describe('wasmLoader.ensureWasmLoaded', () => {
 
   afterEach(() => {
     vi.resetModules();
-    vi.unmock('@electric-sql/pglite');
-    vi.unmock('@electric-sql/pglite-pgvector');
-    vi.unmock('@electric-sql/pglite/contrib/pg_trgm');
+    vi.doUnmock('@electric-sql/pglite');
+    vi.doUnmock('@electric-sql/pglite-pgvector');
+    vi.doUnmock('@electric-sql/pglite/contrib/pg_trgm');
+  });
+
+  it.each([
+    { error: new Error('filesystem closed unexpectedly'), expected: 1 },
+    { error: new Error('PGlite is closed'), expected: 0 },
+  ])('reports cached close failures without rejecting: $expected', async ({ error, expected }) => {
+    const { addLogListener, configureLogger, resetLogger } = await import('@brainstrike/logging');
+    const db = await wasmLoader.createPGlite('idb://close-diagnostics');
+    vi.spyOn(db, 'close').mockRejectedValue(error);
+    configureLogger({ console: false });
+    const codes: unknown[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (
+        record.args.some(
+          (arg) =>
+            typeof arg === 'object' &&
+            arg !== null &&
+            'code' in arg &&
+            arg.code === 'database_close_failed'
+        )
+      ) {
+        codes.push('database_close_failed');
+      }
+    });
+    try {
+      await expect(wasmLoader.closeCached('idb://close-diagnostics')).resolves.toBeUndefined();
+      expect(codes).toHaveLength(expected);
+    } finally {
+      unsubscribe();
+      resetLogger();
+    }
   });
 
   it('returns the same promise when called twice', async () => {

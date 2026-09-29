@@ -1,8 +1,10 @@
-import { PGlite } from '@electric-sql/pglite';
+import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import type { PGlite } from '@electric-sql/pglite';
 import type { MastraMessageContentV2 } from '@mastra/core/agent';
 import type { MastraDBMessage } from '@mastra/core/memory';
 import type { ObservationalMemoryRecord } from '@mastra/core/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAgentMemoryTestDb } from '../../__tests__/helpers/migrated-agent-test-db';
 import { PgliteMemoryStore } from '../memory-store';
 import { attachThreadTitleSaveAbortSignal } from '../thread-title-save-cancellation';
 import type { PgliteDatabase } from '../types';
@@ -41,7 +43,7 @@ describe('PgliteMemoryStore', () => {
   let store: PgliteMemoryStore;
 
   beforeEach(async () => {
-    db = new PGlite();
+    db = await createAgentMemoryTestDb();
     database = db as unknown as PgliteDatabase;
     store = new PgliteMemoryStore({ database });
     await store.initialize();
@@ -52,28 +54,41 @@ describe('PgliteMemoryStore', () => {
   });
 
   it('creates Mastra memory tables idempotently', async () => {
-    await store.initialize();
+    const coldDb = await createEnginePglite();
+    const coldStore = new PgliteMemoryStore({
+      database: coldDb as unknown as PgliteDatabase,
+    });
+    try {
+      await coldStore.initialize();
+      await coldStore.initialize();
+      const reloadedColdStore = new PgliteMemoryStore({
+        database: coldDb as unknown as PgliteDatabase,
+      });
+      await reloadedColdStore.initialize();
 
-    const result = await db.query<{ tablename: string }>(
-      "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'mastra_%' ORDER BY tablename"
-    );
+      const result = await coldDb.query<{ tablename: string }>(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'mastra_%' ORDER BY tablename"
+      );
 
-    expect(result.rows.map((row) => row.tablename)).toEqual(
-      expect.arrayContaining([
-        'mastra_messages',
-        'mastra_observational_memory',
-        'mastra_resources',
-        'mastra_threads',
-      ])
-    );
+      expect(result.rows.map((row) => row.tablename)).toEqual(
+        expect.arrayContaining([
+          'mastra_messages',
+          'mastra_observational_memory',
+          'mastra_resources',
+          'mastra_threads',
+        ])
+      );
 
-    const configColumn = await db.query<{ data_type: string }>(
-      `SELECT data_type
-       FROM information_schema.columns
-       WHERE table_name = 'mastra_observational_memory'
-         AND column_name = 'config'`
-    );
-    expect(configColumn.rows[0]?.data_type).toBe('jsonb');
+      const configColumn = await coldDb.query<{ data_type: string }>(
+        `SELECT data_type
+         FROM information_schema.columns
+         WHERE table_name = 'mastra_observational_memory'
+           AND column_name = 'config'`
+      );
+      expect(configColumn.rows[0]?.data_type).toBe('jsonb');
+    } finally {
+      await coldDb.close();
+    }
   });
 
   it('retries schema initialization after a transient bootstrap failure', async () => {

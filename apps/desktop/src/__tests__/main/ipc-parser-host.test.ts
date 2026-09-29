@@ -93,6 +93,26 @@ describe('registerParserHostIpcHandlers', () => {
     expect(response.requestId).toBe('bad');
   });
 
+  it.each([
+    ['array request', Object.assign([], validRequest)],
+    ['array options', { ...validRequest, options: Object.assign([], validRequest.options) }],
+  ])('rejects an %s while preserving its request ID', async (_name, payload) => {
+    const { registerParserHostIpcHandlers } = await import('../../ipc-parser-host');
+    const manager = createFakeManager();
+    registerParserHostIpcHandlers(manager);
+
+    const handler = ipcMainHandle.mock.calls[0]?.[1] as (
+      event: unknown,
+      payload: unknown
+    ) => Promise<ParserHostParseResponse>;
+    await expect(handler({}, payload)).resolves.toEqual({
+      error: 'Malformed parser host parse request.',
+      ok: false,
+      requestId: 'ipc-1',
+    });
+    expect(manager.parse).not.toHaveBeenCalled();
+  });
+
   it('returns a unique unregister callback that calls ipcMain.removeHandler', async () => {
     const { registerParserHostIpcHandlers } = await import('../../ipc-parser-host');
     const manager = createFakeManager();

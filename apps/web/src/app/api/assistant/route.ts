@@ -4,17 +4,15 @@ import {
   readRequestBodyText,
 } from '@brainstrike/agent/hosted-web';
 import { createAssistantRejectionResponse } from '@brainstrike/assistant-service/http';
-import { resolveWebAssistantRequestBodyLimitBytes } from '../../../server/web-assistant-body-limit';
-import { runWebAssistantPost } from '../../../server/web-assistant-post';
+import { resolveWebAssistantRequestBodyLimitBytes } from '../../../server/web-assistant-body-limit.js';
+import { runWebAssistantPost } from '../../../server/web-assistant-post.js';
 import {
   describeWebAssistantInputError,
   WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
-} from '../../../server/web-assistant-request';
+} from '../../../server/web-assistant-request.js';
 
-// The Vercel API checks this route under Node16/CommonJS. A static import from
-// the emitted-ESM utils package fails that real contract with TS1479, so use
-// the native CJS→ESM dynamic-import seam. Start it lazily inside a request:
-// rejection is then observed by the caller instead of floating at module init.
+// Initialize logging lazily inside the request so initialization errors are
+// observed by the caller rather than left as module-initialization rejections.
 async function createWebAssistantLogger() {
   const { createLogger } = await import('@brainstrike/logging');
   return createLogger('WebAssistantRoute');

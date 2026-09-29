@@ -111,7 +111,10 @@ export default defineConfig({
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    setupFiles: [
+      '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
+      '@brainstrike/test-utils/vitest.setup',
+    ],
     unstubGlobals: true,
   },
 });

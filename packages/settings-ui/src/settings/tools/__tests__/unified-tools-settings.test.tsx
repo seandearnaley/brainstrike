@@ -233,8 +233,10 @@ vi.mock('@brainstrike/ui', async () => {
       <div data-testid="tabs-container">{children}</div>
     ),
     TabsContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    TabsList: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="tabs-list">{children}</div>
+    TabsList: ({ children, size }: { children: React.ReactNode; size?: string }) => (
+      <div data-size={size} data-testid="tabs-list">
+        {children}
+      </div>
     ),
     TabsTrigger: ({
       children,
@@ -915,6 +917,16 @@ describe('UnifiedToolsSettings', () => {
   });
 
   describe('MCP integration', () => {
+    it('switches Tools and MCP Config with the full-page (md) switcher', async () => {
+      const operations = createMockOperations();
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      expect(await screen.findByTestId('tabs-list')).toHaveAttribute('data-size', 'md');
+      expect(screen.getByTestId('tabs-trigger-tools')).toHaveTextContent('Tools');
+      expect(screen.getByTestId('tabs-trigger-mcp-config')).toHaveTextContent('MCP Config');
+    });
+
     it('shows MCP editor unavailable fallback when config text operations are missing', async () => {
       const operations = createMockOperations();
 

@@ -1,10 +1,21 @@
 // BST-1622. Paired test for scripts/desktop-window-broadcast-assertion-guard.mjs.
 //
 // The guard exists because ~26 desktop test files stub
-// `BrowserWindow.getAllWindows: () => []`, and every main -> renderer broadcast
-// in apps/desktop is a `for (const window of BrowserWindow.getAllWindows())`
-// loop. An empty listing is a perfectly good stub for a test that does not care
-// what the renderer was told; it is a silent false green for one that does.
+// `BrowserWindow.getAllWindows: () => []`, and the main -> renderer broadcasts
+// it covers all RESOLVE THEIR TARGET WINDOW from that listing. Scope is the
+// resolution, not the loop shape: most iterate it, but
+// chunking-host-manager.ts picks one out with `.find()`. An empty listing is a
+// perfectly good stub for a test that does not care what the renderer was
+// told; it is a silent false green for one that does — with no windows the
+// loop body never runs and the `.find()` returns undefined, so either way
+// nothing is sent and the assertion passes anyway.
+//
+// It is NOT every send site in apps/desktop (BST-1624): broadcasts that go to
+// a WebContents the caller already holds are outside the rule by design, for
+// the reason recorded in the registry-routed blind-spot test below. Stated
+// here as well as in the guard because this file is read as the guard's
+// contract, and a scope claim left stale in one copy is how the next audit
+// concludes a path is covered when it is not.
 //
 // A guard nobody has seen fail is exactly the failure mode it is meant to
 // police, so teeth are asserted here rather than demonstrated once:
@@ -474,6 +485,96 @@ it('notifies', () => {
   );
 
   assert.deepEqual(violations, []);
+});
+
+// BST-1624. Not every apps/desktop send site routes through the window
+// listing. src/terminal-ipc-handlers.ts sends to a WebContents held in its own
+// live-terminal registry, and a test for it supplies that WebContents itself,
+// so condition (1) of the rule — a window listing stub that resolves empty —
+// is absent and the guard is silent.
+//
+// Whether a given site qualifies is a property of the CALL SITE, not the file:
+// llm-host-manager.ts and chunking-host-manager.ts both reach
+// getAllWindows() despite reading as point-to-point, so they are IN scope. The
+// guard header carries the full criterion.
+//
+// That silence is correct, not a miss. The vacuous green this guard polices
+// needs a listing a test can hollow out; there is no listing here to hollow.
+// Widening the rule to "any send assertion" would flag every test of a
+// directly-held send while removing no false green, which is the
+// waiver-inflation failure mode the precision block above exists to prevent.
+//
+// The converse is a real cost and has a route: a registry-routed test that also
+// happens to stub the listing empty for unrelated reasons IS flagged, because
+// the guard fires on co-location rather than on causation. That is deliberate —
+// tightening it would cost more precision than it buys — and the second half of
+// this test locks the behaviour in. If you hit it, add a reasoned entry to
+// EMPTY_WINDOW_SEND_ASSERTION_WAIVERS in the guard, next to the
+// workspace-open-lifecycle one; stale entries fail the real-tree test above, so
+// the waiver cannot outlive its reason.
+//
+// The cost of the limit is a REPORTING one, and it has already been paid once.
+// BST-1622's audit no-opped every `.webContents.send(` site and ran the desktop
+// suite; the two terminal sites showed no failure, so they were filed as
+// untested (BST-1624). They are not — and the coverage is spread across two
+// lanes the audit did not run, which is the whole point:
+//
+//   terminal-ipc-handlers.integration.test.ts  the only UNIT/INTEGRATION
+//     coverage OF THE BROADCAST (privileged-ipc-sender-authorization.test.ts
+//     covers the inbound terminal channels, not these two outbound events),
+//     and `apps/desktop`'s `test` script carries
+//     `--exclude "**/*.integration.test.*"`, so that script cannot see it.
+//   e2e/terminal-panel.desktop.test.ts         also observes both events
+//     end-to-end: it asserts the echoed marker reaches `.xterm-rows`
+//     (terminal:data) and that the `terminal-panel-exited` overlay appears
+//     (terminal:exit). Neither of those two is tagged `@smoke` — only the
+//     header-cwd test is, and that one reads the create result, not the
+//     broadcast — so they run in the scheduled/dispatched FULL regression,
+//     not on every PR.
+//
+// Re-run with both sites no-opped and the unit lane stays fully green while
+// the integration lane fails on `owner.exitEvents` and `aggregatedData`.
+//
+// (Measured 2026-09-06 at 232620de2: 4388/4388 unit green, 4 integration
+// failures. Quoted for provenance, not as a contract — those totals move with
+// every added test or send site, so re-measure rather than trusting them.)
+//
+// The durable point survives any of those numbers moving: a survival observed
+// in one lane is evidence about that lane only.
+const REGISTRY_ROUTED_TEST = `const send = vi.fn();
+// The owner WebContents is handed to the handler directly: a live-terminal
+// registry entry, not a BrowserWindow listing.
+const owner = { isDestroyed: () => false, webContents: { send } };
+
+it('pushes terminal output to its owner', () => {
+  writeToTerminal(owner, 'HELLO');
+  expect(send).toHaveBeenCalledWith('terminal:data', { data: 'HELLO', terminalId: 't1' });
+});
+`;
+
+const REGISTRY_ROUTED_FIXTURE_NAME = 'registry-routed.test.ts';
+
+test('known blind spot: a registry-routed send with no window listing is outside the rule', async () => {
+  // Both directions, so the silence is attributable. The recorder and the
+  // assertion are the shapes the guard DOES recognise — `send` installed into
+  // a `webContents` object, asserted via `expect(send)` — and both runs use the
+  // same fixture NAME, so the listing stub is the only variable between them.
+  // An earlier draft used a FakeWebContents CLASS and asserted on its recorded-
+  // events array, which the guard does not recognise as a recorder at all: it
+  // passed for the wrong reason and stayed green even with the listing added.
+  assert.deepEqual(await violationsFor(REGISTRY_ROUTED_FIXTURE_NAME, REGISTRY_ROUTED_TEST), []);
+
+  const withEmptyListing = await violationsFor(
+    REGISTRY_ROUTED_FIXTURE_NAME,
+    `${EMPTY_LISTING_MOCK}\n${REGISTRY_ROUTED_TEST}`
+  );
+
+  // Identify the violation rather than counting it: a bare length check would
+  // stay green if EMPTY_LISTING_MOCK ever tripped some unrelated rule — the
+  // same "passed for the wrong reason" trap the draft above fell into.
+  assert.equal(withEmptyListing.length, 1);
+  assert.equal(withEmptyListing[0].filePath, `${TEST_DIR}/main/${REGISTRY_ROUTED_FIXTURE_NAME}`);
+  assert.match(withEmptyListing[0].reason, /every BrowserWindow\.getAllWindows\(\) stub/);
 });
 
 // ## unit-level shapes

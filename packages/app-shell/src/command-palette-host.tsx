@@ -7,6 +7,7 @@ import {
   createAppCommandRegistry,
 } from './command-registry';
 import { useCommandPaletteStore } from './stores/command-palette-store';
+import { getTabChordStrip, resolveTabChordScope } from './tab-chords/tab-chord-registry';
 import { useGlobalCommandHandlers } from './use-global-command-handlers';
 
 /**
@@ -41,11 +42,14 @@ function resolveCommandPaletteBridge(): CommandPaletteBridge | null {
  * On open it rebuilds the command registry with the target captured at open
  * time (snapshot semantics — `bridgeActionToCommand` reads the target eagerly),
  * reusing the SAME capabilities/services the context-action registry exposes.
+ * It also captures the focus-scoped tab strip BEFORE focus moves into the
+ * palette, so the tab commands act on the strip the user was in (BST-1842).
  */
 export function CommandPaletteHost(): ReactElement | null {
   const db = usePGliteDatabase();
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
   const openTarget = useCommandPaletteStore((state) => state.openTarget);
+  const tabScope = useCommandPaletteStore((state) => state.tabScope);
   const open = useCommandPaletteStore((state) => state.open);
   const close = useCommandPaletteStore((state) => state.close);
 
@@ -58,9 +62,17 @@ export function CommandPaletteHost(): ReactElement | null {
 
   // Rebuild the registry + context with the captured open target. While closed,
   // openTarget is null, so this collapses to the targetless command set.
+  // The strip is looked up when a command lists or runs, never cached: a strip
+  // re-registers whenever its tabs change.
   const registry = useMemo(
-    () => createAppCommandRegistry({ handlers, parts, target: openTarget }),
-    [parts, handlers, openTarget]
+    () =>
+      createAppCommandRegistry({
+        getTabStrip: () => (tabScope === null ? undefined : getTabChordStrip(tabScope)),
+        handlers,
+        parts,
+        target: openTarget,
+      }),
+    [parts, handlers, openTarget, tabScope]
   );
   const context = useMemo(
     () => buildAppCommandContext({ parts, target: openTarget }),
@@ -69,7 +81,7 @@ export function CommandPaletteHost(): ReactElement | null {
   const commands = useMemo(() => registry.available(context), [registry, context]);
 
   const handleOpen = useCallback(() => {
-    open();
+    open({ tabScope: resolveTabChordScope(document.activeElement) });
   }, [open]);
 
   // Global ⌘K / Ctrl+K on web AND desktop.
@@ -82,20 +94,18 @@ export function CommandPaletteHost(): ReactElement | null {
     if (!bridge) {
       return;
     }
-    return bridge.onOpen(() => {
-      open();
-    });
-  }, [open]);
+    return bridge.onOpen(handleOpen);
+  }, [handleOpen]);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
       if (next) {
-        open();
+        handleOpen();
       } else {
         close();
       }
     },
-    [open, close]
+    [handleOpen, close]
   );
 
   return (

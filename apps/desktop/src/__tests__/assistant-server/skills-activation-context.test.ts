@@ -125,8 +125,11 @@ describe('injectActivatedSkillsContext', () => {
     const text = systemTextOf(result);
     expect(text).toContain('alpha');
     expect(text).toContain('Alpha instructions body.');
-    expect(text).toContain('brainstrike.runSkillScript');
-    expect(text).toContain('brainstrike.writeWorkspaceFile');
+    // The guidance names the REGISTERED (sanitized) ids that load_tool matches
+    // exactly, never the dotted canonical ids (review of #3049).
+    expect(text).toContain('brainstrike_runSkillScript');
+    expect(text).toContain('brainstrike_writeWorkspaceFile');
+    expect(text).not.toContain('brainstrike.runSkillScript');
     expect(result[1]).toBe(messages[0]);
   });
 

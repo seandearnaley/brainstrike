@@ -1,4 +1,4 @@
-import { resolveWebAssistantDeploymentAccess } from '../src/server/web-assistant-deployment';
+import { resolveWebAssistantDeploymentAccess } from '../src/server/web-assistant-deployment.js';
 
 const JSON_HEADERS = {
   'Cache-Control': 'no-store',
