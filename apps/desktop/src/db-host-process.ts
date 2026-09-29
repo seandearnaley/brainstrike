@@ -33,10 +33,13 @@ export class DbHostProcess {
     return this.#exitCode;
   }
 
-  /** SIGKILL by pid: a host stuck in synchronous WASM can run no handler, so only this always ends it. */
+  /**
+   * SIGKILL by pid: a host stuck in synchronous WASM can run no handler, so only this always ends it.
+   * Never signals an exited process: the OS may already have given its pid to an unrelated one.
+   */
   forceKill(): void {
     const { pid } = this.handle; // undefined once the process is gone (or before it spawned)
-    if (pid === undefined) {
+    if (pid === undefined || this.#exitCode !== undefined) {
       return;
     }
     try {
@@ -70,13 +73,19 @@ export class DbHostProcess {
  * SIGKILL and wait for the exit. A SIGKILL is a crash as far as the database is
  * concerned (WAL recovery runs on the next open; the missing clean-shutdown marker
  * records it), so it is always an error-level record. Resolves whether the process
- * was observed to exit.
+ * was observed to exit; a kill the OS refuses is logged and counts as "not exited",
+ * so every caller reports it as `exit-timeout` instead of leaking a raw errno.
  */
 async function forceKillAndAwaitExit(
   host: DbHostProcess,
   context: Readonly<Record<string, unknown>>
 ): Promise<boolean> {
-  host.forceKill();
+  try {
+    host.forceKill();
+  } catch (error) {
+    logger.error('DB host SIGKILL failed', { err: error, ...context, pid: host.handle.pid });
+    return false;
+  }
   if (await host.waitForExit(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS)) {
     logger.error('DB host terminated with SIGKILL', { ...context, exitCode: host.exitCode });
     return true;
@@ -89,16 +98,15 @@ async function forceKillAndAwaitExit(
   return false;
 }
 
-/** SIGKILLs a host that will never answer (a wedged statement); a failed kill is logged, not thrown. */
+/**
+ * SIGKILLs a host that will never answer (a wedged statement). Only the host's own `exit` proves
+ * it is gone, so the owner keeps the host as its barrier and this result gates nothing.
+ */
 export async function killWedgedHost(
   host: DbHostProcess,
   context: Readonly<Record<string, unknown>>
 ): Promise<void> {
-  try {
-    await forceKillAndAwaitExit(host, context);
-  } catch (error) {
-    logger.error({ err: error, ...context }, 'DB host SIGKILL failed');
-  }
+  await forceKillAndAwaitExit(host, context);
 }
 
 /** How the wait for the host's close ended. */

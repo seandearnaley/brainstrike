@@ -181,20 +181,38 @@ describe('DbHostManager close ladder', () => {
       });
     });
 
-    it('rejects pending requests and forks no replacement until the exit is observed', async () => {
+    it('rejects pending requests and requests issued while the close runs, and forks nothing until it settles', async () => {
       const { host, manager } = await openManager();
       const pending = observe(manager.getDiagnostics());
       const closing = observe(manager.close());
+      // Issued during the acknowledgement wait: the host must never see it.
+      const duringAck = observe(manager.getDiagnostics());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(duringAck.settled()).toBe(true);
+      expect(await duringAck.outcome).toMatchObject({
+        message: 'DB host is unavailable: the database is closing.',
+        name: 'DbHostUnavailableError',
+      });
+      expect(host.messages.map((message) => message.request.kind)).toEqual([
+        'init',
+        'diagnostics',
+        'close',
+      ]);
+
       host.reply(lastMessage(host, 'close'), { closed: true });
       await vi.advanceTimersByTimeAsync(0);
       expect(await pending.outcome).toMatchObject({ message: 'DB host closed.' });
 
-      const next = manager.getDiagnostics();
+      // Detached, exit not yet observed: still closing, so still rejected, still no fork.
+      const afterDetach = observe(manager.getDiagnostics());
       await vi.advanceTimersByTimeAsync(0);
+      expect(afterDetach.settled()).toBe(true);
+      expect(await afterDetach.outcome).toMatchObject({ name: 'DbHostUnavailableError' });
       expect(forkMock).toHaveBeenCalledTimes(1);
 
       host.emit('exit', 0);
       expect(await closing.outcome).toBe('resolved');
+      const next = manager.getDiagnostics();
       await vi.advanceTimersByTimeAsync(0);
       expect(forkMock).toHaveBeenCalledTimes(2);
       latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
@@ -311,6 +329,184 @@ describe('DbHostManager close ladder', () => {
         name: 'DbHostCloseError',
         outcome: 'close-failed',
       });
+    });
+  });
+
+  // The only proof a host is gone is its observed `exit`. A kill that throws, or is not followed by
+  // an exit, leaves a barrier: nothing forks while it stands, and nothing waits on it unbounded.
+  describe('no fork while a previous host may still be alive', () => {
+    const eperm = (): Error => Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+
+    /** The close ladder ends with SIGKILL refused (EPERM): the host may still own the database. */
+    async function closeWhereSigkillIsRefused() {
+      const opened = await openManager();
+      killSpy.mockImplementation(() => {
+        throw eperm();
+      });
+      const closing = observe(opened.manager.close());
+      await vi.advanceTimersByTimeAsync(
+        DB_HOST_CLOSE_ACK_TIMEOUT_MS + DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS
+      );
+      return { ...opened, closing };
+    }
+
+    /** A transaction times out; `sigkill` decides whether SIGKILL is accepted or refused. The host never exits. */
+    async function wedgeWhereHostSurvivesSigkill(sigkill: 'accepted' | 'refused') {
+      const opened = await openManager({ requestTimeoutMs: 5 });
+      if (sigkill === 'refused') {
+        killSpy.mockImplementation(() => {
+          throw eperm();
+        });
+      }
+      const transaction = observe(opened.database.transaction(async () => 'unreachable'));
+      await vi.advanceTimersByTimeAsync(5);
+      expect(await transaction.outcome).toMatchObject({ name: 'DbHostRequestTimeoutError' });
+      // Past the wait for the exit after SIGKILL: nothing else is left to await.
+      await vi.advanceTimersByTimeAsync(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS);
+      return opened;
+    }
+
+    /** No request forks; each rejects, in bounded time, until the exit is observed; then exactly one host forks. */
+    async function expectNoForkUntilExit(
+      manager: Awaited<ReturnType<typeof openManager>>['manager'],
+      host: FakeUtilityProcess
+    ): Promise<void> {
+      const forksBefore = forkMock.mock.calls.length;
+      const send = observe(manager.getDiagnostics());
+      const open = observe(manager.getDatabase());
+      await vi.advanceTimersByTimeAsync(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS);
+      expect(send.settled()).toBe(true);
+      expect(open.settled()).toBe(true);
+      const unavailable = {
+        message:
+          'DB host is unavailable: the previous host has not exited and may still own the database.',
+        name: 'DbHostUnavailableError',
+      };
+      expect(await send.outcome).toMatchObject(unavailable);
+      expect(await open.outcome).toMatchObject(unavailable);
+      expect(forkMock).toHaveBeenCalledTimes(forksBefore);
+
+      host.emit('exit', 9);
+      await vi.advanceTimersByTimeAsync(0);
+      const next = manager.getDiagnostics();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(forkMock).toHaveBeenCalledTimes(forksBefore + 1);
+      latestProcess().reply(lastMessage(latestProcess(), 'diagnostics'), {});
+      await expect(next).resolves.toBeDefined();
+    }
+
+    it('rejects exit-timeout, not the raw errno, when SIGKILL is refused during a close', async () => {
+      const { closing } = await closeWhereSigkillIsRefused();
+
+      expect(await closing.outcome).toMatchObject({
+        name: 'DbHostCloseError',
+        outcome: 'exit-timeout',
+      });
+      expect(loggerErrorMock).toHaveBeenCalledWith(
+        'DB host SIGKILL failed',
+        expect.objectContaining({ err: expect.objectContaining({ code: 'EPERM' }) })
+      );
+    });
+
+    it('holds the barrier after a close whose SIGKILL was refused, until the host exits', async () => {
+      const { closing, host, manager } = await closeWhereSigkillIsRefused();
+      await closing.outcome;
+
+      await expectNoForkUntilExit(manager, host);
+    });
+
+    it('holds the barrier when a wedge SIGKILL is accepted but no exit follows', async () => {
+      const { host, manager } = await wedgeWhereHostSurvivesSigkill('accepted');
+
+      await expectNoForkUntilExit(manager, host);
+    });
+
+    it('holds the barrier, and logs the failure, when a wedge SIGKILL is refused', async () => {
+      const { host, manager } = await wedgeWhereHostSurvivesSigkill('refused');
+
+      expect(loggerErrorMock).toHaveBeenCalledWith(
+        'DB host SIGKILL failed',
+        expect.objectContaining({
+          err: expect.objectContaining({ code: 'EPERM' }),
+          reason: 'request-timeout',
+        })
+      );
+      await expectNoForkUntilExit(manager, host);
+    });
+
+    it('holds the barrier when the host outlives a close that timed out on SIGKILL', async () => {
+      const { host, manager } = await openManager();
+      const closing = observe(manager.close());
+      host.reply(lastMessage(host, 'close'), { closed: true });
+      await vi.advanceTimersByTimeAsync(
+        DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS + DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS
+      );
+      expect(await closing.outcome).toMatchObject({ outcome: 'exit-timeout' });
+
+      await expectNoForkUntilExit(manager, host);
+    });
+
+    it('rejects a request waiting on the barrier when the manager retires, and forks nothing', async () => {
+      const { closeDbHostManager, getDbHostManager } = await import('../../db-host-manager');
+      const manager = getDbHostManager();
+      const opening = manager.getDatabase();
+      const host = latestProcess();
+      host.reply(lastMessage(host, 'init'), { initialized: true });
+      const database = await opening;
+      const transaction = observe(database.transaction(async () => 'unreachable'));
+      // The default manager's request deadline: the transaction times out and the host is SIGKILLed.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await transaction.outcome).toMatchObject({ name: 'DbHostRequestTimeoutError' });
+
+      const waiting = observe(manager.getDiagnostics());
+      await vi.advanceTimersByTimeAsync(0);
+      const retiring = observe(closeDbHostManager());
+      host.emit('exit', 9);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(waiting.settled()).toBe(true);
+      expect(await waiting.outcome).toMatchObject({ message: 'DB host manager is retired.' });
+      expect(forkMock).toHaveBeenCalledTimes(1);
+      expect(await retiring.outcome).toBe('resolved');
+    });
+
+    it('never reports a repeated close as success while the host may still be alive', async () => {
+      const { closing, host, manager } = await closeWhereSigkillIsRefused();
+      expect(await closing.outcome).toMatchObject({ outcome: 'exit-timeout' });
+
+      const repeated = observe(manager.close());
+      await vi.advanceTimersByTimeAsync(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS);
+      expect(repeated.settled()).toBe(true);
+      expect(await repeated.outcome).toMatchObject({
+        name: 'DbHostCloseError',
+        outcome: 'exit-timeout',
+      });
+
+      const afterExit = observe(manager.close());
+      host.emit('exit', 9);
+      expect(await afterExit.outcome).toBe('resolved');
+    });
+  });
+
+  describe('DbHostProcess.forceKill', () => {
+    it('sends no signal once the process has exited, so a reused pid is never killed', async () => {
+      const { DbHostProcess } = await import('../../db-host-process');
+      const handle = new FakeUtilityProcess();
+      const hostProcess = new DbHostProcess(handle as never);
+      handle.emit('exit', 0);
+
+      hostProcess.forceKill();
+
+      expect(killSpy).not.toHaveBeenCalled();
+    });
+
+    it('sends SIGKILL to the pid while the process is running', async () => {
+      const { DbHostProcess } = await import('../../db-host-process');
+      const hostProcess = new DbHostProcess(new FakeUtilityProcess() as never);
+
+      hostProcess.forceKill();
+
+      expect(killSpy).toHaveBeenCalledWith(42, 'SIGKILL');
     });
   });
 
