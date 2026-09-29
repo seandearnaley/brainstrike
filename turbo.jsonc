@@ -1,6 +1,6 @@
 {
   // Turborepo monorepo configuration for brainstrike
-  "$schema": "https://v2-10-12.turborepo.dev/schema.json",
+  "$schema": "https://v2-11-2.turborepo.dev/schema.json",
   // Opt into Turborepo 3.0's global-configuration shape while 2.10 can still
   // validate the migration. Deleting this flag without moving the fields back
   // is a hard configuration error, never a silent fallback.
