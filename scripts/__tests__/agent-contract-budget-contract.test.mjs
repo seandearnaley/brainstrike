@@ -104,7 +104,8 @@ const CONTRACT_LINE_BUDGETS = {
   // verification and portable export all obey these class rules, and an agent
   // adding a table must classify it in the same change. The per-table reasoning
   // went to `database/table-durability-classes.md`.
-  'database.md': 895,
+  // BST-1871 raised it from 895 (+2): one bullet names the crash-sensitive index AM list.
+  'database.md': 897,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
