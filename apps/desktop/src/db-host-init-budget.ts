@@ -64,9 +64,11 @@ function assertByteCount(bytes: number, what: string): void {
 }
 
 function budgetFromBytes(bytes: number, bytesPerSecond: number, what: string): number {
-  // Integer arithmetic: whole bytes times 1000 over a whole rate, so the budget never depends on
-  // how a fractional per-millisecond rate rounds in binary. Exact until bytes * 1000 passes 2^53,
-  // far beyond any budget the timer can arm (the check below refuses those).
+  // Integer arithmetic: whole bytes times 1000 over a power-of-two rate, so the budget never
+  // depends on how a fractional per-millisecond rate rounds in binary. It is exact while
+  // bytes * 1000 <= 2^53, and every budget the timer can arm stays inside that: at 4 MiB/s the
+  // largest armable input gives 9.00707e15 against 2^53 = 9.00720e15 (a close margin, not a wide
+  // one), at 1 MiB/s 2.25e15. The check below refuses everything larger.
   const budgetMs = Math.max(
     DB_HOST_INIT_MIN_PHASE_BUDGET_MS,
     DB_HOST_INIT_PHASE_FLOOR_MS + Math.ceil((bytes * 1000) / bytesPerSecond)
