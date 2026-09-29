@@ -1588,47 +1588,47 @@ Guard: `packages/db/__tests__/migration-067-thread-search-index.test.ts`,
 Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
 `reorderThreadTabs` persists the complete ordered id list atomically.
 
-- The strip is the shared `TabStrip` (manual activation; `ui-conventions.md` TAB
-  STRIPS) badged by the Threads panel's run-state projections through the shared
-  `ThreadIdentityMark`. Panels stay mounted (`hidden`, never `<Activity>`) while
-  inactive so a background run keeps its tool-update subscription.
-- `assistant-thread-presentation.ts` owns the exhaustive icon registry, the Message
-  default and the canonical colour surfaces. Rows, pickers, group icon choices and
-  tabs consume those shared contracts rather than local glyph maps.
-- Each tree cell mounts one `ThreadRow` owning its transient edit/customize/delete
-  state, keyed by thread id: a same-thread parent rerender preserves an in-progress
-  rename, while a virtual cell changing identity remounts. None of that ephemeral
-  state enters the persisted store.
-- A successful metadata write updates the one loaded thread object, so an open tab
-  reflects customization without a re-read, timer, global invalidation or panel
-  remount; a failed write performs no store transition and stays visibly failed.
-- `listThreads` returns the thread row plus its latest-run badge data in ONE SQL
-  snapshot. Why: splitting the reads lets a metadata write interleave before a
-  stale title refresh lands. The refresh captures each loaded metadata object
-  before its read, so an immutable metadata transition landing mid-read preserves
-  current metadata while still applying refreshed titles, badges and ordering.
-  Neither path polls or retries.
-- Historical run model ids stay plain persisted evidence: ids known to
-  `MODEL_ID_MIGRATIONS` render as `Unavailable · <raw id>`, and unrecognized ids
-  remain visible verbatim rather than being rewritten to a replacement.
-- The persisted store holds tab/selection ids, not `mastra_threads` rows, so
-  `loadStateByResourceId` stays `idle`/`loading` after restore until
-  `ensureResourceThreads` hydrates. Composer sends stay disabled during both
-  states, and root-binding resolution rejects a selected id whose row is not loaded
-  — that transient absence is never an unbound thread. A terminal database
-  initialization error always outranks the transient loading reason.
-- The non-reloading **Clear Database** path deletes `mastra_threads`, so its
-  composition must synchronously reset the thread and thread-groups stores immediately
-  after the clear succeeds and before collection reloads. `DatabaseDemoPanel` requires
-  and preflights that callback; capability absence blocks the clear visibly. Both
-  stores invalidate in-flight hydration generations during reset.
+- The shared `TabStrip` (manual activation; `ui-conventions.md` TAB STRIPS), badged by the
+  Threads panel's run-state projections via `ThreadIdentityMark`. Inactive panels stay mounted
+  (`hidden`, never `<Activity>`) so a background run keeps its tool-update subscription.
+- Closing the tab of a thread whose run is in flight HIDES it, on web and desktop: its panel
+  stays mounted (`hidden`, no `tabpanel` role) outside the strip. Why: the panel owns the run
+  (web aborts it on unmount) and, on web, the only copy of the conversation.
+  - In flight = the panel's own `thread.isRunning`, read inside `closeRecorded`'s event (an
+    effect latch unmounts and aborts first); never the durable run row, which lags a send.
+  - Released on reopen, idle close, delete or absent thread, store or resource reset; NEVER at
+    run end. Reconciled WHILE RENDERING (an effect lags a removal that skips `closeRecorded`).
+  - Open and retained panels share ONE list ordered by thread id, not tab order, so a reopen
+    or reorder never moves a panel's DOM node (that resets its scroller).
+- The badge reads `latestRun` from the loaded list, which ONE workspace-mounted live query over
+  run terminal writes refreshes (`useAssistantThreadRunCompletionSync`), never a run callback:
+  the desktop host writes the row after them, and a titled thread has no title write to ride.
+- Rows, pickers, group icon choices and tabs consume `assistant-thread-presentation.ts` (icon
+  registry, Message default, colour surfaces). Each tree cell mounts one `ThreadRow` keyed by
+  thread id, owning its transient edit/customize/delete state (never persisted). A successful
+  metadata write updates the one loaded thread object (no re-read, timer, global invalidation
+  or panel remount); a failed write makes no store transition.
+- `listThreads` returns the thread row plus its latest-run badge data in ONE SQL snapshot, and
+  the refresh captures each loaded metadata object before its read (nothing polls or retries).
+  Historical run model ids render verbatim (`Unavailable · <raw id>` for ids in
+  `MODEL_ID_MIGRATIONS`), never rewritten.
+- The persisted store holds tab/selection ids, not `mastra_threads` rows: until
+  `ensureResourceThreads` hydrates, `loadStateByResourceId` stays `idle`/`loading`, sends stay
+  disabled and root-binding rejects an unloaded selected id; a database error outranks that.
+- The non-reloading **Clear Database** path deletes `mastra_threads`, so its composition
+  synchronously resets the thread and thread-groups stores right after the clear succeeds
+  (`DatabaseDemoPanel` preflights that callback; both stores invalidate in-flight hydration).
 
 Evidence: `assistant-persistence/assistant-thread-tabs.md`.
-Guard: `packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`,
-`packages/app-shell/src/__tests__/database-demo-panel.test.tsx`,
-`assistant-thread-tabs-workspace.test.tsx`, `use-assistant-thread-root-binding.test.ts`,
-`assistant-thread-tabs-workspace-status.test.tsx`; the live customize-and-reload
-contract is `apps/web/e2e/assistant-ui-panel.test.ts`.
+Guard: `packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`; in
+`packages/app-shell/src/__tests__/`: `database-demo-panel.test.tsx`,
+`assistant-thread-tabs-workspace*.test.tsx`, `use-assistant-thread-root-binding.test.ts`,
+`assistant-ui-panel-wrapper-running-change.test.tsx`, `use-retained-thread-panels.test.ts`,
+`use-assistant-thread-run-completion-sync*.test.ts` (the SQL runs on real PGlite);
+`packages/assistant-ui/src/__tests__/running-state-bridge.behavior.test.tsx`; live E2E:
+`apps/web/e2e/assistant-ui-panel.test.ts` (customize and reload),
+`apps/web/e2e/assistant-thread-tab-runs.test.ts` and
+`apps/desktop/e2e/assistant-thread-tab-close-running.desktop.test.ts` (close = hide).
 
 ---
 

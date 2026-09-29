@@ -9,10 +9,10 @@ import { openAssistantWorkspace } from './utils/assistant-workspace';
 import { getPanelElements } from './utils/layout-helpers';
 
 /**
- * Thread tabs vs. runs in flight (BST-1838 characterisation, written before
- * the tab-strip migration and held green across it). Every turn on the mocked
- * local host is held until the test releases it, so each tab gesture lands
- * mid-run.
+ * Thread tabs vs. runs in flight (BST-1838 characterisation, held green across
+ * the tab-strip migration; BST-1844 flipped the close case to close = hide).
+ * Every turn on the mocked local host is held until the test releases it, so
+ * each tab gesture lands mid-run.
  */
 
 async function readOpenThreadTabIds(page: Page): Promise<readonly string[]> {
@@ -91,12 +91,10 @@ test.describe('Assistant thread tabs with runs in flight @stateful @web-assistan
     expect(pageErrors).toEqual([]);
   });
 
-  // CHARACTERISATION, not a contract: on web, closing a running root thread's
-  // tab unmounts its panel, which ABORTS the run (the local runtime cancels the
-  // host request) and leaves the durable run row `running`, so its spinner
-  // outlives the run until the next startup reap. Pinned so the tab-strip
-  // migration cannot move it silently; changing it is its own ticket.
-  test('closing a running root thread tab on web aborts the run (characterised)', async ({
+  // BST-1844, maintainer decision 2026-09-28: closing a tab HIDES a running
+  // thread. Its run keeps going in the background exactly as it does on a tab
+  // switch; only the Stop button ever aborts a run.
+  test('closing a running root thread tab hides it and the run completes in the background', async ({
     page,
   }) => {
     const pageErrors: string[] = [];
@@ -104,30 +102,62 @@ test.describe('Assistant thread tabs with runs in flight @stateful @web-assistan
     const { alphaId, betaId } = await startHeldRunInFirstOfTwoThreads(page);
     const alphaTab = page.locator(`[id="assistant-thread-tab-${alphaId}"]`);
     const betaTab = page.locator(`[id="assistant-thread-tab-${betaId}"]`);
+    const alphaPanel = page.getByTestId(`assistant-thread-panel-${alphaId}`);
     const threadsPanel = page.getByTestId('threads-panel');
+    const runningSpinners = threadsPanel.getByTestId('thread-active-spinner');
 
     await alphaTab.focus();
     await page.keyboard.press('Delete');
     await expect(alphaTab).toHaveCount(0);
     await expect(betaTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId(`assistant-thread-panel-${alphaId}`)).toHaveCount(0);
-    await expect.poll(async () => (await readGatedRuns(page)).cancelled.length).toBe(1);
+    // Hidden, not unmounted: the panel still owns the run and its conversation.
+    await expect(alphaPanel).toHaveCount(1);
+    await expect(alphaPanel).toBeHidden();
+    await expect(runningSpinners).toHaveCount(1);
 
-    // Releasing the host after the abort lands nothing anywhere.
+    // The run finishes in the background: its row reaches a terminal status
+    // (the spinner reads the row) and the Threads panel badges it as finished.
     await releaseGatedRuns(page);
-    // Alpha's row is the one still badged running: its select button's name
-    // includes the spinner's "<title> is active" label.
+    await expect(runningSpinners).toHaveCount(0);
+    await expect(threadsPanel.getByTestId('thread-unseen-glyph')).toHaveCount(1);
+
+    // Reopening from the Threads panel shows the finished conversation.
+    await threadsPanel.getByRole('button', { name: / has unseen activity/ }).click();
+    await expect(alphaTab).toHaveAttribute('aria-selected', 'true');
+    await expect(
+      alphaPanel.getByTestId('assistant-ui-viewport').getByText(GATED_RUN_RESPONSE)
+    ).toBeVisible();
+    expect(await readGatedRuns(page)).toEqual({ cancelled: [], started: 1 });
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('reopening a hidden running thread shows the live run, which then finishes in place', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    const { alphaId } = await startHeldRunInFirstOfTwoThreads(page);
+    const alphaTab = page.locator(`[id="assistant-thread-tab-${alphaId}"]`);
+    const alphaPanel = page.getByTestId(`assistant-thread-panel-${alphaId}`);
+    const alphaViewport = alphaPanel.getByTestId('assistant-ui-viewport');
+    const threadsPanel = page.getByTestId('threads-panel');
+    const runningSpinners = threadsPanel.getByTestId('thread-active-spinner');
+
+    await alphaTab.focus();
+    await page.keyboard.press('Delete');
+    await expect(alphaTab).toHaveCount(0);
+
+    // Alpha's row is the one badged running: its select button's name includes
+    // the spinner's "<title> is active" label.
     await threadsPanel.getByRole('button', { name: / is active/ }).click();
     await expect(alphaTab).toHaveAttribute('aria-selected', 'true');
-    const alphaViewport = page
-      .getByTestId(`assistant-thread-panel-${alphaId}`)
-      .getByTestId('assistant-ui-viewport');
-    await expect(alphaViewport).toBeVisible();
-    // A bounded observation window: an absence has no event to wait on.
-    await page.waitForTimeout(1000);
-    await expect(alphaViewport.getByText(GATED_RUN_RESPONSE)).toHaveCount(0);
-    await expect(threadsPanel.getByTestId('thread-active-spinner')).toHaveCount(1);
-    expect((await readGatedRuns(page)).started).toBe(1);
+    await expect(alphaViewport.getByText('held run alpha')).toBeVisible();
+    await expect(runningSpinners).toHaveCount(1);
+
+    await releaseGatedRuns(page);
+    await expect(alphaViewport.getByText(GATED_RUN_RESPONSE)).toBeVisible();
+    await expect(runningSpinners).toHaveCount(0);
+    expect(await readGatedRuns(page)).toEqual({ cancelled: [], started: 1 });
     expect(pageErrors).toEqual([]);
   });
 });

@@ -80,11 +80,10 @@ run-state badge reads the same on a tab and its row (BST-939). Paired tests now:
 `assistant-thread-tabs-workspace-status.test.tsx`, and the web E2E
 `assistant-thread-tab-runs.test.ts` and `assistant-tab-strip-geometry.test.ts`.
 
-Characterised before the change and unchanged by it: on web, closing a running
-root thread's tab unmounts its panel, which aborts the run (the local runtime
-cancels the host request) and leaves the durable run row `running` until the next
-startup reap. Switching tabs mid-run neither aborts the run nor throws. Tracked
-as BST-1844.
+Characterised before the change and unchanged by it: switching tabs mid-run
+neither aborts the run nor throws. Closing a running root thread's tab on web
+aborted the run and left its durable row `running`; that was flipped to close =
+hide by BST-1844 (below).
 
 Tabs now badge unseen runs, so the strip also runs `useMarkActiveThreadViewed`.
 Before, only the Threads panel advanced the watermark, and with the Library on
@@ -93,3 +92,70 @@ Pinned in `assistant-thread-tabs-workspace-status.test.tsx`.
 Superseded 2026-09-28 (BST-1845): the strip is now the ONLY publisher of the
 on-screen thread and the only stamper (`useMarkOnScreenThreadViewed`); see
 `thread-groups-and-folders.md`.
+
+## 2026-09-28: Close = hide for a running thread (BST-1844)
+
+Maintainer decision: closing the tab of a thread whose run is in flight hides it;
+only Stop aborts a run. Rules: `assistant-persistence.md` § "ASSISTANT THREAD TABS".
+Findings recorded before the change:
+
+- **Web abort chain.** `ThreadPanels` mounted one panel per OPEN tab, so a close
+  dropped the key and unmounted the panel. The unmount runs assistant-ui's
+  `detach()`, which aborts; `local-runtime-adapter.ts` (`handleAbort`) then calls
+  `llmHost.cancel` unconditionally. Web local turns are session-only, so the
+  mounted runtime is the ONLY copy of the conversation: unmounting at run end
+  would lose the finished response too. Hence "never at run end".
+- **Desktop was already close = hide.** `DataStreamRuntimeChat`'s
+  `registerCancelHandler` ignores detach aborts (`data-stream-runtime.ts`, pinned
+  by "invokes onCancel for normal aborts but not detach aborts" in
+  `data-stream-runtime.test.ts`); the main process owns the run and its terminal
+  write, and reopening rehydrates from durable history. Retention now keeps the
+  desktop panel mounted as well, with no platform branch.
+  `assistant-thread-tab-close-running.desktop.test.ts` pins the same outcome as
+  web: no `/assistant/cancel` reaches the host, the row reaches `completed`, the
+  Threads panel badges it finished, and reopening shows the response.
+- **Running signal.** The durable projection (`useActiveAssistantThreadIds`) is a
+  second live-query instance created after the row is written: it was empty in 3
+  of 5 real E2E runs at close time. It also outlives a reaped run and, on
+  desktop, belongs to a host that owns the run. The panel's own
+  `thread.isRunning` is the only signal that is right at the moment of the close.
+- **Atomic latch.** The retain decision is taken inside the close event
+  (`closeRecorded` reports the removed ids, batched with the store update). An
+  effect-based latch unmounts first and the unmount aborts the run.
+- **Badge race.** The thread-list refresh after a run fired only from the usage
+  tap, before the run row's terminal write, so it read `running` and nothing
+  refreshed again: the finished badge was missing in 4 of 6 hidden-finish E2E
+  runs. A refresh after `completePreparedRequest` was tried first and replaced
+  (last bullet). The adapter's `onUsage` / `completeRuntimeData` order is
+  unchanged, because `completePreparedRequest` clears the usage context
+  `handleUsage` needs.
+- **Page unload on web.** The run dies with the page and its row stays `running`;
+  only the startup reap finalises it (`reapOrphanedAssistantThreadRuns`, with a
+  60 s `started_at` margin). No code change: retention is session-only and does
+  not outlive a reload.
+- **Panel DOM stability.** Panels used to render in tab order, so a tab reorder
+  moved their DOM nodes (a browser resets a detached scroller's `scrollTop`).
+  All mounted panels now render in one list ordered by thread id, so neither a
+  reopen nor a reorder moves a node. Guard: "panel DOM stability" in
+  `assistant-thread-tabs-workspace-background-runs.test.tsx`, which observes
+  panel insertions and removals.
+- **Seams.** The wrapper forwards `onRunningChange(threadId, running)` untouched
+  (its source file is under a shrink-only budget, so the terminal-run handlers
+  moved to `assistant-panel/use-terminal-run-handlers.ts` to pay for the three
+  forwarding lines); assistant-ui reports it keyed by its `threadKey`, which the
+  workspace sets to the mounted thread. A thread deleted while retained leaves
+  the loaded thread list and its panel unmounts, which aborts a still-running run.
+- **Cost.** A retained panel holds its conversation in memory until the thread is
+  reopened, closed idle or deleted. Accepted: on web nothing else holds it.
+- A throwaway spike of this design passed 8 of 8 E2E runs; its only flake was the
+  badge race above.
+- **2026-09-28, review: the desktop badge.** On desktop the host owns the run
+  (`hostOwnsRun`) and writes the terminal row after the response streams, so a
+  refresh fired from the renderer's completion callbacks read `running`. Only a
+  thread's FIRST run hid that: its title write refreshed the list through
+  `useAssistantThreadTitleSync`, which is why the first desktop E2E was green.
+  A second turn on a titled thread went stale (the E2E now holds that turn).
+  One workspace-mounted live query over the runs' terminal writes
+  (`useAssistantThreadRunCompletionSync`) refreshes the list on both platforms;
+  the ledger's callback refresh is gone. The retained set is now reconciled while
+  rendering (a reopen drops the id, a resource change resets it).
