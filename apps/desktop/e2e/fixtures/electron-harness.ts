@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import type { Page, TestInfo } from '@playwright/test';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
@@ -87,6 +88,24 @@ export class ElectronHarness {
    */
   async closeForStateSeeding(): Promise<void> {
     await this.dispose();
+  }
+
+  /**
+   * Hands the running app's main process to `end`, which ends it by signal (a signal-shutdown
+   * test, a simulated crash) instead of the harness's graceful close. The exit is marked
+   * intentional BEFORE `end` runs, so `ElectronProcessExitGuard` does not fail the test for it,
+   * and the harness forgets the context: the next `ensureContext()`/`restart()` launches a fresh
+   * process against the same userData.
+   */
+  async endOutOfBand(end: (mainProcess: ChildProcess) => Promise<void>): Promise<void> {
+    if (!this.context) {
+      throw new Error('Electron harness has no running app to end.');
+    }
+    const mainProcess = this.context.app.process();
+    this.exitGuard.beginIntentionalClose(mainProcess);
+    this.context = null;
+    this.hasProvidedWindow = false;
+    await end(mainProcess);
   }
 
   async dispose(): Promise<void> {
