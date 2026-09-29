@@ -2,7 +2,7 @@ import {
   ensureVectorPreferencesHydrated,
   useVectorPreferencesStore,
 } from '@brainstrike/app-state/stores/vector-preferences-store';
-import { createEmbeddingCacheRepository } from '@brainstrike/db';
+import { createEmbeddingCacheRepository, type DatabaseWorkOptions } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
@@ -312,11 +312,19 @@ function assertEmbeddingResultDimensions(
   );
 }
 
+/** The handle's `query` type omits the work options it forwards (`db-handle.ts`). */
+type QueryWithWorkOptions = <T>(
+  sql: string,
+  params: unknown[],
+  options: DatabaseWorkOptions
+) => Promise<{ rows: T[] }>;
+
 async function loadQueryEmbeddingModelConfig(
   db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
   request: EmbeddingHostQueryEmbeddingRequest
 ): Promise<ModelConfig> {
-  const result = await db.query<DbModelRow>(
+  const queryWithWorkOptions = db.query as QueryWithWorkOptions;
+  const result = await queryWithWorkOptions<DbModelRow>(
     `SELECT
       id,
       provider_id AS "providerId",
@@ -327,7 +335,11 @@ async function loadQueryEmbeddingModelConfig(
      FROM models
      WHERE id = $1
      LIMIT 1`,
-    [request.payload.modelId]
+    [request.payload.modelId],
+    // A user's search waits on this read. Host-window work defaults to
+    // background, which the desktop scheduler rejects while database integrity
+    // is contained (BST-1870), so name the foreground lane.
+    { label: 'query embedding model config', priority: 'foreground' }
   );
   const row = result.rows[0];
   if (!row) {

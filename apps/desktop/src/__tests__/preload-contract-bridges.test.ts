@@ -6,6 +6,7 @@ import { commandSessionsContract } from '../ipc-domains/command-sessions.contrac
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import {
   databaseContract,
+  databaseIntegrityContract,
   databaseLiveContract,
   databasePathContract,
 } from '../ipc-domains/database.contract';
@@ -58,6 +59,7 @@ const CONTRACT_BRIDGES = {
   clipboard: clipboardContract,
   commandSessions: commandSessionsContract,
   contextFiles: contextFilesContract,
+  databaseIntegrity: databaseIntegrityContract,
   forge: forgeContract,
   git: gitContract,
   notesVault: notesVaultContract,
@@ -246,6 +248,21 @@ describe('preload contract-derived bridges', () => {
     expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(
       DESKTOP_IPC_CHANNELS.windowFocus.changed,
       listener
+    );
+  });
+
+  it('routes databaseIntegrity.getState to the manifest channel and unwraps the result envelope', async () => {
+    const snapshot = { revision: 0, state: { kind: 'healthy' } };
+    mockInvoke.mockResolvedValueOnce({ ok: true, value: snapshot });
+    await expect(exposedApi('databaseIntegrity')['getState']?.()).resolves.toEqual(snapshot);
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.db.integrityState);
+
+    mockInvoke.mockResolvedValueOnce({
+      error: { category: 'database', code: 'unavailable', message: 'integrity unavailable' },
+      ok: false,
+    });
+    await expect(exposedApi('databaseIntegrity')['getState']?.()).rejects.toThrow(
+      'integrity unavailable (database · unavailable)'
     );
   });
 

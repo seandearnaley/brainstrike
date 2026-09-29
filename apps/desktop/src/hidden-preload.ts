@@ -6,6 +6,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 import {
   databaseChunkingContract,
   databaseEmbeddingContract,
+  databaseIntegrityContract,
 } from './ipc-domains/database.contract';
 import { vectorPreferencesContract } from './ipc-domains/storage-preferences.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -134,6 +135,12 @@ function exposeEmbeddingHostBridge(): void {
     },
   } satisfies EmbeddingHostRuntimeBridge;
   contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);
+  // BST-1870: the claim permit parks while database integrity is contained, so
+  // the host reads the main-owned state. Read-only; chunking/LLM hosts get none.
+  contextBridge.exposeInMainWorld(
+    'databaseIntegrity',
+    createIpcBridge(ipcRenderer, databaseIntegrityContract)
+  );
   contextBridge.exposeInMainWorld('power', {
     getSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.powerSnapshot),
     onPowerState: (callback: (state: 'resume' | 'suspend') => void) =>
