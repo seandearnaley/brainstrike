@@ -191,6 +191,11 @@ export function containDatabaseIntegrityError(
   error: unknown,
   integrity: DesktopDatabaseIntegrity = getDesktopDatabaseIntegrity()
 ): DatabaseIntegrityError | null {
+  // Already contained by an inner layer: pass it through, so an outer catch never
+  // re-classifies it through its `cause` and wraps it a second time.
+  if (error instanceof DatabaseIntegrityError) {
+    return error;
+  }
   const signal = classifyDatabaseCorruption(error);
   if (!signal) {
     return null;

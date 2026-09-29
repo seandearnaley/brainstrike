@@ -238,6 +238,19 @@ describe('containDatabaseIntegrityError', () => {
     expect(error?.detail).toMatchObject({ reason: 'detected', signal: { sqlstate: 'XX002' } });
     expect(error?.cause).toBe(wrapped);
   });
+
+  it('passes an already-contained error through unchanged instead of wrapping it again', () => {
+    const { integrity, logger } = createFixture();
+    const original = Object.assign(new Error('bad page'), { code: 'XX001' });
+    const first = containDatabaseIntegrityError('db:query', original, integrity);
+    const revisionAfterFirst = integrity.getSnapshot().revision;
+
+    const second = containDatabaseIntegrityError('maintenance', first, integrity);
+
+    expect(second).toBe(first);
+    expect(integrity.getSnapshot().revision).toBe(revisionAfterFirst);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
 });
 
 describe('assertBackgroundDatabaseWorkAdmitted', () => {
