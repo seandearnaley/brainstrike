@@ -163,6 +163,9 @@ function toThrownError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+/** The longest delay Node's `setTimeout` honours (2^31 - 1 ms); a longer one fires after 1 ms. */
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 export function createHostRequestChannel<TRequest, TResponse>(
   options: HostRequestChannelOptions<TRequest, TResponse>
 ): HostRequestChannel<TRequest, TResponse> {
@@ -320,6 +323,11 @@ export function createHostRequestChannel<TRequest, TResponse>(
     if (options.progressTimeoutMs) {
       try {
         windowMs = options.progressTimeoutMs(entry.request, response);
+        // `setTimeout` clamps a non-finite, non-positive or over-2^31-1 delay to 1 ms, which would
+        // abandon the host at once: a window it cannot honour is refused like a throw.
+        if (!Number.isSafeInteger(windowMs) || windowMs <= 0 || windowMs > MAX_TIMER_DELAY_MS) {
+          throw new RangeError(`progressTimeoutMs returned ${windowMs}, not a timer delay.`);
+        }
       } catch (error) {
         // Runs inside the transport listener, like the hooks below. Nothing is re-armed: the
         // running deadline stays, so a report we cannot size cannot postpone a kill.
