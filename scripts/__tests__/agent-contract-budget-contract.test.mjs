@@ -106,7 +106,8 @@ const CONTRACT_LINE_BUDGETS = {
   // went to `database/table-durability-classes.md`.
   // BST-1871 raised it from 895 (+2): one bullet names the crash-sensitive index AM list.
   // BST-1870 L2b raised it from 897 (+10): the integrity-containment
-  // background pause is a new scheduler rule with its guards; L4 re-pins.
+  // background pause is a new scheduler rule with its guards. L4 rewrote the
+  // maintenance bullet in place, so the count is unchanged.
   'database.md': 907,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
@@ -117,9 +118,10 @@ const CONTRACT_LINE_BUDGETS = {
   'local-inference.md': 403,
   'mastra-boundary.md': 402,
   'mcp-conformance.md': 199,
-  // BST-1870 L1 raised this from 955 (+3): the boot/migration never-reset rule; the L4
-  // change replaces this whole section and re-pins to its exact new count.
-  'platform-contracts.md': 958,
+  // BST-1870 L1 raised this from 955 (+3): the boot/migration never-reset rule. L4 replaced
+  // the runtime-recovery section with DATABASE INTEGRITY CONTAINMENT (the recovery order and
+  // its history moved to evidence), landing 4 below L1 and 1 below the original 955.
+  'platform-contracts.md': 954,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a

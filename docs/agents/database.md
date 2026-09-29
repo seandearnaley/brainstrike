@@ -158,8 +158,8 @@ Guard: `packages/db/__tests__/managed-cache-batch-parameter-limit.test.ts`.
 - On exclusive desktop boot, before maintenance triggers start, reclaim persisted
   `running` HNSW maintenance as pending; routine ticks must not reset live-owner rows.
 - Run-scoped work must be ON the scheduler, so a run started during a statement waits there instead of timing out at the host.
-- A maintenance failure matching `isCorruptionError` enters runtime corruption recovery with context `'maintenance'`;
-  any other maintenance failure is only logged (`platform-contracts.md` § RUNTIME DATABASE CORRUPTION RECOVERY).
+- A maintenance failure the classifier accepts contains database integrity with context `'maintenance'`; passes skip while
+  contained; any other failure is only logged (`platform-contracts.md` § DATABASE INTEGRITY CONTAINMENT).
 - While the integrity state is not `healthy` (`isBackgroundDatabaseWorkAdmitted`), the desktop scheduler
   rejects every new and queued `background` task with `DatabaseIntegrityError`; `foreground`/`normal` run.
   Reject, never hold: a held task never settles and shutdown's idle join times out.
