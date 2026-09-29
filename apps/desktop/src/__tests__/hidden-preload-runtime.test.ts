@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import {
   databaseChunkingContract,
   databaseEmbeddingContract,
+  databaseIntegrityContract,
 } from '../ipc-domains/database.contract';
 
 const { exposeInMainWorldMock, invokeMock, onMock, removeListenerMock, sendMock } = vi.hoisted(
@@ -61,7 +62,7 @@ describe('hidden preload runtime capability manifest', () => {
 
   it.each([
     ['chunking-host', ['chunkingHost', 'electronAPI', 'logging', 'parserHost']],
-    ['embedding-host', ['electronAPI', 'embeddingHost', 'logging', 'power']],
+    ['embedding-host', ['databaseIntegrity', 'electronAPI', 'embeddingHost', 'logging', 'power']],
     ['llm-host', ['llmHost', 'logging']],
   ] as const)('exposes only the %s capability manifest', async (role, expectedGlobals) => {
     const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}${role}`]);
@@ -137,6 +138,23 @@ describe('hidden preload runtime capability manifest', () => {
       'reportQueryEmbeddingResponse',
       'reportStatus',
     ]);
+  });
+
+  it('gives the embedding host the read-only database integrity capability', async () => {
+    const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}embedding-host`]);
+    const integrity = exposed.get('databaseIntegrity') as Record<
+      string,
+      (...args: unknown[]) => unknown
+    >;
+
+    expect(Object.keys(integrity).sort()).toEqual(Object.keys(databaseIntegrityContract).sort());
+    const snapshot = { revision: 2, state: { kind: 'healthy' } };
+    invokeMock.mockResolvedValueOnce({ ok: true, value: snapshot });
+    await expect(integrity['getState']?.()).resolves.toEqual(snapshot);
+    expect(invokeMock).toHaveBeenLastCalledWith('db:integrity:state');
+
+    integrity['onChanged']?.(vi.fn());
+    expect(onMock).toHaveBeenCalledWith('db:integrity:changed', expect.any(Function));
   });
 
   it('gives the embedding host a key-less vector preferences capability', async () => {

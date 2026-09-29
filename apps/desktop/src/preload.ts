@@ -14,6 +14,7 @@ import {
   type DatabaseLiveQueryUpdate,
   type DatabasePathBridge,
   databaseContract,
+  databaseIntegrityContract,
   databaseLiveContract,
   databasePathContract,
 } from './ipc-domains/database.contract';
@@ -933,6 +934,15 @@ exposeBridge('clipboard', clipboardContract);
 // Web has no preload, so it keeps `document.hasFocus()`.
 if (shouldExposeBridge('windowFocus')) {
   exposeBridge('windowFocus', windowFocusContract);
+}
+
+// Database integrity state (BST-1870, desktop-only): `getState()` reads the
+// main-owned snapshot and `onChanged` receives every change. `@brainstrike/db`
+// capability-checks `window.databaseIntegrity`; the embedding host gets its own
+// copy from hidden-preload.ts, the other hidden hosts get none, and web has no
+// preload at all.
+if (shouldExposeBridge('databaseIntegrity')) {
+  exposeBridge('databaseIntegrity', databaseIntegrityContract);
 }
 
 // File-export save bridge (desktop-only): writes export bytes into the OS

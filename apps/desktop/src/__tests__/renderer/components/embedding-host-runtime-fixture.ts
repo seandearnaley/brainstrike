@@ -106,8 +106,12 @@ vi.mock('electron', () => ({
   powerSaveBlocker: { isStarted: vi.fn(), start: vi.fn(), stop: vi.fn() },
 }));
 
-vi.mock('@brainstrike/db', () => ({
+vi.mock('@brainstrike/db', async (importOriginal) => ({
   createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
+  // The real priority proxy: the runtime's model read must reach the handle
+  // with the foreground lane's work options.
+  createPriorityDbHandle: (await importOriginal<typeof import('@brainstrike/db')>())
+    .createPriorityDbHandle,
   usePGliteDatabase: () => currentDbRef.current,
 }));
 vi.mock('@brainstrike/db/react', () => ({

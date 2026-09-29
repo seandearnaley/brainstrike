@@ -1,12 +1,14 @@
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   createDatabasePressureController,
+  type DatabaseIntegrityWatcher,
   type DatabasePressureSnapshotSource,
   type DatabaseWorkSchedulerSnapshot,
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
   getDesktopDatabaseBridge,
   type IDatabase,
+  isBackgroundDatabaseWorkAdmitted,
 } from '@brainstrike/db';
 import type {
   EmbeddingWorkerOptions,
@@ -26,6 +28,7 @@ import {
 } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
+import { getEmbeddingHostIntegrityWatcher } from './embedding-host-database-integrity';
 
 const logger = createLogger('EmbeddingWorkerConfig');
 // BST-1334: these two fire once per completed streaming batch (hundreds of pairs in a
@@ -526,6 +529,51 @@ export function composeClaimPermit(
   };
 }
 
+/**
+ * Parks every background permit while main holds the database in an integrity
+ * state that does not admit background work (BST-1870), then defers to `base`.
+ * Without it the rejected claim loops the worker's `Critical worker error in
+ * processBatch` error plus a one-second sleep, and each error is forwarded into
+ * the diagnostic-events table: a foreground write into the protected database.
+ *
+ * Compose it OUTSIDE `composeClaimPermit`: the starvation bound only relaxes
+ * foreground-pressure yielding and must never admit a claim under containment.
+ * An unreadable state rejects rather than admitting.
+ */
+export function composeIntegrityHold(
+  base: BackgroundPermit,
+  watcher: Pick<DatabaseIntegrityWatcher, 'current' | 'waitUntilBackgroundAdmitted'>,
+  log: (message: string, meta?: unknown) => void
+): BackgroundPermit {
+  let warnedRevision: number | null = null;
+  const parkWhileContained = async (): Promise<void> => {
+    const snapshot = await watcher.current();
+    if (isBackgroundDatabaseWorkAdmitted(snapshot.state)) {
+      return;
+    }
+    if (warnedRevision !== snapshot.revision) {
+      warnedRevision = snapshot.revision;
+      log('Embedding claims paused: database integrity containment is active', {
+        revision: snapshot.revision,
+        state: snapshot.state,
+      });
+    }
+    await watcher.waitUntilBackgroundAdmitted();
+  };
+  return async (permitOptions) => {
+    // `base` can wait a long time on pressure or the foreground gate, and
+    // containment may begin meanwhile: re-check after it, and run every gate
+    // again once admitted, so a claim is released only while admitted.
+    for (;;) {
+      await parkWhileContained();
+      await base(permitOptions);
+      if (isBackgroundDatabaseWorkAdmitted((await watcher.current()).state)) {
+        return;
+      }
+    }
+  };
+}
+
 function createDesktopPressureControls(
   db: IDatabase,
   fallback: {
@@ -542,6 +590,7 @@ function createDesktopPressureControls(
   'resolveClaimBatchSize' | 'resolvePipelineCapacity' | 'waitForBackgroundPermit'
 > {
   const snapshotSource = createPressureSnapshotSource(db);
+  const integrityWatcher = getEmbeddingHostIntegrityWatcher();
   const readPowerSnapshot = createReadPowerSnapshot();
   const pressureController = createDatabasePressureController({
     pollMs: DESKTOP_PRESSURE_POLL_MS,
@@ -591,10 +640,10 @@ function createDesktopPressureControls(
         observeQosTransition
       );
     },
-    waitForBackgroundPermit: composeClaimPermit(
-      pressureController.waitForBackgroundPermit,
-      gate,
-      starvation
+    waitForBackgroundPermit: composeIntegrityHold(
+      composeClaimPermit(pressureController.waitForBackgroundPermit, gate, starvation),
+      integrityWatcher,
+      (message, meta) => logger.warn(message, meta)
     ),
   };
 }

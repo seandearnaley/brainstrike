@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createLogger } from '@brainstrike/logging';
 import { utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
+import { cleanShutdownMarkerNamesPid } from './db-clean-shutdown-marker';
 import {
   DB_HOST_CLOSE_ACK_TIMEOUT_MS,
   DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS,
@@ -30,7 +31,10 @@ import {
 } from './db-host-request-diagnostics';
 import { DbHostRequestTimeoutError } from './db-host-timeout-error';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
-import { resolveDesktopDatabaseLocation } from './desktop-database-location';
+import {
+  resolveDesktopDatabaseLocation,
+  resolveDesktopDatabaseProfileDirectory,
+} from './desktop-database-location';
 import { isDesktopShuttingDown } from './desktop-shutdown-state';
 import {
   createHostRequestChannel,
@@ -405,6 +409,8 @@ class DefaultDbHostManager implements DbHostManager {
         ? closeDbHostProcess(host, {
             acknowledge: async () => await this.send({ kind: 'close' }),
             ackTimeoutMs: this.#closeTimeoutMs,
+            confirmCleanExit: (pid) =>
+              cleanShutdownMarkerNamesPid(resolveDesktopDatabaseProfileDirectory(), pid),
             detach: () => this.#detachHost(new Error('DB host closed.')),
           })
         : this.#assertDepartingHostExited()
