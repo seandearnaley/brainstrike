@@ -15,6 +15,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow, ipcMain } from 'electron';
+import { isCorruptionError } from '../database-corruption-classifier';
 import {
   DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
   DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
@@ -269,7 +270,6 @@ async function runWithCorruptionRecovery<T>(
   try {
     return await operation();
   } catch (error) {
-    const { isCorruptionError } = await import('../db-main');
     if (isCorruptionError(error)) {
       logger.warn(`Corruption detected in ${context}; replacing the database without retrying.`);
       await recover(context);
@@ -299,7 +299,6 @@ async function handleLiveQueryRefreshError(
   queryId: number | undefined,
   recover: RuntimeDatabaseCorruptionHandler
 ): Promise<{ success: boolean; message: string; corrupted?: boolean }> {
-  const { isCorruptionError } = await import('../db-main');
   if (isCorruptionError(error)) {
     logger.warn('Corruption detected in db:live-query:refresh, resetting database...');
     await recover('db:live-query:refresh');
@@ -938,7 +937,6 @@ export function registerDatabaseIpcHandlers(
           }
         );
       } catch (error) {
-        const { isCorruptionError } = await import('../db-main');
         if (isCorruptionError(error)) {
           logger.warn('Corruption detected in db:clearAll, resetting database...');
           await recover('db:clearAll');

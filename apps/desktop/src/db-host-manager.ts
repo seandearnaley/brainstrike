@@ -3,20 +3,21 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import { app, type UtilityProcess, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
-import type {
-  DbHostDiagnosticsResult,
-  DbHostInitResult,
-  DbHostLiveQueryDiagnostics,
-  DbHostLiveStartResult,
-  DbHostManagerDiagnosticsResult,
-  DbHostQueryResult,
-  DbHostRequest,
-  DbHostRequestEnvelope,
-  DbHostResponseEnvelope,
-  DbHostRowMode,
-  DbHostSerializedError,
-  DbHostToMainMessage,
-  DbHostTransactionStartResult,
+import {
+  DB_HOST_ERROR_IDENTIFIER_FIELDS,
+  type DbHostDiagnosticsResult,
+  type DbHostInitResult,
+  type DbHostLiveQueryDiagnostics,
+  type DbHostLiveStartResult,
+  type DbHostManagerDiagnosticsResult,
+  type DbHostQueryResult,
+  type DbHostRequest,
+  type DbHostRequestEnvelope,
+  type DbHostResponseEnvelope,
+  type DbHostRowMode,
+  type DbHostSerializedError,
+  type DbHostToMainMessage,
+  type DbHostTransactionStartResult,
 } from './db-host-protocol';
 import { DbHostRequestTimeoutError } from './db-host-timeout-error';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
@@ -151,6 +152,12 @@ function toError(error: DbHostSerializedError): Error {
   }
   if (error.code) {
     (normalized as Error & { code?: string }).code = error.code;
+  }
+  for (const field of DB_HOST_ERROR_IDENTIFIER_FIELDS) {
+    const value = error[field];
+    if (value) {
+      Object.assign(normalized, { [field]: value });
+    }
   }
   return normalized;
 }

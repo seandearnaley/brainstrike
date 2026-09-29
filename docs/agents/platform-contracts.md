@@ -434,10 +434,10 @@ Guard: `apps/web/e2e/web-db-worker-startup.test.ts`.
   database a pass has proven corrupt. A background trigger never narrows the
   response, and the visible-window reload is still required.
 
-Settled: classification stays deliberately narrow (`XX000` excluded), and
-maintenance recovers rather than merely logging. Evidence:
-`platform-contracts/corruption-recovery-maintenance.md`.
-Guard: `apps/desktop/src/__tests__/database-maintenance-scheduler.test.ts`.
+Settled: `apps/desktop/src/database-corruption-classifier.ts` is SQLSTATE-only (`XX001`,
+`XX002`; `XX000` excluded; no free-text matching), and maintenance recovers rather than
+merely logging. Evidence: `platform-contracts/corruption-recovery-maintenance.md`.
+Guard: `apps/desktop/src/__tests__/database-corruption-classifier.test.ts`, `database-maintenance-scheduler.test.ts`.
 
 ---
 

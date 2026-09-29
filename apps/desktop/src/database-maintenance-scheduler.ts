@@ -6,7 +6,7 @@ import {
   type ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
 import type { Effect, Scope } from 'effect';
-import { isCorruptionError } from './db-main';
+import { isCorruptionError } from './database-corruption-classifier';
 import {
   type RuntimeDatabaseCorruptionHandler,
   recoverRuntimeDatabaseCorruption,

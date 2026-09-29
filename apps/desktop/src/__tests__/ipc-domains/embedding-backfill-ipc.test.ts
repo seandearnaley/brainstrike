@@ -25,7 +25,6 @@ const backfillMocks = vi.hoisted(() => ({
 }));
 const dbMainMocks = vi.hoisted(() => ({
   handleRuntimeCorruption: vi.fn(),
-  isCorruptionError: vi.fn(() => false),
 }));
 
 vi.mock('electron', () => ({
@@ -41,11 +40,10 @@ vi.mock('electron', () => ({
 
 vi.mock('../../ipc-embedding-backfill', () => backfillMocks);
 
-// withCorruptionRecovery dynamically imports db-main in its catch path; stub it so an
-// errored backfill does not load the real module (and is classified as non-corruption).
+// Recovery reaches db-main dynamically; stub it so a recovered backfill does not load the
+// real module. Classification is the real pure SQLSTATE classifier, driven by coded errors.
 vi.mock('../../db-main', () => ({
   handleRuntimeCorruption: dbMainMocks.handleRuntimeCorruption,
-  isCorruptionError: dbMainMocks.isCorruptionError,
 }));
 
 import {
@@ -150,7 +148,6 @@ describe('embedding backfill IPC domain', () => {
   it('recovers corruption without replaying a stale backfill against the empty database', async () => {
     const corruption = Object.assign(new Error('invalid page in block 42'), { code: 'XX001' });
     backfillMocks.runDesktopEmbeddingBackfill.mockRejectedValueOnce(corruption);
-    dbMainMocks.isCorruptionError.mockReturnValueOnce(true);
 
     await expect(
       handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)?.({} as IpcMainInvokeEvent, 'set-1')
@@ -177,7 +174,6 @@ describe('embedding backfill IPC domain', () => {
       ][]
     ).at(-1)?.[0];
     expect(call?.onDetachedFailure).toBeTypeOf('function');
-    dbMainMocks.isCorruptionError.mockReturnValueOnce(true);
 
     await call?.onDetachedFailure?.(corruption);
 

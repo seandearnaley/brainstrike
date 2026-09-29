@@ -6,16 +6,17 @@ import {
   invalidateManagedCacheEntriesByIdentity,
   parseManagedCacheBatchArgs,
 } from '@brainstrike/db';
-import type {
-  DbHostLiveStartResult,
-  DbHostQueryResult,
-  DbHostRequest,
-  DbHostRequestEnvelope,
-  DbHostResponseEnvelope,
-  DbHostRowMode,
-  DbHostSerializedError,
-  DbHostToMainMessage,
-  DbHostTransactionStartResult,
+import {
+  DB_HOST_ERROR_IDENTIFIER_FIELDS,
+  type DbHostLiveStartResult,
+  type DbHostQueryResult,
+  type DbHostRequest,
+  type DbHostRequestEnvelope,
+  type DbHostResponseEnvelope,
+  type DbHostRowMode,
+  type DbHostSerializedError,
+  type DbHostToMainMessage,
+  type DbHostTransactionStartResult,
 } from './db-host-protocol';
 import {
   closeDatabase,
@@ -133,22 +134,40 @@ async function unsubscribeAllLiveQueries(): Promise<void> {
   }
 }
 
+// SQLSTATE plus the identifier-only Postgres fields. Never `detail`, `where`,
+// `hint`, `internalQuery` or `position`: they can carry row data or SQL text.
+type PostgresErrorFields = Partial<
+  Record<'code' | (typeof DB_HOST_ERROR_IDENTIFIER_FIELDS)[number], string>
+>;
+
+function readPostgresErrorFields(error: unknown): PostgresErrorFields {
+  if (typeof error !== 'object' || error === null) {
+    return {};
+  }
+  const source = error as Record<string, unknown>;
+  const fields: PostgresErrorFields = {};
+  for (const field of ['code', ...DB_HOST_ERROR_IDENTIFIER_FIELDS] as const) {
+    const value = source[field];
+    if (typeof value === 'string') {
+      fields[field] = value;
+    }
+  }
+  return fields;
+}
+
 function serializeError(error: unknown): DbHostSerializedError {
-  const code =
-    error && typeof error === 'object' && 'code' in error
-      ? (error as { code?: unknown }).code
-      : undefined;
+  const postgresFields = readPostgresErrorFields(error);
   if (error instanceof Error) {
     return {
       message: error.message,
-      ...(typeof code === 'string' ? { code } : {}),
+      ...postgresFields,
       ...(error.name ? { name: error.name } : {}),
       ...(error.stack ? { stack: error.stack } : {}),
     };
   }
   return {
     message: String(error ?? 'unknown error'),
-    ...(typeof code === 'string' ? { code } : {}),
+    ...postgresFields,
   };
 }
 
@@ -589,7 +608,7 @@ async function handleEnvelope(envelope: DbHostRequestEnvelope): Promise<void> {
       ...getQueuedRequestCounts(),
       durationMs: Math.max(0, Date.now() - startedAt),
       error: {
-        ...(serializedError.code ? { code: serializedError.code } : {}),
+        ...readPostgresErrorFields(error),
         message: serializedError.message,
         ...(serializedError.name ? { name: serializedError.name } : {}),
       },

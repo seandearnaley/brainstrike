@@ -83,11 +83,22 @@ export interface DbHostRequestEnvelope {
   readonly request: DbHostRequest;
 }
 
+/**
+ * The identifier-only Postgres error fields that cross the boundary for
+ * diagnostics. `detail`, `where`, `hint`, `internalQuery` and `position` never
+ * do: they can contain row data or SQL text (`docs/diagnostics-privacy-contract.md`).
+ */
+export const DB_HOST_ERROR_IDENTIFIER_FIELDS = ['file', 'routine', 'schema', 'table'] as const;
+
 export interface DbHostSerializedError {
   readonly code?: string;
+  readonly file?: string;
   readonly message: string;
   readonly name?: string;
+  readonly routine?: string;
+  readonly schema?: string;
   readonly stack?: string;
+  readonly table?: string;
 }
 
 export type DbHostResponseEnvelope =

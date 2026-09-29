@@ -106,8 +106,8 @@ const {
   const getDatabaseMock = vi.fn(() => mockDb);
   const loggerWarn = vi.fn();
   const loggerDebug = vi.fn();
-  // Matches the production isCorruptionError(error) signature so tests can
-  // install error-discriminating implementations.
+  // Matches the isCorruptionError(error) signature of database-corruption-classifier
+  // so tests can install error-discriminating implementations.
   const isCorruptionErrorMock = vi.fn((_error: unknown) => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
@@ -343,8 +343,13 @@ vi.mock('../../db-main', () => ({
   getDatabase: getDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
   handleRuntimeCorruption: handleRuntimeCorruptionMock,
-  isCorruptionError: isCorruptionErrorMock,
   resetLocalDatabase: resetLocalDatabaseMock,
+}));
+
+// Forces the corruption branch per test; classification itself is covered by
+// database-corruption-classifier.test.ts.
+vi.mock('../../database-corruption-classifier', () => ({
+  isCorruptionError: isCorruptionErrorMock,
 }));
 
 vi.mock('../../db-host-manager', () => ({
