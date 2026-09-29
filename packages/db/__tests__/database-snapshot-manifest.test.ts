@@ -211,9 +211,6 @@ describe('id and profile as a directory name', () => {
         'nul.db',
         'Con.txt',
         'com9.tar.gz',
-        'snap.partial',
-        'snap.PARTIAL',
-        'snap.Partial',
       ]) {
         const input = manifest({ [field]: bad });
         expect(() => parseDatabaseSnapshotManifest(input), bad).toThrow(TypeError);
@@ -281,6 +278,30 @@ describe('a finding names its relation unless the database would not open', () =
       1
     );
   });
+});
+
+describe('an id marks an unfinished snapshot by .partial, in any case', () => {
+  it.each(['snap.partial', 'snap.PARTIAL', 'snap.Partial'])('rejects the id %s', (id) => {
+    expect(() => parseDatabaseSnapshotManifest(manifest({ id }))).toThrow(/id/u);
+  });
+});
+
+describe('a profile is exactly what the desktop resolver can produce', () => {
+  // Desktop lowercases, keeps [a-z0-9._-], strips a leading or trailing dot or dash and any
+  // trailing dot again after the 64-character cut: `_x` and an override ending `.partial` occur.
+  it.each(['_x', '_', '__default', 'x.partial', 'feature-x.v2', '0', 'a'.repeat(64)])(
+    'accepts the profile %s',
+    (profile) => {
+      expect(parseDatabaseSnapshotManifest(manifest({ profile })).profile).toBe(profile);
+    }
+  );
+
+  it.each(['.x', '-x', 'X', 'Default', 'x.', 'x y', 'a/b', 'a'.repeat(65), 'nul', 'com1.db'])(
+    'rejects the profile %s',
+    (profile) => {
+      expect(() => parseDatabaseSnapshotManifest(manifest({ profile }))).toThrow(/profile/u);
+    }
+  );
 });
 
 describe('a manifest that contradicts itself', () => {

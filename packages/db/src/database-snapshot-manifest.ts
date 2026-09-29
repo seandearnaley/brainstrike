@@ -44,29 +44,57 @@ const WINDOWS_RESERVED_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\
 const PATH_SEGMENT_MAX_LENGTH = 64;
 
 /**
- * Ids and profile names become directory names, so they must be one safe path
- * segment on every platform: no separator, no leading dot, no trailing dot (Windows
- * drops it), no reserved device name, and a bounded length. Two names that differ
- * only in case collide on a case-insensitive filesystem; ids end in a random suffix,
- * so that is out of scope here.
+ * A snapshot id is a directory name, so it must be one safe path segment on every platform: no
+ * separator, no leading dot, no trailing dot (Windows drops it), no reserved device name, a bounded
+ * length, and never `.partial` in any case (on APFS and NTFS `x.PARTIAL` is the directory
+ * `x.partial`, which marks a snapshot still being written). Two ids that differ only in case
+ * collide on a case-insensitive filesystem; ids end in a random suffix, so that is out of scope.
  */
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+
+/**
+ * A profile is exactly what the desktop resolver's `toProfileSegment` can produce: lowercase
+ * `[a-z0-9._-]`, never a leading dot or dash, so `_x` is valid, and `x.partial` is valid too (an
+ * explicit override can end that way; a profile is not a snapshot directory).
+ * `scripts/__tests__/snapshot-profile-twin.test.mjs` keeps this and the resolver in agreement.
+ */
+const PROFILE_PATTERN = /^[a-z0-9_][a-z0-9._-]*$/u;
+
+/** The rules an id and a profile share: length, no trailing dot, no reserved device name. */
+function segmentChecks(): readonly [
+  ReturnType<typeof Schema.isMaxLength>,
+  ReturnType<typeof Schema.makeFilter<string>>,
+  ReturnType<typeof Schema.makeFilter<string>>,
+] {
+  return [
+    Schema.isMaxLength(PATH_SEGMENT_MAX_LENGTH, {
+      message: `must be at most ${PATH_SEGMENT_MAX_LENGTH} characters`,
+    }),
+    Schema.makeFilter((value: string) => !value.endsWith('.'), {
+      message: 'must not end in a dot, which Windows drops',
+    }),
+    Schema.makeFilter((value: string) => !WINDOWS_RESERVED_DEVICE_NAME.test(value), {
+      message: 'must not be a reserved Windows device name',
+    }),
+  ];
+}
+
 const pathSegment = Schema.String.check(
-  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u, {
+  Schema.isPattern(ID_PATTERN, {
     message: 'must be one path segment of letters, digits, dot, underscore or dash',
   }),
-  Schema.isMaxLength(PATH_SEGMENT_MAX_LENGTH, {
-    message: `must be at most ${PATH_SEGMENT_MAX_LENGTH} characters`,
-  }),
-  Schema.makeFilter((value: string) => !value.endsWith('.'), {
-    message: 'must not end in a dot, which Windows drops',
-  }),
-  Schema.makeFilter((value: string) => !WINDOWS_RESERVED_DEVICE_NAME.test(value), {
-    message: 'must not be a reserved Windows device name',
-  }),
-  // Case-insensitive: on APFS and NTFS `x.PARTIAL` is the same directory as `x.partial`.
+  ...segmentChecks(),
   Schema.makeFilter((value: string) => !/\.partial$/iu.test(value), {
     message: 'must not end in .partial (any case), which marks a snapshot still being written',
   })
+);
+
+const profileSegment = Schema.String.check(
+  Schema.isPattern(PROFILE_PATTERN, {
+    message:
+      'must be lowercase letters, digits, dot, underscore or dash, and not start with a dot or a dash',
+  }),
+  ...segmentChecks()
 );
 
 const isoTimestamp = Schema.String.check(
@@ -100,7 +128,7 @@ const manifestSchema = Schema.Struct({
   }),
   ledgerHead: Schema.NullOr(Schema.String),
   method: Schema.Literals(DATABASE_SNAPSHOT_METHODS),
-  profile: pathSegment,
+  profile: profileSegment,
   reason: Schema.Literals(DATABASE_SNAPSHOT_REASONS),
   rowCountsByDurability: Schema.Struct({
     derived: nonNegativeInt,

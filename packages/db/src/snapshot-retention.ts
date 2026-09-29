@@ -25,10 +25,7 @@
  *    fits, and names the rules each such prune overrode. Whatever it cannot
  *    satisfy is reported as `overCap` and `overCapBytes`, never forced.
  */
-import {
-  DATABASE_SNAPSHOT_REASONS,
-  type DatabaseSnapshotReason,
-} from './database-snapshot-manifest.js';
+import type { DatabaseSnapshotReason } from './database-snapshot-manifest.js';
 
 export interface RetentionSnapshot {
   readonly byteSize: number;
@@ -113,16 +110,26 @@ function isoWeekStart(time: number): number {
 }
 
 /**
+ * The reasons some rule covers: the union of the four groups above, NOT the manifest
+ * vocabulary, so a reason added to the manifest without a rule is rejected instead of
+ * falling through every group and being pruned. A test pins the union to the vocabulary.
+ */
+export const REASONS_WITH_A_RULE: ReadonlySet<string> = new Set([
+  ...DAILY_REASONS,
+  ...PRE_UPDATE_REASONS,
+  ...REPAIR_REASONS,
+  ...NEVER_AUTOMATICALLY_PRUNED,
+]);
+
+/**
  * The planner is an exported API, so it validates its own input rather than
  * trusting a caller to have parsed a manifest: `createdAt` is exactly what
  * `toISOString` writes (the manifest's own rule) and `byteSize` a finite,
  * non-negative integer, or the plan's ages and totals would be guesses.
  */
-const KNOWN_REASONS: ReadonlySet<string> = new Set(DATABASE_SNAPSHOT_REASONS);
-
 function toEntry(snapshot: RetentionSnapshot): Entry {
   // A reason with no rule would fall through every group and be pruned silently: fail closed.
-  if (!KNOWN_REASONS.has(snapshot.reason)) {
+  if (!REASONS_WITH_A_RULE.has(snapshot.reason)) {
     throw new TypeError(
       `Snapshot "${snapshot.id}" has an unknown reason "${String(snapshot.reason)}"; the planner has no rule for it.`
     );
