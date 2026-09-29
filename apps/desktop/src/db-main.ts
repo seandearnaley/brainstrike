@@ -829,28 +829,24 @@ async function closeAfterFailedInitialization(): Promise<void> {
   const failedHandle = (db ?? openingHandle) as PGliteInstanceShape | null;
   db = null;
   openingHandle = null;
-  if (mutableState.closeFailure) {
-    // A handle that could not be closed may still own the directory, whichever close it was.
-    logger.error(
-      'A database close failed earlier; keeping the lock after the failed initialization',
-      {
-        lockPath: mutableState.dbProcessLockPath,
-      }
-    );
-    return;
-  }
   if (failedHandle) {
     try {
       await closeDatabaseInstance(failedHandle, 'initialization-failure');
     } catch (error) {
       // Sticky: the handle may still own the data directory, so no later open may start over it.
-      mutableState.closeFailure = new DatabaseCloseError('close', error);
-      logger.error('Failed to close the database after a failed initialization; keeping the lock', {
+      mutableState.closeFailure ??= new DatabaseCloseError('close', error);
+      logger.error('Failed to close the database after a failed initialization', {
         error: getErrorDetails(error),
-        lockPath: mutableState.dbProcessLockPath,
       });
-      return;
     }
+  }
+  // The lock goes only if no close has ever failed: a handle that could not be closed, this one
+  // or an earlier one, may still own the directory.
+  if (mutableState.closeFailure) {
+    logger.error('A database close has failed; keeping the lock after the failed initialization', {
+      lockPath: mutableState.dbProcessLockPath,
+    });
+    return;
   }
   releaseDatabaseProcessLock();
 }
@@ -1276,11 +1272,22 @@ async function handleLocalRuntimeCorruption(context: string): Promise<DesktopDat
  * This deletes the profile-scoped pgdata and lock files while leaving other profiles untouched.
  * Next access will lazily recreate and migrate from scratch.
  */
+const RESET_QUIESCE_MAX_CLOSES = 3;
+
 async function resetLocalDatabaseInternal(): Promise<void> {
   // A close failure aborts the reset before anything is backed up or deleted. An open that starts
   // after the close would open a directory about to be removed, so settle it too; the code after
   // this loop is synchronous, so nothing can start an open between the check and the deletes.
+  // Bounded: a caller that reopens the database on every lock release would otherwise livelock
+  // the reset. Giving up deletes nothing.
+  let closes = 0;
   do {
+    if (closes === RESET_QUIESCE_MAX_CLOSES) {
+      throw new Error(
+        `Database reset stopped: the database was reopened after each of ${RESET_QUIESCE_MAX_CLOSES} closes; nothing was deleted.`
+      );
+    }
+    closes += 1;
     await closeLocalDatabase();
   } while (dbInitializationPromise !== null || db !== null);
 
