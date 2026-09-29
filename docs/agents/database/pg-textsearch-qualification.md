@@ -244,11 +244,19 @@ crash-sensitive list unless the gate proves it recovers.
   filled `file_chunks.embedding`, so they were empty anyway. The migrated schema has none of them (they
   are built per embedding set), so the gate builds one per model-catalog dimension with the production
   `createDimensionIndex` (six today, plus the thread-message index: seven HNSW indexes). The key now
-  comes from `pg_get_indexdef(oid, 1, true)`, the listed count is checked against `pg_index`, an
-  index that is not valid and ready fails the gate (`index-validity`) instead of being filtered out,
-  and an HNSW index with no rows to probe fails instead of passing.
-  `crash-injection-verify.integration.test.ts` pins this: restoring the `indkey[0]` join fails it
-  with `listed 1 of 7 hnsw indexes`.
+  comes from `pg_get_indexdef(oid, 1, true)`, an index that is not valid and ready fails the gate
+  (`index-validity`) instead of being filtered out, and an HNSW index with no rows to probe fails
+  instead of passing. The listed count is checked against a total read through `pg_indexes`, which
+  shares no FROM/WHERE text with the listing (a first version counted with the listing's own clause,
+  so a join added there shrank both and could never fail; the second review found it). Restoring
+  the `indkey[0]` join in the listing's clause fails the gate with `listed 1 of 7 hnsw indexes`, and
+  `crash-injection-verify.integration.test.ts` checks every access method's listing against
+  `pg_indexes` independently.
+- A probe proves nothing unless the plan scanned through its index. The first check matched the
+  index name anywhere in the text plan, and the BM25 probe names its index in the query, so a Seq
+  Scan's Filter or a Sort Key printed the name with no index scan behind it. The check now walks
+  `EXPLAIN (FORMAT JSON)` for an `Index Scan`, `Index Only Scan` or `Bitmap Index Scan` node whose
+  `Index Name` is exactly the index (pinned: a Seq Scan whose Filter names the index is rejected).
 - The BM25 probes must allocate. Consistent with the free-space-map cause above, a ranked search
   straight after the crash passed on all 73 iterations that tried it before recovery; damage
   showed only once a later write allocated (the next writer, or the insert probe). So the probe

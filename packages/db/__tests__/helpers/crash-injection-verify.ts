@@ -91,8 +91,8 @@ const INDEXES_OF = `FROM pg_index i
 
 /**
  * Every index of `accessMethod` in a user schema. Nothing filters on validity or key shape (an
- * expression key has `indkey[0] = 0`), and the count is checked against `pg_index`, so a later
- * filter cannot silently drop an index from a probe.
+ * expression key has `indkey[0] = 0`), and the count is checked against `pg_indexes`, so a later
+ * filter or join cannot silently drop an index from a probe or from amcheck.
  */
 export async function listIndexes(db: CrashGateDb, accessMethod: string): Promise<IndexRow[]> {
   const listed = await db.query<IndexRow>(
@@ -104,9 +104,16 @@ export async function listIndexes(db: CrashGateDb, accessMethod: string): Promis
      ${INDEXES_OF} ORDER BY 1`,
     [accessMethod]
   );
-  const total = await db.query<{ total: number }>(`SELECT count(*)::int AS total ${INDEXES_OF}`, [
-    accessMethod,
-  ]);
+  // The total comes from pg_indexes, a path that shares no FROM/WHERE text with the listing, so a
+  // join added to INDEXES_OF (the old `indkey[0]` one, say) shrinks the listing but not the total.
+  const total = await db.query<{ total: number }>(
+    `SELECT count(*)::int AS total FROM pg_indexes x
+     JOIN pg_namespace n ON n.nspname = x.schemaname
+     JOIN pg_class c ON c.relname = x.indexname AND c.relnamespace = n.oid
+     JOIN pg_am am ON am.oid = c.relam
+     WHERE am.amname = $1 AND ${USER_SCHEMA}`,
+    [accessMethod]
+  );
   if (listed.rows.length !== total.rows[0]?.total) {
     throw new CrashGateCheckError(
       'index-coverage',
@@ -133,6 +140,45 @@ export async function verifyIndexValidity(db: CrashGateDb): Promise<void> {
   }
 }
 
+const INDEX_SCAN_NODES: ReadonlySet<unknown> = new Set([
+  'Bitmap Index Scan',
+  'Index Only Scan',
+  'Index Scan',
+]);
+
+function nodeScansIndex(node: unknown, indexName: string): boolean {
+  if (typeof node !== 'object' || node === null) {
+    return false;
+  }
+  const plan = node as Record<string, unknown>;
+  if (INDEX_SCAN_NODES.has(plan['Node Type']) && plan['Index Name'] === indexName) {
+    return true;
+  }
+  const children = plan['Plans'];
+  return Array.isArray(children) && children.some((child) => nodeScansIndex(child, indexName));
+}
+
+/**
+ * Whether the plan for `sql` has a scan node through the index named exactly `indexName`. Walks
+ * the JSON plan (PGlite returns it parsed) rather than matching text: the BM25 probe names its
+ * index in the query, so a Seq Scan's Filter or a Sort Key would print that name with no index
+ * scan behind it.
+ */
+export async function planUsesIndex(
+  db: CrashGateDb,
+  sql: string,
+  indexName: string
+): Promise<boolean> {
+  const result = await db.query<{ 'QUERY PLAN': unknown }>(`EXPLAIN (FORMAT JSON) ${sql}`);
+  const document = result.rows[0]?.['QUERY PLAN'];
+  if (!Array.isArray(document)) {
+    throw new Error(`EXPLAIN (FORMAT JSON) returned ${typeof document}, not a parsed plan array`);
+  }
+  return document.some((entry: unknown) =>
+    nodeScansIndex((entry as { readonly Plan?: unknown }).Plan, indexName)
+  );
+}
+
 /** Runs `sql` with sequential scans off and proves the plan used the index: a probe must not pass by reading the heap. */
 async function runThroughIndex(
   db: CrashGateDb,
@@ -142,8 +188,7 @@ async function runThroughIndex(
 ): Promise<unknown[]> {
   await db.exec('SET enable_seqscan = off');
   try {
-    const plan = await db.query<Record<string, string>>(`EXPLAIN ${sql}`);
-    if (!plan.rows.some((row) => Object.values(row).some((l) => l.includes(entry.indexName)))) {
+    if (!(await planUsesIndex(db, sql, entry.indexName))) {
       throw new CrashGateCheckError(
         check,
         entry.index,

@@ -11,6 +11,7 @@ import { catalogEmbeddingDimensions } from './helpers/crash-injection-protocol';
 import {
   CrashGateCheckError,
   listIndexes,
+  planUsesIndex,
   verifyHnsw,
   verifyIndexValidity,
 } from './helpers/crash-injection-verify';
@@ -56,6 +57,27 @@ describe('crash gate verifier (real migrated schema)', () => {
     expect(half?.predicate).toMatch(/vector_dims\(embedding\)/u);
   });
 
+  it.each(['bm25', 'btree', 'gin', 'hnsw'])(
+    'lists every %s index that pg_indexes knows, so amcheck and the probes miss none',
+    async (accessMethod) => {
+      const oracle = await db.query<{ indexname: string }>(
+        `SELECT x.indexname FROM pg_indexes x
+         JOIN pg_namespace n ON n.nspname = x.schemaname
+         JOIN pg_class c ON c.relname = x.indexname AND c.relnamespace = n.oid
+         JOIN pg_am am ON am.oid = c.relam
+         WHERE am.amname = $1 AND x.schemaname = 'public' ORDER BY 1`,
+        [accessMethod]
+      );
+      expect(oracle.rows.length).toBeGreaterThan(0);
+
+      const listed = await listIndexes(db, accessMethod);
+
+      expect(listed.map((entry) => entry.indexName).sort()).toEqual(
+        oracle.rows.map((row) => row.indexname).sort()
+      );
+    }
+  );
+
   it('lists the BM25 index by its column key', async () => {
     const [bm25] = await listIndexes(db, 'bm25');
     expect(bm25).toMatchObject({ indexName: 'idx_file_chunks_content_bm25', key: 'content' });
@@ -75,6 +97,19 @@ describe('crash gate verifier (real migrated schema)', () => {
     expect((await listIndexes(db, 'btree')).map((entry) => entry.indexName)).toContain(
       'idx_file_chunks_content_hash'
     );
+  });
+
+  it('counts only a scan node through the index, never the index name elsewhere in the plan', async () => {
+    // The BM25 probe names its index in the query text; a Seq Scan's Filter or a Sort Key would
+    // print that name without any index scan having run.
+    await db.exec('SET enable_seqscan = off');
+    const seqScan = `SELECT ctid FROM public.file_chunks WHERE content <> 'idx_file_chunks_content_bm25'`;
+    const indexScan = `SELECT ctid FROM public.file_chunks ORDER BY content <@> to_bm25query('database recovery index', 'idx_file_chunks_content_bm25') LIMIT 10`;
+
+    expect(await planUsesIndex(db, seqScan, 'idx_file_chunks_content_bm25')).toBe(false);
+    expect(await planUsesIndex(db, indexScan, 'idx_file_chunks_content_bm25')).toBe(true);
+    // A name that merely starts with another index's name is not that index.
+    expect(await planUsesIndex(db, indexScan, 'idx_file_chunks_content_bm')).toBe(false);
   });
 
   it('fails an HNSW index with no rows to probe rather than passing vacuously', async () => {
