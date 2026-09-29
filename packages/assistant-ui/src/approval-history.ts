@@ -12,7 +12,7 @@ export function approvalCardToolCallIds(
   for (const part of parts) {
     // A card can be in a separate message. Match the recorded pause's HOST
     // leg and surface call, never its native Mastra run ID or a child leaf.
-    const event = readAssistantRunEventDataPart(part);
+    const event = cardedSurfaceCalls?.size ? readAssistantRunEventDataPart(part) : undefined;
     if (event?.kind === 'tool.approval.requested' && event.runId) {
       const callId = event.metadata?.['toolCallId'];
       if (

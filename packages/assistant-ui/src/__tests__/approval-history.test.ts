@@ -19,7 +19,7 @@ const request = {
   },
   hostRunId: 'host-root',
   runId: 'root',
-  timelineRunId: 'host-child',
+  timelineRunId: 'host-root',
   toolCallId: 'delegate',
   toolName: 'brainstrike.readWorkspaceFile',
 };
@@ -66,16 +66,16 @@ function pause(runId: string | undefined, toolCallId: string) {
   };
 }
 it('finds a separate card using the recorded run and surface call', () => {
-  expect([...approvalCardToolCallIds([pause('host-child', 'delegate')], indexedCalls())]).toEqual([
+  expect([...approvalCardToolCallIds([pause('host-root', 'delegate')], indexedCalls())]).toEqual([
     'delegate',
   ]);
 });
 it.each([
   ['another run', 'other', 'delegate'],
-  ['the root decision owner', 'host-root', 'delegate'],
+  ['a child timeline', 'host-child', 'delegate'],
   ['the native run namespace', 'root', 'delegate'],
-  ['another call', 'host-child', 'other-call'],
-  ['a child leaf', 'host-child', 'call_0'],
+  ['another call', 'host-root', 'other-call'],
+  ['a child leaf', 'host-root', 'call_0'],
   ['an unscoped pause', undefined, 'delegate'],
 ] as const)('does not replace %s with an unrelated approval card', (_, runId, toolCallId) => {
   expect(approvalCardToolCallIds([pause(runId, toolCallId)], indexedCalls()).size).toBe(0);
@@ -90,4 +90,29 @@ it('does not guess a host leg for a rediscovered request without one', () => {
     withoutHost
   );
   expect(withoutHost.cardedSurfaceCalls.size).toBe(0);
+});
+
+it('a child surface matches its own leaf call, never the root transport alias or a sibling timeline', () => {
+  const index = createMutableApprovalsIndex();
+  const childRequest = {
+    ...request,
+    runId: 'child',
+    timelineRunId: 'host-child',
+    toolCallId: 'call_0',
+  };
+  advanceAnsweredApprovalsIndex(
+    [{ content: [{ data: childRequest, name: 'brainstrike.tool-approval', type: 'data' }] }],
+    { keys: [], scanned: [] },
+    index
+  );
+  expect([
+    ...approvalCardToolCallIds([pause('host-child', 'call_0')], index.cardedSurfaceCalls),
+  ]).toEqual(['call_0']);
+  for (const [runId, callId] of [
+    ['host-root', 'call_0'],
+    ['host-sibling', 'call_0'],
+    ['host-child', 'delegate'],
+  ] as const) {
+    expect(approvalCardToolCallIds([pause(runId, callId)], index.cardedSurfaceCalls).size).toBe(0);
+  }
 });

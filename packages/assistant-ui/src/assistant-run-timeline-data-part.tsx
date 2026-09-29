@@ -51,15 +51,19 @@ export const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data })
   const event = readAssistantRunEvent(data);
   const { cardedSurfaceCalls } = useAnsweredApprovals();
   const toolCallId = event?.metadata?.['toolCallId'];
-  const hasApprovalCard = useAuiState(
+  const hasIndexedCard =
+    event?.kind === 'tool.approval.requested' &&
+    typeof toolCallId === 'string' &&
+    event.runId !== undefined &&
+    cardedSurfaceCalls.has(approvalSurfaceCallKey(event.runId, toolCallId));
+  const hasLocalCard = useAuiState(
     (state) =>
+      !hasIndexedCard &&
       event?.kind === 'tool.approval.requested' &&
       typeof toolCallId === 'string' &&
-      ((event.runId !== undefined &&
-        cardedSurfaceCalls.has(approvalSurfaceCallKey(event.runId, toolCallId))) ||
-        approvalCardToolCallIds(state.message.parts).has(toolCallId))
+      approvalCardToolCallIds(state.message.parts).has(toolCallId)
   );
-  if (hasApprovalCard) {
+  if (hasIndexedCard || hasLocalCard) {
     return null;
   }
   if (shouldShowBackgroundActivity(detailLevel)) {

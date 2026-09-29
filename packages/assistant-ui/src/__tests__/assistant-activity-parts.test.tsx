@@ -812,13 +812,17 @@ it.each([false, true])(
                 result: undefined,
                 toolName: 'agent-explore',
               }),
-              runEventPart({
-                id: 'child-pause',
-                kind: 'tool.approval.requested',
-                runId: 'root-host',
-                timestamp: '2026-09-28T19:03:00Z',
-                toolCallId: 'delegate',
-              }),
+              ...(separate
+                ? [
+                    runEventPart({
+                      id: 'child-pause',
+                      kind: 'tool.approval.requested',
+                      runId: 'root-host',
+                      timestamp: '2026-09-28T19:03:00Z',
+                      toolCallId: 'delegate',
+                    }),
+                  ]
+                : []),
               ...(separate ? [] : [approval]),
             ],
             role: 'assistant',

@@ -95,17 +95,18 @@ function withHostLeg(chunk: StreamChunk, hostRunId: string): StreamChunk {
   // Continuations have a child timeline but no root-message decision anchor.
   // Their events are already persisted by the continuation host; align only
   // the live display with that writer's canonical projection identity.
-  if (chunk.type === 'child-continuation-chunk') {
+  if (
+    chunk.type === 'child-continuation-chunk' &&
+    (chunk.chunk.type === 'tool-approval-required' || chunk.chunk.type === 'run-event')
+  ) {
     const timelineRunId = continuationProjectionId(hostRunId, chunk.continuationId);
     if (chunk.chunk.type === 'tool-approval-required') {
       return { ...chunk, chunk: { ...chunk.chunk, timelineRunId } };
     }
-    if (chunk.chunk.type === 'run-event') {
-      return {
-        ...chunk,
-        chunk: { ...chunk.chunk, event: { ...chunk.chunk.event, runId: timelineRunId } },
-      };
-    }
+    return {
+      ...chunk,
+      chunk: { ...chunk.chunk, event: { ...chunk.chunk.event, runId: timelineRunId } },
+    };
   }
   return chunk;
 }

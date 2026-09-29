@@ -11,6 +11,7 @@
 
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import {
   type ChildSpec,
   createApprovalDatabase,
@@ -93,6 +94,25 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
       { messageId: 'approval-owner-proof' }
     );
     const wire = await response.text();
+    const dataPart = z.object({ data: z.unknown(), name: z.string() });
+    const envelope = z.object({
+      frames: z.array(z.object({ code: z.string(), value: z.unknown() })),
+    });
+    const approval = z.object({
+      data: z.object({ timelineRunId: z.string(), toolCallId: z.string() }),
+      name: z.literal('brainstrike.tool-approval'),
+    });
+    const mappedNotices = wire
+      .split('\n')
+      .filter((line) => line.startsWith('2:'))
+      .flatMap((line) => z.array(dataPart).parse(JSON.parse(line.slice(2))))
+      .filter((part) => part.name === 'brainstrike.delegated-conversation')
+      .flatMap((part) => envelope.parse(part.data).frames)
+      .flatMap((frame) => {
+        const parsed = approval.safeParse(frame.value);
+        return parsed.success ? [parsed.data.data] : [];
+      });
+    expect(mappedNotices).toHaveLength(2);
     let childNotices = 0;
     for (const chunk of fanout.initial) {
       if (
@@ -118,7 +138,11 @@ describe('desktop multi-approval scenarios through the real host ledger', () => 
         hostRunId: 'host-leg',
         timelineRunId: pause.chunk.event.runId,
       });
-      expect(wire).toContain(`"timelineRunId":"${pause.chunk.event.runId}"`);
+      expect(notice.toolCallId).toBe(pause.chunk.event.metadata?.['toolCallId']);
+      expect(mappedNotices).toContainEqual({
+        timelineRunId: pause.chunk.event.runId,
+        toolCallId: pause.chunk.event.metadata?.['toolCallId'],
+      });
     }
     expect(childNotices).toBe(2);
     for (const notice of fanout.rootNotices) {
