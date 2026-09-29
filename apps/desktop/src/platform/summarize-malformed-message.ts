@@ -3,7 +3,8 @@ const MAX_SUMMARY_STRING_LENGTH = 64;
 /** Most keys this summary will name; the full count is always reported. */
 const MAX_SUMMARY_KEYS = 20;
 
-function truncateForLog(value: string): string {
+/** Bounds one host-controlled string before it reaches a log. */
+export function truncateForLog(value: string): string {
   return value.length <= MAX_SUMMARY_STRING_LENGTH
     ? value
     : `${value.slice(0, MAX_SUMMARY_STRING_LENGTH)}…`;
@@ -34,6 +35,8 @@ export function summarizeMalformedMessage(value: unknown): Record<string, unknow
     keyCount: keys.length,
     keys: keys.slice(0, MAX_SUMMARY_KEYS).map(truncateForLog),
     messageType: 'object',
+    // A top-level string `type` is echoed, bounded, because it names the frame kind for the parser
+    // host; DB host frames use `kind`, so for them only key names and counts are logged.
     ...(typeof record['type'] === 'string' ? { type: truncateForLog(record['type']) } : {}),
   };
 }

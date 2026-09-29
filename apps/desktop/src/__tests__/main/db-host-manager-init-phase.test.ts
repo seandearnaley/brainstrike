@@ -254,11 +254,12 @@ it('drops a valid progress report for a request no longer in flight, before the 
 
   const init = settled(manager.getDatabase());
   const host = latestProcess();
-  host.progress('no-such-request', REBUILD_342_MIB);
+  // The id is host-controlled text: it is echoed only in bounded form.
+  host.progress(`no-such-request-${'x'.repeat(500)}`, REBUILD_342_MIB);
 
   expect(loggerDebugMock).toHaveBeenCalledWith(
     'Dropped DB host progress for a request no longer in flight',
-    { requestId: 'no-such-request' }
+    { requestId: expect.stringMatching(/^no-such-request-x{48}…$/u) }
   );
   expect(loggerErrorMock).not.toHaveBeenCalled();
   host.reply(host.initRequest, {});
