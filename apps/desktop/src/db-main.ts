@@ -285,10 +285,15 @@ export class DatabaseCloseError extends Error {
 function assertNoFailedClose(): void {
   const failure = mutableState.closeFailure;
   if (failure) {
+    // A failed sync still closed the handle; only a failed close may leave it owning the directory.
+    const consequence =
+      failure.stage === 'close'
+        ? 'its handle may still own the data directory'
+        : 'its last writes may not be on disk';
     throw new DatabaseCloseError(
       failure.stage,
       failure,
-      `A previous database ${failure.stage} failed and its handle may still own the data directory; restart BrainStrike. (${failure.message})`
+      `A previous database ${failure.stage} failed and ${consequence}; restart BrainStrike. (${failure.message})`
     );
   }
 }

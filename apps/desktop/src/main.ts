@@ -51,6 +51,7 @@ import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { closeDesktopRenderers } from './close-desktop-renderers';
 import { createWindow, noteNextWindowReload } from './create-window';
+import { startDatabaseIntegrityContainment } from './database-integrity-containment';
 import { getDesktopDatabaseIntegrity } from './database-integrity-state';
 import { createDesktopDatabaseMaintenanceScheduler } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
@@ -910,9 +911,19 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
 });
 
+// An integrity error cancels running backfills; every other background writer is
+// paused by the scheduler gate and the owner-level skips (BST-1870).
+ipcDisposers.add(
+  'database-integrity-containment',
+  startDatabaseIntegrityContainment({
+    cancelAllDesktopEmbeddingBackfills,
+    integrity: databaseIntegrity,
+  })
+);
 const desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
   getDatabase,
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+  integrity: databaseIntegrity,
   logger,
   // Corruption found by a pass takes the same recovery path as db:query.
   onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
@@ -927,6 +938,7 @@ const desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMai
   getDimensionIndexStrategy: () => desktopDimensionIndexStrategy,
   getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+  integrity: databaseIntegrity,
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,
   // The HNSW build cannot be preempted: it starts only after sustained
