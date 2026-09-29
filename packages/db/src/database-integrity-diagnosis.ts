@@ -36,8 +36,8 @@
  * `heapallindexed` reads the table's heap, so it is skipped once the heap has a
  * finding; a probe searches the heap and, for a write, maintains every index, so
  * it is skipped once its table has any finding. Skipped checks are listed as
- * unchecked, never blamed on the wrong relation. hnsw probes run before the bm25
- * write probe so read-side damage is named correctly; a failure only the write
+ * unchecked, never blamed on the wrong relation. hnsw probes and the bm25 searches run
+ * before any bm25 write so read-side damage is named correctly; a failure only the write
  * path reaches is still attributed to the bm25 index, the one being probed.
  *
  * A probe must prove it walked its index: it plans its own search (`EXPLAIN (FORMAT JSON)`, inside
@@ -46,9 +46,11 @@
  * expensive; the planner can still read another index and sort, and then the search would return a
  * row while the named index was never touched. Such an index is `unchecked`
  * (`probe-not-index-driven`). The bm25 write also inserts into every other index of the table that
- * is ready for writes, so it runs only when each of them was verified, and a write the table
- * rejects (a CHECK or domain constraint, a class 22 or 23 SQLSTATE) is not damage: both are
- * `unchecked`.
+ * is ready for writes, so it runs in a SECOND pass, after every other index has a verdict (a
+ * bm25 sibling counts by its read-side verdict, so two bm25 indexes never block each other), and
+ * only when each of them has one. A write the table refuses (`23514`, `23502`, `22001`, `23505`)
+ * is not damage; any other state, including the class 22 states corrupt bytes can raise, is a
+ * finding. Both skips are `unchecked`.
  *
  * Stopping versus findings. A finding names a relation, so it is only ever made where the failing
  * statement is about that relation. A failure that cannot be attributed stops the run with an
@@ -291,6 +293,9 @@ function isFatalTrap(error: unknown): boolean {
   return error instanceof Error && error.name === 'PGliteFatalTrapError';
 }
 
+/** The states that mean the table refused the probe's value (check, not null, length, unique), not damage. */
+const REJECTED_WRITE_STATES: ReadonlySet<string> = new Set(['22001', '23502', '23505', '23514']);
+
 /** Probe errors can echo row content (the write path, the tokenizer), so their findings keep only the SQLSTATE. */
 const PROBE_CHECKS: ReadonlySet<IntegrityCheck> = new Set(['bm25-probe', 'hnsw-probe']);
 
@@ -333,6 +338,9 @@ async function orStop<T>(
 const NOT_CHECKED = Symbol('not checked');
 type Verdict<T> = T | typeof NOT_CHECKED;
 
+/** A bm25 search that passed: its write is deferred to the second pass, which decides whether the index is checked. */
+const READ_PASSED = Symbol('read passed');
+
 /** Mutable state and steps of one diagnosis; only {@link diagnoseDatabaseIntegrity} constructs it. */
 class DiagnosisRun {
   readonly findings: RelationFinding[] = [];
@@ -344,8 +352,14 @@ class DiagnosisRun {
   readonly #tablesWithFindings = new Set<string>();
   /** Heaps (a table, a TOAST table) with a heap finding: what `heapallindexed` reads, by heap oid. */
   readonly #damagedHeaps = new Set<string>();
-  /** Indexes that ran to a verdict; the bm25 write is only safe when every other written index did. */
+  /**
+   * Indexes that ran to a verdict; the bm25 write is only safe when every other written index did.
+   * A finding IS a verdict (it also puts the table in #tablesWithFindings, which skips the write),
+   * and a bm25 index counts by its read-side verdict.
+   */
   readonly #verifiedIndexes = new Set<string>();
+  /** bm25 indexes whose search passed, with the write that remains for the second pass. */
+  readonly #deferredWrites: { index: RelationRow; write: () => Promise<Verdict<void>> }[] = [];
 
   constructor(
     db: CrashSensitiveIndexDb,
@@ -417,11 +431,21 @@ class DiagnosisRun {
           this.#skip(index, 'unsupported-access-method');
       }
     }
-    // The bm25 write probe maintains every index on its table, so it goes last.
+    // The bm25 write maintains every index on its table, so the writes go last, after every index has a verdict.
     for (const accessMethod of ['hnsw', 'bm25']) {
       for (const index of probed.filter((candidate) => candidate.accessMethod === accessMethod)) {
         // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential by design: each probe is a rolled-back transaction on the single connection and must not interleave; hnsw probes run before bm25.
         await this.#probe(index);
+      }
+    }
+    for (const { index, write } of this.#deferredWrites) {
+      if (this.#tablesWithFindings.has(index.tableOid)) {
+        this.#skip(index, 'table-has-findings');
+      } else if (this.#unverifiedWrittenIndexes(index).length > 0) {
+        this.#skip(index, 'table-has-unverified-indexes');
+      } else {
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential by design: each write probe is a rolled-back transaction on the single connection and must not interleave.
+        await this.#attempt(index, 'bm25-probe', write);
       }
     }
   }
@@ -536,8 +560,19 @@ class DiagnosisRun {
 
   /** Whether `search`, planned inside the open probe transaction, walks `index` itself. */
   async #walksIndex(index: RelationRow, search: string, params?: unknown[]): Promise<boolean> {
-    const [row] = planRows((await this.#db.query(`EXPLAIN (FORMAT JSON) ${search}`, params)).rows);
-    return planWalksIndex(row?.['QUERY PLAN'][0]?.Plan, index.relation);
+    try {
+      const [row] = planRows(
+        (await this.#db.query(`EXPLAIN (FORMAT JSON) ${search}`, params)).rows
+      );
+      return planWalksIndex(row?.['QUERY PLAN'][0]?.Plan, index.relation);
+    } catch (error) {
+      // pg_textsearch refuses a plan that reads another index than the query names (42809), which
+      // is what an identical second bm25 index causes: the named index was not walked.
+      if (sqlstateOf(error) === '42809') {
+        return false;
+      }
+      throw error;
+    }
   }
 
   /** Every other index on the table that a write reaches and no check verified. */
@@ -552,15 +587,23 @@ class DiagnosisRun {
     );
   }
 
-  /** Searches with text taken from the table, then rewrites one row through the index; both roll back. */
-  async #probeBm25(index: RelationRow, definition: IndexDefinition): Promise<Verdict<void>> {
+  /**
+   * Searches with text taken from the table (both roll back). The write that rewrites one row
+   * through the index is deferred: it needs every other index verified first.
+   */
+  async #probeBm25(
+    index: RelationRow,
+    definition: IndexDefinition
+  ): Promise<Verdict<typeof READ_PASSED | undefined>> {
     // An expression key has no column to sample, and bm25 requires a text_config; without both the
     // probe cannot be built.
-    // Nor can pg_textsearch resolve an index name that contains a dot, in any form (pinned by a test).
+    // Nor can pg_textsearch resolve a name, the index's or its schema's, that contains a dot, in any
+    // form (pinned by a test).
     if (
       definition.column === null ||
       definition.textConfig === null ||
-      index.relation.includes('.')
+      index.relation.includes('.') ||
+      index.schema.includes('.')
     ) {
       return this.#notChecked(index, 'unsupported-index-definition');
     }
@@ -587,38 +630,42 @@ class DiagnosisRun {
     // qualified: the argument is SQL name syntax when it has a dot, and an exact name otherwise
     // (pinned by a test), so this form does not depend on the search_path or the letter case.
     const search = `SELECT 1 FROM ${table}${definition.predicate ? ` WHERE (${definition.predicate})` : ''} ORDER BY ${column} <@> to_bm25query($1, ${quoteLiteral(qualified(index.schema, index.relation))}) LIMIT 1`;
-    return this.#inRolledBackTransaction(async (): Promise<Verdict<void>> => {
-      if (!(await this.#walksIndex(index, search, [sample.sample]))) {
-        return this.#notChecked(index, 'probe-not-index-driven');
-      }
-      const found = await this.#db.query(search, [sample.sample]);
-      if (found.rows.length === 0) {
-        this.#record(index, 'bm25-probe', { message: BM25_LOST_ENTRIES, sqlstate: null });
-        return undefined;
-      }
-      // The write inserts into every other index that is ready for writes: with one of them
-      // unverified, a failure could not be blamed on this index.
-      if (this.#unverifiedWrittenIndexes(index).length > 0) {
-        return this.#notChecked(index, 'table-has-unverified-indexes');
-      }
-      try {
-        // A non-HOT update: the access method's insert path runs, then the write rolls back.
-        await this.#db.query(
-          `UPDATE ${table} SET ${column} = ${column} || ' ' WHERE ctid = (SELECT ctid FROM ${table} WHERE ${column} IS NOT NULL${inIndex} LIMIT 1)`
-        );
-      } catch (error) {
-        // A CHECK, a domain or a length rejects the write (class 22 or 23): the table's rule, not damage.
-        if (/^2[23]/u.test(sqlstateOf(error) ?? '')) {
-          return this.#notChecked(index, 'probe-write-rejected');
+    return this.#inRolledBackTransaction(
+      async (): Promise<Verdict<typeof READ_PASSED | undefined>> => {
+        if (!(await this.#walksIndex(index, search, [sample.sample]))) {
+          return this.#notChecked(index, 'probe-not-index-driven');
         }
-        throw error;
+        const found = await this.#db.query(search, [sample.sample]);
+        if (found.rows.length === 0) {
+          this.#record(index, 'bm25-probe', { message: BM25_LOST_ENTRIES, sqlstate: null });
+          return undefined;
+        }
+        this.#deferredWrites.push({
+          index,
+          write: () =>
+            this.#inRolledBackTransaction(async (): Promise<Verdict<void>> => {
+              try {
+                // A non-HOT update: the access method's insert path runs, then the write rolls back.
+                await this.#db.query(
+                  `UPDATE ${table} SET ${column} = ${column} || ' ' WHERE ctid = (SELECT ctid FROM ${table} WHERE ${column} IS NOT NULL${inIndex} LIMIT 1)`
+                );
+              } catch (error) {
+                // The table refused the value (a CHECK, a NOT NULL, a length, a unique key): its rule, not damage.
+                if (REJECTED_WRITE_STATES.has(sqlstateOf(error) ?? '')) {
+                  return this.#notChecked(index, 'probe-write-rejected');
+                }
+                throw error;
+              }
+              return undefined;
+            }),
+        });
+        return READ_PASSED;
       }
-      return undefined;
-    });
+    );
   }
 
   /** Orders the table by distance to one of its own vectors, forced through the index. */
-  async #probeHnsw(index: RelationRow, definition: IndexDefinition): Promise<Verdict<void>> {
+  async #probeHnsw(index: RelationRow, definition: IndexDefinition): Promise<Verdict<undefined>> {
     const operator = HNSW_DISTANCE_OPERATORS[definition.opclass];
     if (!operator) {
       return this.#notChecked(index, 'unsupported-index-definition');
@@ -638,7 +685,7 @@ class DiagnosisRun {
       return this.#notChecked(index, 'no-indexed-rows');
     }
     const search = `SELECT 1 FROM ${table}${indexed} ORDER BY ${key} ${operator} (SELECT ${key} FROM ${table}${covered} LIMIT 1) LIMIT 1`;
-    return this.#inRolledBackTransaction(async (): Promise<Verdict<void>> => {
+    return this.#inRolledBackTransaction(async (): Promise<Verdict<undefined>> => {
       if (!(await this.#walksIndex(index, search))) {
         return this.#notChecked(index, 'probe-not-index-driven');
       }
@@ -720,7 +767,7 @@ class DiagnosisRun {
 
   /** A row count re-reads a table its heap check already counted. */
   #countChecked(check: IntegrityCheck, result: unknown): void {
-    if (check !== 'row-count' && result !== NOT_CHECKED) {
+    if (check !== 'row-count' && result !== NOT_CHECKED && result !== READ_PASSED) {
       this.checkedRelations += 1;
     }
   }
