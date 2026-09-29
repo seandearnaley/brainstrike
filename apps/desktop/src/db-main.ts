@@ -101,7 +101,14 @@ function stringifyDiagnosticValue(value: unknown): string | null {
 function getErrorOwnPropertyPayload(error: Error): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   for (const property of Object.getOwnPropertyNames(error)) {
-    if (property === 'message' || property === 'name' || property === 'stack') {
+    // `cause` is followed by the corruption classifier; serializing it here would copy the
+    // wrapped Postgres error's detail/where fields (row data) into user-visible text and logs.
+    if (
+      property === 'message' ||
+      property === 'name' ||
+      property === 'stack' ||
+      property === 'cause'
+    ) {
       continue;
     }
     payload[property] = (error as unknown as Record<string, unknown>)[property];

@@ -685,17 +685,22 @@ describe('db-main lifecycle', () => {
   });
 
   it('never resets on corruption during migration and never keeps the un-migrated handle', async () => {
-    const corruptionError = new Error('could not locate a valid checkpoint record') as Error & {
-      code: string;
-    };
-    corruptionError.code = 'XX002';
-    migrateMock.mockRejectedValueOnce(corruptionError);
+    // The production shape: PGlite's coded error is wrapped by the migration runner and again by
+    // `migrate()`, so the SQLSTATE is only reachable through the `cause` chain.
+    const pgError = Object.assign(new Error('could not locate a valid checkpoint record'), {
+      code: 'XX002',
+    });
+    const runnerError = new Error(
+      'Migration "0099_probe" failed: could not locate a valid checkpoint record',
+      { cause: pgError }
+    );
+    migrateMock.mockRejectedValueOnce(new Error(runnerError.message, { cause: runnerError }));
 
     const { initializeMainDatabase, getDatabase, getDatabaseDiagnostics } = await import(
       '../../db-main'
     );
     await expect(initializeMainDatabase()).rejects.toThrow(
-      'Database migrations failed with an integrity error: could not locate a valid checkpoint record; details={"code":"XX002"}. BrainStrike did not delete or replace the database.'
+      'Database migrations failed with an integrity error: Migration "0099_probe" failed: could not locate a valid checkpoint record. BrainStrike did not delete or replace the database.'
     );
 
     expect(rmSyncMock).not.toHaveBeenCalled();
